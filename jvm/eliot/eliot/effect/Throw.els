@@ -2,19 +2,13 @@ import eliot.effect.Effect
 import eliot.effect.Sync
 import eliot.lang.Either
 
-/**
- * Re-declared here so the colocated `ThrowCarrier` instances below can resolve the `Throw` ability — name resolution is
- * per-file, so a sibling layer file's declaration is not in scope. The merge verifies this copy agrees with the abstract
- * declaration in the base layer.
- */
+// Re-declared here so the colocated `ThrowCarrier` instances below can resolve the `Throw` ability — name resolution
+// is per-file, so a sibling layer file's declaration is not in scope. The merge verifies this copy agrees with the
+// abstract declaration in the base layer.
 ability Throw[E, F[_]] {
    def raise[A](err: E): F[A]
 }
 
-/**
- * The concrete representation of `ThrowCarrier`: an `Either[E, A]` computation over the base carrier `G`, unwrapped by
- * `runThrow`.
- */
 data ThrowCarrier[E, G[_], A](runThrow: G[Either[E, A]])
 
 /**

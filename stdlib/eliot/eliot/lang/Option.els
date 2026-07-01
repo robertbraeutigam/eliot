@@ -1,10 +1,3 @@
-/**
- * An optional value: either present or absent.
- *
- * Models a value that may be missing without resorting to a sentinel or an error — `some(x)` holds a
- * present value and `none` marks its absence. It is also the result of a `Coerce` conversion: `some`
- * carries the converted value when the coercion exists, and `none` signals that it does not.
- */
 type Option[A]
 
 /**

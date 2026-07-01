@@ -47,7 +47,7 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
           ast(data = Seq(DataDefinition(s("IO"), Seq(gp("A")), Some(Seq(DataConstructor(s("IO"), Seq(arg("block", ty("Function", ty("Unit"), ty("A"))))))))))
         )
       )
-    )
+    ).modules
     val item     = moduleNamed(modules, "IO").items.head
 
     item.kind shouldBe DocItem.Kind.TypeLike
@@ -65,7 +65,7 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
         (m, "stdlib", ast(functions = Seq(fn("println", args = Seq(arg("s", ty("String"))), ret = ty("IO", ty("Unit")), doc = Some("print a line"))))),
         (m, "jvm", ast(functions = Seq(fn("println", args = Seq(arg("s", ty("String"))), ret = ty("IO", ty("Unit")), body = Some(ty("io"))))))
       )
-    )
+    ).modules
     val item    = moduleNamed(modules, "Console").items.head
 
     item.kind shouldBe DocItem.Kind.Value
@@ -91,11 +91,40 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
         ),
         (userModule, "src", ast(functions = Seq(fn("Show", Qualifier.AbilityImplementation(s("Show"), 0), args = Seq(arg("arg0", ty("Hello")))))))
       )
-    )
+    ).modules
     val item       = moduleNamed(modules, "Show").items.find(_.kind == DocItem.Kind.Ability).getOrElse(fail("no ability item"))
 
     item.signature shouldBe "ability Show[A]"
     item.members.map(_.signature) shouldBe Seq("def show(a: A): String")
     item.implementations shouldBe Seq(DocItem.Implementation("implement Show[Hello]", Seq("src"), None))
+  }
+
+  it should "keep the lowest layer's doc and warn that a higher layer's duplicate doc is ignored" in {
+    val m      = ModuleName(Seq("eliot", "lang"), "Function")
+    val result = DocModelBuilder.build(
+      Seq(
+        (m, "lang", ast(functions = Seq(fn("apply", ret = ty("B"), body = Some(ty("apply")), doc = Some("the canonical apply doc"))))),
+        (m, "stdlib", ast(functions = Seq(fn("apply", ret = ty("B"), doc = Some("a duplicate that should be ignored")))))
+      )
+    )
+    val item   = moduleNamed(result.modules, "Function").items.head
+
+    item.doc shouldBe Some("the canonical apply doc")
+    result.warnings shouldBe Seq(
+      "Doc comment on def 'apply' in layer 'stdlib' is ignored; 'apply' is already documented in layer 'lang'."
+    )
+  }
+
+  it should "not warn when only one layer documents a name" in {
+    val m      = ModuleName(Seq("eliot", "lang"), "Function")
+    val result = DocModelBuilder.build(
+      Seq(
+        (m, "lang", ast(functions = Seq(fn("apply", ret = ty("B"), body = Some(ty("apply")), doc = Some("only here"))))),
+        (m, "stdlib", ast(functions = Seq(fn("apply", ret = ty("B")))))
+      )
+    )
+
+    moduleNamed(result.modules, "Function").items.head.doc shouldBe Some("only here")
+    result.warnings shouldBe Seq.empty
   }
 }

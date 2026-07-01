@@ -20,13 +20,9 @@ type JvmLong
 
 type JvmBigInteger
 
-/**
- * The JVM's representation policy for `Int`: the smallest machine layout whose range contains `[MIN, MAX]`,
- * falling back to a bignum.
- *
- * Marked `opaque` so the type checker keeps distinct ranges distinct (`Int[0, 255]` is not the same type as
- * `Int[0, 1000]`); a later, post-checking pass unfolds it to reach the chosen representation.
- */
+// The JVM's representation policy for `Int`: the smallest machine layout whose range contains `[MIN, MAX]`, falling
+// back to a bignum. Marked `opaque` so the type checker keeps distinct ranges distinct (`Int[0, 255]` is not the same
+// type as `Int[0, 1000]`); a later, post-checking pass unfolds it to reach the chosen representation.
 opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
   fold(fitsIn[-128, 127, MIN, MAX], JvmByte[],
   fold(fitsIn[-32768, 32767, MIN, MAX], JvmShort[],
@@ -34,28 +30,22 @@ opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
   fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
        JvmBigInteger[]))))
 
-/**
- * JVM integer addition: widens both operands to their common representation, runs the right-sized leaf
- * operation, then narrows the result back to the declared range.
- */
+// JVM integer addition: widens both operands to their common representation, runs the right-sized leaf operation,
+// then narrows the result back to the declared range.
 infix left
 def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)] =
   nativeWiden(dispatchAdd(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
-/**
- * JVM integer subtraction; the same width-dispatch shape as `+`.
- */
+// JVM integer subtraction; the same width-dispatch shape as `+`.
 infix left at +
 def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)] =
   nativeWiden(dispatchSubtract(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
-/**
- * JVM integer multiplication; the same width-dispatch shape as `+`.
- */
+// JVM integer multiplication; the same width-dispatch shape as `+`.
 infix left above +
 def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)] =
   nativeWiden(dispatchMultiply(

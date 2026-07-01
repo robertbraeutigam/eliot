@@ -1,9 +1,3 @@
-/**
- * An optional value: `Some(value)` when present, `None` when absent.
- *
- * The compile-time `Option`, used by the guard combinators (`when` produces one, `orError` consumes one) while
- * the type checker evaluates a guarded signature. Consume one with `foldOption`.
- */
 data Option[A] = None | Some(value: A)
 
 /**

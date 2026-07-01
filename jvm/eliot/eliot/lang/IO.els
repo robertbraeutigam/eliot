@@ -1,9 +1,6 @@
 import eliot.effect.Effect
 import eliot.effect.Sync
 
-/**
- * The JVM runtime carrier: a side-effecting computation reified as a deferred `block`, run by applying the block.
- */
 data IO[A](block: Function[Unit, A])
 
 /**

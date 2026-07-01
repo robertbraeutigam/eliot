@@ -1,4 +1,1 @@
-/**
- * The type of an integer literal `V`: the singleton range `Int[V, V]`.
- */
 type IntegerLiteralType[V: BigInteger] = Int[V, V]

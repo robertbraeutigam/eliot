@@ -6,6 +6,6 @@
 def integerLiteral[V: BigInteger]: IntegerLiteralType[V]
 
 /**
- * The platform-specific type a `BigInteger` literal is converted into.
+ * The type of an integer literal `V`: the singleton range `Int[V, V]` that a `BigInteger` literal is converted into.
  */
 type IntegerLiteralType[V: BigInteger]

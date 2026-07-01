@@ -3,19 +3,13 @@ import eliot.effect.Sync
 import eliot.effect.Abort
 import eliot.lang.Pair
 
-/**
- * Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name resolution is
- * per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
- */
+// Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name
+// resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
 ability State[S, F[_]] {
    def getState: F[S]
    def putState(s: S): F[Unit]
 }
 
-/**
- * The concrete representation of `StateCarrier`: a state-transition function mapping an incoming state to a
- * `G`-computation of the result paired with the new state, unwrapped by `runStateCarrier`.
- */
 data StateCarrier[S, G[_], A](runStateCarrier: Function[S, G[Pair[A, S]]])
 
 /**

@@ -55,10 +55,11 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
     for {
       layerFiles <- collectLayerFiles(configuration, compilation)
       _          <- debug[IO](s"Apidoc collected ${layerFiles.size} source file(s) for documentation.")
-      modules     = DocModelBuilder.build(layerFiles)
+      built       = DocModelBuilder.build(layerFiles)
+      _          <- built.warnings.traverse_(warn[IO](_))
       outDir      = configuration.getOrElse(Compiler.targetPathKey, Path.of("target")).resolve("apidoc")
-      _          <- writeSite(outDir, HtmlSite.render(modules))
-      _          <- info[IO](s"Generated documentation for ${modules.size} module(s): ${outDir.resolve("index.html")}.")
+      _          <- writeSite(outDir, HtmlSite.render(built.modules))
+      _          <- info[IO](s"Generated documentation for ${built.modules.size} module(s): ${outDir.resolve("index.html")}.")
     } yield ()
 
   /** Read every `.els` under every (distinct) source root, returning each parsed file tagged with its module name and

@@ -4,6 +4,7 @@ import com.vanillasource.eliot.eliotc.apidoc.model.{DocItem, DocModule}
 import com.vanillasource.eliot.eliotc.apidoc.render.SignatureRenderer
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, DataDefinition, FunctionDefinition}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, Qualifier}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Builds the presentation [[DocModule]] model from the per-file parsed ASTs, each tagged with the module it belongs to
   * and the layer (source root) it was found under.
@@ -14,11 +15,19 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, Qualifier}
   * shapes are recovered from the qualifier the front end assigned: a `data`/`type` becomes a type-like item (abstract
   * `type IO[A]` merged with the concrete `data IO[A](..)` of a platform layer), an ability marker plus its methods
   * becomes an ability item (with its implementations gathered workspace-wide), and a plain `def` becomes a value item.
+  *
+  * Documentation is single-sourced: a name is documented once, on the declaration in its **lowest layer** (`lang` before
+  * `stdlib` before `compiler`/`jvm`), and any doc comment on a higher layer's copy of the same name is **ignored** and
+  * reported as a [[Result.warnings]] entry. So the canonical doc lives where the name is introduced, and a duplicated
+  * (drifting) copy in a repeating layer is surfaced rather than silently dropped.
   */
 object DocModelBuilder {
   private val layerRank = Map("lang" -> 0, "stdlib" -> 1, "compiler" -> 2, "jvm" -> 3)
 
-  def build(layerFiles: Seq[(ModuleName, String, AST)]): Seq[DocModule] = {
+  /** The built documentation model plus any layering diagnostics (ignored duplicate doc comments). */
+  case class Result(modules: Seq[DocModule], warnings: Seq[String])
+
+  def build(layerFiles: Seq[(ModuleName, String, AST)]): Result = {
     val implementationsByAbility: Map[String, Seq[(String, FunctionDefinition)]] =
       layerFiles
         .flatMap { case (_, layer, ast) => ast.functionDefinitions.flatMap(fn => implMarkerAbility(fn).map(_ -> (layer, fn))) }
@@ -27,20 +36,22 @@ object DocModelBuilder {
         .mapValues(_.map(_._2))
         .toMap
 
-    layerFiles
+    val builtModules = layerFiles
       .groupBy(_._1)
       .toSeq
       .sortBy { case (moduleName, _) => (moduleName.packages.mkString("."), moduleName.name) }
       .map { case (moduleName, files) =>
         buildModule(moduleName, files.map { case (_, layer, ast) => (layer, ast) }, implementationsByAbility)
       }
+
+    Result(builtModules.map(_._1), builtModules.flatMap(_._2))
   }
 
   private def buildModule(
       moduleName: ModuleName,
       files: Seq[(String, AST)],
       implementationsByAbility: Map[String, Seq[(String, FunctionDefinition)]]
-  ): DocModule = {
+  ): (DocModule, Seq[String]) = {
     val taggedFunctions = files.flatMap { case (layer, ast) => ast.functionDefinitions.map(layer -> _) }
     val taggedData      = files.flatMap { case (layer, ast) => ast.typeDefinitions.map(layer -> _) }
 
@@ -64,26 +75,29 @@ object DocModelBuilder {
     val valueItems =
       values.map(_._2.name.value.name).distinct.sorted.map(name => buildValueItem(name, values.filter(_._2.name.value.name == name)))
 
-    DocModule(moduleName, None, typeItems ++ abilityItems ++ valueItems)
+    val all = typeItems ++ abilityItems ++ valueItems
+    (DocModule(moduleName, None, all.map(_._1)), all.flatMap(_._2))
   }
 
-  private def buildValueItem(name: String, decls: Seq[(String, FunctionDefinition)]): DocItem = {
-    val abstractDecl = decls.find(_._2.body.isEmpty)
-    DocItem(
+  private def buildValueItem(name: String, decls: Seq[(String, FunctionDefinition)]): (DocItem, Seq[String]) = {
+    val abstractDecl        = decls.find(_._2.body.isEmpty)
+    val (doc, docWarnings)  = selectDoc("def", name, layerDocs(decls.map { case (l, fn) => (l, fn.doc) }))
+    val item                = DocItem(
       name = name,
       kind = DocItem.Kind.Value,
       signature = SignatureRenderer.function(abstractDecl.getOrElse(decls.head)._2),
-      doc = preferredDoc(abstractDecl.flatMap(_._2.doc), decls.flatMap(_._2.doc)),
+      doc = doc,
       layers = sortLayers(decls.map(_._1)),
       implementedOn = sortLayers(decls.filter(_._2.body.isDefined).map(_._1))
     )
+    (item, docWarnings)
   }
 
   private def buildTypeItem(
       name: String,
       typeDecls: Seq[(String, FunctionDefinition)],
       dataDecls: Seq[(String, DataDefinition)]
-  ): DocItem = {
+  ): (DocItem, Seq[String]) = {
     val abstractType   = typeDecls.find(_._2.body.isEmpty)
     val concreteTypes  = typeDecls.filter(_._2.body.isDefined)
     val primarySignature = abstractType
@@ -103,18 +117,22 @@ object DocModelBuilder {
       .sortBy(_._1)
       .map { case (signature, group) => DocItem.Member(signature, None, Some(sortLayers(group.map(_._2)).mkString(", "))) }
 
-    DocItem(
+    val (doc, docWarnings) = selectDoc(
+      "type",
+      name,
+      layerDocs(typeDecls.map { case (l, fn) => (l, fn.doc) } ++ dataDecls.map { case (l, dd) => (l, dd.doc) })
+    )
+
+    val item = DocItem(
       name = name,
       kind = DocItem.Kind.TypeLike,
       signature = primarySignature,
-      doc = preferredDoc(
-        abstractType.flatMap(_._2.doc),
-        typeDecls.flatMap(_._2.doc) ++ dataDecls.flatMap(_._2.doc)
-      ),
+      doc = doc,
       layers = sortLayers(typeDecls.map(_._1) ++ dataDecls.map(_._1)),
       implementedOn = sortLayers(concreteTypes.map(_._1) ++ dataDecls.map(_._1)),
       members = members
     )
+    (item, docWarnings)
   }
 
   private def buildAbilityItem(
@@ -122,18 +140,19 @@ object DocModelBuilder {
       markers: Seq[(String, FunctionDefinition)],
       methods: Seq[(String, FunctionDefinition)],
       implementations: Seq[(String, FunctionDefinition)]
-  ): DocItem = {
+  ): (DocItem, Seq[String]) = {
     val commonParameters = markers.head._2.genericParameters
 
-    val methodMembers = methods
+    val methodMembersWithWarnings = methods
       .groupBy(_._2.name.value.name)
       .toSeq
       .sortBy(_._1)
-      .map { case (_, group) =>
+      .map { case (methodName, group) =>
         val abstractMethod = group.find(_._2.body.isEmpty).getOrElse(group.head)._2
         // Drop the ability's common generics (the front end prepends them to every method) so the method reads as written.
         val written        = abstractMethod.copy(genericParameters = abstractMethod.genericParameters.drop(commonParameters.length))
-        DocItem.Member(SignatureRenderer.function(written), preferredDoc(None, group.flatMap(_._2.doc)))
+        val (doc, warns)   = selectDoc("ability method", methodName, layerDocs(group.map { case (l, fn) => (l, fn.doc) }))
+        (DocItem.Member(SignatureRenderer.function(written), doc), warns)
       }
 
     val implementationItems = implementations
@@ -143,15 +162,18 @@ object DocModelBuilder {
       .sortBy(_._1)
       .map { case (signature, group) => DocItem.Implementation(signature, sortLayers(group.map(_._2)), None) }
 
-    DocItem(
+    val (doc, docWarnings) = selectDoc("ability", name, layerDocs(markers.map { case (l, fn) => (l, fn.doc) }))
+
+    val item = DocItem(
       name = name,
       kind = DocItem.Kind.Ability,
       signature = SignatureRenderer.abilityHeader(name, commonParameters),
-      doc = preferredDoc(markers.flatMap(_._2.doc).headOption, markers.flatMap(_._2.doc)),
+      doc = doc,
       layers = sortLayers(markers.map(_._1) ++ methods.map(_._1)),
-      members = methodMembers,
+      members = methodMembersWithWarnings.map(_._1),
       implementations = implementationItems
     )
+    (item, docWarnings ++ methodMembersWithWarnings.flatMap(_._2))
   }
 
   private def abilityMarkerOf(fn: FunctionDefinition): Option[String] = fn.name.value.qualifier match {
@@ -169,12 +191,26 @@ object DocModelBuilder {
     case _                                                                                          => None
   }
 
-  /** Prefer the abstract declaration's doc, else the first available; strip the comment margins and drop if empty. */
-  private def preferredDoc(
-      preferred: Option[com.vanillasource.eliot.eliotc.source.content.Sourced[String]],
-      all: Seq[com.vanillasource.eliot.eliotc.source.content.Sourced[String]]
-  ): Option[String] =
-    preferred.orElse(all.headOption).map(s => stripMargins(s.value)).filter(_.nonEmpty)
+  /** Keep only the layers that actually carry a doc comment, pairing each with its raw text. */
+  private def layerDocs(docs: Seq[(String, Option[Sourced[String]])]): Seq[(String, Sourced[String])] =
+    docs.collect { case (layer, Some(doc)) => (layer, doc) }
+
+  /** Choose the single canonical doc — the one on the lowest layer — and report every other layer's doc as ignored.
+    *
+    * The lowest layer is where a name is introduced; a higher layer re-declaring it (a compiler-internal duplicate or a
+    * concrete platform body) should not also document it. When it does, the higher-layer doc is dropped and a warning
+    * names both layers so the duplicate can be removed (and drift caught).
+    */
+  private def selectDoc(kind: String, name: String, docsByLayer: Seq[(String, Sourced[String])]): (Option[String], Seq[String]) =
+    docsByLayer.sortBy { case (layer, _) => (layerRank.getOrElse(layer, 4), layer) } match {
+      case Nil                            => (None, Seq.empty)
+      case (selectedLayer, selectedDoc) +: ignored =>
+        val doc      = Some(stripMargins(selectedDoc.value)).filter(_.nonEmpty)
+        val warnings = ignored.map { case (ignoredLayer, _) =>
+          s"Doc comment on $kind '$name' in layer '$ignoredLayer' is ignored; '$name' is already documented in layer '$selectedLayer'."
+        }
+        (doc, warnings)
+    }
 
   /** Strip the leading-`*` margins of a block documentation comment, Scaladoc-style, and trim blank edge lines. */
   private def stripMargins(raw: String): String = {

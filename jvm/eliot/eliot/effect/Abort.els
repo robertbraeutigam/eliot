@@ -3,18 +3,12 @@ import eliot.effect.Sync
 import eliot.effect.State
 import eliot.lang.Option
 
-/**
- * Re-declared here so the colocated `AbortCarrier` instances below can resolve the `Abort` ability — name resolution is
- * per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
- */
+// Re-declared here so the colocated `AbortCarrier` instances below can resolve the `Abort` ability — name
+// resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
 ability Abort[F[_]] {
    def abort[A]: F[A]
 }
 
-/**
- * The concrete representation of `AbortCarrier`: an `Option[A]` computation over the base carrier `G`, unwrapped by
- * `runAbort`.
- */
 data AbortCarrier[G[_], A](runAbort: G[Option[A]])
 
 /**

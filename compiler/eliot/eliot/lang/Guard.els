@@ -2,12 +2,9 @@ import eliot.lang.Either
 import eliot.lang.Option
 import eliot.lang.Bool
 
-/**
- * The compile-time bodies of the guard combinators declared abstractly in `eliot.lang.Guard`.
- *
- * These reduce while the type checker evaluates a guarded signature, turning `a when cond orError msg` into
- * `Right(t)` (accept) or `Left(msg)` (reject).
- */
+// The compile-time bodies of the guard combinators declared abstractly in `eliot.lang.Guard`. These reduce while the
+// type checker evaluates a guarded signature, turning `a when cond orError msg` into `Right(t)` (accept) or
+// `Left(msg)` (reject).
 
 def error[A](msg: String): Either[String, A] = Left(msg)
 

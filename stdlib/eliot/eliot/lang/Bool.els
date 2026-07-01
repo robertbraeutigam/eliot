@@ -1,6 +1,3 @@
-/**
- * The Boolean truth values, `true` and `false`. Branch on a `Bool` with `fold`.
- */
 type Bool
 
 /**

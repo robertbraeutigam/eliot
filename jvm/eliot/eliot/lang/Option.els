@@ -1,13 +1,5 @@
-/**
- * An optional value: `Some(value)` when present, `None` when absent.
- *
- * What discharging the `Abort` effect produces via `runAbort`. Consume one with `foldOption`.
- */
 data Option[A] = None | Some(value: A)
 
-/**
- * Eliminate an `Option`: return `ifNone` when `o` is `None`, or `ifSome(value)` when it is `Some(value)`.
- */
 def foldOption[A, B](o: Option[A], ifNone: B, ifSome: Function[A, B]): B = o match {
    case None -> ifNone
    case Some(v) -> ifSome(v)

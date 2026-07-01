@@ -1,9 +1,3 @@
-/**
- * An ordered pair of two independently-typed values.
- *
- * What discharging the `State[S]` effect produces via `runState`: a `Pair[A, S]` of the result and the final
- * state. The field accessors `first` and `second` are generated.
- */
 data Pair[A, B](first: A, second: B)
 
 /**

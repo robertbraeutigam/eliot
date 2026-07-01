@@ -1,30 +1,5 @@
-/**
- * A function from an argument of type `A` to a result of type `B` — the type of a lambda, and of
- * any named value that takes one or more arguments. A named value with no parameters is an ordinary
- * value of its result type, not a `Function`.
- *
- * Functions of several arguments are curried: a three-argument function has type `A => B => C`,
- * that is `Function[A, Function[B, C]]`, so supplying one argument yields the function that takes
- * the next. Spell function types with the infix `=>` alias — `A => B` reads better than
- * `Function[A, B]` and is the idiomatic form. A function is applied by naming its argument after
- * it — the usual call syntax `f(a)`, or bare juxtaposition `f a` (left-associative, so `f a b` is
- * `(f a) b`); `apply` and the `.` operator are two further spellings of that same application.
- */
 type Function[A, B]
 
-/**
- * Apply a function to its argument — the named form of ordinary application: `apply(f, a)` is
- * exactly `f(a)`.
- *
- * Application is normally written with the call syntax `f(a)` (bare juxtaposition `f a` also works),
- * or subject-first with the `.` operator. `apply` names that same operation so it can be handled as
- * a first-class value — passed to a higher-order function, or partially applied — wherever a plain
- * `Function` is expected.
- *
- * ```eliot
- * def bump(n: Int): Int = apply(increment, n)   // identical to increment(n)
- * ```
- */
 def apply[A, B](f: Function[A, B], a: A): B
 
 /**

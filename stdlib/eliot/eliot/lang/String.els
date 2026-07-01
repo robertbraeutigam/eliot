@@ -1,4 +1,1 @@
-/**
- * A string of Unicode text. The stored representation is platform-dependent.
- */
 type String

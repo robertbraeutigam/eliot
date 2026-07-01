@@ -9,7 +9,7 @@ The apidoc backend (`apidoc` Mill module) turns `/** ... */` comments into a sta
 
     ./mill apidoc.run apidoc <yourSourcePath> -o out-docs   # site in out-docs/apidoc/index.html
 
-Write the canonical documentation on the **abstract declaration** in the base layer (`lang`/`stdlib`). The merge prefers the abstract signature *and* the abstract doc, and shows the platform implementations as badges/definitions automatically — so a `jvm`/`compiler` re-definition needs a doc only if its behaviour has user-relevant specifics.
+**Document each name exactly once, on the declaration in its *lowest* layer** — `lang` before `stdlib` before `compiler` before `jvm`. That is where the name is introduced (usually its abstract base declaration; for a handful of fundamentals like `Function`/`apply` it is the `lang` copy). Every higher layer that merely *repeats* the name — a compiler-internal duplicate, or a concrete platform body / `data` — must carry **no** doc comment. The generator renders the lowest layer's doc under the auto-generated abstract signature and shows the other layers as badges/definitions automatically. A doc comment on a higher layer is **ignored and reported as a build warning** (`Doc comment on 'X' in layer 'jvm' is ignored; 'X' is already documented in layer 'stdlib'.`), so keep every doc single-sourced and put anything platform-specific into that one lowest-layer doc rather than a second copy.
 
 ## Syntax & where a comment attaches
 

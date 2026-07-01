@@ -1,10 +1,5 @@
 import eliot.lang.Bool
 
-/**
- * An arbitrary-precision integer with no bounds.
- *
- * The type of integer literals and of the `[MIN, MAX]` bounds that parameterise `Int`.
- */
 type BigInteger
 
 /**
