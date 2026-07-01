@@ -17,38 +17,31 @@ def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
 
 /**
  * True iff `a` is strictly greater than `b`.
- *
- * The comparison guard conditions read in a calculated return type:
- * ```eliot
- * def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "non-empty Seq required"
- * ```
- * Like the other bound comparisons it reduces when both bounds are concrete and otherwise defers, so a guard on
- * abstract bounds is decided at the concrete use site.
  */
 infix def >(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(b), a)
 
 /**
- * True iff `a` is strictly less than `b` — the mirror of `>`, for guard conditions like `(MIN < MAX)`.
+ * True iff `a` is strictly less than `b`.
  */
 infix def <(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(a), b)
 
 /**
- * The smaller of `a` and `b`. Used to compute the joined range when two integer ranges are combined.
+ * The smaller of `a` and `b`.
  */
 def min(a: BigInteger, b: BigInteger): BigInteger
 
 /**
- * The larger of `a` and `b`. Used to compute the joined range when two integer ranges are combined.
+ * The larger of `a` and `b`.
  */
 def max(a: BigInteger, b: BigInteger): BigInteger
 
 /**
- * The sum `a + b`. Used to compute the result bounds of integer `+` at the type level.
+ * The sum `a + b`.
  */
 def add(a: BigInteger, b: BigInteger): BigInteger
 
 /**
- * The difference `a - b`. Used to compute the result bounds of integer `-` at the type level.
+ * The difference `a - b`.
  */
 def subtract(a: BigInteger, b: BigInteger): BigInteger
 
