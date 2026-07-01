@@ -256,6 +256,66 @@ selector-chain *shape* (handler-forwarding closures) moves from bytecode to `lan
   only synthesizes the runtime body. **Decide before starting W3.**
 - Field-projection / tag-test as named intrinsic leaves (recommended) vs. new IR nodes — confirm.
 
+**Attempted end-to-end (2026-07-01) then fully reverted — W3 has no code; the tree is back to the hand-rolled erased
+selector chain.** Both the Step-1 synthesis commit (`ee26f154`, the inert `DataDefinitionDesugarer` pickers +
+field-projection natives) *and* the Step-2 backend switch were reverted, because the staged "runtime-body-only" premise
+does not hold as written and the Step-1 terms would have to be regenerated differently (post-saturation, explicitly
+bounded) anyway. Recorded here so the dead end is not re-walked.
+
+The Step-2 backend switch was implemented in full (picker-call `handleCases`, `generateFieldProjections`, force+emit
+pickers via `createModuleMethod` at the `handleCases` instance's `.head` type args, return-carrier erasure in
+`generateNormalFunctionCall`) and got 69/78 `ExamplesIntegrationTest` green — `Match`/`HandleWith`/`TypeValues` run
+correctly and the hand-rolled selector-lambda chain is gone. But **two fundamental blockers** surfaced that the plan's
+"force the picker at handleCases's concrete type args, its bytecode is fully erased" premise glossed over. Both stem
+from routing the synthesized **field-projection / picker core terms through concrete monomorphization** — precisely what
+the hand-rolled *erased* selector chain avoided:
+
+1. **Multi-instantiation ≠ one erased method.** `createModuleMethod` emits the picker body **monomorphically** at one
+   `.head` instantiation, so the closure-converted body bakes in *concrete* casts — the final `checkcast R` (R = the
+   match-result type param) and any concrete-field casts. The one shared, plain-named picker method is then reused for
+   *other* instantiations of the same data type (`Pair`/`Box`/`Tagged` matched at two type args), where those casts are
+   wrong → `ClassCastException`. The picker must be emitted with a **genuinely erased body** (every type param →
+   `Object`/`Any`), which concrete `.head` type args do not produce. Forcing at all-`Any` args would erase it, but is
+   ill-kinded for **value-kinded** generic params (e.g. the `lo,hi: BigInteger` bounds an auto-`Int` field grows).
+
+2. **A body-less field-native cannot have a *calculated* return.** For an auto-bounded field (`data Counter(n: Int)`),
+   the synthesized `Counter$field$0(obj): Int` has a **bare-omittable (`calculatedReturn`) return** and **no body**, so
+   `failOnAbstractCalculatedReturn` (via `CalculatedReturnResolver.readMonomorphicReturn`, reached while the *picker*
+   monomorphizes and applies the field-native) hard-errors: "Abstract declaration 'Counter\$field\$0' must state its
+   return type explicitly; there is no body to calculate it from." A bare `Int` works as a constructor *parameter*
+   (parameter-saturated to `Int[lo,hi]`) but not as a body-less field-native *return* (calculated, uncalculable). The
+   field type appears as a return **only after saturation adds the explicit `[lo,hi]`**, which `DataDefinitionDesugarer`
+   (a pre-saturation core phase) does not have.
+
+**Also found (independent latent bug, fix known):** `LambdaGenerator` captures `freeVariables` **without de-duplicating**,
+so a body referencing one captured var twice (e.g. a multi-field picker `\h -> h (field$0 obj) (field$1 obj)`) emits two
+identically-named closure fields → `ClassFormatError: Duplicate field name`. Fix: `.distinct` the closed-over names.
+Worth landing on its own with a targeted closure test regardless of W3.
+
+**Revised disposition — the synthesis must be post-saturation *and* erased.** The two blockers together say the
+field-projection/picker terms must be synthesized with the constructor's **saturated (explicitly-bounded) field types**
+— i.e. generated from the saturated signature, not the raw AST — *and* emitted at **erased** type args (per-param kind:
+`Type` → `Any`, value-kinded → its concrete `.head`, which is sound because representation-varying fields are already
+guarded to a single instantiation). That is a larger change than the staged "keep `MatchNativesProcessor`, only
+synthesize the runtime body" switch assumed. **Recommendation:** either (a) move the picker/field-native synthesis to a
+post-saturation phase and add erased-emission plumbing to the backend, or (b) keep the hand-rolled erased selector chain
+(it is already backend-correct and instantiation-agnostic) and treat W3 as *not worth its risk* until a second backend
+concretely needs it — W3 is a "reduce backend surface area" nicety, not a correctness gap.
+
+**Resolution of the "one dispatch authority or two?" open question — keep two.** Match dispatch has three parts, and
+only one is shareable: the **tag dispatch** (value → its constructor's selector) is an irreducible leaf — a Scala
+`match` compile-time, virtual dispatch at runtime — that *cannot* be a core term (expressing "dispatch on a constructor
+tag" in Eliot is circular), and it is a **cornerstone-sanctioned native** (the primitive `Bool`-branching generalizes),
+so keeping it is not a purity violation; the **field access** is likewise a per-world leaf (fields are already
+destructured in the `VTopDef` spine at compile time — `applyHandlerToFields` reads them directly — vs. `getfield` at
+runtime); only the **church selector shape** is genuinely duplicated (`churchSelector` vs. the picker term), and it is
+~5 trivial lines with near-zero drift risk. Unifying would share that trivial part while *coupling* the intricate leaves
+and forcing the optimal compile-time path (direct spine application) through the runtime-shaped picker + a new
+field-native compile-time spine-projection native — strictly more machinery, and it does **not** dissolve either blocker
+(#1 is pure codegen; #2 still fires when the runtime picker forces the field-native's calculated return at codegen). So
+`MatchNativesProcessor` (compile-time) and any future runtime picker body stay **two** definitions; if W3 revives, scope
+it runtime-only and never touch the already-correct compile-time path.
+
 ---
 
 ### W4 — Free-variable / capture analysis as a `lang` concern — **DONE**
