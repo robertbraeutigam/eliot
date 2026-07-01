@@ -42,68 +42,75 @@ object FunctionDefinition {
   given Show[FunctionDefinition] = (fd: FunctionDefinition) =>
     s"${fd.name.show}(${fd.args.map(_.show).mkString(", ")}): ${fd.body.show}"
 
+  private val targetName: Parser[Sourced[Token], Sourced[String]] =
+    sourced(
+      (acceptIfAll(isIdentifier, isLowerCase)("operator name") or acceptIf(isUserOperator, "operator name"))
+        .map(_.value.content)
+    )
+
+  private val precedenceTargets: Parser[Sourced[Token], Seq[Sourced[String]]] =
+    bracketedCommaSeparatedItems("(", targetName, ")") or targetName.map(Seq(_))
+
+  private val precedenceRelation: Parser[Sourced[Token], PrecedenceDeclaration.Relation] =
+    identifierWith("above").as(PrecedenceDeclaration.Relation.Above: PrecedenceDeclaration.Relation) or
+      identifierWith("below").as(PrecedenceDeclaration.Relation.Below: PrecedenceDeclaration.Relation) or
+      identifierWith("at").as(PrecedenceDeclaration.Relation.At: PrecedenceDeclaration.Relation)
+
+  private val precedenceDeclaration: Parser[Sourced[Token], PrecedenceDeclaration] = for {
+    relation <- precedenceRelation
+    targets  <- precedenceTargets
+  } yield PrecedenceDeclaration(relation, targets)
+
+  private val infixAssociativity: Parser[Sourced[Token], Fixity.Associativity] =
+    (identifierWith("left").as(Fixity.Associativity.Left: Fixity.Associativity) or
+      identifierWith("right").as(Fixity.Associativity.Right: Fixity.Associativity) or
+      identifierWith("none").as(Fixity.Associativity.None: Fixity.Associativity))
+      .optional()
+      .map(_.getOrElse(Fixity.Associativity.Left))
+
+  // `infix`/`prefix`/`postfix` (and likewise `private`/`opaque`, see `modifierPrefix`) are hard keywords (not
+  // identifiers): besides marking fixity/visibility they are the only tokens that begin a (modified) definition, so
+  // making them keywords lets a preceding greedily-parsed expression — a function *body*, or now a guarded *return
+  // type* (effectful-signatures G2) — stop cleanly at the next definition rather than swallowing its modifier as an
+  // application chain.
+  private val fixityDecl: Parser[Sourced[Token], Fixity] =
+    keyword("prefix").as(Fixity.Prefix: Fixity) or
+      (keyword("infix") *> infixAssociativity).map(a => Fixity.Infix(a): Fixity) or
+      keyword("postfix").as(Fixity.Postfix: Fixity)
+
+  /** Parses the modifier prefix shared by `def` and `type` definitions:
+    * `[opaque] [visibility] [fixity precedence*] <definitionKeyword>`, returning `(isOpaque, visibility, fixity,
+    * precedence)`. Atomic, so it backtracks cleanly when `definitionKeyword` does not follow the modifiers (letting the
+    * top-level `xor` dispatch try the next alternative). Called with `"def"` for value definitions and `"type"` for type
+    * aliases — so a type alias can carry a fixity exactly like a `def`, e.g. `infix right type =>[A, B] = Function[A, B]`.
+    */
+  def modifierPrefix(
+      definitionKeyword: String
+  ): Parser[Sourced[Token], (Boolean, Visibility, Fixity, Seq[PrecedenceDeclaration])] = {
+    val withFixity =
+      (for {
+        fixity <- fixityDecl
+        prec   <- precedenceDeclaration.anyTimes()
+        _      <- keyword(definitionKeyword)
+      } yield (fixity, prec)).atomic()
+    val plain      =
+      keyword(definitionKeyword).map(_ => (Fixity.Application: Fixity, Seq.empty: Seq[PrecedenceDeclaration]))
+    (for {
+      isOpaque       <- keyword("opaque").as(true).optional().map(_.getOrElse(false))
+      vis            <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
+      (fixity, prec) <- withFixity or plain
+    } yield (isOpaque, vis, fixity, prec)).atomic()
+  }
+
   given ASTComponent[FunctionDefinition] = new ASTComponent[FunctionDefinition] {
     private val functionBody =
       (symbol("=") *> sourced(component[Expression])).optional()
 
-    private val targetName: Parser[Sourced[Token], Sourced[String]] =
-      sourced(
-        (acceptIfAll(isIdentifier, isLowerCase)("operator name") or acceptIf(isUserOperator, "operator name"))
-          .map(_.value.content)
-      )
-
-    private val precedenceTargets: Parser[Sourced[Token], Seq[Sourced[String]]] =
-      bracketedCommaSeparatedItems("(", targetName, ")") or targetName.map(Seq(_))
-
-    private val precedenceRelation: Parser[Sourced[Token], PrecedenceDeclaration.Relation] =
-      identifierWith("above").as(PrecedenceDeclaration.Relation.Above: PrecedenceDeclaration.Relation) or
-        identifierWith("below").as(PrecedenceDeclaration.Relation.Below: PrecedenceDeclaration.Relation) or
-        identifierWith("at").as(PrecedenceDeclaration.Relation.At: PrecedenceDeclaration.Relation)
-
-    private val precedenceDeclaration: Parser[Sourced[Token], PrecedenceDeclaration] = for {
-      relation <- precedenceRelation
-      targets  <- precedenceTargets
-    } yield PrecedenceDeclaration(relation, targets)
-
-    private val infixAssociativity: Parser[Sourced[Token], Fixity.Associativity] =
-      (identifierWith("left").as(Fixity.Associativity.Left: Fixity.Associativity) or
-        identifierWith("right").as(Fixity.Associativity.Right: Fixity.Associativity) or
-        identifierWith("none").as(Fixity.Associativity.None: Fixity.Associativity))
-        .optional()
-        .map(_.getOrElse(Fixity.Associativity.Left))
-
-    // `infix`/`prefix`/`postfix` (and likewise `private`/`opaque`, see `functionPrefix`) are hard keywords (not
-    // identifiers): besides marking fixity/visibility they are the only tokens that begin a (modified) definition, so
-    // making them keywords lets a preceding greedily-parsed expression — a function *body*, or now a guarded *return
-    // type* (effectful-signatures G2) — stop cleanly at the next definition rather than swallowing its modifier as an
-    // application chain.
-    private val fixityDecl: Parser[Sourced[Token], Fixity] =
-      keyword("prefix").as(Fixity.Prefix: Fixity) or
-        (keyword("infix") *> infixAssociativity).map(a => Fixity.Infix(a): Fixity) or
-        keyword("postfix").as(Fixity.Postfix: Fixity)
-
-    private val fixityWithDef: Parser[Sourced[Token], (Fixity, Seq[PrecedenceDeclaration])] =
-      (for {
-        fixity <- fixityDecl
-        prec   <- precedenceDeclaration.anyTimes()
-        _      <- keyword("def")
-      } yield (fixity, prec)).atomic()
-
-    private val plainDef: Parser[Sourced[Token], (Fixity, Seq[PrecedenceDeclaration])] =
-      keyword("def").map(_ => (Fixity.Application, Seq.empty: Seq[PrecedenceDeclaration]))
-
     private val functionName: Parser[Sourced[Token], Sourced[Token]] =
       acceptIfAll(isIdentifier, isLowerCase)("function name") or acceptIf(isUserOperator, "function name")
 
-    private val functionPrefix: Parser[Sourced[Token], (Boolean, Visibility, Fixity, Seq[PrecedenceDeclaration])] =
-      (for {
-        isOpaque       <- keyword("opaque").as(true).optional().map(_.getOrElse(false))
-        vis            <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
-        (fixity, prec) <- fixityWithDef or plainDef
-      } yield (isOpaque, vis, fixity, prec)).atomic()
-
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
-      (isOpaque, vis, fixity, prec) <- functionPrefix
+      (isOpaque, vis, fixity, prec) <- modifierPrefix("def")
       name                          <- functionName
       genericParameters             <- component[Seq[GenericParameter]]
       args                          <- optionalArgumentListOf(component[ArgumentDefinition])

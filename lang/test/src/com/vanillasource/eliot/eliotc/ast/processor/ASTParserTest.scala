@@ -612,6 +612,22 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "accept a fixity modifier on an operator type alias" in {
+    runEngineForErrors("infix right type =>[A, B] = Function[A, B]").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "desugar an operator type alias into the Default namespace (like the equivalent def)" in {
+    runEngineForFunctions("infix right type =>[A, B] = Function[A, B]").asserting(
+      _ shouldBe Seq(("=>", Qualifier.Default))
+    )
+  }
+
+  it should "keep the declared fixity on an operator type alias" in {
+    runEngineForFunctionFixities("infix right type =>[A, B] = Function[A, B]").asserting(
+      _ shouldBe Seq(("=>", Fixity.Infix(Fixity.Associativity.Right)))
+    )
+  }
+
   it should "desugar type alias with generics to function with no generic parameters" in {
     runEngineForFunctionGenericCounts("type Pair[A, B] = Function[A, B]").asserting(
       _ shouldBe Seq(("Pair", 0))
