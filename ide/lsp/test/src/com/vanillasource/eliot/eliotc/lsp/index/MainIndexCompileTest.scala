@@ -24,10 +24,10 @@ import scala.jdk.CollectionConverters.*
   */
 class MainIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val withMain    = """import eliot.effect.Console
-                            |def greeting: IO[Unit] = println("Hello World!")
+                            |def greeting: IO[Unit] = printLine("Hello World!")
                             |def main: IO[Unit] = greeting""".stripMargin
   private val withoutMain = """import eliot.effect.Console
-                            |def greeting: IO[Unit] = println("Hello World!")""".stripMargin
+                            |def greeting: IO[Unit] = printLine("Hello World!")""".stripMargin
 
   "main index" should "recognise a document declaring main, carrying its module name" in {
     withCompiledWorkspace(withMain)((uri, index) => index.mainAt(uri).map(_.moduleName.show))

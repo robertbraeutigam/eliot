@@ -9,7 +9,7 @@
  * firmware super-loop.
  *
  * ```eliot
- * def main: {Inf} IO[Unit] = forever(println("tick"))
+ * def main: {Inf} IO[Unit] = forever(printLine("tick"))
  * ```
  */
 ability Inf[F[_]] {

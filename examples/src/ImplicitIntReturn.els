@@ -6,4 +6,4 @@ import eliot.effect.Console
  */
 def double(x: Int): Int = x + x
 
-def main: IO[Unit] = println(intToString(double(21)))
+def main: IO[Unit] = printLine(intToString(double(21)))

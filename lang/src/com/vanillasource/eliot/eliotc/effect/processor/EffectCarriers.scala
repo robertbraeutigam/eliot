@@ -22,7 +22,7 @@ object EffectCarriers {
     binder.parameterType.exists(pt => asArrow(pt.value.signature).isDefined)
 
   /** The higher-kinded binder names of a signature — the binders an effectful result can ride (`F` in `F[Unit]`). This
-    * is the *callee* notion of a carrier: an ability method's return rides its ability's binder (`println : F[Unit]`)
+    * is the *callee* notion of a carrier: an ability method's return rides its ability's binder (`printLine : F[Unit]`)
     * even though that binder carries no constraint on the method itself, so no constraint is required here. A *value's
     * own* ambient effect carriers are the further-filtered subset whose binder is ability-constrained — see the
     * `paramConstraints` filter in [[EffectDesugaringProcessor]], which excludes a bare generic `C[_, _]`.

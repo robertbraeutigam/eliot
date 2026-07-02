@@ -15,7 +15,7 @@ import org.objectweb.asm.{Label, Opcodes}
 trait NativeImplementation {
 
   /** Whether this native must be wrapped behind a `private` Eliot leaf — because it touches the world (I/O, e.g.
-    * `printlnInternal`) or is the one unbounded-loop divergence leaf (`foreverInternal`, the `Inf` effect). Either way
+    * `printLineInternal`) or is the one unbounded-loop divergence leaf (`foreverInternal`, the `Inf` effect). Either way
     * application code must never name it directly: the effect (I/O via `{Console}`/`{Log}`, divergence via `{Inf}`) is
     * recorded honestly only through the public ability the leaf hides behind. The backend asserts the resolved def of
     * an `impure` native is `Visibility.Private` (see [[JvmClassGenerator]]); a pure, total native (arithmetic, `unit`)
@@ -29,7 +29,7 @@ trait NativeImplementation {
 object NativeImplementation {
   val implementations: Map[ValueFQN, NativeImplementation] = Map.from(
     Seq(
-      (systemEffectValueFQN("Console", "printlnInternal"), eliot_lang_Console_printlnInternal),
+      (systemEffectValueFQN("Console", "printLineInternal"), eliot_lang_Console_printLineInternal),
       (systemEffectValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
       (systemEffectValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
       (systemEffectValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
@@ -98,12 +98,12 @@ object NativeImplementation {
     }
   }
 
-  private def eliot_lang_Console_printlnInternal: NativeImplementation = new NativeImplementation {
+  private def eliot_lang_Console_printLineInternal: NativeImplementation = new NativeImplementation {
     override val impure: Boolean = true
 
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
       classGenerator
-        .createMethod[CompilerIO](JvmIdentifier("printlnInternal"), Seq(systemLangType("String")), systemLangType("Unit"))
+        .createMethod[CompilerIO](JvmIdentifier("printLineInternal"), Seq(systemLangType("String")), systemLangType("Unit"))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;")
@@ -171,7 +171,7 @@ object NativeImplementation {
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             // System.out.println("[LOG] " + s) — emit a tagged diagnostic line to standard output (captured by the
-            // integration tests, and visually distinct from a plain Console `println`).
+            // integration tests, and visually distinct from a plain Console `printLine`).
             methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;")
             methodVisitor.visitTypeInsn(Opcodes.NEW, "java/lang/StringBuilder")
             methodVisitor.visitInsn(Opcodes.DUP)

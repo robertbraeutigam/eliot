@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
 /** Effects, Part B — the body auto-lift (the headline of the effects plan, M3).
   *
   * Rewrites a value's runtime body from direct style into ordinary monadic form, so a developer writes
-  * `def echo : {Console} Unit = println(readLine)` and the compiler produces `flatMap(readLine, x -> println(x))`. The
+  * `def echo : {Console} Unit = printLine(readLine)` and the compiler produces `flatMap(readLine, x -> printLine(x))`. The
   * single rule: an effectful sub-term (one whose static result is headed by an effect carrier) flowing into a *pure
   * value-argument position* is sequenced with the carrier's `Effect.flatMap` (or `Effect.map`, when the
   * continuation is pure), binding it to a fresh variable; a pure body under an effectful carrier return is wrapped with

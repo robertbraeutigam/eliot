@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The recursive bottom-up auto-lift over one expression: the headline of the effects plan (M3). It rewrites a
-  * direct-style body (`println(readLine)`) into ordinary monadic form (`flatMap(readLine, x -> println(x))`).
+  * direct-style body (`printLine(readLine)`) into ordinary monadic form (`flatMap(readLine, x -> printLine(x))`).
   *
   * The single rule: an effectful sub-term (one whose static result is headed by an effect carrier) flowing into a
   * *pure value-argument position* is sequenced with the carrier's `Effect.flatMap` (or `Effect.map`, when the

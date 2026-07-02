@@ -26,14 +26,14 @@ import scala.jdk.CollectionConverters.*
   */
 class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val imports = """import eliot.effect.Console"""
-  private val line1   = """def greeting: IO[Unit] = println("Hello World!")"""
+  private val line1   = """def greeting: IO[Unit] = printLine("Hello World!")"""
   private val line2   = """def main: IO[Unit] = greeting"""
   private val source  = s"$imports\n$line1\n$line2"
 
-  // `println` is import-required (`Console` is in `eliot.effect`, not auto-imported), so the import on line 1 pushes the
+  // `printLine` is import-required (`Console` is in `eliot.effect`, not auto-imported), so the import on line 1 pushes the
   // two defs to lines 2 and 3.
   private val stringPosition   = Position(2, line1.indexOf("Hello") + 1)   // inside the "Hello World!" literal
-  private val printlnPosition  = Position(2, line1.indexOf("println") + 4) // well inside the `println` reference
+  private val printLinePosition  = Position(2, line1.indexOf("printLine") + 4) // well inside the `printLine` reference
   private val greetingPosition = Position(3, line2.indexOf("greeting") + 2) // inside the `greeting` reference in `main`
   private val keywordPosition  = Position(2, 1)                             // the `def` keyword — no expression node
 
@@ -42,7 +42,7 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
   }
 
   it should "report the monomorphic function type at a value reference" in {
-    renderedTypesAt(printlnPosition).asserting(_ shouldBe Seq("String -> IO[Unit]"))
+    renderedTypesAt(printLinePosition).asserting(_ shouldBe Seq("String -> IO[Unit]"))
   }
 
   it should "report a whole value's type at a reference to it" in {

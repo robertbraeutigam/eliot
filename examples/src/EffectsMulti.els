@@ -28,9 +28,9 @@ implement Dep[Database, IO] {
 
 /**
  * Logs the injected database url, then echoes a line of input — `get` (Dep), `log` (Log), `readLine` and
- * `println` (Console), sequenced left to right.
+ * `printLine` (Console), sequenced left to right.
  */
-def run: {Dep[Database], Log, Console} Unit = andThen(log(url(get)), println(readLine))
+def run: {Dep[Database], Log, Console} Unit = andThen(log(url(get)), printLine(readLine))
 
 /** Sequence two effectful `Unit` computations, keeping the second result (a stand-in for a `>>` combinator). */
 def andThen(first: Unit, second: Unit): Unit = second

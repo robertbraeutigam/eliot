@@ -74,10 +74,10 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   }
 
   it should "bind the carried result of an effectful `val` (readLine), so the body sees the plain value" in {
-    val echo = "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val line = readLine\n  println(line)\n}"
+    val echo = "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val line = readLine\n  printLine(line)\n}"
     effectBody(echo, "echo").asserting {
-      case Some(FunApp(FunApp(ValRef(flatMap), ValRef(readLine)), FunLit(line1, FunApp(ValRef(println), ParamRef(line2))))) =>
-        (flatMap.name.name, readLine.name.name, println.name.name, line1) shouldBe ("flatMap", "readLine", "println", line2)
+      case Some(FunApp(FunApp(ValRef(flatMap), ValRef(readLine)), FunLit(line1, FunApp(ValRef(printLine), ParamRef(line2))))) =>
+        (flatMap.name.name, readLine.name.name, printLine.name.name, line1) shouldBe ("flatMap", "readLine", "printLine", line2)
       case other => fail(s"unexpected: $other")
     }
   }

@@ -38,8 +38,8 @@
      anchor for keywords; the rest fan around the wheel for legibility. */
   --syn-keyword: #2EC27E;    /* control / declaration keywords — brand green */
   --syn-type: #59CFC4;       /* types & constructors: Int[..], Rec[N] — teal */
-  --syn-fn: #7FB4EC;         /* function names & calls — blue */
-  --syn-prop: #A7C7E7;       /* object properties / fields — soft blue */
+  --syn-fn: #EDEAE3;         /* function names & calls — paper */
+  --syn-prop: #EDEAE3;       /* object properties / fields — paper */
   --syn-var: #EDEAE3;        /* plain identifiers / variables — paper */
   --syn-annotation: #C79BE8; /* @effect / attribute annotations — lavender */
   --syn-number: #E0A96B;     /* numeric literals — amber */

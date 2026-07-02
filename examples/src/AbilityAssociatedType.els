@@ -13,4 +13,4 @@ implement AssociatedType[Name] {
    def handle(value: Name, param: MagicType): String = "Hello"
 }
 
-def main: IO[Unit] = println(handle(Name("Johnny"), "Ni"))
+def main: IO[Unit] = printLine(handle(Name("Johnny"), "Ni"))

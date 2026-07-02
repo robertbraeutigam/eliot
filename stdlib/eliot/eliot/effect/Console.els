@@ -1,19 +1,19 @@
 /**
  * The console effect: reading lines from and writing lines to the standard text streams.
  *
- * The everyday I/O effect — declare `{Console}` and call `println`/`readLine`. Like the other
+ * The everyday I/O effect — declare `{Console}` and call `printLine`/`readLine`. Like the other
  * fine-grained effects it runs on any carrier with a `Sync` base, so the same `{Console}` code runs on
  * the production runtime or on a pure test carrier.
  *
  * ```eliot
- * def greet: {Console} Unit = println("hello")
+ * def greet: {Console} Unit = printLine("hello")
  * ```
  */
 ability Console[F[_]] {
    /**
     * Write `s` to standard output, followed by a line separator.
     */
-   def println(s: String): F[Unit]
+   def printLine(s: String): F[Unit]
 
    /**
     * Read one line from standard input, without the trailing line separator.

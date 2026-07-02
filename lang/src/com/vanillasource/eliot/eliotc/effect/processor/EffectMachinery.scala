@@ -36,7 +36,7 @@ object EffectMachinery {
     */
   def isMachineryAbility(abilityName: String): Boolean = machineryAbilities.contains(abilityName)
 
-  /** The ability a value reference belongs to, if it is an ability method (`println` → `Console`, `flatMap` → `Effect`);
+  /** The ability a value reference belongs to, if it is an ability method (`printLine` → `Console`, `flatMap` → `Effect`);
     * `None` for an ordinary (non-ability) value. Lets callers ask "which ability does this call name?" without
     * re-matching on [[Qualifier]].
     */

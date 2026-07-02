@@ -604,7 +604,7 @@ class MonomorphicTypeCheckTest
   }
 
   it should "infer type parameter of generic data constructor from unannotated lambda body" in {
-    // Mirrors the jvm `IO(_ -> printlnInternal(s))` shape from the HelloWorld example. Before the refactor this
+    // Mirrors the jvm `IO(_ -> printLineInternal(s))` shape from the HelloWorld example. Before the refactor this
     // produced `Expected: Box[Unit]` / `Actual: Box[Type]` because `Checker.forceAndConst` silently defaulted the
     // unsolved `A` meta of Box to `GroundValue.Type`, and `DataTypeNativesProcessor` fired its VNative chain
     // eagerly (using `Evaluator.semToGround`, which has the same silent fallback on metas). With strict

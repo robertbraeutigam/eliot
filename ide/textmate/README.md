@@ -52,7 +52,7 @@ ln -s "$PWD/ide/textmate" ~/.vscode/extensions/eliot-textmate
 | Defined function name | `def show`, `def +`, `def <===>` | `entity.name.function.eliot` |
 | Defined type / data name | `type Int`, `data Box` | `entity.name.type.eliot` |
 | Types & constructors (Uppercase) | `String`, `Just`, `Int` | `entity.name.type.eliot` |
-| Function/constructor calls | `println(...)`, `hello[1]` | `entity.name.function.call.eliot` |
+| Function/constructor calls | `printLine(...)`, `hello[1]` | `entity.name.function.call.eliot` |
 | Import path | `eliot.compiler.Combine` | `entity.name.namespace.eliot` |
 | Wildcard | `_` | `variable.language.wildcard.eliot` |
 | Operators | `-> :: : ~ + && \| =` | `keyword.operator.*.eliot` |

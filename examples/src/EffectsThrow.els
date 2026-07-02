@@ -10,6 +10,6 @@ def parseBad: {Throw[String]} String = raise("malformed input")
 // ThrowCarrier, no Either, no transformer in sight. A single `import eliot.effect.Throw` brings in `raise` and `catch`.
 // main pins the residual carrier G := IO.
 def main: IO[Unit] = {
-   println(parseOk catch (err -> err))
-   println(parseBad catch (err -> err))
+   printLine(parseOk catch (err -> err))
+   printLine(parseBad catch (err -> err))
 }

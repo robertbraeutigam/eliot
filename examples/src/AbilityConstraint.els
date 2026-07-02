@@ -11,4 +11,4 @@ implement Show[Hello] {
 
 def showAnything[A ~ Show](thing: A): String = show(thing)
 
-def main: IO[Unit] = println(showAnything(Hello("World")))
+def main: IO[Unit] = printLine(showAnything(Hello("World")))

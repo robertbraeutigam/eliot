@@ -51,7 +51,7 @@ an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the releva
 | concrete `data X` (representation + ctor) | **jvm** (runtime) / **compiler** (if a compile-time carrier) | never stdlib |
 | field accessor / `foldX` eliminator | with the `data` (jvm/compiler) | add an abstract twin in stdlib **only** if stdlib code references it (two-pool rule) |
 | pure body, same on every target (composition over abstract/native ops, type-level arithmetic) | **stdlib** | e.g. `catch`, `fitsIn`, Function `.` |
-| native leaf (backend/compiler supplies the body: bytecode op, arbitrary-precision arith, `printlnInternal`) | **jvm** (runtime) / Scala `*NativesProcessor` (compiler leaves) | the layer "bottom" |
+| native leaf (backend/compiler supplies the body: bytecode op, arbitrary-precision arith, `printLineInternal`) | **jvm** (runtime) / Scala `*NativesProcessor` (compiler leaves) | the layer "bottom" |
 | representation-dependent body (width dispatch, layout choice) | **jvm** | e.g. `Int`'s `+`/`-`/`*` bodies, the `opaque type Int` |
 | `ability X` | **stdlib** | re-declared (copied) in any layer file hosting an `implement X` — see duplication below |
 | `implement X[T]` with a runtime/value payload | with `T`'s `data` (jvm) or `X`'s module | body needs `T`'s ctor, which lives with the `data` |

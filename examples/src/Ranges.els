@@ -9,4 +9,4 @@ def count: UnsignedByte = 7
 
 def total: Int[0, 1000] = count + count + count
 
-def main: IO[Unit] = println(intToString(total))
+def main: IO[Unit] = printLine(intToString(total))

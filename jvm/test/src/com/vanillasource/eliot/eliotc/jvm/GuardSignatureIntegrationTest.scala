@@ -27,7 +27,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def greeting[COND: Bool]: orError(when(String[], COND), "greeting unavailable") = "hello"
         |
-        |def main: IO[Unit] = println(greeting[true])""".stripMargin
+        |def main: IO[Unit] = printLine(greeting[true])""".stripMargin
     ).asserting(_ shouldBe "hello")
   }
 
@@ -39,7 +39,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def greeting[COND: Bool]: orError(when(String[], COND), "greeting unavailable") = "hello"
         |
-        |def main: IO[Unit] = println(greeting[false])""".stripMargin
+        |def main: IO[Unit] = printLine(greeting[false])""".stripMargin
     ).asserting(_ should include("greeting unavailable"))
   }
 
@@ -50,7 +50,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def unavailable: error("not available") = "x"
         |
-        |def main: IO[Unit] = println(unavailable)""".stripMargin
+        |def main: IO[Unit] = printLine(unavailable)""".stripMargin
     ).asserting(_ should include("not available"))
   }
 
@@ -69,7 +69,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def greeting[COND: Bool]: String[] when (COND) orError "greeting unavailable" = "hello"
         |
-        |def main: IO[Unit] = println(greeting[true])""".stripMargin
+        |def main: IO[Unit] = printLine(greeting[true])""".stripMargin
     ).asserting(_ shouldBe "hello")
   }
 
@@ -81,7 +81,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def greeting[COND: Bool]: String[] when (COND) orError "greeting unavailable" = "hello"
         |
-        |def main: IO[Unit] = println(greeting[false])""".stripMargin
+        |def main: IO[Unit] = printLine(greeting[false])""".stripMargin
     ).asserting(_ should include("greeting unavailable"))
   }
 
@@ -93,7 +93,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
         |
-        |def main: IO[Unit] = println(positive[5])""".stripMargin
+        |def main: IO[Unit] = printLine(positive[5])""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 
@@ -104,7 +104,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
         |
-        |def main: IO[Unit] = println(positive[0])""".stripMargin
+        |def main: IO[Unit] = printLine(positive[0])""".stripMargin
     ).asserting(_ should include("must be positive"))
   }
 
@@ -115,7 +115,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |
         |def small[N: BigInteger]: String[] when (N < 10) orError "too big" = "ok"
         |
-        |def main: IO[Unit] = println(small[3])""".stripMargin
+        |def main: IO[Unit] = printLine(small[3])""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 }

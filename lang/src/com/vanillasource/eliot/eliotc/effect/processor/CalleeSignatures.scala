@@ -39,7 +39,7 @@ class CalleeSignatures {
     }
 
   /** The user-facing effects performing this callee contributes to the *caller's* effect set (Decision 6, propagation):
-    *   - an ability method (`println`, `log`, `get`) performs its *owning* ability (read off the FQN's
+    *   - an ability method (`printLine`, `log`, `get`) performs its *owning* ability (read off the FQN's
     *     [[Qualifier.Ability]]), e.g. `Console`/`Log`/`Dep`;
     *   - an ordinary `{E...}` function propagates the effects declared on its own carrier binder(s).
     *
@@ -84,7 +84,7 @@ object CalleeSignatures {
       *
       * Everything else is a *storage* position that takes the effectful action directly, unbound: a function-typed
       * parameter (a continuation), and any *applied* type constructor — whether it mentions a carrier (`fa : F[A]`,
-      * `p : AbortCarrier[G, A]`, a discharge/carrier slot) or not (`x : Id[A]`). So `andThen(println(..), abort)` binds
+      * `p : AbortCarrier[G, A]`, a discharge/carrier slot) or not (`x : Id[A]`). So `andThen(printLine(..), abort)` binds
       * `abort` into the bare `A`, but `runId(runAbort(p))` passes the carrier value into `Id[A]` unbound.
       */
     def isBindPosition(pos: Int): Boolean =

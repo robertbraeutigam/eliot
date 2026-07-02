@@ -229,7 +229,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 )
     } yield ()
 
-  /** Fail-safe enforcement of the I/O boundary: an impure leaf native (e.g. `printlnInternal`) must be declared
+  /** Fail-safe enforcement of the I/O boundary: an impure leaf native (e.g. `printLineInternal`) must be declared
     * `private` so no application module can name it and perform untracked I/O. The compiler cannot detect a native's
     * impurity from its bytecode, so the registry is the source of truth and this asserts the resolved def's visibility
     * matches — a forgotten `private` is caught at build time, never a silent pure-typed-impure hole. Pure natives are

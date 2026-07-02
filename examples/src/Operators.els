@@ -1,5 +1,5 @@
 import eliot.effect.Console
-def main: IO[Unit] = println(content(Bool("Hello") | Bool("World") | Bool("!")))
+def main: IO[Unit] = printLine(content(Bool("Hello") | Bool("World") | Bool("!")))
 
 data Bool(content: String)
 

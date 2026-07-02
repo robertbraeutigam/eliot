@@ -118,7 +118,7 @@ Added by this plugin:
 
 ## Troubleshooting
 
-- **Everything shows "Name not defined" (e.g. `println`)** — a layer was dropped, which means a fat jar
+- **Everything shows "Name not defined" (e.g. `printLine`)** — a layer was dropped, which means a fat jar
   snuck in. The plugin must bundle the per-module jars from `package.sh`; never wire in `mill ide.lsp.assembly`.
 - **Server doesn't start** — open **Language Servers → Eliot** (the LSP4IJ tool window) and check its
   console; all server logs go to **stderr**. Confirm the bundled `server/lib/` is present in the

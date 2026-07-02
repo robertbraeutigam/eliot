@@ -21,5 +21,5 @@ def testAllowed: Option[String] = runId(runAbort(allowed))
 def testDenied: Option[String] = runId(runAbort(denied))
 
 def main: IO[Unit] = flatMap(
-   println(foldOption(testAllowed, "DENIED", s -> s)),
-   ignored -> println(foldOption(testDenied, "DENIED", s -> s)))
+   printLine(foldOption(testAllowed, "DENIED", s -> s)),
+   ignored -> printLine(foldOption(testDenied, "DENIED", s -> s)))

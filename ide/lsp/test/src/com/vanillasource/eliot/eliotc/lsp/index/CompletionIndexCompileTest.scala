@@ -25,10 +25,10 @@ import scala.jdk.CollectionConverters.*
   */
 class CompletionIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val source = """import eliot.effect.Console
-                         |def main: IO[Unit] = println("Hello World!")""".stripMargin
+                         |def main: IO[Unit] = printLine("Hello World!")""".stripMargin
 
   "completion" should "offer an in-scope stdlib name the file calls" in {
-    completionNames.asserting(_ should contain("println"))
+    completionNames.asserting(_ should contain("printLine"))
   }
 
   it should "offer the file's own top-level definition" in {

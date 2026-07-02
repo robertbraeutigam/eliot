@@ -62,14 +62,14 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
     val m       = ModuleName(Seq("eliot", "lang"), "Console")
     val modules = DocModelBuilder.build(
       Seq(
-        (m, "stdlib", ast(functions = Seq(fn("println", args = Seq(arg("s", ty("String"))), ret = ty("IO", ty("Unit")), doc = Some("print a line"))))),
-        (m, "jvm", ast(functions = Seq(fn("println", args = Seq(arg("s", ty("String"))), ret = ty("IO", ty("Unit")), body = Some(ty("io"))))))
+        (m, "stdlib", ast(functions = Seq(fn("printLine", args = Seq(arg("s", ty("String"))), ret = ty("IO", ty("Unit")), doc = Some("print a line"))))),
+        (m, "jvm", ast(functions = Seq(fn("printLine", args = Seq(arg("s", ty("String"))), ret = ty("IO", ty("Unit")), body = Some(ty("io"))))))
       )
     ).modules
     val item    = moduleNamed(modules, "Console").items.head
 
     item.kind shouldBe DocItem.Kind.Value
-    item.signature shouldBe "def println(s: String): IO[Unit]"
+    item.signature shouldBe "def printLine(s: String): IO[Unit]"
     item.doc shouldBe Some("print a line")
     item.implementedOn shouldBe Seq("jvm")
   }

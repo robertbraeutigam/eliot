@@ -31,7 +31,7 @@ def stateDiscarded: Option[Pair[String, String]] =
    runId(runAbort(runState(modifyThenAbort, "initial")))
 
 def main: IO[Unit] = flatMap(
-   println(foldOption(first(stateSurvives), "<no value>", s -> s)),
+   printLine(foldOption(first(stateSurvives), "<no value>", s -> s)),
    ignored -> flatMap(
-      println(second(stateSurvives)),
-      ignored2 -> println(foldOption(stateDiscarded, "<no state>", p -> second(p)))))
+      printLine(second(stateSurvives)),
+      ignored2 -> printLine(foldOption(stateDiscarded, "<no state>", p -> second(p)))))

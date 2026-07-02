@@ -21,7 +21,7 @@ import scala.jdk.CollectionConverters.*
   */
 class VirtualFileSystemCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   // A source that type-checks against the *abstract* platform-independent workspace the LSP compiles (no JVM layer, so
-  // no concrete `Console`/`IO` instances): a plain `String` value depends on nothing platform-specific. (`println` is
+  // no concrete `Console`/`IO` instances): a plain `String` value depends on nothing platform-specific. (`printLine` is
   // now the `Console` effect's method and needs a carrier impl, which the abstract workspace deliberately lacks.)
   private val validSource  = """def greeting: String = "Hello World!""""
   private val brokenSource = """def greeting: String = notDefinedAnywhere("Hello World!")"""

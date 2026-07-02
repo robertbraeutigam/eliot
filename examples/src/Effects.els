@@ -2,8 +2,8 @@ import eliot.effect.Console
 /**
  * Direct-style I/O with the `{Console}` effect.
  *
- * `readLine` yields a plain `String` and `println` consumes one, yet both perform `Console`. Writing
- * `println(readLine)` directly works because effectful calls are sequenced for you — no explicit `flatMap`,
+ * `readLine` yields a plain `String` and `printLine` consumes one, yet both perform `Console`. Writing
+ * `printLine(readLine)` directly works because effectful calls are sequenced for you — no explicit `flatMap`,
  * `import`, or lift. `echo` stays carrier-polymorphic (`{Console}`); `main` commits it to the runnable `IO`.
  *
  * ```sh
@@ -11,6 +11,6 @@ import eliot.effect.Console
  * echo "hello effects" | java -jar target/Effects.jar
  * ```
  */
-def echo: {Console} Unit = println(readLine)
+def echo: {Console} Unit = printLine(readLine)
 
 def main: IO[Unit] = echo

@@ -196,14 +196,14 @@ Eliot targets everything from an ATtiny to the JVM, so the language and its base
 platform assumptions** — not even the size of an `Int`. The rule is **no platform *representation***: the base
 layer never says how a type is laid out or how a primitive is computed. So everything representation- or
 platform-dependent is declared **abstractly** — `type`s without a value constructor, body-less `def`
-signatures (`Int`, `println`, the `+`/`-`/`*` operators whose bodies do width dispatch). It *may*, however,
+signatures (`Int`, `printLine`, the `+`/`-`/`*` operators whose bodies do width dispatch). It *may*, however,
 carry `def` bodies and ability instances when the computation is **genuinely platform-independent** — byte-for-byte
 the same on every target (e.g. `fitsIn`, the effect discharge helpers `catch`/`orElse`/`runState`, the pure
 type-level `Combine[Int,Int]` join). What it must never contain is `data` (a chosen representation), a native
 leaf, or any representation-dependent body.
 
 - `type Int[MIN: BigInteger, MAX: BigInteger]` — an abstract type; no value constructor, no chosen width.
-- `def println(s: String): IO[Unit]` — an abstract function; signature only, no implementation.
+- `def printLine(s: String): IO[Unit]` — an abstract function; signature only, no implementation.
 - `type Byte = Int[-128, 127]` — a `type` *with* a body is just an alias; still platform-neutral.
 
 A `type X = ...` (alias) and a body-less `type X` differ only by the presence of a body; a `data X(...)`
@@ -216,9 +216,9 @@ abstract↔concrete merge, and its signature-match gotchas — use the **`eliot-
 **Layers = redefinition, not inheritance.** A platform "implements" an abstract definition by simply
 *defining the same name again*, in its own root path, with a body. There is no `extends`, `override`
 keyword, or instance mechanism — co-located definitions of the same qualified name across root paths are
-**merged**, preferring the concrete one. Example: base declares `type IO[A]` and `def println(...): IO[Unit]`
+**merged**, preferring the concrete one. Example: base declares `type IO[A]` and `def printLine(...): IO[Unit]`
 (abstract); the `jvm` layer redefines `data IO[A](block: Function[Unit, A])` and
-`def println(s) = IO(_ -> printlnInternal(s))` (concrete). The compiler unifies them into a single value.
+`def printLine(s) = IO(_ -> printLineInternal(s))` (concrete). The compiler unifies them into a single value.
 
 **Layers *mix*, they do not *stack*; every file must stand on its own.** Name resolution is per-file (a file's
 dictionary is its own declarations + imports, never names declared in a *sibling* file of the same module). So when one

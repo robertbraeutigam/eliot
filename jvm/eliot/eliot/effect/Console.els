@@ -1,7 +1,7 @@
 import eliot.effect.Sync
 
 ability Console[F[_]] {
-   def println(s: String): F[Unit]
+   def printLine(s: String): F[Unit]
 
    def readLine: F[String]
 }
@@ -12,19 +12,19 @@ ability Console[F[_]] {
  * etc. — the whole `IO(_ -> ...)` tree stays Eliot-visible to monomorphization; only the leaf natives are opaque.
  */
 implement[F[_] ~ Sync] Console[F] {
-   def println(s: String): F[Unit] = sync(_ -> printlnInternal(s))
+   def printLine(s: String): F[Unit] = sync(_ -> printLineInternal(s))
 
    def readLine: F[String] = sync(_ -> readLineInternal)
 }
 
 /**
- * The single impure operation behind `println`: writes a line to standard output. `private` so user code
- * reaches output only through the `{Console}`-typed `println`. Implemented by the backend.
+ * The single impure operation behind `printLine`: writes a line to standard output. `private` so user code
+ * reaches output only through the `{Console}`-typed `printLine`. Implemented by the backend.
  */
-private def printlnInternal(s: String): Unit
+private def printLineInternal(s: String): Unit
 
 /**
  * The single impure operation behind `readLine`: reads a line from standard input. `private` for the same
- * reason as `printlnInternal`. Implemented by the backend.
+ * reason as `printLineInternal`. Implemented by the backend.
  */
 private def readLineInternal: String

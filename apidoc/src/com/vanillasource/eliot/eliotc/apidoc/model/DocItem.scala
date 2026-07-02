@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.apidoc.model
 /** One documented top-level entity of a module, already merged across every layer that declares it.
   *
   * The merge is the apidoc-specific view of Eliot's platform layering: an abstract base declaration (e.g. `type IO[A]`
-  * or a body-less `def println`) and its concrete per-platform implementations (the `jvm` `data IO[A](..)`, the
+  * or a body-less `def printLine`) and its concrete per-platform implementations (the `jvm` `data IO[A](..)`, the
   * compiler-platform body) collapse into a single item showing the canonical (abstract) signature, the set of layers
   * that declare it, and which layers actually *implement* it. Abilities additionally carry their methods and the known
   * implementations.

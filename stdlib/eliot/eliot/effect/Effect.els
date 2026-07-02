@@ -8,7 +8,7 @@
 ability Effect[F[_]] {
    /**
     * Run `fa`, then feed its result to `f` to produce the next effectful computation, e.g.
-    * `flatMap(readLine, line -> println(line))`.
+    * `flatMap(readLine, line -> printLine(line))`.
     */
    def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
 

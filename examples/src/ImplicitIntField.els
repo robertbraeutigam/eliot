@@ -6,4 +6,4 @@ import eliot.effect.Console
  */
 data Counter(n: Int)
 
-def main: IO[Unit] = println(intToString(n(Counter(42))))
+def main: IO[Unit] = printLine(intToString(n(Counter(42))))

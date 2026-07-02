@@ -25,14 +25,14 @@ def swap(next: String): {State[String]} String = {
 // A two-effect {Console, State[String]} interaction, also direct-style: announce the change, perform the swap, and
 // report the previous value. `Console` and `State` share one carrier, threaded automatically across the block.
 def rename(next: String): {Console, State[String]} Unit = {
-  println("renaming the account...")
+  printLine("renaming the account...")
   val previous = swap(next)
-  println(previous)
+  printLine(previous)
 }
 
 // `main` is itself a block ending in an expression. The first binding is a plain (non-effectful) `val` that captures
 // the runtime carrier produced by `runState`; the rest sequence through it.
 def main: IO[Unit] = {
   val outcome = runState(rename("after"), "before")
-  println(second(outcome))
+  printLine(second(outcome))
 }

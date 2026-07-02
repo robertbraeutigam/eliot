@@ -13,5 +13,5 @@ implement[A ~ Show] Show[Box[A]] {
   def show(box: Box[A]): String = show(content(box))
 }
 
-def main: IO[Unit] = println(show(Box("Hello World!")))
+def main: IO[Unit] = printLine(show(Box("Hello World!")))
 

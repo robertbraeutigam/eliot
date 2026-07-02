@@ -195,7 +195,7 @@ object ProcessorTest {
     * in the real jvm layer, not here.
     */
   val consoleStubContent: String =
-    "ability Console[F[_]] {\ndef println(s: String): F[Unit]\ndef readLine: F[String]\n}"
+    "ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}"
 
   /** `Log` effect stub, mirroring `stdlib/eliot/eliot/effect/Log.els`. Import-required (in `effectPackage`); the
     * concrete JVM instance lives in the real jvm layer.

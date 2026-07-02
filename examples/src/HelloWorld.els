@@ -1,2 +1,2 @@
 import eliot.effect.Console
-def main: IO[Unit] = println("Hello World!")
+def main: IO[Unit] = printLine("Hello World!")

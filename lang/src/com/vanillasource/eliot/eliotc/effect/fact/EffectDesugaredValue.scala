@@ -9,8 +9,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * Part B — the body auto-lift). Where a value declares an effect carrier (a `{E...} A` signature desugars in M1 to a
   * leading inferable higher-kinded carrier `F`, or the return is a concrete carrier like `IO[A]`), every effectful
   * sub-term passed into a pure value-argument position is sequenced with `Effect.flatMap`/`Effect.map` and a pure
-  * body under an effectful return is wrapped with `Effect.pure` — so `println(readLine)` becomes
-  * `flatMap(readLine, x -> println(x))`. Code that is already in monadic form (`flatMap(readLine, s -> println(s))`)
+  * body under an effectful return is wrapped with `Effect.pure` — so `printLine(readLine)` becomes
+  * `flatMap(readLine, x -> printLine(x))`. Code that is already in monadic form (`flatMap(readLine, s -> printLine(s))`)
   * passes through unchanged (the rewrite is idempotent), and a value with no carrier whose body performs effects is
   * rejected here (it cannot carry them).
   *

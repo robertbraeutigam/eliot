@@ -19,17 +19,17 @@ class CompletionIndexTest extends AnyFlatSpec with Matchers {
   // One file's dictionary: a plain value with a known signature, a data type (type + value constructor of the same
   // name), an ability method, a synthetic ability-implementation marker, and an in-scope name with no resolved value.
   private val dictionary = Map(
-    qn("println", Qualifier.Default)                                         -> fqn("println"),
+    qn("printLine", Qualifier.Default)                                         -> fqn("printLine"),
     qn("Counter", Qualifier.Type)                                            -> fqn("Counter"),
     qn("Counter", Qualifier.Default)                                         -> fqn("Counter"),
     qn("combine", Qualifier.Ability("Combine"))                              -> fqn("combine"),
     qn("Combine", Qualifier.AbilityImplementation(Sourced(uri, range, "Combine"), 0)) -> fqn("Combine"),
     qn("ambientOnly", Qualifier.Default)                                     -> fqn("ambientOnly")
   )
-  private val index      = CompletionIndex.build(Seq(moduleValue(dictionary)), Seq(resolved("println", "String")))
+  private val index      = CompletionIndex.build(Seq(moduleValue(dictionary)), Seq(resolved("printLine", "String")))
 
   "completionsAt" should "offer every in-scope name once by its bare written name, dropping the synthetic marker" in {
-    index.completionsAt(uri).map(_.name) shouldBe Seq("Counter", "ambientOnly", "combine", "println")
+    index.completionsAt(uri).map(_.name) shouldBe Seq("Counter", "ambientOnly", "combine", "printLine")
   }
 
   it should "classify a name with a type-namespace qualifier as a type" in {
@@ -41,11 +41,11 @@ class CompletionIndexTest extends AnyFlatSpec with Matchers {
   }
 
   it should "classify a plain value as a value" in {
-    index.completionsAt(uri).find(_.name == "println").map(_.kind) shouldBe Some(CompletionIndex.Kind.Value)
+    index.completionsAt(uri).find(_.name == "printLine").map(_.kind) shouldBe Some(CompletionIndex.Kind.Value)
   }
 
   it should "render the signature of a name whose resolved value was materialised" in {
-    index.completionsAt(uri).find(_.name == "println").flatMap(_.detail) shouldBe Some("Test::String")
+    index.completionsAt(uri).find(_.name == "printLine").flatMap(_.detail) shouldBe Some("Test::String")
   }
 
   it should "have no detail for an in-scope name with no resolved value" in {
@@ -57,7 +57,7 @@ class CompletionIndexTest extends AnyFlatSpec with Matchers {
   }
 
   it should "match the editor's file:/// URI form against the compiler's file:/ form" in {
-    index.completionsAt(URI.create("file:///tmp/Test.els")).map(_.name) should contain("println")
+    index.completionsAt(URI.create("file:///tmp/Test.els")).map(_.name) should contain("printLine")
   }
 
   private def qn(name: String, qualifier: Qualifier): QualifiedName = QualifiedName(name, qualifier)

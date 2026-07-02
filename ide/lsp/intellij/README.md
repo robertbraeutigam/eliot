@@ -25,8 +25,8 @@ This produces `ide/lsp/dist/` (git-ignored):
 
 > **Do not** use `mill ide.lsp.assembly` (a fat jar). Eliot's platform layers keep multiple files at the
 > same resource path (e.g. `eliot/lang/String.els` exists in both the `lang` and `stdlib` layers — the
-> latter is where `println` lives). A fat jar collapses them into one entry and silently drops a
-> layer, so names like `println` stop resolving. `package.sh` keeps the jars separate on purpose.
+> latter is where `printLine` lives). A fat jar collapses them into one entry and silently drops a
+> layer, so names like `printLine` stop resolving. `package.sh` keeps the jars separate on purpose.
 
 Re-run `./ide/lsp/package.sh` after changing compiler/server code to refresh the jars.
 
@@ -76,7 +76,7 @@ You can watch traffic under **Language Servers → Eliot → (right-click) → �
 
 ## Troubleshooting
 
-- **Everything shows "Name not defined" (e.g. `println`)** — you're almost certainly launching a fat
+- **Everything shows "Name not defined" (e.g. `printLine`)** — you're almost certainly launching a fat
   assembly jar instead of `ide/lsp/dist/eliot-lsp`. Use the launcher; see the warning in step 1.
 - **Server doesn't start** — run `ide/lsp/dist/eliot-lsp` in a terminal; it should block waiting for LSP
   input on stdin. Check `java` is on `PATH`. All server logs go to **stderr** (stdout is the protocol

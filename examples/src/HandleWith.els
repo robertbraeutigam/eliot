@@ -15,4 +15,4 @@ def something(s: Something): String = s match {
 
 infix def or(s1: String, s2: String): String = s1
 
-def main: IO[Unit] = println(something(Else) or greet(Goodbye))
+def main: IO[Unit] = printLine(something(Else) or greet(Goodbye))

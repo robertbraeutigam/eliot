@@ -11,7 +11,7 @@ import org.scalatest.matchers.should.Matchers
   */
 class NativeImplementationTest extends AnyFlatSpec with Matchers {
 
-  private val fqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Console"), QualifiedName("printlnInternal", Qualifier.Default))
+  private val fqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Console"), QualifiedName("printLineInternal", Qualifier.Default))
 
   "the impure-native visibility check" should "reject a non-private impure native" in {
     NativeImplementation.visibilityViolation(fqn, impure = true, Visibility.Public) should not be empty
@@ -26,11 +26,11 @@ class NativeImplementationTest extends AnyFlatSpec with Matchers {
   }
 
   "the registered must-be-private leaf natives" should "all be marked impure" in {
-    // The I/O leaves (`printlnInternal`/`readLineInternal`/`logInternal`) plus the unbounded-loop divergence leaf
+    // The I/O leaves (`printLineInternal`/`readLineInternal`/`logInternal`) plus the unbounded-loop divergence leaf
     // (`foreverInternal`, the `Inf` effect): each is reachable only through its public ability, so each must be private.
     val impureNames = NativeImplementation.implementations.collect {
       case (vfqn, impl) if impl.impure => vfqn.name.name
     }.toSet
-    impureNames shouldBe Set("printlnInternal", "readLineInternal", "logInternal", "foreverInternal")
+    impureNames shouldBe Set("printLineInternal", "readLineInternal", "logInternal", "foreverInternal")
   }
 }

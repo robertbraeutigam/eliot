@@ -24,7 +24,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |data Loop(f: Function[Loop, String])
         |
-        |def main: IO[Unit] = println("unreachable")""".stripMargin
+        |def main: IO[Unit] = printLine("unreachable")""".stripMargin
     ).asserting(_ should include("contravariant position"))
   }
 
@@ -33,7 +33,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |data Tree(left: Tree, right: Tree)
         |
-        |def main: IO[Unit] = println("ok")""".stripMargin
+        |def main: IO[Unit] = printLine("ok")""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 
@@ -42,7 +42,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |def loop(x: String): String = loop(x)
         |
-        |def main: IO[Unit] = println(loop("unreachable"))""".stripMargin
+        |def main: IO[Unit] = printLine(loop("unreachable"))""".stripMargin
     ).asserting(_ should include("recursively"))
   }
 
@@ -52,7 +52,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
         |def ping(x: String): String = pong(x)
         |def pong(x: String): String = ping(x)
         |
-        |def main: IO[Unit] = println(ping("unreachable"))""".stripMargin
+        |def main: IO[Unit] = printLine(ping("unreachable"))""".stripMargin
     ).asserting(_ should include("recursively"))
   }
 
@@ -63,7 +63,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
         |def b(x: String): String = c(x)
         |def c(x: String): String = x
         |
-        |def main: IO[Unit] = println(a("ok"))""".stripMargin
+        |def main: IO[Unit] = printLine(a("ok"))""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 
@@ -77,7 +77,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def bad: {Console} Unit = forever(println("x"))
+        |def bad: {Console} Unit = forever(printLine("x"))
         |
         |def main: IO[Unit] = bad""".stripMargin
     ).asserting(_ should include("performs the effect 'Inf'"))
@@ -91,7 +91,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def main: IO[Unit] = forever(println("tick"))""".stripMargin,
+        |def main: IO[Unit] = forever(printLine("tick"))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "tick") should be > 5)
   }
@@ -103,7 +103,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def serve: {Inf, Console} Unit = forever(println("serving"))
+        |def serve: {Inf, Console} Unit = forever(printLine("serving"))
         |
         |def main: IO[Unit] = serve""".stripMargin,
       timeoutMillis = 400
@@ -120,7 +120,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
-        |def main: IO[Unit] = runStep(_ -> println("done"))""".stripMargin
+        |def main: IO[Unit] = runStep(_ -> printLine("done"))""".stripMargin
     ).asserting(_ shouldBe "done")
   }
 
@@ -134,7 +134,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
         |
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
-        |def main: IO[Unit] = runStep(_ -> forever(println("loop")))""".stripMargin,
+        |def main: IO[Unit] = runStep(_ -> forever(printLine("loop")))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "loop") should be > 5)
   }
@@ -151,7 +151,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
         |
         |def runBox[F[_]](b: Box[F]): F[Unit] = action(b)
         |
-        |def main: IO[Unit] = runBox(Box(forever(println("boxed"))))""".stripMargin,
+        |def main: IO[Unit] = runBox(Box(forever(printLine("boxed"))))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "boxed") should be > 5)
   }
@@ -166,7 +166,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
         |
         |def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)
         |
-        |def main: IO[Unit] = driver(println("tick"))""".stripMargin,
+        |def main: IO[Unit] = driver(printLine("tick"))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "tick") should be > 5)
   }
@@ -180,7 +180,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
         |
         |def driver(step: {Console} Unit): {Console} Unit = forever(step)
         |
-        |def main: IO[Unit] = driver(println("tick"))""".stripMargin
+        |def main: IO[Unit] = driver(printLine("tick"))""".stripMargin
     ).asserting(_ should include("performs the effect 'Inf'"))
   }
 }

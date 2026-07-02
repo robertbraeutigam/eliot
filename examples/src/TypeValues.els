@@ -8,4 +8,4 @@ def personName(t: Type): String = t match {
    case _            -> "Unknown"
 }
 
-def main: IO[Unit] = println(personName(Person["John"]))
+def main: IO[Unit] = printLine(personName(Person["John"]))

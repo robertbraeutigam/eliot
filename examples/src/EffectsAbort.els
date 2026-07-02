@@ -4,13 +4,13 @@ import eliot.effect.Abort
 // A computation that may abort. Returning a value: pure path; calling `abort`: short-circuit.
 def safe: {Abort} String = "config-value"
 
-def greetOrGiveUp: {Console, Abort} String = andThen(println("looking up config..."), abort)
+def greetOrGiveUp: {Console, Abort} String = andThen(printLine("looking up config..."), abort)
 
 def andThen[A](first: Unit, second: A): A = second
 
 // `orElse` discharges {Abort} in one step, supplying a fallback if it short-circuits — no AbortCarrier, no Option,
 // no transformer in sight. A single `import eliot.effect.Abort` brings in `abort` and `orElse`. main pins G := IO.
 def main: IO[Unit] = {
-   println(safe orElse "<absent>")
-   println(greetOrGiveUp orElse "gave up!")
+   printLine(safe orElse "<absent>")
+   printLine(greetOrGiveUp orElse "gave up!")
 }

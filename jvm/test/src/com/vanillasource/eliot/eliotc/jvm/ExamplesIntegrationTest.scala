@@ -4,7 +4,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "hello world" should "print a string" in {
     compileAndRun("""import eliot.effect.Console
-def main: IO[Unit] = println("Hello World!")""")
+def main: IO[Unit] = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
@@ -12,26 +12,26 @@ def main: IO[Unit] = println("Hello World!")""")
 
   // The headline M2 acceptance: a hand-monadic `{Console}` computation reading a line and echoing it. `flatMap` is an
   // `Effect[IO]` op resolved at the concrete use site (the carrier is not in `echo`'s declared effect set); `readLine`
-  // and `println` resolve through the constrained HKT instance `implement[F[_] ~ Sync] Console[F]` at `F := IO`, which
+  // and `printLine` resolve through the constrained HKT instance `implement[F[_] ~ Sync] Console[F]` at `F := IO`, which
   // in turn discharges `Sync[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
   "console effect" should "read a line and echo it through the Console -> Sync -> IO layering" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |
-        |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
+        |def echo: {Console} Unit = flatMap(readLine, s -> printLine(s))
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "echoed line\n"
     ).asserting(_ shouldBe "echoed line")
   }
 
-  // `println` is now the `Console` effect's method, generic over any `Sync` carrier — yet a plain `main : IO[Unit]`
+  // `printLine` is now the `Console` effect's method, generic over any `Sync` carrier — yet a plain `main : IO[Unit]`
   // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Sync[IO]`), so the original HelloWorld
   // keeps working unchanged.
   it should "still print a literal via the Console effect at a concrete IO main" in {
     compileAndRun("""import eliot.effect.Console
-def main: IO[Unit] = println("Hello World!")""")
+def main: IO[Unit] = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
@@ -42,27 +42,27 @@ def main: IO[Unit] = println("Hello World!")""")
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |
-        |def greet: {Console} Unit = flatMap(println("a"), ignore -> println("b"))
+        |def greet: {Console} Unit = flatMap(printLine("a"), ignore -> printLine("b"))
         |
         |def main: IO[Unit] = greet""".stripMargin
     ).asserting(_ shouldBe "a\nb")
   }
 
-  // The `private` leaf native behind `println` is unreachable from application code: naming it across the module
+  // The `private` leaf native behind `printLine` is unreachable from application code: naming it across the module
   // boundary is refused by the resolver (the fail-safe that keeps untracked I/O impossible).
   "the private I/O leaf" should "be unreachable from application code" in {
-    compileForErrors("""def main: IO[Unit] = IO(_ -> eliot.effect.Console::printlnInternal("x"))""")
+    compileForErrors("""def main: IO[Unit] = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
       .asserting(_ should include("Name is private."))
   }
 
   // --- Effects M3: body auto-lift (the headline) — direct-style code, no hand-written flatMap ---
 
-  // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `println`, which expects
-  // a plain `String`; the effect-desugar phase binds it, producing `flatMap(readLine, x -> println(x))`, with the
+  // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `printLine`, which expects
+  // a plain `String`; the effect-desugar phase binds it, producing `flatMap(readLine, x -> printLine(x))`, with the
   // carrier pinned to `IO` by `main`'s return. No `import eliot.effect.Effect`, no hand-written `flatMap`.
-  "effect auto-lift" should "sequence a direct-style println(readLine) at a concrete IO main" in {
+  "effect auto-lift" should "sequence a direct-style printLine(readLine) at a concrete IO main" in {
     compileAndRun("""import eliot.effect.Console
-def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
+def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
       .asserting(_ shouldBe "echoed line")
   }
 
@@ -70,7 +70,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
   it should "sequence a direct-style {Console} business function pinned to IO" in {
     compileAndRun(
       """import eliot.effect.Console
-        |def echo: {Console} Unit = println(readLine)
+        |def echo: {Console} Unit = printLine(readLine)
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "carrier line\n"
@@ -84,7 +84,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |
-        |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
+        |def echo: {Console} Unit = flatMap(readLine, s -> printLine(s))
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "still works\n"
@@ -96,9 +96,9 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
   "an effectful body under a pure return" should "be rejected" in {
     compileForErrors(
       """import eliot.effect.Console
-        |def helper: String = println(readLine)
+        |def helper: String = printLine(readLine)
         |
-        |def main: IO[Unit] = println(helper)""".stripMargin
+        |def main: IO[Unit] = printLine(helper)""".stripMargin
     ).asserting(_ should include("performs an effect but is declared pure"))
   }
 
@@ -157,7 +157,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |   def get: IO[Database] = pure(Database("jdbc://app-db"))
         |}
         |
-        |def run: {Dep[Database], Log, Console} Unit = andThen(log(url(get)), println(readLine))
+        |def run: {Dep[Database], Log, Console} Unit = andThen(log(url(get)), printLine(readLine))
         |
         |def andThen(first: Unit, second: Unit): Unit = second
         |
@@ -182,7 +182,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def first: {Dep[Database], Dep[Logger]} String = pick(url(get), name(get))
         |
-        |def main: IO[Unit] = println(first)""".stripMargin
+        |def main: IO[Unit] = printLine(first)""".stripMargin
     compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
       .asserting(_ shouldBe "the-db")
   }
@@ -203,7 +203,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def pick(a: String, b: String): String = b
         |
-        |def main: IO[Unit] = println(second)""".stripMargin
+        |def main: IO[Unit] = printLine(second)""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
 
@@ -222,7 +222,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def useDb: {Dep[Database]} String = url(get)
         |
-        |def main: IO[Unit] = println(useDb)""".stripMargin
+        |def main: IO[Unit] = printLine(useDb)""".stripMargin
     ).asserting(_ should include("Overlapping ability implementation"))
   }
 
@@ -239,7 +239,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def safe: {Abort} String = "config-value"
         |
-        |def main: IO[Unit] = flatMap(runAbort(safe), o -> println(foldOption(o, "<absent>", s -> s)))""".stripMargin
+        |def main: IO[Unit] = flatMap(runAbort(safe), o -> printLine(foldOption(o, "<absent>", s -> s)))""".stripMargin
     ).asserting(_ shouldBe "config-value")
   }
 
@@ -254,7 +254,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def giveUp: {Abort} String = abort
         |
-        |def main: IO[Unit] = flatMap(runAbort(giveUp), o -> println(foldOption(o, "gave up!", s -> s)))""".stripMargin
+        |def main: IO[Unit] = flatMap(runAbort(giveUp), o -> printLine(foldOption(o, "gave up!", s -> s)))""".stripMargin
     ).asserting(_ shouldBe "gave up!")
   }
 
@@ -270,9 +270,9 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def andThen[A](first: Unit, second: A): A = second
         |
-        |def loud: {Console, Abort} String = andThen(println("trying"), abort)
+        |def loud: {Console, Abort} String = andThen(printLine("trying"), abort)
         |
-        |def main: IO[Unit] = flatMap(runAbort(loud), o -> println(foldOption(o, "stopped", s -> s)))""".stripMargin
+        |def main: IO[Unit] = flatMap(runAbort(loud), o -> printLine(foldOption(o, "stopped", s -> s)))""".stripMargin
     ).asserting(_ shouldBe "trying\nstopped")
   }
 
@@ -287,7 +287,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |
-        |def main: IO[Unit] = flatMap(runThrow(parseOk), e -> println(foldEither(e, err -> err, v -> v)))""".stripMargin
+        |def main: IO[Unit] = flatMap(runThrow(parseOk), e -> printLine(foldEither(e, err -> err, v -> v)))""".stripMargin
     ).asserting(_ shouldBe "parsed-value")
   }
 
@@ -300,7 +300,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
-        |def main: IO[Unit] = flatMap(runThrow(parseBad), e -> println(foldEither(e, err -> err, v -> v)))""".stripMargin
+        |def main: IO[Unit] = flatMap(runThrow(parseBad), e -> printLine(foldEither(e, err -> err, v -> v)))""".stripMargin
     ).asserting(_ shouldBe "malformed input")
   }
 
@@ -317,8 +317,8 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
         |def main: IO[Unit] = {
-        |   println(parseOk catch (err -> err))
-        |   println(parseBad catch (err -> err))
+        |   printLine(parseOk catch (err -> err))
+        |   printLine(parseBad catch (err -> err))
         |}""".stripMargin
     ).asserting(_ shouldBe "parsed-value\nmalformed input")
   }
@@ -334,8 +334,8 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |def giveUp: {Abort} String = abort
         |
         |def main: IO[Unit] = {
-        |   println(safe orElse "<fallback>")
-        |   println(giveUp orElse "<fallback>")
+        |   printLine(safe orElse "<fallback>")
+        |   printLine(giveUp orElse "<fallback>")
         |}""".stripMargin
     ).asserting(_ shouldBe "config-value\n<fallback>")
   }
@@ -365,8 +365,8 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |def testDenied: Option[String] = runId(runAbort(denied))
         |
         |def main: IO[Unit] = flatMap(
-        |   println(foldOption(testAllowed, "DENIED", s -> s)),
-        |   ignored -> println(foldOption(testDenied, "DENIED", s -> s)))""".stripMargin
+        |   printLine(foldOption(testAllowed, "DENIED", s -> s)),
+        |   ignored -> printLine(foldOption(testDenied, "DENIED", s -> s)))""".stripMargin
     ).asserting(_ shouldBe "granted\nDENIED")
   }
 
@@ -386,7 +386,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def prog: IO[Pair[String, String]] = runState(swap("after"), "before")
         |
-        |def main: IO[Unit] = flatMap(prog, p -> flatMap(println(first(p)), ignored -> println(second(p))))""".stripMargin
+        |def main: IO[Unit] = flatMap(prog, p -> flatMap(printLine(first(p)), ignored -> printLine(second(p))))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
@@ -413,7 +413,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def demo: Pair[String, String] = runId(runState(swap("second"), "first"))
         |
-        |def main: IO[Unit] = flatMap(println(first(demo)), ignored -> println(second(demo)))""".stripMargin
+        |def main: IO[Unit] = flatMap(printLine(first(demo)), ignored -> printLine(second(demo)))""".stripMargin
     ).asserting(_ shouldBe "first\nsecond")
   }
 
@@ -427,11 +427,11 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |import eliot.lang.Pair
         |
         |def step: {State[String], Console} String =
-        |   flatMap(println("running step"),
+        |   flatMap(printLine("running step"),
         |      ignored -> flatMap(getState, old -> flatMap(putState("done"), ignored2 -> pure(old))))
         |
         |def main: IO[Unit] = flatMap(runState(step, "start"),
-        |   p -> flatMap(println(first(p)), ignored -> println(second(p))))""".stripMargin
+        |   p -> flatMap(printLine(first(p)), ignored -> printLine(second(p))))""".stripMargin
     ).asserting(_ shouldBe "running step\nstart\ndone")
   }
 
@@ -471,8 +471,8 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
           |   runId(runState(runAbort(modifyThenAbort), "initial"))
           |
           |def main: IO[Unit] = flatMap(
-          |   println(foldOption(first(stateSurvives), "<no value>", s -> s)),
-          |   ignored -> println(second(stateSurvives)))""".stripMargin
+          |   printLine(foldOption(first(stateSurvives), "<no value>", s -> s)),
+          |   ignored -> printLine(second(stateSurvives)))""".stripMargin
     ).asserting(_ shouldBe "<no value>\nmodified")
   }
 
@@ -486,7 +486,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
           |def stateDiscarded: Option[Pair[String, String]] =
           |   runId(runAbort(runState(modifyThenAbort, "initial")))
           |
-          |def main: IO[Unit] = println(foldOption(stateDiscarded, "<no state>", p -> second(p)))""".stripMargin
+          |def main: IO[Unit] = printLine(foldOption(stateDiscarded, "<no state>", p -> second(p)))""".stripMargin
     ).asserting(_ shouldBe "<no state>")
   }
 
@@ -498,21 +498,21 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
     compileAndRun(
       """import eliot.effect.Console
         |def main: IO[Unit] = {
-        |  println("first")
-        |  println("second")
-        |  println("third")
+        |  printLine("first")
+        |  printLine("second")
+        |  printLine("third")
         |}""".stripMargin
     ).asserting(_ shouldBe "first\nsecond\nthird")
   }
 
   // A `val` binds the *carried* result of an effectful step (here `readLine`), so the body sees the plain value; the
-  // block lowers to `flatMap(readLine, line -> println(line))`.
+  // block lowers to `flatMap(readLine, line -> printLine(line))`.
   "a val binding an effectful result" should "bind the carried value and use it" in {
     compileAndRun(
       """import eliot.effect.Console
         |def echo: {Console} Unit = {
         |  val line = readLine
-        |  println(line)
+        |  printLine(line)
         |}
         |
         |def main: IO[Unit] = echo""".stripMargin,
@@ -529,8 +529,8 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def main: IO[Unit] = {
         |  val msg = greeting
-        |  println(msg)
-        |  println(msg)
+        |  printLine(msg)
+        |  printLine(msg)
         |}""".stripMargin
     ).asserting(_ shouldBe "Hi\nHi")
   }
@@ -543,8 +543,8 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |def main: IO[Unit] = {
         |  val label = "echo:"
         |  val line = readLine
-        |  println(label)
-        |  println(line)
+        |  printLine(label)
+        |  printLine(line)
         |}""".stripMargin,
       stdin = "hello\n"
     ).asserting(_ shouldBe "echo:\nhello")
@@ -567,7 +567,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |}
         |
         |def main: IO[Unit] = flatMap(runState(swap("after"), "before"),
-        |   p -> flatMap(println(first(p)), ignored -> println(second(p))))""".stripMargin
+        |   p -> flatMap(printLine(first(p)), ignored -> printLine(second(p))))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
@@ -586,7 +586,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |  val result: Box[String] = Box("Hello")
         |    .map(_ -> "Earth!")
         |    .as("World!")
-        |  println(content(result))
+        |  printLine(content(result))
         |}""".stripMargin
     ).asserting(_ shouldBe "World!")
   }
@@ -608,14 +608,14 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |}
         |
         |def rename(next: String): {Console, State[String]} Unit = {
-        |  println("renaming the account...")
+        |  printLine("renaming the account...")
         |  val previous = swap(next)
-        |  println(previous)
+        |  printLine(previous)
         |}
         |
         |def main: IO[Unit] = {
         |  val outcome = runState(rename("after"), "before")
-        |  println(second(outcome))
+        |  printLine(second(outcome))
         |}""".stripMargin
     ).asserting(_ shouldBe "renaming the account...\nbefore\nafter")
   }
@@ -629,7 +629,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |    val inner = "deep"
         |    inner
         |  }
-        |  println(x)
+        |  printLine(x)
         |}""".stripMargin
     ).asserting(_ shouldBe "deep")
   }
@@ -640,7 +640,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
     compileForErrors(
       """import eliot.effect.Console
         |def main: IO[Unit] = {
-        |  println("x")
+        |  printLine("x")
         |  val leftover = "oops"
         |}""".stripMargin
     ).asserting(_ should include("A block must end in an expression, not a binding."))
@@ -659,7 +659,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |   def show(a: Hello): String = "Hello World!"
         |}
         |
-        |def main: IO[Unit] = println(show(Hello("World")))""".stripMargin
+        |def main: IO[Unit] = printLine(show(Hello("World")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
@@ -678,7 +678,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def showAnything[A ~ Show](thing: A): String = show(thing)
         |
-        |def main: IO[Unit] = println(showAnything(Hello("World")))""".stripMargin
+        |def main: IO[Unit] = printLine(showAnything(Hello("World")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
@@ -699,7 +699,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |  def show(box: Box[A]): String = show(content(box))
         |}
         |
-        |def main: IO[Unit] = println(show(Box("Hello World!")))""".stripMargin
+        |def main: IO[Unit] = printLine(show(Box("Hello World!")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
@@ -720,7 +720,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |   def handle(value: Name, param: MagicType): String = "Hello"
         |}
         |
-        |def main: IO[Unit] = println(handle(Name("Johnny"), "Ni"))""".stripMargin
+        |def main: IO[Unit] = printLine(handle(Name("Johnny"), "Ni"))""".stripMargin
     ).asserting(_ shouldBe "Hello")
   }
 
@@ -729,7 +729,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
       """import eliot.effect.Console
         |def hello[I: BigInteger]: String = "Hello World!"
         |
-        |def main: IO[Unit] = println(hello[1])""".stripMargin
+        |def main: IO[Unit] = printLine(hello[1])""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
@@ -743,14 +743,14 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |  case Just(v) -> v
         |}
         |
-        |def main: IO[Unit] = println(describe(Just("hello")))""".stripMargin
+        |def main: IO[Unit] = printLine(describe(Just("hello")))""".stripMargin
     ).asserting(_ shouldBe "hello")
   }
 
   "operators" should "evaluate infix operators with correct associativity" in {
     compileAndRun(
       """import eliot.effect.Console
-        |def main: IO[Unit] = println(content(Bool("Hello") | Bool("World") | Bool("!")))
+        |def main: IO[Unit] = printLine(content(Bool("Hello") | Bool("World") | Bool("!")))
         |
         |data Bool(content: String)
         |
@@ -778,7 +778,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |infix def or(s1: String, s2: String): String = s1
         |
-        |def main: IO[Unit] = println(something(Else) or greet(Goodbye))""".stripMargin
+        |def main: IO[Unit] = printLine(something(Else) or greet(Goodbye))""".stripMargin
     ).asserting(_ shouldBe "Else!")
   }
 
@@ -789,7 +789,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def someFunction[I: BigInteger](arg: String): Box[I.inc] = Box[3](arg)
         |
-        |def main: IO[Unit] = println(content(someFunction[2]("Hello World!")))""".stripMargin
+        |def main: IO[Unit] = printLine(content(someFunction[2]("Hello World!")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
@@ -802,7 +802,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def stringBoxWithContent: stringBox = Box("Hello World!")
         |
-        |def main: IO[Unit] = println(content(stringBoxWithContent))""".stripMargin
+        |def main: IO[Unit] = printLine(content(stringBoxWithContent))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
@@ -818,7 +818,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |   case _            -> "<not a person>"
         |}
         |
-        |def main: IO[Unit] = println(personName(Person["John"]))""".stripMargin
+        |def main: IO[Unit] = printLine(personName(Person["John"]))""".stripMargin
     ).asserting(_ shouldBe "John")
   }
 
@@ -837,14 +837,14 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
         |
         |def logic: Box[String] = Box("Hello").filter("Expr").map(_ -> "Earth!").as("World!")
         |
-        |def main: IO[Unit] = println(logic.content)""".stripMargin
+        |def main: IO[Unit] = printLine(logic.content)""".stripMargin
     ).asserting(_ shouldBe "World!")
   }
 
   "unicode" should "support unicode operator names" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = println(<===>)
+def main: IO[Unit] = printLine(<===>)
         |
         |def <===>: String = "Hello World!"""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
@@ -853,28 +853,28 @@ def main: IO[Unit] = println(<===>)
   "integer addition" should "compute and print a sum at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = println(intToString(3 + 4))""".stripMargin
+def main: IO[Unit] = printLine(intToString(3 + 4))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
   "integer subtraction" should "compute and print a difference at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = println(intToString(10 - 4))""".stripMargin
+def main: IO[Unit] = printLine(intToString(10 - 4))""".stripMargin
     ).asserting(_ shouldBe "6")
   }
 
   "integer arithmetic" should "respect operator precedence at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = println(intToString(2 + 3 * 4))""".stripMargin
+def main: IO[Unit] = printLine(intToString(2 + 3 * 4))""".stripMargin
     ).asserting(_ shouldBe "14")
   }
 
   it should "compute a negative result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = println(intToString(3 - 10))""".stripMargin
+def main: IO[Unit] = printLine(intToString(3 - 10))""".stripMargin
     ).asserting(_ shouldBe "-7")
   }
 
@@ -883,7 +883,7 @@ def main: IO[Unit] = println(intToString(3 - 10))""".stripMargin
   it should "carry a byte-operand sum into a wider result representation at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = println(intToString(100 + 100))""".stripMargin
+def main: IO[Unit] = printLine(intToString(100 + 100))""".stripMargin
     ).asserting(_ shouldBe "200")
   }
 
@@ -892,7 +892,7 @@ def main: IO[Unit] = println(intToString(100 + 100))""".stripMargin
   it should "narrow a short-operand difference into a byte result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
+def main: IO[Unit] = printLine(intToString(1000 - 999))""".stripMargin
     ).asserting(_ shouldBe "1")
   }
 
@@ -901,7 +901,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |def widened: Int[0, 1000] = 7
         |
-        |def main: IO[Unit] = println(intToString(widened))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(widened))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
@@ -910,7 +910,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |def small: Byte = 42
         |
-        |def main: IO[Unit] = println(intToString(small))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(small))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
@@ -921,7 +921,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |data Counter(n: Int)
         |
-        |def main: IO[Unit] = println(intToString(n(Counter(42))))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(n(Counter(42))))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
@@ -932,7 +932,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |
         |def field(c: Counter[7, 7]): Int[7, 7] = c match { case Counter(x) -> x }
         |
-        |def main: IO[Unit] = println(intToString(field(Counter(7))))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(field(Counter(7))))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
@@ -948,7 +948,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |   case _               -> "<other>"
         |}
         |
-        |def main: IO[Unit] = println(describe(Counter[0, 255]))""".stripMargin
+        |def main: IO[Unit] = printLine(describe(Counter[0, 255]))""".stripMargin
     ).asserting(_ shouldBe "counter")
   }
 
@@ -957,7 +957,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |def total: Int[0, 1000] = 3 + 4
         |
-        |def main: IO[Unit] = println(intToString(total))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
@@ -968,7 +968,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |def double(x: Int): Int = x + x
         |
-        |def main: IO[Unit] = println(intToString(double(21)))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(double(21)))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
@@ -979,7 +979,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |
         |def mk(v: Int): Counter = Counter(v)
         |
-        |def main: IO[Unit] = println(intToString(n(mk(42))))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(n(mk(42))))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
@@ -990,7 +990,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |def big: Int[0, 70000] = 70000
         |
-        |def main: IO[Unit] = println(intToString(big))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(big))""".stripMargin
     ).asserting(_ shouldBe "70000")
   }
 
@@ -999,7 +999,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |def product: Int[0, 1000000] = 1000 * 1000
         |
-        |def main: IO[Unit] = println(intToString(product))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(product))""".stripMargin
     ).asserting(_ shouldBe "1000000")
   }
 
@@ -1008,7 +1008,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |def huge: Int[0, 5000000000] = 5000000000
         |
-        |def main: IO[Unit] = println(intToString(huge))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(huge))""".stripMargin
     ).asserting(_ shouldBe "5000000000")
   }
 
@@ -1021,7 +1021,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |def a: Int[0, 3] = 3
         |def b: Int[0, 5] = 5
         |
-        |def main: IO[Unit] = println(intToString(id(a) + id(b)))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(id(a) + id(b)))""".stripMargin
     ).asserting(_ shouldBe "8")
   }
 
@@ -1034,7 +1034,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |def a: Int[0, 3] = 3
         |def big: Int[0, 5000000000] = 5000000000
         |
-        |def main: IO[Unit] = println(intToString(id(a) + id(big)))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(id(a) + id(big)))""".stripMargin
     ).asserting(_ shouldBe "5000000003")
   }
 
@@ -1049,7 +1049,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |  case Pair(x, y) -> x
         |}
         |
-        |def main: IO[Unit] = println(first(Pair("hello", "world")))""".stripMargin
+        |def main: IO[Unit] = printLine(first(Pair("hello", "world")))""".stripMargin
     ).asserting(_ shouldBe "hello")
   }
 
@@ -1064,7 +1064,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |  case Pair(x, y) -> y
         |}
         |
-        |def main: IO[Unit] = println(second(Pair("hello", "world")))""".stripMargin
+        |def main: IO[Unit] = printLine(second(Pair("hello", "world")))""".stripMargin
     ).asserting(_ shouldBe "world")
   }
 
@@ -1079,7 +1079,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |  case Triple(x, y, z) -> y
         |}
         |
-        |def main: IO[Unit] = println(middle(Triple("one", "two", "three")))""".stripMargin
+        |def main: IO[Unit] = printLine(middle(Triple("one", "two", "three")))""".stripMargin
     ).asserting(_ shouldBe "two")
   }
 
@@ -1093,7 +1093,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |
         |def make(s: String): Function[Unit, String] = ignore -> firstOf(s, s)
         |
-        |def main: IO[Unit] = println(apply(make("captured-twice"), unit))""".stripMargin
+        |def main: IO[Unit] = printLine(apply(make("captured-twice"), unit))""".stripMargin
     ).asserting(_ shouldBe "captured-twice")
   }
 
@@ -1108,7 +1108,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |  case IntPair(s, l) -> s + l
         |}
         |
-        |def main: IO[Unit] = println(intToString(sum(IntPair(200, 5000000000))))""".stripMargin
+        |def main: IO[Unit] = printLine(intToString(sum(IntPair(200, 5000000000))))""".stripMargin
     ).asserting(_ shouldBe "5000000200")
   }
 
@@ -1128,7 +1128,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |  case Pair(x, y) -> y
         |}
         |
-        |def main: IO[Unit] = println(secondOf(Pair(Box("boxed"), secondOf(Pair("c", "plain")))))""".stripMargin
+        |def main: IO[Unit] = printLine(secondOf(Pair(Box("boxed"), secondOf(Pair("c", "plain")))))""".stripMargin
     ).asserting(_ shouldBe "plain")
   }
 
@@ -1141,7 +1141,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |data Tagged[A](tag: String, value: A)
         |
-        |def main: IO[Unit] = println(value(value(Tagged("outer", Tagged("inner", "deep")))))""".stripMargin
+        |def main: IO[Unit] = printLine(value(value(Tagged("outer", Tagged("inner", "deep")))))""".stripMargin
     ).asserting(_ shouldBe "deep")
   }
 
@@ -1159,7 +1159,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
         |  case Red -> "red"
         |}
         |
-        |def main: IO[Unit] = println(name(Red))""".stripMargin
+        |def main: IO[Unit] = printLine(name(Red))""".stripMargin
     ).asserting(_ shouldBe "red")
   }
 
@@ -1171,7 +1171,7 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
       """import eliot.effect.Console
         |data Box[A] = Wrap(item: A)
         |
-        |def main: IO[Unit] = println(item(Wrap("wrapped")))""".stripMargin
+        |def main: IO[Unit] = printLine(item(Wrap("wrapped")))""".stripMargin
     ).asserting(_ shouldBe "wrapped")
   }
 }
