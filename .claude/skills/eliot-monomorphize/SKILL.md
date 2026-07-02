@@ -23,14 +23,15 @@ monomorphize/
 │   ├── MonomorphicEvaluator.scala    (NbeEvaluator over reduced MonomorphicExpression; DROPS erased type args)
 │   └── Quoter.scala            (strict SemValue → GroundValue read-back; fails loudly on stuck forms)
 ├── check/
-│   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 3 collaborators)
+│   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 4 collaborators)
 │   ├── CheckIO.scala           (StateT[CompilerIO, CheckState, *])
 │   ├── CheckState.scala        (env, unifier, bindingCache, abilityResolutions, typeStackValueParams, sawGuardReturn)
 │   ├── SemExpression.scala     (checker output ADT; type slots are SemValue, not GroundValue)
 │   ├── TypeStackLoop.scala     (uniform top-down fold + the D1 post-drain pipeline + defaults + postcondition)
 │   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; fold selection; reduceSourced)
 │   ├── CalculatedReturnResolver.scala (D7 back-edge + W2b guard discharge)
-│   └── CarrierKindChecker.scala (D8 HKT kind seeding + verification)
+│   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification)
+│   └── AbilityResolver.scala   (ability-ref collection + resolve-abilities saturation pass)
 ├── refine/
 │   └── RefinementSolver.scala  (D4 refinement lattice: Coerce widening + Combine join + upper-bounds)
 ├── unify/
@@ -236,7 +237,7 @@ A tiered structure (there is no external design doc — it is described here and
 ### Bidirectional checker & its collaborators
 
 `Checker` is the **definitional-equality core only**: `check`/`infer`/`applyInferred`/`peelLams`/`instantiatePolymorphic`
-plus the shared primitives (`force`, `freshMeta`, `doUnify`, `evalExpr`, `ensureBinding`, `prefetchBindings`). Three
+plus the shared primitives (`force`, `freshMeta`, `doUnify`, `evalExpr`, `ensureBinding`, `prefetchBindings`). Four
 non-equality concerns live in collaborator modules, each constructed at the top of `Checker` with **exactly the checker
 primitives it needs** (that narrow surface is the module boundary), and invoked from named hook points:
 
@@ -245,6 +246,7 @@ primitives it needs** (that narrow surface is the module boundary), and invoked 
 | `refine/RefinementSolver` — `checker.solver` (D4) | refinement lattice: `Coerce` widening + `Combine` join + upper-bounds | `Checker.check` → `unifyOrCoerce`; `TypeStackLoop` post-drain `resolve-combines` / `upper-bounds` |
 | `check/CalculatedReturnResolver` — `checker.calcReturns` (D7 + W2b) | non-local inference (fill a bare return from the callee's mono body) **and** effectful-guard discharge | `Checker.infer`/`applyInferred`; `TypeStackLoop` `installReturnMeta` / `dischargeGuardedSignature` |
 | `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` `carrier-kinds` pass → `verifyCarrierKinds` |
+| `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl; inject associated types) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain `resolve-abilities` pass → `resolveAbilities` |
 
 Per-meta data (combinable / candidates / carrier-kind / upper-bounds / abstract-assoc) all lives in the **single**
 `MetaRole` map on the `Unifier` (D2); the collaborators own the *algorithm*, not a private store.

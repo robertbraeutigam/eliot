@@ -2,12 +2,12 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -117,7 +117,7 @@ class TypeStackLoop(
 
       // Collect all ability-qualified value references from the output trees (runtime + signature levels). These
       // drive the saturation tier of the post-drain pipeline below.
-      abilityRefs   = (runtime.toSeq ++ levelExprs).flatMap(collectAbilityRefs)
+      abilityRefs   = (runtime.toSeq ++ levelExprs).flatMap(checker.abilityResolver.collectAbilityRefs)
 
       // Post-drain resolution pipeline (D1): the named, tiered sequence that settles every metavariable —
       // saturation fixed-point (drain + ability/Combine resolution), finalization (upper-bounds, carrier kinds,
@@ -260,7 +260,10 @@ class TypeStackLoop(
     * [[saturateToFixedPoint]]).
     */
   private val pipeline: List[PostDrainPass] = List(
-    PostDrainPass.Saturation("resolve-abilities", ctx => resolveAbilities(ctx.abilityRefs, ctx.paramConstraints)),
+    PostDrainPass.Saturation(
+      "resolve-abilities",
+      ctx => checker.abilityResolver.resolveAbilities(ctx.abilityRefs, ctx.paramConstraints)
+    ),
     PostDrainPass.Saturation("resolve-combines", _ => checker.solver.resolveCombines),
     PostDrainPass.Finalization("upper-bounds", _ => checker.solver.resolveUpperBounds),
     PostDrainPass.Finalization("carrier-kinds", _ => checker.carriers.verifyCarrierKinds),
@@ -302,22 +305,6 @@ class TypeStackLoop(
     loop
   }
 
-  /** Saturation pass: try to resolve every still-unresolved ability reference once. Returns `true` iff at least one
-    * ability newly resolved this call — a resolution records the impl and injects its associated-type values into
-    * their standing metas, which the next round's drain propagates.
-    */
-  private def resolveAbilities(
-      allRefs: Seq[AbilityRef],
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
-  ): CheckIO[Boolean] =
-    for {
-      state      <- get
-      unresolved  = allRefs.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
-      progressed <- unresolved.foldLeftM(false) { (acc, ref) =>
-                      tryResolveOne(ref, paramConstraints).map(_ || acc)
-                    }
-    } yield progressed
-
   /** Postcondition of the post-drain pipeline (D1): every metavariable is either solved or a protected
     * [[MetaRole.AbstractAssoc]] placeholder. The finalizer ([[defaultUnsolvedMetas]]) makes this hold by construction,
     * so it never fires in normal operation; it is the *compiler-bug* backstop for D2's per-role finalization — were a
@@ -342,136 +329,6 @@ class TypeStackLoop(
           )
         )
     }
-
-  /** Walk a [[SemExpression]] tree and collect all ability-qualified [[SemExpression.ValueReference]] nodes with their
-    * current type arguments. Non-ability references and other shapes are skipped.
-    */
-  private def collectAbilityRefs(expr: Sourced[SemExpression]): Seq[AbilityRef] = {
-    def go(se: SemExpression): Seq[AbilityRef] = se.expression match {
-      case SemExpression.ValueReference(vfqn, typeArgs)        =>
-        vfqn.value.name.qualifier match {
-          case _: Qualifier.Ability => Seq((vfqn, typeArgs))
-          case _                    => Seq.empty
-        }
-      case SemExpression.FunctionApplication(target, argument) =>
-        go(target.value) ++ go(argument.value)
-      case SemExpression.FunctionLiteral(_, _, body)           =>
-        go(body.value)
-      case _                                                   => Seq.empty
-    }
-    go(expr.value)
-  }
-
-  /** Try to resolve a single ability reference. Returns `true` iff the reference got newly resolved this call.
-    *
-    *   - If the ref is covered by an in-scope parameter constraint (e.g. calling a method of `Foo[T]` inside a `[T]
-    *     with Foo[T]` context), the constraint's own type arguments are used — at monomorphization time they're already
-    *     instantiated to the caller's concrete types, whereas the reference's implicit metas won't be solved until
-    *     unification connects them. The constraint path is the direct way to get concrete args.
-    *   - Otherwise the ref's own type arguments are used.
-    *   - Quoting failure (still-unsolved metas) leaves the ref pending for the next iteration.
-    *   - `resolveAbility` returning `None` also leaves it pending — the ref will stay unresolved in the final
-    *     [[CheckState]] and [[PostDrainQuoter]] will emit it as an abstract reference.
-    */
-  private def tryResolveOne(
-      ref: AbilityRef,
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
-  ): CheckIO[Boolean] = {
-    val (abilityVfqn, refTypeArgs) = ref
-    abilityVfqn.value.name.qualifier match {
-      case Qualifier.Ability(abilityName) =>
-        for {
-          state      <- get
-          // The ability query must carry ONLY the ability-level type arguments. A method reference's own type args are
-          // `[abilityParams ++ methodParams]` (the ability's params are prepended to every method signature), so we
-          // slice off the method-level params, keeping the leading `abilityArity` (e.g. `flatMap` of `Monad[F[_]]`
-          // queries `Monad[F]`, not `Monad[F, A, B]`).
-          arity      <- abilityArity(abilityVfqn.value, abilityName)
-          refSliced   = refTypeArgs.take(arity)
-          refGroundE  = refSliced.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
-          // Prefer the reference's OWN type arguments once they are fully ground: they pin the exact implementation.
-          // This is essential when several constraints share one ability — e.g. `Dep[Database]` and `Dep[Logger]` in a
-          // single body are both `Dep`, so the by-name constraint lookup would always return the first and every `get`
-          // would mis-dispatch to it. The constraint path remains the fallback *while the ref's args are still unsolved
-          // metas* (its original rationale: at the use site the caller has already instantiated the constraint to
-          // concrete types, whereas the reference's implicit metas are solved only once unification connects them).
-          groundArgsE = refGroundE match {
-                          case Right(ground) => Right(ground)
-                          case Left(_)       =>
-                            state.findConstraintTypeArgs(paramConstraints, abilityName) match {
-                              case Some(cArgs) =>
-                                cArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
-                              case None        => refGroundE
-                            }
-                        }
-          progressed <- groundArgsE match {
-                          case Right(groundArgs) =>
-                            for {
-                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs, Platform.Runtime))
-                              stepped  <- resolved match {
-                                            case Some(impl) =>
-                                              for {
-                                                _ <- modify(_.recordAbilityResolution(abilityVfqn, impl))
-                                                _ <- injectForImpl(abilityName, impl._1, abilityVfqn)
-                                              } yield true
-                                            case None       => pure(false)
-                                          }
-                            } yield stepped
-                          case Left(_)           => pure(false)
-                        }
-        } yield progressed
-      case _                              => pure(false)
-    }
-  }
-
-  /** The number of ability-level type parameters of the ability owning `methodVfqn` — read off the ability *marker*'s
-    * signature (the synthetic value named after the ability, sharing the method's `Ability(name)` qualifier), whose
-    * leading generic binders are exactly the ability's parameters. Used to slice an ability method reference's full
-    * type args down to the ability-level prefix for the impl query. Falls back to `Int.MaxValue` (slice nothing) if the
-    * marker has no resolvable signature, preserving prior behaviour rather than mis-slicing.
-    */
-  private def abilityArity(methodVfqn: ValueFQN, abilityName: String): CheckIO[Int] = {
-    val markerFqn = ValueFQN(methodVfqn.moduleName, QualifiedName(abilityName, methodVfqn.name.qualifier))
-    liftF(getFact(OperatorResolvedValue.Key(markerFqn, platform))).map {
-      case Some(orv) =>
-        OperatorResolvedExpression.SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature)).binders.length
-      case None      => Int.MaxValue
-    }
-  }
-
-  /** For every abstract associated type of the given ability, unify its standing meta against the concrete impl's
-    * corresponding associated-type value (looked up via [[fetchBinding]]). Missing impl bindings are silently skipped —
-    * they were never in use, so no constraint is needed.
-    */
-  private def injectForImpl(
-      abilityName: String,
-      implFqn: ValueFQN,
-      source: Sourced[?]
-  ): CheckIO[Unit] =
-    for {
-      state  <- get
-      targets = state.unifier.metaRoles.toSeq.collect {
-                  case (rawId, MetaRole.AbstractAssoc(absFqn)) if absFqn.name.qualifier == Qualifier.Ability(abilityName) =>
-                    (absFqn, SemValue.MetaId(rawId))
-                }
-      _      <- targets.traverse_ { case (absFqn, metaId) =>
-                  val implAssocFqn = ValueFQN(implFqn.moduleName, QualifiedName(absFqn.name.name, implFqn.name.qualifier))
-                  liftF(fetchBinding(implAssocFqn)).flatMap {
-                    case None      => pure(())
-                    case Some(sem) =>
-                      modify(s =>
-                        s.withUnifier(
-                          s.unifier
-                            .unify(
-                              VMeta(metaId, Spine.SNil),
-                              sem,
-                              source.as(s"Associated type '${absFqn.name.name}' mismatch.")
-                            )
-                        )
-                      )
-                  }
-                }
-    } yield ()
 
   /** Compiler-track carrier pinning (CP-D): the compiler platform *is* the runner, so a compile-time value's own
     * `{Throw[E]}` effect carrier has no runtime carrier to infer — it is fixed to the compiler platform's `Throw`
@@ -640,7 +497,7 @@ object TypeStackLoop {
   ): CompilerIO[Result] =
     new TypeStackLoop(fetchBinding, resolveAbility, platform).process(typeArguments, resolvedValue)
 
-  private type AbilityRef = (Sourced[ValueFQN], Seq[SemValue])
+  private type AbilityRef = AbilityResolver.AbilityRef
 
   /** The `Throw[E, F[_]]` effect ability. Its compile-time carrier is `Either[E]` — the fact the compiler-track carrier
     * pinning ([[pinCompilerCarriers]]) realizes.

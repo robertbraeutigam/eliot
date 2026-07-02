@@ -83,7 +83,7 @@ Architecture / cornerstones:
 | G1 | Two-pool gap: leaf contributors read runtime-pool facts unconditionally while their `ContributedBinding` serves both platform merges | **Fixed** in `b88a0c0f`: `DeclaringPool` membership probe, compiler-pool fallback, `CompilerOnlyDataNativesTest` |
 | G2 | Stale scaladoc references to deleted `docs/monomorphize-d1-design.md`, `docs/effectful-signatures.md`, `docs/block-syntax.md` | **Fixed** in `b88a0c0f` |
 | G3 | `eliot-monomorphize` skill significantly stale (pre-rework: `forceAndConst`, `VMeta.expected`, `nameLevels`, no supplier/merger, no tracks) | **Fixed** in `b88a0c0f`: rewritten against sources |
-| C1 | `TypeStackLoop` god-object (~680 lines): inlines ability resolution (~200 lines) and compiler-track carrier pinning beside the fold + pipeline runner | **Open** — §3.1 |
+| C1 | `TypeStackLoop` god-object (~680 lines): inlines ability resolution (~200 lines) and compiler-track carrier pinning beside the fold + pipeline runner | **Partly fixed**: ability resolution extracted to `check/AbilityResolver` (the fourth collaborator, §3.1 landed); compiler-track carrier pinning remains inline (folds into §3.2's `Track` seam) |
 | C2 | Platform leaked into the checking core as ~6 scattered `platform match` conditionals; the `resolveAbility` seam's third parameter is hardcoded `Platform.Runtime` at some call sites and ignored at others | **Open** — §3.2 |
 | C3 | `CalculatedReturnResolver` hosts two weakly-related concerns (calc-return back-edge + W2b guard discharge); guard recognition makes `Either` a language-reserved type by FQN | **Open** — §3.3, conditional |
 | E1 | Cornerstone erosion, "no generic parameters": three peripheral binder-structure readers exist | **Accepted & documented** — hard rule restated two-part in the skill |
@@ -96,23 +96,25 @@ pattern (D4/D7/D8) are pulling their weight.
 
 ## 3. Suggested implementation steps (open work, in recommended order)
 
-### 3.1 Extract `check/AbilityResolver` (medium, behavior-preserving)
+### 3.1 Extract `check/AbilityResolver` (medium, behavior-preserving) — **DONE**
 
-Make ability resolution the fourth collaborator, symmetrical with `solver`/`calcReturns`/
+Made ability resolution the fourth collaborator, symmetrical with `solver`/`calcReturns`/
 `carriers`:
 
-1. Move `collectAbilityRefs`, `tryResolveOne`, `abilityArity`, and `injectForImpl` from
-   `TypeStackLoop` into a new `check/AbilityResolver`, constructed with the primitives it
-   actually uses (`resolveAbility`, `fetchBinding`, `platform`; state access stays via
-   `CheckIO`).
-2. `TypeStackLoop`'s `resolve-abilities` saturation pass delegates to it; `PassContext` is
-   unchanged (the pass already closes only over `abilityRefs` + `paramConstraints`).
-3. Pure move — no behavior change. Pinned by the existing end-to-end cases
-   (`CompilerAbilityResolutionTest`, the ability/`Dep` cases in `MonomorphicTypeCheckTest`);
-   extend those, do not add mock-state unit tests.
-4. Optional follow-up: replace the per-reference `abilityArity` marker read with a small
-   `AbilityArity` fact (or a field forwarded on an existing ability fact, per the lean-fact-flow
-   rule) computed once per ability.
+1. **Done.** Moved `collectAbilityRefs`, the `resolveAbilities` saturation-round body,
+   `tryResolveOne`, `abilityArity`, and `injectForImpl` from `TypeStackLoop` into
+   `check/AbilityResolver`, constructed with the primitives it actually uses (`resolveAbility`,
+   `fetchBinding`, `platform`; state access stays via `CheckIO`). The `AbilityRef` type alias
+   moved to its companion. `AbilityResolver` is built in `Checker` (`checker.abilityResolver`),
+   exactly like `solver`/`calcReturns`/`carriers`.
+2. **Done.** `TypeStackLoop.processIO` seeds refs via `checker.abilityResolver.collectAbilityRefs`
+   and the `resolve-abilities` saturation pass delegates to
+   `checker.abilityResolver.resolveAbilities`; `PassContext` is unchanged.
+3. **Done.** Pure move — no behavior change. The whole suite is green (`CompilerAbilityResolutionTest`,
+   the ability/`Dep`/higher-kinded cases in `MonomorphicTypeCheckTest`); no mock-state unit tests added.
+4. Optional follow-up (**not done**): replace the per-reference `abilityArity` marker read with a
+   small `AbilityArity` fact (or a field forwarded on an existing ability fact, per the
+   lean-fact-flow rule) computed once per ability.
 
 ### 3.2 Track strategy object (medium)
 

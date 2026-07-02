@@ -54,6 +54,15 @@ class Checker(
   private[check] val calcReturns: CalculatedReturnResolver =
     new CalculatedReturnResolver(force, freshMeta, platform)
 
+  /** The ability-resolution saturation concern: discovering ability-qualified references and resolving each to its
+    * concrete impl. A non-equality *saturation* pass, kept out of this checker's definitional equality concern. Called
+    * only from [[TypeStackLoop]] (`processIO` seeds refs via `collectAbilityRefs`; the `resolve-abilities` post-drain
+    * pass drives `resolveAbilities`). Constructed with the two CompilerIO primitives it needs plus the platform. See
+    * [[AbilityResolver]].
+    */
+  private[check] val abilityResolver: AbilityResolver =
+    new AbilityResolver(resolveAbility, fetchBinding, platform)
+
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed.
     *
     * References to abstract associated ability types (`type X` inside `ability ...`, no body) are rewritten to a fresh
