@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
-import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.MetaId
+import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
@@ -11,14 +11,26 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Immutable state for the bidirectional type checker.
   *
+  * The checker keeps the **typing context Γ** and the **evaluation environment ρ** separate (the textbook NbE-checker
+  * shape), instead of overloading one `Env` for both:
+  *   - [[gamma]] (Γ) maps a parameter name to its **type** — read by [[Checker.infer]]'s `ParameterReference`.
+  *   - [[rho]] (ρ) maps a parameter name to its **value** for the evaluator: an erased type-stack parameter to its
+  *     concrete value, a runtime value parameter to a **fresh neutral** standing for its not-yet-known runtime value
+  *     (so a dependent type stays abstract in that parameter — genuine dependent Π), a peeled instantiation meta to the
+  *     meta itself.
+  *
+  * The two grow in lockstep (every `bind*` extends both), so their de Bruijn levels stay in sync.
+  *
   * Per-metavariable metadata (combinable / candidates / combine-resolved / upper-bounds / carrier-kinds /
   * abstract-associated-type placeholders) is **not** held here as separate side-tables (D2): it lives in a single
   * [[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole]] map on the [[unifier]], and the `record*` methods
-  * below delegate into it. This leaves `CheckState` with just the environment, the unifier, the binding cache, the
-  * ability resolutions, and the type-stack-value-param name set.
+  * below delegate into it.
   *
-  * @param env
-  *   The current de Bruijn level environment (bindings + names)
+  * @param gamma
+  *   Γ: the typing context — parameter name → its type (de Bruijn level environment).
+  * @param rho
+  *   ρ: the evaluation environment — parameter name → its value (de Bruijn level environment); consumed by the
+  *   [[Evaluator]].
   * @param unifier
   *   The unifier (carries meta store, depth, postponed, errors, and the per-meta role map)
   * @param bindingCache
@@ -34,11 +46,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   against the undischarged carrier. Use-Site Verification: the guard is still enforced at every concrete instance.
   */
 case class CheckState(
-    env: Env,
+    gamma: Env,
+    rho: Env,
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
-    typeStackValueParams: Set[String],
     sawGuardReturn: Boolean = false
 ) {
 
@@ -55,17 +67,33 @@ case class CheckState(
   def recordUpperBound(id: MetaId, expected: SemValue, context: Sourced[String]): CheckState =
     withUnifier(unifier.recordUpperBound(id, expected, context))
 
-  /** Bind a parameter with the given name and type, extending the env. */
-  def bind(name: String, value: SemValue): CheckState =
-    copy(env = env.bind(name, value))
-
-  /** Bind an erased type-stack parameter to its concrete value and record its name. Unlike a runtime value parameter
-    * (whose env binding is its *type*), a type-stack parameter's env binding is its *value* — so when it is referenced
-    * in value position the checker must recover its type from the value, not return the value as a type. The recorded
-    * set distinguishes the two; see [[Checker.infer]]'s `ParameterReference` case.
+  /** The neutral a runtime value parameter binds to in ρ: a fresh rigid variable at the current ρ level, standing for
+    * the parameter's not-yet-known runtime value. Read *before* [[bindValueParam]] so the checker can substitute it into
+    * a dependent codomain (`codomain(neutral)`, genuine dependent Π).
     */
-  def bindTypeStackParam(name: String, value: SemValue): CheckState =
-    copy(env = env.bind(name, value), typeStackValueParams = typeStackValueParams + name)
+  def paramNeutral(name: String): SemValue =
+    VNeutral(NeutralHead.VVar(rho.level, name), Spine.SNil)
+
+  /** Bind a runtime value parameter: its declared type in Γ and a fresh neutral standing for its runtime value in ρ. A
+    * value-position reference reads the type from Γ; the evaluator reads the neutral from ρ, so a dependent type stays
+    * abstract in the parameter.
+    */
+  def bindValueParam(name: String, tpe: SemValue): CheckState =
+    copy(gamma = gamma.bind(name, tpe), rho = rho.bind(name, paramNeutral(name)))
+
+  /** Bind an erased type-stack parameter: its type in Γ and its evaluable value in ρ. Both are computed by the caller
+    * from the ground argument ([[TypeStackLoop.applyTypeArgs]]) — Γ from the argument's declared type, ρ from its
+    * `groundToSem` form (so the reification gate and type-level code see a data value as its constructor `VTopDef`).
+    */
+  def bindTypeStackParam(name: String, tpe: SemValue, value: SemValue): CheckState =
+    copy(gamma = gamma.bind(name, tpe), rho = rho.bind(name, value))
+
+  /** Bind a peeled instantiation meta (a leftover type parameter): the meta in both Γ and ρ — its value is the meta
+    * (the evaluator keeps it abstract until unification solves it) and, referenced in value position, its type slot is
+    * the meta too (it resolves through the metastore).
+    */
+  def bindTypeParam(name: String, meta: SemValue): CheckState =
+    copy(gamma = gamma.bind(name, meta), rho = rho.bind(name, meta))
 
   def withUnifier(u: Unifier): CheckState = copy(unifier = u)
 
@@ -86,7 +114,7 @@ case class CheckState(
     new Evaluator(vfqn => bindingCache.getOrElse(vfqn, None))
 
   /** Look up the first in-scope parameter constraint that targets the given ability name and return its type arguments
-    * evaluated against this state's env.
+    * evaluated against ρ.
     *
     * Used by the ability-resolution loop for refs covered by a constraint: the constraint's type arguments are the
     * caller's already-monomorphized values, so they're directly groundable — the reference's own implicit metas aren't,
@@ -98,7 +126,7 @@ case class CheckState(
   ): Option[Seq[SemValue]] =
     paramConstraints.collectFirst(Function.unlift { (_, constraints) =>
       constraints.find(_.abilityFQN.abilityName == abilityName).map { c =>
-        c.typeArgs.map(arg => makeEvaluator.eval(env, arg))
+        c.typeArgs.map(arg => makeEvaluator.eval(rho, arg))
       }
     })
 }
@@ -106,9 +134,9 @@ case class CheckState(
 object CheckState {
   def initial: CheckState = CheckState(
     Env.empty,
+    Env.empty,
     Unifier.create(MetaStore.empty, 0),
     Map.empty,
-    Map.empty,
-    Set.empty
+    Map.empty
   )
 }

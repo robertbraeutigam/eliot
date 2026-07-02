@@ -78,19 +78,11 @@ class TypeStackLoop(
       checkResult            <- track.settleReturnPosition(checker, instantiated, calcReturn, sawGuard, resolvedValue)
       (checkSig, returnMeta)  = checkResult
 
-      // Capture the env of erased type-stack parameters now, before `check` binds the runtime value parameters as
-      // `FunctionLiteral` binders. Each erased explicit type arg is converted from its `VConst(ground)` form to the
-      // evaluable `groundToSem` form (so a data value reads as a constructor `VTopDef`, which accessors / `match` can
-      // reduce); phantom-parameter metas are kept as-is and resolve through the final metastore at materialisation time.
-      // This env seeds the reification gate in `PostDrainQuoter`.
-      monoEnvState <- get
-      monoEnv       = Env(
-                        monoEnvState.env.bindings.map {
-                          case VConst(g) => Evaluator.groundToSem(g)
-                          case other     => other
-                        },
-                        monoEnvState.env.names
-                      )
+      // Capture ρ now, before `check` binds the runtime value parameters as `FunctionLiteral` binders — so ρ holds only
+      // the erased type-stack parameters (each already in its evaluable `groundToSem` form, bound at `applyTypeArgs`
+      // time) and the phantom-parameter metas. This is exactly the env that seeds the reification gate in
+      // `PostDrainQuoter`; no post-hoc `VConst → groundToSem` rewrite is needed.
+      monoEnv <- inspect(_.rho)
 
       // Check runtime body if present — produces SemExpression with SemValue slots. An `opaque` value presents as
       // body-less here (`checkingRuntime`), so its body is neither checked nor emitted during checking; post-checking
@@ -353,12 +345,22 @@ class TypeStackLoop(
     def loop(sig: SemValue, remaining: List[GroundValue]): CheckIO[SemValue] = remaining match {
       case Nil          => pure(sig)
       case head :: tail =>
-        val argVal = toSemArg(head)
+        // Three forms of one erased argument: `argVal` is applied to the signature closure (a value-level arg stays an
+        // inert `VConst`); `evalArg` is bound into ρ in the evaluable `groundToSem` form (a data value as its
+        // constructor `VTopDef`, which the reification gate and any type-level code can reduce); `argType` is bound into
+        // Γ as the argument's type — a *type* argument is its own type slot (types are values), a *value* argument
+        // contributes its declared `valueType`.
+        val argVal  = toSemArg(head)
+        val evalArg = Evaluator.groundToSem(head)
+        val argType = head.valueType match {
+          case GroundValue.Type => evalArg
+          case vt               => Evaluator.groundToSem(vt)
+        }
         for {
           forced <- checker.force(sig)
           result <- forced match {
                       case VLam(name, closure) =>
-                        modify(_.bindTypeStackParam(name, argVal)) >> loop(closure(argVal), tail)
+                        modify(_.bindTypeStackParam(name, argType, evalArg)) >> loop(closure(argVal), tail)
                       case _                   =>
                         modify(s => s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments."))))
                           .as(sig)

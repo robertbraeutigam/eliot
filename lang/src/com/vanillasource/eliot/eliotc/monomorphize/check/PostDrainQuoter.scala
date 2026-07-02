@@ -67,7 +67,7 @@ class PostDrainQuoter(
 
   /** Quote a sourced [[SemExpression]] tree to a sourced [[MonomorphicExpression]] tree, applying the staging gate. */
   def quoteSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] =
-    quoteSourcedIn(expr, Set.empty, monoEnv)
+    quoteSourcedIn(expr, monoEnv)
 
   /** Produce the **fully reduced** body of a compiler-platform value (CP-C step b — the compiler backend). A
     * compiler-track value is wholly compile-time, so — unlike the runtime track, whose body must stay structural for
@@ -128,27 +128,26 @@ class PostDrainQuoter(
 
   private def quoteSourcedIn(
       expr: Sourced[SemExpression],
-      runtimeParams: Set[String],
       evalEnv: Env
   ): CompilerIO[Sourced[MonomorphicExpression]] =
-    trySelectFold(expr, runtimeParams, evalEnv).getOrElse {
+    trySelectFold(expr, evalEnv).getOrElse {
       val node       = expr.value.expression
       val refs       = collectParamRefs(node)
       val hasErased  = refs.exists(erasedParams.contains)
-      val hasRuntime = refs.exists(runtimeParams.contains) || containsLambda(node)
+      val hasRuntime = refs.exists(isRuntimeParam(_, evalEnv)) || containsLambda(node)
       if (hasErased && !hasRuntime)
         tryMaterialise(expr, evalEnv).flatMap {
           case Some(mono) => mono.pure[CompilerIO]
           case None       =>
             node match {
-              case _: SemExpression.FunctionApplication => structuralQuote(expr, runtimeParams, evalEnv)
+              case _: SemExpression.FunctionApplication => structuralQuote(expr, evalEnv)
               case _                                    =>
                 compilerAbort(
                   expr.as("Value depends on a compile-time parameter but does not reduce to a constant.")
                 )
             }
         }
-      else structuralQuote(expr, runtimeParams, evalEnv)
+      else structuralQuote(expr, evalEnv)
     }
 
   /** Compile-time branch selection for the `Bool` eliminator `fold` (`WellKnownTypes.boolFoldFQN`) when its condition
@@ -169,13 +168,12 @@ class PostDrainQuoter(
     */
   private def trySelectFold(
       expr: Sourced[SemExpression],
-      runtimeParams: Set[String],
       evalEnv: Env
   ): Option[CompilerIO[Sourced[MonomorphicExpression]]] =
     foldApplication(expr.value.expression).flatMap { case (cond, whenTrue, whenFalse) =>
       Evaluator.force(semEvaluator.eval(evalEnv, cond.value), metaStore) match {
         case SemValue.VConst(GroundValue.Direct(b: Boolean, _)) =>
-          Some(quoteSourcedIn(if (b) whenTrue else whenFalse, runtimeParams, evalEnv))
+          Some(quoteSourcedIn(if (b) whenTrue else whenFalse, evalEnv))
         case _                                                  => None
       }
     }
@@ -210,18 +208,16 @@ class PostDrainQuoter(
     */
   private def structuralQuote(
       expr: Sourced[SemExpression],
-      runtimeParams: Set[String],
       evalEnv: Env
   ): CompilerIO[Sourced[MonomorphicExpression]] =
     for {
       exprType <- quoteSem(expr.value.expressionType, expr)
-      inner    <- quoteExpression(expr.value.expression, expr, runtimeParams, evalEnv)
+      inner    <- quoteExpression(expr.value.expression, expr, evalEnv)
     } yield expr.as(MonomorphicExpression(exprType, inner))
 
   private def quoteExpression(
       expression: SemExpression.Expression,
       at: Sourced[?],
-      runtimeParams: Set[String],
       evalEnv: Env
   ): CompilerIO[MonomorphicExpression.Expression] = expression match {
     case SemExpression.IntegerLiteral(v) =>
@@ -235,18 +231,20 @@ class PostDrainQuoter(
 
     case SemExpression.FunctionApplication(target, argument) =>
       for {
-        t <- quoteSourcedIn(target, runtimeParams, evalEnv)
-        a <- quoteSourcedIn(argument, runtimeParams, evalEnv)
+        t <- quoteSourcedIn(target, evalEnv)
+        a <- quoteSourcedIn(argument, evalEnv)
       } yield MonomorphicExpression.FunctionApplication(t, a)
 
     case SemExpression.FunctionLiteral(paramName, paramType, body) =>
+      // Bind the runtime parameter as a neutral in ρ; `isRuntimeParam` then recognises references to it deeper in the
+      // body as runtime (not erased), so no separate `runtimeParams` set need be threaded.
       val innerEnv = evalEnv.bind(
         paramName.value,
         SemValue.VNeutral(SemValue.NeutralHead.VVar(evalEnv.level, paramName.value), SemValue.Spine.SNil)
       )
       for {
         pt <- quoteSem(paramType, paramName)
-        b  <- quoteSourcedIn(body, runtimeParams + paramName.value, innerEnv)
+        b  <- quoteSourcedIn(body, innerEnv)
       } yield MonomorphicExpression.FunctionLiteral(paramName, pt, b)
 
     case SemExpression.ValueReference(vfqn, typeArgs) if vfqn.value === WellKnownTypes.integerLiteralFQN =>
@@ -374,6 +372,17 @@ class PostDrainQuoter(
     case SemExpression.FunctionLiteral(_, _, body)      => collectParamRefs(body.value.expression)
     case _                                              => Set.empty
   }
+
+  /** Whether `name` denotes a runtime value parameter in this eval env (ρ) — i.e. it is bound to a neutral, the fresh
+    * rigid variable a runtime `FunctionLiteral` introduces during read-back. Erased type-stack parameters are bound to
+    * values (`monoEnv` seeds them) and instantiation metas to `VMeta`, so only runtime lambda binders read back as
+    * neutrals. Reading this off ρ replaces a separately-threaded `runtimeParams` set.
+    */
+  private def isRuntimeParam(name: String, evalEnv: Env): Boolean =
+    evalEnv.lookupByName(name).exists {
+      case _: SemValue.VNeutral => true
+      case _                    => false
+    }
 
   /** Whether this expression node's subtree contains a function literal (an inner runtime lambda). */
   private def containsLambda(expression: SemExpression.Expression): Boolean = expression match {

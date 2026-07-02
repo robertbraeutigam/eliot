@@ -183,7 +183,7 @@ object Track {
         errorType: OperatorResolvedExpression,
         at: Sourced[?]
     ): CheckIO[Unit] =
-      inspect(_.env.lookupByName(binderName)).flatMap {
+      inspect(_.rho.lookupByName(binderName)).flatMap {
         case None        => pure(())
         case Some(bound) =>
           checker.force(bound).flatMap {

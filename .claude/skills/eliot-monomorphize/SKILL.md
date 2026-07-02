@@ -25,7 +25,7 @@ monomorphize/
 ├── check/
 │   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 4 collaborators)
 │   ├── CheckIO.scala           (StateT[CompilerIO, CheckState, *])
-│   ├── CheckState.scala        (env, unifier, bindingCache, abilityResolutions, typeStackValueParams, sawGuardReturn)
+│   ├── CheckState.scala        (gamma Γ + rho ρ, unifier, bindingCache, abilityResolutions, sawGuardReturn)
 │   ├── SemExpression.scala     (checker output ADT; type slots are SemValue, not GroundValue)
 │   ├── TypeStackLoop.scala     (uniform top-down fold + the D1 post-drain pipeline + defaults + postcondition)
 │   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; fold selection; reduceSourced)
@@ -134,6 +134,23 @@ Both are applicable. `VConst`/`VStuckNative` never represent function types.
 `ParameterReference` by **name** (`Env.lookupByName`, last-bound-wins), *not* by a pre-computed level — there is no
 `nameLevels` table on `CheckState`. Closures are native Scala functions capturing the current env and body; no ORE
 substitution ever happens. `Spine` is a reversed cons list (`SNil | SApp(tail, head)`) for O(1) append.
+
+**Γ and ρ are separate (the textbook NbE-checker shape).** `CheckState` holds two `Env`s, grown in lockstep:
+
+- **`gamma` (Γ)** — name → its **type**. Read only by `Checker.infer`'s `ParameterReference` (`state.gamma.lookupByName`).
+- **`rho` (ρ)** — name → its **value**, the env the evaluator consumes (`makeEvaluator.eval(rho, …)`). An erased
+  type-stack parameter binds its `groundToSem` value; a runtime value parameter binds a **fresh neutral**
+  (`paramNeutral`, `VVar(rho.level, name)`) standing for its unknown runtime value; a peeled instantiation meta binds
+  the meta.
+
+Three `bind*` methods keep them in sync: `bindValueParam(name, type)` (Γ=type, ρ=neutral — runtime value params),
+`bindTypeStackParam(name, type, value)` (Γ=type, ρ=value — erased explicit type args, both computed from the ground arg
+in `applyTypeArgs`), `bindTypeParam(name, meta)` (Γ=ρ=meta — peeled leftover type params). `Checker.check`
+(`FunctionLiteral` vs `VPi`) binds the neutral in ρ and checks the body against **`codomain(paramNeutral)`** — genuine
+dependent Π, never `codomain(paramType)`. (Every current-Eliot `VPi` codomain is constant, so the two agree today; the
+neutral is correct once runtime-value-dependent types land.) `monoEnv` (the reification env in `PostDrainQuoter`) is
+just ρ captured before the body check; `PostDrainQuoter.isRuntimeParam` reads runtime-ness off ρ (a name bound to a
+neutral) rather than threading a separate `runtimeParams` set.
 
 ### Three evaluators, one traversal
 
@@ -357,8 +374,10 @@ quiet-probe pattern.
 5. **NativeBinding pre-fetching.** The evaluator is synchronous and pure. All bindings are prefetched into
    `CheckState.bindingCache` (via `prefetchBindings`/`BindingClosure.collectBindings`) before evaluation.
 6. **State via `CheckIO`.** State is threaded through `StateT[CompilerIO, CheckState, *]` — `get`/`modify`/`inspect`,
-   not in-place mutation. Bind a parameter with `state.bind(name, value)` (runtime param, env binding = its *type*) or
-   `state.bindTypeStackParam(name, value)` (erased type-stack param, env binding = its *value*).
+   not in-place mutation. Bind a parameter with `state.bindValueParam(name, type)` (runtime param: Γ=type, ρ=neutral),
+   `state.bindTypeStackParam(name, type, value)` (erased type-stack param: Γ=type, ρ=value), or
+   `state.bindTypeParam(name, meta)` (peeled type param: Γ=ρ=meta). Never overload one env for type and value — Γ
+   (`gamma`) and ρ (`rho`) are separate.
 7. **No silent read-back fallback.** `applyValue` on a non-applicable head yields a loud `$bad-apply` stuck neutral; the
    quoter fails loudly on every stuck form; `defaultUnsolvedMetas` is a total match on `MetaRole`. Nowhere does a stuck
    value silently become `Type`.

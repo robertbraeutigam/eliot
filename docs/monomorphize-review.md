@@ -78,7 +78,7 @@ Architecture / cornerstones:
 |---|---|---|
 | F1 | `Evaluator.applyValue` silently returned the argument on non-applicable heads (`VConst`/`VType`) — silently collapsed `F[A]` to `A` | **Fixed** in `b88a0c0f`: loud `$bad-apply` stuck neutral; exhaustive match; `EvaluatorApplyValueTest` |
 | F1b | The F1 fix exposed a masked miscompile: two-arg HKT carrier over `Function` (`?F[A,B] ~ Function[A,B]`) postpones (a `VPi` is deliberately not injectivity-decomposed), `?F` defaults to `Type`, and the old fallback minted the nonsense type `BigInteger[String]` with no error | **Surfaced** in `b88a0c0f`: now a loud "Cannot resolve type." at the use site; test renamed and documents the inference limitation. Real HKT-over-`Function` inference is open (§3.5) |
-| F2 | Dependent Π checked non-dependently: body checked against `codomain(paramType)`, not `codomain(neutral)`; the env conflates "binding = its type" (runtime params) with "binding = its value" (erased params), patched by `typeStackValueParams` + the `monoEnv` `VConst` rewrite | **Open** — §3.4 (the fundamental redesign) |
+| F2 | Dependent Π checked non-dependently: body checked against `codomain(paramType)`, not `codomain(neutral)`; the env conflates "binding = its type" (runtime params) with "binding = its value" (erased params), patched by `typeStackValueParams` + the `monoEnv` `VConst` rewrite | **Fixed** (§3.4 landed): `CheckState` splits Γ (`gamma`, name→type) from ρ (`rho`, name→value); `check` binds a fresh neutral in ρ and checks the body against `codomain(neutral)`; `infer` reads Γ; `typeStackValueParams` + the `monoEnv` rewrite deleted |
 | F3 | Neutral identity (`VVar(level, name)`) is convention-held: env levels, unifier depth, and quote depth are independent counters; collisions avoided only by reserved names | **Open** — §3.5, minor |
 | G1 | Two-pool gap: leaf contributors read runtime-pool facts unconditionally while their `ContributedBinding` serves both platform merges | **Fixed** in `b88a0c0f`: `DeclaringPool` membership probe, compiler-pool fallback, `CompilerOnlyDataNativesTest` |
 | G2 | Stale scaladoc references to deleted `docs/monomorphize-d1-design.md`, `docs/effectful-signatures.md`, `docs/block-syntax.md` | **Fixed** in `b88a0c0f` |
@@ -161,28 +161,33 @@ Removed the scattered `platform match` conditionals from the checking core:
    (document in CLAUDE.md + the skill), or key recognition off the pinned `Throw`-carrier
    instead of the type name.
 
-### 3.4 Split the typing context from the evaluation environment (fundamental)
+### 3.4 Split the typing context from the evaluation environment (fundamental) — **DONE**
 
-The one redesign that removes a *category* of special cases (closes F2). Today one `Env` serves
-as both Γ (runtime param → its **type**) and ρ (erased param → its **value**), discriminated by
-the `typeStackValueParams` name-set and patched by the `monoEnv` `VConst`-rewrite. The textbook
-NbE-checker shape keeps them separate:
+The one redesign that removes a *category* of special cases (closes F2). The former single `Env`
+served as both Γ (runtime param → its **type**) and ρ (erased param → its **value**), discriminated
+by the `typeStackValueParams` name-set and patched by the `monoEnv` `VConst`-rewrite. The textbook
+NbE-checker shape now keeps them separate:
 
-1. `CheckState` carries Γ (name → type; runtime value parameters) and ρ (name → `SemValue`;
-   erased params bound to values, runtime params bound to **fresh neutrals**).
-2. `Checker.check` (`FunctionLiteral` vs `VPi`): bind a fresh neutral for the parameter in ρ and
-   its type in Γ; check the body against `codomain(neutral)` — genuine dependent Π.
-3. `infer`'s `ParameterReference` reads Γ directly; delete `typeStackValueParams` and the
-   `VConst`-vs-type special case.
-4. `TypeStackLoop`: `monoEnv` becomes "ρ restricted to erased binders" — bind the `groundToSem`
-   form at `applyTypeArgs` time and delete the post-hoc rewrite.
-5. `PostDrainQuoter`: derive `runtimeParams` from ρ (the names bound to neutrals) instead of
-   threading a separate set.
-6. The evaluators are unchanged (still name-based lookup in ρ).
-7. Risk concentrates in the call sites that today rely on "env binding = type" flowing into a
-   codomain (`codomain(paramType)`); the full suite plus the dependent-bounds cases
-   (`Int[add(L,R),…]`) are the net. Do this while the package is warm; it becomes mandatory the
-   moment runtime-value-dependent types land.
+1. **Done.** `CheckState` carries `gamma` (Γ: name → type) and `rho` (ρ: name → `SemValue`; erased
+   params bound to values, runtime value params bound to **fresh neutrals** via `paramNeutral`,
+   peeled instantiation metas to the meta). Both are `Env`s and grow in lockstep. `bind` split into
+   `bindValueParam` / `bindTypeStackParam` / `bindTypeParam`.
+2. **Done.** `Checker.check` (`FunctionLiteral` vs `VPi`): captures `paramNeutral` (fresh neutral),
+   binds it in ρ and the param type in Γ (`bindValueParam`), checks the body against
+   `codomain(paramNeutral)` — genuine dependent Π. (Every `VPi` codomain in current Eliot is
+   constant, so this is a behavioural no-op today and correct once dependent types land.)
+3. **Done.** `infer`'s `ParameterReference` reads `gamma` directly; `typeStackValueParams` and the
+   `VConst`-vs-type special case deleted.
+4. **Done.** `TypeStackLoop.applyTypeArgs` binds the `groundToSem` form into ρ and the arg's type
+   into Γ (computed from the ground arg — a *type* arg is its own type slot, a *value* arg its
+   declared `valueType`); `monoEnv` is now just `inspect(_.rho)` and the post-hoc `VConst → groundToSem`
+   rewrite is deleted.
+5. **Done.** `PostDrainQuoter` derives runtime-ness from ρ via `isRuntimeParam` (a name bound to a
+   neutral) instead of threading a separate `runtimeParams: Set[String]`.
+6. Evaluators unchanged (still name-based lookup in ρ, which is the env now passed to `eval`).
+7. Risk was in call sites relying on "env binding = type" flowing into a codomain; the full suite
+   (incl. `ReificationTest`, `ComputedTypeArgumentReadbackTest`, the dependent-bounds
+   `Int[add(L,R),…]` cases) is green, confirming behaviour preservation.
 
 ### 3.5 Small hardening (opportunistic)
 

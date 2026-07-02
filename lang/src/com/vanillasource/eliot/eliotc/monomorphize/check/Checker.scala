@@ -105,7 +105,7 @@ class Checker(
     for {
       _ <- prefetchBindings(tm)
       s <- get
-    } yield s.makeEvaluator.eval(env.getOrElse(s.env), tm)
+    } yield s.makeEvaluator.eval(env.getOrElse(s.rho), tm)
 
   /** Force a SemValue through the current meta store. */
   private[check] def force(v: SemValue): CheckIO[SemValue] =
@@ -145,16 +145,22 @@ class Checker(
                               if forcedExpected.isInstanceOf[VPi] =>
                             val VPi(domain, codomain) = forcedExpected: @unchecked
                             for {
-                              paramType <- paramTypeStack match {
-                                             case Some(ts) =>
-                                               for {
-                                                 pt <- evalExpr(ts.value.signature)
-                                                 _  <- doUnify(pt, domain, paramName.as("Type mismatch."))
-                                               } yield pt
-                                             case None     => pure(domain)
-                                           }
-                              _         <- modify(_.bind(paramName.value, paramType))
-                              bodyExpr  <- check(body, codomain(paramType))
+                              paramType    <- paramTypeStack match {
+                                                case Some(ts) =>
+                                                  for {
+                                                    pt <- evalExpr(ts.value.signature)
+                                                    _  <- doUnify(pt, domain, paramName.as("Type mismatch."))
+                                                  } yield pt
+                                                case None     => pure(domain)
+                                              }
+                              // Genuine dependent Π: bind the parameter's *type* in Γ and a fresh neutral standing for
+                              // its (unknown) runtime *value* in ρ, then check the body against `codomain(neutral)` —
+                              // never `codomain(paramType)`, which would substitute the parameter's type where its value
+                              // belongs. Today every `VPi` codomain is constant (the `Function` native / `infer` build
+                              // `_ => B`), so the two agree; the neutral is the correct form once dependent types land.
+                              paramNeutral <- inspect(_.paramNeutral(paramName.value))
+                              _            <- modify(_.bindValueParam(paramName.value, paramType))
+                              bodyExpr     <- check(body, codomain(paramNeutral))
                             } yield SemExpression(
                               forcedExpected,
                               SemExpression.FunctionLiteral(paramName, paramType, body.as(bodyExpr))
@@ -262,7 +268,7 @@ class Checker(
                         // result-position type param), so they are eligible for `Combine`-based multi-candidate
                         // resolution. The unifier taints any that later flow into a contravariant (VPi domain) position.
                         _    <- modify(s => s.withUnifier(s.unifier.markCombinable(meta.id)))
-                        _    <- if (bindInEnv) modify(_.bind(name, meta)) else pure(())
+                        _    <- if (bindInEnv) modify(_.bindTypeParam(name, meta)) else pure(())
                         rest <- loop(closure(meta), acc :+ meta)
                       } yield rest
                     case other               => pure((other, acc))
@@ -288,18 +294,11 @@ class Checker(
     case OperatorResolvedExpression.ParameterReference(name) =>
       for {
         state  <- get
-        result <- state.env.lookupByName(name.value) match {
-                    case Some(sem) =>
-                      // A runtime value parameter's env binding *is* its type, so it serves as the inferred type
-                      // directly. An erased type-stack value parameter's binding is its concrete *value* instead (e.g.
-                      // `A: Person` bound to `Person("Alice", …)`); referenced in value position its type is the value's
-                      // type, recovered here. (Type-position references go through evaluation, never this path, so they
-                      // still see the concrete value.)
-                      val tpe = sem match {
-                        case VConst(ground) if state.typeStackValueParams.contains(name.value) =>
-                          Evaluator.groundToSem(ground.valueType)
-                        case _                                                                 => sem
-                      }
+        // A parameter's type is read straight from Γ ([[CheckState.gamma]]). Γ already holds the right type for every
+        // kind of binder: a runtime value parameter's declared type, an erased type-stack parameter's recovered type,
+        // a peeled instantiation meta. (Type-position references go through the evaluator against ρ, never this path.)
+        result <- state.gamma.lookupByName(name.value) match {
+                    case Some(tpe) =>
                       pure((SemExpression(tpe, SemExpression.ParameterReference(name)), tpe))
                     case None      =>
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
@@ -359,7 +358,7 @@ class Checker(
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
       for {
         paramType            <- evalExpr(paramTypeStack.value.signature)
-        _                    <- modify(_.bind(paramName.value, paramType))
+        _                    <- modify(_.bindValueParam(paramName.value, paramType))
         (bodyExpr, bodyType) <- infer(body)
         tpe                   = VPi(paramType, _ => bodyType)
       } yield (
@@ -451,7 +450,7 @@ class Checker(
     for {
       (argExpr0, argType0)   <- infer(arg)
       (argExpr, argType)     <- instantiatePolymorphic(argExpr0, argType0)
-      _                      <- modify(_.bind(paramName.value, argType))
+      _                      <- modify(_.bindValueParam(paramName.value, argType))
       (bodyExpr, bodyType)   <- expected match {
                                   case Some(exp) => check(body, exp).map(e => (e, exp))
                                   case None      => infer(body)
