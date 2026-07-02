@@ -26,9 +26,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
-    platform: Platform
+    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+    track: Track
 ) {
+
+  /** The track's platform — fact keys read it off the [[track]] rather than threading a bare [[Platform]]. */
+  private val platform: Platform = track.platform
 
   /** The refinement-bounds solver (D4): the directional `Coerce` widening, the `Combine` join, and the deferred
     * upper-bound obligations — the type system's *refinement lattice*, kept out of this checker's *definitional

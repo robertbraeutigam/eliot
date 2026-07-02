@@ -31,7 +31,8 @@ monomorphize/
 │   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; fold selection; reduceSourced)
 │   ├── CalculatedReturnResolver.scala (D7 back-edge + W2b guard discharge)
 │   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification)
-│   └── AbilityResolver.scala   (ability-ref collection + resolve-abilities saturation pass)
+│   ├── AbilityResolver.scala   (ability-ref collection + resolve-abilities saturation pass)
+│   └── Track.scala             (Runtime/Compiler strategy: platform + 4 per-track hooks, no platform match in the core)
 ├── refine/
 │   └── RefinementSolver.scala  (D4 refinement lattice: Coerce widening + Combine join + upper-bounds)
 ├── unify/
@@ -51,8 +52,8 @@ monomorphize/
 │   ├── BindingContribution.scala (Leaf(SemValue) | Body(SaturatedValue))
 │   └── TransparentBinding.scala (like NativeBinding but WITHOUT the opaque guard, for lowering)
 └── processor/
-    ├── MonomorphicTypeCheckProcessor.scala   (runtime entry point → TypeStackLoop, Platform.Runtime)
-    ├── CompilerMonomorphicTypeCheckProcessor.scala (compiler entry point → TypeStackLoop, Platform.Compiler; native-leaf boundary)
+    ├── MonomorphicTypeCheckProcessor.scala   (runtime entry point → TypeStackLoop, Track.Runtime)
+    ├── CompilerMonomorphicTypeCheckProcessor.scala (compiler entry point → TypeStackLoop, Track.Compiler; native-leaf boundary)
     ├── SystemNativesProcessor.scala          (Function → VNative→VPi, Type → VType, Bool true/false/fold)
     ├── DataTypeNativesProcessor.scala        (body-less Type-qualified names → inert VTopDef; pool-guarded)
     ├── MatchNativesProcessor.scala           (handleCases/typeMatch impls → VNative; pool-guarded)
@@ -158,8 +159,8 @@ with `deep=true`, descends under `VPi` binders — used **only** post-drain at q
 
 ### Entry points (two tracks)
 
-- `MonomorphicTypeCheckProcessor` → `TypeStackLoop.process(..., platform = Platform.Runtime)` → `MonomorphicValue`.
-- `CompilerMonomorphicTypeCheckProcessor` → the **same** `TypeStackLoop.process(..., platform = Platform.Compiler)` →
+- `MonomorphicTypeCheckProcessor` → `TypeStackLoop.process(..., track = Track.Runtime)` → `MonomorphicValue`.
+- `CompilerMonomorphicTypeCheckProcessor` → the **same** `TypeStackLoop.process(..., track = Track.Compiler)` →
   `CompilerMonomorphicValue` (a *distinct* fact type, so the compiler track cannot even name `MonomorphicValue.Key`;
   the `compiler-mono → runtime-mono` edge is impossible by construction — acyclic).
 
@@ -204,7 +205,8 @@ with `deep=true`, descends under `VPi` binders — used **only** post-drain at q
 
 ### TypeStackLoop — the uniform fold
 
-`TypeStackLoop.processIO`:
+`TypeStackLoop.processIO` (`Checker` and `TypeStackLoop` hold a **`Track`**, not a bare `Platform` — see below; there
+is **no `platform match` anywhere in the checking core**, only `track.<hook>` dispatch):
 
 1. `walkTypeStack` — reverse the type-stack levels, fold with `expectedType = VType`; for each level `check(level,
    expected)` then `expected = eval(level)`. **The fold body is identical for every level** — no "is this a type
@@ -212,14 +214,35 @@ with `deep=true`, descends under `VPi` binders — used **only** post-drain at q
 2. `applyTypeArgs` — apply explicit ground type args (a type-level arg via `groundToSem` into an applicable
    `VTopDef`/`VType`; a value-level arg stays a `VConst`). Over-application records one "Too many type arguments." error.
 3. `instantiateRemaining` — peel leftover `VLam` closures (phantom / implicit type params) with fresh metas.
-4. `pinCompilerCarriers` (compiler track only) — a `{Throw[E]}` carrier is fixed to the compile-time carrier `Either[E]`.
-5. Return-position resolution (mutually exclusive): a *calculated* return (`installReturnMeta`, W3), an *effectful guard*
-   return (`dischargeGuardedSignature`, W2b — **runtime track only**; the compiler track is the guard's *producer* and
-   leaves the carrier signature as-is), or an ordinary explicit return.
+4. `track.pinCarriers` (compiler track only) — a `{Throw[E]}` carrier is fixed to the compile-time carrier `Either[E]`.
+5. `track.settleReturnPosition` (mutually exclusive): a *calculated* return (`installReturnMeta`, W3 — track-independent),
+   an *effectful guard* return (`dischargeGuardedSignature`, W2b — **runtime track only**; the compiler track is the
+   guard's *producer* and leaves the carrier signature as-is), or an ordinary explicit return.
 6. `check` the runtime body against the signature.
 7. `runPostDrainPipeline` (D1, below), report unifier errors, abort before quoting if any error exists.
-8. Read back via `PostDrainQuoter` — for the compiler track, the body is **reduced** (`reduceSourced`); for the runtime
-   track it is structurally quoted (`quoteSourced`).
+8. `track.implBindings` (compiler-only impl-body fetch) then read back via `PostDrainQuoter` through `track.readBackBody`
+   — the compiler track **reduces** the body (`reduceSourced`), the runtime track structurally quotes it
+   (`quoteSourced`).
+
+### Track — the per-track strategy (no `platform match` in the core)
+
+`check/Track` is a sealed trait with two case objects, `Track.Runtime` / `Track.Compiler`, each carrying its `platform:
+Platform` plus the **four** places the two tracks genuinely differ — every former `platform match` conditional in
+`TypeStackLoop`, extracted 1:1:
+
+| Hook | Runtime | Compiler |
+|---|---|---|
+| `settleReturnPosition` (shared calc-return branch is `final`; `settleGuardedReturn` is the abstract hook) | `dischargeGuardedSignature` (W2b use-site discharge) | pass-through (producer leaves the undischarged carrier signature) |
+| `pinCarriers` (+ `throwCarrierErrorType` / `pinCarrierToEither` / `throwAbilityFQN` live here) | no-op | pin `{Throw[E]}` carrier meta to `Either[E]` |
+| `implBindings` | empty | fetch each drain-resolved ability impl's `NativeBinding` body |
+| `readBackBody` | `quoter.quoteSourced` | `quoter.reduceSourced` |
+
+`TypeStackLoop` / `Checker` take the `Track`; **fact keys read `track.platform`** (`Checker` keeps a private `val
+platform = track.platform`, so the four collaborators are still constructed with a bare `Platform`). The two entry
+processors pass `Track.Runtime` / `Track.Compiler`. The `resolveAbility` seam is **two-arg** `(ValueFQN,
+Seq[GroundValue]) => …` — the former hardcoded/ignored third `Platform` param is gone (a properly-typed `Position` is
+future work, gated on a real position-routed client). `reduceSourced` still physically lives in `PostDrainQuoter` (a
+read-back variant sharing its machinery; `readBackBody` dispatches to it).
 
 ### Post-drain pipeline (D1)
 

@@ -37,7 +37,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   The track's platform, used to key the ability-marker signature fact.
   */
 class AbilityResolver(
-    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     platform: Platform
 ) {
@@ -123,7 +123,7 @@ class AbilityResolver(
           progressed <- groundArgsE match {
                           case Right(groundArgs) =>
                             for {
-                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs, Platform.Runtime))
+                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
                               stepped  <- resolved match {
                                             case Some(impl) =>
                                               for {

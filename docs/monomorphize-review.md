@@ -84,7 +84,7 @@ Architecture / cornerstones:
 | G2 | Stale scaladoc references to deleted `docs/monomorphize-d1-design.md`, `docs/effectful-signatures.md`, `docs/block-syntax.md` | **Fixed** in `b88a0c0f` |
 | G3 | `eliot-monomorphize` skill significantly stale (pre-rework: `forceAndConst`, `VMeta.expected`, `nameLevels`, no supplier/merger, no tracks) | **Fixed** in `b88a0c0f`: rewritten against sources |
 | C1 | `TypeStackLoop` god-object (~680 lines): inlines ability resolution (~200 lines) and compiler-track carrier pinning beside the fold + pipeline runner | **Partly fixed**: ability resolution extracted to `check/AbilityResolver` (the fourth collaborator, §3.1 landed); compiler-track carrier pinning remains inline (folds into §3.2's `Track` seam) |
-| C2 | Platform leaked into the checking core as ~6 scattered `platform match` conditionals; the `resolveAbility` seam's third parameter is hardcoded `Platform.Runtime` at some call sites and ignored at others | **Open** — §3.2 |
+| C2 | Platform leaked into the checking core as ~6 scattered `platform match` conditionals; the `resolveAbility` seam's third parameter is hardcoded `Platform.Runtime` at some call sites and ignored at others | **Fixed** (§3.2 landed): `check/Track` seam (`Track.Runtime` / `Track.Compiler`) carries the platform + the four hooks; `TypeStackLoop`/`Checker` take the `Track`; the `resolveAbility` third `Platform` param is deleted. One deviation: `reduceSourced` stays in `PostDrainQuoter` (the `readBackBody` hook dispatches to it) rather than being physically extracted |
 | C3 | `CalculatedReturnResolver` hosts two weakly-related concerns (calc-return back-edge + W2b guard discharge); guard recognition makes `Either` a language-reserved type by FQN | **Open** — §3.3, conditional |
 | E1 | Cornerstone erosion, "no generic parameters": three peripheral binder-structure readers exist | **Accepted & documented** — hard rule restated two-part in the skill |
 | E2 | Cornerstone erosion, "no constraint set": `MetaRole.Instantiation.candidates`/`upperBounds` are a small role-scoped constraint store | **Accepted & documented** — the rule is scoped to *equality* constraints |
@@ -116,28 +116,38 @@ Made ability resolution the fourth collaborator, symmetrical with `solver`/`calc
    small `AbilityArity` fact (or a field forwarded on an existing ability fact, per the
    lean-fact-flow rule) computed once per ability.
 
-### 3.2 Track strategy object (medium)
+### 3.2 Track strategy object (medium) — **DONE**
 
-Remove the scattered `platform match` conditionals from the checking core:
+Removed the scattered `platform match` conditionals from the checking core:
 
-1. Introduce a `Track` seam (two implementations: runtime, compiler) carrying the `Platform`
-   value plus four hooks, extracted 1:1 from today's conditionals:
-   - `settleReturnPosition` — the calc-return / guard-discharge / pass-through switch
-     (`TypeStackLoop.processIO`'s `(calcReturn, platform)` match);
-   - `pinCarriers` — compiler-track `{Throw[E]}` → `Either[E]` pinning (no-op on runtime);
+1. **Done.** Introduced `check/Track` (a sealed trait with two case objects `Track.Runtime` /
+   `Track.Compiler`) carrying the `Platform` value plus four hooks, extracted 1:1 from the former
+   conditionals:
+   - `settleReturnPosition` — the calc-return / guard-discharge / pass-through switch (the shared
+     `calcReturn` branch is a `final` method on the trait; the platform-specific `settleGuardedReturn`
+     is the abstract hook);
+   - `pinCarriers` — compiler-track `{Throw[E]}` → `Either[E]` pinning (no-op on runtime); the
+     `throwCarrierErrorType` / `pinCarrierToEither` helpers and the `throwAbilityFQN` constant moved
+     with it onto `Track.Compiler`;
    - `implBindings` — the compiler track's resolved-impl binding fetch (empty on runtime);
-   - `readBackBody` — `reduceSourced` (compiler) vs `quoteSourced` (runtime). This also moves the
-     compiler backend out of `PostDrainQuoter`, which then does read-back only.
-2. `TypeStackLoop` and `Checker` take the `Track` instead of a bare `Platform`; fact keys read
-   the platform off the track.
-3. Clean the `resolveAbility` seam: delete the third `Platform` parameter (it is hardcoded
-   `Platform.Runtime` by `TypeStackLoop`/`RefinementSolver` and ignored by the compiler track's
-   implementation). Reintroduce it as a properly-typed `Position` (type vs value position) only
-   when the deferred position-routed resolution gets a real client (a user-defined
-   runtime-concrete guard combinator — see the compiler-as-platform notes).
-4. Behavior-preserving; the full suite is the net, with the compiler-track tests
+   - `readBackBody` — `reduceSourced` (compiler) vs `quoteSourced` (runtime).
+   - **Deviation:** `reduceSourced` was *not* physically moved out of `PostDrainQuoter`. It is a
+     read-back variant that shares all of the quoter's machinery (`semEvaluator`, `monoEnv`,
+     `materialise`, `quoteSourced` fallback), and `PostDrainQuoter` still legitimately keys facts by
+     `platform` (`constructorRole`), so extracting it would expose the quoter's internals for no net
+     removal of a platform branch. The `readBackBody` hook dispatches to it instead. The stated goal
+     — no `platform match` in the checking core — is met.
+2. **Done.** `TypeStackLoop` and `Checker` take the `Track` instead of a bare `Platform`; fact keys
+   read `track.platform` (a private `val platform = track.platform` in `Checker`, so the four
+   collaborators keep their bare-`Platform` construction unchanged).
+3. **Done.** Deleted the third `Platform` parameter from the `resolveAbility` seam
+   (`TypeStackLoop`/`Checker`/`RefinementSolver`/`AbilityResolver` and both processors'
+   `resolveAbilityImpl`). The deferred properly-typed `Position` reintroduction is still future work,
+   gated on a real position-routed client.
+4. **Done.** Behavior-preserving; the full suite is green, with the compiler-track tests
    (`CompilerEitherCarrierTest`, `CompilerNativeLeafBoundaryTest`,
-   `CompilerMonomorphicTypeCheckProcessorTest`) covering the compiler hooks.
+   `CompilerMonomorphicTypeCheckProcessorTest`, `CompilerAbilityResolutionTest`) covering the
+   compiler hooks.
 
 ### 3.3 Guard-discharge split + the `Either` decision (conditional — do when a second carrier appears)
 

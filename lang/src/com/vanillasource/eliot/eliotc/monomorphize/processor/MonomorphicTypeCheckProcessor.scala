@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop
+import com.vanillasource.eliot.eliotc.monomorphize.check.{Track, TypeStackLoop}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -31,7 +31,7 @@ class MonomorphicTypeCheckProcessor
         saturatedValue.value,
         fetchBinding = fetchBinding,
         resolveAbility = resolveAbilityImpl,
-        platform = Platform.Runtime
+        track = Track.Runtime
       )
       .map(result =>
         MonomorphicValue(
@@ -45,10 +45,9 @@ class MonomorphicTypeCheckProcessor
 
   private def resolveAbilityImpl(
       vfqn: ValueFQN,
-      typeArgs: Seq[GroundValue],
-      platform: Platform
+      typeArgs: Seq[GroundValue]
   ): CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
-    getFact(AbilityImplementation.Key(vfqn, typeArgs, platform)).map(
+    getFact(AbilityImplementation.Key(vfqn, typeArgs, Platform.Runtime)).map(
       _.map(impl => (impl.implementationFQN, impl.implementationTypeArgs))
     )
 }
