@@ -22,22 +22,23 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, com
   */
 class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
+    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+    platform: Platform
 ) {
   import TypeStackLoop.{AbilityRef, PassContext, PostDrainPass}
 
-  private val checker = new Checker(fetchBinding, resolveAbility)
+  private val checker = new Checker(fetchBinding, resolveAbility, platform)
 
   def process(
-      key: MonomorphicValue.Key,
+      typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
-  ): CompilerIO[MonomorphicValue] =
-    processIO(key, resolvedValue).runA(CheckState.initial)
+  ): CompilerIO[TypeStackLoop.Result] =
+    processIO(typeArguments, resolvedValue).runA(CheckState.initial)
 
   private def processIO(
-      key: MonomorphicValue.Key,
+      typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
-  ): CheckIO[MonomorphicValue] =
+  ): CheckIO[TypeStackLoop.Result] =
     for {
       // W4 (Limit 5): a calculated return needs a body to calculate from. Reject a body-less calculated return at the
       // definition before its `Type` placeholder reaches a use site (where it would otherwise surface as a confusing
@@ -48,7 +49,7 @@ class TypeStackLoop(
       (signature, levelExprs) <- walkTypeStack(resolvedValue.typeStack)
 
       // Apply explicit type args
-      appliedSig   <- applyTypeArgs(signature, key.typeArguments, resolvedValue.typeStack)
+      appliedSig   <- applyTypeArgs(signature, typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
 
       // Whether the kind check accepted a `{Throw[String]}`-carrier return (a guarded signature, W2b) — captured here,
@@ -125,10 +126,7 @@ class TypeStackLoop(
                    )
       groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.typeStack))
       monoBody  <- runtime.traverse(srcSem => liftF(quoter.quoteSourced(srcSem)))
-    } yield MonomorphicValue(
-      key.vfqn,
-      key.typeArguments,
-      resolvedValue.typeStack.as(key.vfqn.name),
+    } yield TypeStackLoop.Result(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
@@ -523,14 +521,25 @@ class TypeStackLoop(
 
 object TypeStackLoop {
 
+  /** The platform-agnostic output of checking one value's type stack and body: the quoted signature and the optional
+    * quoted body. Each track wraps this into its own fact ([[MonomorphicValue]] /
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.CompilerMonomorphicValue]]), so [[TypeStackLoop]] never names
+    * either fact type — which is what keeps the two tracks acyclic by construction.
+    */
+  case class Result(
+      signature: GroundValue,
+      body: Option[Sourced[MonomorphicExpression.Expression]]
+  )
+
   /** Static convenience wrapper — constructs a [[TypeStackLoop]] and runs its [[process]]. */
   def process(
-      key: MonomorphicValue.Key,
+      typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-      resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
-  ): CompilerIO[MonomorphicValue] =
-    new TypeStackLoop(fetchBinding, resolveAbility).process(key, resolvedValue)
+      resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+      platform: Platform
+  ): CompilerIO[Result] =
+    new TypeStackLoop(fetchBinding, resolveAbility, platform).process(typeArguments, resolvedValue)
 
   private type AbilityRef = (Sourced[ValueFQN], Seq[SemValue])
 

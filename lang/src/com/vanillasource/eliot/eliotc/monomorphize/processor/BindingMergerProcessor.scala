@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, NativeBinding}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
@@ -48,15 +49,24 @@ class BindingMergerProcessor(nativeLabels: Seq[String], userLabels: Seq[String])
       natives  <- nativeLabels.traverse(label => getFactOrAbort(ContributedBinding.Key(key.vfqn, label)))
       selected <- natives.flatMap(_.contributed).headOption match {
                     case found @ Some(_) => found.pure[CompilerIO]
+                    // The `user` suppliers read the *runtime* pool, so they belong to the runtime track only. The
+                    // compiler track never consults them: a compiler-platform value with a body is supplied by the
+                    // `compiler` native label (a compiler-pool body), and a name with no compiler reduction stays
+                    // abstract rather than falling through to a runtime body — the native-leaf boundary.
                     case None            =>
-                      userLabels
-                        .traverse(label => getFactOrAbort(ContributedBinding.Key(key.vfqn, label)))
-                        .map(_.flatMap(_.contributed).headOption)
+                      key.platform match {
+                        case Platform.Compiler => Option.empty[BindingContribution].pure[CompilerIO]
+                        case Platform.Runtime  =>
+                          userLabels
+                            .traverse(label => getFactOrAbort(ContributedBinding.Key(key.vfqn, label)))
+                            .map(_.flatMap(_.contributed).headOption)
+                      }
                   }
       semValue <- selected match {
                     case Some(BindingContribution.Leaf(value))     => value.pure[CompilerIO]
-                    case Some(BindingContribution.Body(saturated)) => BindingClosure.buildBinding(saturated, _.checkingRuntime)
+                    case Some(BindingContribution.Body(saturated)) =>
+                      BindingClosure.buildBinding(saturated, _.checkingRuntime, key.platform)
                     case None                                      => abort[SemValue]
                   }
-    } yield NativeBinding(key.vfqn, semValue)
+    } yield NativeBinding(key.vfqn, semValue, key.platform)
 }

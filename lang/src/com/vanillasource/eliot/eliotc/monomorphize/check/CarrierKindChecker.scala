@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -40,7 +41,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 class CarrierKindChecker(
     force: SemValue => CheckIO[SemValue],
     evalExpr: (OperatorResolvedExpression, Option[Env]) => CheckIO[SemValue],
-    doUnify: (SemValue, SemValue, Sourced[String]) => CheckIO[Unit]
+    doUnify: (SemValue, SemValue, Sourced[String]) => CheckIO[Unit],
+    platform: Platform
 ) {
 
   /** Tag the freshly-peeled instantiation metas that stand for *higher-kinded* type parameters (a `[F[_]]` carrier)
@@ -52,7 +54,7 @@ class CarrierKindChecker(
     expr.expression match {
       case SemExpression.ValueReference(fqn, explicitArgs) if implicitMetas.nonEmpty =>
         for {
-          svOpt <- liftF(getFact(SaturatedValue.Key(fqn.value)))
+          svOpt <- liftF(getFact(SaturatedValue.Key(fqn.value, platform)))
           _     <- svOpt match {
                      case None     => pure(())
                      case Some(sv) =>
@@ -176,7 +178,7 @@ class CarrierKindChecker(
     * primitive head), in which case the carrier check is skipped for that solution.
     */
   private def kindOfTypeConstructor(fqn: ValueFQN): CheckIO[Option[SemValue]] =
-    liftF(getFact(SaturatedValue.Key(fqn))).flatMap {
+    liftF(getFact(SaturatedValue.Key(fqn, platform))).flatMap {
       case None     => pure(None)
       case Some(sv) => evalExpr(sv.value.typeStack.value.signature, Some(Env.empty)).map(Some(_))
     }

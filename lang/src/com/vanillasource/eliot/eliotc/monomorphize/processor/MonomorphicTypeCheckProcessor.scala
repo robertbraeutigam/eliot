@@ -19,18 +19,29 @@ class MonomorphicTypeCheckProcessor
     extends TransformationProcessor[SaturatedValue.Key, MonomorphicValue.Key](key => SaturatedValue.Key(key.vfqn)) {
 
   private def fetchBinding(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    getFact(NativeBinding.Key(vfqn)).map(_.map(_.semValue))
+    getFact(NativeBinding.Key(vfqn, Platform.Runtime)).map(_.map(_.semValue))
 
   override protected def generateFromKeyAndFact(
       key: MonomorphicValue.Key,
       saturatedValue: SaturatedValue
   ): CompilerIO[MonomorphicValue] =
-    TypeStackLoop.process(
-      key,
-      saturatedValue.value,
-      fetchBinding = fetchBinding,
-      resolveAbility = resolveAbilityImpl
-    )
+    TypeStackLoop
+      .process(
+        key.typeArguments,
+        saturatedValue.value,
+        fetchBinding = fetchBinding,
+        resolveAbility = resolveAbilityImpl,
+        platform = Platform.Runtime
+      )
+      .map(result =>
+        MonomorphicValue(
+          key.vfqn,
+          key.typeArguments,
+          saturatedValue.value.typeStack.as(key.vfqn.name),
+          result.signature,
+          result.body
+        )
+      )
 
   private def resolveAbilityImpl(
       vfqn: ValueFQN,

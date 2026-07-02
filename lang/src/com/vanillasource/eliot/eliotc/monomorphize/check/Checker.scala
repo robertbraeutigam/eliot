@@ -26,7 +26,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
+    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+    platform: Platform
 ) {
 
   /** The refinement-bounds solver (D4): the directional `Coerce` widening, the `Combine` join, and the deferred
@@ -35,7 +36,7 @@ class Checker(
     * [[TypeStackLoop]], which routes the post-drain `resolve-combines` / `upper-bounds` passes through it.
     */
   private[check] val solver: RefinementSolver =
-    new RefinementSolver(resolveAbility, (tm, env) => evalExpr(tm, env), force, freshMeta, doUnify)
+    new RefinementSolver(resolveAbility, (tm, env) => evalExpr(tm, env), force, freshMeta, doUnify, platform)
 
   /** The higher-kinded-carrier kind checker (D8): seeds each `[F[_]]` carrier instantiation meta with its expected kind
     * and verifies the solution post-drain. A non-equality *kind system*, kept out of this checker's definitional
@@ -43,7 +44,7 @@ class Checker(
     * (verify). See [[CarrierKindChecker]].
     */
   private[check] val carriers: CarrierKindChecker =
-    new CarrierKindChecker(force, (tm, env) => evalExpr(tm, env), doUnify)
+    new CarrierKindChecker(force, (tm, env) => evalExpr(tm, env), doUnify, platform)
 
   /** The calculated-return back-edge (D7): fills a value's bare omittable return from its monomorphized body
     * (implicit-generics W3/W4). A non-equality *non-local inference*, kept out of this checker's definitional equality
@@ -51,7 +52,7 @@ class Checker(
     * `installReturnMeta`). See [[CalculatedReturnResolver]].
     */
   private[check] val calcReturns: CalculatedReturnResolver =
-    new CalculatedReturnResolver(force, freshMeta)
+    new CalculatedReturnResolver(force, freshMeta, platform)
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed.
     *
@@ -296,7 +297,7 @@ class Checker(
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
       for {
         _      <- ensureBinding(vfqn.value)
-        svOpt  <- liftF(getFact(SaturatedValue.Key(vfqn.value)))
+        svOpt  <- liftF(getFact(SaturatedValue.Key(vfqn.value, platform)))
         result <- svOpt match {
                     case Some(sv) =>
                       // Read the *saturated* signature, so a callee's parameter-position bare omittable references

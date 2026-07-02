@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.TransparentBinding
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
@@ -26,5 +27,5 @@ class TransparentBindingProcessor
       key: TransparentBinding.Key,
       fact: SaturatedValue
   ): CompilerIO[TransparentBinding] =
-    BindingClosure.buildBinding(fact, _.runtime).map(TransparentBinding(key.vfqn, _))
+    BindingClosure.buildBinding(fact, _.runtime, Platform.Runtime).map(TransparentBinding(key.vfqn, _))
 }

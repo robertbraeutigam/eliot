@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -39,13 +40,14 @@ object BindingClosure {
     */
   def buildBinding(
       saturated: SaturatedValue,
-      selfBody: OperatorResolvedValue => Option[Sourced[OperatorResolvedExpression]]
+      selfBody: OperatorResolvedValue => Option[Sourced[OperatorResolvedExpression]],
+      platform: Platform
   ): CompilerIO[SemValue] = {
     val vfqn = saturated.value.vfqn
     val body = selfBody(saturated.value)
     for {
       bodyBindings <- body match {
-                        case Some(b) => collectBindings(b.value, vfqn)
+                        case Some(b) => collectBindings(b.value, vfqn, platform)
                         case None    => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
                       }
     } yield VTopDef(
@@ -101,15 +103,19 @@ object BindingClosure {
     */
   private def collectBindings(
       ore: OperatorResolvedExpression,
-      selfFqn: ValueFQN
+      selfFqn: ValueFQN,
+      platform: Platform
   ): CompilerIO[Map[ValueFQN, SemValue]] =
     OperatorResolvedExpression
       .foldValueReferences[CompilerIO, Map[ValueFQN, SemValue]](ore, Map.empty) { (acc, vfqn) =>
         activeFactKeys.flatMap { ancestors =>
-          if (acc.contains(vfqn.value) || vfqn.value == selfFqn || ancestors.contains(NativeBinding.Key(vfqn.value)))
+          if (
+            acc.contains(vfqn.value) || vfqn.value == selfFqn ||
+            ancestors.contains(NativeBinding.Key(vfqn.value, platform))
+          )
             acc.pure[CompilerIO]
           else
-            getFact(NativeBinding.Key(vfqn.value)).map {
+            getFact(NativeBinding.Key(vfqn.value, platform)).map {
               case Some(binding) => acc + (vfqn.value -> binding.semValue)
               case None          => acc
             }

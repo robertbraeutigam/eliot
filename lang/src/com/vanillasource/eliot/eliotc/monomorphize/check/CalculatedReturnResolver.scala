@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -46,7 +47,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class CalculatedReturnResolver(
     force: SemValue => CheckIO[SemValue],
-    freshMeta: CheckIO[VMeta]
+    freshMeta: CheckIO[VMeta],
+    platform: Platform
 ) {
 
   /** Replace the return position of a calculated-return signature with a fresh metavariable, returning the rewritten
@@ -96,7 +98,7 @@ class CalculatedReturnResolver(
       case VType =>
         innermostValueRef(targetExpr) match {
           case Some((fqn, typeArgs)) =>
-            liftF(getFact(SaturatedValue.Key(fqn.value))).flatMap {
+            liftF(getFact(SaturatedValue.Key(fqn.value, platform))).flatMap {
               case Some(sv) if sv.value.calculatedReturn => readMonomorphicReturn(fqn, typeArgs)
               case _                                     => pure(None)
             }
@@ -178,6 +180,10 @@ class CalculatedReturnResolver(
     * non-recursive program has an acyclic producer call graph, so a repeated FQN on the active chain is exactly the
     * recursion signal; report it as a specific error rather than blocking forever or defaulting to `Type`.
     */
+  // NOTE: this back-edge re-enters the *runtime* `MonomorphicValue` unconditionally. On the compiler track (`platform ==
+  // Compiler`) it should re-enter `CompilerMonomorphicValue` instead — but no compiler-track client uses a calculated
+  // return yet, so this stays runtime-only for now (fail-safe: a compiler-pool-only callee simply yields no fact and the
+  // caller errors, never a silently wrong type). Threading the compiler-track re-entry is a follow-up increment.
   private def readMonomorphicReturnGround(
       fqn: Sourced[ValueFQN],
       groundArgs: Seq[GroundValue]
