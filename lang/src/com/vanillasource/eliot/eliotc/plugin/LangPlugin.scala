@@ -53,10 +53,13 @@ class LangPlugin extends CompilerPlugin {
             SourceContentReader(),
             // The marker selects which filesystem root list `PathScanner` scans. Since CP1.5 these two lists are the
             // *only* source of `.els`: `--compiler-path` carries the abstract base (+ compiler platform), `--runtime-path`
-            // the base + target layer, and the positional `<path>` args (the user's program) fold into the runtime path.
-            // See `PathScanner` (CP1.5).
+            // the base + target layer. The positional `<path>` args (the user's program) carry no platform
+            // representation, and — types being values — any `def` in them may be forced at the type level, so they fold
+            // into *both* pools (CP-C step a): the compiler track must reach user type-level code, matching the stated
+            // design that each platform "unifies the base + the user program + its own layer independently". Only the
+            // platform *layers* stay pool-exclusive; the application is shared like the base. See `PathScanner` (CP1.5).
             PathScanner(
-              configuration.getOrElse(compilerPathKey, Seq.empty),
+              configuration.getOrElse(compilerPathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty),
               configuration.getOrElse(runtimePathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty)
             )
           ) ++ LangProcessors(extraNativeBindingLabels =

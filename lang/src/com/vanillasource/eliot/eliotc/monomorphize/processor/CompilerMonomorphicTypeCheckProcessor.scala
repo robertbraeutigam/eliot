@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, NativeBinding}
@@ -10,6 +10,8 @@ import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 /** The compiler track of NbE type checking: the analogue of [[MonomorphicTypeCheckProcessor]] that runs the *same*
   * [[TypeStackLoop]] over a value's `Platform.Compiler` [[SaturatedValue]], producing a [[CompilerMonomorphicValue]].
@@ -28,8 +30,52 @@ class CompilerMonomorphicTypeCheckProcessor
       SaturatedValue.Key(key.vfqn, Platform.Compiler)
     ) {
 
-  private def fetchBinding(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    getFact(NativeBinding.Key(vfqn, Platform.Compiler)).map(_.map(_.semValue))
+  /** Fetch a name's compile-time reduction from the compiler pool, enforcing the **native-leaf boundary** (CP-C step c).
+    *
+    * A name with a compiler-platform [[NativeBinding]] reduces normally. A name with *none* is one of two things, and
+    * they must be told apart — silently treating both as a stuck [[SemValue.VTopDef]] (the runtime track's correct
+    * fallback, where the backend later emits the call) would let a runtime-only leaf corrupt a compile-time-computed
+    * type, exactly the silent-wrong-typing the cornerstone forbids:
+    *
+    *   - **runtime-concrete / compiler-abstract** — it *has* a runtime realization (a jvm body or a runtime native
+    *     leaf) but no compiler-platform definition. This is a *runtime-only value*; reaching it while reducing
+    *     compile-time code is a hard error ("there is no backend here"), reported against the value being checked.
+    *   - **body-less on both platforms** — an abstract type constructor (`Int`, body-less everywhere), an unresolved
+    *     generic obligation, or an abstract ability method: no runtime binding either. These are legitimate compile-time
+    *     normal forms / use-site-deferred obligations, so `None` is returned and evaluation leaves them stuck.
+    *
+    * The runtime-concreteness probe reads `NativeBinding(vfqn, Runtime)` — accessing runtime-defined source to *detect*
+    * the leaf, never to *reduce* with it, so the `compiler-mono → runtime-mono` fact edge is not created (this processor
+    * still cannot name `MonomorphicValue.Key`). It is gated on runtime-pool *membership* (a name-set read, like
+    * [[CompilerNativesProcessor.inCompilerPool]]) so a compiler-only name — absent from the runtime pool entirely — is
+    * not probed and does not trigger the runtime pool's "Could not find" abort; such a name is genuinely compiler-side
+    * and stays `None`.
+    */
+  private def fetchBinding(source: Sourced[?])(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
+    getFact(NativeBinding.Key(vfqn, Platform.Compiler)).flatMap {
+      case Some(nb) => Option(nb.semValue).pure[CompilerIO]
+      case None     =>
+        inRuntimePool(vfqn).ifM(
+          getFact(NativeBinding.Key(vfqn, Platform.Runtime)).flatMap {
+            case Some(_) =>
+              compilerError(
+                source.as(s"Cannot use runtime-only value '${vfqn.name.name}' at compile time."),
+                Seq(
+                  s"'${vfqn.name.name}' has a runtime implementation but no compile-time definition on the compiler platform."
+                )
+              ) >> abort[Option[SemValue]]
+            case None    => Option.empty[SemValue].pure[CompilerIO] // a runtime member abstract on *both* platforms
+          },
+          Option.empty[SemValue].pure[CompilerIO]                   // not a runtime member: compiler-only, not a leaf
+        )
+    }
+
+  /** Whether `vfqn` is declared by its module in the runtime pool. Reads the [[UnifiedModuleNames]] name set (never the
+    * value), so a name absent from the runtime pool yields `false` quietly instead of the "Could not find" abort a
+    * direct value/binding request would raise.
+    */
+  private def inRuntimePool(vfqn: ValueFQN): CompilerIO[Boolean] =
+    getFact(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime)).map(_.exists(_.names.contains(vfqn.name)))
 
   override protected def generateFromKeyAndFact(
       key: CompilerMonomorphicValue.Key,
@@ -39,7 +85,7 @@ class CompilerMonomorphicTypeCheckProcessor
       .process(
         key.typeArguments,
         saturatedValue.value,
-        fetchBinding = fetchBinding,
+        fetchBinding = fetchBinding(saturatedValue.value.name),
         resolveAbility = resolveAbilityImpl,
         platform = Platform.Compiler
       )
