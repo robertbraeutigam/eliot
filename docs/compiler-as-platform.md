@@ -20,6 +20,12 @@ like any other ability. Neither happens today.
 
 ## Current state: the platform is half-built
 
+> **Status note.** This section describes the *starting* state that motivated the work. As of the
+> current session, stages **1a** and **A** have landed — the compiler track now *is* driven through the
+> checker in `Platform.Compiler` (see **Staging**). The claims below ("nothing ever passes
+> `Platform.Compiler`", "compiler-platform abilities are never checked") are the problem statement, no
+> longer literally true; method-body reduction (B) and consumption (C) are what remain.
+
 The infrastructure is platform-parameterized, but only the **runtime** platform is ever *driven*
 through the resolution-and-check cycle. Concretely:
 
@@ -314,18 +320,61 @@ incrementally.
 
 ## Staging
 
-1. Introduce `CompilerMonomorphicValue` + the platform-parameterized shared checker helper; make
-   `resolveAbilityImpl` platform-aware. (No behavior change yet — runtime still resolves at runtime.)
-2. **Native-leaf boundary wiring.** Fold the user program into the compiler source pool (`LangPlugin`
-   — the positional program args currently land only in `runtimePathKey`), so compiler-mono can access
-   user type-level code; and make the stuck-native fallback track-specific — a runtime-concrete /
-   compiler-abstract leaf in the compiler-track evaluator becomes the "runtime-only value at compile
-   time" error, while the runtime track keeps `VTopDef(fqn, None, …)` for the backend to emit.
-3. Thread the platform onto ability references by position (`collectAbilityRefs` +
-   `resolveAbilities`), implementing the per-position rule. Compiler-track refs now resolve in
-   `Platform.Compiler` and trigger the checks.
-4. Add method-body reduction: after a compiler-track resolution, fold the resolved instance body via
-   the one evaluator into the value (generalize `tryCoerce`), to fixpoint via the existing drain.
-5. Carrier pinning for `{Throw[String]} Type`.
-6. First client end-to-end: `Throw[String]` guard integration tests (pure path → type; `raise` path
-   → compile error), then rewrite `when`/`orError` onto the effect path.
+Status as of the current session (commits on `master`, not pushed).
+
+**1a — the `resolveAbility` seam platform-aware. ✅ done** (`fa0699af`). Widened the injected
+`resolveAbility` callback with a `Platform` parameter through `MonomorphicTypeCheckProcessor`,
+`TypeStackLoop`, `Checker`, `RefinementSolver`; `resolveAbilityImpl` forwards it into
+`AbilityImplementation.Key(vfqn, typeArgs, platform)`. Behavior-neutral — every site passes
+`Platform.Runtime`.
+
+**A — the compiler monomorphize track. ✅ done** (`d2123c49`; lang.test 728 / jvm.test 155 green). A
+value can now be type-checked wholly in the `Platform.Compiler` pool.
+
+- `CompilerMonomorphicValue` — a **distinct** fact type (not a platform-keyed `MonomorphicValue`), so
+  the compiler processor cannot name `MonomorphicValue.Key` and the `compiler-mono → runtime-mono` edge
+  is impossible by construction.
+- `CompilerMonomorphicTypeCheckProcessor` — runs the shared `TypeStackLoop` over a value's
+  `SaturatedValue.Key(vfqn, Platform.Compiler)`, resolving every ability in the compiler pool.
+- The shared checker was made **output-fact-agnostic**: `TypeStackLoop.process` returns a
+  platform-neutral `Result(signature, body)`; each track's processor wraps it into its own fact.
+- **The binding subsystem is platform-keyed** — this was the real work. The checker's *own* dependency
+  fetches were pervasively runtime-blind (`SaturatedValue.Key` at `Checker.scala:299`; `fetchBinding →
+  NativeBinding`, which had no platform), so the compiler track was checking bodies against the
+  *runtime* pool. Fixed by: `NativeBinding.Key` gains a `Platform`; `BindingMergerProcessor`'s compiler
+  branch consults only the native/compiler-layer suppliers and **never falls through to the runtime
+  `user` pool** — the native-leaf boundary, now structural; `BindingClosure` threads the platform into
+  its recursive dependency fetches; and a track `Platform` is threaded through `Checker` +
+  `RefinementSolver` + `CarrierKindChecker` + `CalculatedReturnResolver` so every signature / impl-body
+  fetch targets the track's pool. One documented, fail-safe deferral: the calculated-return
+  `MonomorphicValue` re-entry (`CalculatedReturnResolver`) stays runtime-only — no compiler-track client
+  uses it yet, and a compiler-pool-only callee yields no fact (the caller errors) rather than a silently
+  wrong type.
+
+**B — method-body reduction. ⏭ next.** The compiler track *resolves* abilities in the compiler pool but
+does not yet **fold** the resolved instance body, so `pure`/`raise` stay recorded-but-stuck rather than
+reducing. Today the post-drain `resolveAbilities` pass only *records* a method resolution (for the
+backend to emit a call); `RefinementSolver.coercionPayload` is the one place that already resolves an
+instance and *evaluates its body* via the one evaluator. Generalize that: on the compiler track, after
+a method resolves, fold the impl's method body into the value and re-drain to fixpoint, so `pure(x) →
+Right(x)` / `raise(m) → Left(m)`. (Coerce is a synthesized single call; the general case is a method
+reference *inside* the body — the design piece is the fold-and-redrain hook in the post-drain pipeline,
+not the eval itself.)
+
+**C — consumption + native-leaf fail-safe.**
+
+- (a) Fold the user program into the compiler source pool (`LangPlugin` — the positional program args
+  currently land only in `runtimePathKey`), so `compiler-mono` can reach user type-level code.
+- (b) Per-position routing so `runtime-mono` consumes `CompilerMonomorphicValue` for type positions
+  (the value/type-position rule above): the runtime track's type-stack levels reduce via the compiler
+  track at concrete args. This is where the runtime track's `resolveAbility` call sites (still passing
+  `Runtime` from 1a) get their real per-position platform.
+- (c) Make the stuck-native fallback track-specific: a runtime-concrete / compiler-abstract leaf reached
+  in the compiler track becomes the "runtime-only value at compile time" error, while the runtime track
+  keeps `VTopDef(fqn, None, …)` for the backend to emit.
+
+**D — carrier pinning for `{Throw[String]} Type`** (bind the effect carrier to the concrete
+`Either[String]`; see the open question on placement).
+
+**E — first client end-to-end:** `Throw[String]` guard integration tests (pure path → type; `raise`
+path → compile error), then rewrite `when`/`orError` onto the effect path.
