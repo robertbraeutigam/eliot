@@ -323,44 +323,37 @@ class TypeStackLoop(
     * closures. Stops on the first non-VLam head, recording a single "Too many type arguments." error rather than one
     * per excess arg.
     *
-    * A *type-level* argument (a `GroundValue.Type`, or a `GroundValue.Structure` whose own type is `Type` — e.g. a
-    * higher-kinded carrier `IO` passed as `[F[_]] := IO`, or `Int[0,255]`) is converted through
-    * [[Evaluator.groundToSem]] into an *applicable* `VTopDef`/`VType`, so that a later `F[A]` in the body reduces to
-    * `IO[A]`. A bare `VConst` is inert under `applyValue` (it is a non-applicable head, so `applyValue` mints a loud
-    * `$bad-apply` stuck neutral that fails at read-back), so it must be converted to an applicable `VTopDef`/`VType`
-    * here rather than left to collapse `F[A]`. A *value-level* argument (a data instance like `Person(...)` passed for `A: Person`, or a
-    * `Direct` literal) stays a `VConst`: it is never applied, and the post-drain reification gate (`PostDrainQuoter`)
-    * recognises the `VConst(ground)` form to materialise it into a runtime constructor tree.
+    * Every argument is injected through the one canonical [[Evaluator.groundToSem]] conversion: a type or data value
+    * becomes its *applicable* constructor `VTopDef` (so a higher-kinded carrier `IO` passed as `[F[_]] := IO` reduces
+    * a later `F[A]` in the body to `IO[A]`), `Type` becomes `VType`, and a `Direct` literal a `VConst`. The same form
+    * is bound into ρ and applied to the signature closure — one injection, one semantic form per ground value, so a
+    * signature-embedded occurrence and a ρ-evaluated occurrence of the same argument can never disagree under
+    * definitional equality. (A former variant kept a data-value argument as an inert `VConst(Structure)` in the
+    * signature while ρ held its `VTopDef` constructor form; the two read back identically but do not unify, a latent
+    * false "Type mismatch." for a data value occurring in a type position.)
     */
   private def applyTypeArgs(
       signature: SemValue,
       typeArgs: Seq[GroundValue],
       errorSource: Sourced[?]
   ): CheckIO[SemValue] = {
-    def toSemArg(g: GroundValue): SemValue                                   = g match {
-      case GroundValue.Type                              => VType
-      case GroundValue.Structure(_, _, GroundValue.Type) => Evaluator.groundToSem(g)
-      case _                                             => VConst(g)
-    }
     def loop(sig: SemValue, remaining: List[GroundValue]): CheckIO[SemValue] = remaining match {
       case Nil          => pure(sig)
       case head :: tail =>
-        // Three forms of one erased argument: `argVal` is applied to the signature closure (a value-level arg stays an
-        // inert `VConst`); `evalArg` is bound into ρ in the evaluable `groundToSem` form (a data value as its
-        // constructor `VTopDef`, which the reification gate and any type-level code can reduce); `argType` is bound into
-        // Γ as the argument's type — a *type* argument is its own type slot (types are values), a *value* argument
-        // contributes its declared `valueType`.
-        val argVal  = toSemArg(head)
-        val evalArg = Evaluator.groundToSem(head)
+        // Two forms of one erased argument: `argVal` — the canonical evaluable `groundToSem` form — is both applied to
+        // the signature closure and bound into ρ (where the reification gate and any type-level code can reduce it);
+        // `argType` is bound into Γ as the argument's type — a *type* argument is its own type slot (types are
+        // values), a *value* argument contributes its declared `valueType`.
+        val argVal  = Evaluator.groundToSem(head)
         val argType = head.valueType match {
-          case GroundValue.Type => evalArg
+          case GroundValue.Type => argVal
           case vt               => Evaluator.groundToSem(vt)
         }
         for {
           forced <- checker.force(sig)
           result <- forced match {
                       case VLam(name, closure) =>
-                        modify(_.bindTypeStackParam(name, argType, evalArg)) >> loop(closure(argVal), tail)
+                        modify(_.bindTypeStackParam(name, argType, argVal)) >> loop(closure(argVal), tail)
                       case _                   =>
                         modify(s => s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments."))))
                           .as(sig)

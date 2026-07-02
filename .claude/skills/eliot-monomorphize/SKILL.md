@@ -13,7 +13,7 @@ This skill governs all code under `lang/src/com/vanillasource/eliot/eliotc/monom
 monomorphize/
 ├── domain/
 │   ├── SemValue.scala          (VType, VConst, VLam, VPi, VNative, VTopDef, VStuckNative, VMeta, VNeutral, Spine)
-│   ├── Env.scala               (Vector[SemValue] + names; lookup by de Bruijn level AND by name)
+│   ├── Env.scala               (Vector[SemValue] + names; lookup by name, last-bound-wins; `level` mints neutrals)
 │   ├── MetaStore.scala         (IntMap[Option[SemValue]]; fresh/solve/lookup)
 │   └── MetaRole.scala          (D2: one role per meta id — Plain / Instantiation / AbstractAssoc)
 ├── eval/
@@ -228,8 +228,10 @@ is **no `platform match` anywhere in the checking core**, only `track.<hook>` di
 1. `walkTypeStack` — reverse the type-stack levels, fold with `expectedType = VType`; for each level `check(level,
    expected)` then `expected = eval(level)`. **The fold body is identical for every level** — no "is this a type
    parameter?" branch. Generics emerge from `FunctionLiteral` levels checked against `VPi` kinds from above.
-2. `applyTypeArgs` — apply explicit ground type args (a type-level arg via `groundToSem` into an applicable
-   `VTopDef`/`VType`; a value-level arg stays a `VConst`). Over-application records one "Too many type arguments." error.
+2. `applyTypeArgs` — apply explicit ground type args, every argument injected through the **one canonical
+   `groundToSem` conversion** (a type or data value ⟹ its applicable constructor `VTopDef`, a `Direct` literal ⟹
+   `VConst`) — the same form is applied to the signature closure and bound into ρ, so no ground value ever has two
+   semantic forms. Over-application records one "Too many type arguments." error.
 3. `instantiateRemaining` — peel leftover `VLam` closures (phantom / implicit type params) with fresh metas.
 4. `track.pinCarriers` (compiler track only) — a `{Throw[E]}` carrier is fixed to the compile-time carrier `Either[E]`.
 5. `track.settleReturnPosition` (mutually exclusive): a *calculated* return (`installReturnMeta`, W3 — track-independent),
@@ -364,7 +366,7 @@ quiet-probe pattern.
    walking leading `FunctionLiteral`s to count type params). *However*, three sanctioned **peripheral** readers legitimately
    read binder structure through `SignatureView` / saturation metadata — do **not** mistake them for a violation:
    `CarrierKindChecker.recordCarrierMetas` (seeds carrier kinds off the referenced value's `SignatureView`),
-   `TypeStackLoop.abilityArity` (reads an ability-marker's binder count for impl queries), and
+   `AbilityResolver.abilityArity` (reads an ability-marker's binder count for impl queries), and
    `SaturatedValue.binderRoles` feeding `BindingClosure.reifyingWrap` (which leading binders a body reifies). None of
    these drives a definitional-equality decision.
 2. **The evaluator produces VLam; the Checker produces VPi.** Never produce `VPi` in the evaluator. The `Function` native

@@ -28,8 +28,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   * erased `[]`-bound parameters (e.g. `name(A)` projecting a field of an erased `A: Person`, or an erased `BigInteger`
   * bound referenced directly) has no runtime slot for those parameters, so it cannot be emitted structurally. Instead
   * it is a compile-time constant and is '''materialised''' into a literal / constructor-call tree. The quoter walks the
-  * tree top-down threading the names bound by enclosing runtime lambdas (`runtimeParams`) and an evaluation [[Env]]
-  * seeded with the erased parameters (`monoEnv`). For each node:
+  * tree top-down threading an evaluation [[Env]] (ρ) seeded with the erased parameters (`monoEnv`) and extended with a
+  * fresh neutral for each enclosing runtime lambda binder. For each node:
   *   - references no erased parameter ⟹ recurse structurally; nothing is ever evaluated, so ordinary runtime code
   *     (including recursive defs and large constants) is preserved verbatim and cannot diverge.
   *   - references an erased parameter together with a runtime parameter or an inner lambda ⟹ the erased dependence
@@ -204,7 +204,7 @@ class PostDrainQuoter(
     }
 
   /** The normal structural read-back: quote this node's type slot and recurse into its children (unchanged from the
-    * pre-reification behaviour, except that `runtimeParams` / `evalEnv` are threaded for the gate to use deeper).
+    * pre-reification behaviour, except that `evalEnv` is threaded for the gate to use deeper).
     */
   private def structuralQuote(
       expr: Sourced[SemExpression],
