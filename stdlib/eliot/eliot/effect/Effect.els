@@ -7,10 +7,10 @@
  */
 ability Effect[F[_]] {
    /**
-    * Run `fa`, then feed its result to `f` to produce the next effectful computation, e.g.
-    * `flatMap(readLine, line -> printLine(line))`.
+    * Run `fa`, then feed its result to `f` to produce the next effectful computation. Its subject `fa`
+    * is the last parameter so it chains with the `.` operator, e.g. `readLine.flatMap(line -> printLine(line))`.
     */
-   def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
+   def flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]
 
    /**
     * Lift a pure value into the carrier, performing no effect.
@@ -18,9 +18,9 @@ ability Effect[F[_]] {
    def pure[A](a: A): F[A]
 
    /**
-    * Transform the result of an effectful computation with a pure function, e.g.
-    * `map(readLine, line -> length(line))`. Equivalent to `flatMap(fa, a -> pure(f(a)))`, but
-    * given directly per carrier so a pure continuation needs no `pure` round-trip.
+    * Transform the result of an effectful computation with a pure function. Its subject `fa` is the last
+    * parameter so it chains with the `.` operator, e.g. `readLine.map(line -> length(line))`. Equivalent to
+    * `fa.flatMap(a -> pure(f(a)))`, but given directly per carrier so a pure continuation needs no `pure` round-trip.
     */
-   def map[A, B](fa: F[A], f: Function[A, B]): F[B]
+   def map[A, B](f: Function[A, B], fa: F[A]): F[B]
 }

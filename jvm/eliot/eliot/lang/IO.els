@@ -9,11 +9,11 @@ data IO[A](block: Function[Unit, A])
  * Eliot-visible (no native), so monomorphization erases the whole tower to flat code.
  */
 implement Effect[IO] {
-   def flatMap[A, B](fa: IO[A], f: Function[A, IO[B]]): IO[B] = IO(_ -> apply(block(f(apply(block(fa), unit))), unit))
+   def flatMap[A, B](f: Function[A, IO[B]], fa: IO[A]): IO[B] = IO(_ -> apply(block(f(apply(block(fa), unit))), unit))
 
    def pure[A](a: A): IO[A] = IO(_ -> a)
 
-   def map[A, B](fa: IO[A], f: Function[A, B]): IO[B] = IO(_ -> f(apply(block(fa), unit)))
+   def map[A, B](f: Function[A, B], fa: IO[A]): IO[B] = IO(_ -> f(apply(block(fa), unit)))
 }
 
 /**

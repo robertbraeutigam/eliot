@@ -62,6 +62,8 @@ object EffectMachinery {
   ): Sourced[OperatorResolvedExpression] = {
     val lambda     = action.as(FunctionLiteral(action.as(name), None, continuation))
     val combinator = action.as(ValueReference(action.as(if (continuationEffectful) flatMapFQN else mapFQN)))
-    action.as(applyChain(combinator, Seq(action, lambda)))
+    // `flatMap`/`map` take their subject (the effectful action) as the *last* argument so calls chain with the `.`
+    // operator (`fa.flatMap(f)`); the continuation lambda therefore comes first.
+    action.as(applyChain(combinator, Seq(lambda, action)))
   }
 }

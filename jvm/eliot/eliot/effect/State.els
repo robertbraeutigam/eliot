@@ -20,10 +20,10 @@ data StateCarrier[S, G[_], A](runStateCarrier: Function[S, G[Pair[A, S]]])
  */
 implement[S, G[_] ~ Effect] Effect[StateCarrier[S, G]] {
    def pure[A](a: A): StateCarrier[S, G, A] = StateCarrier(s -> pure(Pair(a, s)))
-   def flatMap[A, B](fa: StateCarrier[S, G, A], f: Function[A, StateCarrier[S, G, B]]): StateCarrier[S, G, B] =
-      StateCarrier(s -> flatMap(apply(runStateCarrier(fa), s), p -> apply(runStateCarrier(f(first(p))), second(p))))
-   def map[A, B](fa: StateCarrier[S, G, A], f: Function[A, B]): StateCarrier[S, G, B] =
-      StateCarrier(s -> map(apply(runStateCarrier(fa), s), p -> Pair(f(first(p)), second(p))))
+   def flatMap[A, B](f: Function[A, StateCarrier[S, G, B]], fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
+      StateCarrier(s -> flatMap(p -> apply(runStateCarrier(f(first(p))), second(p)), apply(runStateCarrier(fa), s)))
+   def map[A, B](f: Function[A, B], fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
+      StateCarrier(s -> map(p -> Pair(f(first(p)), second(p)), apply(runStateCarrier(fa), s)))
 }
 
 /**
@@ -31,7 +31,7 @@ implement[S, G[_] ~ Effect] Effect[StateCarrier[S, G]] {
  * result with the unchanged state. Carries every `Sync`-keyed fine effect through the `StateCarrier` layer.
  */
 implement[S, G[_] ~ Sync & Effect] Sync[StateCarrier[S, G]] {
-   def sync[A](thunk: Function[Unit, A]): StateCarrier[S, G, A] = StateCarrier(s -> map(sync(thunk), a -> Pair(a, s)))
+   def sync[A](thunk: Function[Unit, A]): StateCarrier[S, G, A] = StateCarrier(s -> map(a -> Pair(a, s), sync(thunk)))
 }
 
 /**

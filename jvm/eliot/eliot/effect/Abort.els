@@ -19,10 +19,10 @@ data AbortCarrier[G[_], A](runAbort: G[Option[A]])
  */
 implement[G[_] ~ Effect] Effect[AbortCarrier[G]] {
    def pure[A](a: A): AbortCarrier[G, A] = AbortCarrier(pure(Some(a)))
-   def flatMap[A, B](fa: AbortCarrier[G, A], f: Function[A, AbortCarrier[G, B]]): AbortCarrier[G, B] =
-      AbortCarrier(flatMap(runAbort(fa), o -> foldOption(o, pure(None), a -> runAbort(f(a)))))
-   def map[A, B](fa: AbortCarrier[G, A], f: Function[A, B]): AbortCarrier[G, B] =
-      AbortCarrier(map(runAbort(fa), o -> foldOption(o, None, a -> Some(f(a)))))
+   def flatMap[A, B](f: Function[A, AbortCarrier[G, B]], fa: AbortCarrier[G, A]): AbortCarrier[G, B] =
+      AbortCarrier(flatMap(o -> foldOption(o, pure(None), a -> runAbort(f(a))), runAbort(fa)))
+   def map[A, B](f: Function[A, B], fa: AbortCarrier[G, A]): AbortCarrier[G, B] =
+      AbortCarrier(map(o -> foldOption(o, None, a -> Some(f(a))), runAbort(fa)))
 }
 
 /**
@@ -31,7 +31,7 @@ implement[G[_] ~ Effect] Effect[AbortCarrier[G]] {
  * through the `AbortCarrier` layer for free.
  */
 implement[G[_] ~ Sync & Effect] Sync[AbortCarrier[G]] {
-   def sync[A](thunk: Function[Unit, A]): AbortCarrier[G, A] = AbortCarrier(map(sync(thunk), a -> Some(a)))
+   def sync[A](thunk: Function[Unit, A]): AbortCarrier[G, A] = AbortCarrier(map(a -> Some(a), sync(thunk)))
 }
 
 /**
@@ -51,6 +51,6 @@ implement[G[_] ~ Effect] Abort[AbortCarrier[G]] {
  * counterpart is `Abort[StateCarrier[S, G]]` (in `State`).
  */
 implement[S, G[_] ~ State[S] & Effect] State[S, AbortCarrier[G]] {
-   def getState: AbortCarrier[G, S] = AbortCarrier(map(getState, s -> Some(s)))
-   def putState(newS: S): AbortCarrier[G, Unit] = AbortCarrier(map(putState(newS), u -> Some(u)))
+   def getState: AbortCarrier[G, S] = AbortCarrier(map(s -> Some(s), getState))
+   def putState(newS: S): AbortCarrier[G, Unit] = AbortCarrier(map(u -> Some(u), putState(newS)))
 }

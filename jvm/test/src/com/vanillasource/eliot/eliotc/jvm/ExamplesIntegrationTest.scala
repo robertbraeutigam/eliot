@@ -19,7 +19,7 @@ def main: IO[Unit] = printLine("Hello World!")""")
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |
-        |def echo: {Console} Unit = flatMap(readLine, s -> printLine(s))
+        |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "echoed line\n"
@@ -42,7 +42,7 @@ def main: IO[Unit] = printLine("Hello World!")""")
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |
-        |def greet: {Console} Unit = flatMap(printLine("a"), ignore -> printLine("b"))
+        |def greet: {Console} Unit = flatMap(ignore -> printLine("b"), printLine("a"))
         |
         |def main: IO[Unit] = greet""".stripMargin
     ).asserting(_ shouldBe "a\nb")
@@ -58,7 +58,7 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // --- Effects M3: body auto-lift (the headline) — direct-style code, no hand-written flatMap ---
 
   // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `printLine`, which expects
-  // a plain `String`; the effect-desugar phase binds it, producing `flatMap(readLine, x -> printLine(x))`, with the
+  // a plain `String`; the effect-desugar phase binds it, producing `flatMap(x -> printLine(x), readLine)`, with the
   // carrier pinned to `IO` by `main`'s return. No `import eliot.effect.Effect`, no hand-written `flatMap`.
   "effect auto-lift" should "sequence a direct-style printLine(readLine) at a concrete IO main" in {
     compileAndRun("""import eliot.effect.Console
@@ -84,7 +84,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |
-        |def echo: {Console} Unit = flatMap(readLine, s -> printLine(s))
+        |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "still works\n"
@@ -239,7 +239,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def safe: {Abort} String = "config-value"
         |
-        |def main: IO[Unit] = flatMap(runAbort(safe), o -> printLine(foldOption(o, "<absent>", s -> s)))""".stripMargin
+        |def main: IO[Unit] = flatMap(o -> printLine(foldOption(o, "<absent>", s -> s)), runAbort(safe))""".stripMargin
     ).asserting(_ shouldBe "config-value")
   }
 
@@ -254,7 +254,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def giveUp: {Abort} String = abort
         |
-        |def main: IO[Unit] = flatMap(runAbort(giveUp), o -> printLine(foldOption(o, "gave up!", s -> s)))""".stripMargin
+        |def main: IO[Unit] = flatMap(o -> printLine(foldOption(o, "gave up!", s -> s)), runAbort(giveUp))""".stripMargin
     ).asserting(_ shouldBe "gave up!")
   }
 
@@ -272,7 +272,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def loud: {Console, Abort} String = andThen(printLine("trying"), abort)
         |
-        |def main: IO[Unit] = flatMap(runAbort(loud), o -> printLine(foldOption(o, "stopped", s -> s)))""".stripMargin
+        |def main: IO[Unit] = flatMap(o -> printLine(foldOption(o, "stopped", s -> s)), runAbort(loud))""".stripMargin
     ).asserting(_ shouldBe "trying\nstopped")
   }
 
@@ -287,7 +287,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |
-        |def main: IO[Unit] = flatMap(runThrow(parseOk), e -> printLine(foldEither(e, err -> err, v -> v)))""".stripMargin
+        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(e, err -> err, v -> v)), runThrow(parseOk))""".stripMargin
     ).asserting(_ shouldBe "parsed-value")
   }
 
@@ -300,7 +300,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
-        |def main: IO[Unit] = flatMap(runThrow(parseBad), e -> printLine(foldEither(e, err -> err, v -> v)))""".stripMargin
+        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(e, err -> err, v -> v)), runThrow(parseBad))""".stripMargin
     ).asserting(_ shouldBe "malformed input")
   }
 
@@ -354,8 +354,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |implement Effect[Id] {
         |   def pure[A](a: A): Id[A] = Id(a)
-        |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-        |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
+        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
+        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
         |}
         |
         |def allowed: {Abort} String = "granted"
@@ -365,8 +365,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |def testDenied: Option[String] = runId(runAbort(denied))
         |
         |def main: IO[Unit] = flatMap(
-        |   printLine(foldOption(testAllowed, "DENIED", s -> s)),
-        |   ignored -> printLine(foldOption(testDenied, "DENIED", s -> s)))""".stripMargin
+        |   ignored -> printLine(foldOption(testDenied, "DENIED", s -> s)),
+        |   printLine(foldOption(testAllowed, "DENIED", s -> s)))""".stripMargin
     ).asserting(_ shouldBe "granted\nDENIED")
   }
 
@@ -382,11 +382,11 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |import eliot.lang.Pair
         |
         |def swap(next: String): {State[String]} String =
-        |   flatMap(getState, old -> flatMap(putState(next), ignored -> pure(old)))
+        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), getState)
         |
         |def prog: IO[Pair[String, String]] = runState(swap("after"), "before")
         |
-        |def main: IO[Unit] = flatMap(prog, p -> flatMap(printLine(first(p)), ignored -> printLine(second(p))))""".stripMargin
+        |def main: IO[Unit] = flatMap(p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))), prog)""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
@@ -404,16 +404,16 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |implement Effect[Id] {
         |   def pure[A](a: A): Id[A] = Id(a)
-        |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-        |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
+        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
+        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
         |}
         |
         |def swap(next: String): {State[String]} String =
-        |   flatMap(getState, old -> flatMap(putState(next), ignored -> pure(old)))
+        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), getState)
         |
         |def demo: Pair[String, String] = runId(runState(swap("second"), "first"))
         |
-        |def main: IO[Unit] = flatMap(printLine(first(demo)), ignored -> printLine(second(demo)))""".stripMargin
+        |def main: IO[Unit] = flatMap(ignored -> printLine(second(demo)), printLine(first(demo)))""".stripMargin
     ).asserting(_ shouldBe "first\nsecond")
   }
 
@@ -427,11 +427,13 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |import eliot.lang.Pair
         |
         |def step: {State[String], Console} String =
-        |   flatMap(printLine("running step"),
-        |      ignored -> flatMap(getState, old -> flatMap(putState("done"), ignored2 -> pure(old))))
+        |   flatMap(
+        |      ignored -> flatMap(old -> flatMap(ignored2 -> pure(old), putState("done")), getState),
+        |      printLine("running step"))
         |
-        |def main: IO[Unit] = flatMap(runState(step, "start"),
-        |   p -> flatMap(printLine(first(p)), ignored -> printLine(second(p))))""".stripMargin
+        |def main: IO[Unit] = flatMap(
+        |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
+        |   runState(step, "start"))""".stripMargin
     ).asserting(_ shouldBe "running step\nstart\ndone")
   }
 
@@ -451,12 +453,12 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
       |
       |implement Effect[Id] {
       |   def pure[A](a: A): Id[A] = Id(a)
-      |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-      |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
+      |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
+      |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
       |}
       |
       |def modifyThenAbort: {State[String], Abort} String =
-      |   flatMap(putState("modified"), ignored -> abort)
+      |   flatMap(ignored -> abort, putState("modified"))
       |
       |""".stripMargin
 
@@ -471,8 +473,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
           |   runId(runState(runAbort(modifyThenAbort), "initial"))
           |
           |def main: IO[Unit] = flatMap(
-          |   printLine(foldOption(first(stateSurvives), "<no value>", s -> s)),
-          |   ignored -> printLine(second(stateSurvives)))""".stripMargin
+          |   ignored -> printLine(second(stateSurvives)),
+          |   printLine(foldOption(first(stateSurvives), "<no value>", s -> s)))""".stripMargin
     ).asserting(_ shouldBe "<no value>\nmodified")
   }
 
@@ -506,7 +508,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   }
 
   // A `val` binds the *carried* result of an effectful step (here `readLine`), so the body sees the plain value; the
-  // block lowers to `flatMap(readLine, line -> printLine(line))`.
+  // block lowers to `flatMap(line -> printLine(line), readLine)`.
   "a val binding an effectful result" should "bind the carried value and use it" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -566,8 +568,9 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |  old
         |}
         |
-        |def main: IO[Unit] = flatMap(runState(swap("after"), "before"),
-        |   p -> flatMap(printLine(first(p)), ignored -> printLine(second(p))))""".stripMargin
+        |def main: IO[Unit] = flatMap(
+        |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
+        |   runState(swap("after"), "before"))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 

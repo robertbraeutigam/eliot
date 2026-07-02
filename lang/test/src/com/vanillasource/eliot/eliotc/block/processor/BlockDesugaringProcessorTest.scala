@@ -62,8 +62,8 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
             FunLit(
               "next",
               FunApp(
-                FunApp(ValRef(flatMap), ValRef(getState)),
-                FunLit(old1, FunApp(FunApp(ValRef(map), FunApp(ValRef(putState), ParamRef(next))), FunLit(ign, ParamRef(old2))))
+                FunApp(ValRef(flatMap), FunLit(old1, FunApp(FunApp(ValRef(map), FunLit(ign, ParamRef(old2))), FunApp(ValRef(putState), ParamRef(next))))),
+                ValRef(getState)
               )
             )
           ) =>
@@ -76,7 +76,7 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   it should "bind the carried result of an effectful `val` (readLine), so the body sees the plain value" in {
     val echo = "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val line = readLine\n  printLine(line)\n}"
     effectBody(echo, "echo").asserting {
-      case Some(FunApp(FunApp(ValRef(flatMap), ValRef(readLine)), FunLit(line1, FunApp(ValRef(printLine), ParamRef(line2))))) =>
+      case Some(FunApp(FunApp(ValRef(flatMap), FunLit(line1, FunApp(ValRef(printLine), ParamRef(line2)))), ValRef(readLine))) =>
         (flatMap.name.name, readLine.name.name, printLine.name.name, line1) shouldBe ("flatMap", "readLine", "printLine", line2)
       case other => fail(s"unexpected: $other")
     }

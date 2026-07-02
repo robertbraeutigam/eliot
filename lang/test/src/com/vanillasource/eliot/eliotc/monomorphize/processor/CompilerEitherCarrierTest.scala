@@ -47,9 +47,9 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
       |
       |implement Effect[Either[String]] {
       |   def pure[A](a: A): Either[String, A] = Right(a)
-      |   def flatMap[A, B](fa: Either[String, A], f: Function[A, Either[String, B]]): Either[String, B] =
+      |   def flatMap[A, B](f: Function[A, Either[String, B]], fa: Either[String, A]): Either[String, B] =
       |      foldEither(fa, err -> Left(err), a -> f(a))
-      |   def map[A, B](fa: Either[String, A], f: Function[A, B]): Either[String, B] =
+      |   def map[A, B](f: Function[A, B], fa: Either[String, A]): Either[String, B] =
       |      foldEither(fa, err -> Left(err), a -> Right(f(a)))
       |}
       |

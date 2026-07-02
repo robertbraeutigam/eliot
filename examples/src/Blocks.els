@@ -15,7 +15,7 @@ import eliot.lang.Pair
 //   `putState(next)`       is a bare effectful statement,
 //   `old`                  is the result expression.
 // This is exactly the hand-written form it lowers to:
-//   flatMap(getState, old -> flatMap(putState(next), ignored -> pure(old)))
+//   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), getState)
 def swap(next: String): {State[String]} String = {
   val old = getState
   putState(next)

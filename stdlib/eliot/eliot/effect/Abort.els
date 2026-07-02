@@ -69,4 +69,4 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): G[Option[A]]
  */
 infix left
 def orElse[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: A): G[A] =
-   map(runAbort(computation), o -> foldOption(o, fallback, a -> a))
+   map(o -> foldOption(o, fallback, a -> a), runAbort(computation))

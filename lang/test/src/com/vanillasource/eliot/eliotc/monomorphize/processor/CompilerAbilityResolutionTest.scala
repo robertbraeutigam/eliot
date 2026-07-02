@@ -58,7 +58,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
       compilerScan(
         Seq("eliot", "effect"),
         "Effect",
-        "import eliot.lang.Function\nability Effect[F[_]] {\n  def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\n  def pure[A](a: A): F[A]\n  def map[A, B](fa: F[A], f: Function[A, B]): F[B]\n}"
+        "import eliot.lang.Function\nability Effect[F[_]] {\n  def flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\n  def pure[A](a: A): F[A]\n  def map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}"
       ) ++
       compilerScan(
         Seq("eliot", "effect"),
@@ -82,9 +82,9 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
           |
           |implement Effect[Either[String]] {
           |   def pure[A](a: A): Either[String, A] = Right(a)
-          |   def flatMap[A, B](fa: Either[String, A], f: Function[A, Either[String, B]]): Either[String, B] =
+          |   def flatMap[A, B](f: Function[A, Either[String, B]], fa: Either[String, A]): Either[String, B] =
           |      foldEither(fa, err -> Left(err), a -> f(a))
-          |   def map[A, B](fa: Either[String, A], f: Function[A, B]): Either[String, B] =
+          |   def map[A, B](f: Function[A, B], fa: Either[String, A]): Either[String, B] =
           |      foldEither(fa, err -> Left(err), a -> Right(f(a)))
           |}
           |

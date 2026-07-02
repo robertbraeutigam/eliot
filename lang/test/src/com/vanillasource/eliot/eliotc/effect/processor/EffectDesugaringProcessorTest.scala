@@ -17,19 +17,19 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   private val flatMapFqn    = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
   private val chooseFqn     = ValueFQN(testModuleName, QualifiedName("choose", Qualifier.Default))
 
-  "effect body auto-lift" should "bind a direct-style printLine(readLine) into flatMap(readLine, x -> printLine(x))" in {
+  "effect body auto-lift" should "bind a direct-style printLine(readLine) into flatMap(x -> printLine(x), readLine)" in {
     runEffectDesugar("import eliot.effect.Console\ndef echo: {Console} Unit = printLine(readLine)").asserting {
-      case Some(FunApp(FunApp(ValRef(`flatMapFqn`), ValRef(`readLineFqn`)), FunLit(x, FunApp(ValRef(`printLineFqn`), ParamRef(arg))))) =>
+      case Some(FunApp(FunApp(ValRef(`flatMapFqn`), FunLit(x, FunApp(ValRef(`printLineFqn`), ParamRef(arg)))), ValRef(`readLineFqn`))) =>
         arg shouldBe x
       case other => fail(s"unexpected: $other")
     }
   }
 
-  it should "leave already-monadic flatMap(readLine, s -> printLine(s)) unchanged (idempotent)" in {
+  it should "leave already-monadic flatMap(s -> printLine(s), readLine) unchanged (idempotent)" in {
     runEffectDesugar(
-      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = flatMap(readLine, s -> printLine(s))"
+      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = flatMap(s -> printLine(s), readLine)"
     ).asserting {
-      case Some(FunApp(FunApp(ValRef(fm), ValRef(`readLineFqn`)), FunLit(s, FunApp(ValRef(`printLineFqn`), ParamRef(arg))))) =>
+      case Some(FunApp(FunApp(ValRef(fm), FunLit(s, FunApp(ValRef(`printLineFqn`), ParamRef(arg)))), ValRef(`readLineFqn`))) =>
         (fm.name.name, arg) shouldBe ("flatMap", s)
       case other => fail(s"unexpected: $other")
     }
@@ -85,7 +85,7 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   private val effectStub =
     SystemImport(
       "Effect",
-      "ability Effect[F[_]] {\ndef flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](fa: F[A], f: Function[A, B]): F[B]\n}",
+      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}",
       ModuleName.effectPackage
     )
   // The Inf effect ability stub (matching `stdlib/.../Inf.els`), import-required (not ambient), so the propagation

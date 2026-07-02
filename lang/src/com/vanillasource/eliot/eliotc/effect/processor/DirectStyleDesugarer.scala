@@ -21,12 +21,12 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The recursive bottom-up auto-lift over one expression: the headline of the effects plan (M3). It rewrites a
-  * direct-style body (`printLine(readLine)`) into ordinary monadic form (`flatMap(readLine, x -> printLine(x))`).
+  * direct-style body (`printLine(readLine)`) into ordinary monadic form (`flatMap(x -> printLine(x), readLine)`).
   *
   * The single rule: an effectful sub-term (one whose static result is headed by an effect carrier) flowing into a
   * *pure value-argument position* is sequenced with the carrier's `Effect.flatMap` (or `Effect.map`, when the
   * continuation is pure), binding it to a fresh variable. Already-monadic code passes through unchanged (the rewrite
-  * is idempotent), and a stored effect action (`flatMap`'s first argument, an `F[A]` storage position) is not bound.
+  * is idempotent), and a stored effect action (`flatMap`'s last argument, an `F[A]` storage position) is not bound.
   *
   * "Effectful" is decided structurally from operator-resolved signatures via [[CalleeSignatures]] (this phase runs
   * before monomorphization, which remains the sole arbiter and backstop): a callee's result is effectful once its
@@ -101,7 +101,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
         } yield wrapBinds(core, coreEffectful, binds, idxB, used)
       // An immediately-applied lambda `(x -> body)(arg)` is a `let` (the shape every `val`/statement in a `{…}` block
       // lowers to). Its parameter is an ordinary pure value position, so an effectful `arg` flowing in is sequenced —
-      // `flatMap`/`map(arg, x -> body)` — exactly as it would be for a named callee's pure parameter. Threading effects
+      // `flatMap`/`map(x -> body, arg)` — exactly as it would be for a named callee's pure parameter. Threading effects
       // through block bindings depends on this case; a non-effectful `arg` (or a carrier-typed binder that deliberately
       // stores the action) is left as the plain immediately-applied lambda.
       case FunctionLiteral(param, paramType, body) if args.sizeIs == 1 =>
@@ -189,7 +189,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
     * itself synthesize. The author already lifted such a value into the carrier (it is how transformer instances and
     * hand-written monadic code look), so auto-binding it would un-lift it — leave it alone. The `synthesizedBind` guard
     * is essential: a `flatMap`/`map` *this pass created* while lowering an effectful sub-term (e.g. `url(get)` ⟹
-    * `flatMap(get, x -> url(x))`) must still bind when it flows into a pure position (`log(url(get))`). Genuine effects
+    * `flatMap(x -> url(x), get)`) must still bind when it flows into a pure position (`log(url(get))`). Genuine effects
     * (`abort`/`readLine`) are not machinery and always bind.
     */
   private def isAuthorMachineryCall(arg: Desugared): Boolean =
