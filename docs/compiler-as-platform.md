@@ -21,14 +21,15 @@ like any other ability. Neither happens today.
 ## Current state: the platform is half-built
 
 > **Status note.** This section describes the *starting* state that motivated the work. As of the
-> current session, stages **1a**, **A**, and **B** have landed — the compiler track now *is* driven through
-> the checker in `Platform.Compiler`, and a `pure`/`raise` in a compiler-platform value now **resolves in the
-> compiler pool** to the compile-time `Effect`/`Throw[Either[String]]` instances (its reduced form carries the
-> concrete `Either::pure`/`Either::raise`, not the abstract ability method — see **Staging**). The claims below
-> ("nothing ever passes `Platform.Compiler`", "compiler-platform abilities are never checked") are the problem
-> statement, no longer literally true. What remains before the first client: **consumption (C)** — wiring the
-> compiler natives into the runtime track's type positions, where the resolved-impl call actually *reduces*
-> (`Either::raise(m) ⤳ Left(m)`) as ordinary NbE evaluation.
+> current session, stages **1a**, **A**, **B**, and **C** (fold + reduction + fail-safe) have landed — the
+> compiler track now *is* driven through the checker in `Platform.Compiler`, a `pure`/`raise` in a
+> compiler-platform value **resolves in the compiler pool** to the compile-time `Effect`/`Throw[Either[String]]`
+> instances **and reduces** (`raise("boom") ⤳ Left("boom")`, `pure(x) ⤳ Right(x)`) via the compiler backend
+> (`PostDrainQuoter.reduceSourced`). The claims below ("nothing ever passes `Platform.Compiler`",
+> "compiler-platform abilities are never checked") are the problem statement, no longer literally true. What
+> remains is the runtime track *consuming* that reduced native at type positions (deferred with **D**, since no
+> current consumer needs it — the shipped guard client already reduces via the preferred-native `compilerLabel`
+> path) and the effectful-signatures carrier pinning + monadic rewrite (**D**/**E**). See **Staging**.
 
 The infrastructure is platform-parameterized, but only the **runtime** platform is ever *driven*
 through the resolution-and-check cycle. Concretely:
@@ -378,23 +379,43 @@ pre-reduced it in the read-back into a `MonomorphicExpression` — the runtime-c
 type-level value — and was reverted: the reduction belongs at the consumption boundary, not the checker
 read-back.)
 
-**C — consumption + reduction + native-leaf fail-safe.**
+**C — compiler-pool fold + compiler-backend reduction + native-leaf fail-safe. ✅ (a), (b-reduction), (c) done**
+(lang.test 736 / jvm.test 155 green).
 
-- (a) Fold the user program into the compiler source pool (`LangPlugin` — the positional program args
-  currently land only in `runtimePathKey`), so `compiler-mono` can reach user type-level code.
-- (b) Per-position routing so `runtime-mono` consumes `CompilerMonomorphicValue` for type positions
-  (the value/type-position rule above): the runtime track's type-stack levels reduce via the compiler
-  track at concrete args. This is where the runtime track's `resolveAbility` call sites (still passing
-  `Runtime` from 1a) get their real per-position platform — **and where the resolved-impl call from B
-  actually reduces** (`Either::raise(m)` ⤳ `Left(m)`), as ordinary NbE evaluation of the concrete-impl body
-  once the compiler native is plugged into the type-level evaluation. The reduced form is a
-  `SemValue`/`GroundValue` (the discharge reads `Right(t)`/`Left(msg)` off it), not a `MonomorphicExpression`.
-- (c) Make the stuck-native fallback track-specific: a runtime-concrete / compiler-abstract leaf reached
-  in the compiler track becomes the "runtime-only value at compile time" error, while the runtime track
-  keeps `VTopDef(fqn, None, …)` for the backend to emit.
+- (a) **✅ done.** The positional program args now fold into *both* source pools, not `runtimePathKey`
+  only (`LangPlugin`), so `compiler-mono` can reach user type-level code. Validated non-breaking by the
+  full jvm integration suite (which drives the real `LangPlugin` path config).
+- (b) **The compiler-backend *reduction* is ✅ done; the runtime-track *routing/consumption* is deferred to D/E.**
+  - *Reduction (done).* `CompilerMonomorphicTypeCheckProcessor` now produces a **fully reduced** body: a
+    drain-resolved ability call has its concrete-impl *body* folded in by ordinary NbE evaluation
+    (`PostDrainQuoter.reduceSourced` — rewrite the resolved ability ref to its impl ref, evaluate, then
+    materialise the ground constructor value; fall back to the structural quote for a compiler *function*
+    with runtime params). So `raise("boom")` reduces all the way to `Left("boom")` and `pure("hello")` to
+    `Right("hello")` — the reduced compile-time value the runtime track will plug in
+    (`CompilerAbilityResolutionTest`, now Increments B+C). Required threading the track `platform` into
+    `PostDrainQuoter` so `constructorRole`'s `UnifiedModuleValue` lookup reads the *compiler* pool (else a
+    compiler-pool constructor like `Either`'s `Left`/`Right` is missed and materialisation silently drops
+    to the structural fallback). Runtime track behaviour-neutral (`quoteSourced` path, `Platform.Runtime`).
+  - *Routing/consumption (deferred to D/E).* The runtime track does **not yet** consume
+    `CompilerMonomorphicValue` per type position, and the `resolveAbility` call sites still pass `Runtime`.
+    This is deferred deliberately: it has **no consumer yet** — the shipped guard client
+    (`GuardSignatureIntegrationTest`) already reduces `when`/`orError` in the runtime track through the
+    *preferred-native* `compilerLabel` bindings (`fold`/`foldOption`/`data`, no ability dispatch), so the
+    two-track consumption is not on any current path. It is also entangled with **D** (carrier pinning) and
+    with the empty-compiler-pool test harness (a global type-position→compiler-pool flip of the implicit
+    `Coerce`/`Combine` resolution would break every `runGenerator` test until the base is registered on both
+    pools, with no behavioural gain — the same source compiled twice). Wire it when a consumer (E's monadic
+    `orError`/`raise`) needs it.
+- (c) **✅ done.** `CompilerMonomorphicTypeCheckProcessor.fetchBinding` is now track-specific: a
+  runtime-concrete / compiler-abstract leaf reached in the compiler track becomes the "Cannot use
+  runtime-only value X at compile time" error (gated on runtime-pool membership so a compiler-only name is
+  not probed and never triggers the runtime pool's "Could not find" abort); the runtime track keeps
+  `VTopDef(fqn, None, …)` for the backend to emit (`CompilerNativeLeafBoundaryTest`).
 
 **D — carrier pinning for `{Throw[String]} Type`** (bind the effect carrier to the concrete
-`Either[String]`; see the open question on placement).
+`Either[String]`; see the open question on placement). Also the natural home for the deferred **(b)
+routing/consumption** above — the runtime track consuming the compiler track's reduced native at type
+positions — since both settle the same carrier.
 
 **E — first client end-to-end:** `Throw[String]` guard integration tests (pure path → type; `raise`
 path → compile error), then rewrite `when`/`orError` onto the effect path.

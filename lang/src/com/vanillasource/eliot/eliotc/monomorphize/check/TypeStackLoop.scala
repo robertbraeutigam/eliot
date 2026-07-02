@@ -115,6 +115,19 @@ class TypeStackLoop(
       // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
       _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
 
+      // Compiler backend (CP-C step b): the compiler track reduces its body to a normal form, folding each
+      // drain-resolved ability impl's *body* in via NbE — so it needs those impl bindings reachable by the evaluator.
+      // Fetch them once from the track's pool and merge them ahead of the checker's own binding cache. The runtime
+      // track keeps a structural body for codegen, so it needs none.
+      implBindings <- platform match {
+                        case Platform.Compiler =>
+                          state.abilityResolutions.values.toList
+                            .distinctBy(_._1)
+                            .traverse { case (implFqn, _) => liftF(fetchBinding(implFqn)).map(_.map(implFqn -> _)) }
+                            .map(_.flatten.toMap)
+                        case Platform.Runtime  => pure(Map.empty[ValueFQN, SemValue])
+                      }
+
       // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
       // SemValue → GroundValue transition and has no silent fallback; Quoter reports unresolved metas as compiler
       // errors.
@@ -122,10 +135,17 @@ class TypeStackLoop(
                      state.unifier.metaStore,
                      state.abilityResolutions,
                      monoEnv,
-                     fqn => state.bindingCache.getOrElse(fqn, None)
+                     fqn => implBindings.get(fqn).orElse(state.bindingCache.getOrElse(fqn, None)),
+                     platform
                    )
       groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.typeStack))
-      monoBody  <- runtime.traverse(srcSem => liftF(quoter.quoteSourced(srcSem)))
+      // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
+      monoBody  <- runtime.traverse(srcSem =>
+                     liftF(platform match {
+                       case Platform.Compiler => quoter.reduceSourced(srcSem)
+                       case Platform.Runtime  => quoter.quoteSourced(srcSem)
+                     })
+                   )
     } yield TypeStackLoop.Result(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))

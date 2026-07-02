@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleValue, ValueFQN,
 import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter, SemExpressionEvaluator}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -43,7 +44,8 @@ class PostDrainQuoter(
     metaStore: MetaStore,
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
     monoEnv: Env,
-    lookupTopDef: ValueFQN => Option[SemValue]
+    lookupTopDef: ValueFQN => Option[SemValue],
+    platform: Platform
 ) {
 
   private val erasedParams: Set[String]            = monoEnv.names.toSet
@@ -66,6 +68,63 @@ class PostDrainQuoter(
   /** Quote a sourced [[SemExpression]] tree to a sourced [[MonomorphicExpression]] tree, applying the staging gate. */
   def quoteSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] =
     quoteSourcedIn(expr, Set.empty, monoEnv)
+
+  /** Produce the **fully reduced** body of a compiler-platform value (CP-C step b — the compiler backend). A
+    * compiler-track value is wholly compile-time, so — unlike the runtime track, whose body must stay structural for
+    * codegen — its body is normalised as far as it goes: an ability call resolved during the drain
+    * (`raise("boom")` ⤳ the concrete `Either::raise("boom")`) has its concrete-impl *body* folded in by ordinary NbE
+    * evaluation (`Either::raise`'s `err -> Left(err)`), so `raise("boom")` reduces to `Left("boom")`, `pure(x)` to
+    * `Right(x)`. This is the reduced value the runtime track's type-level evaluation will plug in as a native.
+    *
+    *   - rewrite every drain-resolved ability reference to its concrete-impl reference (the [[SemExpression]] analogue of
+    *     [[resolveIfAbility]]), so the impl body is reachable to the evaluator (its binding is supplied through
+    *     `lookupTopDef`, which the caller augments with the resolved impls);
+    *   - evaluate the rewritten body and read it back. A body that reduces to a ground constructor value materialises to
+    *     a literal/constructor tree (the reduced native);
+    *   - a body that does *not* fully reduce — a compiler-platform *function* with runtime value parameters (e.g.
+    *     `foldEither`), whose parameters stay neutral — falls back to the ordinary structural quote, identical to the
+    *     runtime track's read-back (with `resolveIfAbility` doing the ability→impl rewrite there).
+    */
+  def reduceSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] = {
+    val reduced = Evaluator.force(semEvaluator.eval(monoEnv, resolveAbilityRefs(expr.value)), metaStore)
+    Quoter.quote(0, reduced, metaStore) match {
+      case Left(_)       => quoteSourced(expr)
+      case Right(ground) =>
+        materialise(ground, expr).flatMap {
+          case Some(mono) => expr.as(mono).pure[CompilerIO]
+          case None       => quoteSourced(expr)
+        }
+    }
+  }
+
+  /** Rewrite each drain-resolved ability [[SemExpression.ValueReference]] to its concrete-impl reference, so the
+    * evaluator resolves the impl *body* rather than stalling on the abstract ability method (which has no binding). The
+    * [[SemExpression]]-level twin of [[resolveIfAbility]]: same [[abilityResolutions]] lookup, but producing a rewritten
+    * [[SemExpression]] the evaluator can reduce, not a finished [[MonomorphicExpression]]. Non-ability references and
+    * unresolved ability references (constraint-covered, resolved at the caller's level) are left untouched.
+    */
+  private def resolveAbilityRefs(se: SemExpression): SemExpression = se.expression match {
+    case SemExpression.ValueReference(vfqn, _)               =>
+      abilityResolutions.get(vfqn) match {
+        case Some((implFqn, implTypeArgs)) =>
+          SemExpression(
+            se.expressionType,
+            SemExpression.ValueReference(vfqn.as(implFqn), implTypeArgs.map(Evaluator.groundToSem))
+          )
+        case None                          => se
+      }
+    case SemExpression.FunctionApplication(target, argument) =>
+      SemExpression(
+        se.expressionType,
+        SemExpression.FunctionApplication(target.map(resolveAbilityRefs), argument.map(resolveAbilityRefs))
+      )
+    case SemExpression.FunctionLiteral(paramName, paramType, body) =>
+      SemExpression(
+        se.expressionType,
+        SemExpression.FunctionLiteral(paramName, paramType, body.map(resolveAbilityRefs))
+      )
+    case _                                                   => se
+  }
 
   private def quoteSourcedIn(
       expr: Sourced[SemExpression],
@@ -297,9 +356,12 @@ class PostDrainQuoter(
         Option.empty[MonomorphicExpression].pure[CompilerIO]
     }
 
-  /** The [[RoleHint]] of a value FQN, or [[None]] if no module value is known for it. */
+  /** The [[RoleHint]] of a value FQN, or [[None]] if no module value is known for it. Read from the track's own pool
+    * (`platform`): a compiler-track constructor (e.g. the compile-time `Either`'s `Left`/`Right`) lives in the compiler
+    * pool, so the runtime-default lookup would miss it and silently drop materialisation to a structural fallback.
+    */
   private def constructorRole(fqn: ValueFQN): CompilerIO[Option[RoleHint]] =
-    getFact(UnifiedModuleValue.Key(fqn)).map(_.map(_.namedValue.roleHint))
+    getFact(UnifiedModuleValue.Key(fqn, platform)).map(_.map(_.namedValue.roleHint))
 
   /** All parameter names referenced anywhere in this expression node's subtree. Type-argument [[SemValue]]s of a value
     * reference are not walked — they are erased and never produce a runtime reference, so they do not gate

@@ -13,18 +13,20 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import java.net.URI
 import java.nio.file.Path
 
-/** Compiler-as-platform Increment B: the compiler monomorphize track resolves ability instances **in the compiler
-  * pool**. A `pure`/`raise` call in a compiler-platform value dispatches to the compile-time
-  * `Effect[Either[String]]` / `Throw[String, Either[String]]` implementations, so its reduced form carries the concrete
-  * `Either::pure` / `Either::raise` reference — not the abstract `Effect::pure` / `Throw::raise` ability method.
+/** Compiler-as-platform Increments B **and** C: the compiler monomorphize track resolves ability instances **in the
+  * compiler pool** (B) and then **reduces** the resolved call to its normal form (C — the compiler backend).
+  *
+  * A `pure`/`raise` call in a compiler-platform value dispatches to the compile-time `Effect[Either[String]]` /
+  * `Throw[String, Either[String]]` implementations (B — the reduced form carries the concrete `Either::pure` /
+  * `Either::raise`, not the abstract `Effect::pure` / `Throw::raise` ability method), and the compiler backend then folds
+  * the concrete-impl *body* in by ordinary NbE evaluation (C — `Either::raise`'s `err -> Left(err)`), so `raise("boom")`
+  * reduces all the way to `Left("boom")` and `pure("hello")` to `Right("hello")`. This is the reduced compile-time value
+  * the runtime track's type-level evaluation will plug in as a native.
   *
   * The whole scenario lives in the **compiler** source pool (no runtime layer), so this pins that resolution targets the
   * compiler platform, not the default runtime one. The guarding fix is `TypeStackLoop.abilityArity` reading the marker
   * signature from the track's platform: before it, the arity query hit the (empty) runtime pool, the method reference's
   * type arguments were never sliced to the ability prefix, and resolution silently never fired.
-  *
-  * The subsequent step — *reducing* the resolved implementation call (`Either::raise(m)` ⤳ `Left(m)`) — is ordinary NbE
-  * evaluation of the concrete-impl body and lands with consumption (Increment C), not here.
   */
 class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemModules = Seq.empty)*) {
 
@@ -113,15 +115,34 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
 
   private def refsOf(name: String): IO[Seq[(String, String)]] = reducedOf(name).map(_.toSeq.flatMap(valueRefs))
 
-  "the compiler track (Increment B)" should "check a value using `raise` without error" in {
+  /** The string literals surviving in a reduced body — the guard/error payload carried through the reduction. */
+  private def stringLiteralsOf(expr: MonomorphicExpression.Expression): Seq[String] = expr match {
+    case MonomorphicExpression.StringLiteral(v)                     => Seq(v.value)
+    case MonomorphicExpression.FunctionApplication(target, argument) =>
+      stringLiteralsOf(target.value.expression) ++ stringLiteralsOf(argument.value.expression)
+    case MonomorphicExpression.FunctionLiteral(_, _, body)          => stringLiteralsOf(body.value.expression)
+    case _                                                          => Seq.empty
+  }
+
+  private def litsOf(name: String): IO[Seq[String]] = reducedOf(name).map(_.toSeq.flatMap(stringLiteralsOf))
+
+  "the compiler track (Increments B+C)" should "check a value using `raise` without error" in {
     errorsOf("raiseConst").asserting(_ shouldBe Seq.empty)
   }
 
-  it should "resolve `raise` to the compiler-pool `Throw` implementation, not the abstract ability method" in {
-    refsOf("raiseConst").asserting(_ shouldBe Seq(("Either", "raise")))
+  it should "reduce `raise(m)` to the concrete `Left(m)` — resolve the `Throw` impl and fold its body" in {
+    refsOf("raiseConst").asserting(_ shouldBe Seq(("Either", "Left")))
   }
 
-  it should "resolve `pure` to the compiler-pool `Effect` implementation, not the abstract ability method" in {
-    refsOf("pureConst").asserting(_ shouldBe Seq(("Either", "pure")))
+  it should "carry the raised message into the reduced `Left`" in {
+    litsOf("raiseConst").asserting(_ shouldBe Seq("boom"))
+  }
+
+  it should "reduce `pure(x)` to the concrete `Right(x)` — resolve the `Effect` impl and fold its body" in {
+    refsOf("pureConst").asserting(_ shouldBe Seq(("Either", "Right")))
+  }
+
+  it should "carry the pured value into the reduced `Right`" in {
+    litsOf("pureConst").asserting(_ shouldBe Seq("hello"))
   }
 }
