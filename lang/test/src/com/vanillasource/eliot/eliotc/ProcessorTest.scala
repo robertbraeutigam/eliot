@@ -205,7 +205,7 @@ object ProcessorTest {
   /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els`. Import-required (in `effectPackage`);
     * application/layer code supplies the concrete instances per dependency type.
     */
-  val depStubContent: String = "ability Dep[X, F[_]] {\ndef get: F[X]\n}"
+  val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: F[X]\n}"
 
   /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int`/`integerLiteral`
     * as a *local* declaration name (and never write a value-position integer literal) pass this to

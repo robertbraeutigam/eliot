@@ -1,18 +1,18 @@
 /**
  * The dependency effect: read-only access to an injected value of a given type.
  *
- * A reader-like effect. A function that needs an `X` from the environment declares `{Dep[X]}` and
- * calls `get` to obtain it; `get` is dispatched by the type expected at the call site, so distinct
+ * A function that needs an `X` from the environment declares `{Dep[X]}` and
+ * calls `dependency` to obtain it; `dependency` is dispatched by the type expected at the call site, so distinct
  * dependency types are distinct effects (`{Dep[Database], Dep[Logger]}`). At most one value may be
  * provided per type, which the ordinary ability-coherence rule already guarantees.
  *
  * ```eliot
- * def lookup: {Dep[Database]} Row = query(get)
+ * def lookup: {Dep[Database]} Row = dependency.query("select ...")
  * ```
  */
 ability Dep[X, F[_]] {
    /**
     * Obtain the injected value of type `X`, dispatched by the type expected at the use site.
     */
-   def get: F[X]
+   def dependency: F[X]
 }

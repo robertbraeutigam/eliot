@@ -19,18 +19,18 @@ data Database(url: String)
 
 /**
  * The application's single database dependency, injected as a compile-time singleton. Coherence (the ordinary ability
- * overlap rule) guarantees at most one `Dep[Database]` instance, so `get` is unambiguous; monomorphization collapses
+ * overlap rule) guarantees at most one `Dep[Database]` instance, so `dependency` is unambiguous; monomorphization collapses
  * this to a direct reference.
  */
 implement Dep[Database, IO] {
-   def get: IO[Database] = pure(Database("jdbc://app-db"))
+   def dependency: IO[Database] = pure(Database("jdbc://app-db"))
 }
 
 /**
- * Logs the injected database url, then echoes a line of input — `get` (Dep), `log` (Log), `readLine` and
+ * Logs the injected database url, then echoes a line of input — `dependency` (Dep), `log` (Log), `readLine` and
  * `printLine` (Console), sequenced left to right.
  */
-def run: {Dep[Database], Log, Console} Unit = andThen(log(url(get)), printLine(readLine))
+def run: {Dep[Database], Log, Console} Unit = andThen(log(dependency.url), printLine(readLine))
 
 /** Sequence two effectful `Unit` computations, keeping the second result (a stand-in for a `>>` combinator). */
 def andThen(first: Unit, second: Unit): Unit = second
