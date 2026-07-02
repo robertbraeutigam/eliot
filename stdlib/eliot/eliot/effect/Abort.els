@@ -4,24 +4,24 @@ import eliot.lang.Option
 /**
  * The abort effect: a computation that may short-circuit, abandoning the rest of the work.
  *
- * A function that might give up declares `{Abort}` and calls `abort` to stop. Because `abort` stands in
+ * A function that might stop processing at any point in its body may declare `{Abort}` and call `abort` to stop.
+ * Because `abort` stands in
  * for a value of any type, it drops straight into ordinary code; the `{Abort}` then floats up to the
  * caller. Whether the computation aborted is materialised only when the effect is discharged by
  * `runAbort`, as an `Option` that is `none` if it aborted. The untyped sibling of `Throw[E]`, which also
  * carries a reason.
  *
- * The defining behaviour is short-circuit: the first step to abort abandons everything after it. Below,
- * `require` aborts on a missing `Option` — `abort` fills the `none` branch of `foldOption`, where a value
- * of the element type is expected — and the block assembling an endpoint gives up on the first absent
- * setting, never inspecting the second:
- *
  * ```eliot
- * def require[A](setting: Option[A]): {Abort} A = foldOption(setting, abort, value -> value)
+ * // Get a setting as string for a given key. If the setting
+ * // does not exists, this function aborts.
+ * def setting(key: String): {Abort} String
  *
- * def endpoint(host: Option[String], port: Option[String]): {Abort} Pair[String, String] = {
- *    val h = require(host)   // aborts here when `host` is `none` ...
- *    val p = require(port)   // ... so this line is never reached
- *    pair(h, p)
+ * // Get a DB connection with settings. If any of the settings aborts,
+ * // this function aborts without opening a connection.
+ * def dbConnection: {Abort} Connection = {
+ *   val host = setting("host") // This is a String
+ *   val port = setting("port") // Also a String
+ *   openConnection(host, port)
  * }
  * ```
  */
@@ -57,15 +57,14 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): G[Option[A]]
  * `Abort` — it reads like a default and never exposes `Option`. On completion it yields the computed value; on `abort`
  * it yields `fallback`.
  *
- * Here `port` aborts when its setting is absent, and `orElse` fills in the default in that case:
- *
  * ```eliot
- * def port(setting: Option[String]): {Abort} String = foldOption(setting, abort, value -> value)
+ * // Get a setting as string for a given key. If the setting
+ * // does not exists, this function aborts.
+ * def setting(key: String): {Abort} String
  *
- * def main: IO[Unit] = {
- *    println(port(none) orElse "8080")          // "8080" — the lookup aborted, so the fallback stands in
- *    println(port(some("9090")) orElse "8080")  // "9090" — present, so its own value is used
- * }
+ * // This will always return a String and does not abort.
+ * def settingWithDefault(key: String, default: String): String =
+ *   setting("key") orElse default
  * ```
  */
 infix left
