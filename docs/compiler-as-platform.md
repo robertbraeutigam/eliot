@@ -21,10 +21,14 @@ like any other ability. Neither happens today.
 ## Current state: the platform is half-built
 
 > **Status note.** This section describes the *starting* state that motivated the work. As of the
-> current session, stages **1a** and **A** have landed — the compiler track now *is* driven through the
-> checker in `Platform.Compiler` (see **Staging**). The claims below ("nothing ever passes
-> `Platform.Compiler`", "compiler-platform abilities are never checked") are the problem statement, no
-> longer literally true; method-body reduction (B) and consumption (C) are what remain.
+> current session, stages **1a**, **A**, and **B** have landed — the compiler track now *is* driven through
+> the checker in `Platform.Compiler`, and a `pure`/`raise` in a compiler-platform value now **resolves in the
+> compiler pool** to the compile-time `Effect`/`Throw[Either[String]]` instances (its reduced form carries the
+> concrete `Either::pure`/`Either::raise`, not the abstract ability method — see **Staging**). The claims below
+> ("nothing ever passes `Platform.Compiler`", "compiler-platform abilities are never checked") are the problem
+> statement, no longer literally true. What remains before the first client: **consumption (C)** — wiring the
+> compiler natives into the runtime track's type positions, where the resolved-impl call actually *reduces*
+> (`Either::raise(m) ⤳ Left(m)`) as ordinary NbE evaluation.
 
 The infrastructure is platform-parameterized, but only the **runtime** platform is ever *driven*
 through the resolution-and-check cycle. Concretely:
@@ -351,24 +355,40 @@ value can now be type-checked wholly in the `Platform.Compiler` pool.
   uses it yet, and a compiler-pool-only callee yields no fact (the caller errors) rather than a silently
   wrong type.
 
-**B — method-body reduction. ⏭ next.** The compiler track *resolves* abilities in the compiler pool but
-does not yet **fold** the resolved instance body, so `pure`/`raise` stay recorded-but-stuck rather than
-reducing. Today the post-drain `resolveAbilities` pass only *records* a method resolution (for the
-backend to emit a call); `RefinementSolver.coercionPayload` is the one place that already resolves an
-instance and *evaluates its body* via the one evaluator. Generalize that: on the compiler track, after
-a method resolves, fold the impl's method body into the value and re-drain to fixpoint, so `pure(x) →
-Right(x)` / `raise(m) → Left(m)`. (Coerce is a synthesized single call; the general case is a method
-reference *inside* the body — the design piece is the fold-and-redrain hook in the post-drain pipeline,
-not the eval itself.)
+**B — ability resolution in the compiler pool. ✅ done** (lang.test 731 / jvm.test 155 green). A `pure`/`raise`
+call in a compiler-platform value now **resolves in the compiler pool** to the compile-time
+`Effect[Either[String]]` / `Throw[String, Either[String]]` implementations, so its reduced form carries the
+concrete `Either::pure` / `Either::raise` reference instead of the abstract `Effect::pure` / `Throw::raise`
+ability method. This uses the *existing* ability machinery unchanged — the checker's `resolveAbilities`
+post-drain pass drives `AbilityImplementation`, and `PostDrainQuoter.resolveIfAbility` rewrites the resolved
+call to the concrete-impl reference (both already track-parameterised from Increment A).
 
-**C — consumption + native-leaf fail-safe.**
+The one fix B needed was a platform-threading bug: `TypeStackLoop.abilityArity` read the ability *marker*
+signature via `OperatorResolvedValue.Key(markerFqn)` at the **default runtime platform**, so on the compiler
+track (empty runtime pool) the arity query returned nothing, the method reference's type arguments were never
+sliced to the ability-level prefix, the sliced args failed to quote to ground, and resolution silently never
+fired. It now reads the track's `platform`. Behaviour-neutral for the runtime track (`platform` was already
+`Runtime` there).
+
+**The actual reduction of the resolved call** (`Either::raise(m)` ⤳ `Left(m)`, `Either::pure(x)` ⤳ `Right(x)`)
+is *not* a bespoke checker step — it is ordinary NbE evaluation of the concrete-impl body, which the impl
+carries. It therefore lands with **consumption (C)**, where the runtime track plugs the compiler native into a
+type-level evaluation and reduces it there, in `SemValue`/`GroundValue` shape. (An earlier version of B
+pre-reduced it in the read-back into a `MonomorphicExpression` — the runtime-codegen IR, the wrong lane for a
+type-level value — and was reverted: the reduction belongs at the consumption boundary, not the checker
+read-back.)
+
+**C — consumption + reduction + native-leaf fail-safe.**
 
 - (a) Fold the user program into the compiler source pool (`LangPlugin` — the positional program args
   currently land only in `runtimePathKey`), so `compiler-mono` can reach user type-level code.
 - (b) Per-position routing so `runtime-mono` consumes `CompilerMonomorphicValue` for type positions
   (the value/type-position rule above): the runtime track's type-stack levels reduce via the compiler
   track at concrete args. This is where the runtime track's `resolveAbility` call sites (still passing
-  `Runtime` from 1a) get their real per-position platform.
+  `Runtime` from 1a) get their real per-position platform — **and where the resolved-impl call from B
+  actually reduces** (`Either::raise(m)` ⤳ `Left(m)`), as ordinary NbE evaluation of the concrete-impl body
+  once the compiler native is plugged into the type-level evaluation. The reduced form is a
+  `SemValue`/`GroundValue` (the discharge reads `Right(t)`/`Left(msg)` off it), not a `MonomorphicExpression`.
 - (c) Make the stuck-native fallback track-specific: a runtime-concrete / compiler-abstract leaf reached
   in the compiler track becomes the "runtime-only value at compile time" error, while the runtime track
   keeps `VTopDef(fqn, None, …)` for the backend to emit.

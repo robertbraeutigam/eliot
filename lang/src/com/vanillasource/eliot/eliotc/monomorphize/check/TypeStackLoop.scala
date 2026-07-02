@@ -395,7 +395,7 @@ class TypeStackLoop(
     */
   private def abilityArity(methodVfqn: ValueFQN, abilityName: String): CheckIO[Int] = {
     val markerFqn = ValueFQN(methodVfqn.moduleName, QualifiedName(abilityName, methodVfqn.name.qualifier))
-    liftF(getFact(OperatorResolvedValue.Key(markerFqn))).map {
+    liftF(getFact(OperatorResolvedValue.Key(markerFqn, platform))).map {
       case Some(orv) =>
         OperatorResolvedExpression.SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature)).binders.length
       case None      => Int.MaxValue
