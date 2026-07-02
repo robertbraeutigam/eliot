@@ -72,7 +72,7 @@ case class CheckState(
     * a dependent codomain (`codomain(neutral)`, genuine dependent Π).
     */
   def paramNeutral(name: String): SemValue =
-    VNeutral(NeutralHead.VVar(rho.level, name), Spine.SNil)
+    VNeutral(NeutralHead.Param(rho.level, name), Spine.SNil)
 
   /** Bind a runtime value parameter: its declared type in Γ and a fresh neutral standing for its runtime value in ρ. A
     * value-position reference reads the type from Γ; the evaluator reads the neutral from ρ, so a dependent type stays

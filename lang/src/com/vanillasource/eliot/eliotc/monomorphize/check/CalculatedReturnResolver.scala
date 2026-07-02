@@ -285,7 +285,7 @@ class CalculatedReturnResolver(
   ): CheckIO[(SemValue, Option[VMeta])] = {
     // A guard's return depends only on the (now concrete) type parameters, so any value stands in to peel the
     // value-parameter arrows; a fresh neutral keeps the metastore clean (unlike a meta) for the non-guard common case.
-    val probe: SemValue = VNeutral(NeutralHead.VVar(Int.MinValue, "$guard-probe"), Spine.SNil)
+    val probe: SemValue = VNeutral(NeutralHead.Reserved(NeutralHead.Marker.GuardProbe), Spine.SNil)
 
     def rebuild(domains: List[SemValue], leaf: SemValue): SemValue =
       domains.foldLeft(leaf)((acc, dom) => VPi(dom, _ => acc))

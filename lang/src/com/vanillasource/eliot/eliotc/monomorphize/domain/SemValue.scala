@@ -54,10 +54,56 @@ object SemValue {
     extension (id: MetaId) def value: Int = id
   }
 
-  /** Head of a stuck neutral term. */
-  sealed trait NeutralHead
+  /** Head of a stuck neutral term. Identity is **structural** — the constructor and its fields — so neutrals minted by
+    * different subsystems (parameter binders, the unifier's and quoter's binder-descending probes, the reserved
+    * markers) can never collide even at a coinciding numeric level/depth, without relying on reserved name strings or
+    * magic level numbers (the F3 hardening).
+    */
+  sealed trait NeutralHead {
+
+    /** A human-readable name for diagnostics (error messages, `SemValuePrinter`). Never an identity — heads compare by
+      * constructor.
+      */
+    def name: String
+  }
   object NeutralHead {
-    case class VVar(level: Int, name: String) extends NeutralHead
+
+    /** A genuine bound variable — a runtime value parameter, an unresolved parameter reference during evaluation, a
+      * read-back binder — and the throwaway named placeholders diagnostics/printing substitute under a binder. Identity
+      * is `(level, name)`.
+      */
+    case class Param(level: Int, name: String) extends NeutralHead
+
+    /** A fresh rigid variable a binder-descending traversal injects to compare or probe under a [[VPi]]/[[VLam]]: the
+      * unifier (identity-bearing — both codomains receive the same one) and the quoter (a throwaway probe). Keyed by
+      * [[Origin]] and the traversal's local `depth`, so it can never coincide with a [[Param]] or the other traversal's
+      * var even at an equal numeric depth — replacing the former `$unify<n>` / `$quote<n>` reserved-name convention.
+      */
+    case class Fresh(origin: Origin, depth: Int) extends NeutralHead {
+      override def name: String = s"$$${origin.tag}$depth"
+    }
+
+    /** A reserved, binder-less marker with no scope: the fail-safe bad-apply head, the effectful-guard signature probe,
+      * the `Coerce` argument marker, the stuck-match placeholder. Identity is the [[Marker]] — recognised by
+      * constructor, not by a magic name string.
+      */
+    case class Reserved(marker: Marker) extends NeutralHead {
+      override def name: String = marker.tag
+    }
+
+    /** Which binder-descending traversal minted a [[Fresh]] var. */
+    enum Origin(val tag: String) {
+      case Unify extends Origin("unify")
+      case Quote extends Origin("quote")
+    }
+
+    /** Which reserved, scope-less marker a [[Reserved]] head stands for. The `tag`s preserve the former display names. */
+    enum Marker(val tag: String) {
+      case BadApply   extends Marker("$bad-apply")
+      case GuardProbe extends Marker("$guard-probe")
+      case Coerce     extends Marker("$coerceArg")
+      case Match      extends Marker("match")
+    }
   }
 
   /** Spine of applied arguments, reversed cons list for O(1) append. */

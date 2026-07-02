@@ -459,7 +459,7 @@ case class Unifier(
     copy(errors = UnifyError(Sourced(context.uri, context.range, "Cannot construct infinite type."), None, None) :: errors)
 
   private def freshVar(): (SemValue, Unifier) = {
-    val v = VNeutral(NeutralHead.VVar(depth, s"$$unify$depth"), Spine.SNil)
+    val v = VNeutral(NeutralHead.Fresh(NeutralHead.Origin.Unify, depth), Spine.SNil)
     (v, copy(depth = depth + 1))
   }
 

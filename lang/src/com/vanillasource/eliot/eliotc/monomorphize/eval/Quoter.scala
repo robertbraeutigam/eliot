@@ -61,5 +61,5 @@ object Quoter {
   }
 
   private def freshVar(depth: Int): SemValue =
-    VNeutral(NeutralHead.VVar(depth, s"$$quote$depth"), Spine.SNil)
+    VNeutral(NeutralHead.Fresh(NeutralHead.Origin.Quote, depth), Spine.SNil)
 }

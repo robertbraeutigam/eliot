@@ -135,7 +135,7 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
     * opaque neutral, mirroring [[Evaluator.applyValue]]'s `VNative`-on-neutral behaviour.
     */
   private def stuck(scrutinee: SemValue): SemValue =
-    VNeutral(NeutralHead.VVar(0, "match"), Spine.SNil :+ scrutinee)
+    VNeutral(NeutralHead.Reserved(NeutralHead.Marker.Match), Spine.SNil :+ scrutinee)
 
   /** Placeholder argument supplied to field-less constructor handlers (mirrors the JVM backend passing `null`). */
   private val unitValue: SemValue = VConst(GroundValue.Direct((), GroundValue.Type))

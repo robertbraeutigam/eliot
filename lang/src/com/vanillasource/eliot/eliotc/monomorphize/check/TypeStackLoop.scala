@@ -172,8 +172,8 @@ class TypeStackLoop(
     checker.force(returnMeta).flatMap {
       case _: SemValue.VMeta                                     =>
         reportUncalculableReturn(resolvedValue, "the body leaves it unconstrained")
-      case SemValue.VNeutral(SemValue.NeutralHead.VVar(_, n), _) =>
-        reportUncalculableReturn(resolvedValue, s"the result depends on '$n', which the inputs do not determine")
+      case SemValue.VNeutral(head, _) =>
+        reportUncalculableReturn(resolvedValue, s"the result depends on '${head.name}', which the inputs do not determine")
       case _                                                     => pure(())
     }
 

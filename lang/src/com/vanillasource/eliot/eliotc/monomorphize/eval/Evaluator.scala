@@ -46,10 +46,11 @@ class Evaluator(
 object Evaluator {
 
   /** Reserved neutral head for the fail-safe fallback of [[applyValue]]: the stuck term minted when an argument is
-    * applied to a non-applicable head (a `VConst` or `VType`). The negative level never collides with a real de Bruijn
-    * level, so this head is definitionally distinct from every genuine variable and never unifies one away.
+    * applied to a non-applicable head (a `VConst` or `VType`). A dedicated reserved marker (not a variable), so this
+    * head is definitionally distinct from every genuine variable and never unifies one away.
     */
-  private val badApplyHead: SemValue.NeutralHead = SemValue.NeutralHead.VVar(-1, "$bad-apply")
+  private val badApplyHead: SemValue.NeutralHead =
+    SemValue.NeutralHead.Reserved(SemValue.NeutralHead.Marker.BadApply)
 
   /** Apply a semantic value to an argument.
     *
@@ -77,8 +78,8 @@ object Evaluator {
       // Always fire — even on a non-concrete argument. The native's `fire` produces its own canonical stuck form
       // (a `VStuckNative` carrying the native's FQN and the renormalised spine) when an argument is not yet concrete,
       // so distinct stuck natives stay definitionally distinct and `renormalize` can re-fire them once the arguments
-      // solve. (A previous neutral-only special case collapsed every native to a single anonymous `VVar(0, "native")`
-      // head, which conflated, e.g., `add(x, y)` with `subtract(x, y)` under definitional equality.) Firing on a
+      // solve. (A previous neutral-only special case collapsed every native to a single anonymous neutral head, which
+      // conflated, e.g., `add(x, y)` with `subtract(x, y)` under definitional equality.) Firing on a
       // neutral mirrors firing on a concrete value: a curried native simply yields the next `VNative` awaiting the
       // remaining arguments.
       fire(unfoldTopDef(x))

@@ -27,7 +27,7 @@ abstract class NbeEvaluator[E](lookupTopDef: ValueFQN => Option[SemValue]) {
       VConst(GroundValue.Direct(value, Evaluator.stringGroundType))
 
     case Term.ParameterReference(name) =>
-      env.lookupByName(name).getOrElse(VNeutral(NeutralHead.VVar(env.level, name), Spine.SNil))
+      env.lookupByName(name).getOrElse(VNeutral(NeutralHead.Param(env.level, name), Spine.SNil))
 
     case Term.ValueReference(valueName, typeArguments) =>
       // A value reference names a top-level definition. With no binding it is a *stuck definition* — a body-less native

@@ -113,13 +113,9 @@ class RefinementSolver(
       case Some(payload) => buildCoercedExpr(tm, expr, actual, expected, payload).map(Some(_))
     }
 
-  /** Sentinel name of the neutral variable [[coercionPayload]] binds the `coerce` argument to, so [[buildCoercedExpr]]
-    * can recognise it as the slot the actual expression substitutes into.
-    */
-  private val coerceArgName = "$coerceArg"
-
   /** Build the coerced expression from the resolved `Coerce` instance's `some` payload (the value the coercion yields,
-    * with the `coerce` argument left as the [[coerceArgName]] marker). This is the principled Phase-5 splice: rather
+    * with the `coerce` argument left as the reserved `NeutralHead.Marker.Coerce` marker). This is the principled Phase-5
+    * splice: rather
     * than re-typing the term (which loses the source representation and produces a wrong-width value at runtime), the
     * payload is materialised as a real conversion node wrapping the original expression.
     *
@@ -158,8 +154,8 @@ class RefinementSolver(
     }
 
   private def isCoerceArgMarker(v: Option[SemValue]): Boolean = v match {
-    case Some(VNeutral(NeutralHead.VVar(_, name), Spine.SNil)) => name == coerceArgName
-    case _                                                     => false
+    case Some(VNeutral(NeutralHead.Reserved(NeutralHead.Marker.Coerce), Spine.SNil)) => true
+    case _                                                                           => false
   }
 
   /** The (forced) type arguments of a type-constructor value, e.g. `[Smin, Smax]` of `Int[Smin, Smax]`. A
@@ -182,7 +178,7 @@ class RefinementSolver(
     resolveCoercionPayload(actual, expected, context).map(_.isDefined)
 
   /** Resolve `Coerce[actual, expected]` by name and return the resolved instance's `some` payload (the value the
-    * coercion yields, with the `coerce` argument left as the [[coerceArgName]] marker), or [[None]] when no coercion
+    * coercion yields, with the `coerce` argument left as the `NeutralHead.Marker.Coerce` marker), or [[None]] when no coercion
     * applies (abstract/unsolved bounds, no instance, or a `none` result). The shared core of [[tryCoerce]] (which
     * splices the payload) and [[resolveCoercion]] (which only needs existence).
     */
@@ -208,8 +204,8 @@ class RefinementSolver(
     } yield result
 
   /** Evaluate the resolved `coerce` implementation against the concrete bounds and return its `some` payload (the value
-    * the coercion yields), or [[None]] when it yields `none`. The `coerce` argument is bound to a [[coerceArgName]]
-    * marker neutral, so the payload carries that marker wherever the runtime value flows — [[buildCoercedExpr]] splices
+    * the coercion yields), or [[None]] when it yields `none`. The `coerce` argument is bound to a
+    * `NeutralHead.Marker.Coerce` marker neutral, so the payload carries that marker wherever the runtime value flows — [[buildCoercedExpr]] splices
     * the actual expression in its place. A `Some(payload)` result therefore both proves the coercion exists and
     * provides the conversion to splice.
     *
@@ -247,7 +243,7 @@ class RefinementSolver(
                                          force(meta).map(env.bind(name, _))
                                        }
                       bodyVal       <- evalExpr(body.value, Some(concreteEnv))
-                      applied        = Evaluator.applyValue(bodyVal, VNeutral(NeutralHead.VVar(0, coerceArgName), Spine.SNil))
+                      applied        = Evaluator.applyValue(bodyVal, VNeutral(NeutralHead.Reserved(NeutralHead.Marker.Coerce), Spine.SNil))
                       forced        <- force(applied)
                     } yield forced match {
                       // `some payload` ⟹ coercion holds; the payload is the value argument of `some`.
@@ -399,7 +395,7 @@ class RefinementSolver(
   private def peelLamNames(sem: SemValue, acc: Seq[String]): CheckIO[Seq[String]] =
     force(sem).flatMap {
       case VLam(name, closure) =>
-        peelLamNames(closure(VNeutral(NeutralHead.VVar(0, name), Spine.SNil)), acc :+ name)
+        peelLamNames(closure(VNeutral(NeutralHead.Param(0, name), Spine.SNil)), acc :+ name)
       case _                   => pure(acc)
     }
 

@@ -91,7 +91,7 @@ set, no worklist. All read-back to `GroundValue` is deferred to a single post-dr
 | `VTopDef(fqn, cached, spine)` | Lazy top-level definition (cached=Some) **and** applied type/value constructor (cached=None) | BindingClosure (cached body), DataTypeNativesProcessor (body-less), the FQN-preserving missing-binding fallback |
 | `VStuckNative(fqn, spine)` | A **non-injective** native application (`add(x,y)`, `min`, `&&`, `fold`, `inc`) stuck on not-yet-concrete args | a `VNative`'s `fire` when an argument is abstract |
 | `VMeta(id, spine)` | Unsolved metavariable (there is **no** `expected` field) | Checker (`MetaStore.fresh`) |
-| `VNeutral(head, spine)` | Stuck application on a rigid variable head (`NeutralHead.VVar(level, name)`) | Evaluator (unresolved `ParameterReference`), the `$bad-apply` fail-safe fallback |
+| `VNeutral(head, spine)` | Stuck application on a rigid head. `NeutralHead` is **structural** (identity by constructor): `Param(level, name)` (bound vars), `Fresh(Origin.Unify/Quote, depth)` (binder-descending probes), `Reserved(Marker.BadApply/GuardProbe/Coerce/Match)` (scope-less markers) | Evaluator (unresolved `ParameterReference` → `Param`), the `$bad-apply` fail-safe (`Reserved(BadApply)`) |
 
 `VStuckNative` is deliberately **distinct from `VTopDef`** (D3): a native application is *not injective* (`add(1,3)` =
 `add(2,2)`), so the unifier must never injectivity-decompose it and the quoter must fail loudly if one survives read-back.
@@ -103,7 +103,7 @@ set, no worklist. All read-back to `GroundValue` is deferred to a single post-dr
 on a non-concrete argument — the native produces its own `VStuckNative`), and `VNeutral`/`VTopDef`/`VStuckNative`/`VMeta`
 grow their spine. The two remaining heads — `VConst` and `VType` — are **not applicable**; reaching them can only happen
 in an **ill-typed** program (one the checker has already, or is about to, reject). This case returns a **loud stuck
-form** — a `VNeutral` on the reserved head `NeutralHead.VVar(-1, "$bad-apply")` carrying the argument — *never* the old
+form** — a `VNeutral` on the reserved head `NeutralHead.Reserved(Marker.BadApply)` carrying the argument — *never* the old
 identity-ish fallback that returned `x` (which silently collapsed `F[A]` to `A`). If a `$bad-apply` value survives to
 read-back the strict `Quoter` fails it ("Cannot quote neutral value") ⤳ `PostDrainQuoter`'s "Cannot resolve type."; but a
 program with a genuine type error aborts *before* quoting and reports that real diagnostic. Fail-safe: never a silent
@@ -140,7 +140,7 @@ substitution ever happens. `Spine` is a reversed cons list (`SNil | SApp(tail, h
 - **`gamma` (Γ)** — name → its **type**. Read only by `Checker.infer`'s `ParameterReference` (`state.gamma.lookupByName`).
 - **`rho` (ρ)** — name → its **value**, the env the evaluator consumes (`makeEvaluator.eval(rho, …)`). An erased
   type-stack parameter binds its `groundToSem` value; a runtime value parameter binds a **fresh neutral**
-  (`paramNeutral`, `VVar(rho.level, name)`) standing for its unknown runtime value; a peeled instantiation meta binds
+  (`paramNeutral`, `Param(rho.level, name)`) standing for its unknown runtime value; a peeled instantiation meta binds
   the meta.
 
 Three `bind*` methods keep them in sync: `bindValueParam(name, type)` (Γ=type, ρ=neutral — runtime value params),

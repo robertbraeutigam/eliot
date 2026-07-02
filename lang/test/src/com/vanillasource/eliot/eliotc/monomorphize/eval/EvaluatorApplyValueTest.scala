@@ -13,7 +13,7 @@ import org.scalatest.matchers.should.Matchers
   */
 class EvaluatorApplyValueTest extends AnyFlatSpec with Matchers {
   private val arg: SemValue      = VConst(GroundValue.Direct(BigInt(7), GroundValue.Type))
-  private val badApply: SemValue = VNeutral(NeutralHead.VVar(-1, "$bad-apply"), Spine.SNil :+ arg)
+  private val badApply: SemValue = VNeutral(NeutralHead.Reserved(NeutralHead.Marker.BadApply), Spine.SNil :+ arg)
 
   "applying an argument to a VConst" should "produce the loud $bad-apply stuck neutral carrying the argument" in {
     Evaluator.applyValue(VConst(GroundValue.Type), arg) shouldBe badApply

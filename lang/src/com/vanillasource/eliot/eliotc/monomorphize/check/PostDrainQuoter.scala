@@ -240,7 +240,7 @@ class PostDrainQuoter(
       // body as runtime (not erased), so no separate `runtimeParams` set need be threaded.
       val innerEnv = evalEnv.bind(
         paramName.value,
-        SemValue.VNeutral(SemValue.NeutralHead.VVar(evalEnv.level, paramName.value), SemValue.Spine.SNil)
+        SemValue.VNeutral(SemValue.NeutralHead.Param(evalEnv.level, paramName.value), SemValue.Spine.SNil)
       )
       for {
         pt <- quoteSem(paramType, paramName)

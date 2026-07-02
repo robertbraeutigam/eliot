@@ -31,7 +31,7 @@ class StuckNativeUnifyTest extends AnyFlatSpec with Matchers {
   private val boxFqn: ValueFQN = fqn("Box", Qualifier.Type)
 
   /** A rigid bound-variable argument, standing in for a not-yet-concrete operand of a stuck native. */
-  private def rigid(name: String): SemValue = VNeutral(NeutralHead.VVar(0, name), Spine.SNil)
+  private def rigid(name: String): SemValue = VNeutral(NeutralHead.Param(0, name), Spine.SNil)
 
   private def spineOf(args: SemValue*): Spine          = args.foldLeft(Spine.SNil: Spine)(_ :+ _)
   private def stuck(f: ValueFQN, args: SemValue*): SemValue = VStuckNative(f, spineOf(args*))

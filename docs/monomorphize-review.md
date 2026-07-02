@@ -79,7 +79,7 @@ Architecture / cornerstones:
 | F1 | `Evaluator.applyValue` silently returned the argument on non-applicable heads (`VConst`/`VType`) — silently collapsed `F[A]` to `A` | **Fixed** in `b88a0c0f`: loud `$bad-apply` stuck neutral; exhaustive match; `EvaluatorApplyValueTest` |
 | F1b | The F1 fix exposed a masked miscompile: two-arg HKT carrier over `Function` (`?F[A,B] ~ Function[A,B]`) postpones (a `VPi` is deliberately not injectivity-decomposed), `?F` defaults to `Type`, and the old fallback minted the nonsense type `BigInteger[String]` with no error | **Surfaced** in `b88a0c0f`: now a loud "Cannot resolve type." at the use site; test renamed and documents the inference limitation. Real HKT-over-`Function` inference is open (§3.5) |
 | F2 | Dependent Π checked non-dependently: body checked against `codomain(paramType)`, not `codomain(neutral)`; the env conflates "binding = its type" (runtime params) with "binding = its value" (erased params), patched by `typeStackValueParams` + the `monoEnv` `VConst` rewrite | **Fixed** (§3.4 landed): `CheckState` splits Γ (`gamma`, name→type) from ρ (`rho`, name→value); `check` binds a fresh neutral in ρ and checks the body against `codomain(neutral)`; `infer` reads Γ; `typeStackValueParams` + the `monoEnv` rewrite deleted |
-| F3 | Neutral identity (`VVar(level, name)`) is convention-held: env levels, unifier depth, and quote depth are independent counters; collisions avoided only by reserved names | **Open** — §3.5, minor |
+| F3 | Neutral identity (`VVar(level, name)`) is convention-held: env levels, unifier depth, and quote depth are independent counters; collisions avoided only by reserved names | **Fixed** (§3.5 landed): `NeutralHead` is now structural — `Param(level, name)` (bound vars) / `Fresh(Origin, depth)` (unifier+quoter probes) / `Reserved(Marker)` (bad-apply, guard-probe, coerce-arg, match); heads compare by constructor, `name` is display-only |
 | G1 | Two-pool gap: leaf contributors read runtime-pool facts unconditionally while their `ContributedBinding` serves both platform merges | **Fixed** in `b88a0c0f`: `DeclaringPool` membership probe, compiler-pool fallback, `CompilerOnlyDataNativesTest` |
 | G2 | Stale scaladoc references to deleted `docs/monomorphize-d1-design.md`, `docs/effectful-signatures.md`, `docs/block-syntax.md` | **Fixed** in `b88a0c0f` |
 | G3 | `eliot-monomorphize` skill significantly stale (pre-rework: `forceAndConst`, `VMeta.expected`, `nameLevels`, no supplier/merger, no tracks) | **Fixed** in `b88a0c0f`: rewritten against sources |
@@ -191,9 +191,17 @@ NbE-checker shape now keeps them separate:
 
 ### 3.5 Small hardening (opportunistic)
 
-- **F3**: give fresh variables a single source (one counter, or a structured `NeutralHead`
-  distinguishing unifier/quoter/probe/bad-apply origins) so neutral identity is structural rather
-  than convention-held by reserved names.
+- **F3 — DONE**: `NeutralHead` (`domain/SemValue.scala`) is now a structured sum, so neutral identity
+  is by *constructor*, not by convention-held reserved names / magic levels:
+  - `Param(level, name)` — genuine bound variables (runtime value params, unresolved param refs,
+    read-back binders) and the throwaway named placeholders diagnostics/printing substitute.
+  - `Fresh(origin, depth)` — the binder-descending probes: `Origin.Unify` (identity-bearing — both
+    codomains receive the same one) and `Origin.Quote` (a throwaway probe). Replaces the former
+    `$unify<n>` / `$quote<n>` reserved-name convention.
+  - `Reserved(marker)` — the four scope-less markers `Marker.BadApply` / `GuardProbe` / `Coerce` /
+    `Match`, recognised by constructor (the `Coerce` marker was formerly matched by the `"$coerceArg"`
+    string). `name` on the base trait is display-only (`SemValuePrinter`, error messages); the `tag`s
+    preserve the former display strings. Behaviour-preserving; full suite green.
 - **HKT-over-`Function` inference** (F1b): only if a client appears. Two approaches were tried
   and rejected during the review fixes — decomposing `VPi` in the unifier (reverses the
   deliberate `CarrierKindChecker` design for non-rigid heads) and defaulting the carrier to an
