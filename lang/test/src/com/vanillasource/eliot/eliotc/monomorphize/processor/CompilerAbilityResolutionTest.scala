@@ -13,15 +13,24 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import java.net.URI
 import java.nio.file.Path
 
-/** Compiler-as-platform Increments B **and** C: the compiler monomorphize track resolves ability instances **in the
-  * compiler pool** (B) and then **reduces** the resolved call to its normal form (C — the compiler backend).
+/** Compiler-as-platform Increments B, C **and** D: the compiler monomorphize track resolves ability instances **in the
+  * compiler pool** (B), **reduces** the resolved call to its normal form (C — the compiler backend), and **pins the
+  * effect carrier** of a `{Throw[String]}` sugar signature to the compile-time `Either[String]` (D).
   *
-  * A `pure`/`raise` call in a compiler-platform value dispatches to the compile-time `Effect[Either[String]]` /
-  * `Throw[String, Either[String]]` implementations (B — the reduced form carries the concrete `Either::pure` /
-  * `Either::raise`, not the abstract `Effect::pure` / `Throw::raise` ability method), and the compiler backend then folds
-  * the concrete-impl *body* in by ordinary NbE evaluation (C — `Either::raise`'s `err -> Left(err)`), so `raise("boom")`
-  * reduces all the way to `Left("boom")` and `pure("hello")` to `Right("hello")`. This is the reduced compile-time value
-  * the runtime track's type-level evaluation will plug in as a native.
+  * B/C — a `pure`/`raise` call in a compiler-platform value with an *explicit* `Either[String, _]` return dispatches to
+  * the compile-time `Effect[Either[String]]` / `Throw[String, Either[String]]` implementations (the reduced form carries
+  * the concrete `Either::pure` / `Either::raise`, not the abstract `Effect::pure` / `Throw::raise` ability method), and
+  * the compiler backend then folds the concrete-impl *body* in by ordinary NbE evaluation (`Either::raise`'s
+  * `err -> Left(err)`), so `raise("boom")` reduces all the way to `Left("boom")` and `pure("hello")` to `Right("hello")`.
+  *
+  * D — the same works when the carrier is written with the `{Throw[String]}` *effect sugar* on a `Type` return instead
+  * of an explicit `Either`. `EffectSugarDesugarer` turns `{Throw[String]} Type` into an inferable higher-kinded carrier
+  * `[F[_] ~ Throw[String]]` with return `F[Type]`; the compiler platform *is* the runner, so on the compiler track that
+  * carrier has no runtime value to infer it from and is pinned to the compile-time `Throw` carrier `Either[String]`
+  * (`TypeStackLoop.pinCompilerCarriers`, the `main`-pins-`IO` analogue). Then `raise`/`pure` dispatch to the compile-time
+  * instances exactly as in the explicit form. The compiler track *produces* the reduced guarded value (the discharge
+  * `Right(t) ⤳ t` / `Left(msg) ⤳ error` is the runtime consumer's job, so it is skipped here), publishing the
+  * undischarged carrier signature `Either[String, Type]`.
   *
   * The whole scenario lives in the **compiler** source pool (no runtime layer), so this pins that resolution targets the
   * compiler platform, not the default runtime one. The guarding fix is `TypeStackLoop.abilityArity` reading the marker
@@ -40,9 +49,11 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
   }
 
   // The compile-time carrier (a faithful copy of `compiler/eliot/eliot/lang/Either.els`) plus the abstract effect
-  // abilities it implements and the leaf stubs (`Function`, `String`) they reference. Everything is compiler-pool.
+  // abilities it implements and the leaf stubs (`Type`, `Function`, `String`) they reference. Everything is compiler-pool.
+  // `Type` is stubbed because the Increment-D sugar values (`{Throw[String]} Type`) name it in the carrier's kind.
   private val facts: Seq[com.vanillasource.eliot.eliotc.processor.CompilerFact] =
-    compilerScan(Seq("eliot", "lang"), "Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B") ++
+    compilerScan(Seq("eliot", "compiler"), "Type", "type Type") ++
+      compilerScan(Seq("eliot", "lang"), "Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B") ++
       compilerScan(Seq("eliot", "lang"), "String", "type String") ++
       compilerScan(
         Seq("eliot", "effect"),
@@ -93,6 +104,9 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
           |
           |def raiseConst: Either[String, String] = raise("boom")
           |def pureConst: Either[String, String] = pure("hello")
+          |
+          |def raiseGuard: {Throw[String]} Type = raise("empty")
+          |def someFn(A: Type): {Throw[String]} Type = pure(A)
           |""".stripMargin
       )
 
@@ -126,6 +140,14 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
 
   private def litsOf(name: String): IO[Seq[String]] = reducedOf(name).map(_.toSeq.flatMap(stringLiteralsOf))
 
+  /** The FQN heading a value's monomorphic signature return type — `Either` for an undischarged `{Throw[String]}`
+    * carrier signature.
+    */
+  private def returnHeadOf(name: String): IO[Option[(String, String)]] =
+    runGeneratorWithFacts(facts, CompilerMonomorphicValue.Key(fqn(name), Seq.empty)).map { case (r, _) =>
+      r.flatMap(_.signature.deepReturnType.typeFQN.map(t => (t.moduleName.name, t.name.name)))
+    }
+
   "the compiler track (Increments B+C)" should "check a value using `raise` without error" in {
     errorsOf("raiseConst").asserting(_ shouldBe Seq.empty)
   }
@@ -144,5 +166,36 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
 
   it should "carry the pured value into the reduced `Right`" in {
     litsOf("pureConst").asserting(_ shouldBe Seq("hello"))
+  }
+
+  "the compiler track (Increment D — carrier pinning)" should "check a `{Throw[String]} Type` sugar guard without error" in {
+    errorsOf("raiseGuard").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reduce `raise(m)` under the pinned sugar carrier to `Left(m)` — no explicit `Either` written" in {
+    refsOf("raiseGuard").asserting(_ shouldBe Seq(("Either", "Left")))
+  }
+
+  it should "carry the raised message through the pinned-carrier reduction" in {
+    litsOf("raiseGuard").asserting(_ shouldBe Seq("empty"))
+  }
+
+  it should "publish the undischarged compile-time carrier `Either[String, _]` as the guard's return type" in {
+    returnHeadOf("raiseGuard").asserting(_ shouldBe Some(("Either", "Either")))
+  }
+
+  it should "dispatch `pure` in a `{Throw[String]} Type` guard to the concrete `Either::pure`, not the abstract `Effect::pure`" in {
+    // The doc's canonical first client `someFn(A: Type): {Throw[String]} Type = pure(A)`. The pin fixes the carrier to
+    // `Either[String]`, so `pure` resolves to the compile-time `Effect[Either[String]]` impl (module `Either`); the fold
+    // to `Right(A)` is deferred to the consumer because the payload `A` is a neutral parameter (a compiler-backend trait).
+    refsOf("someFn").asserting(_ shouldBe Seq(("Either", "pure")))
+  }
+
+  it should "type the guard producer `someFn` without error" in {
+    errorsOf("someFn").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "publish `someFn`'s undischarged carrier return `Either[String, Type]`" in {
+    returnHeadOf("someFn").asserting(_ shouldBe Some(("Either", "Either")))
   }
 }

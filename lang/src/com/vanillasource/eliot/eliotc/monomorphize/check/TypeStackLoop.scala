@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -52,6 +53,12 @@ class TypeStackLoop(
       appliedSig   <- applyTypeArgs(signature, typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
 
+      // Compiler-track carrier pinning (CP-D): a `{Throw[E]}` effect carrier in a compile-time value has no runtime
+      // carrier to infer, so it is fixed to the compile-time `Throw` carrier `Either[E]` before the body is checked —
+      // solving the carrier's instantiation meta lets the body's `pure`/`raise` dispatch resolve and reduce. Runtime
+      // track never pins here (its carriers are inferred from the runtime use, or pinned to `IO` at `main`).
+      _ <- pinCompilerCarriers(resolvedValue)
+
       // Whether the kind check accepted a `{Throw[String]}`-carrier return (a guarded signature, W2b) — captured here,
       // after `walkTypeStack` checked the signature but before the body check could set it for a nested guard.
       sawGuard               <- inspect(_.sawGuardReturn)
@@ -66,15 +73,25 @@ class TypeStackLoop(
       //     published signature is `t` — the `Either` never reaches codegen), `Left(msg)` aborts with the author
       //     message, and a guard stuck on abstract bounds is deferred to the body via a return meta;
       //   - an ordinary explicit return is left as-is.
+      // The guard *discharge* (`Right(t)` ⤳ `t` / `Left(msg)` ⤳ error) is the runtime track's *use-site* job: it reads a
+      // guard a caller observes. The compiler track is the *producer* — it reduces the guarded value to its normal form
+      // (`pure(A)` ⤳ `Right(A)`) and publishes the undischarged carrier signature (`Either[String, Type]`) for a
+      // consumer to evaluate and discharge. So on the compiler track the body checks against the carrier signature as-is,
+      // and the discharge is skipped (a compiler-track guard discharge would replace the return with a metavariable,
+      // starving the body's `pure`/`raise` of its concrete carrier and blocking the reduction).
       calcReturn              = resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isDefined
-      checkResult            <- if (calcReturn) checker.calcReturns.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
-                                else
-                                  checker.calcReturns.dischargeGuardedSignature(
-                                    instantiated,
-                                    sawGuard,
-                                    resolvedValue.checkingRuntime.isDefined,
-                                    resolvedValue.name
-                                  )
+      checkResult            <- (calcReturn, platform) match {
+                                  case (true, _)                  =>
+                                    checker.calcReturns.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
+                                  case (false, Platform.Compiler) => pure((instantiated, Option.empty[SemValue.VMeta]))
+                                  case (false, Platform.Runtime)  =>
+                                    checker.calcReturns.dischargeGuardedSignature(
+                                      instantiated,
+                                      sawGuard,
+                                      resolvedValue.checkingRuntime.isDefined,
+                                      resolvedValue.name
+                                    )
+                                }
       (checkSig, returnMeta)  = checkResult
 
       // Capture the env of erased type-stack parameters now, before `check` binds the runtime value parameters as
@@ -456,6 +473,67 @@ class TypeStackLoop(
                 }
     } yield ()
 
+  /** Compiler-track carrier pinning (CP-D): the compiler platform *is* the runner, so a compile-time value's own
+    * `{Throw[E]}` effect carrier has no runtime carrier to infer — it is fixed to the compiler platform's `Throw`
+    * carrier `Either[E]` (the `main`-pins-`IO` analogue). For each such carrier binder, solve its freshly-instantiated
+    * metavariable to `Either[E]` so the body's `pure`/`raise` ability calls dispatch to the compile-time
+    * `Effect[Either[E]]` / `Throw[E, Either[E]]` instances and reduce. A no-op on the runtime track, and on a compiler
+    * value with no effect carrier.
+    */
+  private def pinCompilerCarriers(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
+    platform match {
+      case Platform.Runtime  => pure(())
+      case Platform.Compiler =>
+        resolvedValue.paramConstraints.toList.traverse_ { case (binderName, constraints) =>
+          throwCarrierErrorType(binderName, constraints).traverse_(pinCarrierToEither(binderName, _, resolvedValue.name))
+        }
+    }
+
+  /** The error type `E` of a `Throw[E]` constraint whose carrier is `binderName`. `EffectSugarDesugarer` appends the
+    * carrier as the ability's final type argument (`Throw[E]` ⤳ `Throw[E, F]`), so `binderName` is the `Throw` carrier
+    * iff a `Throw` constraint's last argument references it; the error type is then that constraint's first argument.
+    * [[None]] for any non-`Throw` binder or a `Throw` constraint whose carrier position is some other binder.
+    */
+  private def throwCarrierErrorType(
+      binderName: String,
+      constraints: Seq[OperatorResolvedValue.ResolvedAbilityConstraint]
+  ): Option[OperatorResolvedExpression] =
+    constraints.collectFirst {
+      case c
+          if c.abilityFQN == TypeStackLoop.throwAbilityFQN && c.typeArgs.sizeIs >= 2 &&
+            (c.typeArgs.last match {
+              case OperatorResolvedExpression.ParameterReference(n) => n.value == binderName
+              case _                                                => false
+            }) =>
+        c.typeArgs.head
+    }
+
+  /** Solve the carrier binder `binderName`'s instantiation meta to `Either[E]`, where `E` is `errorType` evaluated in
+    * the current env. Only an as-yet-unsolved carrier meta is pinned; if unification already determined it (it never
+    * does for a genuine compile-time carrier, which has no runtime use to fix it), the pin is skipped rather than risk a
+    * spurious conflict.
+    */
+  private def pinCarrierToEither(
+      binderName: String,
+      errorType: OperatorResolvedExpression,
+      at: Sourced[?]
+  ): CheckIO[Unit] =
+    inspect(_.env.lookupByName(binderName)).flatMap {
+      case None       => pure(())
+      case Some(bound) =>
+        checker.force(bound).flatMap {
+          case meta: VMeta =>
+            for {
+              errSem <- checker.evalExpr(errorType)
+              either  = VTopDef(WellKnownTypes.eitherFQN, None, Spine.SNil :+ errSem)
+              _      <- modify(s =>
+                          s.withUnifier(s.unifier.unify(meta, either, at.as("Compile-time effect carrier `Either`.")))
+                        )
+            } yield ()
+          case _           => pure(())
+        }
+    }
+
   /** Walk the type stack top-down, folding each level against the one above as its expected kind.
     *
     * For each level we (a) kind-check the ORE against the running `expected` so ill-kinded signatures surface as errors
@@ -562,6 +640,11 @@ object TypeStackLoop {
     new TypeStackLoop(fetchBinding, resolveAbility, platform).process(typeArguments, resolvedValue)
 
   private type AbilityRef = (Sourced[ValueFQN], Seq[SemValue])
+
+  /** The `Throw[E, F[_]]` effect ability. Its compile-time carrier is `Either[E]` — the fact the compiler-track carrier
+    * pinning ([[pinCompilerCarriers]]) realizes.
+    */
+  private val throwAbilityFQN: AbilityFQN = AbilityFQN(ModuleName(ModuleName.effectPackage, "Throw"), "Throw")
 
   /** One named step of the post-check resolution pipeline (D1). The pipeline is tiered, not flat (see
     * docs/monomorphize-d1-design.md): the unifier `drain` is interleaved by the runner as the equality core settling

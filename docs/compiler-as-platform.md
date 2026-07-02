@@ -21,15 +21,18 @@ like any other ability. Neither happens today.
 ## Current state: the platform is half-built
 
 > **Status note.** This section describes the *starting* state that motivated the work. As of the
-> current session, stages **1a**, **A**, **B**, and **C** (fold + reduction + fail-safe) have landed — the
-> compiler track now *is* driven through the checker in `Platform.Compiler`, a `pure`/`raise` in a
-> compiler-platform value **resolves in the compiler pool** to the compile-time `Effect`/`Throw[Either[String]]`
-> instances **and reduces** (`raise("boom") ⤳ Left("boom")`, `pure(x) ⤳ Right(x)`) via the compiler backend
-> (`PostDrainQuoter.reduceSourced`). The claims below ("nothing ever passes `Platform.Compiler`",
-> "compiler-platform abilities are never checked") are the problem statement, no longer literally true. What
-> remains is the runtime track *consuming* that reduced native at type positions (deferred with **D**, since no
-> current consumer needs it — the shipped guard client already reduces via the preferred-native `compilerLabel`
-> path) and the effectful-signatures carrier pinning + monadic rewrite (**D**/**E**). See **Staging**.
+> current session, stages **1a**, **A**, **B**, **C** (fold + reduction + fail-safe), and **D** (carrier
+> pinning) have landed — the compiler track now *is* driven through the checker in `Platform.Compiler`, a
+> `pure`/`raise` in a compiler-platform value **resolves in the compiler pool** to the compile-time
+> `Effect`/`Throw[Either[String]]` instances **and reduces** (`raise("boom") ⤳ Left("boom")`, `pure(x) ⤳
+> Right(x)`) via the compiler backend (`PostDrainQuoter.reduceSourced`), and a `{Throw[String]} Type`
+> **effect-sugar** guard now works too — its inferable carrier is **pinned to `Either[String]`** on the
+> compiler track (`TypeStackLoop.pinCompilerCarriers`), the `main`-pins-`IO` analogue. The claims below
+> ("nothing ever passes `Platform.Compiler`", "compiler-platform abilities are never checked") are the
+> problem statement, no longer literally true. What remains is the runtime track *consuming* that reduced
+> native at type positions (deferred with **E**, since no current consumer needs it — the shipped guard
+> client already reduces via the preferred-native `compilerLabel` path) and the monadic `when`/`orError`
+> rewrite (**E**). See **Staging**.
 
 The infrastructure is platform-parameterized, but only the **runtime** platform is ever *driven*
 through the resolution-and-check cycle. Concretely:
@@ -262,15 +265,19 @@ a compile-time reduction that reaches a runtime-only native.)
 
 ## First client: `Throw[String]` guards, end to end
 
-1. **Desugar / carrier pinning.** For a `{Throw[String]} Type` return on the compiler platform, bind
-   the effect carrier to the concrete `Either[String]` rather than an inferred `F` (the compiler
-   platform *is* the runner; its `Throw[String]` carrier is `Either[String]`, the `main`-pins-`IO`
-   analogue). So `someFn`'s body is `pure[Either[String]](A)` and its return is `Either[String,
-   Type]`.
-2. **Compiler backend reduction.** `compiler-mono` checks `someFn`, resolving `Effect[Either[String]]`
-   / `Throw[String, Either[String]]` **in the compiler platform** (now overlap/completeness checked)
-   and **reducing the method bodies**: `pure → Right`, `raise → Left`. `someFn`'s reduced compiler
-   native is `A -> Right(A)` (or `Left(msg)`).
+1. **Desugar / carrier pinning. ✅ done (D).** For a `{Throw[String]} Type` return on the compiler
+   platform, bind the effect carrier to the concrete `Either[String]` rather than an inferred `F` (the
+   compiler platform *is* the runner; its `Throw[String]` carrier is `Either[String]`, the
+   `main`-pins-`IO` analogue). Implemented as `TypeStackLoop.pinCompilerCarriers`: on the compiler track
+   the inferable carrier `[F[_] ~ Throw[E]]` introduced by `EffectSugarDesugarer` is solved to `Either[E]`
+   before the body is checked. So `someFn`'s body is `pure[Either[String]](A)` and its return is
+   `Either[String, Type]`.
+2. **Compiler backend reduction. ✅ done (B/C/D).** `compiler-mono` checks `someFn`, resolving
+   `Effect[Either[String]]` / `Throw[String, Either[String]]` **in the compiler platform** and **reducing
+   the method bodies**: `pure → Right`, `raise → Left`. `someFn`'s reduced compiler native is `A ->
+   Right(A)` (or `Left(msg)`) — with the `Right`/`Left` fold performed once the payload is a concrete
+   constructor (a neutral parameter payload keeps the resolved `Either::pure`/`Either::raise` ref, folded
+   at the concrete use site).
 3. **Use-site.** At `head`'s monomorphization (or `b: someFn(String[])`), the type-level evaluation of
    `someFn(A)` consumes the *reduced* compiler native → `Right(String)` / `Left(msg)` — a concrete
    `Either`, no stuck `pure`.
@@ -308,12 +315,14 @@ incrementally.
   confirm the checker never needs to *reduce a runtime value* (as opposed to type-check it) during
   checking — if it ever did, that reduction would be the sole place the rule would need a value-side
   route; the claim is that runtime values are only reduced at codegen.
-- **Carrier pinning placement.** *Which* carrier is settled by the position rule (a `{Throw[String]}
-  Type` return is a type position → the compiler-platform `Either[String]`; a `{Throw[String]} Int`
-  runtime return is a value position → its runtime carrier). What remains is *where* the binding is
-  written: the effect desugarer (then platform-scoped, compiler-only, so runtime `parseBad` keeps its
-  polymorphic carrier) or `compiler-mono` at instantiation. The discriminator is the same one — the
-  carrier wraps `Type`, a compile-time-only payload.
+- **Carrier pinning placement — settled to `compiler-mono` at instantiation** (Increment D, done; see
+  Staging). *Which* carrier is settled by the position rule (a `{Throw[String]} Type` return is a type
+  position → the compiler-platform `Either[String]`; a `{Throw[String]} Int` runtime return is a value
+  position → its runtime carrier). The binding is written in `compiler-mono`, not the effect desugarer:
+  `core`'s `EffectSugarDesugarer` is platform-agnostic (it runs once, before the platform split) so it
+  cannot make the platform-scoped decision, whereas the compiler track already holds the carrier's
+  instantiation meta and solves it in place (`TypeStackLoop.pinCompilerCarriers`). The carrier value
+  `Either[E]` is derived from the binder's `Throw[E]` constraint, generalizing over the error type.
 - **Cost.** The compiler track is demand-driven and cached, so only *reached* compiler values are
   processed — but the fixpoint (`compiler-mono → compiler-mono`) should be watched for pathological
   fan-out; the `activeFactKeys` guard and no-recursion bound it.
@@ -412,10 +421,31 @@ read-back.)
   not probed and never triggers the runtime pool's "Could not find" abort); the runtime track keeps
   `VTopDef(fqn, None, …)` for the backend to emit (`CompilerNativeLeafBoundaryTest`).
 
-**D — carrier pinning for `{Throw[String]} Type`** (bind the effect carrier to the concrete
-`Either[String]`; see the open question on placement). Also the natural home for the deferred **(b)
-routing/consumption** above — the runtime track consuming the compiler track's reduced native at type
-positions — since both settle the same carrier.
+**D — carrier pinning for `{Throw[String]} Type`. ✅ done** (lang.test 743 / jvm.test 155 green). A guard
+written with the `{Throw[String]}` **effect sugar** on a `Type` return now type-checks and *reduces* on the
+compiler track, exactly as the explicit-`Either` B/C forms do. `EffectSugarDesugarer` turns `{Throw[String]} Type`
+into an inferable higher-kinded carrier `[F[_] ~ Throw[String]]` with return `F[Type]`; on the compiler track that
+carrier has no runtime value to infer it from, so it is **pinned to the compile-time `Throw` carrier `Either[E]`**
+(`TypeStackLoop.pinCompilerCarriers`, the `main`-pins-`IO` analogue). Then `raise`/`pure` dispatch to the
+compile-time `Throw[String, Either[String]]` / `Effect[Either[String]]` instances and reduce (`raise("empty")` ⤳
+`Left("empty")`; `pure(A)` resolves to `Either::pure`, folding to `Right` once the payload is a concrete
+constructor). Test: the `Increment D` cases in `CompilerAbilityResolutionTest`.
 
-**E — first client end-to-end:** `Throw[String]` guard integration tests (pure path → type; `raise`
+- **Placement — settled to the compiler track (not the effect desugarer).** The pin lives in `compiler-mono`
+  because `core`'s `EffectSugarDesugarer` is platform-agnostic (it runs once, before the platform split) and so
+  cannot make the platform-scoped decision; the compiler track already holds the instantiation meta and can solve
+  it in place. The carrier value `Either[E]` is derived from the binder's own `Throw[E]` constraint (`E` = the
+  constraint's first argument), so it generalizes over the error type rather than hard-coding `String`.
+- **Producer, not consumer — the discharge is skipped on the compiler track.** The guard *discharge* (`Right(t)` ⤳
+  `t` / `Left(msg)` ⤳ compile error) is the runtime track's *use-site* job. The compiler track *produces* the
+  reduced guarded value and publishes the **undischarged** carrier signature `Either[String, Type]` for a consumer
+  to evaluate and discharge; running the discharge here would replace the return with a metavariable and starve the
+  body's `pure`/`raise` of its concrete carrier, blocking the reduction. So `dischargeGuardedSignature` is now
+  runtime-track-only; the compiler track checks the body against the carrier signature as-is.
+- **Routing/consumption still deferred to E** (as planned — "wire it when a consumer needs it"). The runtime track
+  does not yet consume `CompilerMonomorphicValue` at type positions; that lands with E's first client, together
+  with the both-pools test-harness change it requires.
+
+**E — first client end-to-end:** the runtime track *consuming* the compiler track's reduced native at a type
+position (the deferred (b) routing/consumption), `Throw[String]` guard integration tests (pure path → type; `raise`
 path → compile error), then rewrite `when`/`orError` onto the effect path.
