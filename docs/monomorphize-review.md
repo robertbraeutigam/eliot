@@ -1,0 +1,186 @@
+# Monomorphize package review
+
+Last performed: **2026-07-02** (tree at `60498a40`; quick-win fixes landed as `b88a0c0f`).
+
+A whole-package architecture review of `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` —
+the NbE type checker — after the compiler-as-platform rework. Three questions: is the NbE
+algorithm still faithfully applied, do the language cornerstones still hold, and is the
+architecture sound / where can it be simplified. This document records the method (so the review
+can be repeated), the findings with their status, and the suggested implementation steps that
+remain open.
+
+## 1. Scope and method (how to repeat)
+
+1. **Read the package in its entirety** — every file under
+   `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` (`domain/`, `eval/`, `check/`,
+   `refine/`, `unify/`, `lowering/`, `fact/`, `processor/`; ~34 files, ~5.5k lines). Do not
+   sample: several findings (the silent `applyValue` fallback, the two-pool gap) only show up by
+   cross-referencing a comment in one file against code in another.
+2. **Cross-check the upstream seams** the package consumes: the `Platform`-keying of
+   `SaturatedValue.Key`, `OperatorResolvedValue.Key`, `UnifiedModuleNames.Key`,
+   `ModuleConstructors.Key`, `AbilityImplementation.Key`, and the `getFact`/`getFactOrAbort`/
+   `activeFactKeys` semantics in `CompilerIO`.
+3. **Verify the invariant checklist** below against the code as read — not against the skill or
+   docs, which may be stale (they were).
+4. **Check the `eliot-monomorphize` skill for drift** against what was read; a stale skill
+   misleads every future session.
+5. **Run the build**: `./mill __.compile && ./mill __.test` must be green before and after any
+   fixes.
+
+### Invariant checklist (the repeatable core)
+
+NbE fidelity:
+
+- The evaluator produces **only `VLam`** for `FunctionLiteral` (`NbeEvaluator.eval`); `VPi` is
+  produced only by the `Checker` (literal checked against `VType`) and the `Function` native.
+- **No ORE substitution** anywhere; all binding is Scala-closure capture. (`reifyingWrap` wraps
+  binders; it never rewrites a body.)
+- Evaluators are **pure and synchronous** — no `CompilerIO` import under `eval/`; all bindings
+  prefetched (`prefetchBindings` / `BindingClosure.collectBindings`).
+- `unify` is **pure definitional equality**: no assignability arm, no `refinements` map, no
+  `Coerce` logic in `unify/`. Directional widening lives only in
+  `refine/RefinementSolver.unifyOrCoerce` (check mode). The only unification-time interception is
+  combinable-candidate accumulation, covariant side only.
+- **No silent fallback on any path**: `applyValue` is exhaustive over `SemValue` and yields the
+  loud `$bad-apply` neutral on non-applicable heads; the strict `Quoter` fails on every stuck
+  form (`VNeutral`/`VMeta`/`VLam`/`VNative`/`VStuckNative`/unapplied cached `VTopDef`);
+  `defaultUnsolvedMetas` is a **total** match on `MetaRole` (no catch-all); the
+  `assertEveryMetaResolvedOrAbstract` postcondition is present.
+- `VStuckNative` is never injectivity-decomposed (natives are non-injective) and never reads back
+  as a ground type.
+
+Architecture / cornerstones:
+
+- **One evaluator traversal** (`NbeEvaluator`) with exactly three `decompose` adapters; no
+  parallel compile-time interpreter anywhere (including the compiler track — `reduceSourced` is
+  the same NbE).
+- **Supplier/merger discipline**: `ContributedBinding` facts are total (answer `None`, never
+  decline); `BindingMergerProcessor` is the single owner of `NativeBinding` and of its recursion;
+  suppliers never read `NativeBinding` back.
+- **Two-track acyclicity by construction**: nothing under the compiler track names
+  `MonomorphicValue.Key` (grep it); the native-leaf boundary hard-errors on runtime-concrete +
+  compiler-absent names.
+- **Pool-guarded platform reads**: leaf contributors (`DataTypeNativesProcessor`,
+  `MatchNativesProcessor`) probe `DeclaringPool` before requesting a platform-keyed fact; no
+  unconditional runtime-pool value request from a contributor serving both merges.
+- **RoleHint reads** are constructor-shape only (`fieldCount` — `PostDrainQuoter.
+  materialiseStructure`, `ModuleConstructors`); `typeParamCount` never drives a typing decision.
+- **Hard rule 1, two-part scope**: the checker's fold never classifies binders; binder-structure
+  reads exist only in the three sanctioned peripheral readers
+  (`CarrierKindChecker.recordCarrierMetas`, `TypeStackLoop.abilityArity`,
+  `SaturatedValue.binderRoles` → `reifyingWrap`) and none of them drives definitional equality.
+- Doc/skill hygiene: no scaladoc references to nonexistent `docs/*.md`; the skill matches the
+  code.
+
+## 2. Findings and status
+
+| # | Finding | Status |
+|---|---|---|
+| F1 | `Evaluator.applyValue` silently returned the argument on non-applicable heads (`VConst`/`VType`) — silently collapsed `F[A]` to `A` | **Fixed** in `b88a0c0f`: loud `$bad-apply` stuck neutral; exhaustive match; `EvaluatorApplyValueTest` |
+| F1b | The F1 fix exposed a masked miscompile: two-arg HKT carrier over `Function` (`?F[A,B] ~ Function[A,B]`) postpones (a `VPi` is deliberately not injectivity-decomposed), `?F` defaults to `Type`, and the old fallback minted the nonsense type `BigInteger[String]` with no error | **Surfaced** in `b88a0c0f`: now a loud "Cannot resolve type." at the use site; test renamed and documents the inference limitation. Real HKT-over-`Function` inference is open (§3.5) |
+| F2 | Dependent Π checked non-dependently: body checked against `codomain(paramType)`, not `codomain(neutral)`; the env conflates "binding = its type" (runtime params) with "binding = its value" (erased params), patched by `typeStackValueParams` + the `monoEnv` `VConst` rewrite | **Open** — §3.4 (the fundamental redesign) |
+| F3 | Neutral identity (`VVar(level, name)`) is convention-held: env levels, unifier depth, and quote depth are independent counters; collisions avoided only by reserved names | **Open** — §3.5, minor |
+| G1 | Two-pool gap: leaf contributors read runtime-pool facts unconditionally while their `ContributedBinding` serves both platform merges | **Fixed** in `b88a0c0f`: `DeclaringPool` membership probe, compiler-pool fallback, `CompilerOnlyDataNativesTest` |
+| G2 | Stale scaladoc references to deleted `docs/monomorphize-d1-design.md`, `docs/effectful-signatures.md`, `docs/block-syntax.md` | **Fixed** in `b88a0c0f` |
+| G3 | `eliot-monomorphize` skill significantly stale (pre-rework: `forceAndConst`, `VMeta.expected`, `nameLevels`, no supplier/merger, no tracks) | **Fixed** in `b88a0c0f`: rewritten against sources |
+| C1 | `TypeStackLoop` god-object (~680 lines): inlines ability resolution (~200 lines) and compiler-track carrier pinning beside the fold + pipeline runner | **Open** — §3.1 |
+| C2 | Platform leaked into the checking core as ~6 scattered `platform match` conditionals; the `resolveAbility` seam's third parameter is hardcoded `Platform.Runtime` at some call sites and ignored at others | **Open** — §3.2 |
+| C3 | `CalculatedReturnResolver` hosts two weakly-related concerns (calc-return back-edge + W2b guard discharge); guard recognition makes `Either` a language-reserved type by FQN | **Open** — §3.3, conditional |
+| E1 | Cornerstone erosion, "no generic parameters": three peripheral binder-structure readers exist | **Accepted & documented** — hard rule restated two-part in the skill |
+| E2 | Cornerstone erosion, "no constraint set": `MetaRole.Instantiation.candidates`/`upperBounds` are a small role-scoped constraint store | **Accepted & documented** — the rule is scoped to *equality* constraints |
+
+Overall verdict at review time: NbE faithfully applied (strengthened by the rework in read-back
+strictness and evaluator unification); cornerstones stand with the two documented erosions;
+architecture sound — the supplier/merger design, two-track acyclicity, and the collaborator
+pattern (D4/D7/D8) are pulling their weight.
+
+## 3. Suggested implementation steps (open work, in recommended order)
+
+### 3.1 Extract `check/AbilityResolver` (medium, behavior-preserving)
+
+Make ability resolution the fourth collaborator, symmetrical with `solver`/`calcReturns`/
+`carriers`:
+
+1. Move `collectAbilityRefs`, `tryResolveOne`, `abilityArity`, and `injectForImpl` from
+   `TypeStackLoop` into a new `check/AbilityResolver`, constructed with the primitives it
+   actually uses (`resolveAbility`, `fetchBinding`, `platform`; state access stays via
+   `CheckIO`).
+2. `TypeStackLoop`'s `resolve-abilities` saturation pass delegates to it; `PassContext` is
+   unchanged (the pass already closes only over `abilityRefs` + `paramConstraints`).
+3. Pure move — no behavior change. Pinned by the existing end-to-end cases
+   (`CompilerAbilityResolutionTest`, the ability/`Dep` cases in `MonomorphicTypeCheckTest`);
+   extend those, do not add mock-state unit tests.
+4. Optional follow-up: replace the per-reference `abilityArity` marker read with a small
+   `AbilityArity` fact (or a field forwarded on an existing ability fact, per the lean-fact-flow
+   rule) computed once per ability.
+
+### 3.2 Track strategy object (medium)
+
+Remove the scattered `platform match` conditionals from the checking core:
+
+1. Introduce a `Track` seam (two implementations: runtime, compiler) carrying the `Platform`
+   value plus four hooks, extracted 1:1 from today's conditionals:
+   - `settleReturnPosition` — the calc-return / guard-discharge / pass-through switch
+     (`TypeStackLoop.processIO`'s `(calcReturn, platform)` match);
+   - `pinCarriers` — compiler-track `{Throw[E]}` → `Either[E]` pinning (no-op on runtime);
+   - `implBindings` — the compiler track's resolved-impl binding fetch (empty on runtime);
+   - `readBackBody` — `reduceSourced` (compiler) vs `quoteSourced` (runtime). This also moves the
+     compiler backend out of `PostDrainQuoter`, which then does read-back only.
+2. `TypeStackLoop` and `Checker` take the `Track` instead of a bare `Platform`; fact keys read
+   the platform off the track.
+3. Clean the `resolveAbility` seam: delete the third `Platform` parameter (it is hardcoded
+   `Platform.Runtime` by `TypeStackLoop`/`RefinementSolver` and ignored by the compiler track's
+   implementation). Reintroduce it as a properly-typed `Position` (type vs value position) only
+   when the deferred position-routed resolution gets a real client (a user-defined
+   runtime-concrete guard combinator — see the compiler-as-platform notes).
+4. Behavior-preserving; the full suite is the net, with the compiler-track tests
+   (`CompilerEitherCarrierTest`, `CompilerNativeLeafBoundaryTest`,
+   `CompilerMonomorphicTypeCheckProcessorTest`) covering the compiler hooks.
+
+### 3.3 Guard-discharge split + the `Either` decision (conditional — do when a second carrier appears)
+
+1. If/when effectful signatures grow beyond the `Throw[String]`/`Either[String,_]` carrier, split
+   the W2b hooks (`isGuardCarrier`, `dischargeGuardedReturn`, `dischargeGuardedSignature`,
+   `extractGuardMessage`) out of `CalculatedReturnResolver` into a `check/GuardDischarge`
+   collaborator.
+2. Independently of the split, make the reservation decision explicit: today any `Either`-headed
+   value in kind position is treated as a guard (`isGuardCarrier` keys on
+   `WellKnownTypes.eitherFQN`). Either bless `Either` as *the* reserved compile-time carrier
+   (document in CLAUDE.md + the skill), or key recognition off the pinned `Throw`-carrier
+   instead of the type name.
+
+### 3.4 Split the typing context from the evaluation environment (fundamental)
+
+The one redesign that removes a *category* of special cases (closes F2). Today one `Env` serves
+as both Γ (runtime param → its **type**) and ρ (erased param → its **value**), discriminated by
+the `typeStackValueParams` name-set and patched by the `monoEnv` `VConst`-rewrite. The textbook
+NbE-checker shape keeps them separate:
+
+1. `CheckState` carries Γ (name → type; runtime value parameters) and ρ (name → `SemValue`;
+   erased params bound to values, runtime params bound to **fresh neutrals**).
+2. `Checker.check` (`FunctionLiteral` vs `VPi`): bind a fresh neutral for the parameter in ρ and
+   its type in Γ; check the body against `codomain(neutral)` — genuine dependent Π.
+3. `infer`'s `ParameterReference` reads Γ directly; delete `typeStackValueParams` and the
+   `VConst`-vs-type special case.
+4. `TypeStackLoop`: `monoEnv` becomes "ρ restricted to erased binders" — bind the `groundToSem`
+   form at `applyTypeArgs` time and delete the post-hoc rewrite.
+5. `PostDrainQuoter`: derive `runtimeParams` from ρ (the names bound to neutrals) instead of
+   threading a separate set.
+6. The evaluators are unchanged (still name-based lookup in ρ).
+7. Risk concentrates in the call sites that today rely on "env binding = type" flowing into a
+   codomain (`codomain(paramType)`); the full suite plus the dependent-bounds cases
+   (`Int[add(L,R),…]`) are the net. Do this while the package is warm; it becomes mandatory the
+   moment runtime-value-dependent types land.
+
+### 3.5 Small hardening (opportunistic)
+
+- **F3**: give fresh variables a single source (one counter, or a structured `NeutralHead`
+  distinguishing unifier/quoter/probe/bad-apply origins) so neutral identity is structural rather
+  than convention-held by reserved names.
+- **HKT-over-`Function` inference** (F1b): only if a client appears. Two approaches were tried
+  and rejected during the review fixes — decomposing `VPi` in the unifier (reverses the
+  deliberate `CarrierKindChecker` design for non-rigid heads) and defaulting the carrier to an
+  arity-matched former (works applied, fails when `?F` is read back unapplied; no default is both
+  applicable and quotable-unapplied without masking spine mismatches). A real solution needs a
+  quotable carrier value for partially-applied `Function` (e.g. a first-class read-back for
+  `VLam`-shaped carriers), not a unifier tweak.
