@@ -9,13 +9,15 @@ import eliot.effect.Throw
 // `Left(msg)` (reject). The rejection/acceptance is expressed on the `Throw[String]` effect path — `raise` for the
 // failure, `pure` for the success — dispatched to the compile-time `Throw[String, Either[String]]` /
 // `Effect[Either[String]]` instances (compiler/eliot/eliot/lang/Either.els) and reduced by the compiler backend into
-// the concrete `Left`/`Right`. The abstract signature (eliot.lang.Guard) stays the explicit carrier `Either[String, A]`,
-// so the two agree on merge — and, being a plain (non-carrier) return, `error`/`orError` are not auto-lifted, so the
-// `raise`/`pure` stay branch values (a rejected/accepted result) rather than being sequenced by the effect phase.
+// the concrete `Left`/`Right`. The signature is the `{Throw[String]}` effect sugar (matching the abstract declaration
+// in eliot.lang.Guard); its carrier is pinned to the compile-time `Either[String]` on the compiler track. The `raise`
+// in `error` and the `error(msg)` branch of `orError` stay *branch values* rather than being sequenced by the effect
+// phase because `foldOption`'s `ifNone: B` is an eliminator *branch* position (its type is the callee's return type),
+// which the direct-style desugarer passes through instead of binding (`CalleeInfo.isBranchPosition`).
 
-def error[A](msg: String): Either[String, A] = raise(msg)
+def error[A](msg: String): {Throw[String]} A = raise(msg)
 
 infix def when[A](a: A, cond: Bool): Option[A] = fold(cond, Some(a), None)
 
 infix at when
-def orError[A](o: Option[A], msg: String): Either[String, A] = foldOption(o, error(msg), pure)
+def orError[A](o: Option[A], msg: String): {Throw[String]} A = foldOption(o, error(msg), pure)

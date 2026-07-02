@@ -15,6 +15,7 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   private val readLineFqn   = ValueFQN(consoleModule, QualifiedName("readLine", Qualifier.Ability("Console")))
   private val printlnFqn    = ValueFQN(consoleModule, QualifiedName("println", Qualifier.Ability("Console")))
   private val flatMapFqn    = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
+  private val chooseFqn     = ValueFQN(testModuleName, QualifiedName("choose", Qualifier.Default))
 
   "effect body auto-lift" should "bind a direct-style println(readLine) into flatMap(readLine, x -> println(x))" in {
     runEffectDesugar("import eliot.effect.Console\ndef echo: {Console} Unit = println(readLine)").asserting {
@@ -31,6 +32,21 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
       case Some(FunApp(FunApp(ValRef(fm), ValRef(`readLineFqn`)), FunLit(s, FunApp(ValRef(`printlnFqn`), ParamRef(arg))))) =>
         (fm.name.name, arg) shouldBe ("flatMap", s)
       case other => fail(s"unexpected: $other")
+    }
+  }
+
+  // An eliminator *branch* — a value parameter whose type is the callee's own return type (`x`/`y` of
+  // `choose[A](x: A, y: A): A`, exactly the shape of `foldOption`'s `ifNone: B` / `fold`'s `whenTrue: A`) — produces
+  // the result rather than consuming a value, so an effectful argument there is a *branch value*, not an action to
+  // sequence. It must pass through unbound (the call becomes effectful instead), which is what lets a guard combinator
+  // `orError = foldOption(o, error(msg), pure)` stay a branching effect. Sequencing it would collapse the guard to an
+  // unconditional short-circuit — see `CalleeInfo.isBranchPosition` and `GuardSignatureIntegrationTest`.
+  it should "not sequence an effectful eliminator branch (param type == return type)" in {
+    runEffectDesugar(
+      "import eliot.effect.Console\ndef viaBranch: {Console} String = choose(readLine, readLine)\ndef choose[A](x: A, y: A): A = x"
+    ).asserting {
+      case Some(FunApp(FunApp(ValRef(`chooseFqn`), ValRef(`readLineFqn`)), ValRef(`readLineFqn`))) => succeed
+      case other => fail(s"expected choose(readLine, readLine) left unsequenced, got: $other")
     }
   }
 

@@ -21,8 +21,9 @@ like any other ability. Neither happens today.
 ## Current state: the platform is half-built
 
 > **Status note.** This section describes the *starting* state that motivated the work. Stages **1a**, **A**,
-> **B**, **C** (fold + reduction + fail-safe), **D** (carrier pinning), and **E** (first client end-to-end)
-> have all landed — the compiler track *is* driven through the checker in `Platform.Compiler`, a `pure`/`raise`
+> **B**, **C** (fold + reduction + fail-safe), **D** (carrier pinning), **E** (first client end-to-end), and **F**
+> (the combinators' own `{Throw[String]}` sugar signature) have all landed — the compiler track *is* driven through
+> the checker in `Platform.Compiler`, a `pure`/`raise`
 > in a compiler-platform value **resolves in the compiler pool** to the compile-time `Effect`/`Throw[Either[String]]`
 > instances **and reduces** (`raise("boom") ⤳ Left("boom")`, `pure(x) ⤳ Right(x)`) via the compiler backend
 > (`PostDrainQuoter.reduceSourced`); a `{Throw[String]} Type` **effect-sugar** guard works (its inferable carrier
@@ -32,8 +33,9 @@ like any other ability. Neither happens today.
 > compiler-reduced form (`CompilerNativesProcessor` + `ReducedBindingClosure` + `MonomorphicEvaluator`), so
 > `GuardSignatureIntegrationTest` runs end-to-end through the effect path. The claims below ("nothing ever passes
 > `Platform.Compiler`", "compiler-platform abilities are never checked") are the problem statement, no longer true.
-> What remains is deferred past E (no current client): position-routed `resolveAbility` for a *direct* type-position
-> ability use, and the `{Throw[String]}` sugar signature on the combinators. See **Staging**.
+> The one thing still deferred past F (no current client) is position-routed `resolveAbility` for a *direct*
+> type-position ability use — needed only for a *runtime-concrete* guard combinator (a user's own), not the shipped
+> compiler-layer ones. See **Staging**.
 
 The infrastructure is platform-parameterized, but only the **runtime** platform is ever *driven*
 through the resolution-and-check cycle. Concretely:
@@ -452,13 +454,10 @@ rewritten onto the effect path and the runtime track *consumes* the compiler tra
 
 - **Rewrite (`compiler/eliot/eliot/lang/Guard.els`).** `error(msg) = raise(msg)` and `orError(o, msg) = foldOption(o,
   error(msg), pure)` — the rejection is the `Throw` effect (`raise`) and the success is the `Effect` `pure`, dispatched
-  to the compile-time `Throw[String, Either[String]]` / `Effect[Either[String]]` instances. The abstract signature
-  (`eliot.lang.Guard`) stays the **explicit** carrier `Either[String, A]` (not the `{Throw[String]}` sugar), so the
-  runtime track types the guard exactly as before *and* — being a plain, non-carrier return — `error`/`orError` are not
-  auto-lifted by the effect phase, so `raise`/`pure` stay **branch values** rather than being sequenced. (Using bare
-  `raise(msg)` directly in `foldOption`'s `ifNone` is *wrong*: it is a bind position, so the auto-lift sequences it —
-  `map(raise(msg), _ -> pure(v))` — which short-circuits to `Left` unconditionally. The non-effectful `error` wrapper
-  sidesteps that.)
+  to the compile-time `Throw[String, Either[String]]` / `Effect[Either[String]]` instances. *(As shipped in E, the
+  abstract signature `eliot.lang.Guard` stayed the **explicit** carrier `Either[String, A]` — a deliberate workaround
+  for the auto-lift, since a plain non-carrier return is not lifted so `raise`/`pure` stay branch values. **Superseded
+  by F**, which moves the signature to the `{Throw[String]}` sugar by fixing the auto-lift itself.)*
 - **Consumption — the reduced native, not `resolveAbility` routing.** The deferred (b) is realised as the design's core
   move ("the runtime evaluator plugs in the already-reduced compiler native; no dispatcher is added to the evaluator"),
   not as position-routed `resolveAbility`. `CompilerNativesProcessor` (the `compiler`-label [[NativeBinding]] contributor
@@ -475,9 +474,29 @@ rewritten onto the effect path and the runtime track *consumes* the compiler tra
   reduced-native consumption — satisfied guard ⤳ its payload type and runs, unsatisfied ⤳ build fails with the author
   message. `CompilerAbilityResolutionTest` gains the generic-`error` combinator reduction (`raise` ⤳ `Either::raise`).
 
-**Deferred past E** (no current client): position-routed `resolveAbility` (a *runtime* value using an ability method
+**F — the guard combinators' own `{Throw[String]}` sugar signature. ✅ done** (all tests green). The guard combinators
+now carry the `{Throw[String]}` effect sugar (`error`/`orError` return `{Throw[String]} A`) in **both** the abstract
+declaration (`stdlib/.../Guard.els`) and the compiler-layer body (`compiler/.../Guard.els`), so the guard vocabulary is
+genuinely on the effect path rather than an `Either` façade with effect-shaped bodies.
+
+- **The real blocker was the auto-lift, not position-routing.** The E status predicted the sugar "needs position-routed
+  `resolveAbility` to infer the carrier on the runtime track." That prediction was **wrong**: the runtime track's carrier
+  recognition + W2b discharge already handle the sugar, because the reduced native (E) is `Left`/`Right` (an `Either`-headed
+  value the discharge reads directly) regardless of the *signature's* carrier. The one thing the sugar broke was the
+  **auto-lift**: with a `{Throw[String]} A` return, `orError = foldOption(o, error(msg), pure)` had its effectful
+  `error(msg)` branch **sequenced** (`foldOption`'s `ifNone: B` is a bind position), collapsing *every* guard to an
+  unconditional `Left`. This is the exact gotcha E documented and side-stepped.
+- **Fix — eliminator branch positions (`DirectStyleDesugarer` + `CalleeSignatures`).** A value parameter whose type is
+  (structurally) the callee's own return type — `foldOption`'s `ifNone: B`, `fold`'s `whenTrue/whenFalse: A` — is an
+  eliminator *branch*: by parametricity a total function can only *pass such a parameter through* to its result, so when
+  the result is a carrier the branch is a carrier value, not an action to sequence. `CalleeInfo.isBranchPosition`
+  recognises it; `buildArguments` leaves it unbound and marks the call effectful (`branchEffectful`) instead. Sound and
+  narrow: it changes behaviour only for an *effectful* argument in a result-typed position, which is always a genuine
+  branch outcome. Regression-tested in `EffectDesugaringProcessorTest` ("not sequence an effectful eliminator branch")
+  and end-to-end in `GuardSignatureIntegrationTest` (unchanged source, now through the sugar).
+
+**Deferred past F** (no current client): position-routed `resolveAbility` (a *runtime* value using an ability method
 *directly* in a type position, not encapsulated in a compiler-layer combinator — the `resolveAbility` sites still pass
-`Runtime`); the `{Throw[String]}` **sugar** signature on the guard combinators (needs that routing to infer the carrier
-on the runtime track — the explicit-`Either` signature avoids it); the calculated-return compiler-track re-entry
-(`CalculatedReturnResolver`, still runtime-only). A user-defined effect-path guard combinator is runtime-concrete, so it
-is not compile-time-reduced by the E gate — it too awaits the position routing.
+`Runtime`), which a *user-defined* effect-path guard combinator would need (it is runtime-concrete, so the E gate does
+not compile-time-reduce it); and the calculated-return compiler-track re-entry (`CalculatedReturnResolver`, still
+runtime-only).

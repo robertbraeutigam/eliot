@@ -4,11 +4,18 @@ package com.vanillasource.eliot.eliotc.jvm
   * vocabulary (`eliot.lang.Guard` — `error`/`when`/`orError`) over the carrier, compiled through the real pipeline with
   * the shipped `compiler`-layer `Either`/`Option` carriers + combinator bodies.
   *
-  * The guard is an ordinary application the NbE checker reduces to `Right(t)` / `Left(msg)`; the discharge then accepts
-  * the type or rejects with the author's message. So a satisfied guard compiles and runs as if the return were the bare
-  * type, and an unsatisfied one fails the build with the author message — no auto-lift, no special guard syntax. This
-  * is also the first end-to-end exercise of the compile-time `Option` carrier (`compiler/.../Option.els`), since
-  * `when`/`orError` reduce through its `Some`/`None`/`foldOption`. See `docs/effectful-signatures.md` (G1).
+  * The combinators carry the `{Throw[String]}` **effect sugar** signature (`error`/`orError` return `{Throw[String]} A`):
+  * their bodies express rejection as `raise` and acceptance as `pure`, which the compiler backend reduces to `Left(msg)`
+  * / `Right(t)`. The guard is then an ordinary application the NbE checker reduces to `Right(t)` / `Left(msg)`, and the
+  * discharge accepts the type or rejects with the author's message. So a satisfied guard compiles and runs as if the
+  * return were the bare type, and an unsatisfied one fails the build with the author message.
+  *
+  * The effect sugar *does* auto-lift the combinator bodies, but the lift is correct here because `foldOption`'s
+  * `ifNone: B` is an eliminator *branch* position (its type is the callee's return type), which the direct-style
+  * desugarer passes through instead of sequencing — see `CalleeInfo.isBranchPosition`. (Sequencing it would collapse
+  * every guard to an unconditional `Left`; that is the regression this suite guards against.) This is also the first
+  * end-to-end exercise of the compile-time `Option` carrier (`compiler/.../Option.els`), since `when`/`orError` reduce
+  * through its `Some`/`None`/`foldOption`.
   */
 class GuardSignatureIntegrationTest extends FullIntegrationTest {
 

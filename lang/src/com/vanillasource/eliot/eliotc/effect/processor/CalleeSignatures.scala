@@ -96,5 +96,23 @@ object CalleeSignatures {
           case _                     => true
         })
       }
+
+    /** Whether argument position `pos` is an *eliminator branch* — a value parameter whose type is (structurally) the
+      * callee's own return type, e.g. `ifNone: B` / `whenTrue: A` of `foldOption[A,B](.., B, ..): B` / `fold[A](..,
+      * A, A): A`. Such a position does not *consume* a value; it *produces* the result, so it carries whatever the
+      * result carries. When the result is instantiated to a carrier (a guard's `{Throw[String]}` return), an effectful
+      * argument here is a *branch value* (the chosen outcome), not an action to sequence — so [[buildArguments]]
+      * leaves it unbound and marks the eliminator call effectful instead. Recognised purely structurally (both the
+      * parameter and the return are the *same* bare generic binder), so it fires only for genuine eliminators and never
+      * for a concrete-typed value parameter.
+      */
+    def isBranchPosition(pos: Int): Boolean =
+      valueParamTypes.lift(pos).exists { paramType =>
+        (spine(paramType), spine(returnType)) match {
+          case ((ParameterReference(pn), pArgs), (ParameterReference(rn), rArgs)) =>
+            pArgs.isEmpty && rArgs.isEmpty && pn.value === rn.value
+          case _                                                                  => false
+        }
+      }
   }
 }

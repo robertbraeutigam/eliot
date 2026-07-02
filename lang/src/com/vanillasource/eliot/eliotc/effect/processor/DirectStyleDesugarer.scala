@@ -90,7 +90,12 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
           (argResults, idxA) <- desugarArgs(args, env, carrier, idx)
           (coreArgs, binds, idxB) = buildArguments(info, argResults, idxA)
           core                    = expr.as(applyChain(head, coreArgs))
-          coreEffectful           = info.resultEffectful(args.size)
+          // An eliminator whose branch (a result-typed position, `isBranchPosition`) carries an effectful outcome is
+          // itself effectful — the branch value *is* the carrier result — even though its declared return is a bare
+          // generic the callee signature cannot see as carrier-headed. This is what lets a guard combinator
+          // (`orError = foldOption(o, error(msg), pure)`) stay a branching effect rather than sequencing its branch.
+          branchEffectful         = argResults.zipWithIndex.exists { case (a, pos) => a.effectful && info.isBranchPosition(pos) }
+          coreEffectful           = info.resultEffectful(args.size) || branchEffectful
           used                    = (if (coreEffectful) info.effectAbilities else Set.empty) ++
                                       argResults.foldMap(_.usedEffects)
         } yield wrapBinds(core, coreEffectful, binds, idxB, used)
@@ -174,7 +179,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
   ): (Seq[Sourced[OperatorResolvedExpression]], Seq[Bind], Int) =
     argResults.zipWithIndex.foldLeft((Seq.empty[Sourced[OperatorResolvedExpression]], Seq.empty[Bind], idx)) {
       case ((coreArgs, binds, i), (arg, pos)) =>
-        if (arg.effectful && info.isBindPosition(pos) && !isAuthorMachineryCall(arg)) {
+        if (arg.effectful && info.isBindPosition(pos) && !info.isBranchPosition(pos) && !isAuthorMachineryCall(arg)) {
           val name = freshName(i)
           (coreArgs :+ arg.expr.as(ParameterReference(arg.expr.as(name))), binds :+ Bind(name, arg.expr), i + 1)
         } else (coreArgs :+ arg.expr, binds, i)

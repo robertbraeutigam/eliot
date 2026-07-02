@@ -1,6 +1,7 @@
 import eliot.lang.Either
 import eliot.lang.Option
 import eliot.lang.Bool
+import eliot.effect.Throw
 
 /**
  * Guard combinators for return types that reject an invalid instantiation with a readable message.
@@ -14,7 +15,7 @@ import eliot.lang.Bool
  */
 
 /** A guard that always rejects with message `msg`. */
-def error[A](msg: String): Either[String, A]
+def error[A](msg: String): {Throw[String]} A
 
 /** Keep `a` when `cond` holds and drop it otherwise: `a when cond` is `some(a)` if `cond` is `true`, else `none`. */
 infix def when[A](a: A, cond: Bool): Option[A]
@@ -24,4 +25,4 @@ infix def when[A](a: A, cond: Bool): Option[A]
  * right — `a when cond orError msg` keeps `a` only when `cond` holds, otherwise rejects with `msg`.
  */
 infix at when
-def orError[A](o: Option[A], msg: String): Either[String, A]
+def orError[A](o: Option[A], msg: String): {Throw[String]} A
