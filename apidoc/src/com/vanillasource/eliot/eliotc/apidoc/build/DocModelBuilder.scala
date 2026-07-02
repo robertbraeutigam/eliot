@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.apidoc.build
 
 import com.vanillasource.eliot.eliotc.apidoc.model.{DocItem, DocModule}
 import com.vanillasource.eliot.eliotc.apidoc.render.SignatureRenderer
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, DataDefinition, FunctionDefinition}
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, DataDefinition, FunctionDefinition, Visibility}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -30,7 +30,9 @@ object DocModelBuilder {
   def build(layerFiles: Seq[(ModuleName, String, AST)]): Result = {
     val implementationsByAbility: Map[String, Seq[(String, FunctionDefinition)]] =
       layerFiles
-        .flatMap { case (_, layer, ast) => ast.functionDefinitions.flatMap(fn => implMarkerAbility(fn).map(_ -> (layer, fn))) }
+        .flatMap { case (_, layer, ast) =>
+          ast.functionDefinitions.filter(isPublic).flatMap(fn => implMarkerAbility(fn).map(_ -> (layer, fn)))
+        }
         .groupBy(_._1)
         .view
         .mapValues(_.map(_._2))
@@ -52,8 +54,8 @@ object DocModelBuilder {
       files: Seq[(String, AST)],
       implementationsByAbility: Map[String, Seq[(String, FunctionDefinition)]]
   ): (DocModule, Seq[String]) = {
-    val taggedFunctions = files.flatMap { case (layer, ast) => ast.functionDefinitions.map(layer -> _) }
-    val taggedData      = files.flatMap { case (layer, ast) => ast.typeDefinitions.map(layer -> _) }
+    val taggedFunctions = files.flatMap { case (layer, ast) => ast.functionDefinitions.filter(isPublic).map(layer -> _) }
+    val taggedData      = files.flatMap { case (layer, ast) => ast.typeDefinitions.filter(isPublic).map(layer -> _) }
 
     val values   = taggedFunctions.filter(_._2.name.value.qualifier == Qualifier.Default)
     val types    = taggedFunctions.filter(_._2.name.value.qualifier == Qualifier.Type)
@@ -175,6 +177,12 @@ object DocModelBuilder {
     )
     (item, docWarnings ++ methodMembersWithWarnings.flatMap(_._2))
   }
+
+  /** A declaration appears in the docs only if it is `public`; `private` names are module-local and are omitted, mirroring
+    * the compiler's own rule that private names are neither importable nor resolvable outside their module.
+    */
+  private def isPublic(fn: FunctionDefinition): Boolean = fn.visibility == Visibility.Public
+  private def isPublic(dd: DataDefinition): Boolean     = dd.visibility == Visibility.Public
 
   private def abilityMarkerOf(fn: FunctionDefinition): Option[String] = fn.name.value.qualifier match {
     case Qualifier.Ability(abilityName) if fn.name.value.name == abilityName => Some(abilityName)

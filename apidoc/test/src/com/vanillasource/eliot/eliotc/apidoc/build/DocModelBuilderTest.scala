@@ -26,9 +26,10 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
       args: Seq[ArgumentDefinition] = Seq.empty,
       ret: Expression = ty("Unit"),
       body: Option[Expression] = None,
-      doc: Option[String] = None
+      doc: Option[String] = None,
+      visibility: Visibility = Visibility.Public
   ): FunctionDefinition =
-    FunctionDefinition(s(QualifiedName(name, qualifier)), generics, args, s(ret), body.map(s), doc = doc.map(s))
+    FunctionDefinition(s(QualifiedName(name, qualifier)), generics, args, s(ret), body.map(s), visibility = visibility, doc = doc.map(s))
 
   private def ast(functions: Seq[FunctionDefinition] = Seq.empty, data: Seq[DataDefinition] = Seq.empty): AST =
     AST(Seq.empty, functions, data)
@@ -113,6 +114,48 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
     result.warnings shouldBe Seq(
       "Doc comment on def 'apply' in layer 'stdlib' is ignored; 'apply' is already documented in layer 'lang'."
     )
+  }
+
+  it should "omit private defs, types and data, keeping only public declarations" in {
+    val m       = ModuleName(Seq("eliot", "lang"), "String")
+    val modules = DocModelBuilder.build(
+      Seq(
+        (
+          m,
+          "jvm",
+          ast(
+            functions = Seq(
+              fn("length", args = Seq(arg("s", ty("String"))), ret = ty("Int")),
+              fn("lengthInternal", args = Seq(arg("s", ty("String"))), ret = ty("Int"), body = Some(ty("native")), visibility = Visibility.Private),
+              fn("Alias", Qualifier.Type, args = Seq(arg("A", ty("Type"))), body = Some(ty("A")), visibility = Visibility.Private)
+            ),
+            data = Seq(DataDefinition(s("Secret"), Seq.empty, Some(Seq(DataConstructor(s("Secret"), Seq.empty))), Visibility.Private))
+          )
+        )
+      )
+    ).modules
+
+    moduleNamed(modules, "String").items.map(_.name) shouldBe Seq("length")
+  }
+
+  it should "hide an entire ability whose marker is private" in {
+    val m       = ModuleName(Seq("eliot", "lang"), "Secret")
+    val modules = DocModelBuilder.build(
+      Seq(
+        (
+          m,
+          "stdlib",
+          ast(functions =
+            Seq(
+              fn("Hidden", Qualifier.Ability("Hidden"), generics = Seq(gp("A")), visibility = Visibility.Private),
+              fn("hidden", Qualifier.Ability("Hidden"), generics = Seq(gp("A")), args = Seq(arg("a", ty("A"))), ret = ty("String"), visibility = Visibility.Private)
+            )
+          )
+        )
+      )
+    ).modules
+
+    moduleNamed(modules, "Secret").items shouldBe Seq.empty
   }
 
   it should "not warn when only one layer documents a name" in {
