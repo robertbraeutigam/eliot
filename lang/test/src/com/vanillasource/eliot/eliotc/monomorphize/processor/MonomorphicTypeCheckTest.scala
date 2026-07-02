@@ -500,11 +500,19 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  // Two-arg HKT decomposition: `?F[BigInt, String] ~ Function[BigInt, String]` → `?F := Function` and spines match.
-  it should "infer two-argument higher-kinded type parameter from argument type" in {
+  // Two-arg HKT carrier over the `Function` type: a *current inference limitation*, surfaced (not silenced) by the F1
+  // fail-safe fallback. `Function[BigInt, String]` normalises to a `VPi`, and the pattern unifier deliberately does not
+  // injectivity-decompose `?F[A, B] ~ Function[A, B]` (see `CarrierKindChecker.verifyCarrierKinds`: a carrier postponed
+  // against a non-rigid `VPi` is "higher-order unification the pattern unifier cannot solve"). So `?F` stays unsolved,
+  // defaults to `VType`, and the later `F[BigInt, String]` applies type arguments to that non-applicable head. Before
+  // F1, `applyValue` silently returned the argument — the program "type-checked" but with a nonsense `BigInteger[String]`
+  // body type (a masked miscompile). F1 makes that a loud stuck form, so the use now surfaces `Cannot resolve type.` at
+  // the use site rather than accepting a wrong typing. (An analogous `data`-carrier case — `?F := Box`, a rigid
+  // `VTopDef` — *does* decompose and type-check; see the single-arg HKT cases above.)
+  it should "surface (not silently miscompile) a two-arg HKT carrier over the Function type" in {
     runForErrors(
       "def id[F[_, _]](x: F[BigInteger, String]): F[BigInteger, String] = x\ndef someFunc: Function[BigInteger, String]\ndef f: Function[BigInteger, String] = id(someFunc)"
-    ).asserting(_ shouldBe Seq.empty)
+    ).asserting(_.map(_.message) shouldBe Seq("Cannot resolve type."))
   }
 
   // Decomposition is structural: `?F[BigInt] ~ Box[String]` solves `?F := Box`, then the spine pointwise unify

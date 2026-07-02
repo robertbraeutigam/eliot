@@ -490,7 +490,7 @@ def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
     ).asserting(_ shouldBe "<no state>")
   }
 
-  // --- Block syntax: `val` bindings and statement sequencing (docs/block-syntax.md) ---
+  // --- Block syntax: `val` bindings and statement sequencing ---
 
   // The headline: a multi-step body written as a block instead of a hand-nested flatMap. Each bare statement is a `val`
   // with a discarded binder, so the steps are sequenced through the carrier automatically, in order.

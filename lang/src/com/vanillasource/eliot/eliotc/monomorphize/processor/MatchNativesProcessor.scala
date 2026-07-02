@@ -14,6 +14,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, GroundValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
@@ -42,23 +43,34 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
 
   /** The match-dispatch native reduction for `vfqn`, or `None` (totality) if `vfqn` is not a `handleCases`/`typeMatch`
     * implementation method.
+    *
+    * The type-name / constructor reads are **pool-guarded** ([[DeclaringPool]]): the impl marker and constructors are
+    * read only on the pool that actually declares `vfqn`, so a match impl present in one pool but absent from the other
+    * never trips the `UnifiedModuleValueProcessor` "Could not find" build error. Today every `data` type (and its
+    * generated match impls) lives in the runtime pool, so this always selects `Platform.Runtime` and is byte-identical
+    * to the former unconditional runtime reads; the compiler fallback future-proofs a compiler-pool-only `data` type.
     */
   private def matchReduction(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    if (WellKnownTypes.isPatternMatchHandleCases(vfqn)) buildHandleCases(vfqn).map(_.some)
-    else if (WellKnownTypes.isTypeMatchTypeMatch(vfqn)) buildTypeMatch(vfqn).map(_.some)
+    if (WellKnownTypes.isPatternMatchHandleCases(vfqn) || WellKnownTypes.isTypeMatchTypeMatch(vfqn))
+      DeclaringPool.of(vfqn).flatMap {
+        case Some(platform) =>
+          (if (WellKnownTypes.isPatternMatchHandleCases(vfqn)) buildHandleCases(vfqn, platform)
+           else buildTypeMatch(vfqn, platform)).map(_.some)
+        case None           => none[SemValue].pure[CompilerIO]
+      }
     else none[SemValue].pure[CompilerIO]
 
-  private def buildHandleCases(vfqn: ValueFQN): CompilerIO[SemValue] =
+  private def buildHandleCases(vfqn: ValueFQN, platform: Platform): CompilerIO[SemValue] =
     for {
-      typeName <- requiredTypeName(vfqn, WellKnownTypes.patternMatchAbilityName)
-      ordered  <- orderedConstructors(vfqn.moduleName, QualifiedName(typeName, Qualifier.Type))
+      typeName <- requiredTypeName(vfqn, WellKnownTypes.patternMatchAbilityName, platform)
+      ordered  <- orderedConstructors(vfqn.moduleName, QualifiedName(typeName, Qualifier.Type), platform)
     } yield handleCasesNative(ordered)
 
-  private def buildTypeMatch(vfqn: ValueFQN): CompilerIO[SemValue] =
-    requiredTypeName(vfqn, WellKnownTypes.typeMatchAbilityName).map(typeMatchNative)
+  private def buildTypeMatch(vfqn: ValueFQN, platform: Platform): CompilerIO[SemValue] =
+    requiredTypeName(vfqn, WellKnownTypes.typeMatchAbilityName, platform).map(typeMatchNative)
 
-  private def requiredTypeName(vfqn: ValueFQN, abilityName: String): CompilerIO[String] =
-    ImplementationMarkerUtils.firstPatternTypeConstructorName(vfqn, abilityName).flatMap {
+  private def requiredTypeName(vfqn: ValueFQN, abilityName: String, platform: Platform): CompilerIO[String] =
+    ImplementationMarkerUtils.firstPatternTypeConstructorName(vfqn, abilityName, platform).flatMap {
       case Some(name) => name.pure[CompilerIO]
       case None       => abort
     }
@@ -67,8 +79,12 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
     * identity / ordering derivation lives in [[ModuleConstructors]] (the sanctioned [[RoleHint.ValueConstructor]]
     * consumer); this native-emitting half of match desugaring just reads the shared index.
     */
-  private def orderedConstructors(moduleName: ModuleName, dataType: QualifiedName): CompilerIO[Seq[ValueFQN]] =
-    getFactOrAbort(ModuleConstructors.Key(moduleName)).map(_.of(dataType))
+  private def orderedConstructors(
+      moduleName: ModuleName,
+      dataType: QualifiedName,
+      platform: Platform
+  ): CompilerIO[Seq[ValueFQN]] =
+    getFactOrAbort(ModuleConstructors.Key(moduleName, platform)).map(_.of(dataType))
 
   /** `handleCases(value, cases)`: dispatch a concrete constructor `value` to its handler in `cases`. */
   private def handleCasesNative(ordered: Seq[ValueFQN]): SemValue =

@@ -33,7 +33,7 @@ object Expression {
   /** A `{ … }` block: a sequence of statement/binding lines ending in a result expression. Over-separated at parse time
     * (one [[BlockLine]] per source line); adjacent lines are re-joined by fixity and the whole block is lowered to a
     * tower of immediately-applied lambdas by `block.processor.BlockDesugaringProcessor`, so it never survives past
-    * resolution. See `docs/block-syntax.md`.
+    * resolution.
     */
   case class BlockExpression(lines: Seq[BlockLine]) extends Expression
 

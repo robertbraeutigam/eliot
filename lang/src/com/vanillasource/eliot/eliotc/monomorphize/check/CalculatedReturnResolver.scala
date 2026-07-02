@@ -29,8 +29,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   *     fully-applied calculated-return value referenced without further application.
   *
   * It also hosts the **effectful-signatures discharge** (W2b): a return-type expression may be a `{Throw[String]}`
-  * computation on the compile-time `Either[String, _]` carrier (`docs/effectful-signatures.md`), which the compiler is
-  * the handler for. This sits beside the calculated return because both are "run a compile-time computation to obtain
+  * computation on the compile-time `Either[String, _]` carrier, which the compiler is the handler for. This sits beside
+  * the calculated return because both are "run a compile-time computation to obtain
   * the return type" — the calculated return reads it off the callee's monomorphized body, the guard `runThrow`s the
   * signature's `Either` and reads `Right(t)` (the type) or `Left(msg)` (a rejection). Three discharge hook points
   * mirror the calculated-return ones: [[isGuardCarrier]] (the *kind* position — accept an `Either[..]`-valued return

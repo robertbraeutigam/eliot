@@ -122,7 +122,7 @@ class TypeStackLoop(
       // Post-drain resolution pipeline (D1): the named, tiered sequence that settles every metavariable —
       // saturation fixed-point (drain + ability/Combine resolution), finalization (upper-bounds, carrier kinds,
       // calculated-return fail-safe), the finalizer (default the rest to Type), and a postcondition assertion.
-      // See `runPostDrainPipeline` and docs/monomorphize-d1-design.md.
+      // See `runPostDrainPipeline`.
       _ <- runPostDrainPipeline(
              PassContext(resolvedValue, abilityRefs, resolvedValue.paramConstraints, returnMeta)
            )
@@ -247,7 +247,7 @@ class TypeStackLoop(
       s.withUnifier(unifier.copy(metaStore = solved))
     }
 
-  /** The named, ordered post-check resolution pipeline (D1). See docs/monomorphize-d1-design.md.
+  /** The named, ordered post-check resolution pipeline (D1).
     *
     * Two registered tiers, plus two fixed structural steps the runner appends:
     *
@@ -566,8 +566,9 @@ class TypeStackLoop(
     * A *type-level* argument (a `GroundValue.Type`, or a `GroundValue.Structure` whose own type is `Type` — e.g. a
     * higher-kinded carrier `IO` passed as `[F[_]] := IO`, or `Int[0,255]`) is converted through
     * [[Evaluator.groundToSem]] into an *applicable* `VTopDef`/`VType`, so that a later `F[A]` in the body reduces to
-    * `IO[A]`. A bare `VConst` is inert under `applyValue` (its fallback returns the argument), which would silently
-    * collapse `F[A]` to `A`. A *value-level* argument (a data instance like `Person(...)` passed for `A: Person`, or a
+    * `IO[A]`. A bare `VConst` is inert under `applyValue` (it is a non-applicable head, so `applyValue` mints a loud
+    * `$bad-apply` stuck neutral that fails at read-back), so it must be converted to an applicable `VTopDef`/`VType`
+    * here rather than left to collapse `F[A]`. A *value-level* argument (a data instance like `Person(...)` passed for `A: Person`, or a
     * `Direct` literal) stays a `VConst`: it is never applied, and the post-drain reification gate (`PostDrainQuoter`)
     * recognises the `VConst(ground)` form to materialise it into a runtime constructor tree.
     */
@@ -646,10 +647,10 @@ object TypeStackLoop {
     */
   private val throwAbilityFQN: AbilityFQN = AbilityFQN(ModuleName(ModuleName.effectPackage, "Throw"), "Throw")
 
-  /** One named step of the post-check resolution pipeline (D1). The pipeline is tiered, not flat (see
-    * docs/monomorphize-d1-design.md): the unifier `drain` is interleaved by the runner as the equality core settling
-    * — it is not a pass — and the finalizer plus the postcondition assertion are fixed structural steps of
-    * `TypeStackLoop.runPostDrainPipeline`, not entries in the pass list.
+  /** One named step of the post-check resolution pipeline (D1). The pipeline is tiered, not flat: the unifier `drain`
+    * is interleaved by the runner as the equality core settling — it is not a pass — and the finalizer plus the
+    * postcondition assertion are fixed structural steps of `TypeStackLoop.runPostDrainPipeline`, not entries in the pass
+    * list.
     */
   private sealed trait PostDrainPass {
     def name: String

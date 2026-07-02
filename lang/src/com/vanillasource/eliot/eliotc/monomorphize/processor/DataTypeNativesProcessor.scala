@@ -34,12 +34,22 @@ class DataTypeNativesProcessor extends SingleFactProcessor[ContributedBinding.Ke
 
   /** A body-less `Type`-qualified constructor's inert `VTopDef` reduction, or `None` (totality) for anything else: a
     * non-`Type` name, the system-owned `Function`/`Type`, a type alias (has a body), or a name with no resolved value.
+    *
+    * The `OperatorResolvedValue` read is **pool-guarded** ([[DeclaringPool]]): the value is requested only on the pool
+    * that actually declares `vfqn`, so a name present in one pool but absent from the other never trips the
+    * `UnifiedModuleValueProcessor` "Could not find" build error. Today every `data` type lives in the runtime pool, so
+    * this always selects `Platform.Runtime` and is byte-identical to the former unconditional runtime read; the compiler
+    * fallback future-proofs a compiler-pool-only `data` type.
     */
   private def dataTypeReduction(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
     if (vfqn.name.qualifier === Qualifier.Type && vfqn =!= functionDataTypeFQN && vfqn =!= typeFQN)
-      getFact(OperatorResolvedValue.Key(vfqn)).map {
-        case Some(value) if value.runtime.isEmpty => (VTopDef(vfqn, None, Spine.SNil): SemValue).some
-        case _                                    => none
+      DeclaringPool.of(vfqn).flatMap {
+        case Some(platform) =>
+          getFact(OperatorResolvedValue.Key(vfqn, platform)).map {
+            case Some(value) if value.runtime.isEmpty => (VTopDef(vfqn, None, Spine.SNil): SemValue).some
+            case _                                    => none
+          }
+        case None           => none[SemValue].pure[CompilerIO]
       }
     else none[SemValue].pure[CompilerIO]
 }

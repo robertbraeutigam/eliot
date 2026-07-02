@@ -45,7 +45,29 @@ class Evaluator(
 
 object Evaluator {
 
-  /** Apply a semantic value to an argument. */
+  /** Reserved neutral head for the fail-safe fallback of [[applyValue]]: the stuck term minted when an argument is
+    * applied to a non-applicable head (a `VConst` or `VType`). The negative level never collides with a real de Bruijn
+    * level, so this head is definitionally distinct from every genuine variable and never unifies one away.
+    */
+  private val badApplyHead: SemValue.NeutralHead = SemValue.NeutralHead.VVar(-1, "$bad-apply")
+
+  /** Apply a semantic value to an argument.
+    *
+    * The head cases (`VLam`/`VPi` β-reduce, `VNative` fires, `VNeutral`/`VTopDef`/`VStuckNative`/`VMeta` grow their
+    * spine) are exhaustive for every applicable head. The remaining heads — `VConst` and `VType` — are *not*
+    * applicable: applying an argument to a literal, a concrete type value, or `Type` can only arise in an **ill-typed**
+    * program (one the checker has already, or is about to, reject with a "Not a function." / "Type mismatch."). The pure
+    * evaluator keeps running through that error-recovery window (errors abort only post-drain, after the body walk), so
+    * this case must neither crash nor silently succeed.
+    *
+    * It therefore returns a **loud stuck form** — a [[SemValue.VNeutral]] on the reserved [[badApplyHead]] carrying the
+    * argument in its spine — rather than the old identity-ish fallback that returned the argument `x` unchanged (which
+    * silently collapsed `F[A]` to `A`; see the [[com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop]]
+    * `applyTypeArgs` note). If this stuck value ever survives to read-back, the strict [[Quoter]] fails it ("Cannot
+    * quote neutral value") ⤳ `PostDrainQuoter.quoteSem`'s "Cannot resolve type." — but a program with a genuine type
+    * error aborts *before* quoting and reports that real diagnostic, so users see the real error, never this internal
+    * one. Fail-safe: never a silent wrong value.
+    */
   def applyValue(f: SemValue, x: SemValue): SemValue = f match {
     case VLam(_, closure) => closure(x)
 
@@ -69,7 +91,10 @@ object Evaluator {
 
     case VMeta(id, spine) => VMeta(id, spine :+ x)
 
-    case _ => x // fallback — should not happen in well-typed programs
+    case VConst(_) | VType =>
+      // Non-applicable head in an ill-typed program (already-recorded diagnostic) — fail loud at read-back, never
+      // silently return the argument. See the class-level note above.
+      VNeutral(badApplyHead, Spine.SNil :+ x)
   }
 
   /** Unfold a VTopDef by evaluating its cached body and applying the spine. Does not require MetaStore — used at
