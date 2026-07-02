@@ -3,7 +3,7 @@
  *
  * A function that needs an `X` from the environment declares `{Dep[X]}` and
  * calls `dependency` to obtain it; `dependency` is dispatched by the type expected at the call site, so distinct
- * dependency types are distinct effects (`{Dep[Database], Dep[Logger]}`). At most one value may be
+ * dependency types are distinct effects (`{Dep[Database], Dep[Topic]}`). At most one value may be
  * provided per type, which the ordinary ability-coherence rule already guarantees.
  *
  * ```eliot

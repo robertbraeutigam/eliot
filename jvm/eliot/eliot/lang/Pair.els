@@ -1,8 +1,5 @@
 data Pair[A, B](first: A, second: B)
 
-/**
- * Consume a `Pair` by applying the two-argument `f` to its components, without naming the accessors.
- */
 def foldPair[A, B, C](p: Pair[A, B], f: Function[A, Function[B, C]]): C = p match {
    case Pair(a, b) -> f(a)(b)
 }
