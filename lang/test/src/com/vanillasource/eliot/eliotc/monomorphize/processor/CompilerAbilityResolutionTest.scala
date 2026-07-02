@@ -107,6 +107,8 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
           |
           |def raiseGuard: {Throw[String]} Type = raise("empty")
           |def someFn(A: Type): {Throw[String]} Type = pure(A)
+          |
+          |def gerror[A](msg: String): Either[String, A] = raise(msg)
           |""".stripMargin
       )
 
@@ -197,5 +199,15 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
 
   it should "publish `someFn`'s undischarged carrier return `Either[String, Type]`" in {
     returnHeadOf("someFn").asserting(_ shouldBe Some(("Either", "Either")))
+  }
+
+  // Increment E — the guard combinators on the effect path. The shipped `eliot.lang.Guard` defines the bare rejection as
+  // `error(msg) = raise(msg)` over the explicit `Either` carrier (and `orError(o, msg) = foldOption(o, error(msg), pure)`
+  // building on it). The compiler backend reduces the generic `error[A]` combinator here, `raise` ⤳ the concrete
+  // `Either::raise`; the full `orError` (with `foldOption` + the runtime-track consumption of the reduced native) is
+  // exercised end-to-end in `GuardSignatureIntegrationTest`.
+
+  "the compiler track (Increment E — guard combinators)" should "reduce the generic `error` guard's `raise` to the concrete `Either::raise`" in {
+    refsOf("gerror").asserting(_ shouldBe Seq(("Either", "raise")))
   }
 }

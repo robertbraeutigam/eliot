@@ -1,10 +1,13 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
+import cats.Id
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleNames, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, CompilerMonomorphicValue, ContributedBinding}
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 
 /** The `compiler` native supplier: contributes the [[ContributedBinding]] under [[ContributedBinding.compilerLabel]] for
   * the compile-time reduction a name has in the **compiler** source pool (the compiler platform — base plus the
@@ -51,4 +54,71 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     */
   private def inCompilerPool(vfqn: ValueFQN): CompilerIO[Boolean] =
     getFact(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(_.exists(_.names.contains(vfqn.name)))
+
+  /** A **compile-time** value — one the compiler layer defines (concrete here) but the runtime pool leaves abstract, e.g.
+    * the guard combinators `error`/`orError` — whose checking body performs ability dispatch (`raise`/`pure`) cannot be
+    * reduced by the pure NbE evaluator against the abstract ability method (which has no binding), so its raw body would
+    * stall on it. For such a value the compile-time reduction is the **compiler backend's** output — the
+    * [[CompilerMonomorphicValue]] whose ability calls are resolved to the concrete impls and folded — built here into a
+    * self-contained [[BindingContribution.Leaf]] ([[ReducedBindingClosure]]). Both tracks then get the reducible form:
+    * the runtime track evaluates it in a type position (compiler-as-platform Increment E, the guard consumer), and the
+    * compiler track inlines it when reducing another compile-time value (e.g. `error` inside `orError`).
+    *
+    * The gate is deliberately narrow. Reducing an ability-using value at compile time only makes sense for a genuine
+    * compile-time value; a *runtime* value that merely uses effects (`catch`/`runState`, or any user `{Console}` body)
+    * is runtime-concrete and reaches runtime-only leaves (`runThrow`), so eagerly reducing it would raise a spurious
+    * native-leaf error. So the reduced path is taken only when the value is **runtime-abstract** (no runtime body) — the
+    * compiler-only / redefined-in-compiler-layer case. Everything else keeps the ordinary raw-body
+    * [[BindingContribution.Body]] path.
+    *
+    * On a missing reduction — the value did not produce a `CompilerMonomorphicValue` (an upstream compile error) — the
+    * raw body path is kept as a fail-safe: it stays stuck on the abstract ability and surfaces a loud use-site mismatch,
+    * never a silently wrong reduction.
+    */
+  override protected def generateFromKeyAndFact(
+      key: ContributedBinding.Key,
+      fact: SaturatedValue
+  ): CompilerIO[ContributedBinding] =
+    if (performsAbility(fact.value))
+      runtimeConcrete(key.vfqn).ifM(
+        super.generateFromKeyAndFact(key, fact),
+        getFact(CompilerMonomorphicValue.Key(key.vfqn, Seq.empty)).flatMap {
+          case Some(cmv) =>
+            cmv.reduced match {
+              case Some(reduced) =>
+                ReducedBindingClosure
+                  .buildBinding(key.vfqn, reduced.value, Platform.Compiler)
+                  .map(sem => ContributedBinding(key.vfqn, label, Some(BindingContribution.Leaf(sem))))
+              case None          => super.generateFromKeyAndFact(key, fact)
+            }
+          case None      => super.generateFromKeyAndFact(key, fact)
+        }
+      )
+    else super.generateFromKeyAndFact(key, fact)
+
+  /** Whether the value's checking body references any ability method (`Qualifier.Ability`). Read off the raw
+    * operator-resolved body — the signal that its raw reduction would stall on an unresolved ability call.
+    */
+  private def performsAbility(value: OperatorResolvedValue): Boolean =
+    value.checkingRuntime.exists { body =>
+      OperatorResolvedExpression.foldValueReferences[Id, Boolean](body.value, false) { (acc, ref) =>
+        acc || (ref.value.name.qualifier match {
+          case _: Qualifier.Ability => true
+          case _                    => false
+        })
+      }
+    }
+
+  /** Whether `vfqn` has a *runtime* implementation (a body in the runtime pool). A runtime-concrete value is a runtime
+    * value — its reduction belongs to codegen, not compile time — so it is never compile-time-reduced here even when it
+    * uses effects. Gated on runtime-pool membership (a quiet name-set read) so a compiler-only value is not probed and
+    * does not trigger the runtime pool's "Could not find" abort.
+    */
+  private def runtimeConcrete(vfqn: ValueFQN): CompilerIO[Boolean] =
+    getFact(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime))
+      .map(_.exists(_.names.contains(vfqn.name)))
+      .ifM(
+        getFact(SaturatedValue.Key(vfqn, Platform.Runtime)).map(_.exists(_.value.runtime.isDefined)),
+        false.pure[CompilerIO]
+      )
 }

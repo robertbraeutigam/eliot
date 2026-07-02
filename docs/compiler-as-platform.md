@@ -20,19 +20,20 @@ like any other ability. Neither happens today.
 
 ## Current state: the platform is half-built
 
-> **Status note.** This section describes the *starting* state that motivated the work. As of the
-> current session, stages **1a**, **A**, **B**, **C** (fold + reduction + fail-safe), and **D** (carrier
-> pinning) have landed — the compiler track now *is* driven through the checker in `Platform.Compiler`, a
-> `pure`/`raise` in a compiler-platform value **resolves in the compiler pool** to the compile-time
-> `Effect`/`Throw[Either[String]]` instances **and reduces** (`raise("boom") ⤳ Left("boom")`, `pure(x) ⤳
-> Right(x)`) via the compiler backend (`PostDrainQuoter.reduceSourced`), and a `{Throw[String]} Type`
-> **effect-sugar** guard now works too — its inferable carrier is **pinned to `Either[String]`** on the
-> compiler track (`TypeStackLoop.pinCompilerCarriers`), the `main`-pins-`IO` analogue. The claims below
-> ("nothing ever passes `Platform.Compiler`", "compiler-platform abilities are never checked") are the
-> problem statement, no longer literally true. What remains is the runtime track *consuming* that reduced
-> native at type positions (deferred with **E**, since no current consumer needs it — the shipped guard
-> client already reduces via the preferred-native `compilerLabel` path) and the monadic `when`/`orError`
-> rewrite (**E**). See **Staging**.
+> **Status note.** This section describes the *starting* state that motivated the work. Stages **1a**, **A**,
+> **B**, **C** (fold + reduction + fail-safe), **D** (carrier pinning), and **E** (first client end-to-end)
+> have all landed — the compiler track *is* driven through the checker in `Platform.Compiler`, a `pure`/`raise`
+> in a compiler-platform value **resolves in the compiler pool** to the compile-time `Effect`/`Throw[Either[String]]`
+> instances **and reduces** (`raise("boom") ⤳ Left("boom")`, `pure(x) ⤳ Right(x)`) via the compiler backend
+> (`PostDrainQuoter.reduceSourced`); a `{Throw[String]} Type` **effect-sugar** guard works (its inferable carrier
+> **pinned to `Either[String]`** on the compiler track, `TypeStackLoop.pinCompilerCarriers`, the `main`-pins-`IO`
+> analogue); and the **runtime track now consumes** that reduced native at type positions — the guard combinators
+> `error`/`orError` are rewritten onto the effect path (`raise`/`pure`) and the runtime track plugs in their
+> compiler-reduced form (`CompilerNativesProcessor` + `ReducedBindingClosure` + `MonomorphicEvaluator`), so
+> `GuardSignatureIntegrationTest` runs end-to-end through the effect path. The claims below ("nothing ever passes
+> `Platform.Compiler`", "compiler-platform abilities are never checked") are the problem statement, no longer true.
+> What remains is deferred past E (no current client): position-routed `resolveAbility` for a *direct* type-position
+> ability use, and the `{Throw[String]}` sugar signature on the combinators. See **Staging**.
 
 The infrastructure is platform-parameterized, but only the **runtime** platform is ever *driven*
 through the resolution-and-check cycle. Concretely:
@@ -446,6 +447,37 @@ constructor). Test: the `Increment D` cases in `CompilerAbilityResolutionTest`.
   does not yet consume `CompilerMonomorphicValue` at type positions; that lands with E's first client, together
   with the both-pools test-harness change it requires.
 
-**E — first client end-to-end:** the runtime track *consuming* the compiler track's reduced native at a type
-position (the deferred (b) routing/consumption), `Throw[String]` guard integration tests (pure path → type; `raise`
-path → compile error), then rewrite `when`/`orError` onto the effect path.
+**E — first client end-to-end. ✅ done** (lang.test 233 / jvm.test 282 / all 986 green). The guard combinators are
+rewritten onto the effect path and the runtime track *consumes* the compiler track's reduced native at a type position.
+
+- **Rewrite (`compiler/eliot/eliot/lang/Guard.els`).** `error(msg) = raise(msg)` and `orError(o, msg) = foldOption(o,
+  error(msg), pure)` — the rejection is the `Throw` effect (`raise`) and the success is the `Effect` `pure`, dispatched
+  to the compile-time `Throw[String, Either[String]]` / `Effect[Either[String]]` instances. The abstract signature
+  (`eliot.lang.Guard`) stays the **explicit** carrier `Either[String, A]` (not the `{Throw[String]}` sugar), so the
+  runtime track types the guard exactly as before *and* — being a plain, non-carrier return — `error`/`orError` are not
+  auto-lifted by the effect phase, so `raise`/`pure` stay **branch values** rather than being sequenced. (Using bare
+  `raise(msg)` directly in `foldOption`'s `ifNone` is *wrong*: it is a bind position, so the auto-lift sequences it —
+  `map(raise(msg), _ -> pure(v))` — which short-circuits to `Left` unconditionally. The non-effectful `error` wrapper
+  sidesteps that.)
+- **Consumption — the reduced native, not `resolveAbility` routing.** The deferred (b) is realised as the design's core
+  move ("the runtime evaluator plugs in the already-reduced compiler native; no dispatcher is added to the evaluator"),
+  not as position-routed `resolveAbility`. `CompilerNativesProcessor` (the `compiler`-label [[NativeBinding]] contributor
+  consulted by *both* tracks) now contributes, for a **runtime-abstract, ability-using** compiler value (exactly the
+  guard combinators), the `CompilerMonomorphicValue`-reduced body (`raise`⤳`Either::raise`, `pure`⤳`Either::pure`), built
+  into a self-contained binding by `ReducedBindingClosure` + the new `MonomorphicEvaluator` (an `NbeEvaluator` over the
+  reduced `MonomorphicExpression` that **drops the erased value-reference type arguments** — they are never applied to a
+  body-bearing binding). So the runtime track's type-position evaluation of `orError(when(String[], COND), "…")` reduces
+  through the concrete impls to `Right(String)` / `Left(msg)`, and the existing W2b discharge reads it. The gate is
+  narrow — **runtime-abstract** (no runtime body) — so a runtime effect helper that merely uses effects (`catch`,
+  `runState`, any user `{Console}` body) keeps its raw body and is never compile-time-reduced (which would reach the
+  runtime-only `runThrow` leaf and error spuriously).
+- **Tests.** `GuardSignatureIntegrationTest` (G1/G2, unchanged source) now runs entirely through the effect path and the
+  reduced-native consumption — satisfied guard ⤳ its payload type and runs, unsatisfied ⤳ build fails with the author
+  message. `CompilerAbilityResolutionTest` gains the generic-`error` combinator reduction (`raise` ⤳ `Either::raise`).
+
+**Deferred past E** (no current client): position-routed `resolveAbility` (a *runtime* value using an ability method
+*directly* in a type position, not encapsulated in a compiler-layer combinator — the `resolveAbility` sites still pass
+`Runtime`); the `{Throw[String]}` **sugar** signature on the guard combinators (needs that routing to infer the carrier
+on the runtime track — the explicit-`Either` signature avoids it); the calculated-return compiler-track re-entry
+(`CalculatedReturnResolver`, still runtime-only). A user-defined effect-path guard combinator is runtime-concrete, so it
+is not compile-time-reduced by the E gate — it too awaits the position routing.
