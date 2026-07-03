@@ -90,25 +90,35 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     )
   }
 
-  /** A hover shows, as Markdown, a code header plus the identifier's API documentation.
+  /** A hover renders, as Markdown, a definition header in a fenced `eliot` block followed by documentation — the apidoc
+    * tile of the identifier under the cursor.
     *
-    * The header prefers the concrete monomorphic type at the hovered node (the type-hint index), which shows the type
-    * the expression was actually checked at — `Int[0, 255]`, `IO[Unit]` — and falls back to the referenced value's
-    * declared signature (the position index) when the node was never monomorphized (no reachable `main`, or code the
-    * `main` does not reach). The documentation is the referenced name's [[com.vanillasource.eliot.eliotc.lsp.index.DocIndex]]
-    * entry — the same margin-stripped Markdown the apidoc site renders — appended below the header when present.
+    * When the referenced name has a documentation tile
+    * ([[com.vanillasource.eliot.eliotc.lsp.index.DocIndex]], built from the same apidoc facts the site uses), the header
+    * is its rendered *definition* (`def printLine(s: String): IO[Unit]`, `type IO[A]`, `ability Show[A]`) and the body
+    * is its documentation — exactly what the doc page shows. Otherwise it falls back to the concrete monomorphic type at
+    * the node (the type-hint index — the type the expression was actually checked at, `Int[0, 255]`), or the referenced
+    * value's declared signature when the node was never monomorphized.
     */
   override def hover(params: HoverParams): CompletableFuture[Hover] = {
     val uri       = URI.create(params.getTextDocument.getUri)
     val position  = LspPositions.toCompilerPosition(params.getPosition)
     val reference = service.positionIndex.referenceAt(uri, position)
-    val doc       = reference.flatMap(occurrence => service.docIndex.docFor(occurrence.value))
-    val hover     = service.typeHintIndex.typeHintsAt(uri, position) match {
-      case Some((range, types)) =>
-        Some(EliotTextDocumentService.markdownHover(range, types.map(GroundValueRenderer.render).mkString("\n"), doc))
-      case None                 =>
-        service.positionIndex.hoverAt(uri, position).map { (occurrence, value) =>
-          EliotTextDocumentService.markdownHover(occurrence.range, EliotTextDocumentService.signatureOf(value), doc)
+    val tile      = reference.flatMap(occurrence => service.docIndex.tileFor(occurrence.value).map(occurrence -> _))
+    val hover     = tile match {
+      case Some((occurrence, entry)) =>
+        val header = entry.signature
+          .orElse(service.positionIndex.definitionOf(occurrence.value).map(EliotTextDocumentService.signatureOf))
+          .getOrElse(occurrence.value.name.name)
+        Some(EliotTextDocumentService.markdownHover(occurrence.range, header, entry.doc))
+      case None                      =>
+        service.typeHintIndex.typeHintsAt(uri, position) match {
+          case Some((range, types)) =>
+            Some(EliotTextDocumentService.markdownHover(range, types.map(GroundValueRenderer.render).mkString("\n"), None))
+          case None                 =>
+            service.positionIndex.hoverAt(uri, position).map { (occurrence, value) =>
+              EliotTextDocumentService.markdownHover(occurrence.range, EliotTextDocumentService.signatureOf(value), None)
+            }
         }
     }
     CompletableFuture.completedFuture(hover.orNull)

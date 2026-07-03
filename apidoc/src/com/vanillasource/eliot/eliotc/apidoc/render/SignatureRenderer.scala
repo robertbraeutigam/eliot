@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.apidoc.render
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionApplication
 import com.vanillasource.eliot.eliotc.ast.fact.*
-import com.vanillasource.eliot.eliotc.module.fact.Qualifier
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 
 /** Renders an AST declaration back to a single line of Eliot source text — the signature shown (and syntax-highlighted)
   * on a documentation page. It reconstructs the surface syntax the compiler erased: the `def`/`type` keyword from the
@@ -18,6 +18,43 @@ object SignatureRenderer {
     case Qualifier.Type => typeDefinition(fn)
     case _              => valueDefinition(fn)
   }
+
+  /** The single canonical signature for a qualified name — the exact line an item's tile shows — given the declarations
+    * that carry that name across layers. Both the site ([[com.vanillasource.eliot.eliotc.apidoc.build.DocModelBuilder]])
+    * and the language server's hover fact
+    * ([[com.vanillasource.eliot.eliotc.apidoc.processor.ValueDocProcessor]]) render through here, so they never diverge.
+    *
+    * Which declaration and which form is chosen mirrors how a name is introduced (the abstract declaration is preferred
+    * so the signature is the contract, not a platform body):
+    *   - a plain `def` (or a `type` in the type namespace) → `function` of the abstract-or-first matching declaration;
+    *   - a `Type` name with no `type` declaration → the `data` form;
+    *   - an ability marker (the function whose name equals its ability) → the `ability Name[..]` header;
+    *   - an ability method → `function` of the method with the ability's `commonGenerics` prepended parameters dropped
+    *     (they are shared by every method and read as noise on an individual one).
+    *
+    * `None` only when no declaration matches (the caller then falls back to the bare name).
+    */
+  def forName(
+      qn: QualifiedName,
+      functions: Seq[FunctionDefinition],
+      dataDefinitions: Seq[DataDefinition],
+      commonGenerics: Int
+  ): Option[String] = qn.qualifier match {
+    case Qualifier.Ability(ability) if qn.name == ability =>
+      functions.headOption.map(marker => abilityHeader(ability, marker.genericParameters))
+    case Qualifier.Ability(_)                             =>
+      abstractOrFirst(functions).map(method =>
+        function(method.copy(genericParameters = method.genericParameters.drop(commonGenerics)))
+      )
+    case Qualifier.Type                                   =>
+      abstractOrFirst(functions).map(function).orElse(dataDefinitions.headOption.map(data))
+    case _                                                =>
+      abstractOrFirst(functions).map(function)
+  }
+
+  /** The abstract declaration (no body — the contract) if there is one, else the first; `None` on an empty list. */
+  private def abstractOrFirst(functions: Seq[FunctionDefinition]): Option[FunctionDefinition] =
+    functions.find(_.body.isEmpty).orElse(functions.headOption)
 
   /** `ability Name[commonParams]` — the header line; methods are rendered separately as members. */
   def abilityHeader(name: String, commonParameters: Seq[GenericParameter]): String =

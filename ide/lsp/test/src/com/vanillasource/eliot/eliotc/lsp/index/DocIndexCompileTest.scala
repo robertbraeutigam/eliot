@@ -34,15 +34,19 @@ class DocIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private def fqn(name: String): ValueFQN = ValueFQN(module, QualifiedName(name, Qualifier.Default))
 
   "doc index" should "carry the doc comment of a documented definition" in {
-    docFor(fqn("greeting")).asserting(_ shouldBe Some("The canonical greeting shown at startup."))
+    tileFor(fqn("greeting")).asserting(_.flatMap(_.doc) shouldBe Some("The canonical greeting shown at startup."))
   }
 
-  it should "carry nothing for an undocumented definition" in {
-    docFor(fqn("other")).asserting(_ shouldBe None)
+  it should "carry the rendered definition signature of a documented definition" in {
+    tileFor(fqn("greeting")).asserting(_.flatMap(_.signature) shouldBe Some("def greeting: String"))
   }
 
-  private def docFor(name: ValueFQN): IO[Option[String]] =
-    withCompiledWorkspace(index => index.docFor(name))
+  it should "carry the signature of an undocumented definition, with no doc" in {
+    tileFor(fqn("other")).asserting(_ shouldBe Some(DocIndex.Tile(Some("def other: String"), None)))
+  }
+
+  private def tileFor(name: ValueFQN): IO[Option[DocIndex.Tile]] =
+    withCompiledWorkspace(index => index.tileFor(name))
 
   /** Compile a one-file workspace, build the doc index from the materialised [[ValueDoc]] facts, and hand it to the
     * test.

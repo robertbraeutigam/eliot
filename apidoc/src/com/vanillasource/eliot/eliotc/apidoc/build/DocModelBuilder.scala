@@ -96,12 +96,11 @@ object DocModelBuilder {
       decls: Seq[(String, FunctionDefinition)],
       docFor: ValueFQN => DocText.Selected
   ): (DocItem, Seq[String]) = {
-    val abstractDecl = decls.find(_._2.body.isEmpty)
-    val selected     = docFor(ValueFQN(moduleName, QualifiedName(name, Qualifier.Default)))
-    val item         = DocItem(
+    val selected = docFor(ValueFQN(moduleName, QualifiedName(name, Qualifier.Default)))
+    val item     = DocItem(
       name = name,
       kind = DocItem.Kind.Value,
-      signature = SignatureRenderer.function(abstractDecl.getOrElse(decls.head)._2),
+      signature = SignatureRenderer.forName(QualifiedName(name, Qualifier.Default), decls.map(_._2), Seq.empty, 0).getOrElse(name),
       doc = selected.doc,
       layers = DocText.sortLayers(decls.map(_._1)),
       implementedOn = DocText.sortLayers(decls.filter(_._2.body.isDefined).map(_._1))
@@ -116,13 +115,9 @@ object DocModelBuilder {
       dataDecls: Seq[(String, DataDefinition)],
       docFor: ValueFQN => DocText.Selected
   ): (DocItem, Seq[String]) = {
-    val abstractType     = typeDecls.find(_._2.body.isEmpty)
     val concreteTypes    = typeDecls.filter(_._2.body.isDefined)
-    val primarySignature = abstractType
-      .map(t => SignatureRenderer.function(t._2))
-      .orElse(typeDecls.headOption.map(t => SignatureRenderer.function(t._2)))
-      .orElse(dataDecls.headOption.map(t => SignatureRenderer.data(t._2)))
-      .getOrElse(name)
+    val primarySignature =
+      SignatureRenderer.forName(QualifiedName(name, Qualifier.Type), typeDecls.map(_._2), dataDecls.map(_._2), 0).getOrElse(name)
 
     val concreteDefinitions =
       dataDecls.map { case (layer, dd) => SignatureRenderer.data(dd) -> layer } ++
@@ -164,11 +159,12 @@ object DocModelBuilder {
       .toSeq
       .sortBy(_._1)
       .map { case (methodName, group) =>
-        val abstractMethod = group.find(_._2.body.isEmpty).getOrElse(group.head)._2
-        // Drop the ability's common generics (the front end prepends them to every method) so the method reads as written.
-        val written        = abstractMethod.copy(genericParameters = abstractMethod.genericParameters.drop(commonParameters.length))
-        val selected       = docFor(ValueFQN(moduleName, QualifiedName(methodName, Qualifier.Ability(name))))
-        (DocItem.Member(SignatureRenderer.function(written), selected.doc), selected.warnings)
+        // `forName` drops the ability's common generics (prepended to every method) so the method reads as written.
+        val signature = SignatureRenderer
+          .forName(QualifiedName(methodName, Qualifier.Ability(name)), group.map(_._2), Seq.empty, commonParameters.length)
+          .getOrElse(methodName)
+        val selected  = docFor(ValueFQN(moduleName, QualifiedName(methodName, Qualifier.Ability(name))))
+        (DocItem.Member(signature, selected.doc), selected.warnings)
       }
 
     val implementationItems = implementations
@@ -183,7 +179,7 @@ object DocModelBuilder {
     val item = DocItem(
       name = name,
       kind = DocItem.Kind.Ability,
-      signature = SignatureRenderer.abilityHeader(name, commonParameters),
+      signature = SignatureRenderer.forName(QualifiedName(name, Qualifier.Ability(name)), markers.map(_._2), Seq.empty, 0).getOrElse(name),
       doc = selected.doc,
       layers = DocText.sortLayers(markers.map(_._1) ++ methods.map(_._1)),
       members = methodMembersWithWarnings.map(_._1),
