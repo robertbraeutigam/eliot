@@ -1215,7 +1215,7 @@ class MonomorphicTypeCheckTest
 
   it should "thread effects through a block, selecting map for the pure tail statement" in {
     liftedBody(
-      "import eliot.effect.State\ndef echo(next: String): {State[String]} String = {\n  val old = getState\n  putState(next)\n  old\n}"
+      "import eliot.effect.State\ndef echo(next: String): {State[String]} String = {\n  val old = state\n  putState(next)\n  old\n}"
     ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
   }
 
@@ -1322,7 +1322,7 @@ class MonomorphicTypeCheckTest
     ),
     SystemImport(
       "State",
-      "ability State[S, F[_]] {\ndef getState: F[S]\ndef putState(s: S): F[Unit]\n}",
+      "ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}",
       ModuleName.effectPackage
     )
   )

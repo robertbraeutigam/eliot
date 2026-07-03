@@ -43,14 +43,14 @@ implement[G[_] ~ Effect] Abort[AbortCarrier[G]] {
 
 /**
  * Cross-lift: `State[S]` rides through the `AbortCarrier` layer (one cell of the n² mtl lifting matrix). When a
- * `{State[S], Abort}` program discharges `Abort` *first* (`runState(runAbort(p), s0)`), the carrier is refined to
- * `AbortCarrier[G]` with `G` still carrying `State`, so the residual `getState`/`putState` must run at `AbortCarrier[G]`.
+ * `{State[S], Abort}` program discharges `Abort` *first* (`runStateToPair(runAbort(p), s0)`), the carrier is refined to
+ * `AbortCarrier[G]` with `G` still carrying `State`, so the residual `state`/`putState` must run at `AbortCarrier[G]`.
  * They delegate to the inner `G`'s state and wrap the result in `Some` — state is never *absent* here; only the eventual
  * `abort` makes the discharged *value* `None`. Because `AbortCarrier` sits *outside* the (inner) `StateCarrier`, the
  * threaded state survives an abort: discharging in this order yields `Pair[Option[A], S]`. Its order-sensitive
  * counterpart is `Abort[StateCarrier[S, G]]` (in `State`).
  */
 implement[S, G[_] ~ State[S] & Effect] State[S, AbortCarrier[G]] {
-   def getState: AbortCarrier[G, S] = AbortCarrier(map(s -> Some(s), getState))
+   def state: AbortCarrier[G, S] = AbortCarrier(map(s -> Some(s), state))
    def putState(newS: S): AbortCarrier[G, Unit] = AbortCarrier(map(u -> Some(u), putState(newS)))
 }

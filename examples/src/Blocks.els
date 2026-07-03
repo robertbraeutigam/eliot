@@ -11,13 +11,13 @@ import eliot.effect.State
 import eliot.lang.Pair
 
 // `swap` reads the current state, installs `next`, and returns the previous value. In block form:
-//   `val old = getState`   binds the carried state,
+//   `val old = state`      binds the carried state,
 //   `putState(next)`       is a bare effectful statement,
 //   `old`                  is the result expression.
 // This is exactly the hand-written form it lowers to:
-//   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), getState)
+//   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
 def swap(next: String): {State[String]} String = {
-  val old = getState
+  val old = state
   putState(next)
   old
 }
@@ -31,8 +31,8 @@ def rename(next: String): {Console, State[String]} Unit = {
 }
 
 // `main` is itself a block ending in an expression. The first binding is a plain (non-effectful) `val` that captures
-// the runtime carrier produced by `runState`; the rest sequence through it.
+// the runtime carrier produced by `runStateToPair`; the rest sequence through it.
 def main: IO[Unit] = {
-  val outcome = runState(rename("after"), "before")
+  val outcome = runStateToPair(rename("after"), "before")
   printLine(second(outcome))
 }

@@ -47,7 +47,7 @@ class CarrierBookkeepingTest
 
   it should "flag a bare higher-kinded binder's instantiation meta (the unfiltered callee-side carrier notion)" in {
     // A callee result rides *any* of its own HKT binders — including a deliberately unconstrained `G[_]` like
-    // `runState`'s (the effect-transparent discharge combinators); the constraint filter is ambient-only.
+    // `runStateToPair`'s (the effect-transparent discharge combinators); the constraint filter is ambient-only.
     probe(bareHktValue, "use").asserting(_.map(_.effectCarrierMetas) shouldBe Some(1))
   }
 

@@ -23,12 +23,12 @@ def modifyThenAbort: {State[String], Abort} String =
 // Discharge Abort first (inner), State second (outer): State SURVIVES the abort. Result Pair[Option[String], S] —
 // the value is None (it aborted) but the final state "modified" is still threaded out.
 def stateSurvives: Pair[Option[String], String] =
-   runId(runState(runAbort(modifyThenAbort), "initial"))
+   runId(runStateToPair(runAbort(modifyThenAbort), "initial"))
 
 // Discharge State first (inner), Abort second (outer): the abort DISCARDS the state. Result Option[Pair[String, S]] —
 // the whole pair is gone (None), so there is no surviving state at all.
 def stateDiscarded: Option[Pair[String, String]] =
-   runId(runAbort(runState(modifyThenAbort, "initial")))
+   runId(runAbort(runStateToPair(modifyThenAbort, "initial")))
 
 def main: IO[Unit] = flatMap(
    ignored -> flatMap(

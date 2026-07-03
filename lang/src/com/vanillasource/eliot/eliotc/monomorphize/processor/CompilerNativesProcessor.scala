@@ -65,7 +65,7 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * compiler track inlines it when reducing another compile-time value (e.g. `error` inside `orError`).
     *
     * The gate is deliberately narrow. Reducing an ability-using value at compile time only makes sense for a genuine
-    * compile-time value; a *runtime* value that merely uses effects (`catch`/`runState`, or any user `{Console}` body)
+    * compile-time value; a *runtime* value that merely uses effects (`catch`/`runStateToPair`, or any user `{Console}` body)
     * is runtime-concrete and reaches runtime-only leaves (`runThrow`), so eagerly reducing it would raise a spurious
     * native-leaf error. So the reduced path is taken only when the value is **runtime-abstract** (no runtime body) — the
     * compiler-only / redefined-in-compiler-layer case. Everything else keeps the ordinary raw-body

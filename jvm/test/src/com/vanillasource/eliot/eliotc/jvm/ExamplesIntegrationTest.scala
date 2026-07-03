@@ -483,10 +483,10 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   }
 
   // The State effect (M5): a `{State[S]}` computation discharges to a `Pair[A, S]` (result + final state) via the
-  // `StateCarrier` transformer, born only at the `runState` edge. `getState`/`putState` resolve to `State[StateCarrier[S, IO]]`
-  // after the carrier is refined to `StateCarrier[S, G]` by partial-application injectivity at the `runState` call. `swap`
+  // `StateCarrier` transformer, born only at the `runStateToPair` edge. `state`/`putState` resolve to `State[StateCarrier[S, IO]]`
+  // after the carrier is refined to `StateCarrier[S, G]` by partial-application injectivity at the `runStateToPair` call. `swap`
   // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
-  "the State effect" should "thread state through a {State} computation and discharge to a Pair via runState" in {
+  "the State effect" should "thread state through a {State} computation and discharge to a Pair via runStateToPair" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Effect
@@ -494,9 +494,9 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |import eliot.lang.Pair
         |
         |def swap(next: String): {State[String]} String =
-        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), getState)
+        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
         |
-        |def prog: IO[Pair[String, String]] = runState(swap("after"), "before")
+        |def prog: IO[Pair[String, String]] = runStateToPair(swap("after"), "before")
         |
         |def main: IO[Unit] = flatMap(p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))), prog)""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
@@ -504,7 +504,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
 
   // Static testability for State: the SAME carrier-polymorphic {State} logic runs under a pure `Id` carrier (G := Id),
   // discharging to a plain `Pair` with no IO. This is the State→Pair discharge the generic-multi-field-data codegen
-  // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `getState`/`putState`).
+  // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `state`/`putState`).
   "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -521,12 +521,78 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |}
         |
         |def swap(next: String): {State[String]} String =
-        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), getState)
+        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
         |
-        |def demo: Pair[String, String] = runId(runState(swap("second"), "first"))
+        |def demo: Pair[String, String] = runId(runStateToPair(swap("second"), "first"))
         |
         |def main: IO[Unit] = flatMap(ignored -> printLine(second(demo)), printLine(first(demo)))""".stripMargin
     ).asserting(_ shouldBe "first\nsecond")
+  }
+
+  // The two projecting discharges: `runStateToValue` keeps only the result (dropping the final state) and
+  // `runStateToFinalState` only the final state (dropping the result). Both `map` over `runStateToPair`, so they need a
+  // `G ~ Effect`. `swap` returns the previous value and installs `next`; from "before" the value is "before" and the
+  // final state is "after".
+  "the projecting State discharges" should "keep only the value, or only the final state" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
+        |import eliot.effect.State
+        |import eliot.lang.Pair
+        |
+        |data Id[A](runId: A)
+        |
+        |implement Effect[Id] {
+        |   def pure[A](a: A): Id[A] = Id(a)
+        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
+        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
+        |}
+        |
+        |def swap(next: String): {State[String]} String =
+        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
+        |
+        |def onlyValue: String = runId(runStateToValue(swap("after"), "before"))
+        |def onlyState: String = runId(runStateToFinalState(swap("after"), "before"))
+        |
+        |def main: IO[Unit] = flatMap(ignored -> printLine(onlyState), printLine(onlyValue))""".stripMargin
+    ).asserting(_ shouldBe "before\nafter")
+  }
+
+  // The derived `updateState(f)` = `putState(f(state))`: it reads the current state, applies `f`, and writes it back,
+  // all via the effect auto-lift (no explicit flatMap). `flip` genuinely reads the current state (it matches on it), so
+  // from `Off` the final state is `On`.
+  "the derived updateState" should "read the state, apply the function, and write the result back" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
+        |import eliot.effect.State
+        |import eliot.lang.Pair
+        |
+        |data Id[A](runId: A)
+        |
+        |implement Effect[Id] {
+        |   def pure[A](a: A): Id[A] = Id(a)
+        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
+        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
+        |}
+        |
+        |data Toggle = Off | On
+        |
+        |def flip(t: Toggle): Toggle = t match {
+        |   case Off -> On
+        |   case On -> Off
+        |}
+        |
+        |def describe(t: Toggle): String = t match {
+        |   case Off -> "off"
+        |   case On -> "on"
+        |}
+        |
+        |def switch: {State[Toggle]} Unit = updateState(t -> flip(t))
+        |def result: Toggle = runId(runStateToFinalState(switch, Off))
+        |
+        |def main: IO[Unit] = printLine(describe(result))""".stripMargin
+    ).asserting(_ shouldBe "on")
   }
 
   // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Sync[StateCarrier[S, G]]` base lift
@@ -540,12 +606,12 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def step: {State[String], Console} String =
         |   flatMap(
-        |      ignored -> flatMap(old -> flatMap(ignored2 -> pure(old), putState("done")), getState),
+        |      ignored -> flatMap(old -> flatMap(ignored2 -> pure(old), putState("done")), state),
         |      printLine("running step"))
         |
         |def main: IO[Unit] = flatMap(
         |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
-        |   runState(step, "start"))""".stripMargin
+        |   runStateToPair(step, "start"))""".stripMargin
     ).asserting(_ shouldBe "running step\nstart\ndone")
   }
 
@@ -582,7 +648,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
       orderingPrelude +
         """import eliot.effect.Console
           |def stateSurvives: Pair[Option[String], String] =
-          |   runId(runState(runAbort(modifyThenAbort), "initial"))
+          |   runId(runStateToPair(runAbort(modifyThenAbort), "initial"))
           |
           |def main: IO[Unit] = flatMap(
           |   ignored -> printLine(second(stateSurvives)),
@@ -598,7 +664,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
       orderingPrelude +
         """import eliot.effect.Console
           |def stateDiscarded: Option[Pair[String, String]] =
-          |   runId(runAbort(runState(modifyThenAbort, "initial")))
+          |   runId(runAbort(runStateToPair(modifyThenAbort, "initial")))
           |
           |def main: IO[Unit] = printLine(foldOption(stateDiscarded, "<no state>", p -> second(p)))""".stripMargin
     ).asserting(_ shouldBe "<no state>")
@@ -665,7 +731,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   }
 
   // The docs' headline equivalence: `swap` written as a block produces the same result as the hand-written flatMap nest
-  // (cf. the "State effect" test above). `val old = getState` binds the carried state; `putState(next)` is a bare
+  // (cf. the "State effect" test above). `val old = state` binds the carried state; `putState(next)` is a bare
   // effectful statement; `old` is the result expression.
   "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
     compileAndRun(
@@ -675,14 +741,14 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |import eliot.lang.Pair
         |
         |def swap(next: String): {State[String]} String = {
-        |  val old = getState
+        |  val old = state
         |  putState(next)
         |  old
         |}
         |
         |def main: IO[Unit] = flatMap(
         |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
-        |   runState(swap("after"), "before"))""".stripMargin
+        |   runStateToPair(swap("after"), "before"))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
@@ -717,7 +783,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |import eliot.lang.Pair
         |
         |def swap(next: String): {State[String]} String = {
-        |  val old = getState
+        |  val old = state
         |  putState(next)
         |  old
         |}
@@ -729,7 +795,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |}
         |
         |def main: IO[Unit] = {
-        |  val outcome = runState(rename("after"), "before")
+        |  val outcome = runStateToPair(rename("after"), "before")
         |  printLine(second(outcome))
         |}""".stripMargin
     ).asserting(_ shouldBe "renaming the account...\nbefore\nafter")

@@ -1,22 +1,23 @@
+import eliot.effect.Effect
 import eliot.lang.Pair
 
 /**
  * The state effect: a computation that threads a state of type `S`, reading and replacing it.
  *
- * A function that uses state declares `{State[S]}` and calls `getState` to read the current state or
- * `putState` to replace it. Neither wraps the result — the effect floats up to the caller. The result
- * paired with the final state is materialised only when the effect is discharged by `runState`, as a
- * `Pair[A, S]`.
+ * A function that uses state declares `{State[S]}` and reads the current state as `state` or replaces it with
+ * `putState`. Neither wraps the result — the effect floats up to the caller. The result paired with the final state is
+ * materialised only when the effect is discharged by `runStateToPair`, as a `Pair[A, S]` (or `runStateToValue` /
+ * `runStateToFinalState` to keep only one side).
  *
  * ```eliot
- * def tick: {State[Int]} Unit = putState(getState + 1)
+ * def tick: {State[Int]} Unit = putState(state + 1)
  * ```
  */
 ability State[S, F[_]] {
    /**
     * Read the current state. The effect floats up to the caller's `{State[S]}` set.
     */
-   def getState: F[S]
+   def state: F[S]
 
    /**
     * Replace the current state with `s`. The effect floats up to the caller's `{State[S]}` set.
@@ -25,11 +26,22 @@ ability State[S, F[_]] {
 }
 
 /**
+ * Transform the current state by applying `f` to it: reads the state, replaces it with `f(state)`, and yields `unit`.
+ * A derived convenience over `state` + `putState` — `updateState(f)` is exactly `putState(f(state))` — so platform
+ * layers get it for free, without implementing a third `State` method.
+ *
+ * ```eliot
+ * def tick: {State[Int]} Unit = updateState(n -> n + 1)
+ * ```
+ */
+def updateState[S](f: Function[S, S]): {State[S]} Unit = flatMap(current -> putState(f(current)), state)
+
+/**
  * The internal carrier that realises the `State[S]` effect: a `StateCarrier[S, G, A]` maps an incoming state to a
  * `G`-computation yielding the result paired with the new state.
  *
  * Plumbing only — application code never names it. A function that threads state declares `{State[S]}` and discharges it
- * with `runState`; this carrier is what that operates on under the hood. Generic over the base carrier `G`, so it
+ * with `runStateToPair`; this carrier is what that operates on under the hood. Generic over the base carrier `G`, so it
  * composes over `IO`, `AbortCarrier[IO]`, and so on. Its representation (the `Effect`/`Sync`/`State` instances) is
  * supplied by the platform layer.
  */
@@ -37,13 +49,28 @@ type StateCarrier[S, G[_], A]
 
 /**
  * Unwrap a `StateCarrier` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor
- * of the carrier; the platform layer supplies the body. Discharge the effect with `runState`, which threads an initial
- * state through this function.
+ * of the carrier; the platform layer supplies the body. Discharge the effect with `runStateToPair`, which threads an
+ * initial state through this function.
  */
 def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): Function[S, G[Pair[A, S]]]
 
 /**
  * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state, threaded
- * from `initial`. Any other effects remain in the carrier `G`.
+ * from `initial`. Any other effects remain in the carrier `G`. Reach for `runStateToValue` or `runStateToFinalState` to
+ * keep only one side of the pair.
  */
-def runState[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateCarrier(p), initial)
+def runStateToPair[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateCarrier(p), initial)
+
+/**
+ * Discharge the `State[S]` effect keeping only the result, discarding the final state. Threads `initial` through the
+ * computation and yields its value.
+ */
+def runStateToValue[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[A] =
+   map(pair -> first(pair), runStateToPair(p, initial))
+
+/**
+ * Discharge the `State[S]` effect keeping only the final state, discarding the result. Threads `initial` through the
+ * computation and yields the state left behind.
+ */
+def runStateToFinalState[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[S] =
+   map(pair -> second(pair), runStateToPair(p, initial))

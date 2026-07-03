@@ -54,7 +54,7 @@ class CarrierKindChecker(
     * Every higher-kinded binder's meta is also flagged as an *effect carrier*
     * ([[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole.Instantiation.effectCarrier]]). This is the effect
     * phase's *callee-side* carrier notion (`EffectCarriers.carrierBinders`, deliberately unfiltered): an effectful
-    * result rides *any* of the callee's own HKT binders — including a deliberately unconstrained one like `runState`'s
+    * result rides *any* of the callee's own HKT binders — including a deliberately unconstrained one like `runStateToPair`'s
     * `G[_]` (the effect-transparent discharge combinators return `G[...]` with no ability constraint, and a `val`
     * binding such a result must still sequence it). The `carrierBinders ∩ paramConstraints` filter applies only to a
     * value's *own* ambient carriers ([[CheckState.ambientCarriers]]), never to callee results. A spurious flag on a

@@ -320,7 +320,7 @@ One `Map[Int, MetaRole]` on the `Unifier` replaces the former six scattered side
   type-parameter meta peeled from a polytype's leading binders. Combinable (covariant) unless tainted by a `VPi` domain;
   a higher-kinded one additionally carries a `carrierKind` verified post-drain and is flagged `effectCarrier` — the
   effect lift's *callee-side* carrier notion, deliberately **unfiltered** (an effectful result rides *any* of the
-  callee's own HKT binders, including `runState`'s unconstrained `G[_]`; the ability-constraint filter applies only to
+  callee's own HKT binders, including `runStateToPair`'s unconstrained `G[_]`; the ability-constraint filter applies only to
   a value's own *ambient* carriers in `CheckState.ambientCarriers`).
 - `AbstractAssoc(fqn)` — a placeholder for an abstract associated ability type (`type X` inside `ability …`); the one role
   the finalizer protects from defaulting to `Type`, so a constraint-covered reference can stay abstract through quoting.

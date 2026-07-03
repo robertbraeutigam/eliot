@@ -208,7 +208,7 @@ layer never says how a type is laid out or how a primitive is computed. So every
 platform-dependent is declared **abstractly** — `type`s without a value constructor, body-less `def`
 signatures (`Int`, `printLine`, the `+`/`-`/`*` operators whose bodies do width dispatch). It *may*, however,
 carry `def` bodies and ability instances when the computation is **genuinely platform-independent** — byte-for-byte
-the same on every target (e.g. `fitsIn`, the effect discharge helpers `catch`/`orElse`/`runState`, the pure
+the same on every target (e.g. `fitsIn`, the effect discharge helpers `catch`/`orElse`/`runStateToPair`, the pure
 type-level `Combine[Int,Int]` join). What it must never contain is `data` (a chosen representation), a native
 leaf, or any representation-dependent body.
 

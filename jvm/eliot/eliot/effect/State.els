@@ -6,7 +6,7 @@ import eliot.lang.Pair
 // Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name
 // resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
 ability State[S, F[_]] {
-   def getState: F[S]
+   def state: F[S]
    def putState(s: S): F[Unit]
 }
 
@@ -35,18 +35,18 @@ implement[S, G[_] ~ Sync & Effect] Sync[StateCarrier[S, G]] {
 }
 
 /**
- * The `State` instance: `getState` returns the current state as the result while keeping it; `putState(newS)` discards
+ * The `State` instance: `state` returns the current state as the result while keeping it; `putState(newS)` discards
  * the incoming state, installs `newS`, and yields `unit`.
  */
 implement[S, G[_] ~ Effect] State[S, StateCarrier[S, G]] {
-   def getState: StateCarrier[S, G, S] = StateCarrier(s -> pure(Pair(s, s)))
+   def state: StateCarrier[S, G, S] = StateCarrier(s -> pure(Pair(s, s)))
    def putState(newS: S): StateCarrier[S, G, Unit] = StateCarrier(s -> pure(Pair(unit, newS)))
 }
 
 /**
  * Cross-lift: `Abort` rides through the `StateCarrier` layer (the order-sensitive counterpart to `State[S,
  * AbortCarrier[G]]` in `Abort`). When a `{State[S], Abort}` program discharges `State` *first*
- * (`runAbort(runState(p, s0))`), the carrier is refined to `StateCarrier[S, G]` with `G` still carrying `Abort`, so the
+ * (`runAbort(runStateToPair(p, s0))`), the carrier is refined to `StateCarrier[S, G]` with `G` still carrying `Abort`, so the
  * residual `abort` must run at `StateCarrier[S, G]`. It delegates to the inner `G`'s `abort` for any paired result,
  * ignoring the incoming state `s` — so the abort discards the threaded state. Because `StateCarrier` sits *outside* the
  * (inner) `AbortCarrier`, the abort tears down the whole pair: discharging in this order yields `Option[Pair[A, S]]`
