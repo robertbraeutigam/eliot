@@ -115,6 +115,10 @@ Added by this plugin:
 
 - ✅ **Run main** — a `▶ Run main` code lens on every `def main` builds and runs it through a native run
   configuration (see "Running a `main`").
+- ✅ **Comment continuation** — pressing Enter inside a `/** … */` (or `/* … */`) comment keeps the aligned
+  `*` prefix on the new line, as in Java/Scala. A client-side `EnterHandlerDelegate`
+  (`EliotCommentEnterHandler`), not a server feature — it is instant and works even while the buffer does not
+  type-check.
 
 ## Troubleshooting
 

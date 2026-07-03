@@ -8,6 +8,7 @@
         <ul>
             <li>Syntax highlighting via a bundled TextMate grammar.</li>
             <li>Diagnostics (errors/warnings) provided by the Eliot language server, run through LSP4IJ.</li>
+            <li>Doc/block-comment continuation: pressing Enter inside a <code>/** ... */</code> comment keeps the aligned <code>*</code> prefix, as in Java/Scala.</li>
         </ul>
         The language server is bundled with the plugin; no separate installation or build file is needed —
         the open project folder is the workspace, and the Eliot standard library travels inside the plugin.
@@ -16,6 +17,9 @@
     <!-- Platform + LSP4IJ are required. TextMate is bundled in every IDE; depended on optionally so the
          language server still works if a user has disabled the TextMate plugin (only highlighting is lost). -->
     <depends>com.intellij.modules.platform</depends>
+    <!-- modules.lang owns the enterHandlerDelegate extension point (comment continuation); present in every
+         IntelliJ-based IDE. -->
+    <depends>com.intellij.modules.lang</depends>
     <depends>com.redhat.devtools.lsp4ij</depends>
     <depends optional="true" config-file="eliot-textmate.xml">org.jetbrains.plugins.textmate</depends>
 
@@ -37,6 +41,9 @@
         <stepsBeforeRunProvider implementation="com.vanillasource.eliot.intellij.run.EliotBuildBeforeRunTaskProvider"/>
         <!-- Surfaces compiler errors when the before-run build fails. -->
         <notificationGroup id="Eliot" displayType="BALLOON"/>
+        <!-- Continues `/** */`/`/* */` comments with an aligned ` * ` on Enter (Java/Scala-style), client-side.
+             Global EP; the handler self-selects .els files (which have no registered Language, only TextMate). -->
+        <enterHandlerDelegate implementation="com.vanillasource.eliot.intellij.EliotCommentEnterHandler"/>
     </extensions>
 
     <actions>
