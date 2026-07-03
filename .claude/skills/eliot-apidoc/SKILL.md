@@ -40,7 +40,8 @@ The example below is shown indented so the literal comment markup is visible; in
      * Run `step` forever; the one effect that may reach `main` undischarged.
      *
      * ```eliot
-     * def main: {Inf} IO[Unit] = forever(printLine("tick"))
+     * def serve: {Inf, Console} Unit = forever(printLine("tick"))
+     * def main: IO[Unit] = serve
      * ```
      */
     def forever(step: F[Unit]): F[Unit]
