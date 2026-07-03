@@ -79,20 +79,32 @@ class RefinementSolver(
       actual: SemValue,
       expected: SemValue
   ): CheckIO[SemExpression] =
+    tryUnifyOrCoerce(tm, expr, actual, expected).flatMap {
+      case Some(resolved) => pure(resolved)
+      // No coercion: report a single mismatch (carrying Expected/Actual) at the term rather than
+      // committing the failed unification, whose spine descent can yield one error per mismatched
+      // type argument (e.g. both `Int` bounds).
+      case None           =>
+        modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, tm.as("Type mismatch."))))
+          .as(expr)
+    }
+
+  /** The non-committing arms 1–2 of the check-mode resolution ladder: definitional equality, else a `Coerce`
+    * insertion. Returns the resolved expression, or [[None]] with *no error committed* when neither applies — the
+    * caller decides what follows (the checker consults the effect-lift arms 3–4 before committing the mismatch;
+    * [[unifyOrCoerce]] commits it directly).
+    */
+  def tryUnifyOrCoerce(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      actual: SemValue,
+      expected: SemValue
+  ): CheckIO[Option[SemExpression]] =
     for {
       s      <- get
       result <- s.unifier.tryUnify(actual, expected, tm.as("Type mismatch.")) match {
-                  case UnifyResult.Unified(u)       => modify(_.withUnifier(u)).as(expr)
-                  case UnifyResult.Contradiction(_) =>
-                    tryCoerce(tm, expr, actual, expected).flatMap {
-                      case Some(coerced) => pure(coerced)
-                      // No coercion: report a single mismatch (carrying Expected/Actual) at the term rather than
-                      // committing the failed unification, whose spine descent can yield one error per mismatched
-                      // type argument (e.g. both `Int` bounds).
-                      case None          =>
-                        modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, tm.as("Type mismatch."))))
-                          .as(expr)
-                    }
+                  case UnifyResult.Unified(u)       => modify(_.withUnifier(u)).as(Option(expr))
+                  case UnifyResult.Contradiction(_) => tryCoerce(tm, expr, actual, expected)
                 }
     } yield result
 

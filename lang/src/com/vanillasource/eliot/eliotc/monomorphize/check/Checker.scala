@@ -66,6 +66,15 @@ class Checker(
   private[check] val abilityResolver: AbilityResolver =
     new AbilityResolver(resolveAbility, fetchBinding, platform)
 
+  /** The type-directed effect auto-lift (the fifth collaborator — docs/effect-lift-in-checker.md): the check-mode
+    * elaboration arms 3–4 of the resolution ladder (bind-lift at argument positions, pure-wrap against an
+    * ambient-carrier-typed expectation) plus the `Effect.flatMap`/`map`/`pure` node assembly. A non-equality
+    * *elaboration* concern, kept out of this checker's definitional-equality core. Consulted from the spine slot
+    * resolution ([[checkAgainstSlot]]), the immediately-applied-lambda `let` rule ([[typeImmediateLambda]]), and the
+    * pure-wrap arm of [[checkAgainst]]. See [[EffectLifter]].
+    */
+  private[check] val lifter: EffectLifter = new EffectLifter(force, doUnify)
+
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed.
     *
     * References to abstract associated ability types (`type X` inside `ability ...`, no body) are rewritten to a fresh
@@ -239,7 +248,39 @@ class Checker(
                           case None     =>
                             for {
                               (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
-                              c                           <- solver.unifyOrCoerce(tm, updatedExpr, instantiated, expected)
+                              // Pre-arm: a pure rigid term against an ambient-carrier-*meta* expectation is a shape
+                              // unification can only postpone, never solve; consult pure-wrap first (see
+                              // [[EffectLifter.mustPureWrapBeforeUnify]]).
+                              preWrap                     <- lifter
+                                                               .mustPureWrapBeforeUnify(instantiated, expected)
+                                                               .flatMap(
+                                                                 if (_) lifter.tryPureWrap(tm, updatedExpr, instantiated, expected)
+                                                                 else pure(None)
+                                                               )
+                              c                           <- preWrap match {
+                                                               case Some(wrapped) => pure(wrapped)
+                                                               case None          =>
+                                                                 solver.tryUnifyOrCoerce(tm, updatedExpr, instantiated, expected).flatMap {
+                                                                   case Some(r) => pure(r)
+                                                                   // Ladder arm 4 (pure-wrap). The bind-lift arm (3) is
+                                                                   // argument-position only and never consulted here — this
+                                                                   // path also checks return boundaries (a lambda body
+                                                                   // against its codomain, the def body against its declared
+                                                                   // return), where stripping a carrier would silently drop
+                                                                   // the effect; those remain hard mismatches.
+                                                                   case None    =>
+                                                                     lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
+                                                                       case Some(wrapped) => pure(wrapped)
+                                                                       case None          =>
+                                                                         modify(st =>
+                                                                           st.withUnifier(
+                                                                             st.unifier
+                                                                               .addMismatch(instantiated, expected, tm.as("Type mismatch."))
+                                                                           )
+                                                                         ).as(updatedExpr)
+                                                                     }
+                                                                 }
+                                                             }
                             } yield c
                         }
     } yield checked
@@ -367,24 +408,133 @@ class Checker(
     * root, resolve the head once — an immediately-applied unannotated lambda `(x -> body)(arg)` routes to
     * [[typeImmediateLambda]] (it is a `let`, the shape a non-effectful block `val`/statement lowers to; the lambda
     * alone has no inferable parameter type, so it is inferred from the first argument), anything else is inferred —
-    * then fold the arguments through the per-argument application logic ([[applyInferred]]) in left-to-right order.
+    * then resolve the arguments in two phases (docs/effect-lift-in-checker.md):
+    *
+    *   - **Phase A** (left to right, [[applyInferred]]): each slot runs the resolution ladder immediately, *except* a
+    *     slot whose domain is a bare flex metavariable receiving an effect-carrier-headed argument, which is
+    *     *deferred* — resolving it eagerly would solve the meta to the carrier type before later arguments could
+    *     rigidify it (the `readLine.f` shape).
+    *   - **Phase B** ([[resolveDeferredSlot]], left to right): a deferred slot's domain rigidified by later arguments
+    *     runs the full ladder (unify / coerce / bind-lift); a still-flex one prefers pass-through (unify with the
+    *     carrier-headed type), so the effectful result propagates upward and the parent's slot decides.
+    *   - **Assemble** ([[assembleSpine]]): rebuild the chain if Phase B changed a slot, then fold the recorded
+    *     effect-binds around the core ([[EffectLifter.wrapBinds]]).
+    *
     * Each fold step receives the intermediate application node's own [[Sourced]] target, so diagnostics and the
     * rebuilt [[SemExpression]] keep the exact positions the former per-curried-node recursion produced.
     */
   private def inferSpine(tm: Sourced[OperatorResolvedExpression]): CheckIO[(SemExpression, SemValue)] = {
     val (head, apps) = decomposeSpine(tm)
     for {
-      (start, rest) <- head.value match {
-                         case OperatorResolvedExpression.FunctionLiteral(paramName, None, body) =>
-                           typeImmediateLambda(head, paramName, body, apps.head._2, None).map((_, apps.tail))
-                         case _                                                                 =>
-                           infer(head).map((_, apps))
-                       }
-      result        <- rest.foldLeftM(start) { case ((targetExpr, targetType), (target, arg)) =>
-                         applyInferred(target, targetExpr, targetType, arg)
-                       }
+      (start, rest)    <- head.value match {
+                            case OperatorResolvedExpression.FunctionLiteral(paramName, None, body) =>
+                              typeImmediateLambda(head, paramName, body, apps.head._2, None).map((_, apps.tail))
+                            case _                                                                 =>
+                              infer(head).map((_, apps))
+                          }
+      (built, records) <- rest.foldLeftM((start, Vector.empty[SlotRecord])) {
+                            case (((targetExpr, targetType), recs), (target, arg)) =>
+                              applyInferred(target, targetExpr, targetType, arg).map { case (expr, tpe, record) =>
+                                ((expr, tpe), recs :+ record)
+                              }
+                          }
+      hadDeferred       = records.exists(_.outcome.isInstanceOf[SlotOutcome.Deferred])
+      finalRecords     <- records.traverse(resolveDeferredSlot)
+      result           <- assembleSpine(built, finalRecords, hadDeferred)
     } yield result
   }
+
+  /** The outcome of resolving one spine argument slot. */
+  private sealed trait SlotOutcome {
+
+    /** The expression this slot contributes to the application chain — final for `Resolved` (the ladder ran) and
+      * `Bound` (the fresh `$eff$N` reference), provisional (the uninstantiated argument) for `Deferred`.
+      */
+    def slotExpr: SemExpression
+  }
+
+  private object SlotOutcome {
+
+    /** The ladder resolved the slot in place (unified, coerced, or pure-wrapped). */
+    case class Resolved(slotExpr: SemExpression) extends SlotOutcome
+
+    /** The bind-lift arm fired: the slot receives the fresh binder reference and the spine wraps the recorded bind. */
+    case class Bound(slotExpr: SemExpression, bind: EffectLifter.Bind) extends SlotOutcome
+
+    /** Phase-A deferral (bare flex domain + effect-carrier-headed argument); decided in Phase B. */
+    case class Deferred(slotExpr: SemExpression, argType: SemValue, domain: SemValue) extends SlotOutcome
+  }
+
+  /** One spine slot's record: the intermediate application node's [[Sourced]] target and argument, the instantiated
+    * target expression used to build the node, the node's return type, and the slot's (possibly still deferred)
+    * outcome.
+    */
+  private case class SlotRecord(
+      target: Sourced[OperatorResolvedExpression],
+      arg: Sourced[OperatorResolvedExpression],
+      updatedTarget: SemExpression,
+      retType: SemValue,
+      outcome: SlotOutcome
+  )
+
+  /** Phase B: decide a deferred slot. A domain rigidified by later arguments runs the full ladder
+    * ([[checkAgainstSlot]] — unify / coerce / bind-lift); a still-flex one prefers pass-through: the carrier-headed
+    * argument type unifies into the slot, the effectful result propagates upward, and the parent's slot decides (this
+    * is how `identity(readLine)` and eliminator branches resolve, with no special case).
+    */
+  private def resolveDeferredSlot(record: SlotRecord): CheckIO[SlotRecord] = record.outcome match {
+    case SlotOutcome.Deferred(argExpr, argType, domain) =>
+      for {
+        forcedDomain <- force(domain)
+        outcome      <- forcedDomain match {
+                          case VMeta(_, Spine.SNil) =>
+                            for {
+                              (updated, instantiated) <- instantiatePolymorphic(argExpr, argType)
+                              _                       <- doUnify(instantiated, domain, record.arg.as("Type mismatch."))
+                            } yield SlotOutcome.Resolved(updated)
+                          case rigid                =>
+                            checkAgainstSlot(record.arg, argExpr, argType, rigid, domain)
+                        }
+      } yield record.copy(outcome = outcome)
+    case _                                              => pure(record)
+  }
+
+  /** Assemble the spine result: rebuild the application chain when Phase B changed a deferred slot's expression, then
+    * fold the recorded effect-binds around the core — the spine's type becomes the outermost wrap's carrier-headed
+    * type, so the lifted effect is never dropped. With no binds and no deferral this is the Phase-A build unchanged.
+    */
+  private def assembleSpine(
+      built: (SemExpression, SemValue),
+      records: Vector[SlotRecord],
+      hadDeferred: Boolean
+  ): CheckIO[(SemExpression, SemValue)] = {
+    val (builtExpr, resultType) = built
+    val binds                   = records.collect { case SlotRecord(_, _, _, _, SlotOutcome.Bound(_, bind)) => bind }
+    val core                    = if (hadDeferred) rebuildChain(records) else builtExpr
+    if (binds.isEmpty) pure((core, resultType))
+    else lifter.wrapBinds(core, resultType, binds)
+  }
+
+  /** Rebuild the application chain with each slot's final expression (needed only when Phase B changed a deferred
+    * slot, so the Phase-A build holds a provisional argument). Node types are the Phase-A computed return types; the
+    * head-level target keeps its instantiated form, and each inner node carries the type the per-slot instantiation
+    * assigned it.
+    */
+  private def rebuildChain(records: Vector[SlotRecord]): SemExpression =
+    records
+      .foldLeft(Option.empty[SemExpression]) { case (prev, record) =>
+        val targetExpr = prev match {
+          case None       => record.updatedTarget
+          case Some(node) => node.copy(expressionType = record.updatedTarget.expressionType)
+        }
+        Some(
+          SemExpression(
+            record.retType,
+            SemExpression.FunctionApplication(record.target.as(targetExpr), record.arg.as(record.outcome.slotExpr))
+          )
+        )
+      }
+      .getOrElse(throw new IllegalStateException("Rebuilding an empty application spine."))
 
   /** Decompose a nested (curried) application into its head and, for each argument, the intermediate application
     * node's target paired with that argument — e.g. `f(a)(b)` yields `(f, [(f, a), (f(a), b)])`. The intermediate
@@ -400,16 +550,18 @@ class Checker(
       case _                                                           => (tm, Nil)
     }
 
-  /** Apply one argument of a spine ([[inferSpine]]'s fold step): peel any polytype (`VLam`) layers with fresh metas,
-    * then apply the argument to the resulting monotype. If the monotype isn't already `VPi`, it gets unified against a
-    * fresh one. The implicit metas introduced by peeling are baked into the target reference.
+  /** Apply one argument of a spine ([[inferSpine]]'s Phase-A fold step): peel any polytype (`VLam`) layers with fresh
+    * metas, then apply the argument to the resulting monotype. If the monotype isn't already `VPi`, it gets unified
+    * against a fresh one. The implicit metas introduced by peeling are baked into the target reference. The argument
+    * itself is resolved by [[checkArgumentSlot]] (the ladder, the flex-slot deferral, the bind-lift); the returned
+    * [[SlotRecord]] carries the slot's outcome for Phase B and the spine assembly.
     */
   private def applyInferred(
       target: Sourced[OperatorResolvedExpression],
       targetExpr: SemExpression,
       targetType: SemValue,
       arg: Sourced[OperatorResolvedExpression]
-  ): CheckIO[(SemExpression, SemValue)] =
+  ): CheckIO[(SemExpression, SemValue, SlotRecord)] =
     for {
       (updatedTarget, peeled) <- instantiatePolymorphic(targetExpr, targetType)
       vpi                     <- peeled match {
@@ -422,8 +574,15 @@ class Checker(
                                        _       <- doUnify(peeled, p, target.as("Not a function."))
                                      } yield p
                                  }
-      argExpr                 <- check(arg, vpi.domain)
-      argSem                  <- evalExpr(arg.value)
+      outcome                 <- checkArgumentSlot(arg, vpi.domain)
+      argExpr                  = outcome.slotExpr
+      // For a lifted argument the dependent codomain is applied to the fresh binder's neutral, not the action value —
+      // the slot's value is the bound result. (Today all codomains are constant, so this is future-proofing, not a
+      // behaviour change; a deferred slot likewise uses the evaluated argument.)
+      argSem                  <- outcome match {
+                                   case SlotOutcome.Bound(_, bind) => inspect(_.paramNeutral(bind.name))
+                                   case _                          => evalExpr(arg.value)
+                                 }
       // The codomain may embed a native applied to the target's instantiation metas — e.g. `+`'s result type
       // `Int[add(LMin,RMin), …]`. Those bounds are solved by the argument checks just above, so renormalise the
       // codomain now to re-fire the natives (`add(3,4) ⤳ 7`) before the type reaches unification or quoting. A *bare*
@@ -451,8 +610,122 @@ class Checker(
         retType,
         SemExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
       ),
-      retType
+      retType,
+      SlotRecord(target, arg, updatedTarget, retType, outcome)
     )
+
+  /** Resolve one spine argument against its parameter domain (Phase A). Lambda-shaped arguments route through the
+    * ordinary [[check]] (a lambda is never effect-carrier-headed, so neither deferral nor lift applies — and the
+    * immediately-applied-lambda `let` shape needs the expected type pushed down). Everything else is inferred once and
+    * then either *deferred* (a bare flex domain receiving an effect-carrier-headed argument — Phase B decides) or run
+    * through the argument ladder ([[checkAgainstSlot]]), preserving the effectful-signatures kind acceptance (W2b)
+    * exactly as [[check]]'s fallback branch does.
+    */
+  private def checkArgumentSlot(arg: Sourced[OperatorResolvedExpression], domain: SemValue): CheckIO[SlotOutcome] =
+    arg.value match {
+      case _: OperatorResolvedExpression.FunctionLiteral                                            =>
+        check(arg, domain).map(SlotOutcome.Resolved.apply)
+      case OperatorResolvedExpression.FunctionApplication(target, _) if isUnannotatedLambda(target.value) =>
+        check(arg, domain).map(SlotOutcome.Resolved.apply)
+      case _                                                                                        =>
+        for {
+          (argExpr, argType) <- infer(arg)
+          forcedDomain       <- force(domain)
+          guardKind          <- forcedDomain match {
+                                  case VType => calcReturns.isGuardCarrier(argType)
+                                  case _     => pure(false)
+                                }
+          outcome            <- if (guardKind) modify(_.recordGuardReturn).as(SlotOutcome.Resolved(argExpr))
+                                else
+                                  forcedDomain match {
+                                    case VMeta(_, Spine.SNil) =>
+                                      lifter.effectCarrierSplit(argType).flatMap {
+                                        case Some(_) => pure(SlotOutcome.Deferred(argExpr, argType, domain))
+                                        case None    => checkAgainstSlot(arg, argExpr, argType, forcedDomain, domain)
+                                      }
+                                    case _                    =>
+                                      checkAgainstSlot(arg, argExpr, argType, forcedDomain, domain)
+                                  }
+        } yield outcome
+    }
+
+  /** The argument-position resolution ladder over an already-inferred argument — [[checkAgainst]]'s exact logic (the
+    * combinable-meta upper-bound deferral, polytype instantiation, unify-or-coerce) with the effect-lift arms in the
+    * failure path: bind-lift (arm 3 — argument positions only, which is why it lives here and not in
+    * [[checkAgainst]]), then pure-wrap (arm 4), then the ordinary committed mismatch.
+    */
+  private def checkAgainstSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
+      argType: SemValue,
+      forcedDomain: SemValue,
+      domain: SemValue
+  ): CheckIO[SlotOutcome] =
+    for {
+      combinableMeta <- (argType, forcedDomain) match {
+                          case (VMeta(id, Spine.SNil), exp) if !exp.isInstanceOf[VMeta] =>
+                            inspect(s =>
+                              Option.when(
+                                s.unifier.isCombinable(id.value) &&
+                                  s.unifier.candidatesOf(id.value).nonEmpty
+                              )(id)
+                            )
+                          case _                                                        => pure(None)
+                        }
+      outcome        <- combinableMeta match {
+                          case Some(id) =>
+                            modify(_.recordUpperBound(id, domain, arg.as("Type mismatch.")))
+                              .as(SlotOutcome.Resolved(argExpr))
+                          case None     =>
+                            for {
+                              (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
+                              // Pre-arms: the shapes definitional equality can only *postpone*, never solve — a
+                              // carrier-meta application against an under-applied rigid head, and its pure-wrap dual.
+                              // Waiting for a unification failure would mask the lift behind the doomed postponement
+                              // (surfacing only as the post-drain carrier-kind error); see
+                              // [[EffectLifter.mustLiftBeforeUnify]].
+                              preBind                     <- lifter
+                                                               .mustLiftBeforeUnify(instantiated, domain)
+                                                               .flatMap(
+                                                                 if (_) lifter.tryBindLift(arg, updatedExpr, instantiated, domain)
+                                                                 else pure(None)
+                                                               )
+                              prePure                     <- preBind match {
+                                                               case Some(_) => pure(None)
+                                                               case None    =>
+                                                                 lifter
+                                                                   .mustPureWrapBeforeUnify(instantiated, domain)
+                                                                   .flatMap(
+                                                                     if (_) lifter.tryPureWrap(arg, updatedExpr, instantiated, domain)
+                                                                     else pure(None)
+                                                                   )
+                                                             }
+                              out                         <- (preBind, prePure) match {
+                                                               case (Some((slotRef, bind)), _) => pure(SlotOutcome.Bound(slotRef, bind))
+                                                               case (_, Some(wrapped))         => pure(SlotOutcome.Resolved(wrapped))
+                                                               case _                          =>
+                                                                 solver.tryUnifyOrCoerce(arg, updatedExpr, instantiated, domain).flatMap {
+                                                                   case Some(r) => pure(SlotOutcome.Resolved(r))
+                                                                   case None    =>
+                                                                     lifter.tryBindLift(arg, updatedExpr, instantiated, domain).flatMap {
+                                                                       case Some((slotRef, bind)) => pure(SlotOutcome.Bound(slotRef, bind))
+                                                                       case None                  =>
+                                                                         lifter.tryPureWrap(arg, updatedExpr, instantiated, domain).flatMap {
+                                                                           case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped))
+                                                                           case None          =>
+                                                                             modify(st =>
+                                                                               st.withUnifier(
+                                                                                 st.unifier
+                                                                                   .addMismatch(instantiated, domain, arg.as("Type mismatch."))
+                                                                               )
+                                                                             ).as(SlotOutcome.Resolved(updatedExpr))
+                                                                         }
+                                                                     }
+                                                                 }
+                                                             }
+                            } yield out
+                        }
+    } yield outcome
 
   /** Whether `expr` is an unannotated function literal `(x -> body)`. Its parameter type cannot be inferred from the
     * literal alone; when it is *immediately applied* the type is taken from the argument (see [[typeImmediateLambda]]).
@@ -462,10 +735,17 @@ class Checker(
     case _                                                      => false
   }
 
-  /** Type an immediately-applied unannotated lambda `(param -> body)(arg)` — a `let` (the shape a non-effectful block
+  /** Type an immediately-applied unannotated lambda `(param -> body)(arg)` — a `let` (the shape a block
     * `val`/statement lowers to). The parameter type is taken from the (instantiated) argument; the body is checked
     * against `expected` when known (pushing the type down) and inferred otherwise. Returns the rebuilt application
     * expression and its type.
+    *
+    * The let-bind rule (docs/effect-lift-in-checker.md): an *effect-carrier-headed* argument bound by an unannotated
+    * binder is sequenced — the binder receives the payload type `T'` and the whole `let` becomes
+    * `flatMap/map(param -> body, arg)` ([[EffectLifter.bindWrap]]). This is what threads effects through `{ ... }`
+    * blocks. An *annotated* carrier-typed binder — deliberate storage — never reaches this method (annotated
+    * immediately-applied lambdas go through the ordinary application path, where the annotation unifies with the
+    * carrier type).
     */
   private def typeImmediateLambda(
       target: Sourced[OperatorResolvedExpression],
@@ -475,19 +755,36 @@ class Checker(
       expected: Option[SemValue]
   ): CheckIO[(SemExpression, SemValue)] =
     for {
-      (argExpr0, argType0)   <- infer(arg)
-      (argExpr, argType)     <- instantiatePolymorphic(argExpr0, argType0)
-      _                      <- modify(_.bindValueParam(paramName.value, argType))
-      (bodyExpr, bodyType)   <- expected match {
-                                  case Some(exp) => check(body, exp).map(e => (e, exp))
-                                  case None      => infer(body)
-                                }
-      lamType                 = VPi(argType, _ => bodyType)
-      lamExpr                 = SemExpression(lamType, SemExpression.FunctionLiteral(paramName, argType, body.as(bodyExpr)))
-    } yield (
-      SemExpression(bodyType, SemExpression.FunctionApplication(target.as(lamExpr), arg.as(argExpr))),
-      bodyType
-    )
+      (argExpr0, argType0) <- infer(arg)
+      (argExpr, argType)   <- instantiatePolymorphic(argExpr0, argType0)
+      split                <- lifter.effectCarrierSplit(argType)
+      result               <- split match {
+                                case Some((carrier, payload)) =>
+                                  for {
+                                    _                    <- modify(_.bindValueParam(paramName.value, payload))
+                                    (bodyExpr, bodyType) <- expected match {
+                                                              case Some(exp) => check(body, exp).map(e => (e, exp))
+                                                              case None      => infer(body)
+                                                            }
+                                    bind                  = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
+                                    wrapped              <- lifter.bindWrap(bind, bodyExpr, bodyType)
+                                  } yield wrapped
+                                case None                     =>
+                                  for {
+                                    _                    <- modify(_.bindValueParam(paramName.value, argType))
+                                    (bodyExpr, bodyType) <- expected match {
+                                                              case Some(exp) => check(body, exp).map(e => (e, exp))
+                                                              case None      => infer(body)
+                                                            }
+                                    lamType               = VPi(argType, _ => bodyType)
+                                    lamExpr               =
+                                      SemExpression(lamType, SemExpression.FunctionLiteral(paramName, argType, body.as(bodyExpr)))
+                                  } yield (
+                                    SemExpression(bodyType, SemExpression.FunctionApplication(target.as(lamExpr), arg.as(argExpr))),
+                                    bodyType
+                                  )
+                              }
+    } yield result
 
   /** Peel leading `VLam` closures from an inferred type with fresh metas, baking the metas as implicit type arguments
     * onto the expression's [[SemExpression.ValueReference]] and updating its `expressionType`. Returns the updated
