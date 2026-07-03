@@ -44,6 +44,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   [[TypeStackLoop]] so that a guard whose bounds are abstract (stuck, not reducible to `Right`/`Left`) is *deferred*
   *   to the body — its return position becomes a metavariable the body solves — instead of the body hard-erroring
   *   against the undischarged carrier. Use-Site Verification: the guard is still enforced at every concrete instance.
+  * @param ambientCarriers
+  *   The value-under-check's own *ambient* effect-carrier heads: for each of its higher-kinded, ability-constrained
+  *   signature binders (the M1 `{E...}` carrier, `[F[_] ~ E...]`), the forced head of the binder's value in ρ after
+  *   type-argument application and instantiation — a [[CheckState.CarrierHead.TopDef]] for a concrete instantiation
+  *   (`IO`), a [[CheckState.CarrierHead.Meta]] for a peeled one. Recorded once by [[TypeStackLoop]]; read by the
+  *   checker-side effect lift (`isEffectCarrierHeaded`, the pure-wrap arm).
+  * @param liftCounter
+  *   The fresh-binder counter for effect-lift-inserted bindings (the established `$eff$N` naming convention; `$` is
+  *   not a user identifier character). Threaded by the effect lifter so synthesized binders are unique within a body.
   */
 case class CheckState(
     gamma: Env,
@@ -51,7 +60,9 @@ case class CheckState(
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
-    sawGuardReturn: Boolean = false
+    sawGuardReturn: Boolean = false,
+    ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
+    liftCounter: Int = 0
 ) {
 
   /** Record that the kind check accepted a guard-carrier return (effectful-signatures W2b). See [[sawGuardReturn]]. */
@@ -60,6 +71,14 @@ case class CheckState(
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
     withUnifier(unifier.recordCarrierKind(id, expectedKind, context))
+
+  /** Mark an instantiation meta as standing for an *effect* carrier (an ability-constrained higher-kinded binder). */
+  def recordEffectCarrier(id: MetaId): CheckState =
+    withUnifier(unifier.recordEffectCarrier(id))
+
+  /** Record the value-under-check's ambient effect-carrier heads. See [[ambientCarriers]]. */
+  def recordAmbientCarriers(heads: Set[CheckState.CarrierHead]): CheckState =
+    copy(ambientCarriers = ambientCarriers ++ heads)
 
   def recordCombineResolved(id: MetaId): CheckState =
     withUnifier(unifier.recordCombineResolved(id))
@@ -139,4 +158,19 @@ object CheckState {
     Map.empty,
     Map.empty
   )
+
+  /** The forced head identity of an ambient effect carrier ([[CheckState.ambientCarriers]]): the two shapes a carrier
+    * binder's ρ value can take after type-argument application and instantiation. Identity-comparable (no closures),
+    * unlike the [[SemValue]]s themselves.
+    */
+  sealed trait CarrierHead
+
+  object CarrierHead {
+
+    /** A concrete carrier instantiation — the binder was applied to a type constructor (`F := IO`). */
+    case class TopDef(fqn: ValueFQN) extends CarrierHead
+
+    /** A still-open carrier — the binder was peeled to an instantiation metavariable. */
+    case class Meta(id: Int) extends CarrierHead
+  }
 }

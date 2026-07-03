@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.{compilerPackage, defaultSystemPackage}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.{compilerPackage, defaultSystemPackage, effectPackage}
 
 object WellKnownTypes {
   val typeFQN: ValueFQN =
@@ -25,6 +25,22 @@ object WellKnownTypes {
     */
   val dotOperatorFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName(".", Qualifier.Default))
+
+  private val effectModule: ModuleName = ModuleName(effectPackage, "Effect")
+
+  /** The `Effect` ability's `flatMap` (`eliot.effect.Effect`) — the sequencing combinator of the internal effect
+    * machinery, inserted by the effect auto-lift and never named by users. Defined here (rather than as
+    * `EffectMachinery` privates) so the effect phase and the checker-side effect lift share one definition.
+    */
+  val effectFlatMapFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
+
+  /** The `Effect` ability's `map` — the sequencing combinator used when the continuation is pure (lifting it into the
+    * carrier). See [[effectFlatMapFQN]].
+    */
+  val effectMapFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("map", Qualifier.Ability("Effect")))
+
+  /** The `Effect` ability's `pure` — lifts a pure value into the carrier. See [[effectFlatMapFQN]]. */
+  val effectPureFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("pure", Qualifier.Ability("Effect")))
 
   /** The opaque top carrier that erased or `Type`-typed values collapse to under
     * [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.carrierFQN]]. It is deliberately not a declared

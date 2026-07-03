@@ -87,7 +87,15 @@ case class Unifier(
     * `(id, (expectedKind, context))`. Drives post-drain carrier-kind verification.
     */
   def carrierMetas: List[(Int, (SemValue, Sourced[String]))] =
-    metaRoles.toList.collect { case (id, MetaRole.Instantiation(_, _, _, _, Some(carrier))) => (id, carrier) }
+    metaRoles.toList.collect { case (id, MetaRole.Instantiation(_, _, _, _, Some(carrier), _)) => (id, carrier) }
+
+  /** Whether a metavariable stands for an *effect* carrier (an ability-constrained higher-kinded instantiation meta —
+    * see [[MetaRole.Instantiation.effectCarrier]]).
+    */
+  def isEffectCarrier(id: Int): Boolean = roleOf(id) match {
+    case i: MetaRole.Instantiation => i.effectCarrier
+    case _                         => false
+  }
 
   /** The raw ids of all abstract associated-ability-type placeholder metas. These are the metas the post-check
     * finalizer protects from defaulting to `VType`, so a constraint-covered reference can stay abstract.
@@ -112,6 +120,17 @@ case class Unifier(
     {
       case i: MetaRole.Instantiation => i.copy(carrierKind = Some((expectedKind, context)))
       case _                         => MetaRole.Instantiation(carrierKind = Some((expectedKind, context)))
+    }
+  )
+
+  /** Mark an instantiation meta as standing for an *effect* carrier (an ability-constrained higher-kinded binder —
+    * see [[MetaRole.Instantiation.effectCarrier]]).
+    */
+  def recordEffectCarrier(id: MetaId): Unifier = updateRole(
+    id.value,
+    {
+      case i: MetaRole.Instantiation => i.copy(effectCarrier = true)
+      case _                         => MetaRole.Instantiation(effectCarrier = true)
     }
   )
 

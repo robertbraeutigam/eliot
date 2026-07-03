@@ -84,6 +84,22 @@ class UnifierRoleTest extends AnyFlatSpec with Matchers {
     u.recordCarrierKind(id, VType, ctx).carrierMetas shouldBe List((id.value, (VType, ctx)))
   }
 
+  "recordEffectCarrier" should "flag the meta as an effect carrier" in {
+    val (ids, u) = withMetas(1)
+    u.recordEffectCarrier(ids.head).isEffectCarrier(ids.head.value) shouldBe true
+  }
+
+  it should "preserve an already-recorded carrier kind" in {
+    val (ids, u) = withMetas(1)
+    val id       = ids.head
+    u.recordCarrierKind(id, VType, ctx).recordEffectCarrier(id).carrierMetas shouldBe List((id.value, (VType, ctx)))
+  }
+
+  "a carrier-kinded meta without recordEffectCarrier" should "not be an effect carrier (a bare HKT binder stays unliftable)" in {
+    val (ids, u) = withMetas(1)
+    u.recordCarrierKind(ids.head, VType, ctx).isEffectCarrier(ids.head.value) shouldBe false
+  }
+
   "recordUpperBound" should "surface the obligation via pendingUpperBounds" in {
     val (ids, u) = withMetas(1)
     val id       = ids.head

@@ -54,13 +54,20 @@ object MetaRole {
     *   When this meta stands for a *higher-kinded* type parameter (a `[F[_]]` carrier, kind `Type -> Type` etc.), its
     *   expected kind plus a call-site context for an error. Verified post-drain: a carrier solved to a value of the
     *   wrong kind is rejected rather than silently accepted.
+    * @param effectCarrier
+    *   Whether this meta stands for an *effect* carrier: a higher-kinded binder that is ability-constrained — either
+    *   explicitly (an entry in the callee's `paramConstraints`, the M1 `{E...}` sugar's `[F[_] ~ E...]`) or implicitly
+    *   by the callee's owning ability (`printLine`'s `F`, prepended from `ability Console[F[_]]`). A bare unconstrained
+    *   HKT binder (`C[_, _]`) is *not* an effect carrier. Read by the checker-side effect lift to decide whether a
+    *   `C[T']`-headed argument may be bind-lifted.
     */
   case class Instantiation(
       combinable: Boolean = true,
       candidates: List[(SemValue, Sourced[String])] = Nil,
       combineResolved: Boolean = false,
       upperBounds: List[(SemValue, Sourced[String])] = Nil,
-      carrierKind: Option[(SemValue, Sourced[String])] = None
+      carrierKind: Option[(SemValue, Sourced[String])] = None,
+      effectCarrier: Boolean = false
   ) extends MetaRole
 
   /** A standing placeholder for an abstract associated-ability-type (`type X` inside `ability ...`, no body). Solved

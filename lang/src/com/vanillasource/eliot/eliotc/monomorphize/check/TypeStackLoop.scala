@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -9,6 +10,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -34,6 +36,15 @@ class TypeStackLoop(
   ): CompilerIO[TypeStackLoop.Result] =
     processIO(typeArguments, resolvedValue).runA(CheckState.initial)
 
+  /** Test seam: [[process]] but also returning the final [[CheckState]], so checker bookkeeping the
+    * [[TypeStackLoop.Result]] does not carry (ambient carrier heads, metavariable roles) can be asserted directly.
+    */
+  private[monomorphize] def processWithState(
+      typeArguments: Seq[GroundValue],
+      resolvedValue: OperatorResolvedValue
+  ): CompilerIO[(CheckState, TypeStackLoop.Result)] =
+    processIO(typeArguments, resolvedValue).run(CheckState.initial)
+
   private def processIO(
       typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
@@ -50,6 +61,10 @@ class TypeStackLoop(
       // Apply explicit type args
       appliedSig   <- applyTypeArgs(signature, typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
+
+      // Effect-lift bookkeeping: record the value's own *ambient* effect-carrier heads, now that every signature
+      // binder is bound in ρ (an explicit type argument to its concrete value, a leftover to its instantiation meta).
+      _ <- recordAmbientCarriers(resolvedValue)
 
       // Compiler-track carrier pinning (CP-D): a `{Throw[E]}` effect carrier in a compile-time value has no runtime
       // carrier to infer, so it is fixed to the compile-time `Throw` carrier `Either[E]` before the body is checked —
@@ -318,6 +333,34 @@ class TypeStackLoop(
     */
   private def instantiateRemaining(sig: SemValue): CheckIO[SemValue] =
     checker.peelLams(sig, bindInEnv = true).map(_._1)
+
+  /** Record the value-under-check's own *ambient* effect-carrier heads into [[CheckState.ambientCarriers]]. The
+    * carrier binders are the signature's higher-kinded, ability-constrained binders (the M1 `{E...}` carrier — the
+    * same `carrierBinders ∩ paramConstraints` filter the effect phase's ambient read uses, which excludes a bare
+    * generic `C[_, _]`). Each is looked up in ρ — where [[applyTypeArgs]] bound an explicit argument's concrete value
+    * and [[instantiateRemaining]] a leftover binder's instantiation meta — and recorded by its forced head: a
+    * [[CheckState.CarrierHead.TopDef]] FQN for a concrete instantiation (`IO`), a [[CheckState.CarrierHead.Meta]] id
+    * for a peeled one. Any other head shape is not a carrier and is skipped. Read by the checker-side effect lift.
+    */
+  private def recordAmbientCarriers(resolvedValue: OperatorResolvedValue): CheckIO[Unit] = {
+    val view         = SignatureView.of(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature))
+    val carrierNames = EffectCarriers.carrierBinders(view).filter(resolvedValue.paramConstraints.contains)
+    if (carrierNames.isEmpty) pure(())
+    else
+      for {
+        state <- get
+        heads  = carrierNames.flatMap(name =>
+                   state.rho
+                     .lookupByName(name)
+                     .map(value => Evaluator.force(value, state.unifier.metaStore))
+                     .collect {
+                       case VTopDef(fqn, _, _) => CheckState.CarrierHead.TopDef(fqn)
+                       case VMeta(id, _)       => CheckState.CarrierHead.Meta(id.value)
+                     }
+                 )
+        _     <- modify(_.recordAmbientCarriers(heads))
+      } yield ()
+  }
 
   /** Apply concrete GroundValue type arguments to the signature by converting each to a SemValue and applying to VLam
     * closures. Stops on the first non-VLam head, recording a single "Too many type arguments." error rather than one

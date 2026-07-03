@@ -1,7 +1,11 @@
 # Effect Auto-Lift in the Checker (Type-Directed Elaboration)
 
-Status: **Step 1 done** (spine-level application checking landed, behaviour-neutral, full suite green;
-steps 2–5 pending). Supersedes the signature-heuristic auto-lift in
+Status: **Steps 1–2 done** (spine-level application checking + effect-carrier bookkeeping landed,
+both behaviour-neutral, full suite green; steps 3–5 pending). Step-2 note: an ability method's own
+carrier binder (`printLine`'s `F`) carries *no* explicit `paramConstraints` entry — the owning
+ability is the constraint — so `CarrierKindChecker` flags `effectCarrier` for explicit constraint
+entries *or* the leading owning-ability binders (arity read off the ability marker, like
+`AbilityResolver.abilityArity`). Supersedes the signature-heuristic auto-lift in
 `effect/processor/DirectStyleDesugarer.scala`, including the `.`-operator special case added in
 commit `81485de9`.
 

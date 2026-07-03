@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.effect.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   FunctionLiteral,
@@ -22,11 +22,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     (`isAuthorMachineryCall`).
   */
 object EffectMachinery {
-  private val effectModule = ModuleName(ModuleName.effectPackage, "Effect")
-
-  private val flatMapFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
-  private val pureFQN: ValueFQN    = ValueFQN(effectModule, QualifiedName("pure", Qualifier.Ability("Effect")))
-  private val mapFQN: ValueFQN     = ValueFQN(effectModule, QualifiedName("map", Qualifier.Ability("Effect")))
 
   /** The abilities the compiler inserts and recognises but the user never names. */
   private val machineryAbilities: Set[String] = Set("Effect", "Sync")
@@ -48,7 +43,7 @@ object EffectMachinery {
 
   /** Lift a pure expression into the carrier with `Effect.pure`. */
   def pureWrap(expr: Sourced[OperatorResolvedExpression]): Sourced[OperatorResolvedExpression] =
-    expr.as(applyChain(expr.as(ValueReference(expr.as(pureFQN))), Seq(expr)))
+    expr.as(applyChain(expr.as(ValueReference(expr.as(WellKnownTypes.effectPureFQN))), Seq(expr)))
 
   /** Sequence `action` into `continuation`, binding the action's result to `name`. Uses `Effect.flatMap` when the
     * continuation is itself effectful and `Effect.map` when it is pure (lifting the pure continuation into the
@@ -61,7 +56,9 @@ object EffectMachinery {
       continuationEffectful: Boolean
   ): Sourced[OperatorResolvedExpression] = {
     val lambda     = action.as(FunctionLiteral(action.as(name), None, continuation))
-    val combinator = action.as(ValueReference(action.as(if (continuationEffectful) flatMapFQN else mapFQN)))
+    val combinator = action.as(
+      ValueReference(action.as(if (continuationEffectful) WellKnownTypes.effectFlatMapFQN else WellKnownTypes.effectMapFQN))
+    )
     // `flatMap`/`map` take their subject (the effectful action) as the *last* argument so calls chain with the `.`
     // operator (`fa.flatMap(f)`); the continuation lambda therefore comes first.
     action.as(applyChain(combinator, Seq(lambda, action)))
