@@ -7,13 +7,14 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression
+import com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The per-track strategy for the two monomorphization tracks (runtime / compiler). It carries the track's [[Platform]]
-  * (so fact keys read the platform off the track rather than a bare threaded value) plus the four places the checking
+  * (so fact keys read the platform off the track rather than a bare threaded value) plus the five places the checking
   * core genuinely differs between the two tracks, each extracted 1:1 from a former `platform match` conditional in
   * [[TypeStackLoop]]:
   *
@@ -22,7 +23,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - [[implBindings]] — the compiler track's resolved-impl binding fetch, folded into the read-back evaluator's lookup
   *     (empty on the runtime track, whose body stays structural for codegen);
   *   - [[readBackBody]] — reduce the compile-time body ([[PostDrainQuoter.reduceSourced]]) on the compiler track, or
-  *     keep it structural ([[PostDrainQuoter.quoteSourced]]) on the runtime track.
+  *     keep it structural ([[PostDrainQuoter.quoteSourced]]) on the runtime track;
+  *   - [[reconcileBody]] — splice the deferred-resolution coercion payloads before read-back (runtime only; the
+  *     compile-time body has no machine representation to reconcile).
   *
   * Everything else in the checking core is track-agnostic. A hook receives exactly the collaborators / primitives it
   * needs (the [[Checker]] for the two that call checker methods, `fetchBinding` / the [[PostDrainQuoter]] for the read
@@ -72,6 +75,18 @@ sealed trait Track {
       quoter: PostDrainQuoter,
       srcSem: Sourced[SemExpression]
   ): CompilerIO[Sourced[MonomorphicExpression]]
+
+  /** Splice the conversion payloads of coercions the post-drain resolutions verified but could not materialise (a
+    * `Combine` join's contributors, a deferred upper bound) before the body is read back — see
+    * [[com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver.reconcileRefinements]]. Runtime track only:
+    * the compiler track evaluates its body, where no machine representation exists (and the conversion native has no
+    * compiler-pool binding), so it passes the body through unchanged.
+    */
+  def reconcileBody(
+      solver: RefinementSolver,
+      checkSig: SemValue,
+      body: Sourced[SemExpression]
+  ): CheckIO[Sourced[SemExpression]]
 }
 
 object Track {
@@ -105,6 +120,12 @@ object Track {
         quoter: PostDrainQuoter,
         srcSem: Sourced[SemExpression]
     ): CompilerIO[Sourced[MonomorphicExpression]] = quoter.quoteSourced(srcSem)
+
+    override def reconcileBody(
+        solver: RefinementSolver,
+        checkSig: SemValue,
+        body: Sourced[SemExpression]
+    ): CheckIO[Sourced[SemExpression]] = solver.reconcileRefinements(body, checkSig)
   }
 
   /** The compiler track ([[Platform.Compiler]]): the compiler platform *is* the runner, so a compile-time guarded
@@ -152,6 +173,12 @@ object Track {
         quoter: PostDrainQuoter,
         srcSem: Sourced[SemExpression]
     ): CompilerIO[Sourced[MonomorphicExpression]] = quoter.reduceSourced(srcSem)
+
+    override def reconcileBody(
+        solver: RefinementSolver,
+        checkSig: SemValue,
+        body: Sourced[SemExpression]
+    ): CheckIO[Sourced[SemExpression]] = pure(body)
 
     /** The error type `E` of a `Throw[E]` constraint whose carrier is `binderName`. `EffectSugarDesugarer` appends the
       * carrier as the ability's final type argument (`Throw[E]` ⤳ `Throw[E, F]`), so `binderName` is the `Throw` carrier

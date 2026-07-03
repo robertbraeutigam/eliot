@@ -123,6 +123,11 @@ class TypeStackLoop(
       // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
       _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
 
+      // Refinement reconciliation: the post-drain resolutions (a `Combine` join, a deferred upper bound) verified
+      // their coercions against *types* only — the conversion payloads (`nativeWiden`) are spliced here, at the
+      // expression boundaries whose settled types diverge, before read-back. Runtime track only.
+      reconciled <- runtime.traverse(body => track.reconcileBody(checker.solver, checkSig, body))
+
       // Compiler backend (CP-C step b): the compiler track reduces its body to a normal form, folding each
       // drain-resolved ability impl's *body* in via NbE — so it needs those impl bindings reachable by the evaluator.
       // `track.implBindings` fetches them once from the track's pool (empty on the runtime track, whose body stays
@@ -141,7 +146,7 @@ class TypeStackLoop(
                    )
       groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.typeStack))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
-      monoBody  <- runtime.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
+      monoBody  <- reconciled.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
     } yield TypeStackLoop.Result(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))

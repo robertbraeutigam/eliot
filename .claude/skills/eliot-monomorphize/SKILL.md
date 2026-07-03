@@ -244,7 +244,10 @@ is **no `platform match` anywhere in the checking core**, only `track.<hook>` di
    guard's *producer* and leaves the carrier signature as-is), or an ordinary explicit return.
 7. `check` the runtime body against the signature.
 8. `runPostDrainPipeline` (D1, below), report unifier errors, abort before quoting if any error exists.
-9. `track.implBindings` (compiler-only impl-body fetch) then read back via `PostDrainQuoter` through `track.readBackBody`
+9. `track.reconcileBody` (runtime track only) — `RefinementSolver.reconcileRefinements`: splice the conversion payloads
+   the deferred resolutions (Combine joins, upper bounds) verified but could not materialise (they see types, not
+   expressions), at every boundary whose settled ground types diverge same-head.
+10. `track.implBindings` (compiler-only impl-body fetch) then read back via `PostDrainQuoter` through `track.readBackBody`
    — the compiler track **reduces** the body (`reduceSourced`), the runtime track structurally quotes it
    (`quoteSourced`).
 
@@ -260,6 +263,7 @@ Platform` plus the **four** places the two tracks genuinely differ — every for
 | `pinCarriers` (+ `throwCarrierErrorType` / `pinCarrierToEither` / `throwAbilityFQN` live here) | no-op | pin `{Throw[E]}` carrier meta to `Either[E]` |
 | `implBindings` | empty | fetch each drain-resolved ability impl's `NativeBinding` body |
 | `readBackBody` | `quoter.quoteSourced` | `quoter.reduceSourced` |
+| `reconcileBody` | `solver.reconcileRefinements` (splice deferred-resolution coercion payloads pre-read-back) | pass-through (no machine representation at compile time; the conversion native has no compiler binding) |
 
 `TypeStackLoop` / `Checker` take the `Track`; **fact keys read `track.platform`** (`Checker` keeps a private `val
 platform = track.platform`, so the four collaborators are still constructed with a bare `Platform`). The two entry
@@ -307,7 +311,7 @@ primitives it needs** (that narrow surface is the module boundary), and invoked 
 
 | Collaborator — field | Concern | Hook points |
 |---|---|---|
-| `refine/RefinementSolver` — `checker.solver` (D4) | refinement lattice: `Coerce` widening + `Combine` join + upper-bounds | `Checker.resolveFailureLadder` → `tryCoerce` (the shared ladder's `Coerce` arm, reached from both return boundaries and argument slots); `TypeStackLoop` post-drain `resolve-combines` / `upper-bounds` |
+| `refine/RefinementSolver` — `checker.solver` (D4) | refinement lattice: `Coerce` widening + `Combine` join + upper-bounds + the pre-read-back **refinement reconciliation** (`reconcileRefinements`: the deferred resolutions verify coercions against *types* only — this walk re-visits every expression boundary whose settled ground types diverge same-head and splices the verified conversion payload (`nativeWiden`) there; without it a Combine contributor / upper-bounded result reaches the backend at its own representation — a JVM `VerifyError`) | `Checker.resolveFailureLadder` → `tryCoerce` (the shared ladder's `Coerce` arm, reached from both return boundaries and argument slots); `TypeStackLoop` post-drain `resolve-combines` / `upper-bounds`; `TypeStackLoop` pre-read-back → `track.reconcileBody` (runtime track only) |
 | `check/CalculatedReturnResolver` — `checker.calcReturns` (D7 + W2b) | non-local inference (fill a bare return from the callee's mono body) **and** effectful-guard discharge | `Checker.infer`/`applyInferred`; `TypeStackLoop` `installReturnMeta` / `dischargeGuardedSignature` |
 | `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` `carrier-kinds` pass → `verifyCarrierKinds` |
 | `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl; inject associated types) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain `resolve-abilities` pass → `resolveAbilities` |

@@ -30,6 +30,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - [[unifyOrCoerce]] — the check-mode entry point: try definitional equality, else a `Coerce` insertion.
   *   - [[resolveCombines]] — a saturation pass that joins each combinable meta's accumulated candidates.
   *   - [[resolveUpperBounds]] — the finalization pass discharging deferred upper-bound obligations.
+  *   - [[reconcileRefinements]] — the pre-read-back walk splicing the conversion payloads those deferred resolutions
+  *     verified but could not materialise (they see types, not expressions).
   *
   * The combinable / candidate / taint *data* still lives in the [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier]]'s
   * [[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole]] map, and the *interception* that accumulates a
@@ -122,7 +124,7 @@ class RefinementSolver(
     * range is neither carrier-headed nor an ambient carrier), so current widening behaviour is untouched.
     */
   private[monomorphize] def tryCoerce(
-      tm: Sourced[OperatorResolvedExpression],
+      tm: Sourced[?],
       expr: SemExpression,
       actual: SemValue,
       expected: SemValue
@@ -150,7 +152,7 @@ class RefinementSolver(
     * source/target type constructors.
     */
   private def buildCoercedExpr(
-      tm: Sourced[OperatorResolvedExpression],
+      tm: Sourced[?],
       expr: SemExpression,
       actual: SemValue,
       expected: SemValue,
@@ -310,6 +312,96 @@ class RefinementSolver(
              } yield ()
            }
     } yield ()
+
+  /** Splice the runtime payloads of coercions that post-drain resolution *verified* but did not materialise. A
+    * combinable meta solved to its `Combine` join ([[resolveCombines]]) and a deferred upper bound
+    * ([[resolveUpperBounds]]) both prove each contributor `Coerce`s into the final type — but at that point only the
+    * contributing *types* are known, not the expressions, so no conversion node can be built there. For a coercion with
+    * a real runtime payload (`Int`'s `nativeWiden`, a representation change) the value would then reach its consumer at
+    * the contributor's own representation — a silent miscompile (a JVM `VerifyError`: a boxed `Short` where the join's
+    * `Integer` is expected).
+    *
+    * So, once every meta is settled and before read-back, walk the checked body and re-visit every boundary where a
+    * term meets a consumer expectation — an application argument against the target's domain, a lambda body against its
+    * codomain, the whole body against the declared signature. Where the two sides quote to *different* ground types
+    * with the same head constructor, resolve the same `Coerce` instance the verification used and splice its conversion
+    * payload around the term ([[tryCoerce]] / [[buildCoercedExpr]] — the exact splice check-mode coercion performs
+    * eagerly). Boundaries that already agree (including every check-mode-spliced conversion, whose node types match by
+    * construction) and boundaries that do not quote to ground (an abstract associated type, a dependent codomain stuck
+    * on its binder) are left untouched, so the pass is a no-op outside the deferred-solution positions. A same-head
+    * difference with no resolvable coercion is also left as-is — the pass inserts no new errors; the drain already
+    * reported (and aborted on) every genuine mismatch.
+    *
+    * Runtime track only ([[com.vanillasource.eliot.eliotc.monomorphize.check.Track.reconcileBody]]): the compiler track
+    * evaluates its body — no machine representation exists at compile time, and the conversion native has no
+    * compiler-pool binding.
+    */
+  def reconcileRefinements(
+      expr: Sourced[SemExpression],
+      expected: SemValue
+  ): CheckIO[Sourced[SemExpression]] =
+    for {
+      walked  <- reconcileChildren(expr)
+      spliced <- spliceIfRefined(walked, expected)
+    } yield spliced
+
+  /** Reconcile the internal boundaries of one node: an application's argument against the (walked) target's domain, a
+    * lambda's body against the node type's codomain. Leaves carry no internal boundary.
+    */
+  private def reconcileChildren(expr: Sourced[SemExpression]): CheckIO[Sourced[SemExpression]] =
+    expr.value.expression match {
+      case SemExpression.FunctionApplication(target, argument) =>
+        for {
+          t      <- reconcileChildren(target)
+          domain <- force(t.value.expressionType).map {
+                      case VPi(d, _) => Some(d)
+                      case _         => None
+                    }
+          a      <- domain match {
+                      case Some(d) => reconcileRefinements(argument, d)
+                      case None    => reconcileChildren(argument)
+                    }
+        } yield expr.as(SemExpression(expr.value.expressionType, SemExpression.FunctionApplication(t, a)))
+      case SemExpression.FunctionLiteral(paramName, paramType, body) =>
+        for {
+          codomain <- force(expr.value.expressionType).map {
+                        // A dependent codomain yields a neutral-carrying value that fails the ground quote below and is
+                        // skipped; every current-Eliot codomain is constant, so the probe binder never survives.
+                        case VPi(_, c) =>
+                          Some(c(VNeutral(NeutralHead.Param(0, paramName.value), Spine.SNil)))
+                        case _         => None
+                      }
+          b        <- codomain match {
+                        case Some(c) => reconcileRefinements(body, c)
+                        case None    => reconcileChildren(body)
+                      }
+        } yield expr.as(
+          SemExpression(expr.value.expressionType, SemExpression.FunctionLiteral(paramName, paramType, b))
+        )
+      case _                                                    => pure(expr)
+    }
+
+  /** Splice a conversion around `expr` when its settled type and `expected` quote to different grounds sharing a head
+    * constructor (the only shape [[tryCoerce]] models — see its leaf-position note). Anything else passes through
+    * unchanged.
+    */
+  private def spliceIfRefined(expr: Sourced[SemExpression], expected: SemValue): CheckIO[Sourced[SemExpression]] =
+    for {
+      s      <- get
+      actual  = expr.value.expressionType
+      grounds = for {
+                  a <- Quoter.quote(0, actual, s.unifier.metaStore)
+                  e <- Quoter.quote(0, expected, s.unifier.metaStore)
+                } yield (a, e)
+      result <- grounds match {
+                  case Right((aG, eG)) if aG != eG && sameHead(aG, eG) =>
+                    tryCoerce(expr, expr.value, actual, expected).map {
+                      case Some(coerced) => expr.as(coerced)
+                      case None          => expr
+                    }
+                  case _                                               => pure(expr)
+                }
+    } yield result
 
   private def resolveOneCombine(
       id: SemValue.MetaId,

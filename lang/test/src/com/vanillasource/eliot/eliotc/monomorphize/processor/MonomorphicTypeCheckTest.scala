@@ -93,6 +93,26 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[7]"))
   }
 
+  // --- Refinement reconciliation: the deferred resolutions' coercions are spliced, not just verified ---
+
+  "refinement reconciliation" should "splice the widening conversion around each Combine contributor" in {
+    // A join solved post-drain verified each contributor coerces — the runtime `nativeWiden` payload must also be in
+    // the read-back tree (one per contributor), or the value reaches the backend at its own narrower representation.
+    runWidenings("def pick[A](first: A, second: A): A\ndef test: Int[3, 7] = pick(integerLiteral[3], integerLiteral[7])")
+      .asserting(_ shouldBe 2)
+  }
+
+  it should "additionally splice at a deferred upper bound wider than the join" in {
+    // Two contributor splices into the join Int[3,7], plus the join widening into the declared Int[0,20].
+    runWidenings("def pick[A](first: A, second: A): A\ndef test: Int[0, 20] = pick(integerLiteral[3], integerLiteral[7])")
+      .asserting(_ shouldBe 3)
+  }
+
+  it should "splice nothing when the candidates already agree" in {
+    runWidenings("def pick[A](first: A, second: A): A\ndef test: Int[5, 5] = pick(integerLiteral[5], integerLiteral[5])")
+      .asserting(_ shouldBe 0)
+  }
+
   // --- Arithmetic: dependent-bounds `+` ---
 
   "dependent-bounds +" should "type-check Int[3, 3] + Int[4, 4] to the summed singleton Int[7, 7]" in {
@@ -1065,6 +1085,30 @@ class MonomorphicTypeCheckTest
 
   private def runCoerce(source: String, name: String = "test"): IO[Seq[TestError]]  = runInt(source, name)
   private def runCombine(source: String, name: String = "test"): IO[Seq[TestError]] = runInt(source, name)
+
+  /** The number of `nativeWiden` conversion references in the monomorphized runtime body of `test` — the splices the
+    * refinement reconciliation adds where a deferred resolution (a `Combine` join, an upper bound) verified a coercion.
+    */
+  private def runWidenings(source: String): IO[Int] =
+    runGenerator(
+      intPrelude + source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default("test")), Seq.empty),
+      intImports
+    ).map { case (_, facts) =>
+      facts.values
+        .collectFirst { case mv: MonomorphicValue if mv.vfqn.name == default("test") => mv }
+        .flatMap(_.runtime)
+        .map(r => countWidenings(r.value))
+        .getOrElse(0)
+    }
+
+  private def countWidenings(expr: MonomorphicExpression.Expression): Int = expr match {
+    case MonomorphicExpression.MonomorphicValueReference(vfqn, _)  => if (vfqn.value.name.name == "nativeWiden") 1 else 0
+    case MonomorphicExpression.FunctionApplication(target, arg)    =>
+      countWidenings(target.value.expression) + countWidenings(arg.value.expression)
+    case MonomorphicExpression.FunctionLiteral(_, _, body)         => countWidenings(body.value.expression)
+    case _                                                         => 0
+  }
   private def runAdd(source: String, name: String = "test"): IO[Seq[TestError]]     = runInt(source, name)
 
   // --- Effectful signatures: compile-time `Throw[String]` guard discharge (W2b) ---
