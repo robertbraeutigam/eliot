@@ -15,6 +15,14 @@ improvement beyond the plan: a doomed carrier-vs-rigid postponement at a *return
 commits an exact "Type mismatch." immediately instead of surfacing as a late carrier-kind error.
 Implementation notes discovered en route:
 
+- **Post-landing (monomorphize-review R3-1 / §3.4a, 2026-07-03)**: the two check-mode ladders
+  `checkAgainst` (return boundary) and `checkAgainstSlot` (argument slot) were merged into one shared
+  `Checker.resolveLadder` (+ `resolveFailureLadder`, `commitMismatch`) with the position difference
+  carried by an `allowBindLift: Boolean` — `true` consults the bind-lift arm (arm 3), `false` omits it
+  and turns the doomed lift shape into the eager mismatch. `checkAgainstSlot` no longer exists; the arms
+  read the same, just from one place. The W2b guard-kind acceptance moved into a thin
+  `resolveGuardedLadder` front (the deferred re-entry uses the bare `resolveLadder`). Behaviour-neutral;
+  see docs/monomorphize-review.md round 4.
 - Step-4, **callee-side carrier notion is UNFILTERED**: the plan's "true iff the binder carries
   ability constraints" was wrong for callee results — today's `CalleeInfo.resultEffectful` uses
   *unfiltered* `carrierBinders`, and that is load-bearing: `runState[S, G[_], A]`'s deliberately

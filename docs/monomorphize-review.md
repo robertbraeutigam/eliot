@@ -3,7 +3,8 @@
 Last performed: **2026-07-03, round 3** (tree at `5c9a7559` — the effect-lift-in-checker landing —
 plus this round's quick-wins; round 2 was performed 2026-07-02 at `653bf006`; round 1 at
 `60498a40`, its fixes landed as `b88a0c0f` and the four follow-up commits `43b6c6e2`, `1dfcbe3f`,
-`68e8c584`, `653bf006`).
+`68e8c584`, `653bf006`). Round 4 (2026-07-03) landed the R3-1 resolution-ladder dedup (§3.4a) as a
+standalone behaviour-neutral commit.
 
 A whole-package architecture review of `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` —
 the NbE type checker — after the compiler-as-platform rework (rounds 1–2) and the
@@ -60,9 +61,11 @@ NbE fidelity:
   solve — occurs-check included — that merely skips `Combine`-candidate recording; it must never
   grow a relation `unify` itself does not have.
 - **Effect-lift discipline** (round 3): the bind-lift / pure-wrap arms are *check-mode
-  elaboration only* — consulted from argument-position resolution (`checkAgainstSlot`,
-  `typeImmediateLambda`) and, for pure-wrap alone, `checkAgainst`; the bind-lift arm never fires
-  at a return boundary (stripping a carrier there would silently drop the effect). Both arms
+  elaboration only* — consulted from the one shared ladder (`Checker.resolveLadder`, since the R3-1
+  dedup), with the bind-lift arm gated by its `allowBindLift` flag (`true` only for argument slots,
+  set by `checkArgumentSlot`; `typeImmediateLambda` carries its own `let`-bind rule) and never firing
+  at a return boundary (stripping a carrier there would silently drop the effect — `checkAgainst`
+  passes `allowBindLift = false`, and the doomed lift shape commits the eager mismatch instead). Both arms
   verify by *speculative* unification and commit only on success; the ladder runs the lift arms
   **before** the `Coerce` probe (its ability-fact generation fails builds as a side effect), with
   guards disjoint from every coercible shape. Carrier recognition reads only the
@@ -130,7 +133,7 @@ restructuring warranted; open items below.
 | C3 | `CalculatedReturnResolver` hosts two weakly-related concerns (calc-return back-edge + W2b guard discharge); guard recognition makes `Either` a language-reserved type by FQN (`isGuardCarrier` keys on `WellKnownTypes.eitherFQN`) | **Open, conditional** — §3.1; do when a second carrier appears |
 | F1b | Two-arg HKT carrier over `Function` (`?F[A,B] ~ Function[A,B]`) postpones, `?F` defaults to `Type`, surfaces as a loud "Cannot resolve type." at the use site — an inference limitation, not a miscompile | **Open** — §3.2; needs a real client |
 | R2-1 | The calc-return back-edge re-enters the **runtime** `MonomorphicValue` on both tracks; the compiler track should re-enter `CompilerMonomorphicValue` (and its recursion guard watch compiler keys) | **Open, deferred** — §3.3; documented in-code (`readMonomorphicReturnGround` NOTE), fail-safe: no compiler-track calc-return client exists, and a compiler-pool-only callee yields no fact and errors rather than mistypes |
-| R3-1 | Ladder-skeleton duplication: `Checker.checkAgainst` (return boundaries) and `Checker.checkAgainstSlot` (argument slots) duplicate ~60 lines each — identical combinable-meta upper-bound deferral, identical instantiation, near-identical pre-arm + failure ladder; the W2b guard-kind acceptance is likewise duplicated between `check`'s fallback and `checkArgumentSlot` | **Open** — §3.4a; a behaviour-neutral dedup, do as its own commit |
+| R3-1 | Ladder-skeleton duplication: `Checker.checkAgainst` (return boundaries) and `Checker.checkAgainstSlot` (argument slots) duplicated ~60 lines each — identical combinable-meta upper-bound deferral, identical instantiation, near-identical pre-arm + failure ladder; the W2b guard-kind acceptance was likewise duplicated between `check`'s fallback and `checkArgumentSlot` | **Resolved** — §3.4a; the shared `resolveLadder` (+ `resolveGuardedLadder` front, `resolveFailureLadder`, `commitMismatch`) with the `allowBindLift` position flag; `checkAgainstSlot` deleted, `checkAgainst` now a thin unwrap. Behaviour-neutral (986/986 green) |
 | E1 | Cornerstone erosion, "no generic parameters": **four** peripheral binder-structure readers exist (`CarrierKindChecker.recordCarrierMetas`, `AbilityResolver.abilityArity`, `binderRoles`→`reifyingWrap`, and since the lift `TypeStackLoop.recordAmbientCarriers`) | **Accepted & documented** — round 3 re-accepted the fourth reader (sanctioned in the effect-lift design as "a peripheral binder read, like `binderRoles`"); none drives equality |
 | E2 | Cornerstone erosion, "no constraint set": `MetaRole.Instantiation.candidates`/`upperBounds` are a small role-scoped constraint store — extended in round 3 by the `effectCarrier` flag (elaboration bookkeeping, not a constraint) and by `Unifier.solveAdopting` (a bare-meta solve variant that skips candidate recording, not a new relation) | **Accepted & documented** — the rule is scoped to *equality* constraints |
 
@@ -192,6 +195,24 @@ Round 3 (this round's quick-wins — all documentation; no code path changed):
   recording step. Corrected; checklist above updated to match (four readers, broader `VPi`
   producer wording, the effect-lift discipline block, the `solveAdopting` side-door note).
 
+Round 4 (the R3-1 dedup — its own commit, behaviour-neutral):
+
+- **R3-1** (§3.4a) — resolution-ladder dedup: the two ~60-line ladders `checkAgainst` (return
+  boundaries) and `checkAgainstSlot` (argument slots) collapsed into one shared `Checker.resolveLadder`
+  (combinable-meta upper-bound deferral → instantiate → pre-arms → failure ladder), with the single
+  position difference carried by an `allowBindLift: Boolean` — `true` consults the bind-lift arm (arm 3)
+  as a pre-arm and in the failure ladder and can return `SlotOutcome.Bound`; `false` omits it and turns
+  the doomed `mustLiftBeforeUnify` shape into the eager mismatch. The failure path is `resolveFailureLadder`
+  and the exact-mismatch commit is `commitMismatch`. The W2b guard-kind acceptance (duplicated between
+  `check`'s fallback and `checkArgumentSlot`) folded into a thin `resolveGuardedLadder` front that both
+  fresh-check sites share; `checkAgainst` is now `resolveGuardedLadder(allowBindLift = false)` unwrapping
+  `Resolved`. `checkAgainstSlot` deleted. **One deliberate deviation from the §3.4a sketch** (kept the
+  refactor provably neutral): the deferred-slot re-entry (`resolveDeferredSlot`) calls the bare
+  `resolveLadder` — *not* the guarded front — because that path never ran a guard check before (a Deferred
+  slot is always effect-carrier-headed, never a `Type`-kind guard carrier), so routing it through the
+  guard would have been a (fail-safe-direction, but real) behaviour change on the compiler track. Full
+  suite green (986/986).
+
 ## 3. Open work (in recommended order)
 
 ### 3.1 Guard-discharge split + the `Either` decision (conditional — do when a second carrier appears)
@@ -224,25 +245,29 @@ compiler-platform value first uses a calculated return, thread the track: re-ent
 `CompilerMonomorphicValue` and guard on its key. Until then the gap is fail-safe (a compiler-pool
 callee yields no runtime fact ⟹ the caller errors; never a silently wrong type).
 
-### 3.4a Resolution-ladder dedup (R3-1 — recommended, behaviour-neutral, own commit)
+### 3.4a Resolution-ladder dedup (R3-1 — **DONE**, round 4)
 
-`checkAgainst` and `checkAgainstSlot` are the same algorithm twice: (combinable-meta upper-bound
-deferral) → (instantiate) → (pre-arms for the doomed-postponement shapes) → (unify → …arms… →
-`Coerce` → committed mismatch). They differ in exactly two points, both consequences of *position*:
+Landed as its own behaviour-neutral commit. `checkAgainst` and `checkAgainstSlot` were the same
+algorithm twice — (combinable-meta upper-bound deferral) → (instantiate) → (pre-arms for the
+doomed-postponement shapes) → (unify → …arms… → `Coerce` → committed mismatch) — differing only by
+*position*: the bind-lift arm exists only at argument positions, and the outcome type (`SlotOutcome`
+vs a plain `SemExpression`).
 
-1. the **bind-lift arm** exists only at argument positions (both in the pre-arm slot and the
-   failure ladder) — at a return boundary the doomed `mustLiftBeforeUnify` shape instead commits
-   the exact mismatch immediately;
-2. the outcome type — `SlotOutcome` (slots need `Bound`/`Deferred`) vs a plain `SemExpression`.
+Now one shared `Checker.resolveLadder(tm, expr, inferred, forcedExpected, expected, allowBindLift)`
+returning `SlotOutcome`. `allowBindLift = false` (return boundary) omits the lift arm and turns the
+doomed pre-arm into the eager mismatch; `checkAgainst` calls it (via the guard front) and unwraps
+`Resolved` (a `Bound` is unreachable by construction). The failure path is `resolveFailureLadder`;
+the exact-mismatch commit is `commitMismatch`. The W2b guard-kind acceptance folded into a thin
+`resolveGuardedLadder` front shared by `check`'s fallback (through `checkAgainst`) and
+`checkArgumentSlot`. `checkAgainstSlot` deleted.
 
-Sketch: one private `resolveLadder(tm, expr, inferred, expected, bindArm: Option[...])` returning
-`SlotOutcome`, where `bindArm = None` (return boundary) turns the doomed pre-arm into the eager
-mismatch and omits the lift arm; `checkAgainst` calls it with `None` and unwraps `Resolved` (a
-`Bound` is unreachable by construction). The W2b guard-kind acceptance duplicated between
-`check`'s fallback and `checkArgumentSlot` folds into the same entry. ~60 duplicated lines
-removed and, more importantly, the drift risk between the two ladders (e.g. the
-mismatch-exactly-once discipline) goes away. Fully pinned by the existing suite + step-5 matrix,
-so safe to do any time; keep it a dedicated refactor commit, not folded into feature work.
+**Deviation from the sketch above** (`bindArm = None`): the guard front is a *separate* method rather
+than folded into `resolveLadder` itself, because the deferred-slot re-entry (`resolveDeferredSlot`)
+must call the *bare* `resolveLadder` — it never ran the guard check before, and a Deferred slot is
+always effect-carrier-headed (never a `Type`-kind guard carrier), so folding the guard into the one
+entry would have changed that path's behaviour (in the fail-safe accept direction, but still a change).
+A `Boolean allowBindLift` replaced the sketch's `Option` bind-arm — the arm's call is identical at
+both positions, so a flag suffices. Pinned by the existing suite + step-5 matrix (986/986 green).
 
 ### 3.4 Minor / opportunistic
 
