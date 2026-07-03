@@ -3,9 +3,11 @@ package com.vanillasource.eliot.eliotc.lsp.server
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
+import com.vanillasource.eliot.eliotc.apidoc.plugin.ApiDocPlugin
 import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationServer, CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, MainIndex, PositionIndex, TypeHintIndex}
+import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, DocIndex, MainIndex, PositionIndex, TypeHintIndex}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
@@ -46,6 +48,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   private val completionRef = new AtomicReference[CompletionIndex](CompletionIndex.empty)
   private val typeHintRef   = new AtomicReference[TypeHintIndex](TypeHintIndex.empty)
   private val mainRef       = new AtomicReference[MainIndex](MainIndex.empty)
+  private val docRef        = new AtomicReference[DocIndex](DocIndex.empty)
   private val rootsRef      = new AtomicReference[Seq[Path]](Seq.empty)
   private val codeLensPush  = new AtomicBoolean(false)
   private val vfs           = new VirtualFileSystem
@@ -100,6 +103,11 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     */
   def mainIndex: MainIndex = mainRef.get
 
+  /** The name → documentation index from the latest finished compile, for hover. Empty until the first compile
+    * completes.
+    */
+  def docIndex: DocIndex = docRef.get
+
   /** The workspace source root that contains the given document, if any — the longest matching root prefix. This is the
     * root a `main`'s [[ModuleName]] was derived against, so it is the `<path>` the backend must be given (alongside
     * `-m <module>`) to locate and build that module the same way the resident compile did.
@@ -133,7 +141,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
                  ).whenA(runtimePaths.isEmpty)
       session <- CompilationSession.create(
                    lspPlugin,
-                   Seq(lspPlugin, LangPlugin(), StdlibPlugin()),
+                   Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
                    configuration,
                    roots.map(_.toString).toList
                  )
@@ -164,18 +172,21 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     * and the [[MainIndex]] from those same [[ResolvedValue]]s (documents declaring a runnable `main`). The
     * whole-workspace driver ([[LspPlugin]]) demands every name — so every workspace value's resolved form and module
     * dictionary are present — and additionally monomorphizes each file's own `main`, so the reachable monomorphic values
-    * exist for hover type hints.
+    * exist for hover type hints, and demands a [[ValueDoc]] per documentable name across every layer so the [[DocIndex]]
+    * can show the same documentation the apidoc site would.
     */
   private def rebuildIndices(result: CompilationResult): IO[Unit] =
     result.generator.currentFacts().flatMap { facts =>
       val resolved     = facts.values.collect { case value: ResolvedValue => value }.toSeq
       val moduleValues = facts.values.collect { case value: ModuleValue => value }.toSeq
       val monomorphic  = facts.values.collect { case value: MonomorphicValue => value }.toSeq
+      val valueDocs    = facts.values.collect { case value: ValueDoc => value }.toSeq
       IO {
         indexRef.set(PositionIndex.build(resolved))
         completionRef.set(CompletionIndex.build(moduleValues, resolved))
         typeHintRef.set(TypeHintIndex.build(monomorphic))
         mainRef.set(MainIndex.build(resolved))
+        docRef.set(DocIndex.build(valueDocs))
       }
     }
 

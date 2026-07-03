@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.lsp.server
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, GroundValueRenderer}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
 import org.eclipse.lsp4j.services.TextDocumentService
@@ -89,23 +90,28 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     )
   }
 
-  /** Prefer the concrete monomorphic type at the hovered node (the type-hint index), which shows the type the
-    * expression was actually checked at — `Int[0, 255]`, `IO[Unit]`. Fall back to the referenced value's declared
-    * signature (the position index) when the node was never monomorphized (no reachable `main`, or code the `main` does
-    * not reach).
+  /** A hover shows, as Markdown, a code header plus the identifier's API documentation.
+    *
+    * The header prefers the concrete monomorphic type at the hovered node (the type-hint index), which shows the type
+    * the expression was actually checked at — `Int[0, 255]`, `IO[Unit]` — and falls back to the referenced value's
+    * declared signature (the position index) when the node was never monomorphized (no reachable `main`, or code the
+    * `main` does not reach). The documentation is the referenced name's [[com.vanillasource.eliot.eliotc.lsp.index.DocIndex]]
+    * entry — the same margin-stripped Markdown the apidoc site renders — appended below the header when present.
     */
   override def hover(params: HoverParams): CompletableFuture[Hover] = {
-    val uri      = URI.create(params.getTextDocument.getUri)
-    val position = LspPositions.toCompilerPosition(params.getPosition)
-    val typeHint = service.typeHintIndex.typeHintsAt(uri, position).map { (range, types) =>
-      val text = types.map(GroundValueRenderer.render).mkString("\n")
-      new Hover(new MarkupContent(MarkupKind.PLAINTEXT, text), LspPositions.toRange(range))
+    val uri       = URI.create(params.getTextDocument.getUri)
+    val position  = LspPositions.toCompilerPosition(params.getPosition)
+    val reference = service.positionIndex.referenceAt(uri, position)
+    val doc       = reference.flatMap(occurrence => service.docIndex.docFor(occurrence.value))
+    val hover     = service.typeHintIndex.typeHintsAt(uri, position) match {
+      case Some((range, types)) =>
+        Some(EliotTextDocumentService.markdownHover(range, types.map(GroundValueRenderer.render).mkString("\n"), doc))
+      case None                 =>
+        service.positionIndex.hoverAt(uri, position).map { (occurrence, value) =>
+          EliotTextDocumentService.markdownHover(occurrence.range, EliotTextDocumentService.signatureOf(value), doc)
+        }
     }
-    val fallback = service.positionIndex.hoverAt(uri, position).map { (reference, value) =>
-      val contents = new MarkupContent(MarkupKind.PLAINTEXT, EliotTextDocumentService.signatureOf(value))
-      new Hover(contents, LspPositions.toRange(reference.range))
-    }
-    CompletableFuture.completedFuture(typeHint.orElse(fallback).orNull)
+    CompletableFuture.completedFuture(hover.orNull)
   }
 
   /** Offer a "Run main" lens above each runnable `main`. A lens is emitted only when the document declares a `main`
@@ -128,6 +134,16 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
 }
 
 object EliotTextDocumentService {
+
+  /** A Markdown hover: the code header in a fenced `eliot` block, followed (when the name is documented) by its
+    * documentation Markdown. Rendered as [[MarkupKind.MARKDOWN]] so the signature is syntax-highlighted and the doc's
+    * own formatting (paragraphs, code, lists) shows, matching the apidoc site.
+    */
+  private def markdownHover(range: PositionRange, header: String, doc: Option[String]): Hover = {
+    val fenced   = s"```eliot\n$header\n```"
+    val markdown = doc.filter(_.nonEmpty).fold(fenced)(documentation => s"$fenced\n\n$documentation")
+    new Hover(new MarkupContent(MarkupKind.MARKDOWN, markdown), LspPositions.toRange(range))
+  }
 
   /** A one-line "name : type" rendering of a resolved value, for hover. Uses the bottom level of the type stack — the
     * type of the runtime value — which is the signature a reader expects to see.

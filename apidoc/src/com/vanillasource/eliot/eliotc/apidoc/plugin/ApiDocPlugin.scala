@@ -3,15 +3,18 @@ package com.vanillasource.eliot.eliotc.apidoc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.apidoc.build.DocModelBuilder
+import com.vanillasource.eliot.eliotc.apidoc.build.{DocModelBuilder, DocText}
+import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
+import com.vanillasource.eliot.eliotc.apidoc.processor.ValueDocProcessor
 import com.vanillasource.eliot.eliotc.apidoc.render.HtmlSite
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{compilerPathKey, pathKey, runtimePathKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration, LangPlugin}
+import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import scopt.{OParser, OParserBuilder}
@@ -47,20 +50,45 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
     classOf[StdlibPlugin]
   )
 
-  /** Adds no processors of its own — the whole front end (source readers, tokenizer, parser) comes from [[LangPlugin]].
+  /** Registers only the [[ValueDocProcessor]], which turns the parsed ASTs into per-name [[ValueDoc]] facts. The rest of
+    * the front end (source readers, tokenizer, parser) comes from [[LangPlugin]]. The processor is given the same
+    * layer-labelled roots [[run]] documents, captured now from the configuration, so it can locate a name across layers.
     */
-  override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] = StateT.empty
+  override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
+    StateT.modify(superProcessor =>
+      SequentialCompilerProcessors(Seq(superProcessor, ValueDocProcessor(rootsWithLayer(configuration))))
+    )
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
     for {
       layerFiles <- collectLayerFiles(configuration, compilation)
       _          <- debug[IO](s"Apidoc collected ${layerFiles.size} source file(s) for documentation.")
-      built       = DocModelBuilder.build(layerFiles)
+      docFor     <- docLookup(compilation, layerFiles)
+      built       = DocModelBuilder.build(layerFiles, docFor)
       _          <- built.warnings.traverse_(warn[IO](_))
       outDir      = configuration.getOrElse(Compiler.targetPathKey, Path.of("target")).resolve("apidoc")
       _          <- writeSite(outDir, HtmlSite.render(built.modules))
       _          <- info[IO](s"Generated documentation for ${built.modules.size} module(s): ${outDir.resolve("index.html")}.")
     } yield ()
+
+  /** Demand the [[ValueDoc]] fact for every documentable name across the collected files and return a lookup over them,
+    * so the built model's docs come from the shared pipeline fact (the same fact the language server reads) rather than
+    * from a private pass. Names with no fact — none should occur, since the processor produces one per key — read as
+    * undocumented.
+    */
+  private def docLookup(
+      compilation: CompilationProcess,
+      layerFiles: Seq[(ModuleName, String, AST)]
+  ): IO[ValueFQN => DocText.Selected] = {
+    val fqns = layerFiles.flatMap { case (moduleName, _, ast) =>
+      ast.functionDefinitions.map(fn => ValueFQN(moduleName, fn.name.value)) ++
+        ast.typeDefinitions.map(dd => ValueFQN(moduleName, QualifiedName(dd.name.value, Qualifier.Type)))
+    }.distinct
+    fqns
+      .traverse(fqn => compilation.getFact(ValueDoc.Key(fqn)).map(_.map(fqn -> _)))
+      .map(_.flatten.toMap)
+      .map(byFqn => fqn => byFqn.get(fqn).fold(DocText.Selected(None, Seq.empty))(vd => DocText.Selected(vd.doc, vd.warnings)))
+  }
 
   /** Read every `.els` under every (distinct) source root, returning each parsed file tagged with its module name and
     * the layer (the root directory it was found under) so downstream merging can attribute each declaration to a layer.

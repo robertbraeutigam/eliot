@@ -76,6 +76,12 @@ Everything editor/IDE-related lives under the top-level **`ide/`** directory:
     empty on a broken buffer, never wrong), **"Run main" code lens** (server advertises `codeLensProvider`;
     `MainIndex` — built per compile from `ResolvedValue`s named `main` — yields a `▶ Run main` lens carrying
     the `eliot.runMain` command with `[sourceRoot, moduleName]`; handled client-side, see `ide/intellij`),
+    **apidoc doc hover** (hover renders Markdown = an `eliot`-fenced type/signature header + the identifier's
+    documentation; `DocIndex` built from `ValueDoc` facts. The `apidoc` module now participates in the pipeline: its
+    `ValueDocProcessor` turns the parser's `/** */` doc comments into per-`ValueFQN` `ValueDoc` facts, `ApiDocPlugin`
+    registers that processor and its HTML `run` consumes those same facts — so the site and hover share one source of
+    truth. The LSP depends on `apidoc` and activates `ApiDocPlugin` as a *non-target* plugin, so only the processor runs,
+    never HTML generation; `LspPlugin` demands a `ValueDoc` per name across every layer so stdlib docs hover too),
     IntelliJ via LSP4IJ. The one remaining design item,
     parser/checker **error recovery** (compiler tolerance for broken code), is tracked in
     `docs/ide-type-hints.md` (Layers A/B) and is what makes type hints work on in-progress code; the rest

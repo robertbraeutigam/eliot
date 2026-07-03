@@ -3,6 +3,8 @@ package com.vanillasource.eliot.eliotc.lsp.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
+import com.vanillasource.eliot.eliotc.ast.fact.SourceAST
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.lsp.virtual.{
   VirtualFileContentReader,
@@ -62,7 +64,49 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
       modules <- workspaceModules(configuration.getOrElse(LangPlugin.pathKey, Seq.empty))
       _       <- debug[IO](s"LSP checking ${modules.size} workspace module(s): ${modules.map(_.show).mkString(", ")}")
       _       <- modules.traverse_(checkModule(compilation, _))
+      _       <- documentAllLayers(configuration, compilation)
     } yield ()
+
+  /** Demand the documentation ([[ValueDoc]]) of every declared name across *all* layer roots — the bundled base and
+    * platform layers as well as the user's workspace — so the hover index can document any name the editor resolves,
+    * stdlib functions included (not just the user's own modules, which is all `checkModule` reaches). Docs come from the
+    * parsed AST only, so this forces at most a parse of each layer file (cached across recompiles); it never resolves or
+    * type-checks the bundled dependencies.
+    */
+  private def documentAllLayers(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
+    layerSourceFiles(configuration).flatMap(_.traverse_ { case (base, file) => demandDocs(compilation, base, file) })
+
+  /** Every `.els` under every (distinct) layer root, paired with the base directory its module name is relative to. */
+  private def layerSourceFiles(configuration: Configuration): IO[Seq[(Path, Path)]] = {
+    val roots = (configuration.getOrElse(LangPlugin.compilerPathKey, Seq.empty) ++
+      configuration.getOrElse(LangPlugin.runtimePathKey, Seq.empty) ++
+      configuration.getOrElse(LangPlugin.pathKey, Seq.empty)).map(_.toAbsolutePath.normalize).distinct
+    roots.flatTraverse(baseAndFilesUnder)
+  }
+
+  private def baseAndFilesUnder(root: Path): IO[Seq[(Path, Path)]] = IO.blocking {
+    if (Files.isRegularFile(root) && isEliotSource(root)) {
+      Seq(root.getParent -> root)
+    } else if (Files.isDirectory(root)) {
+      Files.walk(root).iterator().asScala.filter(p => Files.isRegularFile(p) && isEliotSource(p)).map(root -> _).toSeq
+    } else {
+      Seq.empty
+    }
+  }
+
+  /** Demand a [[ValueDoc]] for every name a single file declares, keyed by the name's module (derived from the file's
+    * path) and the qualifier the front end assigns — plain functions and ability methods carry theirs on the parsed
+    * name; a `data`/`type` type constructor lives in the type namespace.
+    */
+  private def demandDocs(compilation: CompilationProcess, base: Path, file: Path): IO[Unit] =
+    compilation.getFact(SourceAST.Key(file.toFile.toURI)).flatMap {
+      case None            => IO.unit
+      case Some(sourceAst) =>
+        val moduleName = moduleNameOf(base, file)
+        val names      = sourceAst.ast.value.functionDefinitions.map(_.name.value) ++
+          sourceAst.ast.value.typeDefinitions.map(dataDef => QualifiedName(dataDef.name.value, Qualifier.Type))
+        names.distinct.traverse_(name => compilation.getFact(ValueDoc.Key(ValueFQN(moduleName, name))).void)
+    }
 
   /** Demand a front-end fact for every name the module declares, so each one's diagnostics are produced; then, if the
     * module declares its own `main`, drive monomorphization from it.

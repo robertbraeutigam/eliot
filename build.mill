@@ -53,7 +53,10 @@ object `package` extends Module {
        // `package.sh`), not the classpath; the dep keeps the jvm module built and its `.els`/backend jar available to
        // bundle. Only the resources are needed: the jvm module's processors are codegen-only and are never added to the
        // resident server's plugin list, so no bytecode is generated here.
-       override def moduleDeps = Seq(lang, stdlib, jvm)
+       // Depends on `apidoc` for its doc-comment pipeline: the LSP activates `ApiDocPlugin` (processors only — its HTML
+       // `run` never fires, since only the target `LspPlugin`'s does) so hover can read the same `ValueDoc` facts the
+       // documentation site is built from.
+       override def moduleDeps = Seq(lang, stdlib, jvm, apidoc)
        override def mainClass = Some("com.vanillasource.eliot.eliotc.lsp.server.LspMain")
 
        override def extraDeps = Seq(

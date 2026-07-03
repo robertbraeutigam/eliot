@@ -61,6 +61,11 @@ copy_module_jar lang.jar "$LIB/eliot-lang.jar"
 copy_module_jar stdlib.jar "$LIB/eliot-stdlib.jar"
 copy_module_jar eliotc.jar "$LIB/eliot-eliotc.jar"
 copy_module_jar jvm.jar "$LIB/eliot-jvm.jar"
+# eliot-apidoc.jar carries the doc-comment pipeline (ApiDocPlugin + ValueDocProcessor). The resident server activates
+# ApiDocPlugin (processors only; its HTML `run` never fires) so hover can read the same doc facts the apidoc site is
+# built from. Copied by name for the same reason as the others: upstream module output rides runClasspath as a class
+# dir, not a jar, so the wildcard `lib/*` classpath would otherwise miss it.
+copy_module_jar apidoc.jar "$LIB/eliot-apidoc.jar"
 
 # Third-party dependency jars (cats-effect, lsp4j, parsley, log4j, asm, ...) from the run classpath.
 # Entries are Mill PathRef strings ("qref:v1:HASH:/abs/path.jar"); take the absolute path part.
