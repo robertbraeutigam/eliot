@@ -1,12 +1,19 @@
 # Effect Auto-Lift in the Checker (Type-Directed Elaboration)
 
-Status: **Steps 1–4 done — the pivot has landed.** `DirectStyleDesugarer` (incl. the dot-inline) is
+Status: **IMPLEMENTED — all five steps done.** `DirectStyleDesugarer` (incl. the dot-inline) is
 deleted, the effect phase is verification-only (`EffectCheckProcessor`/`EffectCheckedValue`, fed by
-the `EffectUsageCollector` accounting walk), and the checker owns the lift. All step-4 tests pass:
-the `81485de9` regression, the five new-functionality programs (user pipe ×2, non-infix pipe,
-dotted-concrete, author machinery into a pure slot), full parity (986/986 suite, every example
-module builds, `ide.lsp` green). Step 5 (extended matrix + docs sync) pending. Implementation notes
-discovered en route:
+the `EffectUsageCollector` accounting walk), and the checker owns the lift (`EffectLifter`, the
+fifth collaborator). All step-4 tests pass — the `81485de9` regression, the five new-functionality
+programs — plus the step-5 extended matrix (deferral order, emergent branch rule, bind-of-a-bind,
+pass-through-then-parent-lift, storage slots, annotated-vs-unannotated `let` binders, the
+fail-safes, Coerce non-interference, and a compiler-track guard through a *user-defined* pipe and
+guard combinator). Full parity: 986/986 suite, every example module builds, `ide.lsp` green. Docs
+synced: CLAUDE.md pipeline list (effect = verification; monomorphize hosts the lift) and the
+`eliot-monomorphize` skill (EffectLifter collaborator, spine/Phase-A/B, `solveAdopting`, the "no
+bind decisions from declared signatures outside the checker" anti-pattern). One diagnostics
+improvement beyond the plan: a doomed carrier-vs-rigid postponement at a *return boundary* now
+commits an exact "Type mismatch." immediately instead of surfacing as a late carrier-kind error.
+Implementation notes discovered en route:
 
 - Step-4, **callee-side carrier notion is UNFILTERED**: the plan's "true iff the binder carries
   ability constraints" was wrong for callee results — today's `CalleeInfo.resultEffectful` uses

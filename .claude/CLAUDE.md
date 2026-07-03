@@ -134,10 +134,14 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 6. resolve: Resolve all identifiers to fully qualified names or parameters.
 7. matchdesugar: Desugar pattern-match expressions into function applications. Checks exhaustiveness and handles nested patterns, multiple cases, constructor patterns, and wildcards.
 8. operator: Resolve infix operators with proper precedence and associativity. Transforms flat expressions into correctly structured function applications.
-9. ability: Checks and returns a type-specific ability implementation.
-10. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.)
-11. used: Collects all the used value names starting at a given "main".
-12. uncurry: Uncurries function calls, so its easier to generate on the backend.
+9. effect: Definition-local effect *verification* only (`EffectCheckProcessor`, fed by the `EffectUsageCollector`
+   accounting walk): the declared-effects subset check (which is also what propagates `Inf`) and the "declared pure but
+   performs effects" fail-safe. The body auto-lift itself is NOT here — it is type-directed elaboration in the
+   monomorphize checker (see below and `docs/effect-lift-in-checker.md`).
+10. ability: Checks and returns a type-specific ability implementation.
+11. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.) Also hosts the **effect auto-lift** (`check/EffectLifter`): the bind/`pure` decision for an effectful term in a pure position is check-mode elaboration per concrete instantiation — undecidable from declared signatures alone — with flex argument slots deferred until later arguments rigidify them (Phase A/B in `Checker.inferSpine`).
+12. used: Collects all the used value names starting at a given "main".
+13. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
 ### Error Handling
 

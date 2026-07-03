@@ -1233,12 +1233,84 @@ class MonomorphicTypeCheckTest
       .asserting(_ should contain("pure"))
   }
 
+  // --- The extended regression matrix (Step 5) ---
+
+  it should "lift a deferred flex slot once a later argument rigidifies it (deferral order)" in {
+    liftedBody(
+      "import eliot.effect.Console\ndef pick[A](x: A, y: A): A = x\ndef echo: {Console} String = pick(readLine, \"x\")"
+    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("map"))
+  }
+
+  it should "pass an effectful eliminator branch through while its slot stays flex (the emergent branch rule)" in {
+    liftedBody(
+      "import eliot.effect.Console\ndef foldOr[A, B](o: Option[A], ifNone: B, ifSome: Function[A, B]): B = ifNone\ndef echo: {Console} String = foldOr(none, readLine, s -> s)"
+    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq.empty)
+  }
+
+  it should "bind nested effectful arguments innermost-first (bind of a bind)" in {
+    liftedBody(
+      "import eliot.effect.Console\ndef url(s: String): String = s\ndef echo: {Console} Unit = printLine(url(readLine))"
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+  }
+
+  it should "pass a still-flex deferred slot through and lift at the parent instead" in {
+    liftedBody(
+      "import eliot.effect.Console\ndef identity[A](a: A): A = a\ndef echo: {Console} Unit = printLine(identity(readLine))"
+    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap"))
+  }
+
+  it should "leave a carrier-typed storage slot unbound (the discharge-helper shape)" in {
+    liftedBody(
+      "type Carrier[G[_], A]\ndef discharge[G[_], A](p: Carrier[G, A]): G[A]\ndef run[G[_], A](p: Carrier[G, A]): G[A] = discharge(p)",
+      name = "run",
+      typeArgs = Seq(ioCarrier, stringType)
+    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq.empty)
+  }
+
+  it should "store an annotated carrier-typed let binder instead of binding it" in {
+    liftedBody(
+      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
+    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap"))
+  }
+
+  // Fail-safes: a non-carrier constructor never lifts; the friendly effect-phase diagnostics stay; a return boundary
+  // never strips a carrier. (The `Inf` subset rejection is pinned verbatim in `EffectCheckProcessorTest`.)
+
+  it should "reject a non-carrier constructor argument with a plain mismatch (no lift)" in {
+    // The mismatch anchors at the application node, whose position is its last argument (`applyChain` convention).
+    liftedErrors(
+      "import eliot.effect.Console\ntype Box[A]\ndef box[A](value: A): Box[A]\ndef echo: {Console} Unit = printLine(box(\"x\"))"
+    ).asserting(_ should contain("Type mismatch." at "\"x\""))
+  }
+
+  it should "keep the friendly declared-pure diagnostic for an effectful body under a pure return" in {
+    liftedErrors("import eliot.effect.Console\ndef echo: String = printLine(readLine)")
+      .asserting(
+        _ should contain(
+          "This value performs an effect but is declared pure; declare an effect set with { ... } or return an effect carrier." at "echo"
+        )
+      )
+  }
+
+  it should "reject an effectful lambda body under a rigid pure codomain (no strip at return boundaries)" in {
+    // The mismatch anchors at the body's application node, positioned at its last argument (`applyChain` convention).
+    liftedErrors(
+      "import eliot.effect.Console\ndef twice(f: Function[String, String]): String = f(f(\"x\"))\ndef echo: {Console} String = twice(s -> printLine(s))"
+    ).asserting(_ should contain("Type mismatch." at "s"))
+  }
+
+  "coercion under a carrier-polymorphic callee" should "still widen an Int argument (no lift interference)" in {
+    runCoerce("def hold[C[_]](x: Int[0, 10]): Int[0, 10] = x\ndef test: Int[0, 10] = hold(integerLiteral[3])")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   private val ioFQN            =
     ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "IO"), QualifiedName("IO", Qualifier.Type))
   private val ioCarrier: GroundValue = GroundValue.Structure(ioFQN, Seq.empty, GroundValue.Type)
 
   private val effectLiftImports: Seq[SystemImport] = ambientStubsWith(
     "IO"       -> "type IO[A]",
+    "Option"   -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
     // The ambient stub plus the real `.` operator (mirroring `stdlib/.../Function.els`), for the dotted-subject case.
     "Function" ->
       "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)"
@@ -1256,10 +1328,14 @@ class MonomorphicTypeCheckTest
   )
 
   /** The names of every value referenced in the named value's monomorphic body, checked at the stub `IO` carrier. */
-  private def liftedBody(source: String, name: String = "echo"): IO[Seq[String]] =
+  private def liftedBody(
+      source: String,
+      name: String = "echo",
+      typeArgs: Seq[GroundValue] = Seq(ioCarrier)
+  ): IO[Seq[String]] =
     runGenerator(
       source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq(ioCarrier)),
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
       effectLiftImports
     ).map(
       _._2.values
@@ -1268,6 +1344,14 @@ class MonomorphicTypeCheckTest
         .map(body => referencedNames(body.value))
         .getOrElse(Seq.empty)
     )
+
+  /** The build errors of checking the named value at the stub `IO` carrier. */
+  private def liftedErrors(source: String, name: String = "echo"): IO[Seq[TestError]] =
+    runGenerator(
+      source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq(ioCarrier)),
+      effectLiftImports
+    ).map(result => toTestErrors(result._1))
 
   private def referencedNames(expr: MonomorphicExpression.Expression): Seq[String] = expr match {
     case MonomorphicExpression.MonomorphicValueReference(fqn, _) => Seq(fqn.value.name.name)

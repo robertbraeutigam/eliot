@@ -23,14 +23,17 @@ monomorphize/
 │   ├── MonomorphicEvaluator.scala    (NbeEvaluator over reduced MonomorphicExpression; DROPS erased type args)
 │   └── Quoter.scala            (strict SemValue → GroundValue read-back; fails loudly on stuck forms)
 ├── check/
-│   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 4 collaborators)
+│   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 5 collaborators;
+│   │                            inferSpine = whole-spine argument resolution with Phase-A/B flex-slot deferral)
 │   ├── CheckIO.scala           (StateT[CompilerIO, CheckState, *])
-│   ├── CheckState.scala        (gamma Γ + rho ρ, unifier, bindingCache, abilityResolutions, sawGuardReturn)
+│   ├── CheckState.scala        (gamma Γ + rho ρ, unifier, bindingCache, abilityResolutions, sawGuardReturn,
+│   │                            ambientCarriers + liftCounter for the effect lift)
 │   ├── SemExpression.scala     (checker output ADT; type slots are SemValue, not GroundValue)
 │   ├── TypeStackLoop.scala     (uniform top-down fold + the D1 post-drain pipeline + defaults + postcondition)
 │   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; fold selection; reduceSourced)
 │   ├── CalculatedReturnResolver.scala (D7 back-edge + W2b guard discharge)
-│   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification)
+│   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification; flags every HKT instantiation meta effectCarrier)
+│   ├── EffectLifter.scala      (the effect auto-lift: bind-lift/pure-wrap arms + Effect.flatMap/map/pure splices)
 │   ├── AbilityResolver.scala   (ability-ref collection + resolve-abilities saturation pass)
 │   └── Track.scala             (Runtime/Compiler strategy: platform + 4 per-track hooks, no platform match in the core)
 ├── refine/
@@ -269,8 +272,11 @@ A tiered structure (there is no external design doc — it is described here and
 
 - **Saturation tier** (fixed-point loop, drain interleaved as the equality core settles): resolve-abilities and
   resolve-`Combine`s, re-draining after each until stable.
-- **Finalization tier** (linear, once): upper-bounds discharge (`RefinementSolver.resolveUpperBounds`), carrier-kind
-  verification (`CarrierKindChecker.verifyCarrierKinds`), and the calculated-return fail-safe.
+- **Finalization tier** (linear, once): upper-bounds discharge (`RefinementSolver.resolveUpperBounds` — which *commits*
+  its definitional-equality successes, since a deferred upper bound may be the only constraint grounding the solution's
+  residual metas), carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`), and the calculated-return
+  fail-safe. After the tier, the runner drains once more, so constraints postponed against finalization-committed
+  solutions still resolve before defaulting.
 - **Finalizer** (`defaultUnsolvedMetas`): a **total match on `MetaRole`** with no catch-all — `AbstractAssoc` stays
   unsolved (quotes as abstract), `Plain` and `Instantiation` default to `VType`. A future role added to the ADT forces an
   explicit decision here.
@@ -278,17 +284,27 @@ A tiered structure (there is no external design doc — it is described here and
 
 ### Bidirectional checker & its collaborators
 
-`Checker` is the **definitional-equality core only**: `check`/`infer`/`applyInferred`/`peelLams`/`instantiatePolymorphic`
-plus the shared primitives (`force`, `freshMeta`, `doUnify`, `evalExpr`, `ensureBinding`, `prefetchBindings`). Four
+`Checker` is the **definitional-equality core only**: `check`/`infer`/`inferSpine`/`applyInferred`/`peelLams`/
+`instantiatePolymorphic` plus the shared primitives (`force`, `freshMeta`, `doUnify`, `evalExpr`, `ensureBinding`,
+`prefetchBindings`). Application checking is **spine-level** (`inferSpine`): the whole curried spine is decomposed at
+the root and its argument slots resolved in two phases — **Phase A** (left to right) runs the resolution ladder per
+slot, *deferring* a slot whose domain is a bare flex meta receiving an effect-carrier-headed argument; **Phase B**
+re-forces each deferred domain — rigidified ⟹ full ladder (the `readLine.f` bind), still flex ⟹ pass-through *adoption*
+(`Unifier.solveAdopting` — solve the slot directly to the carrier type, no `Combine` candidate), letting the parent's
+slot decide. The check-mode **resolution ladder** per slot is: unify → bind-lift → pure-wrap → `Coerce` → mismatch (the
+effect arms come *before* the `Coerce` probe, whose ability-fact generation fails builds as a side effect on hopeless
+pairs; the arms' guards are disjoint from every coercible shape, so widening is untouched), with *pre-arms* for the one
+shape unification can only postpone, never fail (`?F[T'] ~ rigid-under-applied` and its pure-wrap dual). Five
 non-equality concerns live in collaborator modules, each constructed at the top of `Checker` with **exactly the checker
 primitives it needs** (that narrow surface is the module boundary), and invoked from named hook points:
 
 | Collaborator — field | Concern | Hook points |
 |---|---|---|
-| `refine/RefinementSolver` — `checker.solver` (D4) | refinement lattice: `Coerce` widening + `Combine` join + upper-bounds | `Checker.check` → `unifyOrCoerce`; `TypeStackLoop` post-drain `resolve-combines` / `upper-bounds` |
+| `refine/RefinementSolver` — `checker.solver` (D4) | refinement lattice: `Coerce` widening + `Combine` join + upper-bounds | `Checker.checkAgainst`/`checkAgainstSlot` → `tryCoerce` (the ladder's `Coerce` arm); `TypeStackLoop` post-drain `resolve-combines` / `upper-bounds` |
 | `check/CalculatedReturnResolver` — `checker.calcReturns` (D7 + W2b) | non-local inference (fill a bare return from the callee's mono body) **and** effectful-guard discharge | `Checker.infer`/`applyInferred`; `TypeStackLoop` `installReturnMeta` / `dischargeGuardedSignature` |
 | `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` `carrier-kinds` pass → `verifyCarrierKinds` |
 | `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl; inject associated types) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain `resolve-abilities` pass → `resolveAbilities` |
+| `check/EffectLifter` — `checker.lifter` | the effect auto-lift (docs/effect-lift-in-checker.md): the bind-lift / pure-wrap ladder arms + their doomed-postponement pre-arms, `effectCarrierSplit` (role-flagged metas + re-forced `ambientCarriers` heads), and the `Effect.flatMap`/`map`/`pure` `SemExpression` splices (`[C, T', R]` type args; `$eff$N` binders off `CheckState.liftCounter`; `bindWrap` unifies the bind's carrier with the core's) | `Checker.checkAgainstSlot` (arms 3–4), `checkAgainst` (pure-wrap only — a return boundary never strips a carrier), `typeImmediateLambda` (the let-bind rule: effectful bound value ⟹ sequence, with the continuation *inferred*, never checked against the carrier expectation), `inferSpine` → `wrapBinds` |
 
 Per-meta data (combinable / candidates / carrier-kind / upper-bounds / abstract-assoc) all lives in the **single**
 `MetaRole` map on the `Unifier` (D2); the collaborators own the *algorithm*, not a private store.
@@ -298,9 +314,12 @@ Per-meta data (combinable / candidates / carrier-kind / upper-bounds / abstract-
 One `Map[Int, MetaRole]` on the `Unifier` replaces the former six scattered side-tables. Absence ⇒ `Plain`.
 
 - `Plain` — solved by ordinary unification, else defaulted to `VType`. The default for any unclassified meta.
-- `Instantiation(combinable, candidates, combineResolved, upperBounds, carrierKind)` — an implicit type-parameter meta
-  peeled from a polytype's leading binders. Combinable (covariant) unless tainted by a `VPi` domain; a higher-kinded one
-  additionally carries a `carrierKind` verified post-drain.
+- `Instantiation(combinable, candidates, combineResolved, upperBounds, carrierKind, effectCarrier)` — an implicit
+  type-parameter meta peeled from a polytype's leading binders. Combinable (covariant) unless tainted by a `VPi` domain;
+  a higher-kinded one additionally carries a `carrierKind` verified post-drain and is flagged `effectCarrier` — the
+  effect lift's *callee-side* carrier notion, deliberately **unfiltered** (an effectful result rides *any* of the
+  callee's own HKT binders, including `runState`'s unconstrained `G[_]`; the ability-constraint filter applies only to
+  a value's own *ambient* carriers in `CheckState.ambientCarriers`).
 - `AbstractAssoc(fqn)` — a placeholder for an abstract associated ability type (`type X` inside `ability …`); the one role
   the finalizer protects from defaulting to `Type`, so a constraint-covered reference can stay abstract through quoting.
 
@@ -347,7 +366,11 @@ Pattern unification on `SemValue`s with a `postponed` queue (`drain()` retries u
    (see the diagnosing note on the two-arg HKT-over-Function limitation).
 
 There is **no** assignability / widening / `refinements` map in `unify`. Coercion is the `Coerce` ability inserted in the
-checker's check mode (`RefinementSolver`), recognised by protocol name (`WellKnownTypes.coerceFQN`), never by type.
+checker's check mode (`RefinementSolver`), recognised by protocol name (`WellKnownTypes.coerceFQN`), never by type. The
+one deliberate side-door is `solveAdopting` (the effect lift's Phase-B pass-through): equality-wise an ordinary bare-meta
+solve (occurs-check included), but the solution is not recorded as a `Combine` candidate — adoption is not a
+contribution, and a candidate would reroute the enclosing result through the post-saturation upper-bounds deferral,
+starving ability resolution.
 
 ### Two-pool membership guards (leaf contributors)
 
@@ -425,6 +448,12 @@ quiet-probe pattern.
   parameters by name via `Env.lookupByName`.
 - **Re-introducing assignability / widening / a `refinements` map into `unify`.** `unify` is pure definitional equality;
   directional coercion is the `Coerce` ability's job in check mode (`RefinementSolver`).
+- **Making bind/`pure` decisions from declared signatures outside the checker.** Whether an effectful term in a slot is
+  sequenced (`Effect.flatMap`/`map`) or passed through is undecidable from a callee's declaration (the same generic slot
+  needs opposite answers at different instantiations — the `readLine.f` probe pair); it is `EffectLifter`'s check-mode
+  elaboration per concrete instantiation. Never grow a pre-typing phase (or any consumer of `CalleeSignatures`) a
+  bind-position/branch-position/machinery-sniffing heuristic — that is the shadow type system the single-evaluator rule
+  bans, and it is exactly what docs/effect-lift-in-checker.md removed.
 - **Re-inlining a non-equality side-car into `Checker`.** A new lattice relation / inference back-edge / kind rule gets
   its *own* collaborator constructed with injected primitives — never grown into `Checker`, never folded into `unify`.
 - **Special-casing a concrete type (e.g. `Int`) in the checker/unifier.** Recognise the *ability protocol* by name

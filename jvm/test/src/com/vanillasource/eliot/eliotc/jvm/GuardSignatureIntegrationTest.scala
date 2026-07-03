@@ -54,6 +54,34 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("not available"))
   }
 
+  // A compile-time guard written through a *user-defined* pipe and a user guard combinator (effect-lift Step 5): the
+  // pipe and `guardOr` are ordinary user source, compiled on the compiler track like any other value; the checker's
+  // effect lift elaborates their `{Throw[String]}` path per instantiation and the signature still reduces to
+  // `Right`/`Left` for the discharge. Proves the compile-time reduction is not special-cased to the stdlib combinators.
+  private val pipedGuard: String =
+    """import eliot.effect.Console
+      |import eliot.lang.Guard
+      |import eliot.lang.Bool
+      |import eliot.lang.Option
+      |import eliot.effect.Throw
+      |
+      |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
+      |
+      |def guardOr[A](msg: String, o: Option[A]): {Throw[String]} A = orError(o, msg)
+      |
+      |def greeting[COND: Bool]: when(String[], COND) |> guardOr("greeting unavailable") = "hello"
+      |""".stripMargin
+
+  "a satisfied guard written through a user pipe" should "type as its payload and run as the bare type" in {
+    compileAndRun(pipedGuard + "\ndef main: IO[Unit] = printLine(greeting[true])")
+      .asserting(_ shouldBe "hello")
+  }
+
+  "an unsatisfied guard written through a user pipe" should "fail the build with the author message" in {
+    compileForErrors(pipedGuard + "\ndef main: IO[Unit] = printLine(greeting[false])")
+      .asserting(_ should include("greeting unavailable"))
+  }
+
   // --- G2: the infix guard surface + the compile-time `>` comparison ---
   //
   // G2 lets the same guard read with the designed infix syntax — `A when (cond) orError "…"` — instead of the

@@ -276,9 +276,23 @@ class Checker(
                               // also checks return boundaries (a lambda body against its codomain, the def body
                               // against its declared return), where stripping a carrier would silently drop the
                               // effect; those remain hard mismatches.
-                              c                           <- preWrap match {
-                                                               case Some(wrapped) => pure(wrapped)
-                                                               case None          =>
+                              // A carrier-meta application against an under-applied rigid head has no injective
+                              // solution — unification could only postpone it, surfacing much later as an opaque
+                              // carrier-kind error. This path checks return boundaries, where the bind-lift arm never
+                              // fires (stripping would drop the effect), so commit the exact mismatch immediately.
+                              doomed                      <- preWrap match {
+                                                               case Some(_) => pure(false)
+                                                               case None    => lifter.mustLiftBeforeUnify(instantiated, expected)
+                                                             }
+                              c                           <- (preWrap, doomed) match {
+                                                               case (Some(wrapped), _) => pure(wrapped)
+                                                               case (None, true)       =>
+                                                                 modify(st =>
+                                                                   st.withUnifier(
+                                                                     st.unifier.addMismatch(instantiated, expected, tm.as("Type mismatch."))
+                                                                   )
+                                                                 ).as(updatedExpr)
+                                                               case (None, false)      =>
                                                                  tryUnifyCommitting(instantiated, expected, tm.as("Type mismatch.")).flatMap {
                                                                    case true  => pure(updatedExpr)
                                                                    case false =>
