@@ -9,7 +9,10 @@
  * firmware super-loop.
  *
  * ```eliot
- * def main: {Inf} IO[Unit] = forever(printLine("tick"))
+ * def processRequestsForever: {Dep[RequestSource], Inf} Unit =
+ *   forever {
+ *     dependency.readRequest.process
+ *   }
  * ```
  */
 ability Inf[F[_]] {
