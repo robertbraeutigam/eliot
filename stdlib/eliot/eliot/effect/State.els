@@ -34,7 +34,7 @@ ability State[S, F[_]] {
  * def tick: {State[Int]} Unit = updateState(n -> n + 1)
  * ```
  */
-def updateState[S](f: Function[S, S]): {State[S]} Unit = flatMap(current -> putState(f(current)), state)
+def updateState[S](f: Function[S, S]): {State[S]} Unit = putState(f(state))
 
 /**
  * The internal carrier that realises the `State[S]` effect: a `StateCarrier[S, G, A]` maps an incoming state to a

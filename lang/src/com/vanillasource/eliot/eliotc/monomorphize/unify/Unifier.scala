@@ -64,6 +64,14 @@ case class Unifier(
     case _                         => false
   }
 
+  /** Whether `id` occurs in `value` (following solutions through the meta store) — the public probe the effect lift's
+    * Phase-B deferred-slot decision uses to tell a *transparent* callee (the domain meta flows into the call's result,
+    * so an adopted carrier rides up) from a *non-transparent* one (the domain meta is absent from the result, so an
+    * effectful argument must be sequenced there instead of stranded in the type parameter). See
+    * [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveDeferredSlot]].
+    */
+  def occursInValue(id: MetaId, value: SemValue): Boolean = occursIn(id, value)
+
   /** A metavariable's accumulated `Combine` candidates (empty unless it is an [[MetaRole.Instantiation]]). */
   def candidatesOf(id: Int): List[(SemValue, Sourced[String])] = roleOf(id) match {
     case i: MetaRole.Instantiation => i.candidates

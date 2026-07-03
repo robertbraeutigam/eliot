@@ -291,9 +291,14 @@ A tiered structure (there is no external design doc — it is described here and
 `prefetchBindings`). Application checking is **spine-level** (`inferSpine`): the whole curried spine is decomposed at
 the root and its argument slots resolved in two phases — **Phase A** (left to right) runs the resolution ladder per
 slot, *deferring* a slot whose domain is a bare flex meta receiving an effect-carrier-headed argument; **Phase B**
-re-forces each deferred domain — rigidified ⟹ full ladder (the `readLine.f` bind), still flex ⟹ pass-through *adoption*
+re-forces each deferred domain — rigidified ⟹ full ladder (the `readLine.f` bind); still flex ⟹ the
+**transparent/non-transparent split** on `occursIn(domainMeta, slotResultType)`: **occurs** (a *transparent* callee
+whose result flows from the domain meta — `identity`, `const`, a data ctor) ⟹ pass-through *adoption*
 (`Unifier.solveAdopting` — solve the slot directly to the carrier type, no `Combine` candidate), letting the parent's
-slot decide. The check-mode **resolution ladder** per slot is: unify → bind-lift → pure-wrap → `Coerce` → mismatch (the
+slot decide; **absent** (a *non-transparent* callee whose result carrier is independent of the domain —
+`putState[S, F](s: S): F[Unit]`, `S` not in `F[Unit]`) ⟹ **bind-lift at this slot**, since adoption would strand the
+argument's carrier inside the type parameter (never grounded → "contains unresolved variable"). This is what lets a
+direct-style `putState(f(state))` / `updateState(f) = putState(f(state))` type-check. The check-mode **resolution ladder** per slot is: unify → bind-lift → pure-wrap → `Coerce` → mismatch (the
 effect arms come *before* the `Coerce` probe, whose ability-fact generation fails builds as a side effect on hopeless
 pairs; the arms' guards are disjoint from every coercible shape, so widening is untouched), with *pre-arms* for the one
 shape unification can only postpone, never fail (`?F[T'] ~ rigid-under-applied` and its pure-wrap dual). Five
@@ -369,10 +374,11 @@ Pattern unification on `SemValue`s with a `postponed` queue (`drain()` retries u
 
 There is **no** assignability / widening / `refinements` map in `unify`. Coercion is the `Coerce` ability inserted in the
 checker's check mode (`RefinementSolver`), recognised by protocol name (`WellKnownTypes.coerceFQN`), never by type. The
-one deliberate side-door is `solveAdopting` (the effect lift's Phase-B pass-through): equality-wise an ordinary bare-meta
-solve (occurs-check included), but the solution is not recorded as a `Combine` candidate — adoption is not a
-contribution, and a candidate would reroute the enclosing result through the post-saturation upper-bounds deferral,
-starving ability resolution.
+one deliberate side-door is `solveAdopting` (the effect lift's Phase-B pass-through, taken only for a *transparent*
+callee — one whose domain meta occurs in the call's result; a non-transparent callee bind-lifts at the slot instead):
+equality-wise an ordinary bare-meta solve (occurs-check included), but the solution is not recorded as a `Combine`
+candidate — adoption is not a contribution, and a candidate would reroute the enclosing result through the
+post-saturation upper-bounds deferral, starving ability resolution.
 
 ### Two-pool membership guards (leaf contributors)
 

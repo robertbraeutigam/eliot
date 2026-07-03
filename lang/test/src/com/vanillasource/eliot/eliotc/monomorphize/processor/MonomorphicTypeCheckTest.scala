@@ -1259,6 +1259,18 @@ class MonomorphicTypeCheckTest
     ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap"))
   }
 
+  it should "bind-lift a still-flex deferred slot whose non-transparent callee cannot carry the effect up" in {
+    // The counterpart of the `identity` case above. `putState[S, F](s: S): F[Unit]`'s `S` domain is a flex meta, so
+    // `putState(keep(state))` defers to Phase B still flex — but unlike `identity`, `S` is absent from the `F[Unit]`
+    // result, so adopting the read's carrier into `S` would strand it (never grounded → "contains unresolved
+    // variable"). The fix bind-lifts here instead, threading the read: `map` sequences `keep(state)`, `flatMap`
+    // sequences `putState`. This is what lets `updateState(f) = putState(f(state))` type-check.
+    liftedBody(
+      "import eliot.effect.State\ndef keep(s: String): String = s\ndef upd: {State[String]} Unit = putState(keep(state))",
+      name = "upd"
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+  }
+
   it should "leave a carrier-typed storage slot unbound (the discharge-helper shape)" in {
     liftedBody(
       "type Carrier[G[_], A]\ndef discharge[G[_], A](p: Carrier[G, A]): G[A]\ndef run[G[_], A](p: Carrier[G, A]): G[A] = discharge(p)",
