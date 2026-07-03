@@ -26,7 +26,7 @@ import org.eclipse.lsp4j.services.LanguageClient
 
 import java.net.URI
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.jdk.CollectionConverters.*
 
 /** Bridges the cats-effect resident compile engine ([[CompilationSession]] + [[CompilationServer]]) to the (Java,
@@ -47,6 +47,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   private val typeHintRef   = new AtomicReference[TypeHintIndex](TypeHintIndex.empty)
   private val mainRef       = new AtomicReference[MainIndex](MainIndex.empty)
   private val rootsRef      = new AtomicReference[Seq[Path]](Seq.empty)
+  private val codeLensPush  = new AtomicBoolean(false)
   private val vfs           = new VirtualFileSystem
 
   /** The overlay of unsaved editor buffers. The document service writes live edits here (on open/change/close) before
@@ -70,6 +71,15 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
       val registration = new Registration("eliot-watched-els", "workspace/didChangeWatchedFiles", options)
       val _            = client.registerCapability(new RegistrationParams(List(registration).asJava))
     }
+
+  /** Enable pushing `workspace/codeLens/refresh` after every finished compile. Code lenses are *pulled* by the client
+    * (`textDocument/codeLens`), but the [[MainIndex]] backing them is only ready once the asynchronous, coalescing
+    * recompile finishes — after the client already answered its post-edit pull from the previous (stale) index. Without a
+    * refresh nudge the "Run main" lens stays whatever the racing pull saw: fixing an error and reverting it leaves the
+    * lens gone until the file is reopened. This tells the client to re-pull once the fresh index is in place. Gated on the
+    * client's `workspace.codeLens.refreshSupport` capability (a no-op otherwise), mirroring [[registerFileWatchers]].
+    */
+  def enableCodeLensRefresh(): Unit = codeLensPush.set(true)
 
   /** The reverse position index from the latest finished compile, for position-based features (definition, hover).
     * Empty until the first compile completes.
@@ -146,7 +156,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     * synchronously from memory.
     */
   private def publishResult(result: CompilationResult): IO[Unit] =
-    rebuildIndices(result) >> publishDiagnostics(result)
+    rebuildIndices(result) >> publishDiagnostics(result) >> refreshCodeLenses
 
   /** Rebuild all indices from the facts this compile materialised: the [[PositionIndex]] from [[ResolvedValue]]s
     * (definition + reference sites), the [[CompletionIndex]] from [[ModuleValue]]s (in-scope dictionaries) plus those
@@ -184,5 +194,15 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
             client.publishDiagnostics(new PublishDiagnosticsParams(uri, diagnostics.asJava))
           )
         }
+    }
+
+  /** Nudge the client to re-pull code lenses now that this compile's [[MainIndex]] is in place. Fire-and-forget: the
+    * request's completion is irrelevant, and it is skipped entirely unless the client advertised refresh support (see
+    * [[enableCodeLensRefresh]]).
+    */
+  private def refreshCodeLenses: IO[Unit] =
+    clientRef.get match {
+      case Some(client) if codeLensPush.get => IO.blocking(client.refreshCodeLenses()).void
+      case _                                => IO.unit
     }
 }

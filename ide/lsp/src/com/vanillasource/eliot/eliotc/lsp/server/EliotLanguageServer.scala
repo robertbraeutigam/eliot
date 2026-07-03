@@ -33,10 +33,12 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
   private val workspaceService              = new EliotWorkspaceService(service)
   @volatile private var roots: Seq[Path]    = Seq.empty
   @volatile private var canRegisterWatchers = false
+  @volatile private var canRefreshCodeLenses = false
 
   override def initialize(params: InitializeParams): CompletableFuture[InitializeResult] = {
     roots = workspaceRoots(params)
     canRegisterWatchers = supportsWatchedFileRegistration(params)
+    canRefreshCodeLenses = supportsCodeLensRefresh(params)
     val capabilities = new ServerCapabilities()
     capabilities.setTextDocumentSync(TextDocumentSyncKind.Full)
     capabilities.setDefinitionProvider(true)
@@ -53,6 +55,7 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
   override def initialized(params: InitializedParams): Unit = {
     service.startWorkspace(roots)
     if (canRegisterWatchers) service.registerFileWatchers()
+    if (canRefreshCodeLenses) service.enableCodeLensRefresh()
   }
 
   override def shutdown(): CompletableFuture[Object] = {
@@ -75,6 +78,14 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
       .flatMap(caps => Option(caps.getWorkspace))
       .flatMap(ws => Option(ws.getDidChangeWatchedFiles))
       .exists(dcwf => java.lang.Boolean.TRUE == dcwf.getDynamicRegistration)
+
+  // `workspace/codeLens/refresh` lets the server ask the client to re-pull code lenses after an async recompile; per LSP
+  // it must only be sent when the client advertised `workspace.codeLens.refreshSupport`. Off when the tree is absent.
+  private def supportsCodeLensRefresh(params: InitializeParams): Boolean =
+    Option(params.getCapabilities)
+      .flatMap(caps => Option(caps.getWorkspace))
+      .flatMap(ws => Option(ws.getCodeLens))
+      .exists(cl => java.lang.Boolean.TRUE == cl.getRefreshSupport)
 
   // getRootUri is deprecated in LSP in favour of workspaceFolders, but remains the correct fallback for older clients.
   @nowarn("cat=deprecation")
