@@ -342,18 +342,8 @@ class Checker(
                   }
       } yield result
 
-    case OperatorResolvedExpression.FunctionApplication(target, arg) =>
-      target.value match {
-        // An immediately-applied unannotated lambda `(x -> body)(arg)` is a `let` (the shape a non-effectful block
-        // `val`/statement lowers to). The lambda alone has no inferable parameter type, so infer it from the argument.
-        case OperatorResolvedExpression.FunctionLiteral(paramName, None, body) =>
-          typeImmediateLambda(target, paramName, body, arg, None)
-        case _                                                                 =>
-          for {
-            (targetExpr, targetType) <- infer(target)
-            result                   <- applyInferred(target, targetExpr, targetType, arg)
-          } yield result
-      }
+    case OperatorResolvedExpression.FunctionApplication(_, _) =>
+      inferSpine(tm)
 
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
       for {
@@ -373,9 +363,46 @@ class Checker(
       liftF(compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort)
   }
 
-  /** Handle function application: peel any polytype (`VLam`) layers with fresh metas, then apply one argument to the
-    * resulting monotype. If the monotype isn't already `VPi`, it gets unified against a fresh one. The implicit metas
-    * introduced by peeling are baked into the target reference.
+  /** Infer a function application by operating on its full spine: decompose the nested (curried) applications at the
+    * root, resolve the head once — an immediately-applied unannotated lambda `(x -> body)(arg)` routes to
+    * [[typeImmediateLambda]] (it is a `let`, the shape a non-effectful block `val`/statement lowers to; the lambda
+    * alone has no inferable parameter type, so it is inferred from the first argument), anything else is inferred —
+    * then fold the arguments through the per-argument application logic ([[applyInferred]]) in left-to-right order.
+    * Each fold step receives the intermediate application node's own [[Sourced]] target, so diagnostics and the
+    * rebuilt [[SemExpression]] keep the exact positions the former per-curried-node recursion produced.
+    */
+  private def inferSpine(tm: Sourced[OperatorResolvedExpression]): CheckIO[(SemExpression, SemValue)] = {
+    val (head, apps) = decomposeSpine(tm)
+    for {
+      (start, rest) <- head.value match {
+                         case OperatorResolvedExpression.FunctionLiteral(paramName, None, body) =>
+                           typeImmediateLambda(head, paramName, body, apps.head._2, None).map((_, apps.tail))
+                         case _                                                                 =>
+                           infer(head).map((_, apps))
+                       }
+      result        <- rest.foldLeftM(start) { case ((targetExpr, targetType), (target, arg)) =>
+                         applyInferred(target, targetExpr, targetType, arg)
+                       }
+    } yield result
+  }
+
+  /** Decompose a nested (curried) application into its head and, for each argument, the intermediate application
+    * node's target paired with that argument — e.g. `f(a)(b)` yields `(f, [(f, a), (f(a), b)])`. The intermediate
+    * targets carry the [[Sourced]] positions the per-argument logic attributes errors to.
+    */
+  private def decomposeSpine(
+      tm: Sourced[OperatorResolvedExpression]
+  ): (Sourced[OperatorResolvedExpression], List[(Sourced[OperatorResolvedExpression], Sourced[OperatorResolvedExpression])]) =
+    tm.value match {
+      case OperatorResolvedExpression.FunctionApplication(target, arg) =>
+        val (head, apps) = decomposeSpine(target)
+        (head, apps :+ (target, arg))
+      case _                                                           => (tm, Nil)
+    }
+
+  /** Apply one argument of a spine ([[inferSpine]]'s fold step): peel any polytype (`VLam`) layers with fresh metas,
+    * then apply the argument to the resulting monotype. If the monotype isn't already `VPi`, it gets unified against a
+    * fresh one. The implicit metas introduced by peeling are baked into the target reference.
     */
   private def applyInferred(
       target: Sourced[OperatorResolvedExpression],
