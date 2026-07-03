@@ -90,34 +90,37 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     )
   }
 
-  /** A hover renders, as Markdown, a definition header in a fenced `eliot` block followed by documentation — the apidoc
-    * tile of the identifier under the cursor.
+  /** A hover renders, as Markdown, the apidoc tile of the identifier under the cursor: its *definition* in a fenced
+    * `eliot` block, then the *concrete type it was checked at here*, then its documentation.
     *
     * When the referenced name has a documentation tile
     * ([[com.vanillasource.eliot.eliotc.lsp.index.DocIndex]], built from the same apidoc facts the site uses), the header
-    * is its rendered *definition* (`def printLine(s: String): IO[Unit]`, `type IO[A]`, `ability Show[A]`) and the body
-    * is its documentation — exactly what the doc page shows. Otherwise it falls back to the concrete monomorphic type at
-    * the node (the type-hint index — the type the expression was actually checked at, `Int[0, 255]`), or the referenced
-    * value's declared signature when the node was never monomorphized.
+    * is its rendered definition (`def printLine(s: String): IO[Unit]`, `type IO[A]`, `ability Show[A]`) — exactly what
+    * the doc page shows — and, when the expression was monomorphized, the concrete type at this use site (the type-hint
+    * index — `String -> IO[Unit]`, an instantiation `Int[0, 255] -> Int[0, 255]`, one line per instantiation) is shown
+    * below it, then the documentation. With no tile it falls back to the concrete type alone, or the referenced value's
+    * declared signature when the node was never monomorphized.
     */
   override def hover(params: HoverParams): CompletableFuture[Hover] = {
     val uri       = URI.create(params.getTextDocument.getUri)
     val position  = LspPositions.toCompilerPosition(params.getPosition)
     val reference = service.positionIndex.referenceAt(uri, position)
     val tile      = reference.flatMap(occurrence => service.docIndex.tileFor(occurrence.value).map(occurrence -> _))
+    val typeHint  = service.typeHintIndex.typeHintsAt(uri, position)
     val hover     = tile match {
       case Some((occurrence, entry)) =>
-        val header = entry.signature
+        val definition    = entry.signature
           .orElse(service.positionIndex.definitionOf(occurrence.value).map(EliotTextDocumentService.signatureOf))
           .getOrElse(occurrence.value.name.name)
-        Some(EliotTextDocumentService.markdownHover(occurrence.range, header, entry.doc))
+        val concreteTypes = typeHint.fold(Seq.empty[String])(_._2.map(GroundValueRenderer.render))
+        Some(EliotTextDocumentService.renderHover(occurrence.range, Some(definition), concreteTypes, entry.doc))
       case None                      =>
-        service.typeHintIndex.typeHintsAt(uri, position) match {
+        typeHint match {
           case Some((range, types)) =>
-            Some(EliotTextDocumentService.markdownHover(range, types.map(GroundValueRenderer.render).mkString("\n"), None))
+            Some(EliotTextDocumentService.renderHover(range, None, types.map(GroundValueRenderer.render), None))
           case None                 =>
             service.positionIndex.hoverAt(uri, position).map { (occurrence, value) =>
-              EliotTextDocumentService.markdownHover(occurrence.range, EliotTextDocumentService.signatureOf(value), None)
+              EliotTextDocumentService.renderHover(occurrence.range, Some(EliotTextDocumentService.signatureOf(value)), Seq.empty, None)
             }
         }
     }
@@ -145,14 +148,28 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
 
 object EliotTextDocumentService {
 
-  /** A Markdown hover: the code header in a fenced `eliot` block, followed (when the name is documented) by its
-    * documentation Markdown. Rendered as [[MarkupKind.MARKDOWN]] so the signature is syntax-highlighted and the doc's
-    * own formatting (paragraphs, code, lists) shows, matching the apidoc site.
+  /** Render a hover as Markdown from up to three parts, omitting any that is absent (never an empty block).
+    *
+    * With a `definition`, it leads the fenced `eliot` block; the `concreteTypes` (the type(s) the expression was checked
+    * at here) then follow as a labelled inline line, and the `doc` below. Without a definition — the fallback path — the
+    * concrete type(s) become the primary fenced block instead. Rendered as [[MarkupKind.MARKDOWN]] so signatures are
+    * syntax-highlighted and the doc's own formatting shows, matching the apidoc site.
     */
-  private def markdownHover(range: PositionRange, header: String, doc: Option[String]): Hover = {
-    val fenced   = s"```eliot\n$header\n```"
-    val markdown = doc.filter(_.nonEmpty).fold(fenced)(documentation => s"$fenced\n\n$documentation")
-    new Hover(new MarkupContent(MarkupKind.MARKDOWN, markdown), LspPositions.toRange(range))
+  private def renderHover(
+      range: PositionRange,
+      definition: Option[String],
+      concreteTypes: Seq[String],
+      doc: Option[String]
+  ): Hover = {
+    val sections = definition match {
+      case Some(value) =>
+        val typeLine =
+          Option.when(concreteTypes.nonEmpty)(s"_at this use:_ ${concreteTypes.map(tpe => s"`$tpe`").mkString(", ")}")
+        Seq(Some(s"```eliot\n$value\n```"), typeLine, doc.filter(_.nonEmpty))
+      case None        =>
+        Seq(Option.when(concreteTypes.nonEmpty)(s"```eliot\n${concreteTypes.mkString("\n")}\n```"), doc.filter(_.nonEmpty))
+    }
+    new Hover(new MarkupContent(MarkupKind.MARKDOWN, sections.flatten.mkString("\n\n")), LspPositions.toRange(range))
   }
 
   /** A one-line "name : type" rendering of a resolved value, for hover. Uses the bottom level of the type stack — the
