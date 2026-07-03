@@ -14,14 +14,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * elaboration that decides, per argument slot, whether an effectful term (type `C[T']` for an effect carrier `C`)
   * flowing into a pure position must be *bound* (sequenced with `Effect.flatMap`/`map`) or a pure term flowing into a
   * carrier-typed position *lifted* (`Effect.pure`). This is the same species of check-mode elaboration as the `Coerce`
-  * widening ([[com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver]]), and sits directly after it in
-  * the resolution ladder: unify → coerce → bind-lift (argument positions only) → pure-wrap → mismatch.
+  * widening ([[com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver]]); the resolution ladder runs
+  * unify → bind-lift (argument positions only) → pure-wrap → `Coerce` → mismatch — the lift arms come *before* the
+  * `Coerce` probe, whose ability-fact generation fails the build as a side effect on a shape a lift arm resolves (the
+  * arms' guards are disjoint from every coercible shape, so widening behaviour is untouched).
   *
-  * None of this is definitional equality: `unify` never lifts — both arms fire only after `tryUnifyOrCoerce` failed,
-  * and both verify their elaboration by *speculative* unification (payload against expected), committing only on
-  * success. The bind-lift arm is consulted only from argument-position resolution (the spine slots and the
-  * immediately-applied-lambda `let` rule), never from a return boundary — stripping a carrier at a return boundary
-  * would silently drop the effect, so those remain hard mismatches.
+  * None of this is definitional equality: `unify` never lifts — the arms fire only after speculative unification
+  * failed (or, for the two shapes unification can only *postpone*, the [[mustLiftBeforeUnify]] /
+  * [[mustPureWrapBeforeUnify]] pre-arms consult them first), and both verify their elaboration by *speculative*
+  * unification (payload against expected), committing only on success. The bind-lift arm is consulted only from
+  * argument-position resolution (the spine slots and the immediately-applied-lambda `let` rule), never from a return
+  * boundary — stripping a carrier at a return boundary would silently drop the effect, so those remain hard
+  * mismatches.
   *
   * What counts as an effect carrier (the head of `C[T']` after forcing):
   *   - a metavariable whose [[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole.Instantiation.effectCarrier]]
@@ -41,7 +45,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * established `$eff$N` convention; `$` is not a user identifier character).
   *
   * Operates over [[CheckIO]], reading the shared [[CheckState]] (unifier roles, ambient carriers, lift counter)
-  * through `get`/`modify`/`inspect`. It depends on exactly one checker primitive, passed at construction — that
+  * through `get`/`modify`/`inspect`. It depends on exactly two checker primitives, passed at construction — that
   * narrow surface is the module boundary.
   *
   * @param force

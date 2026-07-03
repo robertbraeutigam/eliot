@@ -22,7 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   *   - `infer(tm)` infers a term's type.
   *
   * The checker produces [[SemExpression]]s with [[SemValue]] in every type slot. All ground-type conversion is deferred
-  * to a post-drain pass in [[TypeStackLoop]], using [[com.vanillasource.eliot.eliotc.monomorphize.eval. Quoter]]. This
+  * to a post-drain pass in [[TypeStackLoop]], using [[com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter]]. This
   * avoids any silent "default to Type" behaviour for unsolved metas — they surface as explicit errors at quoting time.
   */
 class Checker(

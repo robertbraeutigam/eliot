@@ -236,13 +236,15 @@ is **no `platform match` anywhere in the checking core**, only `track.<hook>` di
    `VConst`) — the same form is applied to the signature closure and bound into ρ, so no ground value ever has two
    semantic forms. Over-application records one "Too many type arguments." error.
 3. `instantiateRemaining` — peel leftover `VLam` closures (phantom / implicit type params) with fresh metas.
-4. `track.pinCarriers` (compiler track only) — a `{Throw[E]}` carrier is fixed to the compile-time carrier `Either[E]`.
-5. `track.settleReturnPosition` (mutually exclusive): a *calculated* return (`installReturnMeta`, W3 — track-independent),
+4. `recordAmbientCarriers` — record the value's own ambient effect-carrier heads (`SignatureView` carrier binders ∩
+   `paramConstraints`, each looked up in ρ and recorded by forced head) into `CheckState.ambientCarriers` for the lift.
+5. `track.pinCarriers` (compiler track only) — a `{Throw[E]}` carrier is fixed to the compile-time carrier `Either[E]`.
+6. `track.settleReturnPosition` (mutually exclusive): a *calculated* return (`installReturnMeta`, W3 — track-independent),
    an *effectful guard* return (`dischargeGuardedSignature`, W2b — **runtime track only**; the compiler track is the
    guard's *producer* and leaves the carrier signature as-is), or an ordinary explicit return.
-6. `check` the runtime body against the signature.
-7. `runPostDrainPipeline` (D1, below), report unifier errors, abort before quoting if any error exists.
-8. `track.implBindings` (compiler-only impl-body fetch) then read back via `PostDrainQuoter` through `track.readBackBody`
+7. `check` the runtime body against the signature.
+8. `runPostDrainPipeline` (D1, below), report unifier errors, abort before quoting if any error exists.
+9. `track.implBindings` (compiler-only impl-body fetch) then read back via `PostDrainQuoter` through `track.readBackBody`
    — the compiler track **reduces** the body (`reduceSourced`), the runtime track structurally quotes it
    (`quoteSourced`).
 
@@ -386,12 +388,13 @@ quiet-probe pattern.
 
 1. **No concept of "generic parameters" in the checker's fold.** `TypeStackLoop`/`Checker` never extract, count, or
    classify type-stack levels as "type params" vs "signature"; the fold is uniform (no `TypeParameterAnalysis`, no
-   walking leading `FunctionLiteral`s to count type params). *However*, three sanctioned **peripheral** readers legitimately
+   walking leading `FunctionLiteral`s to count type params). *However*, four sanctioned **peripheral** readers legitimately
    read binder structure through `SignatureView` / saturation metadata — do **not** mistake them for a violation:
    `CarrierKindChecker.recordCarrierMetas` (seeds carrier kinds off the referenced value's `SignatureView`),
-   `AbilityResolver.abilityArity` (reads an ability-marker's binder count for impl queries), and
-   `SaturatedValue.binderRoles` feeding `BindingClosure.reifyingWrap` (which leading binders a body reifies). None of
-   these drives a definitional-equality decision.
+   `AbilityResolver.abilityArity` (reads an ability-marker's binder count for impl queries),
+   `SaturatedValue.binderRoles` feeding `BindingClosure.reifyingWrap` (which leading binders a body reifies), and
+   `TypeStackLoop.recordAmbientCarriers` (the value's own ability-constrained HKT binders, seeding
+   `CheckState.ambientCarriers` for the effect lift). None of these drives a definitional-equality decision.
 2. **The evaluator produces VLam; the Checker produces VPi.** Never produce `VPi` in the evaluator. The `Function` native
    is a `VNative` that fires to `VPi`.
 3. **No ORE rewriting.** ORE is read once into `SemValue` and forgotten. All substitution is closure application.
@@ -437,7 +440,7 @@ quiet-probe pattern.
 ## Anti-patterns (reject in review)
 
 - **Inspecting the type-stack to count or classify type parameters in the checker's fold.** The fold is uniform. (The
-  three sanctioned peripheral readers in Hard Rule 1 are the *only* binder-structure reads, and none drives equality.)
+  four sanctioned peripheral readers in Hard Rule 1 are the *only* binder-structure reads, and none drives equality.)
 - **Producing `VPi` in the evaluator**, or `VLam` in the Checker when the expected type is `VType`.
 - **ORE substitution inside monomorphize.** All binding is closure capture in Scala.
 - **Calling `CompilerIO` from an evaluator.** The evaluators are synchronous and pure; prefetch bindings first.

@@ -1,27 +1,35 @@
 # Monomorphize package review
 
-Last performed: **2026-07-02, round 2** (tree at `653bf006` + this round's quick-wins; round 1 was
-performed at `60498a40`, its fixes landed as `b88a0c0f` and the four follow-up commits `43b6c6e2`,
-`1dfcbe3f`, `68e8c584`, `653bf006`).
+Last performed: **2026-07-03, round 3** (tree at `5c9a7559` — the effect-lift-in-checker landing —
+plus this round's quick-wins; round 2 was performed 2026-07-02 at `653bf006`; round 1 at
+`60498a40`, its fixes landed as `b88a0c0f` and the four follow-up commits `43b6c6e2`, `1dfcbe3f`,
+`68e8c584`, `653bf006`).
 
 A whole-package architecture review of `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` —
-the NbE type checker — after the compiler-as-platform rework. Three questions: is the NbE
-algorithm still faithfully applied, do the language cornerstones still hold, and is the
-architecture sound / where can it be simplified. This document records the method (so the review
-can be repeated), the open findings, the resolved history, and the work that remains.
+the NbE type checker — after the compiler-as-platform rework (rounds 1–2) and the
+effect-lift-in-checker landing (round 3). Three questions: is the NbE algorithm still faithfully
+applied, do the language cornerstones still hold, and is the architecture sound / where can it be
+simplified. This document records the method (so the review can be repeated), the open findings,
+the resolved history, and the work that remains.
 
 ## 1. Scope and method (how to repeat)
 
 1. **Read the package in its entirety** — every file under
    `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` (`domain/`, `eval/`, `check/`,
-   `refine/`, `unify/`, `lowering/`, `fact/`, `processor/`; ~47 files, ~5.7k lines). Do not
+   `refine/`, `unify/`, `lowering/`, `fact/`, `processor/`; ~48 files, ~6.6k lines). Do not
    sample: several findings (the silent `applyValue` fallback, the two-pool gap, the two-form
    ground injection) only show up by cross-referencing a comment in one file against code in
    another.
 2. **Cross-check the upstream seams** the package consumes: the `Platform`-keying (and
    `= Platform.Runtime` defaults) of `SaturatedValue.Key`, `OperatorResolvedValue.Key`,
    `UnifiedModuleNames.Key`, `ModuleConstructors.Key`, `AbilityImplementation.Key`, and the
-   `getFact`/`getFactOrAbort`/`activeFactKeys` semantics in `CompilerIO`.
+   `getFact`/`getFactOrAbort`/`activeFactKeys` semantics in `CompilerIO`. Since round 3 this
+   includes the `effect/` phase (now verification-only): `EffectCheckProcessor` /
+   `EffectUsageCollector` / `CalleeSignatures` must stay *accounting* (usedEffects +
+   body-effectfulness diagnostics) — any bind/branch/machinery-position logic reappearing there
+   is the shadow-type-system anti-pattern the effect-lift move removed, and `EffectCarriers` is
+   the shared carrier-binder notion both the phase and `TypeStackLoop.recordAmbientCarriers`
+   read.
 3. **Verify the invariant checklist** below against the code as read — not against the skill or
    docs, which may be stale (each round has found drift).
 4. **Check the `eliot-monomorphize` skill for drift** against what was read; a stale skill
@@ -35,8 +43,11 @@ can be repeated), the open findings, the resolved history, and the work that rem
 NbE fidelity:
 
 - The evaluator produces **only `VLam`** for `FunctionLiteral` (`NbeEvaluator.eval`); `VPi` is
-  produced only by the `Checker` (`infer`'s annotated-literal case and the fresh-`VPi` unification
-  in `applyInferred`) and the `Function` native.
+  produced only checker-side — `Checker` (`infer`'s annotated-literal case, the fresh-`VPi`
+  unification in `applyInferred`, `typeImmediateLambda`), the collaborators' type-slot splices
+  (`EffectLifter`'s combinator/continuation types, `CalculatedReturnResolver`'s
+  guarded-signature rebuild, `RefinementSolver`'s coercion-probe shape) — and the `Function`
+  native. (`Evaluator.renormalize` rebuilds a forced `VPi`, it never mints one.)
 - **No ORE substitution** anywhere; all binding is Scala-closure capture. (`reifyingWrap` wraps
   binders; it never rewrites a body.)
 - Evaluators are **pure and synchronous** — no `CompilerIO` import under `eval/`; all bindings
@@ -44,7 +55,20 @@ NbE fidelity:
 - `unify` is **pure definitional equality**: no assignability arm, no `refinements` map, no
   `Coerce` logic in `unify/`. Directional widening lives only in
   `refine/RefinementSolver.unifyOrCoerce` (check mode). The only unification-time interception is
-  combinable-candidate accumulation, covariant side only.
+  combinable-candidate accumulation, covariant side only. The one sanctioned side-door is
+  `solveAdopting` (the effect lift's Phase-B pass-through): equality-wise an ordinary bare-meta
+  solve — occurs-check included — that merely skips `Combine`-candidate recording; it must never
+  grow a relation `unify` itself does not have.
+- **Effect-lift discipline** (round 3): the bind-lift / pure-wrap arms are *check-mode
+  elaboration only* — consulted from argument-position resolution (`checkAgainstSlot`,
+  `typeImmediateLambda`) and, for pure-wrap alone, `checkAgainst`; the bind-lift arm never fires
+  at a return boundary (stripping a carrier there would silently drop the effect). Both arms
+  verify by *speculative* unification and commit only on success; the ladder runs the lift arms
+  **before** the `Coerce` probe (its ability-fact generation fails builds as a side effect), with
+  guards disjoint from every coercible shape. Carrier recognition reads only the
+  `MetaRole.Instantiation.effectCarrier` flag and `CheckState.ambientCarriers` (meta heads
+  re-forced at query time) — never a type name. No bind/`pure` decision may live outside the
+  checker (grep the `effect/` phase for any resurrected bind-position logic).
 - **No silent fallback on any path**: `applyValue` is exhaustive over `SemValue` and yields the
   loud `Reserved(BadApply)` neutral on non-applicable heads; the strict `Quoter` fails on every
   stuck form (`VNeutral`/`VMeta`/`VLam`/`VNative`/`VStuckNative`/unapplied cached `VTopDef`);
@@ -78,9 +102,10 @@ Architecture / cornerstones:
 - **RoleHint reads** are constructor-shape only (`fieldCount` — `PostDrainQuoter.
   materialiseStructure`, `ModuleConstructors`); `typeParamCount` never drives a typing decision.
 - **Hard rule 1, two-part scope**: the checker's fold never classifies binders; binder-structure
-  reads exist only in the three sanctioned peripheral readers
+  reads exist only in the four sanctioned peripheral readers
   (`CarrierKindChecker.recordCarrierMetas`, `AbilityResolver.abilityArity`,
-  `SaturatedValue.binderRoles` → `reifyingWrap`) and none of them drives definitional equality.
+  `SaturatedValue.binderRoles` → `reifyingWrap`, and — since the effect lift —
+  `TypeStackLoop.recordAmbientCarriers`) and none of them drives definitional equality.
 - **No `platform match` in the checking core**: the per-track differences live in the four
   `check/Track` hooks (`settleReturnPosition`, `pinCarriers`, `implBindings`, `readBackBody`);
   fact keys read `track.platform`.
@@ -89,20 +114,25 @@ Architecture / cornerstones:
 
 ## 2. Verdict and open findings
 
-Verdict (round 2, confirming round 1): NbE faithfully applied; cornerstones stand with the two
-documented erosions (E1/E2 below); architecture sound. The round-1 fixes pulled their weight —
-`TypeStackLoop` is down from ~680 to ~440 lines with four symmetric collaborators plus the `Track`
-seam, the Γ/ρ split (F2) and structural `NeutralHead` (F3) removed the two convention-held
-fragilities, and the invariant checklist verified clean against the code. No new fundamental
-restructuring is warranted; the remaining open items are below.
+Verdict (round 3, after the effect-lift-in-checker landing; confirming rounds 1–2): NbE faithfully
+applied; cornerstones stand with the documented erosions (E1/E2 below, both slightly *extended*
+by the lift and re-accepted); architecture sound. The lift landed exactly on the established
+collaborator pattern — `EffectLifter` is a genuine fifth collaborator (narrow injected primitives,
+state via `CheckIO`, splices `SemExpression`s like `buildCoercedExpr`, resolved by the existing
+`resolve-abilities` pass — no new evaluator, no new resolution machinery), the effect phase kept
+only signature-derivable accounting, and every fail-safe surveyed is loud (doomed-postponement
+mismatches committed eagerly at return boundaries, wrap-time flex core caught downstream, the
+declared-pure diagnostic retained). Full suite green (986/986 targets). No fundamental
+restructuring warranted; open items below.
 
 | # | Finding | Status |
 |---|---|---|
 | C3 | `CalculatedReturnResolver` hosts two weakly-related concerns (calc-return back-edge + W2b guard discharge); guard recognition makes `Either` a language-reserved type by FQN (`isGuardCarrier` keys on `WellKnownTypes.eitherFQN`) | **Open, conditional** — §3.1; do when a second carrier appears |
 | F1b | Two-arg HKT carrier over `Function` (`?F[A,B] ~ Function[A,B]`) postpones, `?F` defaults to `Type`, surfaces as a loud "Cannot resolve type." at the use site — an inference limitation, not a miscompile | **Open** — §3.2; needs a real client |
 | R2-1 | The calc-return back-edge re-enters the **runtime** `MonomorphicValue` on both tracks; the compiler track should re-enter `CompilerMonomorphicValue` (and its recursion guard watch compiler keys) | **Open, deferred** — §3.3; documented in-code (`readMonomorphicReturnGround` NOTE), fail-safe: no compiler-track calc-return client exists, and a compiler-pool-only callee yields no fact and errors rather than mistypes |
-| E1 | Cornerstone erosion, "no generic parameters": three peripheral binder-structure readers exist (`CarrierKindChecker.recordCarrierMetas`, `AbilityResolver.abilityArity`, `binderRoles`→`reifyingWrap`) | **Accepted & documented** — hard rule restated two-part in the skill |
-| E2 | Cornerstone erosion, "no constraint set": `MetaRole.Instantiation.candidates`/`upperBounds` are a small role-scoped constraint store | **Accepted & documented** — the rule is scoped to *equality* constraints |
+| R3-1 | Ladder-skeleton duplication: `Checker.checkAgainst` (return boundaries) and `Checker.checkAgainstSlot` (argument slots) duplicate ~60 lines each — identical combinable-meta upper-bound deferral, identical instantiation, near-identical pre-arm + failure ladder; the W2b guard-kind acceptance is likewise duplicated between `check`'s fallback and `checkArgumentSlot` | **Open** — §3.4a; a behaviour-neutral dedup, do as its own commit |
+| E1 | Cornerstone erosion, "no generic parameters": **four** peripheral binder-structure readers exist (`CarrierKindChecker.recordCarrierMetas`, `AbilityResolver.abilityArity`, `binderRoles`→`reifyingWrap`, and since the lift `TypeStackLoop.recordAmbientCarriers`) | **Accepted & documented** — round 3 re-accepted the fourth reader (sanctioned in the effect-lift design as "a peripheral binder read, like `binderRoles`"); none drives equality |
+| E2 | Cornerstone erosion, "no constraint set": `MetaRole.Instantiation.candidates`/`upperBounds` are a small role-scoped constraint store — extended in round 3 by the `effectCarrier` flag (elaboration bookkeeping, not a constraint) and by `Unifier.solveAdopting` (a bare-meta solve variant that skips candidate recording, not a new relation) | **Accepted & documented** — the rule is scoped to *equality* constraints |
 
 ### Resolved findings (history)
 
@@ -145,6 +175,23 @@ Round 2 (this round's quick-wins):
 - **R2-5** — skill drift: `TypeStackLoop.abilityArity` (moved to `AbilityResolver` in C1), the
   `Env` line, and the `applyTypeArgs` description (pre-R2-2 two-form behaviour). Corrected.
 
+Round 3 (this round's quick-wins — all documentation; no code path changed):
+
+- **R3-2** — stale scaladoc: `EffectLifter`'s class doc stated the resolution ladder as
+  "unify → coerce → bind-lift → pure-wrap → mismatch" and "both arms fire only after
+  `tryUnifyOrCoerce` failed" — the *plan's original* ordering, superseded during step 4 by
+  lift-arms-before-`Coerce` (recorded in docs/effect-lift-in-checker.md's status notes) and by
+  the checker composing the arms itself around `tryUnifyCommitting`/`tryCoerce`. Also claimed
+  "exactly one checker primitive" while two are injected. Corrected to the implemented order.
+- **R3-3** — stale scaladoc: `RefinementSolver.tryUnifyOrCoerce` claimed to be the seam "the
+  checker consults the effect-lift arms 3–4" around — the checker never calls it; its sole
+  caller is `unifyOrCoerce` (the `let`-level resolution). Doc corrected; the method stays (it
+  names the non-committing equality+`Coerce` pair `unifyOrCoerce` needs).
+- **R3-4** — skill drift: hard rule 1 still said *three* peripheral binder readers (missing
+  `recordAmbientCarriers`), and the `TypeStackLoop` step list omitted the ambient-carrier
+  recording step. Corrected; checklist above updated to match (four readers, broader `VPi`
+  producer wording, the effect-lift discipline block, the `solveAdopting` side-door note).
+
 ## 3. Open work (in recommended order)
 
 ### 3.1 Guard-discharge split + the `Either` decision (conditional — do when a second carrier appears)
@@ -176,6 +223,26 @@ unconditionally, and its recursion guard scans the active chain for runtime keys
 compiler-platform value first uses a calculated return, thread the track: re-enter
 `CompilerMonomorphicValue` and guard on its key. Until then the gap is fail-safe (a compiler-pool
 callee yields no runtime fact ⟹ the caller errors; never a silently wrong type).
+
+### 3.4a Resolution-ladder dedup (R3-1 — recommended, behaviour-neutral, own commit)
+
+`checkAgainst` and `checkAgainstSlot` are the same algorithm twice: (combinable-meta upper-bound
+deferral) → (instantiate) → (pre-arms for the doomed-postponement shapes) → (unify → …arms… →
+`Coerce` → committed mismatch). They differ in exactly two points, both consequences of *position*:
+
+1. the **bind-lift arm** exists only at argument positions (both in the pre-arm slot and the
+   failure ladder) — at a return boundary the doomed `mustLiftBeforeUnify` shape instead commits
+   the exact mismatch immediately;
+2. the outcome type — `SlotOutcome` (slots need `Bound`/`Deferred`) vs a plain `SemExpression`.
+
+Sketch: one private `resolveLadder(tm, expr, inferred, expected, bindArm: Option[...])` returning
+`SlotOutcome`, where `bindArm = None` (return boundary) turns the doomed pre-arm into the eager
+mismatch and omits the lift arm; `checkAgainst` calls it with `None` and unwraps `Resolved` (a
+`Bound` is unreachable by construction). The W2b guard-kind acceptance duplicated between
+`check`'s fallback and `checkArgumentSlot` folds into the same entry. ~60 duplicated lines
+removed and, more importantly, the drift risk between the two ladders (e.g. the
+mismatch-exactly-once discipline) goes away. Fully pinned by the existing suite + step-5 matrix,
+so safe to do any time; keep it a dedicated refactor commit, not folded into feature work.
 
 ### 3.4 Minor / opportunistic
 

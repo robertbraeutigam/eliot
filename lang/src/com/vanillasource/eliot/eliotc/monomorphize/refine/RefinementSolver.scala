@@ -89,10 +89,11 @@ class RefinementSolver(
           .as(expr)
     }
 
-  /** The non-committing arms 1–2 of the check-mode resolution ladder: definitional equality, else a `Coerce`
-    * insertion. Returns the resolved expression, or [[None]] with *no error committed* when neither applies — the
-    * caller decides what follows (the checker consults the effect-lift arms 3–4 before committing the mismatch;
-    * [[unifyOrCoerce]] commits it directly).
+  /** The non-committing equality-and-`Coerce` pair: definitional equality, else a `Coerce` insertion. Returns the
+    * resolved expression, or [[None]] with *no error committed* when neither applies — the caller decides what
+    * follows. Its sole caller is [[unifyOrCoerce]] (the `let`-level resolution), which commits the mismatch; the
+    * checker's slot ladder does *not* use this pairing — it interleaves the effect-lift arms between equality and
+    * [[tryCoerce]] (lift-arms-before-`Coerce`), composing the same arms itself.
     */
   def tryUnifyOrCoerce(
       tm: Sourced[OperatorResolvedExpression],
