@@ -6,8 +6,7 @@ import eliot.lang.Pair
  * A function that uses state declares `{State[S]}` and calls `getState` to read the current state or
  * `putState` to replace it. Neither wraps the result — the effect floats up to the caller. The result
  * paired with the final state is materialised only when the effect is discharged by `runState`, as a
- * `Pair[A, S]`. The operations are `getState`/`putState` (not the bare `get`/`put`) so they stay
- * self-documenting and never collide with other effect accessors like `Dep`'s `dependency`.
+ * `Pair[A, S]`.
  *
  * ```eliot
  * def tick: {State[Int]} Unit = putState(getState + 1)
