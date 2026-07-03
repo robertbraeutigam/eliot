@@ -1,9 +1,10 @@
 /**
  * The logging effect: emitting diagnostic messages.
  *
- * A fine-grained effect alongside `Console` — declare `{Log}` and call `log`. Like the other I/O
- * effects it runs on any carrier with a `Sync` base, and combines freely with other effects in one
- * signature, e.g. `{Dep[Database], Log, Console}`.
+ * Can be used in any context, even in otherwise pure functions to
+ * emit the usual log messages. This is a purposefully minimal
+ * api and is expected to be wrapped by a more powerful one on
+ * a specific platform.
  */
 ability Log[F[_]] {
    /**
