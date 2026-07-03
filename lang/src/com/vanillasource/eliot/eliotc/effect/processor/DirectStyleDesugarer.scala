@@ -15,6 +15,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   applyChain,
   spine
 }
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
@@ -84,6 +85,21 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
   )(using platform: Platform): CompilerIO[Desugared] = {
     val (head, args) = sourcedSpine(expr)
     head.value match {
+      // The `.` subject-application operator is surface sugar for chaining: `a.f(rest…)` parses to `.(a, f(rest…))`,
+      // whose body is `f(a)` — it *applies* a named function, it does not *consume* a value. Inline it to the direct
+      // application `f(a)` so the bind decision falls on `f`'s *real* parameter: `readLine.flatMap(g)` leaves `readLine`
+      // in `flatMap`'s carrier-typed storage slot (unbound, the intended sequencing), while `readLine.length` binds it
+      // into `length`'s plain `String` slot. Without this the effectful subject flows into `.`'s own bare `a: A`
+      // parameter (always a bind position) and is wrongly sequenced, corrupting a chained ability method into a nested
+      // `map`/`flatMap`. Every *other* callee genuinely consumes its arguments, so the ordinary signature-driven bind
+      // decision is already correct — only `.` needs seeing through.
+      //
+      // Its twin `apply(f, a)` (also `f(a)`) is deliberately NOT inlined here: `apply` is the real function-*value*
+      // application primitive the uncurry/codegen phases depend on (`apply(block(fa), unit)` in a carrier body), and
+      // rewriting those to a raw `block(fa)(unit)` breaks uncurrying. `.` is safe because it is used only to chain
+      // *named* functions, so inlining yields an ordinary named-callee application. See [[WellKnownTypes.dotOperatorFQN]].
+      case ValueReference(fqn, _) if fqn.value == WellKnownTypes.dotOperatorFQN && args.sizeIs == 2 =>
+        desugarExpr(expr.as(applyChain(args(1), Seq(args.head))), env, carrier, idx)
       case ValueReference(fqn, _) =>
         for {
           info               <- calleeSignatures.infoFor(fqn, platform)

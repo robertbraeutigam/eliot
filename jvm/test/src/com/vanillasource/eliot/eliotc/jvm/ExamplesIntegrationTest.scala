@@ -91,6 +91,38 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
     ).asserting(_ shouldBe "still works")
   }
 
+  // The `.` operator chains an ability method on an abstract effect carrier: `readLine.flatMap(f)` is `.(readLine,
+  // flatMap(f))`, which the auto-lift inlines to `flatMap(f, readLine)` — leaving the effectful subject in `flatMap`'s
+  // carrier-typed storage slot rather than sequencing it into `.`'s bare `a: A` (which would corrupt the carrier). This
+  // is the idiomatic subject-last spelling of the hand-written `flatMap` above.
+  it should "chain an ability method on an abstract carrier via the dot operator" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
+        |
+        |def echo: {Console} Unit = readLine.flatMap(line -> printLine(line))
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "dot chained\n"
+    ).asserting(_ shouldBe "dot chained")
+  }
+
+  // The dual case: an effectful subject dotted into a *plain-value* function (`readLine.shout`, `shout(s: String)`) must
+  // still bind — the inlined `shout(readLine)` sequences `readLine` into `shout`'s `String` slot. Proves the inlining
+  // restores the ordinary bind decision rather than blanket-suppressing it for every dotted subject.
+  it should "bind an effectful subject dotted into a plain-value function" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |
+        |def shout(s: String): String = s
+        |
+        |def echo: {Console} Unit = printLine(readLine.shout)
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "loud\n"
+    ).asserting(_ shouldBe "loud")
+  }
+
   // Fail-safe: a value that performs an effect but is declared with a non-carrier (pure) return type is rejected at the
   // effect-desugar phase, not silently miscompiled.
   "an effectful body under a pure return" should "be rejected" in {
