@@ -175,6 +175,22 @@ case class Unifier(
       unifyForced(l, r, context)
   }
 
+  /** Solve a bare, unsolved metavariable to a value *by adoption* — the effect-lift's Phase-B pass-through, where a
+    * deferred flex slot takes on its carrier-headed argument type. Equality-wise identical to unifying the bare meta
+    * against the value (including the occurs-check), except the solution is *not* recorded as a `Combine` candidate:
+    * adoption is not an argument contribution, and recording one would reroute the enclosing result through the
+    * upper-bounds deferral — after the saturation tier, starving ability resolution of the grounding it needs. (An
+    * unsolved meta has no candidates, so clearing them removes exactly the one this solve would have recorded.)
+    */
+  def solveAdopting(id: MetaId, value: SemValue, context: Sourced[String]): Unifier =
+    unify(VMeta(id, Spine.SNil), value, context).updateRole(
+      id.value,
+      {
+        case i: MetaRole.Instantiation => i.copy(candidates = Nil)
+        case other                     => other
+      }
+    )
+
   /** Speculatively unify `l` against `r` without committing a mismatch (D5), returning an explicit [[UnifyResult]]
     * rather than forcing callers to diff [[errors]] before and after a [[unify]] call. A [[UnifyResult.Unified]]
     * carries the unifier with every solution applied (safe to commit); a [[UnifyResult.Contradiction]] carries the same

@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver
+import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -130,6 +131,17 @@ class Checker(
   /** Unify two semantic values, updating the unifier in the state. */
   private def doUnify(l: SemValue, r: SemValue, context: Sourced[String]): CheckIO[Unit] =
     modify(s => s.withUnifier(s.unifier.unify(l, r, context)))
+
+  /** Speculatively unify, committing the solutions on success and leaving the state untouched (no error either) on
+    * contradiction — the definitional-equality step (arm 1) of the check-mode resolution ladder.
+    */
+  private def tryUnifyCommitting(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
+    get.flatMap(s =>
+      s.unifier.tryUnify(actual, expected, context) match {
+        case UnifyResult.Unified(u)       => modify(_.withUnifier(u)).as(true)
+        case UnifyResult.Contradiction(_) => pure(false)
+      }
+    )
 
   /** Allocate a fresh metavariable. */
   private[check] def freshMeta: CheckIO[VMeta] =
@@ -257,27 +269,32 @@ class Checker(
                                                                  if (_) lifter.tryPureWrap(tm, updatedExpr, instantiated, expected)
                                                                  else pure(None)
                                                                )
+                              // On unification failure the pure-wrap arm (4) is consulted BEFORE the Coerce probe
+                              // (whose ability-fact side effects would fail the build on a shape the wrap resolves —
+                              // the arms' guards are disjoint from every coercible shape, so widening is untouched).
+                              // The bind-lift arm (3) is argument-position only and never consulted here — this path
+                              // also checks return boundaries (a lambda body against its codomain, the def body
+                              // against its declared return), where stripping a carrier would silently drop the
+                              // effect; those remain hard mismatches.
                               c                           <- preWrap match {
                                                                case Some(wrapped) => pure(wrapped)
                                                                case None          =>
-                                                                 solver.tryUnifyOrCoerce(tm, updatedExpr, instantiated, expected).flatMap {
-                                                                   case Some(r) => pure(r)
-                                                                   // Ladder arm 4 (pure-wrap). The bind-lift arm (3) is
-                                                                   // argument-position only and never consulted here — this
-                                                                   // path also checks return boundaries (a lambda body
-                                                                   // against its codomain, the def body against its declared
-                                                                   // return), where stripping a carrier would silently drop
-                                                                   // the effect; those remain hard mismatches.
-                                                                   case None    =>
+                                                                 tryUnifyCommitting(instantiated, expected, tm.as("Type mismatch.")).flatMap {
+                                                                   case true  => pure(updatedExpr)
+                                                                   case false =>
                                                                      lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
                                                                        case Some(wrapped) => pure(wrapped)
                                                                        case None          =>
-                                                                         modify(st =>
-                                                                           st.withUnifier(
-                                                                             st.unifier
-                                                                               .addMismatch(instantiated, expected, tm.as("Type mismatch."))
-                                                                           )
-                                                                         ).as(updatedExpr)
+                                                                         solver.tryCoerce(tm, updatedExpr, instantiated, expected).flatMap {
+                                                                           case Some(coerced) => pure(coerced)
+                                                                           case None          =>
+                                                                             modify(st =>
+                                                                               st.withUnifier(
+                                                                                 st.unifier
+                                                                                   .addMismatch(instantiated, expected, tm.as("Type mismatch."))
+                                                                               )
+                                                                             ).as(updatedExpr)
+                                                                         }
                                                                      }
                                                                  }
                                                              }
@@ -487,12 +504,22 @@ class Checker(
       for {
         forcedDomain <- force(domain)
         outcome      <- forcedDomain match {
-                          case VMeta(_, Spine.SNil) =>
+                          case VMeta(id, Spine.SNil) =>
                             for {
                               (updated, instantiated) <- instantiatePolymorphic(argExpr, argType)
-                              _                       <- doUnify(instantiated, domain, record.arg.as("Type mismatch."))
+                              // The bare flex slot is solved *by adoption* ([[Unifier.solveAdopting]]): directly (the
+                              // reversed orientation would only postpone — a meta application against a bare meta is
+                              // not a pattern — leaving the slot to be wrongly pinned by the spine's own wrap type),
+                              // and without recording a `Combine` candidate (adoption is not a contribution; a
+                              // candidate would defer the enclosing result to the post-saturation upper-bounds check,
+                              // starving ability resolution of the grounding it needs).
+                              _                       <- modify(s =>
+                                                           s.withUnifier(
+                                                             s.unifier.solveAdopting(id, instantiated, record.arg.as("Type mismatch."))
+                                                           )
+                                                         )
                             } yield SlotOutcome.Resolved(updated)
-                          case rigid                =>
+                          case rigid                 =>
                             checkAgainstSlot(record.arg, argExpr, argType, rigid, domain)
                         }
       } yield record.copy(outcome = outcome)
@@ -639,10 +666,20 @@ class Checker(
                                 else
                                   forcedDomain match {
                                     case VMeta(_, Spine.SNil) =>
-                                      lifter.effectCarrierSplit(argType).flatMap {
-                                        case Some(_) => pure(SlotOutcome.Deferred(argExpr, argType, domain))
-                                        case None    => checkAgainstSlot(arg, argExpr, argType, forcedDomain, domain)
-                                      }
+                                      // The deferral decision needs the argument's *instantiated* type — a bare
+                                      // ability-method reference (`readLine`) infers as a polytype (`VLam`), whose
+                                      // carrier only appears once the binder is peeled to its (flagged) meta.
+                                      // Instantiating here is exactly once either way (checkAgainstSlot's own
+                                      // instantiation is a no-op on a monotype).
+                                      for {
+                                        (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
+                                        out                         <- lifter.effectCarrierSplit(instantiated).flatMap {
+                                                                         case Some(_) =>
+                                                                           pure(SlotOutcome.Deferred(updatedExpr, instantiated, domain))
+                                                                         case None    =>
+                                                                           checkAgainstSlot(arg, updatedExpr, instantiated, forcedDomain, domain)
+                                                                       }
+                                      } yield out
                                     case _                    =>
                                       checkAgainstSlot(arg, argExpr, argType, forcedDomain, domain)
                                   }
@@ -700,25 +737,34 @@ class Checker(
                                                                      else pure(None)
                                                                    )
                                                              }
+                              // On unification failure the lift arms are consulted BEFORE the Coerce probe: probing
+                              // `Coerce` generates ability facts whose missing-implementation diagnostic is a
+                              // build-failing side effect, so a shape a lift arm resolves must never reach it. The
+                              // arms' guards are disjoint from every coercible shape (an `Int` range is neither
+                              // carrier-headed nor an ambient carrier), so widening behaviour is untouched.
                               out                         <- (preBind, prePure) match {
                                                                case (Some((slotRef, bind)), _) => pure(SlotOutcome.Bound(slotRef, bind))
                                                                case (_, Some(wrapped))         => pure(SlotOutcome.Resolved(wrapped))
                                                                case _                          =>
-                                                                 solver.tryUnifyOrCoerce(arg, updatedExpr, instantiated, domain).flatMap {
-                                                                   case Some(r) => pure(SlotOutcome.Resolved(r))
-                                                                   case None    =>
+                                                                 tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
+                                                                   case true  => pure(SlotOutcome.Resolved(updatedExpr))
+                                                                   case false =>
                                                                      lifter.tryBindLift(arg, updatedExpr, instantiated, domain).flatMap {
                                                                        case Some((slotRef, bind)) => pure(SlotOutcome.Bound(slotRef, bind))
                                                                        case None                  =>
                                                                          lifter.tryPureWrap(arg, updatedExpr, instantiated, domain).flatMap {
                                                                            case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped))
                                                                            case None          =>
-                                                                             modify(st =>
-                                                                               st.withUnifier(
-                                                                                 st.unifier
-                                                                                   .addMismatch(instantiated, domain, arg.as("Type mismatch."))
-                                                                               )
-                                                                             ).as(SlotOutcome.Resolved(updatedExpr))
+                                                                             solver.tryCoerce(arg, updatedExpr, instantiated, domain).flatMap {
+                                                                               case Some(coerced) => pure(SlotOutcome.Resolved(coerced))
+                                                                               case None          =>
+                                                                                 modify(st =>
+                                                                                   st.withUnifier(
+                                                                                     st.unifier
+                                                                                       .addMismatch(instantiated, domain, arg.as("Type mismatch."))
+                                                                                   )
+                                                                                 ).as(SlotOutcome.Resolved(updatedExpr))
+                                                                             }
                                                                          }
                                                                      }
                                                                  }
@@ -760,15 +806,23 @@ class Checker(
       split                <- lifter.effectCarrierSplit(argType)
       result               <- split match {
                                 case Some((carrier, payload)) =>
+                                  // The continuation body is *inferred*, never checked against the pushed-down carrier
+                                  // expectation: a still-flex tail type (`old : ?S`) would wrongly unify with the whole
+                                  // carrier type (`?S := IO[String]`), corrupting the binder's payload. The wrap decides
+                                  // `map` (pure tail) vs `flatMap` (carrier-headed tail) from the inferred shape —
+                                  // exactly the former desugarer's continuation rule — and the wrap's carrier-headed
+                                  // result then resolves against the expected type (with coercion) at the let level.
                                   for {
-                                    _                    <- modify(_.bindValueParam(paramName.value, payload))
-                                    (bodyExpr, bodyType) <- expected match {
-                                                              case Some(exp) => check(body, exp).map(e => (e, exp))
-                                                              case None      => infer(body)
-                                                            }
-                                    bind                  = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
-                                    wrapped              <- lifter.bindWrap(bind, bodyExpr, bodyType)
-                                  } yield wrapped
+                                    _                          <- modify(_.bindValueParam(paramName.value, payload))
+                                    (bodyExpr, bodyType)       <- infer(body)
+                                    bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
+                                    (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
+                                    resolved                   <- expected match {
+                                                                    case Some(exp) =>
+                                                                      solver.unifyOrCoerce(body, wrappedExpr, wrappedType, exp).map((_, exp))
+                                                                    case None      => pure((wrappedExpr, wrappedType))
+                                                                  }
+                                  } yield resolved
                                 case None                     =>
                                   for {
                                     _                    <- modify(_.bindValueParam(paramName.value, argType))

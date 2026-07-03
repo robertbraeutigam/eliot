@@ -3,10 +3,7 @@ package com.vanillasource.eliot.eliotc.block.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue
-import com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolvedExpressionMatchers.*
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -51,36 +48,9 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
     }
   }
 
-  // ── Effect threading end to end ───────────────────────────────────────────────────────────────────────────────
-
-  it should "thread effects through a block: swap in block form lifts to flatMap/map" in {
-    val swap =
-      "import eliot.effect.State\ndef swap(next: String): {State[String]} String = {\n  val old = getState\n  putState(next)\n  old\n}"
-    effectBody(swap, "swap").asserting {
-      // `swap(next)` wraps its body in the `next ->` parameter lambda; the block lowers and lifts inside it.
-      case Some(
-            FunLit(
-              "next",
-              FunApp(
-                FunApp(ValRef(flatMap), FunLit(old1, FunApp(FunApp(ValRef(map), FunLit(ign, ParamRef(old2))), FunApp(ValRef(putState), ParamRef(next))))),
-                ValRef(getState)
-              )
-            )
-          ) =>
-        (flatMap.name.name, getState.name.name, map.name.name, putState.name.name, next, old1, old2, ign) shouldBe
-          ("flatMap", "getState", "map", "putState", "next", "old", "old", "_")
-      case other => fail(s"unexpected: $other")
-    }
-  }
-
-  it should "bind the carried result of an effectful `val` (readLine), so the body sees the plain value" in {
-    val echo = "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val line = readLine\n  printLine(line)\n}"
-    effectBody(echo, "echo").asserting {
-      case Some(FunApp(FunApp(ValRef(flatMap), FunLit(line1, FunApp(ValRef(printLine), ParamRef(line2)))), ValRef(readLine))) =>
-        (flatMap.name.name, readLine.name.name, printLine.name.name, line1) shouldBe ("flatMap", "readLine", "printLine", line2)
-      case other => fail(s"unexpected: $other")
-    }
-  }
+  // NOTE: The former "effect threading end to end" cases (blocks lifting to flatMap/map towers) migrated to
+  // `MonomorphicTypeCheckTest`'s effect-lift section: the auto-lift is type-directed elaboration in the NbE checker
+  // now (docs/effect-lift-in-checker.md), so the sequenced shape materialises in the *monomorphic* body, not here.
 
   // ── Merge by fixity ───────────────────────────────────────────────────────────────────────────────────────────
 
@@ -174,9 +144,7 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
       |prefix def neg(p: String): String
       |""".stripMargin + s"def f: String = {\n  $blockBody\n}"
 
-  private val stateStub =
-    SystemImport("State", "ability State[S, F[_]] {\ndef getState: F[S]\ndef putState(s: S): F[Unit]\n}", ModuleName.effectPackage)
-  private val imports   = systemImports :+ stateStub
+  private val imports = systemImports
 
   private def vfqn(name: String): ValueFQN = ValueFQN(testModuleName, QualifiedName(name, Qualifier.Default))
 
@@ -185,13 +153,6 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
       facts.values
         .collectFirst { case bdv: BlockDesugaredValue if bdv.vfqn == vfqn(name) => bdv }
         .flatMap(_.runtime.map(_.value))
-    }
-
-  private def effectBody(source: String, name: String): IO[Option[OperatorResolvedExpression]] =
-    runGenerator(source, EffectDesugaredValue.Key(vfqn(name)), imports).map { case (_, facts) =>
-      facts.values
-        .collectFirst { case edv: EffectDesugaredValue if edv.value.vfqn == vfqn(name) => edv }
-        .flatMap(_.value.runtime.map(_.value))
     }
 
   private def blockErrors(source: String, name: String): IO[Seq[String]] =

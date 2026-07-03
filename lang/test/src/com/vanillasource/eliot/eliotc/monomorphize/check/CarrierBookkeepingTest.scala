@@ -45,8 +45,10 @@ class CarrierBookkeepingTest
     probe(consoleValue, "echo", Seq(ioType)).asserting(_.map(_.effectCarrierMetas) shouldBe Some(1))
   }
 
-  it should "not flag a bare unconstrained higher-kinded binder's instantiation meta" in {
-    probe(bareHktValue, "use").asserting(_.map(_.effectCarrierMetas) shouldBe Some(0))
+  it should "flag a bare higher-kinded binder's instantiation meta (the unfiltered callee-side carrier notion)" in {
+    // A callee result rides *any* of its own HKT binders — including a deliberately unconstrained `G[_]` like
+    // `runState`'s (the effect-transparent discharge combinators); the constraint filter is ambient-only.
+    probe(bareHktValue, "use").asserting(_.map(_.effectCarrierMetas) shouldBe Some(1))
   }
 
   private def probe(source: String, name: String, typeArgs: Seq[GroundValue] = Seq.empty): IO[Option[CarrierProbe]] =

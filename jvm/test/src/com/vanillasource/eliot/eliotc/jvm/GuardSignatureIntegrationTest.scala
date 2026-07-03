@@ -10,9 +10,9 @@ package com.vanillasource.eliot.eliotc.jvm
   * discharge accepts the type or rejects with the author's message. So a satisfied guard compiles and runs as if the
   * return were the bare type, and an unsatisfied one fails the build with the author message.
   *
-  * The effect sugar *does* auto-lift the combinator bodies, but the lift is correct here because `foldOption`'s
-  * `ifNone: B` is an eliminator *branch* position (its type is the callee's return type), which the direct-style
-  * desugarer passes through instead of sequencing — see `CalleeInfo.isBranchPosition`. (Sequencing it would collapse
+  * The checker's effect lift *does* elaborate the combinator bodies, but the lift is correct here because
+  * `foldOption`'s `ifNone: B` is a flex eliminator slot the lift defers and then passes through (the effectful branch
+  * value rides the eliminator's own return; see docs/effect-lift-in-checker.md). (Sequencing it would collapse
   * every guard to an unconditional `Left`; that is the regression this suite guards against.) This is also the first
   * end-to-end exercise of the compile-time `Option` carrier (`compiler/.../Option.els`), since `when`/`orError` reduce
   * through its `Some`/`None`/`foldOption`.

@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -1181,5 +1181,99 @@ class MonomorphicTypeCheckTest
   it should "reject a bare `error(msg)` guard with the author message" in {
     runCombinator(combinators + "def foo: error(\"boom\")", name = "foo", typeArgs = Seq.empty)
       .asserting(_ shouldBe Seq("boom" at "foo"))
+  }
+
+  // --- The checker-side effect lift (docs/effect-lift-in-checker.md, Step 4) ---
+
+  // The former effect-phase rewrite-shape assertions, as *monomorphic body* assertions: the auto-lift is type-directed
+  // elaboration in the checker now, so the sequenced `Effect.flatMap`/`map`/`pure` shape materialises in the
+  // monomorphic output (here at the stub `IO` carrier, whose refs stay abstract ability references — the resolved-impl
+  // behaviour is pinned end-to-end in the jvm `ExamplesIntegrationTest`).
+
+  "the checker-side effect lift" should "sequence a direct-style printLine(readLine) with Effect.flatMap" in {
+    liftedBody("import eliot.effect.Console\ndef echo: {Console} Unit = printLine(readLine)")
+      .asserting(_ should contain("flatMap"))
+  }
+
+  it should "leave already-monadic flatMap code unchanged (no double bind)" in {
+    liftedBody(
+      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = flatMap(s -> printLine(s), readLine)"
+    ).asserting(_.count(_ == "flatMap") shouldBe 1)
+  }
+
+  it should "pass an effectful eliminator branch through unsequenced (emergent from the flex-slot deferral)" in {
+    liftedBody(
+      "import eliot.effect.Console\ndef echo: {Console} String = choose(readLine, readLine)\ndef choose[A](x: A, y: A): A = x"
+    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq.empty)
+  }
+
+  it should "bind the carried result of an effectful `val`, so the body sees the plain value" in {
+    liftedBody(
+      "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val line = readLine\n  printLine(line)\n}"
+    ).asserting(_ should contain("flatMap"))
+  }
+
+  it should "thread effects through a block, selecting map for the pure tail statement" in {
+    liftedBody(
+      "import eliot.effect.State\ndef echo(next: String): {State[String]} String = {\n  val old = getState\n  putState(next)\n  old\n}"
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+  }
+
+  it should "bind an effectful subject dotted into a function-typed parameter (the dot-inline regression)" in {
+    // `readLine.f` — `.`'s flex `a: A` slot defers, `f` rigidifies it to `String`, Phase B bind-lifts (map, pure core),
+    // and the carrier-headed result then bind-lifts again into printLine's `String` slot (flatMap).
+    liftedBody(
+      "import eliot.effect.Console\ndef call(f: Function[String, String]): {Console} Unit = printLine(readLine.f)",
+      name = "call"
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+  }
+
+  it should "wrap a pure body under a carrier return with Effect.pure" in {
+    liftedBody("import eliot.effect.Console\ndef echo: {Console} String = \"quiet\"")
+      .asserting(_ should contain("pure"))
+  }
+
+  private val ioFQN            =
+    ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "IO"), QualifiedName("IO", Qualifier.Type))
+  private val ioCarrier: GroundValue = GroundValue.Structure(ioFQN, Seq.empty, GroundValue.Type)
+
+  private val effectLiftImports: Seq[SystemImport] = ambientStubsWith(
+    "IO"       -> "type IO[A]",
+    // The ambient stub plus the real `.` operator (mirroring `stdlib/.../Function.els`), for the dotted-subject case.
+    "Function" ->
+      "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)"
+  ) ++ Seq(
+    SystemImport(
+      "Effect",
+      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}",
+      ModuleName.effectPackage
+    ),
+    SystemImport(
+      "State",
+      "ability State[S, F[_]] {\ndef getState: F[S]\ndef putState(s: S): F[Unit]\n}",
+      ModuleName.effectPackage
+    )
+  )
+
+  /** The names of every value referenced in the named value's monomorphic body, checked at the stub `IO` carrier. */
+  private def liftedBody(source: String, name: String = "echo"): IO[Seq[String]] =
+    runGenerator(
+      source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq(ioCarrier)),
+      effectLiftImports
+    ).map(
+      _._2.values
+        .collectFirst { case mv: MonomorphicValue if mv.vfqn.name.name == name => mv }
+        .flatMap(_.runtime)
+        .map(body => referencedNames(body.value))
+        .getOrElse(Seq.empty)
+    )
+
+  private def referencedNames(expr: MonomorphicExpression.Expression): Seq[String] = expr match {
+    case MonomorphicExpression.MonomorphicValueReference(fqn, _) => Seq(fqn.value.name.name)
+    case MonomorphicExpression.FunctionApplication(target, arg)  =>
+      referencedNames(target.value.expression) ++ referencedNames(arg.value.expression)
+    case MonomorphicExpression.FunctionLiteral(_, _, body)       => referencedNames(body.value.expression)
+    case _                                                       => Seq.empty
   }
 }

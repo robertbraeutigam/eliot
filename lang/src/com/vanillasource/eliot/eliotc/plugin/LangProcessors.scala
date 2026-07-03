@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.ability.processor.{
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.block.processor.BlockDesugaringProcessor
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
+import com.vanillasource.eliot.eliotc.effect.processor.EffectCheckProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module.processor.{
@@ -86,7 +86,7 @@ object LangProcessors {
     MatchDesugaringProcessor(),
     OperatorResolverProcessor(),
     RecursionCheckProcessor(),
-    EffectDesugaringProcessor(),
+    EffectCheckProcessor(),
     SaturatedValueProcessor(),
     AbilityImplementationProcessor(),
     AbilityImplementationCheckProcessor(),

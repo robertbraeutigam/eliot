@@ -4,7 +4,7 @@ import cats.data.NonEmptySeq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
-import com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue
+import com.vanillasource.eliot.eliotc.effect.fact.EffectCheckedValue
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleName,
   QualifiedName,
@@ -51,16 +51,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * A value with no parameter-position bare omittable reference passes its [[OperatorResolvedValue]] through unchanged.
   */
 class SaturatedValueProcessor
-    extends TransformationProcessor[EffectDesugaredValue.Key, SaturatedValue.Key](key =>
-      EffectDesugaredValue.Key(key.vfqn, key.platform)
+    extends TransformationProcessor[EffectCheckedValue.Key, SaturatedValue.Key](key =>
+      EffectCheckedValue.Key(key.vfqn, key.platform)
     ) {
 
   override protected def generateFromKeyAndFact(
       key: SaturatedValue.Key,
-      effectDesugared: EffectDesugaredValue
+      effectChecked: EffectCheckedValue
   ): CompilerIO[SaturatedValue] = {
-    given Platform = effectDesugared.value.platform
-    val value      = effectDesugared.value
+    given Platform = effectChecked.value.platform
+    val value      = effectChecked.value
     dataSaturate(value).flatMap {
       case Some(rewritten) => rewritten.pure[CompilerIO]
       case None            => saturate(value)

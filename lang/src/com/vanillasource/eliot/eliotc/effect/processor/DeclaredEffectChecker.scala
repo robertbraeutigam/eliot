@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * a value with an abstract effect carrier (a `{...}` set or hand-written `[F[_] ~ ...]`) — a value committing to a
   * concrete carrier (`main : IO[Unit]`) or a pure return has an empty `carrier` and so no declared set to honour (the
   * concrete carrier provides every effect; the pure-return case is the separate fail-safe in
-  * [[EffectDesugaringProcessor]]).
+  * [[EffectCheckProcessor]]).
   *
   * The check is at *ability* granularity: declaring `{Dep[Database]}` covers any `Dep` use; a finer type-argument
   * mismatch (`Dep[Logger]` where only `Dep[Database]` is declared) is left to monomorphization at the concrete use

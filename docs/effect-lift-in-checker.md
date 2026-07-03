@@ -1,9 +1,41 @@
 # Effect Auto-Lift in the Checker (Type-Directed Elaboration)
 
-Status: **Steps 1–3 done** (spine restructure, carrier bookkeeping, and the `EffectLifter`
-collaborator all landed; full suite green — the lifter is inert on every currently-accepted
-program, and probe 3 (`printLine(pure("lifted"))` under a concrete-`IO` main) already compiles and
-runs). Steps 4–5 pending. Implementation notes discovered en route:
+Status: **Steps 1–4 done — the pivot has landed.** `DirectStyleDesugarer` (incl. the dot-inline) is
+deleted, the effect phase is verification-only (`EffectCheckProcessor`/`EffectCheckedValue`, fed by
+the `EffectUsageCollector` accounting walk), and the checker owns the lift. All step-4 tests pass:
+the `81485de9` regression, the five new-functionality programs (user pipe ×2, non-infix pipe,
+dotted-concrete, author machinery into a pure slot), full parity (986/986 suite, every example
+module builds, `ide.lsp` green). Step 5 (extended matrix + docs sync) pending. Implementation notes
+discovered en route:
+
+- Step-4, **callee-side carrier notion is UNFILTERED**: the plan's "true iff the binder carries
+  ability constraints" was wrong for callee results — today's `CalleeInfo.resultEffectful` uses
+  *unfiltered* `carrierBinders`, and that is load-bearing: `runState[S, G[_], A]`'s deliberately
+  unconstrained `G` must still make a bound `val outcome = runState(...)` sequence. So
+  `effectCarrier` is flagged on *every* HKT binder; the `∩ paramConstraints` filter is ambient-only.
+- Step-4, **Phase-B pass-through is adoption, not contribution** (`Unifier.solveAdopting`): the
+  still-flex slot is solved *directly* to the carrier-headed type — the reverse orientation only
+  postpones (not a pattern), letting the spine's wrap type wrongly pin the slot ("map instead of
+  flatMap" on the Abort branch shape) — and *without* recording a `Combine` candidate, which would
+  reroute the enclosing result through the post-saturation upper-bounds check and starve ability
+  resolution (the guard combinators' `pure` impl never folds into the reduced native).
+- Step-4, **finalization can now solve metas**: `resolveUpperBounds` commits its
+  definitional-equality successes (a deferred upper bound may be the only constraint grounding the
+  solution's residual metas), and the post-drain pipeline drains once more after finalization so
+  constraints postponed against those metas resolve instead of defaulting.
+- Step-4, **lift arms are consulted before the Coerce probe** on unification failure: probing
+  `Coerce` generates ability facts whose missing-implementation diagnostic is a build-failing side
+  effect (the `combinePair` caveat), so `"..." : String` under a concrete `AbortCarrier[IO, String]`
+  expectation must pure-wrap before any probe. The arms' guards are disjoint from every coercible
+  shape (an `Int` range is neither carrier-headed nor ambient), so widening behaviour is untouched
+  — the "Coerce stays before the lift" ordering note is superseded by this refinement.
+- Step-4, **the let-bind rule infers its continuation**: pushing the carrier-typed expected into the
+  bound body lets a still-flex tail type (`old : ?S`) wrongly unify with the whole carrier type
+  (`?S := IO[String]`, corrupting `State[S]`); the body is inferred, the wrap picks `map`/`flatMap`
+  from its shape (the former desugarer's continuation rule), and the wrap's result resolves against
+  the expected type at the let level.
+
+Earlier notes:
 
 - Step-2: an ability method's own carrier binder (`printLine`'s `F`) carries *no* explicit
   `paramConstraints` entry — the owning ability is the constraint — so `CarrierKindChecker` flags

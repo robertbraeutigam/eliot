@@ -313,7 +313,7 @@ any program in which some input it does take is wrong.*
 **Eliot user code cannot express recursion or loops — full stop.** There is no `fix`/`letrec`, lambda parameters
 are non-recursive, and every cycle is therefore a self/mutual reference among top-level named values, visible in the
 resolved value-reference graph. The `termination` package gates this: `RecursionCheckProcessor` (running
-`RecursionChecker`), placed after operator resolution and before effect desugaring, rejects any cycle in a value's
+`RecursionChecker`), placed after operator resolution and before the effect checks, rejects any cycle in a value's
 **runtime-body** reference graph (`"Value 'X' is defined recursively."`) — body only, never the signature, so a
 covariant `data Tree(left: Tree, right: Tree)` and the monad-transformer lift are not flagged. A rejected value never
 produces its `RecursionCheckedValue` fact, so it never reaches saturation or monomorphization (fail-safe by

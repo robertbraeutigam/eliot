@@ -2,23 +2,19 @@ package com.vanillasource.eliot.eliotc.effect.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
-  ParameterReference,
-  SignatureView,
-  ValueReference,
-  isFunctionReference,
-  spine
-}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{SignatureView, ValueReference}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Reads a callee's operator-resolved signature into the [[CalleeSignatures.CalleeInfo]] the body auto-lift needs: its
-  * value-parameter types, its return type, the names of its higher-kinded (carrier) generic binders, and the
-  * user-facing effects it performs. An unresolvable callee is treated as a zero-parameter pure value (conservative;
-  * monomorphization remains the backstop).
+/** Reads a callee's operator-resolved signature into the [[CalleeSignatures.CalleeInfo]] the effect *accounting* needs
+  * ([[EffectUsageCollector]]): its value-parameter types, its return type, the names of its higher-kinded (carrier)
+  * generic binders, and the user-facing effects it performs. An unresolvable callee is treated as a zero-parameter
+  * pure value (conservative; monomorphization remains the backstop). The former bind/branch-position half (which
+  * argument slots sequence an effectful argument) is gone — that decision is type-directed elaboration in the NbE
+  * checker ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]]).
   */
 class CalleeSignatures {
   import CalleeSignatures.*
@@ -63,7 +59,7 @@ class CalleeSignatures {
 
 object CalleeSignatures {
 
-  /** A callee's signature reduced to what the auto-lift reads, plus the user-facing effects it performs. */
+  /** A callee's signature reduced to what the effect accounting reads, plus the user-facing effects it performs. */
   case class CalleeInfo(
       valueParamTypes: Seq[OperatorResolvedExpression],
       returnType: OperatorResolvedExpression,
@@ -76,43 +72,5 @@ object CalleeSignatures {
       */
     def resultEffectful(appliedCount: Int): Boolean =
       appliedCount >= valueParamTypes.size && EffectCarriers.carrierHeaded(returnType, carrierBinders)
-
-    /** Whether argument position `pos` auto-binds an effectful argument. It does iff the callee's parameter there is a
-      * *pure value* position: an **un-applied** type (`args.isEmpty`) that is neither function-typed nor one of the
-      * callee's own higher-kinded carrier binders — i.e. a concrete scalar (`String`, `Unit`) or a bare type variable
-      * (`second : A`).
-      *
-      * Everything else is a *storage* position that takes the effectful action directly, unbound: a function-typed
-      * parameter (a continuation), and any *applied* type constructor — whether it mentions a carrier (`fa : F[A]`,
-      * `p : AbortCarrier[G, A]`, a discharge/carrier slot) or not (`x : Id[A]`). So `andThen(printLine(..), abort)` binds
-      * `abort` into the bare `A`, but `runId(runAbort(p))` passes the carrier value into `Id[A]` unbound.
-      */
-    def isBindPosition(pos: Int): Boolean =
-      valueParamTypes.lift(pos).exists { paramType =>
-        val (head, args) = spine(paramType)
-        args.isEmpty && (head match {
-          case ref: ValueReference   => !isFunctionReference(ref)
-          case ParameterReference(n) => !carrierBinders.contains(n.value)
-          case _                     => true
-        })
-      }
-
-    /** Whether argument position `pos` is an *eliminator branch* — a value parameter whose type is (structurally) the
-      * callee's own return type, e.g. `ifNone: B` / `whenTrue: A` of `foldOption[A,B](.., B, ..): B` / `fold[A](..,
-      * A, A): A`. Such a position does not *consume* a value; it *produces* the result, so it carries whatever the
-      * result carries. When the result is instantiated to a carrier (a guard's `{Throw[String]}` return), an effectful
-      * argument here is a *branch value* (the chosen outcome), not an action to sequence — so [[buildArguments]]
-      * leaves it unbound and marks the eliminator call effectful instead. Recognised purely structurally (both the
-      * parameter and the return are the *same* bare generic binder), so it fires only for genuine eliminators and never
-      * for a concrete-typed value parameter.
-      */
-    def isBranchPosition(pos: Int): Boolean =
-      valueParamTypes.lift(pos).exists { paramType =>
-        (spine(paramType), spine(returnType)) match {
-          case ((ParameterReference(pn), pArgs), (ParameterReference(rn), rArgs)) =>
-            pArgs.isEmpty && rArgs.isEmpty && pn.value === rn.value
-          case _                                                                  => false
-        }
-      }
   }
 }

@@ -10,9 +10,9 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   * it free of body-level recursion as a [[RecursionCheckedValue]].
   *
   * It is a standalone phase in the value chain, placed after `OperatorResolverProcessor` (so application structure is
-  * final) and before `EffectDesugaringProcessor` (whose sole input is repointed to this fact). A recursive value has a
+  * final) and before `EffectCheckProcessor` (whose sole input is repointed to this fact). A recursive value has a
   * [[com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError]] reported against it, which trips
-  * `registerFactIfClear` so the [[RecursionCheckedValue]] is never registered — and because effect desugaring (and
+  * `registerFactIfClear` so the [[RecursionCheckedValue]] is never registered — and because the effect checks (and
   * therefore saturation, monomorphization and codegen) reads only this fact, the recursive value never gets any
   * further. The certified value is carried through untouched; the signature, body and every other field are unchanged.
   */

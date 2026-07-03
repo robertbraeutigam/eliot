@@ -262,6 +262,11 @@ class TypeStackLoop(
     for {
       _ <- saturateToFixedPoint(saturation, ctx)
       _ <- finalization.traverse_(_.run(ctx))
+      // A finalization pass can commit new solutions (the upper-bounds discharge commits its definitional-equality
+      // successes), so the equality core settles once more before defaulting: a constraint postponed against a meta
+      // those solutions ground (e.g. an unapplied combinator's codomain against a deferred-then-discharged slot) still
+      // resolves instead of its metas defaulting to `Type`.
+      _ <- modify(s => s.withUnifier(s.unifier.drain()))
       _ <- defaultUnsolvedMetas
       _ <- assertEveryMetaResolvedOrAbstract(ctx)
     } yield ()

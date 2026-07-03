@@ -18,14 +18,6 @@ object WellKnownTypes {
   val functionCarrierFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Default))
 
-  /** The `.` subject-application operator (`eliot.lang.Function`'s `.`): `a.f(rest…)` parses to `.(a, f(rest…))`, whose
-    * body is `f(a)`. The effect auto-lift inlines it (`.(subject, fn)` ⤳ `fn(subject)`) so the bind decision falls on
-    * the *real* callee's parameter — a carrier-typed storage slot (`readLine.flatMap(f)`, no bind) versus a plain value
-    * slot (`readLine.length`, bind) — rather than on `.`'s own bare `a: A` parameter, which is always a bind position.
-    */
-  val dotOperatorFQN: ValueFQN =
-    ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName(".", Qualifier.Default))
-
   private val effectModule: ModuleName = ModuleName(effectPackage, "Effect")
 
   /** The `Effect` ability's `flatMap` (`eliot.effect.Effect`) — the sequencing combinator of the internal effect

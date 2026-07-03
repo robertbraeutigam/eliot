@@ -25,7 +25,7 @@ object EffectCarriers {
     * is the *callee* notion of a carrier: an ability method's return rides its ability's binder (`printLine : F[Unit]`)
     * even though that binder carries no constraint on the method itself, so no constraint is required here. A *value's
     * own* ambient effect carriers are the further-filtered subset whose binder is ability-constrained — see the
-    * `paramConstraints` filter in [[EffectDesugaringProcessor]], which excludes a bare generic `C[_, _]`.
+    * `paramConstraints` filter in [[EffectCheckProcessor]], which excludes a bare generic `C[_, _]`.
     */
   def carrierBinders(view: SignatureView): Set[String] =
     view.binders.filter(isHktBinder).map(_.name.value).toSet

@@ -1,14 +1,13 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
@@ -52,12 +51,16 @@ class CarrierKindChecker(
     * signature ([[SignatureView]]); the metas align with the binders *after* the explicit type arguments already
     * applied. An ordinary `[A]` binder (kind `Type`) is left untagged — solving it to a proper type is correct.
     *
-    * A higher-kinded binder that is additionally *ability-constrained* is also flagged as an *effect carrier*
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole.Instantiation.effectCarrier]]) — either explicitly
-    * (an entry in the callee's `paramConstraints`, the M1 `{E...}` sugar) or implicitly by the callee's owning ability
-    * (`printLine`'s `F`, prepended from `ability Console[F[_]]` — an ability's common binders carry no explicit `~`
-    * constraint entry, the ability itself is the constraint). A bare unconstrained HKT binder (`C[_, _]`) keeps only
-    * its carrier kind, so it is never treated as liftable.
+    * Every higher-kinded binder's meta is also flagged as an *effect carrier*
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole.Instantiation.effectCarrier]]). This is the effect
+    * phase's *callee-side* carrier notion (`EffectCarriers.carrierBinders`, deliberately unfiltered): an effectful
+    * result rides *any* of the callee's own HKT binders — including a deliberately unconstrained one like `runState`'s
+    * `G[_]` (the effect-transparent discharge combinators return `G[...]` with no ability constraint, and a `val`
+    * binding such a result must still sequence it). The `carrierBinders ∩ paramConstraints` filter applies only to a
+    * value's *own* ambient carriers ([[CheckState.ambientCarriers]]), never to callee results. A spurious flag on a
+    * genuinely non-effect container is harmless: the lift arms fire only after unification failed with a fitting
+    * payload, and the spliced `Effect` machinery must still resolve an instance — failing loudly otherwise, exactly as
+    * the former desugarer's unfiltered callee notion did.
     */
   def recordCarrierMetas(expr: SemExpression, implicitMetas: Seq[SemValue]): CheckIO[Unit] =
     expr.expression match {
@@ -67,50 +70,25 @@ class CarrierKindChecker(
           _     <- svOpt match {
                      case None     => pure(())
                      case Some(sv) =>
-                       for {
-                         abilityBinders <- owningAbilityArity(fqn.value)
-                         signature       = sv.value.typeStack.map(_.signature)
-                         binders         = SignatureView.of(signature).binders.zipWithIndex.drop(explicitArgs.size)
-                         _              <- implicitMetas.zip(binders).traverse_ {
-                                             case (VMeta(id, _), (binder, index)) =>
-                                               val effectCarrier =
-                                                 sv.value.paramConstraints.contains(binder.name.value) ||
-                                                   index < abilityBinders
-                                               recordIfHigherKinded(id, binder, fqn, effectCarrier)
-                                             case _                               => pure(())
-                                           }
-                       } yield ()
+                       val signature = sv.value.typeStack.map(_.signature)
+                       val binders   = SignatureView.of(signature).binders.drop(explicitArgs.size)
+                       implicitMetas.zip(binders).traverse_ {
+                         case (VMeta(id, _), binder) => recordIfHigherKinded(id, binder, fqn)
+                         case _                      => pure(())
+                       }
                    }
         } yield ()
       case _                                                                         => pure(())
     }
 
-  /** The number of leading binders the value's *owning ability* contributes to its signature (`ability Console[F[_]]`
-    * prepends `F` to every member's binders), 0 for a non-ability value. Read off the ability *marker*'s binder count
-    * (the synthetic value named after the ability, sharing the method's `Ability(name)` qualifier), like
-    * `AbilityResolver.abilityArity`. An unresolvable marker counts 0 — the fail-safe direction: a missed effect-carrier
-    * flag surfaces as an ordinary type error at the use site, never a wrong lift.
-    */
-  private def owningAbilityArity(vfqn: ValueFQN): CheckIO[Int] =
-    vfqn.name.qualifier match {
-      case Qualifier.Ability(abilityName) =>
-        val markerFqn = ValueFQN(vfqn.moduleName, QualifiedName(abilityName, vfqn.name.qualifier))
-        liftF(getFact(OperatorResolvedValue.Key(markerFqn, platform))).map {
-          case Some(orv) => SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature)).binders.length
-          case None      => 0
-        }
-      case _                              => pure(0)
-    }
-
   /** Evaluate a binder's kind annotation; if it forces to a `VPi` (a higher kind such as `Type -> Type`), record the
-    * meta as a carrier with that kind — and, when the binder is ability-constrained (`effectCarrier`), flag it as an
-    * effect carrier. A `Type`-kinded (ordinary) binder, or one with no annotation, is not recorded.
+    * meta as a carrier with that kind and flag it as an effect carrier (see [[recordCarrierMetas]]). A `Type`-kinded
+    * (ordinary) binder, or one with no annotation, is not recorded.
     */
   private def recordIfHigherKinded(
       id: SemValue.MetaId,
       binder: SignatureView.Binder,
-      fqn: Sourced[ValueFQN],
-      effectCarrier: Boolean
+      fqn: Sourced[ValueFQN]
   ): CheckIO[Unit] =
     binder.parameterType match {
       case None     => pure(())
@@ -121,8 +99,7 @@ class CarrierKindChecker(
           ctx     = fqn.as("Higher-kinded type parameter mismatch.")
           _      <- forced match {
                       case _: VPi =>
-                        modify(_.recordCarrierKind(id, forced, ctx)) >>
-                          (if (effectCarrier) modify(_.recordEffectCarrier(id)) else pure(()))
+                        modify(_.recordCarrierKind(id, forced, ctx)) >> modify(_.recordEffectCarrier(id))
                       case _      => pure(())
                     }
         } yield ()

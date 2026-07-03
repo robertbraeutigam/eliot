@@ -113,8 +113,14 @@ class RefinementSolver(
     * applies (no instance, a `none` result, or bounds too abstract to decide). Only fires for leaf positions (argument
     * / binding / return); coercing inside a constructor (e.g. `List[Int[0,5]] → List[Int[0,10]]`) needs variance
     * reasoning and is not handled here.
+    *
+    * Exposed to the checker so the effect-lift arms can be consulted *between* definitional equality and this probe:
+    * resolving `Coerce` generates ability facts whose missing-implementation diagnostic is a build-failing *side
+    * effect* (the same reason [[combinePair]] guards its probe), so a pure-into-carrier or carrier-into-pure shape a
+    * lift arm resolves must never reach it. The lift arms' guards are disjoint from every coercible shape (an `Int`
+    * range is neither carrier-headed nor an ambient carrier), so current widening behaviour is untouched.
     */
-  private def tryCoerce(
+  private[monomorphize] def tryCoerce(
       tm: Sourced[OperatorResolvedExpression],
       expr: SemExpression,
       actual: SemValue,
@@ -421,12 +427,18 @@ class RefinementSolver(
 
   /** Whether `actual` is definitionally equal to, or `Coerce`s into, `expected`. Resolves `Coerce[actual, expected]` by
     * name and evaluates it (the same machinery as check-mode coercion), without re-typing any expression.
+    *
+    * A successful *equality* commits its solutions: a deferred upper bound may be the only constraint connecting the
+    * solution's residual metas (e.g. a carrier meta `?F` in `?F[?A]` against the expected `Either[String, A]` — the
+    * effect-lift's Phase-B pass-through solves the slot early, so the return-position unification that used to pin
+    * those metas is deferred to exactly this check). Discarding them would leave the metas to default and fail
+    * quoting.
     */
   private def coercionExists(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
     for {
       s      <- get
       result <- s.unifier.tryUnify(actual, expected, context) match {
-                  case UnifyResult.Unified(_)       => pure(true)
+                  case UnifyResult.Unified(u)       => modify(_.withUnifier(u)).as(true)
                   case UnifyResult.Contradiction(_) => resolveCoercion(actual, expected, context)
                 }
     } yield result

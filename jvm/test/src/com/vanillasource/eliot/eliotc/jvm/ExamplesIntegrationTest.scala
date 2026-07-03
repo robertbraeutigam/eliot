@@ -58,7 +58,7 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // --- Effects M3: body auto-lift (the headline) — direct-style code, no hand-written flatMap ---
 
   // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `printLine`, which expects
-  // a plain `String`; the effect-desugar phase binds it, producing `flatMap(x -> printLine(x), readLine)`, with the
+  // a plain `String`; the checker's effect lift binds it, producing `flatMap(x -> printLine(x), readLine)`, with the
   // carrier pinned to `IO` by `main`'s return. No `import eliot.effect.Effect`, no hand-written `flatMap`.
   "effect auto-lift" should "sequence a direct-style printLine(readLine) at a concrete IO main" in {
     compileAndRun("""import eliot.effect.Console
@@ -92,9 +92,9 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   }
 
   // The `.` operator chains an ability method on an abstract effect carrier: `readLine.flatMap(f)` is `.(readLine,
-  // flatMap(f))`, which the auto-lift inlines to `flatMap(f, readLine)` — leaving the effectful subject in `flatMap`'s
-  // carrier-typed storage slot rather than sequencing it into `.`'s bare `a: A` (which would corrupt the carrier). This
-  // is the idiomatic subject-last spelling of the hand-written `flatMap` above.
+  // flatMap(f))`. The subject flows into `.`'s flex `a: A` slot, which the checker's effect lift defers; `flatMap`
+  // rigidifies `A` to its carrier-typed storage slot, so the subject passes through unsequenced (binding it into a bare
+  // `a: A` would corrupt the carrier). This is the idiomatic subject-last spelling of the hand-written `flatMap` above.
   it should "chain an ability method on an abstract carrier via the dot operator" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -123,8 +123,88 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
     ).asserting(_ shouldBe "loud")
   }
 
+  // --- The checker-side effect lift (docs/effect-lift-in-checker.md, Step 4): shapes no pre-typing heuristic could
+  // decide. The bind/pass-through decision is per *instantiation* in the NbE checker, so a generic slot (`.`'s or a
+  // user pipe's `a: A`) sequences an effectful subject when its instantiation is a plain value, and passes it through
+  // when its instantiation is the carrier itself. ---
+
+  // The regression of the dot-inline era (commit 81485de9): an effectful subject dotted into a *function-typed
+  // parameter*. `.`'s flex `a: A` slot defers, `f` rigidifies `A := String`, and the deferred slot bind-lifts.
+  it should "bind an effectful subject dotted into a function-typed parameter" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |
+        |def call(f: String => String): {Console} Unit = printLine(readLine.f)
+        |
+        |def main: IO[Unit] = call(s -> s)""".stripMargin,
+      stdin = "through f\n"
+    ).asserting(_ shouldBe "through f")
+  }
+
+  // A user-defined pipe with `.`'s exact shape, chaining an ability method: the effectful subject passes through the
+  // flex slot into `flatMap`'s carrier storage (no bind) — proving the decision is type-directed, not `.`-specific.
+  it should "chain an ability method through a user-defined pipe operator" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
+        |
+        |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
+        |
+        |def echo: {Console} Unit = readLine |> flatMap(line -> printLine(line))
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "piped\n"
+    ).asserting(_ shouldBe "piped")
+  }
+
+  // The non-infix twin — an ordinary named function with the identical signature — proving the fix is shape-generic,
+  // not operator plumbing.
+  it should "chain an ability method through a non-infix pipe function" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
+        |
+        |def pipe[A, B](a: A, f: A => B): B = f(a)
+        |
+        |def echo: {Console} Unit = pipe(readLine, flatMap(line -> printLine(line)))
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "plainly piped\n"
+    ).asserting(_ shouldBe "plainly piped")
+  }
+
+  // The bind direction through the same user pipe: the subject flows into a *concrete* `String` slot, so the deferred
+  // flex slot rigidifies and the subject is sequenced.
+  it should "bind an effectful subject piped into a concrete slot" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |
+        |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
+        |
+        |def shout(s: String): String = s
+        |
+        |def echo: {Console} Unit = printLine(readLine |> shout)
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "piped loud\n"
+    ).asserting(_ shouldBe "piped loud")
+  }
+
+  // Author-lifted machinery into a pure slot: the former phase's `isAuthorMachineryCall` left `pure("lifted")` alone
+  // and monomorphization rejected it; under the type-directed lift it binds like any carrier-headed argument.
+  it should "bind author-written machinery flowing into a pure slot" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
+        |
+        |def echo: {Console} Unit = printLine(pure("lifted"))
+        |
+        |def main: IO[Unit] = echo""".stripMargin
+    ).asserting(_ shouldBe "lifted")
+  }
+
   // Fail-safe: a value that performs an effect but is declared with a non-carrier (pure) return type is rejected at the
-  // effect-desugar phase, not silently miscompiled.
+  // effect-check phase, not silently miscompiled.
   "an effectful body under a pure return" should "be rejected" in {
     compileForErrors(
       """import eliot.effect.Console
