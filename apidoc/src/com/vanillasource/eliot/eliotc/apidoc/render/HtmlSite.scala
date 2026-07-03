@@ -196,7 +196,7 @@ object HtmlSite {
       }
     val implementations =
       if (item.implementations.isEmpty) ""
-      else s"""<div class="members"><h3>Implementations</h3>${item.implementations.map(renderImplementation).mkString}</div>"""
+      else s"""<details class="members impls"><summary>Implementations</summary>${item.implementations.map(renderImplementation).mkString}</details>"""
 
     s"""<section class="item item-${item.kind.toString.toLowerCase}" id="${escape(item.anchor)}">
        |<div class="item-head"><span class="chip chip-${item.kind.toString.toLowerCase}">${escape(item.kind.label)}</span><h2 class="item-name"><a href="#${escape(item.anchor)}">${escape(item.name)}</a></h2>$badges</div>
@@ -298,6 +298,11 @@ object HtmlSite {
       |.doc pre.code code{background:none;border:0;padding:0;color:inherit}
       |.members{margin:14px 0 2px;padding-left:16px;border-left:2px solid var(--border)}
       |.members h3{font-family:var(--font-display);font-size:.72rem;color:var(--text-muted);margin:10px 0 8px;text-transform:uppercase;letter-spacing:.05em;font-weight:var(--weight-medium)}
+      |.impls>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;font-family:var(--font-display);font-size:.72rem;color:var(--text-muted);margin:10px 0 8px;text-transform:uppercase;letter-spacing:.05em;font-weight:var(--weight-medium)}
+      |.impls>summary::-webkit-details-marker{display:none}
+      |.impls>summary::before{content:"";flex:0 0 auto;width:0;height:0;border-style:solid;border-width:3.5px 0 3.5px 6px;border-color:transparent transparent transparent var(--text-muted);transition:transform var(--dur) var(--ease);transform-origin:3px center}
+      |.impls[open]>summary::before{transform:rotate(90deg)}
+      |.impls>summary:hover{color:var(--text)}
       |.member{margin:10px 0}
       |.member-sig{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
       |.member-sig pre.sig{flex:1 1 auto}
