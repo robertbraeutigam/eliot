@@ -98,14 +98,16 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 
   /** Walk the filesystem source roots for `.els` files and derive each one's module name from its path relative to the
     * root it was found under. Classpath resources (the bundled stdlib) are intentionally excluded — the editor
-    * diagnoses the user's workspace, not its dependencies.
+    * diagnoses the user's workspace, not its dependencies. Files in the bundled Eliot library namespace
+    * ([[isBundledLibraryModule]]) are dropped for the same reason: they are supplied by the bundled layer roots, and a
+    * workspace folder that merely *contains* them (opening the compiler repo itself) must not re-enumerate them.
     */
   private def workspaceModules(roots: Seq[Path]): IO[Seq[ModuleName]] =
     roots.flatTraverse(modulesUnder).map(_.distinct)
 
   private def modulesUnder(root: Path): IO[Seq[ModuleName]] = IO.blocking {
     if (Files.isRegularFile(root) && isEliotSource(root)) {
-      Seq(moduleNameOf(root.getParent, root))
+      Seq(moduleNameOf(root.getParent, root)).filterNot(isBundledLibraryModule)
     } else if (Files.isDirectory(root)) {
       Files
         .walk(root)
@@ -113,10 +115,29 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
         .asScala
         .filter(p => Files.isRegularFile(p) && isEliotSource(p))
         .map(p => moduleNameOf(root, p))
+        .filterNot(isBundledLibraryModule)
         .toSeq
     } else {
       Seq.empty
     }
+  }
+
+  /** Whether a path-derived module belongs to the bundled Eliot library namespace — the standard library and platform
+    * layers under `eliot.lang` / `eliot.effect` / `eliot.compiler` ([[LspPlugin.bundledLibraryPackages]]). These are
+    * supplied to the compile as bundled layer roots (`BundledLayers`), so the whole-workspace driver must not diagnose
+    * them: they are dependencies, not the user's own modules.
+    *
+    * The reserved package sequence is matched as a contiguous sub-path of the module's segments (rather than a prefix)
+    * because a workspace folder is rarely exactly a source root. Opening the compiler repo yields the source root inside
+    * the folder, so the same `String.els` derives to `stdlib.eliot.eliot.lang.String` here — mis-rooted, but still
+    * recognisable as the `eliot.lang` library because the `eliot/lang` package directories survive in its path. Matching
+    * a sub-path catches it regardless of how many source-root segments precede the package. Leaving these in would let a
+    * mis-rooted stdlib file auto-import (and so shadow) its own name — the spurious "Imported names shadow local names"
+    * diagnostic this guard exists to prevent.
+    */
+  private def isBundledLibraryModule(moduleName: ModuleName): Boolean = {
+    val segments = moduleName.packages :+ moduleName.name
+    LspPlugin.bundledLibraryPackages.exists(segments.containsSlice)
   }
 
   /** A module name is its file's path relative to the source root, with `.els` stripped: `pkg/Sub/Foo.els` under root
@@ -135,4 +156,13 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 
 object LspPlugin {
   private val eliotExtension = ".els"
+
+  /** The reserved Eliot library packages (`eliot.lang`, `eliot.effect`, `eliot.compiler`), each as its directory
+    * sequence. The whole-workspace driver treats any file whose path contains one of these as a bundled dependency
+    * rather than a user module (see [[LspPlugin.isBundledLibraryModule]]). Derived from [[ModuleName]] so a new reserved
+    * package is picked up here without a second list to keep in sync. `eliot.compiler.internal` needs no separate entry —
+    * `eliot.compiler` already matches it as a sub-path.
+    */
+  private val bundledLibraryPackages: Seq[Seq[String]] =
+    Seq(ModuleName.defaultSystemPackage, ModuleName.effectPackage, ModuleName.compilerPackage)
 }
