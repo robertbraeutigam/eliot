@@ -12,14 +12,19 @@ implement Effect[Id] {
    def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
 }
 
-// Carrier-polymorphic {State[String]} business logic: read the current state, install `next`, return the previous value.
-def swap(next: String): {State[String]} String =
-   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
+// Carrier-polymorphic {State[String]} business logic: read the current state, install `next`, return the previous
+// value. Direct style — the block sequences the effectful steps for you, no hand-written `flatMap`.
+def swap(next: String): {State[String]} String = {
+   val old = state
+   putState(next)
+   old
+}
 
 // Discharge under the PURE Id carrier (G := Id): the state logic runs with no IO, yielding a plain Pair of
 // (returned-old-value, final-state) started from "first".
 def demo: Pair[String, String] = runId(runStateToPair(swap("second"), "first"))
 
-def main: IO[Unit] = flatMap(
-   ignored -> printLine(second(demo)),
-   printLine(first(demo)))
+def main: IO[Unit] = {
+   printLine(demo.first)
+   printLine(demo.second)
+}

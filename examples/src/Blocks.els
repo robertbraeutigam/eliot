@@ -6,7 +6,6 @@ import eliot.effect.Console
 // effectful step (or a plain value), and bare statements are sequenced through the carrier automatically — no
 // hand-written `flatMap` nest.
 
-import eliot.effect.Effect
 import eliot.effect.State
 import eliot.lang.Pair
 
@@ -34,5 +33,5 @@ def rename(next: String): {Console, State[String]} Unit = {
 // the runtime carrier produced by `runStateToPair`; the rest sequence through it.
 def main: IO[Unit] = {
   val outcome = runStateToPair(rename("after"), "before")
-  printLine(second(outcome))
+  printLine(outcome.second)
 }

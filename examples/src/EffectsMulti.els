@@ -28,11 +28,12 @@ implement Dep[Database, IO] {
 
 /**
  * Logs the injected database url, then echoes a line of input — `dependency` (Dep), `log` (Log), `readLine` and
- * `printLine` (Console), sequenced left to right.
+ * `printLine` (Console), sequenced left to right. Direct style: the three effects share one carrier and the block
+ * sequences its statements automatically — no hand-written `flatMap` or sequencing helper.
  */
-def run: {Dep[Database], Log, Console} Unit = andThen(log(dependency.url), printLine(readLine))
-
-/** Sequence two effectful `Unit` computations, keeping the second result (a stand-in for a `>>` combinator). */
-def andThen(first: Unit, second: Unit): Unit = second
+def run: {Dep[Database], Log, Console} Unit = {
+   log(dependency.url)
+   printLine(readLine)
+}
 
 def main: IO[Unit] = run

@@ -5,5 +5,5 @@ def stringBox: Type = Box[String]
 
 def stringBoxWithContent: stringBox = Box("Hello World!")
 
-def main: IO[Unit] = printLine(content(stringBoxWithContent))
+def main: IO[Unit] = printLine(stringBoxWithContent.content)
 

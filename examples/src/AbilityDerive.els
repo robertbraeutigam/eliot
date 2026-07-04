@@ -10,7 +10,7 @@ implement Show[String] {
 data Box[A](content: A)
 
 implement[A ~ Show] Show[Box[A]] {
-  def show(box: Box[A]): String = show(content(box))
+  def show(box: Box[A]): String = show(box.content)
 }
 
 def main: IO[Unit] = printLine(show(Box("Hello World!")))

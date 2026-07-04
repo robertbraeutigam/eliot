@@ -14,11 +14,16 @@ implement Effect[Id] {
    def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
 }
 
-// ONE carrier-polymorphic {State, Abort} program: install a new state, THEN abort. The interaction question
-// — "does the abort roll back the state?" — is deliberately left open in the flat effect set, decided only by
-// the ORDER the effects are discharged below.
-def modifyThenAbort: {State[String], Abort} String =
-   flatMap(ignored -> abort, putState("modified"))
+// A validation that always rejects: it aborts regardless of its input. `abort` stands in for a value of any type.
+def reject(value: String): {Abort} String = abort
+
+// ONE carrier-polymorphic {State, Abort} program: install a new state, THEN abort. Direct style — the block
+// sequences the steps for you. The interaction question — "does the abort roll back the state?" — is deliberately
+// left open in the flat effect set, decided only by the ORDER the effects are discharged below.
+def modifyThenAbort: {State[String], Abort} String = {
+   putState("modified")
+   reject("modified")
+}
 
 // Discharge Abort first (inner), State second (outer): State SURVIVES the abort. Result Pair[Option[String], S] —
 // the value is None (it aborted) but the final state "modified" is still threaded out.
@@ -30,8 +35,8 @@ def stateSurvives: Pair[Option[String], String] =
 def stateDiscarded: Option[Pair[String, String]] =
    runId(runAbort(runStateToPair(modifyThenAbort, "initial")))
 
-def main: IO[Unit] = flatMap(
-   ignored -> flatMap(
-      ignored2 -> printLine(foldOption(stateDiscarded, "<no state>", p -> second(p))),
-      printLine(second(stateSurvives))),
-   printLine(foldOption(first(stateSurvives), "<no value>", s -> s)))
+def main: IO[Unit] = {
+   printLine(foldOption(stateSurvives.first, "<no value>", s -> s))
+   printLine(stateSurvives.second)
+   printLine(foldOption(stateDiscarded, "<no state>", p -> p.second))
+}

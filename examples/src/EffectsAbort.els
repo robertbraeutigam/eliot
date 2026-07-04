@@ -1,12 +1,19 @@
 import eliot.effect.Console
 import eliot.effect.Abort
 
-// A computation that may abort. Returning a value: pure path; calling `abort`: short-circuit.
+// A config lookup that succeeds. Returning a value takes the pure path; calling `abort` would short-circuit.
 def safe: {Abort} String = "config-value"
 
-def greetOrGiveUp: {Console, Abort} String = andThen(printLine("looking up config..."), abort)
+// A config lookup that aborts on a missing key — this stand-in always misses. Mirrors the `{Abort}` setting
+// lookups in the Abort docs; `abort` stands in for a value of any type.
+def lookupConfig(key: String): {Abort} String = abort
 
-def andThen[A](first: Unit, second: A): A = second
+// Direct style: announce the attempt, then look up a (missing) key, which aborts. `Console` and `Abort` share one
+// carrier and the block sequences its statements automatically — no hand-written `flatMap` or sequencing helper.
+def greetOrGiveUp: {Console, Abort} String = {
+   printLine("looking up config...")
+   lookupConfig("db.url")
+}
 
 // `orElse` discharges {Abort} in one step, supplying a fallback if it short-circuits — no AbortCarrier, no Option,
 // no transformer in sight. A single `import eliot.effect.Abort` brings in `abort` and `orElse`. main pins G := IO.

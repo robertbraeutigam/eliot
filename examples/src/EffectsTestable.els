@@ -20,6 +20,7 @@ def denied: {Abort} String = abort
 def testAllowed: Option[String] = runId(runAbort(allowed))
 def testDenied: Option[String] = runId(runAbort(denied))
 
-def main: IO[Unit] = flatMap(
-   ignored -> printLine(foldOption(testDenied, "DENIED", s -> s)),
-   printLine(foldOption(testAllowed, "DENIED", s -> s)))
+def main: IO[Unit] = {
+   printLine(foldOption(testAllowed, "DENIED", s -> s))
+   printLine(foldOption(testDenied, "DENIED", s -> s))
+}

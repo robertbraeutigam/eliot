@@ -3,9 +3,9 @@ data Box[A](content: A)
 
 def filter[A](expr: String, box: Box[A]): Box[A] = box
 
-def map[A, B](f: Function[A, B], box: Box[A]): Box[B] = Box(f(content(box)))
+def map[A, B](f: A => B, box: Box[A]): Box[B] = Box(f(box.content))
 
-def flatMap[A, B](f: Function[A, Box[B]], box: Box[A]): Box[B] = f(content(box))
+def flatMap[A, B](f: A => Box[B], box: Box[A]): Box[B] = f(box.content)
 
 def as[A, B](b: B, box: Box[A]): Box[B] = box.map(_ -> b)
 
