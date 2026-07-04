@@ -418,6 +418,12 @@ boundary — usually right before `main` — and keep everything above it in `{�
   lambda would only shuffle arguments (`foldOption(o, error(msg), pure)` — not `v -> pure(v)`), and
   design multi-stage functions (`f(config)(subject)`) when call sites repeatedly fix the first part.
   If the reader must count arguments to see what's still missing, use a lambda instead.
+- **Eta-reduce a lambda that only applies a function** — `x -> f(x)` *is* `f`. This catches the
+  common *dot-projection* lambda too, because `pair.first` is just `first(pair)` (subject-last), so
+  `pair -> pair.first` reduces to the bare accessor `first` (and currying makes `first`/`second`
+  drop straight into a combinator slot). A projecting `map` then collapses to a dot chain over a
+  bare accessor: write `runStateToPair(p, s0).map(first)`, not
+  `map(pair -> pair.first, runStateToPair(p, s0))`.
 - Point-free is welcome one step at a time (`pure`, `intToString`); avoid composing chains of
   nameless combinators.
 
