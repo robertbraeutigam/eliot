@@ -2,9 +2,7 @@
  * The low-level bridge that embeds a deferred, possibly side-effecting thunk into a carrier `F[_]`.
  *
  * Not a user-facing effect: application code never declares `{Sync}` or calls `sync`. It is the
- * single primitive a platform uses to wrap an impure operation into its carrier. The public effects
- * (`Console`, `Log`, ...) are defined generically over any carrier constrained by `Sync`, so one
- * `Sync` instance per runnable carrier makes all of them available on it.
+ * single primitive a platform uses to wrap an impure operation into its carrier.
  */
 ability Sync[F[_]] {
    /**
