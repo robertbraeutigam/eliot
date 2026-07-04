@@ -5,14 +5,14 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
-import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{compilerPathKey, pathKey, runtimePathKey}
+import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{compilerPathKey, mountFactory, pathKey, runtimePathKey}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.file.FileContentReader
-import com.vanillasource.eliot.eliotc.source.scan.PathScanner
+import com.vanillasource.eliot.eliotc.source.scan.{FilesystemMount, PathScanner, SourceMount}
 import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
 import scopt.{OParser, OParserBuilder}
 
@@ -51,16 +51,21 @@ class LangPlugin extends CompilerPlugin {
             FileStatProcessor(),
             FileContentReader(),
             SourceContentReader(),
-            // The marker selects which filesystem root list `PathScanner` scans. Since CP1.5 these two lists are the
-            // *only* source of `.els`: `--compiler-path` carries the abstract base (+ compiler platform), `--runtime-path`
-            // the base + target layer. The positional `<path>` args (the user's program) carry no platform
-            // representation, and — types being values — any `def` in them may be forced at the type level, so they fold
-            // into *both* pools (CP-C step a): the compiler track must reach user type-level code, matching the stated
-            // design that each platform "unifies the base + the user program + its own layer independently". Only the
-            // platform *layers* stay pool-exclusive; the application is shared like the base. See `PathScanner` (CP1.5).
+            // The marker selects which mount pool `PathScanner` scans. Since CP1.5 the two root lists are the *only*
+            // filesystem source of `.els`: `--compiler-path` carries the abstract base (+ compiler platform),
+            // `--runtime-path` the base + target layer. The positional `<path>` args (the user's program) carry no
+            // platform representation, and — types being values — any `def` in them may be forced at the type level, so
+            // they fold into *both* pools (CP-C step a): the compiler track must reach user type-level code, matching
+            // the stated design that each platform "unifies the base + the user program + its own layer independently".
+            // Only the platform *layers* stay pool-exclusive; the application is shared like the base. Roots become
+            // mounts through the (substitutable) factory; plugins may contribute extra runtime mounts — both settled in
+            // configure(), which completes before any initialize.
             PathScanner(
-              configuration.getOrElse(compilerPathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty),
-              configuration.getOrElse(runtimePathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty)
+              (configuration.getOrElse(compilerPathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty))
+                .map(mountFactory(configuration)),
+              (configuration.getOrElse(runtimePathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty))
+                .map(mountFactory(configuration)) ++
+                configuration.getOrElse(PathScanner.extraRuntimeMountsKey, Seq.empty)
             )
           ) ++ LangProcessors(extraNativeBindingLabels =
             // The native-binding merger built inside LangProcessors must consult every native contributor that other
@@ -77,4 +82,7 @@ object LangPlugin {
   val pathKey: Configuration.Key[Seq[Path]]         = namedKey[Seq[Path]]("paths")
   val compilerPathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("compilerPaths")
   val runtimePathKey: Configuration.Key[Seq[Path]]  = namedKey[Seq[Path]]("runtimePaths")
+
+  private def mountFactory(configuration: Configuration): Path => SourceMount =
+    configuration.getOrElse(PathScanner.mountFactoryKey, FilesystemMount(_))
 }

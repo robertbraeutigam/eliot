@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
 import com.vanillasource.eliot.eliotc.apidoc.plugin.ApiDocPlugin
 import com.vanillasource.eliot.eliotc.compiler.{CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
+import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
@@ -53,7 +54,7 @@ class DocIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private def withCompiledWorkspace[A](body: DocIndex => A): IO[A] =
     tempDirectory.use { sourceDir =>
       val file          = sourceDir.resolve("Test.els")
-      val lspPlugin     = LspPlugin()
+      val lspPlugin     = LspPlugin(new VirtualFileSystem)
       val configuration = LspCompileTestLayers.add(
         Configuration()
           .set(Compiler.targetPathKey, sourceDir.resolve(".eliot-lsp"))

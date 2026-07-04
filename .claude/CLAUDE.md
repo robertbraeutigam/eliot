@@ -239,9 +239,11 @@ module — that file must **re-declare (copy) what it needs** (here, `ability Co
 mechanism here — do *not* "fix" a cross-file reference by widening the resolver to span sibling files.
 
 **How it works mechanically** (the `source` + `module` packages):
-- The compiler is given multiple **root paths** (CLI roots + classpath resources). `PathScanner`
-  (`source/scan/PathScanner.scala`) resolves a module path against *all* roots and returns *every*
-  matching file as one `PathScan`.
+- The compiler is given multiple **source mounts** per platform pool (`source/scan/SourceMount.scala`; CLI root
+  paths become `FilesystemMount`s, plugins may contribute others — the jvm target mounts its synthesized
+  `main.els`, the LSP routes overlaid buffers to a `vfs:` namespace). `PathScanner`
+  (`source/scan/PathScanner.scala`) resolves a module path against *all* mounts of the pool and returns *every*
+  matching URI as one `PathScan`; each URI scheme's `SourceContent` is served by exactly one processor.
 - `ModuleNamesProcessor` extracts names per file; `UnifiedModuleNamesProcessor` flattens the name sets of
   all files for a module into one.
 - For each name, `UnifiedModuleValueProcessor.scala` collects the `ModuleValue` from every file that

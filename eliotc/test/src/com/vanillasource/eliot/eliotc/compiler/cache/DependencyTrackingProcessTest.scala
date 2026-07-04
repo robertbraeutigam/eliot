@@ -80,18 +80,6 @@ class DependencyTrackingProcessTest extends AsyncFlatSpec with AsyncIOSpec with 
     }.asserting(_ shouldBe Map.empty)
   }
 
-  it should "not attribute an injected fact to the generating key" in {
-    tracked(Map.empty) { ctx =>
-      ctx.process.registerInjectedFact(Fact("dynamic")) >> ctx.producedDuring.get
-    }.asserting(_ shouldBe Map.empty)
-  }
-
-  it should "forward an injected fact to the underlying process as injected" in {
-    tracked(Map.empty) { ctx =>
-      ctx.process.registerInjectedFact(Fact("dynamic")) >> ctx.injected.get
-    }.asserting(_ shouldBe List(Fact("dynamic")))
-  }
-
   it should "note a missing read in sawMissing" in {
     tracked(Map.empty) { ctx =>
       ctx.process.getFact(Key("missing")) >> ctx.sawMissing.get
@@ -141,7 +129,6 @@ class DependencyTrackingProcessTest extends AsyncFlatSpec with AsyncIOSpec with 
       producedDuring <- Ref.of[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]](Map.empty)
       errors         <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
       registered     <- Ref.of[IO, List[CompilerFact]](List.empty)
-      injected       <- Ref.of[IO, List[CompilerFact]](List.empty)
       sawMissing     <- Ref.of[IO, Boolean](false)
       underlying      = new CompilationProcess {
                           override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
@@ -149,11 +136,10 @@ class DependencyTrackingProcessTest extends AsyncFlatSpec with AsyncIOSpec with 
                               ancestors: List[CompilerFactKey[?]]
                           ): IO[Option[V]]                                                  =
                             IO.pure(facts.get(key).map(_.asInstanceOf[V]))
-                          override def registerFact(value: CompilerFact): IO[Unit]         = registered.update(_ :+ value)
-                          override def registerInjectedFact(value: CompilerFact): IO[Unit] = injected.update(_ :+ value)
+                          override def registerFact(value: CompilerFact): IO[Unit] = registered.update(_ :+ value)
                         }
       process         = new DependencyTrackingProcess(underlying, owner, deps, producedDuring, errors, sawMissing, ancestors)
-      result         <- body(TrackedContext(process, deps, producedDuring, errors, registered, injected, sawMissing))
+      result         <- body(TrackedContext(process, deps, producedDuring, errors, registered, sawMissing))
     } yield result
 
   private case class TrackedContext(
@@ -162,7 +148,6 @@ class DependencyTrackingProcessTest extends AsyncFlatSpec with AsyncIOSpec with 
       producedDuring: Ref[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]],
       errors: Ref[IO, Chain[CompilerError]],
       registered: Ref[IO, List[CompilerFact]],
-      injected: Ref[IO, List[CompilerFact]],
       sawMissing: Ref[IO, Boolean]
   )
 }

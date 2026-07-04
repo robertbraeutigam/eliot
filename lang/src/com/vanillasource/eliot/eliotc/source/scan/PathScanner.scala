@@ -3,67 +3,76 @@ package com.vanillasource.eliot.eliotc.source.scan
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.feedback.User.*
+import com.vanillasource.eliot.eliotc.plugin.Configuration
+import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
-import com.vanillasource.eliot.eliotc.source.stat.FileStat
 
 import java.nio.file.Path
 
-/** Resolves a module path against the *platform-scoped* pool of source roots (the "compiler as a platform" plan, CP1.5).
+/** Resolves a module path against the *platform-scoped* pool of source mounts (the "compiler as a platform" plan,
+  * CP1.5).
   *
-  * There are two explicit filesystem root lists — a **compiler path** and a **runtime path** — and [[PathScan.Key]]'s
-  * [[Platform]] marker selects which one is scanned for a given request. Each list is the complete set of filesystem
-  * roots for its phase: the compiler path is the abstract base (and, from CP2, the compiler-platform layer); the runtime
-  * path is the base, the selected target (`jvm`), and the user's program.
+  * There are two explicit mount lists — a **compiler pool** and a **runtime pool** — and [[PathScan.Key]]'s
+  * [[Platform]] marker selects which one is scanned for a given request. Each pool is the complete set of source
+  * namespaces for its phase: the compiler pool is the abstract base (and, from CP2, the compiler-platform layer); the
+  * runtime pool is the base, the selected target (`jvm`), the user's program, and any target-contributed mounts (e.g.
+  * the jvm backend's synthesized `main.els` module).
   *
-  * These two filesystem lists are the **sole** source of `.els` (CP1.5): the former blanket classpath scan
-  * (`getResources("eliot/…")`) is gone. Every layer — the abstract base and `jvm` — is supplied as an ordinary
-  * filesystem path, exactly as the user's program is; packaged tooling stages the layer sources as plain directories
-  * (see `ide/lsp/package.sh`) so no `Path` ever has to resolve into a jar. Because each platform's roots are listed
-  * explicitly per marker, a name concrete in the compiler platform and a name concrete in `jvm` can no longer collide in
-  * a single pool.
+  * Mounts ([[SourceMount]]) are the namespace mechanism: most are [[FilesystemMount]]s built from the CLI root paths,
+  * but a plugin can contribute additional mounts through [[PathScanner.extraRuntimeMountsKey]], or substitute the
+  * filesystem mount construction through [[PathScanner.mountFactoryKey]] (the LSP routes workspace files with unsaved
+  * editor buffers to its own `vfs:` namespace this way). Because a module may resolve in several mounts, the resulting
+  * `PathScan` carries every hit — the ordinary layer merge then unifies (or rejects) the co-located definitions, so a
+  * user file colliding with a synthesized module surfaces as a loud merge error rather than silent shadowing.
   */
-class PathScanner(compilerRootPaths: Seq[Path], runtimeRootPaths: Seq[Path])
+class PathScanner(compilerMounts: Seq[SourceMount], runtimeMounts: Seq[SourceMount])
     extends SingleFactProcessor[PathScan.Key]
     with Logging {
 
-  private def rootsFor(platform: Platform): Seq[Path] = platform match {
-    case Platform.Compiler => compilerRootPaths
-    case Platform.Runtime  => runtimeRootPaths
+  private def mountsFor(platform: Platform): Seq[SourceMount] = platform match {
+    case Platform.Compiler => compilerMounts
+    case Platform.Runtime  => runtimeMounts
   }
 
-  override protected def generateSingleFact(key: PathScan.Key): CompilerIO[PathScan] = {
-    val rootPaths = rootsFor(key.platform)
+  override protected def generateSingleFact(key: PathScan.Key): CompilerIO[PathScan] =
     for {
-      contentFacts <- rootPaths
-                        .map(_.resolve(key.path).toFile)
-                        .toList
-                        .traverse(file => getFactOrAbort(FileStat.Key(file)))
-      fileUris      = contentFacts.filter(_.lastModified.isDefined).map(_.file.toURI)
-      _            <- debug[CompilerIO](s"Found files (${key.platform}): ${fileUris.mkString(", ")}")
-      _            <- abortOnMissing(key, rootPaths).whenA(fileUris.isEmpty)
+      fileUris <- mountsFor(key.platform).toList.traverse(_.resolve(key.path)).map(_.flatten.distinct)
+      _        <- debug[CompilerIO](s"Found files (${key.platform}): ${fileUris.mkString(", ")}")
+      _        <- abortOnMissing(key).whenA(fileUris.isEmpty)
     } yield PathScan(key.path, fileUris, key.platform)
-  }
 
-  /** How an empty scan (no matching file in this platform's roots) is reported, which depends on the marker:
+  /** How an empty scan (no mount has the path in this platform's pool) is reported, which depends on the marker:
     *
     *   - [[Platform.Runtime]] is the build itself — the program plus the stdlib/target it needs. A module that should be
-    *     there but is absent from the explicit roots is a real misconfiguration, so it hard-errors (no silent fallback,
+    *     there but is absent from the explicit pool is a real misconfiguration, so it hard-errors (no silent fallback,
     *     CP1.5).
     *   - [[Platform.Compiler]] is an *overlay* of compile-time reductions over the base, queried for *every* name by the
     *     compiler-native contributor ([[com.vanillasource.eliot.eliotc.monomorphize.processor.CompilerNativesProcessor]]).
-    *     Most names — all user code, every runtime-only/jvm-only name — name a module that is simply not on the compiler
-    *     path, which is normal, not an error. So a compiler-path miss aborts **silently**: the contributor reads it back
-    *     as "no compile-time override" and answers `None`. A genuinely missing compiler-platform layer surfaces instead
-    *     as a use-site reduction failure, and a missing base still hard-errors on the runtime path (base is on both).
+    *     Most names — all user code, every runtime-only/jvm-only name — name a module that is simply not in the compiler
+    *     pool, which is normal, not an error. So a compiler-pool miss aborts (declines) **silently**: the contributor
+    *     reads it back as "no compile-time override" and answers `None`. A genuinely missing compiler-platform layer
+    *     surfaces instead as a use-site reduction failure, and a missing base still hard-errors on the runtime pool
+    *     (base is in both).
     */
-  private def abortOnMissing(key: PathScan.Key, rootPaths: Seq[Path]): CompilerIO[Unit] =
+  private def abortOnMissing(key: PathScan.Key): CompilerIO[Unit] =
     key.platform match {
       case Platform.Runtime  =>
         compilerGlobalError(
-          s"Could not find path ${key.path} at given ${key.platform} roots: ${rootPaths.mkString(", ")}"
+          s"Could not find path ${key.path} at given ${key.platform} mounts: ${mountsFor(key.platform).mkString(", ")}"
         ).to[CompilerIO] >> abort
       case Platform.Compiler => abort
     }
+}
+
+object PathScanner {
+
+  /** Substitutes how filesystem root paths become mounts; the LSP sets this to route files with unsaved editor buffers
+    * to its `vfs:` namespace. Absent means plain [[FilesystemMount]].
+    */
+  val mountFactoryKey: Configuration.Key[Path => SourceMount] = namedKey[Path => SourceMount]("sourceMountFactory")
+
+  /** Additional runtime-pool mounts contributed by plugins (e.g. the jvm target's synthesized `main.els` module). */
+  val extraRuntimeMountsKey: Configuration.Key[Seq[SourceMount]] = namedKey[Seq[SourceMount]]("extraRuntimeMounts")
 }

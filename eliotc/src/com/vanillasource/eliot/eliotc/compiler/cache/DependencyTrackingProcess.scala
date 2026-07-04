@@ -31,9 +31,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
   * Facts a processor **pushes** — registered for keys other than the one being generated (e.g. one file-parse
   * registering every name's value) — are recorded in `producedDuring` as produced by this generation. The cache build
   * gives them this generation's dependency set: a pushed fact is a function of exactly what the generation that pushed
-  * it read. Facts registered via [[registerInjectedFact]] are exempt — they are not derived from this generation's
-  * inputs (they may even be *read back* by it, which would make an inherited dependency set cyclic) and are accepted
-  * from the cache on sight instead.
+  * it read.
   */
 final class DependencyTrackingProcess(
     underlying: CompilationProcess,
@@ -72,9 +70,6 @@ final class DependencyTrackingProcess(
     producedDuring.update(m =>
       if (value.key() == key || m.contains(value.key())) m else m.updated(value.key(), key)
     ) >> underlying.registerFact(value)
-
-  override def registerInjectedFact(value: CompilerFact): IO[Unit] =
-    underlying.registerInjectedFact(value)
 
   override def activeFactKeys: IO[List[CompilerFactKey[?]]] = IO.pure(chain)
 }

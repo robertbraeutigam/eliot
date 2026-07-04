@@ -8,18 +8,13 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   *
   *   - **Change-detection.** `directDeps` is validated recursively to decide whether the fact changed since last run.
   *     This never needs the value — for a non-serializable fact the parent drills *through* this entry's `directDeps`
-  *     down to the leaves. An empty `directDeps` marks a *generated leaf* / starting point (e.g. a `FileStat`), which is
-  *     always recomputed.
+  *     down to the leaves. An empty `directDeps` marks a *leaf* / starting point (e.g. a `FileStat`, a computed
+  *     synthetic source, or a fact registered outside any generation), which is always recomputed and compared.
   *   - **Reconstruction.** `value` supplies the fact to a dependent that must recompute. It is `Some` for serializable
   *     facts (also used for the equality cutoff), and `None` when the value cannot be stored (a `SemValue`-bearing fact)
   *     or was never materialised this run (validated structurally and carried forward).
-  *
-  * `injected` distinguishes a fact *registered directly* (via `registerFact`, e.g. the dynamic `main` source a backend
-  * injects) from one a processor *generates*. No processor can reproduce an injected fact, so it is accepted from the
-  * cache on sight rather than regenerated.
   */
 case class CacheEntry(
     value: Option[CompilerFact],
-    directDeps: Set[CompilerFactKey[?]],
-    injected: Boolean = false
+    directDeps: Set[CompilerFactKey[?]]
 )

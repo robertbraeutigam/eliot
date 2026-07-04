@@ -101,20 +101,6 @@ object CompilerIO {
                  )
     } yield ()
 
-  /** Registers an *injected* fact (see [[CompilationProcess.registerInjectedFact]]), only if the current compiler
-    * process is clean of errors. Reserved for facts no processor can reproduce, e.g. dynamically synthesized source.
-    */
-  def registerInjectedFactIfClear(value: CompilerFact): CompilerIO[Unit] =
-    for {
-      process <- ReaderT.ask[StateStage, CompilationProcess]
-      _       <- isClear.ifM(
-                   ReaderT.liftF[StateStage, CompilationProcess, Unit](
-                     StateT.liftF(EitherT.liftF(process.registerInjectedFact(value)))
-                   ),
-                   Monad[CompilerIO].unit
-                 )
-    } yield ()
-
   /** Aborts the computation by copying errors from state into the Either's left side.
     */
   def abort[T]: CompilerIO[T] =

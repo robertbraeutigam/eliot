@@ -77,7 +77,7 @@ class VirtualFileSystemCompileTest extends AsyncFlatSpec with AsyncIOSpec with M
     tempDirectory.use { sourceDir =>
       val file          = sourceDir.resolve("Test.els")
       val vfs           = new VirtualFileSystem
-      val lspPlugin     = LspPlugin()
+      val lspPlugin     = LspPlugin(vfs)
       val configuration = LspCompileTestLayers.add(
         Configuration()
           .set(Compiler.targetPathKey, sourceDir.resolve(".eliot-lsp"))
@@ -89,8 +89,7 @@ class VirtualFileSystemCompileTest extends AsyncFlatSpec with AsyncIOSpec with M
                      lspPlugin,
                      Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
                      configuration,
-                     List(sourceDir.toString),
-                     processorWrapper = VfsOverlayProcessor(vfs, _)
+                     List(sourceDir.toString)
                    )
         compile  = session.compileOnce().map(_.errors.map(_.message))
         result  <- body(vfs, file.toUri, compile)

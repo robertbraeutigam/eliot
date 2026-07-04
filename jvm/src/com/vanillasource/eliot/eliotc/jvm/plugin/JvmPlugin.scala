@@ -2,10 +2,16 @@ package com.vanillasource.eliot.eliotc.jvm.plugin
 
 import cats.data.StateT
 import cats.effect.IO
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
-import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
+import com.vanillasource.eliot.eliotc.jvm.jargen.{
+  GenerateExecutableJar,
+  JvmProgramGenerator,
+  SyntheticMainMount,
+  SyntheticMainSourceProcessor
+}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStatProcessor
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
@@ -14,9 +20,8 @@ import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import scopt.{OParser, OParserBuilder}
-
-import java.nio.file.Path
 
 class JvmPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
@@ -39,6 +44,19 @@ class JvmPlugin extends CompilerPlugin {
       )
   )
 
+  /** Mount the synthesized `main.els` entry-point module into the runtime scan pool. All `configure()`s run before any
+    * `initialize`, so `LangPlugin` sees the contributed mount when it builds the `PathScanner`.
+    */
+  override def configure(): StateT[IO, Configuration, Unit] =
+    StateT.modify(configuration =>
+      if (configuration.contains(mainKey))
+        configuration.updatedWith(
+          PathScanner.extraRuntimeMountsKey,
+          mounts => (mounts.getOrElse(Seq.empty) :+ new SyntheticMainMount).some
+        )
+      else configuration
+    )
+
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
     StateT
       .modify(superProcessor =>
@@ -47,12 +65,8 @@ class JvmPlugin extends CompilerPlugin {
             superProcessor,
             OutputFileStatProcessor(),
             JvmClassGenerator(),
-            JvmProgramGenerator(
-              configuration.get(Compiler.targetPathKey).get,
-              // TODO: This is not clean, just selecting a random path to insert main source into
-              configuration.get(LangPlugin.pathKey).flatMap(_.headOption).getOrElse(Path.of("."))
-            )
-          )
+            JvmProgramGenerator(configuration.get(Compiler.targetPathKey).get)
+          ) ++ configuration.get(mainKey).map(SyntheticMainSourceProcessor(_)).toSeq
         )
       )
 

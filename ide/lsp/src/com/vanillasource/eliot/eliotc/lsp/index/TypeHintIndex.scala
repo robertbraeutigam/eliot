@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.lsp.index
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.lsp.virtual.VfsUris
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -90,6 +91,6 @@ object TypeHintIndex {
     * [[PositionIndex]]. Non-file URIs fall back to their string form and simply never match a workspace document.
     */
   private def uriKey(uri: URI): String =
-    try Paths.get(uri).toString
+    try Paths.get(VfsUris.toFileUri(uri)).toString
     catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => uri.toString }
 }

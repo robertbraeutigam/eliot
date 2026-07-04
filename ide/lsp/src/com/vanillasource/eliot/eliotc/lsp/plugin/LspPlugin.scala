@@ -6,10 +6,18 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
 import com.vanillasource.eliot.eliotc.ast.fact.SourceAST
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.lsp.virtual.{
+  VfsRoutedMount,
+  VfsSourceContentProcessor,
+  VfsStatProcessor,
+  VirtualFileSystem
+}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
+import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import com.vanillasource.eliot.eliotc.used.UsedNames
 
@@ -27,25 +35,32 @@ import scala.jdk.CollectionConverters.*
   * stay use-site-verified per the language cornerstone (they surface where the value is instantiated), not at the
   * definition; widening the driver toward those is future work.
   *
-  * It adds no processors of its own — the front end comes from [[LangPlugin]], and the virtual-file-system overlay for
-  * unsaved editor buffers is applied as a wrapper around the complete assembled processor tree
-  * ([[com.vanillasource.eliot.eliotc.lsp.virtual.VfsOverlayProcessor]], passed to
-  * [[com.vanillasource.eliot.eliotc.compiler.CompilationSession.create]] by the compilation service) — so it is purely
-  * the `run` target. The errors it triggers accumulate in the generator and come back via
-  * [[com.vanillasource.eliot.eliotc.compiler.CompilationResult.errors]].
+  * The unsaved-editor-buffer overlay is expressed entirely with ordinary facts in the `vfs:` namespace: `configure`
+  * substitutes the scan's mount construction ([[com.vanillasource.eliot.eliotc.lsp.virtual.VfsRoutedMount]], routing
+  * overlaid files to `vfs:` URIs), and `initialize` contributes the namespace's two normal processors
+  * ([[com.vanillasource.eliot.eliotc.lsp.virtual.VfsStatProcessor]] and
+  * [[com.vanillasource.eliot.eliotc.lsp.virtual.VfsSourceContentProcessor]]) — each owning key spaces nothing else
+  * produces, so there is no ordering or interception involved. The errors the `run` driver triggers accumulate in the
+  * generator and come back via [[com.vanillasource.eliot.eliotc.compiler.CompilationResult.errors]].
   */
-class LspPlugin extends CompilerPlugin with Logging {
+class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 
   override def pluginDependencies(configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq(
     classOf[LangPlugin],
     classOf[StdlibPlugin]
   )
 
-  /** No processors of its own — the virtual-file-system overlay is a session-level wrapper, not a contributed
-    * processor (see class doc).
+  /** Route source roots through the buffer overlay: every filesystem mount the scan builds becomes a
+    * [[VfsRoutedMount]]. All `configure()`s run before any `initialize`, so [[LangPlugin]] sees the substituted
+    * factory when it builds the `PathScanner`.
     */
+  override def configure(): StateT[IO, Configuration, Unit] =
+    StateT.modify(_.set(PathScanner.mountFactoryKey, root => new VfsRoutedMount(root)))
+
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
-    StateT.pure(())
+    StateT.modify(superProcessor =>
+      SequentialCompilerProcessors(Seq(superProcessor, VfsStatProcessor(vfs), VfsSourceContentProcessor(vfs)))
+    )
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
     for {

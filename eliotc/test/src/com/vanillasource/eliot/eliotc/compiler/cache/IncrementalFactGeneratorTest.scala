@@ -171,32 +171,6 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     test.asserting(_ shouldBe (Some(NumberFact("derived", 20)), 1)) // recomputed fresh, not the stale 999
   }
 
-  it should "accept an injected fact from cache rather than trying to regenerate it" in {
-    // 'injected' has no processor that can produce it; treating it as a leaf and regenerating would abort. It must be
-    // served from the cache. 'derived' reads it, so a successful result proves the injected fact was accepted.
-    val priorInjected = FactCacheData(
-      FactCache.CACHE_VERSION,
-      Map(NumberKey("injected") -> CacheEntry(Some(NumberFact("injected", 42)), Set.empty, injected = true))
-    )
-    val test = for {
-      counts <- counters("derived")
-      proc    = graph(Map("derived" -> Derived("injected", _ + 1)), counts)
-      run    <- runBuild(proc, Some(priorInjected))(_.getFact(NumberKey("derived")))
-    } yield run._1
-    test.asserting(_ shouldBe Some(NumberFact("derived", 43)))
-  }
-
-  it should "re-persist an accepted injected fact as injected" in {
-    val injectedEntry = CacheEntry(Some(NumberFact("injected", 42)), Set.empty, injected = true)
-    val priorInjected = FactCacheData(FactCache.CACHE_VERSION, Map(NumberKey("injected") -> injectedEntry))
-    val test = for {
-      counts <- counters("derived")
-      proc    = graph(Map("derived" -> Derived("injected", _ + 1)), counts)
-      run    <- runBuild(proc, Some(priorInjected))(_.getFact(NumberKey("derived")))
-    } yield run._2.entries.get(NumberKey("injected"))
-    test.asserting(_ shouldBe Some(injectedEntry))
-  }
-
   it should "validate a dependent through a value-less dependency without materialising it" in {
     // top -> mid -> leaf, where 'mid' is value-less in the prior (models a dropped, non-serializable SemValue fact).
     // With the leaf unchanged, 'top' is accepted without 'mid' ever being regenerated, and 'mid' is carried forward
@@ -216,24 +190,6 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     } yield (run._1, midN, topN, run._2.entries.get(NumberKey("mid")))
     // top served from cache, mid and top never recomputed, mid carried forward as edges-only
     test.asserting(_ shouldBe (Some(NumberFact("top", 12)), 0, 0, Some(CacheEntry(None, Set(NumberKey("leaf"))))))
-  }
-
-  it should "carry an injected fact forward on a run that validates but does not re-register it" in {
-    // Models the JVM dynamic 'main' source: an injected fact plus a fact reading it. When the reader is accepted from
-    // cache, the injected fact is only validated (never re-registered), yet must stay in the cache — otherwise it drops
-    // out and the graph oscillates between full and incremental rebuilds.
-    val injected = CacheEntry(Some(NumberFact("injected", 7)), Set.empty, injected = true)
-    val test     = for {
-      counts  <- counters("derived")
-      proc     = graph(Map("derived" -> Derived("injected", _ + 1)), counts)
-      prior    = Map[CompilerFactKey[?], CacheEntry](
-                   NumberKey("injected") -> injected,
-                   NumberKey("derived")  -> CacheEntry(Some(NumberFact("derived", 8)), Set(NumberKey("injected")))
-                 )
-      run     <- runBuild(proc, Some(FactCacheData(FactCache.CACHE_VERSION, prior)))(_.getFact(NumberKey("derived")))
-      derivedN <- counts("derived").get
-    } yield (derivedN, run._2.entries.get(NumberKey("injected")))
-    test.asserting(_ shouldBe (0, Some(injected)))
   }
 
   it should "not cache a failed fact and re-run it (re-emitting its error) on the next run" in {
@@ -390,23 +346,15 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     test.asserting(_ shouldBe (Some(NumberFact("sibling", 20)), 0))
   }
 
-  it should "classify an in-generation injected fact as injected with no dependencies" in {
-    val test = for {
-      src    <- Ref.of[IO, Int](10)
-      counts <- counters("leaf", "writer")
-      proc    = graph(Map("leaf" -> Leaf(src), "writer" -> Injecting("leaf", "dyn", 42)), counts)
-      run    <- runBuild(proc, None)(_.getFact(NumberKey("writer")))
-    } yield run._2.entries.get(NumberKey("dyn"))
-    test.asserting(_ shouldBe Some(CacheEntry(Some(NumberFact("dyn", 42)), Set.empty, injected = true)))
-  }
-
-  it should "classify a directly registered out-of-generation fact as injected" in {
+  it should "persist a directly registered out-of-generation fact as a leaf entry" in {
+    // No dependency record exists for it, so it gets leaf semantics: always regenerated next run, never accepted
+    // blindly (covered by "always regenerate a fact whose cached entry has no recorded dependencies").
     val test = for {
       counts <- counters("derived")
       proc    = graph(Map("derived" -> Derived("direct", _ + 1)), counts)
       run    <- runBuild(proc, None)(g => g.registerFact(NumberFact("direct", 1)) *> g.getFact(NumberKey("derived")))
-    } yield (run._1, run._2.entries.get(NumberKey("direct")).map(_.injected))
-    test.asserting(_ shouldBe (Some(NumberFact("derived", 2)), Some(true)))
+    } yield (run._1, run._2.entries.get(NumberKey("direct")))
+    test.asserting(_ shouldBe (Some(NumberFact("derived", 2)), Some(CacheEntry(Some(NumberFact("direct", 1)), Set.empty))))
   }
 
   it should "report an internal error when no processor produces a fact, an error, or a decline" in {
@@ -500,7 +448,6 @@ object IncrementalFactGeneratorTest {
   case class Writer(dep: String, sideEffect: IO[Unit])                 extends Node
   case class Failing(message: String)                                  extends Node
   case class Pushing(dep: String, sibling: String, f: Int => Int)      extends Node
-  case class Injecting(dep: String, injectedName: String, value: Int)  extends Node
 
   private def err(message: String): CompilerError =
     CompilerError(message, Seq.empty, "", "", PositionRange.zero)
@@ -551,9 +498,6 @@ object IncrementalFactGeneratorTest {
           getFactOrAbort(NumberKey(dep)).flatMap(d =>
             registerFactIfClear(NumberFact(sib, f(d.value))).as(NumberFact(key.name, f(d.value)))
           )
-        case Some(Injecting(dep, name, value)) =>
-          getFactOrAbort(NumberKey(dep)) >>
-            registerInjectedFactIfClear(NumberFact(name, value)).as(NumberFact(key.name, 1))
         case None                      => abort[NumberFact]
       }
   }

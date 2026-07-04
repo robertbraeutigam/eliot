@@ -4,6 +4,7 @@ import cats.effect.{IO, Resource}
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.compiler.{CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
+import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
@@ -64,7 +65,7 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
   private def withCompiledWorkspace[A](body: (URI, TypeHintIndex) => A): IO[A] =
     tempDirectory.use { sourceDir =>
       val file          = sourceDir.resolve("Test.els")
-      val lspPlugin     = LspPlugin()
+      val lspPlugin     = LspPlugin(new VirtualFileSystem)
       val configuration = LspCompileTestLayers.add(
         Configuration()
           .set(Compiler.targetPathKey, sourceDir.resolve(".eliot-lsp"))

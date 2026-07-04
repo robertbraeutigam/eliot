@@ -140,12 +140,14 @@ error); `ImplementationMarkerUtils`; `PostDrainQuoter`'s roleHint read; ability 
   classified one by one; `.claude/rules/eliot-design.md` records the new rule. One prior
   misjudgment caught by tests: `SystemNativesProcessor`'s `UpToDate` touch-read must stay
   tolerant — its own comment said so.
-- *VFS override* (step 3): implemented as a `processorWrapper` parameter on
+- *VFS override* (step 3): first implemented as a `processorWrapper` parameter on
   `CompilationSession.create` applied **after** the full plugin fold
   (`lsp/virtual/VfsOverlayProcessor` wrapping the complete tree), not literally via `wrapWith` at
   the plugin's fold position — a plugin-level wrap would only enclose the accumulator folded *so
   far*, leaving the on-disk readers outside it, i.e. still order-dependent. The two racing overlay
-  processors are deleted; for an overlaid file the on-disk readers are never consulted.
+  processors were deleted. **Superseded the same day by the mount design (see the addendum below):
+  the wrapper and the session parameter are gone; the overlay is ordinary facts in a `vfs:`
+  namespace.**
 - *Double-produce* is loud: re-registering an **equal** value is a no-op (the push pattern);
   registering a different value for a completed key, or after the key concluded empty, is an
   internal error (`IncrementalFactGenerator.registerFact`). The full suite confirmed zero
@@ -157,6 +159,44 @@ error); `ImplementationMarkerUtils`; `PostDrainQuoter`'s roleHint read; ability 
   processors absent), so the invariant is a *whole-bundle* property and is enforced exactly where
   whole bundles run. It immediately caught one real incompleteness: two LSP session tests ran
   `LspPlugin` (which demands `ValueDoc`) without `ApiDocPlugin` — fixed to match production.
+
+**Addendum (2026-07-04, later): source namespaces (`SourceMount`) replace both injection and
+wrappers.** The one remaining validation-exempt channel (`injected` facts, serving only the jvm
+backend's synthesized `main.els`) and both override mechanisms (the VFS wrapper, the
+`processorWrapper` session parameter) were removed by namespacing the *keys* instead of
+overriding producers:
+
+- `PathScanner` stays the single owner of `PathScan`, but resolves against **mounts**
+  (`source/scan/SourceMount`): filesystem roots become `FilesystemMount`s; plugins contribute
+  extra mounts (`PathScanner.extraRuntimeMountsKey`) or substitute the mount construction
+  (`PathScanner.mountFactoryKey`) via configuration — the established `extraNativeLabelsKey`
+  handshake. Mount reads run inside the scan's generation, so routing decisions are tracked
+  dependencies.
+- `SourceContent` is namespaced by URI scheme, one normal processor per scheme: the on-disk
+  reader owns `file:` and no-ops on everything else; the jvm target's
+  `SyntheticMainSourceProcessor` owns `eliot-synthetic:` (the synthesized `main.els`, a pure
+  function of the `-m` configuration — a generated leaf, regenerated and equality-cut-off,
+  never accepted blindly); the LSP's `VfsSourceContentProcessor` owns `vfs:` (buffer content).
+- The jvm backend no longer injects: `SyntheticMainMount` makes module `main` resolvable in the
+  runtime pool, `JvmProgramGenerator` just demands `UsedNames(main::main)`. A user module also
+  named `main` now collides in the ordinary layer merge (loud "multiple implementations")
+  instead of being silently shadowed. The dead `sourceDir` parameter (the "random path" TODO,
+  O2's item 12) is gone.
+- The LSP overlay is scan-level routing: `VfsRoutedMount` reads the **total, per-file `VfsStat`
+  leaf** (buffer stamp or `None`, always produced) and emits a `vfs:` URI while an override is
+  held — including never-saved buffers — falling through to the filesystem otherwise. Open/close
+  flips `VfsStat` and invalidates exactly the scans that routed on it; edits bump the stamp and
+  invalidate the buffer-served content. The compiler↔editor identity translation is one scheme
+  swap (`VfsUris`), applied in the four index `uriKey`s and `sourceRootFor`.
+- Engine deletions: `registerInjectedFact`/`registerInjectedFactIfClear`/`DynamicContent`, the
+  `injectedKeys` ref, `CacheEntry.injected` and its accept-on-sight/unconditionally-unchanged/
+  carry-forward arms. A fact registered outside any generation persists as a plain leaf entry
+  (always regenerated, never accepted blindly). `CACHE_VERSION` → 4. The cache now has **no
+  validation-exempt path**: every entry is validated by dependencies or recompute-compare.
+- Every fact now has exactly one producer by key-space construction; the only `wrapWith` user
+  left is the visualization tracker (a true decorator). `SourceMount` is also the natural future
+  seam for jar-backed layer mounts (which would lift the `package.sh` staged-directory
+  constraint).
 
 ### E2. An unguarded fact cycle hangs the compiler instead of erroring — IMPLEMENTED 2026-07-04
 
@@ -223,16 +263,19 @@ for registrations made outside any generation (session/`DynamicContent` injectio
 accept-on-sight is genuinely correct. With a real dep set, path 1 validates like any generated
 fact and path 2's short-circuit no longer applies. Cache correctness becomes by-construction.
 
-**Implementation (2026-07-04)**: as specified, with one refinement — `injected` is now an
+**Implementation (2026-07-04)**: as specified, with one refinement — `injected` became an
 *explicit* channel rather than a residual heuristic: `CompilationProcess.registerInjectedFact`
-(+ `registerInjectedFactIfClear` in `CompilerIO`), used by `DynamicContent`. This matters because
-the dynamic `main.els` facts are registered *during* a generation that then reads them back —
-inheriting that generation's dep set would have created a cyclic cache edge. Out-of-generation
-direct `registerFact` (test injection) still classifies as injected, preserving old behaviour.
-`CACHE_VERSION` bumped to 3 (entry semantics changed). Verified: engine tests (pushed fact
-carries the pusher's dep set, regenerates when it changes, is accepted when unchanged), plus the
-end-to-end path-2 probe — both names used, edit one body, incremental rebuild — run 3×, fresh
-output every time.
+(+ `registerInjectedFactIfClear` in `CompilerIO`), used by `DynamicContent`. This mattered because
+the dynamic `main.els` facts were registered *during* a generation that then read them back —
+inheriting that generation's dep set would have created a cyclic cache edge. `CACHE_VERSION`
+bumped to 3. Verified: engine tests (pushed fact carries the pusher's dep set, regenerates when
+it changes, is accepted when unchanged), plus the end-to-end path-2 probe — both names used, edit
+one body, incremental rebuild — run 3×, fresh output every time.
+
+**Superseded later the same day**: the injected channel itself was then *removed entirely* — its
+only production user, the jvm dynamic `main.els`, became an ordinary mounted module (see E1's
+mount addendum). Pushed facts keep the `producedDuring` inheritance; everything else in the cache
+validates uniformly. `CACHE_VERSION` → 4.
 
 ### E4. "No fact ⇒ an error was reported" is unenforced — IMPLEMENTED 2026-07-04 (as part of E1 step 4)
 
@@ -332,10 +375,11 @@ the topology.
   worst axis. Whole-program monomorphization from `main` has precedent in MLton.
 - The "single evaluator" cornerstone holds: the ~5 `Evaluator`/`Unifier` instantiation sites are
   projections over one NbE core, not second interpreters.
-- The backend's dynamic `main.els` injection (synthesizing source text and re-entering the front
-  end, `JvmProgramGenerator.scala:29,85-88`) is a legitimate reuse of the whole front end — keep,
-  but it is exactly the use `injected` should be scoped to (E3), and the
-  `// TODO … selecting a random path` at `JvmPlugin.scala:50-54` should be resolved.
+- The backend's synthesized `main.els` (a legitimate reuse of the whole front end): originally an
+  injected dynamic source; since the mount addendum (E1) it is an ordinary mounted module
+  (`SyntheticMainMount` + `SyntheticMainSourceProcessor`) with no injection, and the
+  `// TODO … selecting a random path` at the old `JvmPlugin.scala:50-54` is gone with the dead
+  parameter it fed.
 
 ## 5. Findings — orchestration
 

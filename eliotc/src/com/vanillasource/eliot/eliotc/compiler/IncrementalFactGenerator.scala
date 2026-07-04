@@ -38,7 +38,6 @@ final class IncrementalFactGenerator(
     facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]],
     directDependencies: Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]],
     producedDuring: Ref[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]],
-    injectedKeys: Ref[IO, Set[CompilerFactKey[?]]],
     carriedForward: Ref[IO, Map[CompilerFactKey[?], CacheEntry]],
     unchangedChecks: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]],
     regeneratedCount: Ref[IO, Int]
@@ -86,19 +85,11 @@ final class IncrementalFactGenerator(
       }
     }
 
-  /** An injected fact is marked so the cache build classifies it as injected (accepted on sight next run) rather than
-    * giving it the registering generation's dependency set — an injected fact is not derived from that generation's
-    * inputs, and may even be read back by it.
-    */
-  override def registerInjectedFact(fact: CompilerFact): IO[Unit] =
-    injectedKeys.update(_ + fact.key()) >> registerFact(fact)
-
   /** Satisfy a first-time request: accept the cached value if it is still valid, otherwise regenerate.
     *
-    *   - An injected fact (registered directly, never produced by a processor) is always accepted — nothing can
-    *     regenerate it, and its cached value is authoritative for the build target.
     *   - A fact with a stored value and recorded dependencies is accepted iff every dependency is unchanged.
-    *   - Anything else (a value-less fact whose value is now actually needed, a leaf, or a fact with no prior) is
+    *   - Anything else (a value-less fact whose value is now actually needed, a leaf — including a fact that was
+    *     registered outside any generation, which has no recorded dependencies — or a fact with no prior) is
     *     regenerated.
     */
   private def resolve(
@@ -107,13 +98,12 @@ final class IncrementalFactGenerator(
       ancestors: List[CompilerFactKey[?]]
   ): IO[Unit] =
     prior.get(key) match {
-      case Some(entry) if entry.injected                              => deferred.complete(entry.value).void
       case Some(entry) if entry.value.isDefined && entry.directDeps.nonEmpty =>
         entry.directDeps.toList.forallM(depUnchanged).flatMap {
           case true  => acceptPrior(key, entry, deferred)
           case false => regenerate(key, ancestors)
         }
-      case _                                                          => regenerate(key, ancestors)
+      case _                                                                 => regenerate(key, ancestors)
     }
 
   /** Whether `key`'s value is unchanged since last run, memoized once per run. The validity oracle a parent uses for
@@ -137,19 +127,17 @@ final class IncrementalFactGenerator(
 
   private def computeUnchanged(key: CompilerFactKey[?]): IO[Boolean] =
     prior.get(key) match {
-      case None                                      => false.pure[IO]   // new / previously failed ⇒ changed
-      case Some(entry) if entry.injected             =>                  // accept on sight; carry forward so a run that
-        carriedForward.update(_.updated(key, entry)).as(true)           // does not re-register it keeps it in the cache
-      case Some(entry) if entry.value.isDefined      =>                  // leaf or serializable derived: recompute & compare
+      case None                                     => false.pure[IO]   // new / previously failed ⇒ changed
+      case Some(entry) if entry.value.isDefined     =>                  // leaf or serializable derived: recompute & compare
         getFactUntyped(key).map {
           case Some(current) => entry.value.exists(v => (v eq current) || v == current)
           case None          => false // no longer producible ⇒ changed
         }
-      case Some(entry) if entry.directDeps.nonEmpty  =>                  // value-less derived: drill structurally
+      case Some(entry) if entry.directDeps.nonEmpty =>                  // value-less derived: drill structurally
         entry.directDeps.toList
           .forallM(depUnchanged)
           .flatTap(unchanged => carriedForward.update(_.updated(key, entry)).whenA(unchanged))
-      case Some(_)                                   => false.pure[IO]   // value-less leaf: cannot validate ⇒ changed
+      case Some(_)                                  => false.pure[IO]   // value-less leaf: cannot validate ⇒ changed
     }
 
   /** Accept the cached fact and carry its trace forward so it re-persists with the right metadata. */
@@ -240,26 +228,23 @@ final class IncrementalFactGenerator(
     * A materialised fact gets its dependency set from one of two places: its own `directDependencies` entry (it was
     * generated), or — for a fact **pushed** by a processor for a key other than the one being generated — the final
     * dependency set of the generation that pushed it (recorded in `producedDuring`): a pushed fact is a function of
-    * exactly what its producing generation read, so those edges validate it soundly next run. Only facts registered
-    * with neither record — explicitly injected ones ([[registerInjectedFact]]), or direct out-of-generation
-    * registrations — are marked injected and accepted from the cache on sight, since no processor can reproduce them.
+    * exactly what its producing generation read, so those edges validate it soundly next run. A fact registered with
+    * neither record (a direct out-of-generation registration, e.g. a test harness seeding source facts) persists with
+    * an empty dependency set — leaf semantics, always regenerated, never accepted blindly.
     */
   def buildCacheData(): IO[FactCacheData] =
     for {
       factMap     <- currentFacts()
       deps        <- directDependencies.get
       pushedBy    <- producedDuring.get
-      injected    <- injectedKeys.get
       carried     <- carriedForward.get
       regenerated <- regeneratedCount.get
       _           <- debug[IO](s"Incremental run: regenerated $regenerated fact(s); ${factMap.size} materialised, " +
                        s"${carried.size} validated unchanged without recompute.")
     } yield {
       val fresh = factMap.map { case (key, fact) =>
-        val recordedDeps =
-          if (injected.contains(key)) None
-          else deps.get(key).orElse(pushedBy.get(key).map(producer => deps.getOrElse(producer, Set.empty)))
-        key -> CacheEntry(Some(fact), recordedDeps.getOrElse(Set.empty), injected = recordedDeps.isEmpty)
+        val recordedDeps = deps.get(key).orElse(pushedBy.get(key).map(producer => deps.getOrElse(producer, Set.empty)))
+        key -> CacheEntry(Some(fact), recordedDeps.getOrElse(Set.empty))
       }
       FactCacheData(FactCache.CACHE_VERSION, fresh ++ carried.view.filterKeys(k => !fresh.contains(k)).toMap)
     }
@@ -284,7 +269,6 @@ object IncrementalFactGenerator {
       facts           <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
       deps            <- Ref.of[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]](Map.empty)
       producedDuring  <- Ref.of[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]](Map.empty)
-      injectedKeys    <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
       carriedForward  <- Ref.of[IO, Map[CompilerFactKey[?], CacheEntry]](Map.empty)
       unchangedChecks <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]](Map.empty)
       regenerated     <- Ref.of[IO, Int](0)
@@ -296,7 +280,6 @@ object IncrementalFactGenerator {
       facts,
       deps,
       producedDuring,
-      injectedKeys,
       carriedForward,
       unchangedChecks,
       regenerated

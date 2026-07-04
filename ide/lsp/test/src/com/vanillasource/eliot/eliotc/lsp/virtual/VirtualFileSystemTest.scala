@@ -6,15 +6,15 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.source.file.FileContent
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.stat.FileStat
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 import java.io.File
 import java.net.URI
-import java.time.Instant
+import java.nio.file.Path
 
 class VirtualFileSystemTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val file = new File("/tmp/eliot-vfs/Test.els")
@@ -53,47 +53,66 @@ class VirtualFileSystemTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     noException should be thrownBy vfs.update(URI.create("untitled:Untitled-1"), "x")
   }
 
-  "VfsOverlayProcessor" should "report the buffer stamp as the modification time of an overridden file" in {
+  "VfsStatProcessor" should "report the buffer stamp for an overridden file" in {
     val vfs   = new VirtualFileSystem
     vfs.update(uri, "buffer content")
-    val stamp = vfs.get(file).map(_.stamp).get
-    val disk  = new VirtualFileSystemTest.RecordingDiskProcessor(file)
-    runCompilerIO(VfsOverlayProcessor(vfs, disk).generate(FileStat.Key(file)) >> getFactOrAbort(FileStat.Key(file)))
-      .asserting(_ shouldBe Right(FileStat(file, Some(Instant.ofEpochMilli(stamp)))))
+    val stamp = vfs.get(file).map(_.stamp)
+    runCompilerIO(VfsStatProcessor(vfs).generate(VfsStat.Key(file)) >> getFactOrAbort(VfsStat.Key(file)))
+      .asserting(_ shouldBe Right(VfsStat(file, stamp)))
   }
 
-  it should "never consult the on-disk processor for an overridden file" in {
-    val vfs  = new VirtualFileSystem
-    vfs.update(uri, "buffer content")
-    val disk = new VirtualFileSystemTest.RecordingDiskProcessor(file)
-    runCompilerIO(VfsOverlayProcessor(vfs, disk).generate(FileStat.Key(file)))
-      .asserting(_ => disk.consulted shouldBe false)
+  it should "report no stamp for a file without an override (total fact)" in {
+    runCompilerIO(VfsStatProcessor(new VirtualFileSystem).generate(VfsStat.Key(file)) >> getFactOrAbort(VfsStat.Key(file)))
+      .asserting(_ shouldBe Right(VfsStat(file, None)))
   }
 
-  it should "delegate a file without an override to the on-disk processor" in {
-    val disk = new VirtualFileSystemTest.RecordingDiskProcessor(file)
-    runCompilerIO(
-      VfsOverlayProcessor(new VirtualFileSystem, disk).generate(FileStat.Key(file)) >> getFactOrAbort(FileStat.Key(file))
-    ).asserting(_ shouldBe Right(FileStat(file, None)))
-  }
-
-  it should "serve buffer content in place of the on-disk file when overridden" in {
-    val vfs     = new VirtualFileSystem
-    vfs.update(uri, "buffer content")
-    val overlay = VfsOverlayProcessor(vfs, new VirtualFileSystemTest.RecordingDiskProcessor(file))
-    runCompilerIO {
-      overlay.generate(FileStat.Key(file)) >>
-        overlay.generate(FileContent.Key(file)) >>
-        getFactOrAbort(FileContent.Key(file))
-    }.asserting(_ shouldBe Right(FileContent(file, "buffer content")))
-  }
-
-  it should "depend on the file stat, so it produces no content until the stat is available" in {
+  "VfsRoutedMount" should "route an overridden file to its vfs: URI" in {
     val vfs = new VirtualFileSystem
     vfs.update(uri, "buffer content")
-    val overlay = VfsOverlayProcessor(vfs, new VirtualFileSystemTest.RecordingDiskProcessor(file))
-    runCompilerIO(overlay.generate(FileContent.Key(file)) >> getFactOrAbort(FileContent.Key(file)))
+    runCompilerIO(VfsStatProcessor(vfs).generate(VfsStat.Key(file)) >> VfsRoutedMount(file.getParentFile.toPath).resolve(Path.of(file.getName)))
+      .asserting(_ shouldBe Right(Some(VfsUris.uriOf(file))))
+  }
+
+  it should "route an overridden file even when it does not exist on disk" in {
+    val vfs = new VirtualFileSystem
+    vfs.update(uri, "never saved")
+    runCompilerIO(VfsStatProcessor(vfs).generate(VfsStat.Key(file)) >> VfsRoutedMount(file.getParentFile.toPath).resolve(Path.of(file.getName)))
+      .asserting(_ shouldBe Right(Some(VfsUris.uriOf(file))))
+  }
+
+  it should "fall through to the filesystem for a file without an override" in {
+    val vfs = new VirtualFileSystem
+    runCompilerIO {
+      VfsStatProcessor(vfs).generate(VfsStat.Key(file)) >>
+        registerFactIfClear(FileStat(file, None)) >> // not on disk either
+        VfsRoutedMount(file.getParentFile.toPath).resolve(Path.of(file.getName))
+    }.asserting(_ shouldBe Right(None))
+  }
+
+  "VfsSourceContentProcessor" should "serve buffer content under the vfs: identity" in {
+    val vfs    = new VirtualFileSystem
+    vfs.update(uri, "buffer content")
+    val vfsUri = VfsUris.uriOf(file)
+    runCompilerIO {
+      VfsStatProcessor(vfs).generate(VfsStat.Key(file)) >>
+        VfsSourceContentProcessor(vfs).generate(SourceContent.Key(vfsUri)) >>
+        getFactOrAbort(SourceContent.Key(vfsUri))
+    }.asserting(_.map(_.content.value) shouldBe Right("buffer content"))
+  }
+
+  it should "leave non-vfs URIs to the on-disk reader" in {
+    val vfs = new VirtualFileSystem
+    vfs.update(uri, "buffer content")
+    runCompilerIO(VfsSourceContentProcessor(vfs).generate(SourceContent.Key(uri)) >> getFactOrAbort(SourceContent.Key(uri)))
       .asserting(_ shouldBe Left(Chain.empty))
+  }
+
+  "VfsUris" should "round-trip a file through the vfs scheme" in {
+    VfsUris.fileOf(VfsUris.uriOf(file)) shouldBe file.getAbsoluteFile
+  }
+
+  it should "translate a vfs URI back to the editor-facing file URI" in {
+    VfsUris.toFileUri(VfsUris.uriOf(file)) shouldBe file.toURI
   }
 
   /** Run a CompilerIO against an in-memory process that stores registered facts, returning errors or the result. */
@@ -112,18 +131,5 @@ object VirtualFileSystemTest {
       IO(facts.get(key).map(_.asInstanceOf[V]))
 
     override def registerFact(value: CompilerFact): IO[Unit] = IO { facts = facts.updated(value.key(), value) }
-  }
-
-  /** Stands in for the on-disk source readers: records whether it was consulted and serves a disk-shaped `FileStat`. */
-  private class RecordingDiskProcessor(file: File) extends CompilerProcessor {
-    @volatile var consulted: Boolean = false
-
-    override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] = {
-      consulted = true
-      factKey match {
-        case key: FileStat.Key => registerFactIfClear(FileStat(key.file, None))
-        case _                 => ().pure[CompilerIO]
-      }
-    }
   }
 }

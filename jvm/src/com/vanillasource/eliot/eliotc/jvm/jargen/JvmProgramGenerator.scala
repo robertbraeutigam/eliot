@@ -2,14 +2,12 @@ package com.vanillasource.eliot.eliotc.jvm.jargen
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStat
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
-import com.vanillasource.eliot.eliotc.source.dynamic.DynamicContent.addDynamicSource
 import com.vanillasource.eliot.eliotc.used.UsedNames
 
 import java.nio.charset.StandardCharsets
@@ -17,17 +15,15 @@ import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path}
 import java.util.jar.{JarEntry, JarOutputStream}
 
-class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
-    extends SingleFactProcessor[GenerateExecutableJar.Key]
-    with Logging {
+class JvmProgramGenerator(targetDir: Path) extends SingleFactProcessor[GenerateExecutableJar.Key] with Logging {
 
   override protected def generateSingleFact(key: GenerateExecutableJar.Key): CompilerIO[GenerateExecutableJar] =
     for {
       // First, generate all modules for user's code
       _          <- generateModulesFrom(key.vfqn)
-      // Add dynamic main and generate everything if user's code did not fail
-      _          <- addDynamicSource(Path.of("main.els"), generateMainSource(key.vfqn))
-      allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), QualifiedName("main", Qualifier.Default)))
+      // Then everything reachable from the synthesized entry point (module `main`, mounted into the runtime scan pool
+      // by SyntheticMainMount and served by SyntheticMainSourceProcessor — ordinary facts, nothing is injected here)
+      allModules <- generateModulesFrom(SyntheticMainSourceProcessor.syntheticMainVfqn)
       // Depend on the output JAR's presence (a leaf), so a deleted JAR forces a rewrite under incremental compilation
       _          <- getFactOrAbort(OutputFileStat.Key(jarFilePath(key.vfqn).toFile))
       _          <- generateJarFile(key.vfqn, allModules).to[CompilerIO]
@@ -81,9 +77,4 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
     jos.write("Manifest-Version: 1.0\nMain-Class: main\n".getBytes(StandardCharsets.UTF_8))
     jos.closeEntry()
   }
-
-  private def generateMainSource(mainVfqn: ValueFQN): String =
-    s"""
-       |def main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name.name}), unit)
-       |""".stripMargin
 }

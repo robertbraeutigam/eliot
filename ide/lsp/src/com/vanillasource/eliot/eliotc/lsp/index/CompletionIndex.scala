@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.lsp.index
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleValue, QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.lsp.virtual.VfsUris
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 
 import java.net.URI
@@ -96,6 +97,6 @@ object CompletionIndex {
     * workspace document. Mirrors [[PositionIndex.uriKey]].
     */
   private def uriKey(uri: URI): String =
-    try Paths.get(uri).toString
+    try Paths.get(VfsUris.toFileUri(uri)).toString
     catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => uri.toString }
 }

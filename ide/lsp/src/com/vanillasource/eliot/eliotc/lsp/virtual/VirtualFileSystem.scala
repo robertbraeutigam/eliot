@@ -9,9 +9,9 @@ import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
   *
   * The editor reports unsaved edits via `textDocument/didChange`; until those edits are saved the on-disk file is stale,
   * so the compiler must type-check the buffer, not the file. This overlay holds the live content of each open, modified
-  * document and is consulted by [[VfsOverlayProcessor]], which intercepts `FileStat` / `FileContent` requests ahead of
-  * the on-disk [[com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor]] /
-  * [[com.vanillasource.eliot.eliotc.source.file.FileContentReader]]. A file without an override is read from disk as
+  * document and is consulted through the `vfs:` namespace facts: [[VfsStatProcessor]] serves the total per-file
+  * override state the scan routes on ([[VfsRoutedMount]]), and [[VfsSourceContentProcessor]] serves the buffer content
+  * for routed files. A file without an override is read from disk as
   * usual, so the overlay is fully transparent to the CLI (which never populates it) and to unopened files.
   *
   * Each override carries a strictly increasing `stamp` (a monotonic tick, not a wall-clock time). The stat processor
