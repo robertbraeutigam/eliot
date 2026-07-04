@@ -67,11 +67,11 @@ def runStateToPair[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, 
  * computation and yields its value.
  */
 def runStateToValue[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[A] =
-   map(pair -> pair.first, runStateToPair(p, initial))
+   map(first, runStateToPair(p, initial))
 
 /**
  * Discharge the `State[S]` effect keeping only the final state, discarding the result. Threads `initial` through the
  * computation and yields the state left behind.
  */
 def runStateToFinalState[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[S] =
-   map(pair -> pair.second, runStateToPair(p, initial))
+   map(second, runStateToPair(p, initial))
