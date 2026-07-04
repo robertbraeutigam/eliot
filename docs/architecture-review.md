@@ -135,29 +135,50 @@ synthesized "cyclic fact demand: A ← B ← A" diagnostic instead of forwarding
 domain-specific guards still run first and give better messages; the engine check is the
 backstop. Nearly free; eliminates the only hang-forever failure mode.
 
-### E3. Incremental correctness for *pushed* facts is by race, not by construction — OPEN
+### E3. Incremental caching is broken for *pushed* facts — racy in one shape, deterministic in another — OPEN
 
 `ModuleValueProcessor` is a fan-out: asked for one `ModuleValue.Key`, it registers facts for
-**every** name in the file (`ModuleValueProcessor.scala:35-49`). A pushed fact never gets a
-`directDependencies` entry — not even when later demanded, because the demand finds the
-already-completed `Deferred` and skips `regenerate`. `buildCacheData` then marks it
-`injected = !deps.contains(key)` (`IncrementalFactGenerator.scala:196`), and injected entries are
-**accepted from cache on sight, forever** (`IncrementalFactGenerator.scala:76`). The flag was
+**every** name in the file (`ModuleValueProcessor.scala:35-49`). Pushed facts inherit **nothing**
+from the generation that produced them: the `DependencyTrackingProcess` wrapper records reads
+only under the *requested* key, and a pushed fact never gets a `directDependencies` entry — not
+even when later demanded, because the demand finds the already-completed `Deferred` and skips
+`regenerate`. Per (file, platform), only the one name whose demand *triggered* the generation is
+properly tracked; which name that is, is a race. `buildCacheData` then marks every untracked
+fact `injected = !deps.contains(key)` (`IncrementalFactGenerator.scala:196`). The flag was
 designed for backend-injected dynamic sources (`CacheEntry.scala:17-19`); the heuristic cannot
-tell those apart from processor pushes.
+tell those apart from processor pushes. "Pushed facts" and "facts with broken caching" are the
+same set, through two distinct paths:
+
+- **Path 1 — resolve path (racy staleness).** A demanded key whose prior entry is `injected` is
+  completed from cache on sight, no validation (`IncrementalFactGenerator.scala:76`). Rescue is
+  possible: a concurrently regenerating sibling re-pushes fresh values, and if that push
+  completes the `Deferred` first, fresh wins. Timing, not an invariant.
+- **Path 2 — validation path (deterministic staleness).** `computeUnchanged` on an injected
+  entry returns unconditionally *unchanged* without ever reading a value
+  (`IncrementalFactGenerator.scala:107-108`). Scenario: `main` uses both `a` and `b` from one
+  file; in run 1, `a` won the trigger race (properly tracked), `b` was pushed → injected. Run 2
+  edits `b`'s **body**. Validating `b`'s chain: `UnifiedModuleValue(b)`'s deps are `PathScan`
+  (unchanged), `ModuleNames` (recomputes *equal* — a body edit changes no names, the equality
+  cutoff correctly reports unchanged), and `ModuleValue(b)` — injected → "unchanged". Every link
+  validates, so the whole chain above `b` is accepted stale, into codegen. The fresh-push race
+  cannot rescue this path: validation short-circuits on the flag and **never touches the pushed
+  key's `Deferred`**, so a re-pushed fresh value is never even read. The only nondeterminism is
+  run 1's classification; given it, run 2's staleness is deterministic.
 
 **Empirical status (2026-07-04)**: a cold build materialised 747 facts with only 711 generations
 — ~36 entries entered the cache as `injected`. Two crafted staleness attacks (edit a helper whose
 `ModuleValue` was push-only, switch `main` to use it, rebuild incrementally) both produced
-*correct* output: ability-implementation scanning demands nearly every name, and on a file change
-some sibling's regeneration re-pushes fresh values before the stale entry is read. That is
-timing, not an invariant — whether a demanded-after-change pushed fact is served stale or fresh
-depends on which fiber wins.
+*correct* output — but both attacked **path 1** (newly demanded name), where the sibling
+re-push race can rescue, and in those runs it did. The path-2 shape (both names already cached,
+edit one) was identified by analysis after the experiments and has no rescue.
 
-**Fix**: facts registered *during* a generation inherit that generation's dependency set (they
-depend on exactly what the generation read — `DependencyTrackingProcess.registerFact` knows the
-generating key); reserve `injected` for registrations made outside any generation
-(session/`DynamicContent` injection). Cache correctness becomes by-construction.
+**Fix** (covers both paths): facts registered *during* a generation inherit that generation's
+dependency set — they depend on exactly what the generation read. Mechanically:
+`DependencyTrackingProcess.registerFact` records `pushedKey → generatingKey`, and
+`buildCacheData` gives each pushed fact the generating key's final dep set. Reserve `injected`
+for registrations made outside any generation (session/`DynamicContent` injection), where
+accept-on-sight is genuinely correct. With a real dep set, path 1 validates like any generated
+fact and path 2's short-circuit no longer applies. Cache correctness becomes by-construction.
 
 ### E4. "No fact ⇒ an error was reported" is unenforced — OPEN, folded into E1's plan 2026-07-04
 
@@ -326,7 +347,8 @@ opt-in.
    landing order in E1. Highest payoff; each step independently landable.
 2. **E2 — engine-level cycle detection** via the existing ancestors chain. Very cheap.
 3. **E3 — fix `injected` classification**: in-generation registrations inherit the generation's
-   dep set. Makes incrementality correct by construction.
+   dep set. Makes incrementality correct by construction; note E3's path 2 is a *deterministic*
+   stale-compile shape, which arguably moves this ahead of E2 in urgency.
 4. **E4 — folded into E1 step 4** (precise only once absence-as-data is gone).
 5. **P1 — shared generic payload record** for the value chain; give `block` its own expression
    type or fold it.
