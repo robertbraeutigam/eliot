@@ -55,7 +55,7 @@ silent failure mode found into a loud one; they are engine-local and semantics-n
 
 ## 3. Findings — engine (`eliotc`)
 
-### E1. Dispatch is an untyped broadcast; the key→processor mapping exists nowhere — OPEN
+### E1. Dispatch is an untyped broadcast; the key→processor mapping exists nowhere — OPEN, direction decided 2026-07-04
 
 `SequentialCompilerProcessors.generate` offers every requested key to every processor; each
 no-ops unless its `ClassTag` matches (`SingleKeyTypeProcessor.scala:16-20`). Consequences:
@@ -70,11 +70,56 @@ no-ops unless its `ClassTag` matches (`SingleKeyTypeProcessor.scala:16-20`). Con
   position.
 - Every fact request scans all ~40 processors (noise, not a bottleneck — but a symptom).
 
-**Fix**: each processor declares its key class(es); the session builds
-`Map[Class[Key] → Processor]`, fails startup on undeclared duplicates, supports an explicit
-"override" registration (for the VFS), and errors at runtime on an unhandled key type. rustc has
-exactly one provider per query, registered centrally, with explicit overrides. This makes
-CLAUDE.md's "one handling processor" claim structurally true.
+**Registry considered and rejected.** A `Map[Class[Key] → Processor]` with startup duplicate
+detection was the first proposal, but the key→processor mapping is essentially static, compiler
+internal, and any violation surfaces (once the fixes below land) at first demand in ordinary
+pipeline testing — the `ProcessorTest` convention runs the whole pipeline, so an unhandled key
+class cannot survive the test suite. What the registry would add over demand-time loudness —
+startup-time detection, O(1) dispatch, an introspectable mapping — is not worth its machinery
+(dispatch cost is ~40 cheap no-ops per fact; the fact-visualization already shows the observed
+mapping). **Decided direction: handle the failures directly instead.**
+
+**Decided fix — make `None` unrepresentable at the processor API, and make double-produce loud.**
+The obstacle to "only `getFactOrAbort`" is that `None` today is also a *data* channel — a
+producer legitimately declining. Known absence-as-data sites: `NativeBinding` consumers (the
+checker's `fetchBinding` reads absence as "ordinary value, evaluate the body"); the runtime-pool
+probe in `CompilerMonomorphicTypeCheckProcessor.inRuntimePool` (absence is the *good* case);
+`ValueResolver` qualified-ref probes (`ValueResolver.scala:208,294`);
+`ModuleValueProcessor.importModuleNames` ("Could not find imported module" as a positioned user
+error); `ImplementationMarkerUtils`; `PostDrainQuoter`'s roleHint read; ability resolution's
+"no implementation" user diagnostic. Each converts to one of two forms:
+
+- **Total facts** — always register; absence lives in the payload. In-tree precedent:
+  `ContributedBinding` already carries `Option[BindingContribution]` and is always produced.
+  This is the rustc/Salsa discipline: a query always returns a value; "nothing" is a value.
+- **`getFactOrError(key)(sourcedMessage)`** — for the "module not found" class where the caller
+  owns a user-facing message; replaces the manual `getFact`-then-switch idiom
+  (`.claude/rules/eliot-design.md`) with an API that cannot hand `None` back. The
+  Option-returning `getFact` then disappears from the processor-facing `CompilerIO` API,
+  surviving only as the engine-internal `CompilationProcess.getFact` (the incremental validation
+  path needs it).
+
+**Double-produce loudness needs two carve-outs before it can switch on:**
+
+- *Idempotent re-registration is routine* — the `ModuleValueProcessor` push pattern
+  double-completes sibling keys with equal payloads whenever two names of one file generate
+  concurrently. So: complain only when the second registration is **not equal** to the completed
+  value. Coherent with existing invariants — the incremental cache's equality cutoff
+  (`v == current`) already requires fact equality to be meaningful.
+- *The VFS override is a deliberate different-value double-produce* and must be restructured
+  first, or the LSP screams on every overlaid file. Use the in-tree decorator machinery:
+  `CompilerProcessor.wrapWith` (already used by the visualization tracker). `LspPlugin` wraps
+  the folded processor tree with an interceptor serving `FileStat`/`FileContent` from the
+  overlay and delegating the rest — explicit, order-independent (also retiring the O2 order
+  fragility), and the disk processor never runs for overlaid files.
+
+**Landing order** (each step independently landable, behaviour-neutral until step 4):
+1. Convert absence-as-data facts to total facts (`NativeBinding` first, on the
+   `ContributedBinding` precedent) and introduce `getFactOrError`.
+2. Retire processor-facing `getFact`.
+3. Restructure the VFS override onto `wrapWith`.
+4. Switch on loud-on-different-value double-produce **and** the neither-fact-nor-error
+   diagnostic (E4 — which step 1–2 make precise).
 
 ### E2. An unguarded fact cycle hangs the compiler instead of erroring — OPEN
 
@@ -114,7 +159,7 @@ depend on exactly what the generation read — `DependencyTrackingProcess.regist
 generating key); reserve `injected` for registrations made outside any generation
 (session/`DynamicContent` injection). Cache correctness becomes by-construction.
 
-### E4. "No fact ⇒ an error was reported" is unenforced — OPEN
+### E4. "No fact ⇒ an error was reported" is unenforced — OPEN, folded into E1's plan 2026-07-04
 
 `abort` with an empty error chain is representable, and a generation producing neither fact nor
 error is a legal no-op — so a demanded-but-unproducible target can yield exit code 0 with no
@@ -122,7 +167,14 @@ output (`JvmPlugin.run` discards the jar fact's value with `.void`).
 
 **Fix**: when the safety net completes a key with `None` and that generation contributed zero
 errors, synthesize an internal diagnostic ("processor for key X produced neither fact nor
-error"). Trivial; with E1 it makes "silent nothing" impossible.
+error").
+
+**Correction (2026-07-04)**: as originally stated this check would false-positive on every
+legitimate decline (no `NativeBinding` for a non-native name, pool probes, "module not found"
+handled by the consumer) — those produce neither fact nor error *by design* today. It becomes
+precise only after E1 steps 1–2 eliminate absence-as-data, at which point the enforceable
+contract is: **every generation ends with the requested fact registered XOR ≥1 error recorded.**
+Ships as E1 landing-order step 4.
 
 ## 4. Findings — pipeline (`lang`)
 
@@ -254,7 +306,9 @@ opt-in.
 - **rustc queries / Salsa**: same demand-driven memoized shape. ELIOT's structural-drill
   validation for non-serializable facts is what Salsa does with hashes and rustc with
   fingerprints — value-equality comparison is simpler and right at this scale. What they have
-  that ELIOT lacks maps exactly to E1 (provider registry) and E2 (engine-level cycle errors).
+  that ELIOT lacks maps exactly to E1 (total queries — a query always returns a value, one
+  producer each; reached via E1's decided direction rather than a registry) and E2 (engine-level
+  cycle errors).
   Salsa's "queries are pure; inputs are set from outside" discipline maps to O1/E3.
 - **Roslyn**: immutable facts + overlay-leaf LSP design is equivalent in spirit to Roslyn
   workspaces; Roslyn's no-I/O-in-queries discipline maps to O1.
@@ -267,17 +321,19 @@ opt-in.
 
 ## 7. Prioritized recommendations
 
-1. **E1 — key-class → processor registry** with startup duplicate detection and explicit
-   override registration. Highest payoff, moderate effort, no semantic change.
+1. **E1 (direction decided) — total facts + `getFactOrError`, retire processor-facing
+   `getFact`, VFS onto `wrapWith`, then loud double-produce + the E4 diagnostic** — the four-step
+   landing order in E1. Highest payoff; each step independently landable.
 2. **E2 — engine-level cycle detection** via the existing ancestors chain. Very cheap.
 3. **E3 — fix `injected` classification**: in-generation registrations inherit the generation's
    dep set. Makes incrementality correct by construction.
-4. **E4 — "neither fact nor error" synthesized diagnostic.** Trivial.
+4. **E4 — folded into E1 step 4** (precise only once absence-as-data is gone).
 5. **P1 — shared generic payload record** for the value chain; give `block` its own expression
    type or fold it.
 6. **P2 — platform-key `ContributedBinding`**; centralize pool probes in `DeclaringPool`.
 7. **O1 — move the JAR write out of fact generation**; scope `injected` to `DynamicContent`.
 8. **O2/O3/O5 — plugin hygiene, opt-in visualization, CLAUDE.md pipeline list.**
 
-Items 1–4 are engine-local (`eliotc`), independent of language semantics, and together convert
-every silent failure mode found in this review into a loud one.
+Items 1–4 are independent of language semantics and together convert every silent failure mode
+found in this review into a loud one. E2/E3 are engine-local (`eliotc`); E1's step 1 also
+touches the `lang` absence-as-data sites listed in the finding.
