@@ -106,6 +106,21 @@ type's module; instances must be **unique per type combination** in the whole pr
 resolution happens fully at monomorphization (no runtime dictionaries). Constrain a generic with
 `~`: `[A ~ Show]`, `[F[_] ~ Sync & Effect]`; a bare `[A ~ Show]` applies the ability to `A` itself.
 
+**Design rule — an ability is a minimal algebra.** Declare in the ability only the *primitive
+operations* an implementor must give meaning to — the ones that cannot be derived from the others.
+Every derived/convenience combinator goes **outside**, as a plain top-level function in the same
+module: there it holds *by construction* for every instance (a law, not a hope), adds nothing to
+the contract implementors must read, and nothing to the character-exact copy a layer re-declaring
+the ability must carry. Nothing is lost by staying outside: same module and import, identical
+generated code (monomorphization resolves both statically), and dot-chaining works on any function
+(`.` is positional, not member-based). The stdlib model is `State`: `state`/`putState` are the
+algebra; `updateState(f) = putState(f(state))` is a top-level derived function. Ability methods
+*may* carry a default body (instances then need not implement them), but reserve that for the rare
+cases that genuinely need a per-instance override point: an instance can implement it materially
+better or stronger (e.g. one atomic read-modify-write), mutually-defaulting primitives offering
+alternative minimal definitions, or extending an already-published ability without breaking its
+instances. "It's convenient" is not one of these — convenience lives outside.
+
 ### Generic parameters
 
 `[NAME]`, in UPPERCASE, with optional kind/type and constraints:
