@@ -32,15 +32,32 @@ object Compiler extends Logging {
                    }
     } yield hadErrors
 
-  private def runWithConfiguration(
+  /** Build a resident [[CompilationSession]] for `args` without running it: discover plugins, parse the command line,
+    * select the target plugin, and do the one-time session setup (configuring the processor graph, seeding the cache
+    * from disk). Returns `None` when the arguments do not select a runnable compilation — help/parse termination, or no
+    * target plugin (the latter already reported here as a global error).
+    *
+    * This is the seam a long-running host drives directly: a server (or the integration-test harness) calls
+    * [[CompilationSession.compileOnce]] on the returned session repeatedly, reusing the warm in-memory fact cache
+    * instead of paying a cold start — plugin discovery plus a full base-layer recompile — on every compilation. The CLI
+    * keeps using [[runCompiler]], which drives one compile then persists the cache and prints diagnostics.
+    */
+  def createSession(args: List[String]): IO[Option[CompilationSession]] =
+    for {
+      plugins   <- allLayers()
+      configOpt <- parseCommandLine(args, plugins.map(_.commandLineParser()))
+      session   <- configOpt.flatTraverse(sessionFor(_, plugins, args))
+    } yield session
+
+  private def sessionFor(
       configuration: Configuration,
       plugins: Seq[CompilerPlugin],
       args: List[String]
-  ): IO[Boolean] =
+  ): IO[Option[CompilationSession]] =
     // Select active plugins
     plugins.find(_.isSelectedBy(configuration)) match {
       case None               =>
-        User.compilerGlobalError("No target plugin selected.").as(true)
+        User.compilerGlobalError("No target plugin selected.").as(None)
       case Some(targetPlugin) =>
         val activatedPlugins = collectActivatedPlugins(targetPlugin, configuration, plugins)
         for {
@@ -49,6 +66,18 @@ object Compiler extends Logging {
             debug[IO](s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}")
           // One-time setup: configure plugins, collect processors, seed the cache from disk
           session <- CompilationSession.create(targetPlugin, activatedPlugins, configuration, args)
+        } yield Some(session)
+    }
+
+  private def runWithConfiguration(
+      configuration: Configuration,
+      plugins: Seq[CompilerPlugin],
+      args: List[String]
+  ): IO[Boolean] =
+    sessionFor(configuration, plugins, args).flatMap {
+      case None          => IO.pure(true) // no target plugin selected — reported by `sessionFor`, an error exit
+      case Some(session) =>
+        for {
           tracker <- FactVisualizationTracker.create()
           // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
           _       <- debug[IO]("Compiler starting...")
