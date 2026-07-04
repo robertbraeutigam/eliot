@@ -20,7 +20,7 @@ class CalleeSignatures {
   import CalleeSignatures.*
 
   def infoFor(fqn: Sourced[ValueFQN], platform: Platform): CompilerIO[CalleeInfo] =
-    getFact(OperatorResolvedValue.Key(fqn.value, platform)).map {
+    getFactIfProduced(OperatorResolvedValue.Key(fqn.value, platform)).map {
       case Some(orv) =>
         val view           = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
         val carrierBinders = EffectCarriers.carrierBinders(view)

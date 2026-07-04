@@ -45,7 +45,7 @@ class DataTypeNativesProcessor extends SingleFactProcessor[ContributedBinding.Ke
     if (vfqn.name.qualifier === Qualifier.Type && vfqn =!= functionDataTypeFQN && vfqn =!= typeFQN)
       DeclaringPool.of(vfqn).flatMap {
         case Some(platform) =>
-          getFact(OperatorResolvedValue.Key(vfqn, platform)).map {
+          getFactIfProduced(OperatorResolvedValue.Key(vfqn, platform)).map {
             case Some(value) if value.runtime.isEmpty => (VTopDef(vfqn, None, Spine.SNil): SemValue).some
             case _                                    => none
           }

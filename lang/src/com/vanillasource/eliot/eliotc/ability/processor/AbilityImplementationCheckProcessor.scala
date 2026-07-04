@@ -28,7 +28,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       // `getFact` (not `getFactOrAbort`) — if no overlap processor is registered in the current
       // pipeline (some unit tests exclude it), skip the check silently rather than abort.
       _              <- candidateModules.toSeq.traverse_(m =>
-                          getFact(ModuleAbilityOverlapCheck.Key(m, abilityFQN.abilityName, key.platform)).void
+                          getFactIfProduced(ModuleAbilityOverlapCheck.Key(m, abilityFQN.abilityName, key.platform)).void
                         )
       abilityMethods <- collectAbilityMethods(abilityFQN, key.platform)
       implMethods    <- candidateModules.toSeq.flatTraverse(collectImplMethods(_, abilityFQN, typeArguments, key.platform))

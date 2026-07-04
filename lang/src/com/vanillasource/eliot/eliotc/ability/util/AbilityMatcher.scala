@@ -93,7 +93,7 @@ object AbilityMatcher {
       sourceRef: Sourced[ValueFQN],
       acc: Map[ValueFQN, Binding]
   ): CompilerIO[Map[ValueFQN, Binding]] =
-    getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
+    getFactIfProduced(OperatorResolvedValue.Key(vfqn)).flatMap {
       case None       =>
         vfqn.name.qualifier match {
           case Qualifier.Type => (acc + (vfqn -> Binding.Constructor)).pure[CompilerIO]

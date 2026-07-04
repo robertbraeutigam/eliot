@@ -430,10 +430,10 @@ object ExpressionCodeGenerator {
       // An application spine can be longer than the callee's natural arity (`unwrap(w)("x")` on a 1-parameter
       // accessor): the direct call absorbs `naturalArity` arguments, and the excess is applied one at a time to the
       // function value it returns. Body-less natives have no natural arity and keep the full spine.
-      monomorphicMaybe          <- getFact(MonomorphicValue.Key(calledVfqn, typeArgs)).liftToTypes
+      monomorphicMaybe          <- getFactIfProduced(MonomorphicValue.Key(calledVfqn, typeArgs)).liftToTypes
       directCallArity            = monomorphicMaybe.flatMap(_.naturalArity).fold(arguments.length)(_ min arguments.length)
       (directArgs, overApplied)  = arguments.splitAt(directCallArity)
-      uncurriedMaybe            <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, directArgs.length)).liftToTypes
+      uncurriedMaybe            <- getFactIfProduced(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, directArgs.length)).liftToTypes
       resultClasses             <- uncurriedMaybe match
                           case Some(uncurriedValue) =>
                             val returnType = valueType(uncurriedValue.returnType)
@@ -509,7 +509,7 @@ object ExpressionCodeGenerator {
       _               <- compilerAbort(
                            sourcedCalledVfqn.as("Could not determine type constructor name for typeMatch.")
                          ).liftToTypes.whenA(constructorName.isEmpty)
-      uncurriedMaybe  <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
+      uncurriedMaybe  <- getFactIfProduced(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
       classes         <- uncurriedMaybe match {
                            case Some(uncurriedValue) =>
                              val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))

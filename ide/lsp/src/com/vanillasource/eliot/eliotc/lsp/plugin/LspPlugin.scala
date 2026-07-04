@@ -6,15 +6,9 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
 import com.vanillasource.eliot.eliotc.ast.fact.SourceAST
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.lsp.virtual.{
-  VirtualFileContentReader,
-  VirtualFileStatProcessor,
-  VirtualFileSystem
-}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import com.vanillasource.eliot.eliotc.used.UsedNames
@@ -33,31 +27,25 @@ import scala.jdk.CollectionConverters.*
   * stay use-site-verified per the language cornerstone (they surface where the value is instantiated), not at the
   * definition; widening the driver toward those is future work.
   *
-  * For the front end it adds no processors of its own (that comes from [[LangPlugin]]); the one exception is the
-  * virtual file system — [[VirtualFileStatProcessor]] + [[VirtualFileContentReader]] — which it inserts *ahead* of the
-  * on-disk source readers so unsaved editor buffers are type-checked in place of stale disk content. Otherwise it is
-  * purely the `run` target. The errors it triggers accumulate in the generator and come back via
+  * It adds no processors of its own — the front end comes from [[LangPlugin]], and the virtual-file-system overlay for
+  * unsaved editor buffers is applied as a wrapper around the complete assembled processor tree
+  * ([[com.vanillasource.eliot.eliotc.lsp.virtual.VfsOverlayProcessor]], passed to
+  * [[com.vanillasource.eliot.eliotc.compiler.CompilationSession.create]] by the compilation service) — so it is purely
+  * the `run` target. The errors it triggers accumulate in the generator and come back via
   * [[com.vanillasource.eliot.eliotc.compiler.CompilationResult.errors]].
   */
-class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
+class LspPlugin extends CompilerPlugin with Logging {
 
   override def pluginDependencies(configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq(
     classOf[LangPlugin],
     classOf[StdlibPlugin]
   )
 
-  /** Insert the virtual-file-system overlay ahead of everything else. Because [[LspPlugin]] is the first activated
-    * plugin, the processor it leaves here becomes the *innermost-first* of the assembled chain, so its `FileStat` /
-    * `FileContent` overrides register before the on-disk readers
-    * ([[com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor]] /
-    * [[com.vanillasource.eliot.eliotc.source.file.FileContentReader]]) added by [[LangPlugin]], and win by being first.
+  /** No processors of its own — the virtual-file-system overlay is a session-level wrapper, not a contributed
+    * processor (see class doc).
     */
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
-    StateT.modify(superProcessor =>
-      SequentialCompilerProcessors(
-        Seq(superProcessor, VirtualFileStatProcessor(vfs), VirtualFileContentReader(vfs))
-      )
-    )
+    StateT.pure(())
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
     for {

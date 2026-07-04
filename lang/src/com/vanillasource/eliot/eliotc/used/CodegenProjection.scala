@@ -36,7 +36,7 @@ object CodegenProjection {
   def codegenProject(sourcedVfqn: Sourced[ValueFQN], typeArguments: Seq[GroundValue]): CompilerIO[Seq[GroundValue]] =
     if (typeArguments.isEmpty) typeArguments.pure[CompilerIO]
     else
-      getFact(SaturatedValue.Key(sourcedVfqn.value)).flatMap {
+      getFactIfProduced(SaturatedValue.Key(sourcedVfqn.value)).flatMap {
         case None     => typeArguments.pure[CompilerIO]
         case Some(sv) =>
           val dispositions = sv.binderRoles.roles.map(_.disposition)

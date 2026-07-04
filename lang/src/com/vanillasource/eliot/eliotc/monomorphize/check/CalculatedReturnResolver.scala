@@ -16,7 +16,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 /** The calculated-return *non-local inference* back-edge (D7): the implicit-generics (W3/W4) machinery that fills a
   * value's bare omittable return from its *body*, factored out of the
   * [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker]] into one cohesive module — the same move D4 made for
-  * the refinement lattice. None of this is definitional equality: it re-enters `getFact(MonomorphicValue.Key)` to read
+  * the refinement lattice. None of this is definitional equality: it re-enters `getFactIfProduced(MonomorphicValue.Key)` to read
   * a callee's *monomorphized body* (so a caller's type can depend on a callee's calculated return), guarded against a
   * recursive producer call graph via `activeFactKeys`.
   *
@@ -98,7 +98,7 @@ class CalculatedReturnResolver(
       case VType =>
         innermostValueRef(targetExpr) match {
           case Some((fqn, typeArgs)) =>
-            liftF(getFact(SaturatedValue.Key(fqn.value, platform))).flatMap {
+            liftF(getFactIfProduced(SaturatedValue.Key(fqn.value, platform))).flatMap {
               case Some(sv) if sv.value.calculatedReturn => readMonomorphicReturn(fqn, typeArgs)
               case _                                     => pure(None)
             }
@@ -195,7 +195,7 @@ class CalculatedReturnResolver(
       }
       if (recursing) liftF(reportRecursiveCalculatedReturn(fqn) >> abort[Option[SemValue]])
       else
-        liftF(getFact(MonomorphicValue.Key(fqn.value, groundArgs)))
+        liftF(getFactIfProduced(MonomorphicValue.Key(fqn.value, groundArgs)))
           .map(_.map(mv => Evaluator.groundToSem(mv.signature.deepReturnType)))
     }
 

@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationSe
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, DocIndex, MainIndex, PositionIndex, TypeHintIndex}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
-import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
+import com.vanillasource.eliot.eliotc.lsp.virtual.{VfsOverlayProcessor, VirtualFileSystem}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
@@ -127,7 +127,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     */
   def startWorkspace(roots: Seq[Path]): Unit = {
     rootsRef.set(roots)
-    val lspPlugin                     = LspPlugin(vfs)
+    val lspPlugin                     = LspPlugin()
     val (compilerPaths, runtimePaths) = BundledLayers.fromSystemProperty
     val configuration                 = Configuration()
       .set(Compiler.targetPathKey, roots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
@@ -143,7 +143,8 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
                    lspPlugin,
                    Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
                    configuration,
-                   roots.map(_.toString).toList
+                   roots.map(_.toString).toList,
+                   processorWrapper = VfsOverlayProcessor(vfs, _)
                  )
       handle  <- CompilationServer.start(session, publishResult).allocated
     } yield handle).unsafeRunSync()(using runtime)

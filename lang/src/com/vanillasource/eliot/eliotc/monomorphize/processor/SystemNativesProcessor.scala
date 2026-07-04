@@ -54,10 +54,10 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     if (key.label =!= ContributedBinding.systemLabel) abort
     // The system reductions are input-less compiler constants. Depending on the always-clean `UpToDate` leaf (the value
     // is immaterial — only the edge matters) lets the incremental cache prove them unchanged on a no-change run instead
-    // of treating them as source leaves and regenerating them every time. Deliberately not `getFactOrAbort`: a bundle
-    // without `UpToDateProcessor` (e.g. a minimal test) just loses incrementality here, never fails.
+    // of treating them as source leaves and regenerating them every time. Deliberately tolerant (`getFactIfProduced`):
+    // a bundle without `UpToDateProcessor` (e.g. a minimal test) just loses incrementality here, never fails.
     else
-      getFact(UpToDate.Key()) >>
+      getFactIfProduced(UpToDate.Key()) >>
         ContributedBinding(key.vfqn, key.label, systemReduction(key.vfqn).map(BindingContribution.Leaf(_))).pure[CompilerIO]
 
   /** The host-runnable reduction for a system name, or `None` if `vfqn` is not a system name (totality). */

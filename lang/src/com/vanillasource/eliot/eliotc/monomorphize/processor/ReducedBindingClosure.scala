@@ -56,7 +56,7 @@ object ReducedBindingClosure {
       activeFactKeys.flatMap { ancestors =>
         if (ancestors.contains(NativeBinding.Key(fqn, platform))) acc.pure[CompilerIO]
         else
-          getFact(NativeBinding.Key(fqn, platform)).map {
+          getFactIfProduced(NativeBinding.Key(fqn, platform)).map {
             case Some(binding) => acc + (fqn -> binding.semValue)
             case None          => acc
           }

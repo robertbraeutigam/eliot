@@ -48,7 +48,7 @@ final class CompilationSession private (
       for {
         prior     <- cache.get
         wrapped    = tracker.fold(processors)(t => processors.wrapWith(wrapProcessor(_, t)))
-        generator <- IncrementalFactGenerator.create(wrapped, prior)
+        generator <- IncrementalFactGenerator.create(wrapped, prior, strictAccounting = true)
         _         <- targetPlugin.run(effectiveConfiguration, generator)
         nextCache <- generator.buildCacheData()
         _         <- cache.set(Some(nextCache)) // last effect ⇒ a cancelled run keeps the old cache
@@ -67,16 +67,22 @@ object CompilationSession {
 
   /** One-time setup: let the activated plugins configure each other, collect their processors, compute fingerprints, and
     * seed the in-memory cache from disk. The returned session is then re-runnable.
+    *
+    * @param processorWrapper
+    *   applied to the *complete* assembled processor tree, after every plugin's `initialize` has run. This is the seam
+    *   for order-independent interception of fact requests — e.g. the LSP's virtual-file-system overlay — which cannot
+    *   be expressed as an ordinary contributed processor without racing the processor it overrides.
     */
   def create(
       targetPlugin: CompilerPlugin,
       activatedPlugins: Seq[CompilerPlugin],
       configuration: Configuration,
-      args: List[String]
+      args: List[String],
+      processorWrapper: CompilerProcessor => CompilerProcessor = identity
   ): IO[CompilationSession] =
     for {
       effectiveConfig <- activatedPlugins.traverse_(_.configure()).runS(configuration)
-      processors      <- activatedPlugins.traverse_(_.initialize(effectiveConfig)).runS(NullProcessor())
+      processors      <- activatedPlugins.traverse_(_.initialize(effectiveConfig)).runS(NullProcessor()).map(processorWrapper)
       targetPath       = effectiveConfig.get(Compiler.targetPathKey).get
       compilerFp      <- CacheFingerprint.compiler
       configFp         = CacheFingerprint.config(args)

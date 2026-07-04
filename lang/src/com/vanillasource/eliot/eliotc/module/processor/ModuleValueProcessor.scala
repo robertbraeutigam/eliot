@@ -74,7 +74,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       platform: Platform
   ): CompilerIO[ImportResult] =
     for {
-      maybeModuleNames <- getFact(UnifiedModuleNames.Key(module.value, platform))
+      maybeModuleNames <- getFactIfProduced(UnifiedModuleNames.Key(module.value, platform))
       result           <- maybeModuleNames match {
                             case Some(moduleNames) =>
                               val publicNames       = moduleNames.names.collect { case (name, Visibility.Public) =>

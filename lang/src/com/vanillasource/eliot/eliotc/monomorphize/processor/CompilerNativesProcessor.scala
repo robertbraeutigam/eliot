@@ -53,7 +53,7 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * not list the name — neither path emits the "Could not find" error a direct value request would.
     */
   private def inCompilerPool(vfqn: ValueFQN): CompilerIO[Boolean] =
-    getFact(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(_.exists(_.names.contains(vfqn.name)))
+    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(_.exists(_.names.contains(vfqn.name)))
 
   /** A **compile-time** value — one the compiler layer defines (concrete here) but the runtime pool leaves abstract, e.g.
     * the guard combinators `error`/`orError` — whose checking body performs ability dispatch (`raise`/`pure`) cannot be
@@ -82,7 +82,7 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     if (performsAbility(fact.value))
       runtimeConcrete(key.vfqn).ifM(
         super.generateFromKeyAndFact(key, fact),
-        getFact(CompilerMonomorphicValue.Key(key.vfqn, Seq.empty)).flatMap {
+        getFactIfProduced(CompilerMonomorphicValue.Key(key.vfqn, Seq.empty)).flatMap {
           case Some(cmv) =>
             cmv.reduced match {
               case Some(reduced) =>
@@ -115,10 +115,10 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * does not trigger the runtime pool's "Could not find" abort.
     */
   private def runtimeConcrete(vfqn: ValueFQN): CompilerIO[Boolean] =
-    getFact(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime))
+    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime))
       .map(_.exists(_.names.contains(vfqn.name)))
       .ifM(
-        getFact(SaturatedValue.Key(vfqn, Platform.Runtime)).map(_.exists(_.value.runtime.isDefined)),
+        getFactIfProduced(SaturatedValue.Key(vfqn, Platform.Runtime)).map(_.exists(_.value.runtime.isDefined)),
         false.pure[CompilerIO]
       )
 }

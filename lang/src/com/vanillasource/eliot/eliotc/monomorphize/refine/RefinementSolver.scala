@@ -249,7 +249,7 @@ class RefinementSolver(
       context: Sourced[String]
   ): CheckIO[Option[SemValue]] =
     for {
-      orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implFqn, platform)))
+      orvOpt <- liftF(getFactIfProduced(OperatorResolvedValue.Key(implFqn, platform)))
       result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
                   case None              => pure(Option.empty[SemValue])
                   case Some((orv, body)) =>
@@ -482,7 +482,7 @@ class RefinementSolver(
         case None                                  => pure(None)
         case Some((implCombinedFqn, implTypeArgs)) =>
           for {
-            orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implCombinedFqn, platform)))
+            orvOpt <- liftF(getFactIfProduced(OperatorResolvedValue.Key(implCombinedFqn, platform)))
             result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
                         case None              => pure(None)
                         case Some((orv, body)) =>

@@ -69,7 +69,7 @@ class RecursionChecker {
     * resolved (conservative: a leaf, so the search just stops there).
     */
   private def calleesOf(fqn: ValueFQN, platform: Platform): CompilerIO[Set[ValueFQN]] =
-    getFact(OperatorResolvedValue.Key(fqn, platform)).map(_.fold(Set.empty[ValueFQN])(directCallees))
+    getFactIfProduced(OperatorResolvedValue.Key(fqn, platform)).map(_.fold(Set.empty[ValueFQN])(directCallees))
 
   /** Every distinct [[ValueFQN]] referenced in a value's runtime body — head positions, arguments and type arguments
     * alike (the resolved value-reference graph). The type signature is deliberately excluded.

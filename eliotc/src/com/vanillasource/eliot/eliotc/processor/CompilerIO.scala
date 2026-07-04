@@ -18,7 +18,7 @@ object CompilerIO {
 
   /** Returns the fact from the running compiler as an Option, without aborting.
     */
-  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[Option[V]] =
+  private def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[Option[V]] =
     for {
       process <- ReaderT.ask[StateStage, CompilationProcess]
       fact    <-
@@ -28,12 +28,35 @@ object CompilerIO {
     } yield fact
 
   /** Returns the fact from the running compiler or short circuits.
+    *
+    * This is the default read: a missing fact aborts this computation. Use it whenever absence means either "this
+    * cannot happen" (the producing processor always succeeds) or "the failure was already reported upstream" — in both
+    * cases producing no output is the correct reaction, and the abort is the sanctioned way to *decline* producing this
+    * fact (the engine treats an explicit abort as a decline, never as an internal error).
     */
   def getFactOrAbort[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[V] =
     getFact(key).flatMap {
       case Some(fact) => fact.pure[CompilerIO]
       case None       => abort[V]
     }
+
+  /** Returns the fact from the running compiler, or registers the given error and short circuits. Use when the caller
+    * owns a user-facing message for the missing fact (e.g. "Could not find imported module").
+    */
+  def getFactOrError[V <: CompilerFact, K <: CompilerFactKey[V]](key: K)(error: CompilerIO[Unit]): CompilerIO[V] =
+    getFact(key).flatMap {
+      case Some(fact) => fact.pure[CompilerIO]
+      case None       => error >> abort[V]
+    }
+
+  /** Returns the fact if it was produced, `None` otherwise, and *continues* either way. Reserved for sites where
+    * absence is an expected, handled outcome by design: a producer that legitimately declines (its decline is an
+    * explicit abort on its side), or an upstream failure that was already reported and this computation deliberately
+    * proceeds without the input (e.g. skipping a broken callee). Never use this to paper over a missing producer — if
+    * the fact "should be there", use [[getFactOrAbort]].
+    */
+  def getFactIfProduced[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[Option[V]] =
+    getFact(key)
 
   /** The keys of the fact computations currently in progress on this request chain (the ancestors of the fact being
     * generated now). See [[CompilationProcess.activeFactKeys]]; a processor reads this to detect a cyclic fact-request
@@ -78,6 +101,20 @@ object CompilerIO {
                  )
     } yield ()
 
+  /** Registers an *injected* fact (see [[CompilationProcess.registerInjectedFact]]), only if the current compiler
+    * process is clean of errors. Reserved for facts no processor can reproduce, e.g. dynamically synthesized source.
+    */
+  def registerInjectedFactIfClear(value: CompilerFact): CompilerIO[Unit] =
+    for {
+      process <- ReaderT.ask[StateStage, CompilationProcess]
+      _       <- isClear.ifM(
+                   ReaderT.liftF[StateStage, CompilationProcess, Unit](
+                     StateT.liftF(EitherT.liftF(process.registerInjectedFact(value)))
+                   ),
+                   Monad[CompilerIO].unit
+                 )
+    } yield ()
+
   /** Aborts the computation by copying errors from state into the Either's left side.
     */
   def abort[T]: CompilerIO[T] =
@@ -100,6 +137,12 @@ object CompilerIO {
     *   A computation that cannot abort (all errors are captured in state)
     */
   def recover[T](computation: CompilerIO[T])(default: T): CompilerIO[T] =
+    recoverWithAborted(computation)(default).map(_._1)
+
+  /** Like [[recover]], but also reports whether the computation had aborted. Lets a container processor preserve the
+    * abort (decline) signal of its children for the engine while still running every child and keeping all errors.
+    */
+  def recoverWithAborted[T](computation: CompilerIO[T])(default: T): CompilerIO[(T, Boolean)] =
     for {
       process <- ReaderT.ask[StateStage, CompilationProcess]
       result  <- ReaderT.liftF[StateStage, CompilationProcess, Either[Chain[CompilerError], (Chain[CompilerError], T)]](
@@ -108,8 +151,8 @@ object CompilerIO {
                    )
                  )
       value   <- result match {
-                   case Left(errors)           => errors.traverse_(registerCompilerError).as(default)
-                   case Right((errors, value)) => errors.traverse_(registerCompilerError).as(value)
+                   case Left(errors)           => errors.traverse_(registerCompilerError).as((default, true))
+                   case Right((errors, value)) => errors.traverse_(registerCompilerError).as((value, false))
                  }
     } yield value
 

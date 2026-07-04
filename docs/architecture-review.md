@@ -1,6 +1,7 @@
 # Compiler architecture review (fact engine + pipeline)
 
-Last performed: **2026-07-04** (tree at `a7b2e11a`).
+Last performed: **2026-07-04** (tree at `a7b2e11a`). Engine findings E1–E4 implemented later the
+same day (see the per-finding implementation notes).
 
 A whole-compiler architecture review: the fact-based compilation model (`eliotc` engine), the
 fact/processor interactions across the `lang` pipeline, the back half (saturate → monomorphize →
@@ -55,7 +56,7 @@ silent failure mode found into a loud one; they are engine-local and semantics-n
 
 ## 3. Findings — engine (`eliotc`)
 
-### E1. Dispatch is an untyped broadcast; the key→processor mapping exists nowhere — OPEN, direction decided 2026-07-04
+### E1. Dispatch is an untyped broadcast; the key→processor mapping exists nowhere — IMPLEMENTED 2026-07-04
 
 `SequentialCompilerProcessors.generate` offers every requested key to every processor; each
 no-ops unless its `ClassTag` matches (`SingleKeyTypeProcessor.scala:16-20`). Consequences:
@@ -121,7 +122,43 @@ error); `ImplementationMarkerUtils`; `PostDrainQuoter`'s roleHint read; ability 
 4. Switch on loud-on-different-value double-produce **and** the neither-fact-nor-error
    diagnostic (E4 — which step 1–2 make precise).
 
-### E2. An unguarded fact cycle hangs the compiler instead of erroring — OPEN
+**Implementation (2026-07-04) — landed, with two deviations discovered during implementation:**
+
+- *Total facts were NOT adopted* (step 1 as sketched). Reading `PathScanner` showed the codebase
+  already has a sanctioned decline idiom — a compiler-platform miss aborts silently by design
+  (`PathScanner.scala`, hit for *most* names) — and total-izing would have forced `Option`
+  payloads through every `NativeBinding`/`UnifiedModuleValue` consumer while drifting semantics
+  ("Could not find imported module" detection). Instead the decline was made **first-class**: the
+  engine now distinguishes an explicit `abort` (decline) from running off the end, and
+  `SequentialCompilerProcessors` preserves the abort signal of its children
+  (`CompilerIO.recoverWithAborted`). The enforced contract is **fact XOR errors XOR
+  explicit-abort XOR missing-dependency-read**.
+- Processor-facing `getFact` is retired (private in `CompilerIO`). The API is now
+  `getFactOrAbort` (default), `getFactOrError(key)(error)` (caller-owned message), and
+  `getFactIfProduced` (explicit tolerant read for the ~30 absence-is-expected-and-handled sites:
+  skip-broken-callee walks, pool probes, optional enrichment). Every former call site was
+  classified one by one; `.claude/rules/eliot-design.md` records the new rule. One prior
+  misjudgment caught by tests: `SystemNativesProcessor`'s `UpToDate` touch-read must stay
+  tolerant — its own comment said so.
+- *VFS override* (step 3): implemented as a `processorWrapper` parameter on
+  `CompilationSession.create` applied **after** the full plugin fold
+  (`lsp/virtual/VfsOverlayProcessor` wrapping the complete tree), not literally via `wrapWith` at
+  the plugin's fold position — a plugin-level wrap would only enclose the accumulator folded *so
+  far*, leaving the on-disk readers outside it, i.e. still order-dependent. The two racing overlay
+  processors are deleted; for an overlaid file the on-disk readers are never consulted.
+- *Double-produce* is loud: re-registering an **equal** value is a no-op (the push pattern);
+  registering a different value for a completed key, or after the key concluded empty, is an
+  internal error (`IncrementalFactGenerator.registerFact`). The full suite confirmed zero
+  legitimate different-value double-produces exist.
+- *Missing-producer diagnostic* ("no processor produced a fact, an error, or a decline") is
+  gated by `strictAccounting`, **on** for every `CompilationSession` (CLI, LSP, apidoc), **off**
+  for directly-constructed generators. Running it globally false-fired 187× in the test suite:
+  the harness convention deliberately runs partial bundles (source-phase facts injected, their
+  processors absent), so the invariant is a *whole-bundle* property and is enforced exactly where
+  whole bundles run. It immediately caught one real incompleteness: two LSP session tests ran
+  `LspPlugin` (which demands `ValueDoc`) without `ApiDocPlugin` — fixed to match production.
+
+### E2. An unguarded fact cycle hangs the compiler instead of erroring — IMPLEMENTED 2026-07-04
 
 The requester blocks on `deferred.get` (`IncrementalFactGenerator.scala:56`); the safety net only
 fires if generation *returns*. Cycle avoidance is voluntary — exactly three sites check
@@ -135,7 +172,13 @@ synthesized "cyclic fact demand: A ← B ← A" diagnostic instead of forwarding
 domain-specific guards still run first and give better messages; the engine check is the
 backstop. Nearly free; eliminates the only hang-forever failure mode.
 
-### E3. Incremental caching is broken for *pushed* facts — racy in one shape, deterministic in another — OPEN
+**Implementation (2026-07-04)**: as specified, in `DependencyTrackingProcess.getFact` — an
+on-chain read records a "Cyclic fact demand: A <- B <- A" error and returns `None` (counting as a
+missing read, so no cascade diagnostics). The refused edge is deliberately *not* recorded as a
+dependency, so a cyclic edge can never enter the persisted cache, where it would deadlock
+validation. Covered by engine tests (self-cycle and mutual cycle both error instead of hanging).
+
+### E3. Incremental caching is broken for *pushed* facts — racy in one shape, deterministic in another — IMPLEMENTED 2026-07-04
 
 `ModuleValueProcessor` is a fan-out: asked for one `ModuleValue.Key`, it registers facts for
 **every** name in the file (`ModuleValueProcessor.scala:35-49`). Pushed facts inherit **nothing**
@@ -180,7 +223,18 @@ for registrations made outside any generation (session/`DynamicContent` injectio
 accept-on-sight is genuinely correct. With a real dep set, path 1 validates like any generated
 fact and path 2's short-circuit no longer applies. Cache correctness becomes by-construction.
 
-### E4. "No fact ⇒ an error was reported" is unenforced — OPEN, folded into E1's plan 2026-07-04
+**Implementation (2026-07-04)**: as specified, with one refinement — `injected` is now an
+*explicit* channel rather than a residual heuristic: `CompilationProcess.registerInjectedFact`
+(+ `registerInjectedFactIfClear` in `CompilerIO`), used by `DynamicContent`. This matters because
+the dynamic `main.els` facts are registered *during* a generation that then reads them back —
+inheriting that generation's dep set would have created a cyclic cache edge. Out-of-generation
+direct `registerFact` (test injection) still classifies as injected, preserving old behaviour.
+`CACHE_VERSION` bumped to 3 (entry semantics changed). Verified: engine tests (pushed fact
+carries the pusher's dep set, regenerates when it changes, is accepted when unchanged), plus the
+end-to-end path-2 probe — both names used, edit one body, incremental rebuild — run 3×, fresh
+output every time.
+
+### E4. "No fact ⇒ an error was reported" is unenforced — IMPLEMENTED 2026-07-04 (as part of E1 step 4)
 
 `abort` with an empty error chain is representable, and a generation producing neither fact nor
 error is a legal no-op — so a demanded-but-unproducible target can yield exit code 0 with no
@@ -196,6 +250,15 @@ handled by the consumer) — those produce neither fact nor error *by design* to
 precise only after E1 steps 1–2 eliminate absence-as-data, at which point the enforceable
 contract is: **every generation ends with the requested fact registered XOR ≥1 error recorded.**
 Ships as E1 landing-order step 4.
+
+**Implementation (2026-07-04)**: the final contract is **fact XOR errors XOR explicit-abort
+(decline) XOR missing-dependency-read** — declines stayed as aborts instead of being converted to
+total facts (see E1's implementation note), so the abort side had to be part of the accounting.
+Enforced in `IncrementalFactGenerator.regenerate` under `strictAccounting` (on for every
+`CompilationSession`; off for the deliberately-partial test harness bundles, where a missing
+producer is the harness convention, not a bug). A demanded key with no producer in a complete
+bundle now yields "Internal error: no processor produced a fact, an error, or a decline for
+&lt;key&gt;" instead of a silent exit 0.
 
 ## 4. Findings — pipeline (`lang`)
 
@@ -342,20 +405,18 @@ opt-in.
 
 ## 7. Prioritized recommendations
 
-1. **E1 (direction decided) — total facts + `getFactOrError`, retire processor-facing
-   `getFact`, VFS onto `wrapWith`, then loud double-produce + the E4 diagnostic** — the four-step
-   landing order in E1. Highest payoff; each step independently landable.
-2. **E2 — engine-level cycle detection** via the existing ancestors chain. Very cheap.
-3. **E3 — fix `injected` classification**: in-generation registrations inherit the generation's
-   dep set. Makes incrementality correct by construction; note E3's path 2 is a *deterministic*
-   stale-compile shape, which arguably moves this ahead of E2 in urgency.
-4. **E4 — folded into E1 step 4** (precise only once absence-as-data is gone).
+1. **E1 — DONE 2026-07-04** (revised form: abort-as-decline + `getFactOrError`/`getFactIfProduced`
+   + `getFact` retired + VFS interceptor + loud double-produce; see E1's implementation note).
+2. **E2 — DONE 2026-07-04**: engine-level cycle detection via the existing ancestors chain.
+3. **E3 — DONE 2026-07-04**: in-generation registrations inherit the generation's dep set;
+   `injected` is an explicit channel; `CACHE_VERSION` 3.
+4. **E4 — DONE 2026-07-04** as E1 step 4 (`strictAccounting`, on for sessions).
 5. **P1 — shared generic payload record** for the value chain; give `block` its own expression
    type or fold it.
 6. **P2 — platform-key `ContributedBinding`**; centralize pool probes in `DeclaringPool`.
 7. **O1 — move the JAR write out of fact generation**; scope `injected` to `DynamicContent`.
 8. **O2/O3/O5 — plugin hygiene, opt-in visualization, CLAUDE.md pipeline list.**
 
-Items 1–4 are independent of language semantics and together convert every silent failure mode
-found in this review into a loud one. E2/E3 are engine-local (`eliotc`); E1's step 1 also
-touches the `lang` absence-as-data sites listed in the finding.
+Items 1–4 landed 2026-07-04 (single commit; full suite green, HelloWorld + incremental probes
+verified under the new strict accounting). Together they convert every silent failure mode found
+in this review into a loud one. Remaining open work is P1–P5 and O1–O5.

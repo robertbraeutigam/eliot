@@ -34,7 +34,7 @@ object RepresentationLowering {
         // Function types are never unfolded (`Function` has no opaque body); recurse into domain/codomain instead.
         if (s.asFunctionType.isDefined) lowerLeaf(s, context)
         else
-          getFact(OperatorResolvedValue.Key(s.typeName)).flatMap {
+          getFactIfProduced(OperatorResolvedValue.Key(s.typeName)).flatMap {
             case Some(orv) if orv.runtime.isDefined => unfold(s, context)
             case _                                  => lowerLeaf(s, context)
           }

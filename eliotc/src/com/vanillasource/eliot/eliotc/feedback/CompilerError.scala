@@ -65,3 +65,12 @@ case class CompilerError(
       line.substring(from, to)
     }
 }
+
+object CompilerError {
+
+  /** An engine-level error with no source attribution, e.g. a cyclic fact demand or an internal invariant breach
+    * detected by the fact generator itself.
+    */
+  def global(message: String): CompilerError =
+    CompilerError(message, Seq.empty, "eliotc", " ", PositionRange.zero)
+}

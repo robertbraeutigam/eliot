@@ -4,7 +4,6 @@ import cats.effect.{IO, Resource}
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.compiler.{CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
-import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
 import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
@@ -52,8 +51,7 @@ class CompletionIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Mat
   private def withCompiledWorkspace[A](body: (URI, CompletionIndex) => A): IO[A] =
     tempDirectory.use { sourceDir =>
       val file          = sourceDir.resolve("Test.els")
-      val vfs           = new VirtualFileSystem
-      val lspPlugin     = LspPlugin(vfs)
+      val lspPlugin     = LspPlugin()
       val configuration = LspCompileTestLayers.add(
         Configuration()
           .set(Compiler.targetPathKey, sourceDir.resolve(".eliot-lsp"))

@@ -459,7 +459,7 @@ class Checker(
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
       for {
         _      <- ensureBinding(vfqn.value)
-        svOpt  <- liftF(getFact(SaturatedValue.Key(vfqn.value, platform)))
+        svOpt  <- liftF(getFactIfProduced(SaturatedValue.Key(vfqn.value, platform)))
         result <- svOpt match {
                     case Some(sv) =>
                       // Read the *saturated* signature, so a callee's parameter-position bare omittable references

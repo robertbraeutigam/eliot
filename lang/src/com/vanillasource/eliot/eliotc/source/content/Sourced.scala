@@ -22,7 +22,7 @@ object Sourced extends Logging {
     */
   def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
     for {
-      sourceContent <- getFact(SourceContent.Key(message.uri))
+      sourceContent <- getFactIfProduced(SourceContent.Key(message.uri))
       _             <- sourceContent match {
                          case Some(sc) => compilerErrorWithContent(message, sc.content.value, description)
                          case None     =>
@@ -41,7 +41,7 @@ object Sourced extends Logging {
     } yield ()
 
   def displaySnippet(sourced: Sourced[?]): CompilerIO[String] =
-    getFact(SourceContent.Key(sourced.uri)).map(_.map { fact =>
+    getFactIfProduced(SourceContent.Key(sourced.uri)).map(_.map { fact =>
       displaySnippet(
         fact.content.value,
         sourced.range.from.line - 1,

@@ -209,7 +209,7 @@ class SaturatedValueProcessor
     * (the "viral bounds" of W5); that also keeps this growth lookup non-recursive (it reads only raw field arities).
     */
   private def inferableInfo(fqn: ValueFQN)(using platform: Platform): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
-    getFact(OperatorResolvedValue.Key(fqn, platform)).flatMap {
+    getFactIfProduced(OperatorResolvedValue.Key(fqn, platform)).flatMap {
       case Some(orv) =>
         recordGrowth(fqn).map { case (extraArity, extraKinds) =>
           val arity = orv.inferableArity + extraArity
@@ -236,7 +236,7 @@ class SaturatedValueProcessor
     * record growth. Used by [[fieldContribution]] so a record field's bounds do not propagate transitively (W5).
     */
   private def rawInferableInfo(fqn: ValueFQN)(using platform: Platform): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
-    getFact(OperatorResolvedValue.Key(fqn, platform)).map {
+    getFactIfProduced(OperatorResolvedValue.Key(fqn, platform)).map {
       case Some(orv) if orv.inferableArity > 0 => Some((orv.inferableArity, leadingBinderKinds(signatureOf(orv))))
       case _                                   => None
     }
@@ -370,9 +370,9 @@ class SaturatedValueProcessor
     */
   private def recordPlanFor(module: ModuleName, typeName: String)(using platform: Platform): CompilerIO[Option[TypePlan]] = {
     val ctorName = QualifiedName(typeName, Qualifier.Default)
-    getFact(UnifiedModuleNames.Key(module, platform)).flatMap {
+    getFactIfProduced(UnifiedModuleNames.Key(module, platform)).flatMap {
       case Some(names) if names.names.contains(ctorName) =>
-        getFact(OperatorResolvedValue.Key(ValueFQN(module, ctorName), platform)).flatMap {
+        getFactIfProduced(OperatorResolvedValue.Key(ValueFQN(module, ctorName), platform)).flatMap {
           case Some(ctor) if isRecordConstructor(ctor, typeName) =>
             SignatureView.of(signatureOf(ctor)).parameters.map(_.value).traverse(fieldContribution).map { fields =>
               val plan = TypePlan(typeName, fields)

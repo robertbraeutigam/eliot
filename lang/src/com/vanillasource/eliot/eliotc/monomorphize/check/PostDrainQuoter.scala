@@ -359,7 +359,7 @@ class PostDrainQuoter(
     * pool, so the runtime-default lookup would miss it and silently drop materialisation to a structural fallback.
     */
   private def constructorRole(fqn: ValueFQN): CompilerIO[Option[RoleHint]] =
-    getFact(UnifiedModuleValue.Key(fqn, platform)).map(_.map(_.namedValue.roleHint))
+    getFactIfProduced(UnifiedModuleValue.Key(fqn, platform)).map(_.map(_.namedValue.roleHint))
 
   /** All parameter names referenced anywhere in this expression node's subtree. Type-argument [[SemValue]]s of a value
     * reference are not walked — they are erased and never produce a runtime reference, so they do not gate

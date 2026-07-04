@@ -33,9 +33,12 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
 final class IncrementalFactGenerator(
     generator: CompilerProcessor,
     prior: Map[CompilerFactKey[?], CacheEntry],
+    strictAccounting: Boolean,
     errors: Ref[IO, Chain[CompilerError]],
     facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]],
     directDependencies: Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]],
+    producedDuring: Ref[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]],
+    injectedKeys: Ref[IO, Set[CompilerFactKey[?]]],
     carriedForward: Ref[IO, Map[CompilerFactKey[?], CacheEntry]],
     unchangedChecks: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]],
     regeneratedCount: Ref[IO, Int]
@@ -56,8 +59,39 @@ final class IncrementalFactGenerator(
       result       <- modifyResult._1.get
     } yield result.map(_.asInstanceOf[V])
 
+  /** Register a fact, completing its [[Deferred]]. Re-registering the *same* value is a no-op (the push pattern:
+    * concurrent generations over one file legitimately push identical sibling facts). Registering a **different** value
+    * for an already-completed key is a double-produce — two producers computing conflicting values for one key, or a
+    * value arriving after the key already concluded empty — and is reported as an internal error instead of being
+    * silently dropped.
+    */
   override def registerFact(fact: CompilerFact): IO[Unit] =
-    modifyAtomicallyFor(fact.key()).flatMap(_._1.complete(Some(fact)).void)
+    modifyAtomicallyFor(fact.key()).flatMap { case (deferred, _) =>
+      deferred.complete(Some(fact)).flatMap { won =>
+        deferred.tryGet
+          .flatMap {
+            case Some(Some(existing)) if (existing eq fact) || existing == fact => IO.unit
+            case Some(Some(_))                                                  =>
+              errors.update(
+                _ :+ CompilerError.global(s"Internal error: fact ${fact.key()} was produced twice with different values.")
+              )
+            case _                                                              =>
+              errors.update(
+                _ :+ CompilerError.global(
+                  s"Internal error: fact ${fact.key()} was registered after its generation already concluded without it."
+                )
+              )
+          }
+          .unlessA(won)
+      }
+    }
+
+  /** An injected fact is marked so the cache build classifies it as injected (accepted on sight next run) rather than
+    * giving it the registering generation's dependency set — an injected fact is not derived from that generation's
+    * inputs, and may even be read back by it.
+    */
+  override def registerInjectedFact(fact: CompilerFact): IO[Unit] =
+    injectedKeys.update(_ + fact.key()) >> registerFact(fact)
 
   /** Satisfy a first-time request: accept the cached value if it is still valid, otherwise regenerate.
     *
@@ -134,16 +168,39 @@ final class IncrementalFactGenerator(
     * The key is marked present in `directDependencies` up front (empty), so that even a generated leaf — which makes no
     * `getFact` calls — is recorded as *generated* (not mistaken for an injected fact, see [[buildCacheData]]). Reads then
     * accumulate into the same entry as they happen, before the fact becomes observable.
+    *
+    * The generation must account for its outcome: it ends with the fact registered, at least one error recorded, an
+    * explicit abort (the sanctioned *decline*), or a missing dependency read (the failure is attributable upstream). A
+    * generation with none of these — a missing producer for the key type, or a processor that silently produced
+    * nothing — is reported as an internal error instead of being indistinguishable from a legitimate decline.
     */
   private def regenerate(key: CompilerFactKey[?], ancestors: List[CompilerFactKey[?]]): IO[Unit] =
-    regeneratedCount.update(_ + 1) >>
-      directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty))) >>
-      generator
-        .generate(key)
-        .run(new DependencyTrackingProcess(this, key, directDependencies, ancestors))
-        .runS(Chain.empty)
-        .fold(identity, identity)
-        .flatMap(es => errors.update(_ ++ es))
+    for {
+      _          <- regeneratedCount.update(_ + 1)
+      _          <- directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty)))
+      sawMissing <- Ref.of[IO, Boolean](false)
+      tracking    = new DependencyTrackingProcess(this, key, directDependencies, producedDuring, errors, sawMissing, ancestors)
+      outcome    <- generator.generate(key).run(tracking).runS(Chain.empty).value
+      es          = outcome.fold(identity, identity)
+      _          <- errors.update(_ ++ es)
+      _          <- reportUnaccountedOutcome(key, sawMissing).whenA(strictAccounting && outcome.isRight && es.isEmpty)
+    } yield ()
+
+  /** The generation neither erred nor declined; unless it registered its fact or read a missing input, nothing accounts
+    * for its outcome — report it.
+    */
+  private def reportUnaccountedOutcome(key: CompilerFactKey[?], sawMissing: Ref[IO, Boolean]): IO[Unit] =
+    for {
+      missing    <- sawMissing.get
+      registered <- facts.get.flatMap(_.get(key).traverse(_.tryGet)).map(_.flatten.flatten.isDefined)
+      _          <- errors
+                      .update(
+                        _ :+ CompilerError.global(
+                          s"Internal error: no processor produced a fact, an error, or a decline for $key."
+                        )
+                      )
+                      .whenA(!missing && !registered)
+    } yield ()
 
   /** A validation-path read (recompute-and-compare). It starts a fresh chain (`Nil`): the recursion guard only matters
     * for facts materialised through a processor generation, and the value-less `SemValue`-bearing facts the guard
@@ -180,40 +237,66 @@ final class IncrementalFactGenerator(
     *     edges-only entry, carried forward so the graph stays drillable. A fact neither materialised nor carried (no
     *     longer reachable, or removed) drops out, so the cache self-prunes.
     *
-    * A materialised fact that a processor generated has an entry in `directDependencies`; one that was only registered
-    * directly — injected — has none, and is marked so it is accepted rather than (unsuccessfully) regenerated next run.
+    * A materialised fact gets its dependency set from one of two places: its own `directDependencies` entry (it was
+    * generated), or — for a fact **pushed** by a processor for a key other than the one being generated — the final
+    * dependency set of the generation that pushed it (recorded in `producedDuring`): a pushed fact is a function of
+    * exactly what its producing generation read, so those edges validate it soundly next run. Only facts registered
+    * with neither record — explicitly injected ones ([[registerInjectedFact]]), or direct out-of-generation
+    * registrations — are marked injected and accepted from the cache on sight, since no processor can reproduce them.
     */
   def buildCacheData(): IO[FactCacheData] =
     for {
       factMap     <- currentFacts()
       deps        <- directDependencies.get
+      pushedBy    <- producedDuring.get
+      injected    <- injectedKeys.get
       carried     <- carriedForward.get
       regenerated <- regeneratedCount.get
       _           <- debug[IO](s"Incremental run: regenerated $regenerated fact(s); ${factMap.size} materialised, " +
                        s"${carried.size} validated unchanged without recompute.")
     } yield {
       val fresh = factMap.map { case (key, fact) =>
-        key -> CacheEntry(Some(fact), deps.getOrElse(key, Set.empty), injected = !deps.contains(key))
+        val recordedDeps =
+          if (injected.contains(key)) None
+          else deps.get(key).orElse(pushedBy.get(key).map(producer => deps.getOrElse(producer, Set.empty)))
+        key -> CacheEntry(Some(fact), recordedDeps.getOrElse(Set.empty), injected = recordedDeps.isEmpty)
       }
       FactCacheData(FactCache.CACHE_VERSION, fresh ++ carried.view.filterKeys(k => !fresh.contains(k)).toMap)
     }
 }
 
 object IncrementalFactGenerator {
-  def create(generator: CompilerProcessor, prior: Option[FactCacheData]): IO[IncrementalFactGenerator] =
+
+  /** @param strictAccounting
+    *   when true, a generation that ends with no fact, no error, no explicit abort (decline), and no missing dependency
+    *   read is reported as an internal error ("no processor produced a fact, an error, or a decline"). This invariant
+    *   only holds for a *complete* processor bundle — a session running all plugins — so it is enabled by
+    *   [[CompilationSession]] and off by default for partial bundles (test harnesses that inject source-phase facts
+    *   instead of carrying their processors).
+    */
+  def create(
+      generator: CompilerProcessor,
+      prior: Option[FactCacheData],
+      strictAccounting: Boolean = false
+  ): IO[IncrementalFactGenerator] =
     for {
       errors          <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
       facts           <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
       deps            <- Ref.of[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]](Map.empty)
+      producedDuring  <- Ref.of[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]](Map.empty)
+      injectedKeys    <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
       carriedForward  <- Ref.of[IO, Map[CompilerFactKey[?], CacheEntry]](Map.empty)
       unchangedChecks <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]](Map.empty)
       regenerated     <- Ref.of[IO, Int](0)
     } yield new IncrementalFactGenerator(
       generator,
       prior.map(_.entries).getOrElse(Map.empty),
+      strictAccounting,
       errors,
       facts,
       deps,
+      producedDuring,
+      injectedKeys,
       carriedForward,
       unchangedChecks,
       regenerated

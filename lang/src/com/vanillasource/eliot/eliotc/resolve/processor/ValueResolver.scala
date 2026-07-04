@@ -205,7 +205,7 @@ class ValueResolver
         val vfqn       = ValueFQN(moduleName, nameSrc.value)
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
 
-        getPlatform.flatMap(platform => getFact(UnifiedModuleValue.Key(vfqn, platform)).liftToScoped).flatMap {
+        getPlatform.flatMap(platform => getFactIfProduced(UnifiedModuleValue.Key(vfqn, platform)).liftToScoped).flatMap {
           case Some(umv) =>
             getCurrentModule.flatMap { currentMod =>
               if (umv.namedValue.visibility == Visibility.Private && moduleName != currentMod) {
@@ -291,7 +291,7 @@ class ValueResolver
         val vfqn       = ValueFQN(moduleName, nameSrc.value)
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
 
-        getPlatform.flatMap(platform => getFact(UnifiedModuleValue.Key(vfqn, platform)).liftToScoped).flatMap {
+        getPlatform.flatMap(platform => getFactIfProduced(UnifiedModuleValue.Key(vfqn, platform)).liftToScoped).flatMap {
           case Some(_) =>
             subPatterns
               .traverse(resolvePattern)

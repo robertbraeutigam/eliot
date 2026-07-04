@@ -28,6 +28,14 @@ trait CompilationProcess {
 
   def registerFact(value: CompilerFact): IO[Unit]
 
+  /** Register a fact that no processor can reproduce — e.g. dynamically synthesized source a backend injects into the
+    * compilation. The incremental engine accepts such a fact from the cache on sight instead of (unsuccessfully)
+    * regenerating it, so injection must be reserved for facts whose validity is guaranteed by the run configuration
+    * itself. Ordinary facts a processor computes — including facts pushed for keys other than the one being generated —
+    * must go through [[registerFact]], so they stay attributable to the inputs of the generation that produced them.
+    */
+  def registerInjectedFact(value: CompilerFact): IO[Unit] = registerFact(value)
+
   /** The keys of the fact computations currently in progress on this request chain (innermost first) — the ancestors
     * of the fact being generated right now. A processor reads this to detect a cyclic / non-stabilising fact-request
     * chain: requesting a key that is already an ancestor would dead-lock the [[Deferred]]-based fact cache (the

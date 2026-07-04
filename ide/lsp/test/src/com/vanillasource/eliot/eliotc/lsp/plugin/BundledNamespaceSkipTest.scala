@@ -2,9 +2,9 @@ package com.vanillasource.eliot.eliotc.lsp.plugin
 
 import cats.effect.{IO, Resource}
 import cats.effect.testing.scalatest.AsyncIOSpec
+import com.vanillasource.eliot.eliotc.apidoc.plugin.ApiDocPlugin
 import com.vanillasource.eliot.eliotc.compiler.{CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
-import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import org.scalatest.flatspec.AsyncFlatSpec
@@ -47,8 +47,7 @@ class BundledNamespaceSkipTest extends AsyncFlatSpec with AsyncIOSpec with Match
     tempDirectory.use { root =>
       val userFile   = root.resolve("app").resolve("Main.els")
       val stdlibFile = root.resolve("layer").resolve("eliot").resolve("lang").resolve("String.els")
-      val vfs        = new VirtualFileSystem
-      val lspPlugin  = LspPlugin(vfs)
+      val lspPlugin  = LspPlugin()
       val config     = LspCompileTestLayers.add(
         Configuration()
           .set(Compiler.targetPathKey, root.resolve(".eliot-lsp"))
@@ -61,7 +60,7 @@ class BundledNamespaceSkipTest extends AsyncFlatSpec with AsyncIOSpec with Match
         _       <- IO.blocking(Files.writeString(stdlibFile, stdlibSource))
         session <- CompilationSession.create(
                      lspPlugin,
-                     Seq(lspPlugin, LangPlugin(), StdlibPlugin()),
+                     Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
                      config,
                      List(root.toString)
                    )

@@ -34,5 +34,5 @@ object DeclaringPool {
     )
 
   private def isMember(vfqn: ValueFQN, platform: Platform): CompilerIO[Boolean] =
-    getFact(UnifiedModuleNames.Key(vfqn.moduleName, platform)).map(_.exists(_.names.contains(vfqn.name)))
+    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, platform)).map(_.exists(_.names.contains(vfqn.name)))
 }

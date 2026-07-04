@@ -118,7 +118,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       abilityLocalName: String,
       platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
-    getFact(ModuleAbilities.Key(moduleName, platform)).map {
+    getFactIfProduced(ModuleAbilities.Key(moduleName, platform)).map {
       case None        => Seq.empty
       case Some(impls) => impls.namedImplementationMethodsOf(abilityLocalName, functionName)
     }
@@ -129,7 +129,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       expectedTypeArgs: Seq[GroundValue],
       platform: Platform
   ): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] =
-    getFact(OperatorResolvedValue.Key(vfqn, platform)).flatMap {
+    getFactIfProduced(OperatorResolvedValue.Key(vfqn, platform)).flatMap {
       case None           => Seq.empty.pure[CompilerIO]
       case Some(resolved) =>
         resolved.name.value.qualifier match {

@@ -66,7 +66,7 @@ class CarrierKindChecker(
     expr.expression match {
       case SemExpression.ValueReference(fqn, explicitArgs) if implicitMetas.nonEmpty =>
         for {
-          svOpt <- liftF(getFact(SaturatedValue.Key(fqn.value, platform)))
+          svOpt <- liftF(getFactIfProduced(SaturatedValue.Key(fqn.value, platform)))
           _     <- svOpt match {
                      case None     => pure(())
                      case Some(sv) =>
@@ -192,7 +192,7 @@ class CarrierKindChecker(
     * primitive head), in which case the carrier check is skipped for that solution.
     */
   private def kindOfTypeConstructor(fqn: ValueFQN): CheckIO[Option[SemValue]] =
-    liftF(getFact(SaturatedValue.Key(fqn, platform))).flatMap {
+    liftF(getFactIfProduced(SaturatedValue.Key(fqn, platform))).flatMap {
       case None     => pure(None)
       case Some(sv) => evalExpr(sv.value.typeStack.value.signature, Some(Env.empty)).map(Some(_))
     }

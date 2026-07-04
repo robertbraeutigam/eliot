@@ -115,7 +115,7 @@ object BindingClosure {
           )
             acc.pure[CompilerIO]
           else
-            getFact(NativeBinding.Key(vfqn.value, platform)).map {
+            getFactIfProduced(NativeBinding.Key(vfqn.value, platform)).map {
               case Some(binding) => acc + (vfqn.value -> binding.semValue)
               case None          => acc
             }

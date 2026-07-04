@@ -45,7 +45,7 @@ class ModuleAbilityOverlapCheckProcessor
       markerVfqn: ValueFQN,
       platform: Platform
   ): CompilerIO[Option[Sourced[OperatorResolvedExpression]]] =
-    getFact(OperatorResolvedValue.Key(markerVfqn, platform)).map(
+    getFactIfProduced(OperatorResolvedValue.Key(markerVfqn, platform)).map(
       _.map(resolved => resolved.typeStack.as(resolved.typeStack.value.signature))
     )
 

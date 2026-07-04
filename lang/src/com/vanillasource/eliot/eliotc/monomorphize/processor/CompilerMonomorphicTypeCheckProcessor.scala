@@ -52,11 +52,11 @@ class CompilerMonomorphicTypeCheckProcessor
     * and stays `None`.
     */
   private def fetchBinding(source: Sourced[?])(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    getFact(NativeBinding.Key(vfqn, Platform.Compiler)).flatMap {
+    getFactIfProduced(NativeBinding.Key(vfqn, Platform.Compiler)).flatMap {
       case Some(nb) => Option(nb.semValue).pure[CompilerIO]
       case None     =>
         inRuntimePool(vfqn).ifM(
-          getFact(NativeBinding.Key(vfqn, Platform.Runtime)).flatMap {
+          getFactIfProduced(NativeBinding.Key(vfqn, Platform.Runtime)).flatMap {
             case Some(_) =>
               compilerError(
                 source.as(s"Cannot use runtime-only value '${vfqn.name.name}' at compile time."),
@@ -75,7 +75,7 @@ class CompilerMonomorphicTypeCheckProcessor
     * direct value/binding request would raise.
     */
   private def inRuntimePool(vfqn: ValueFQN): CompilerIO[Boolean] =
-    getFact(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime)).map(_.exists(_.names.contains(vfqn.name)))
+    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime)).map(_.exists(_.names.contains(vfqn.name)))
 
   override protected def generateFromKeyAndFact(
       key: CompilerMonomorphicValue.Key,
@@ -106,7 +106,7 @@ class CompilerMonomorphicTypeCheckProcessor
       vfqn: ValueFQN,
       typeArgs: Seq[GroundValue]
   ): CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
-    getFact(AbilityImplementation.Key(vfqn, typeArgs, Platform.Compiler)).map(
+    getFactIfProduced(AbilityImplementation.Key(vfqn, typeArgs, Platform.Compiler)).map(
       _.map(impl => (impl.implementationFQN, impl.implementationTypeArgs))
     )
 }

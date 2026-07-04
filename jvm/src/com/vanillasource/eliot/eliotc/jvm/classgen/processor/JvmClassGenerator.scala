@@ -165,7 +165,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       allTypeCtorsArityZero  <- moduleConstructors.typeConstructors.traverseFilter { vfqn =>
                                   val stats    = usedValues.get(vfqn)
                                   val typeArgs = stats.flatMap(_.monomorphicTypeParameters.headOption).getOrElse(Seq.empty)
-                                  getFact(UncurriedMonomorphicValue.Key(vfqn, typeArgs, 0)).map(_.map(umv => (vfqn, umv)))
+                                  getFactIfProduced(UncurriedMonomorphicValue.Key(vfqn, typeArgs, 0)).map(_.map(umv => (vfqn, umv)))
                                 }
       // Determine which type constructors need data classes (used directly or via typeMatch)
       neededTypeCtors         = allTypeCtorsArityZero.filter { (vfqn, _) =>

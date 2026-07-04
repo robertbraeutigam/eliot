@@ -327,6 +327,137 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     }
   }
 
+  it should "error on a self-cyclic fact demand instead of hanging" in {
+    val test = for {
+      counts <- counters("a")
+      proc    = graph(Map("a" -> Derived("a", identity)), counts)
+      run    <- runBuild(proc, None)(g => g.getFact(NumberKey("a")).product(g.currentErrors()))
+    } yield (run._1._1, run._1._2.map(_.message))
+    test.asserting(_ shouldBe (None, Seq("Cyclic fact demand: NumberKey(a) <- NumberKey(a)")))
+  }
+
+  it should "error on a mutual cyclic fact demand instead of hanging" in {
+    val test = for {
+      counts <- counters("a", "b")
+      proc    = graph(Map("a" -> Derived("b", identity), "b" -> Derived("a", identity)), counts)
+      run    <- runBuild(proc, None)(g => g.getFact(NumberKey("a")).product(g.currentErrors()))
+    } yield (run._1._1, run._1._2.map(_.message))
+    test.asserting(_ shouldBe (None, Seq("Cyclic fact demand: NumberKey(a) <- NumberKey(b) <- NumberKey(a)")))
+  }
+
+  it should "give a pushed fact the pushing generation's dependency set in the cache" in {
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "pusher", "sibling")
+      proc    = graph(
+                  Map("leaf" -> Leaf(src), "pusher" -> Pushing("leaf", "sibling", _ * 2), "sibling" -> Derived("leaf", _ * 2)),
+                  counts
+                )
+      run    <- runBuild(proc, None)(_.getFact(NumberKey("pusher")))
+    } yield run._2.entries.get(NumberKey("sibling"))
+    test.asserting(_ shouldBe Some(CacheEntry(Some(NumberFact("sibling", 20)), Set(NumberKey("leaf")))))
+  }
+
+  it should "regenerate a pushed fact when its inherited dependencies change" in {
+    // Run 1 demands only 'pusher', which pushes 'sibling'. Run 2 changes the leaf and demands only 'sibling':
+    // the pushed entry must be invalidated through its inherited deps and regenerated fresh — never served stale.
+    val test = for {
+      src      <- Ref.of[IO, Int](10)
+      counts   <- counters("leaf", "pusher", "sibling")
+      proc      = graph(
+                    Map("leaf" -> Leaf(src), "pusher" -> Pushing("leaf", "sibling", _ * 2), "sibling" -> Derived("leaf", _ * 2)),
+                    counts
+                  )
+      run1     <- runBuild(proc, None)(_.getFact(NumberKey("pusher")))
+      _        <- src.set(15)
+      run2     <- runBuild(proc, Some(run1._2))(_.getFact(NumberKey("sibling")))
+    } yield run2._1
+    test.asserting(_ shouldBe Some(NumberFact("sibling", 30)))
+  }
+
+  it should "accept a pushed fact from cache when its inherited dependencies are unchanged" in {
+    val test = for {
+      src      <- Ref.of[IO, Int](10)
+      counts   <- counters("leaf", "pusher", "sibling")
+      proc      = graph(
+                    Map("leaf" -> Leaf(src), "pusher" -> Pushing("leaf", "sibling", _ * 2), "sibling" -> Derived("leaf", _ * 2)),
+                    counts
+                  )
+      run1     <- runBuild(proc, None)(_.getFact(NumberKey("pusher")))
+      run2     <- runBuild(proc, Some(run1._2))(_.getFact(NumberKey("sibling")))
+      siblingN <- counts("sibling").get
+    } yield (run2._1, siblingN)
+    test.asserting(_ shouldBe (Some(NumberFact("sibling", 20)), 0))
+  }
+
+  it should "classify an in-generation injected fact as injected with no dependencies" in {
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "writer")
+      proc    = graph(Map("leaf" -> Leaf(src), "writer" -> Injecting("leaf", "dyn", 42)), counts)
+      run    <- runBuild(proc, None)(_.getFact(NumberKey("writer")))
+    } yield run._2.entries.get(NumberKey("dyn"))
+    test.asserting(_ shouldBe Some(CacheEntry(Some(NumberFact("dyn", 42)), Set.empty, injected = true)))
+  }
+
+  it should "classify a directly registered out-of-generation fact as injected" in {
+    val test = for {
+      counts <- counters("derived")
+      proc    = graph(Map("derived" -> Derived("direct", _ + 1)), counts)
+      run    <- runBuild(proc, None)(g => g.registerFact(NumberFact("direct", 1)) *> g.getFact(NumberKey("derived")))
+    } yield (run._1, run._2.entries.get(NumberKey("direct")).map(_.injected))
+    test.asserting(_ shouldBe (Some(NumberFact("derived", 2)), Some(true)))
+  }
+
+  it should "report an internal error when no processor produces a fact, an error, or a decline" in {
+    val test = for {
+      counts <- counters()
+      proc    = graph(Map.empty, counts)
+      run    <- runBuild(proc, None)(g => g.getFact(UnhandledKey("mystery")).product(g.currentErrors()))
+    } yield (run._1._1, run._1._2.map(_.message))
+    test.asserting(
+      _ shouldBe (None, Seq("Internal error: no processor produced a fact, an error, or a decline for UnhandledKey(mystery)."))
+    )
+  }
+
+  it should "not report an internal error for an explicit decline" in {
+    // GraphProcessor declines unknown names via abort — the sanctioned decline; no diagnostic, no error.
+    val test = for {
+      counts <- counters()
+      proc    = graph(Map.empty, counts)
+      run    <- runBuild(proc, None)(g => g.getFact(NumberKey("undefined")).product(g.currentErrors()))
+    } yield (run._1._1, run._1._2)
+    test.asserting(_ shouldBe (None, Seq.empty))
+  }
+
+  it should "report an internal error when a key is produced twice with different values" in {
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "p1", "p2")
+      proc    = graph(
+                  Map("leaf" -> Leaf(src), "p1" -> Pushing("leaf", "shared", _ * 2), "p2" -> Pushing("leaf", "shared", _ * 3)),
+                  counts
+                )
+      run    <- runBuild(proc, None)(g => g.getFact(NumberKey("p1")) *> g.getFact(NumberKey("p2")) *> g.currentErrors())
+    } yield run._1.map(_.message)
+    test.asserting(
+      _ shouldBe Seq("Internal error: fact NumberKey(shared) was produced twice with different values.")
+    )
+  }
+
+  it should "stay silent when a key is re-registered with an equal value" in {
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "p1", "p2")
+      proc    = graph(
+                  Map("leaf" -> Leaf(src), "p1" -> Pushing("leaf", "shared", _ * 2), "p2" -> Pushing("leaf", "shared", _ * 2)),
+                  counts
+                )
+      run    <- runBuild(proc, None)(g => g.getFact(NumberKey("p1")) *> g.getFact(NumberKey("p2")) *> g.currentErrors())
+    } yield run._1
+    test.asserting(_ shouldBe Seq.empty)
+  }
+
   it should "rebuild a deleted output and then stabilize (presence-leaf behavior)" in {
     // Models OutputFileStat: 'present' leaf reads a 0/1 presence flag; 'jar' depends on it and 'writes'
     // (sets the flag to 1 and bumps the write counter). Deleting the output (flag -> 0) forces a rebuild.
@@ -359,12 +490,17 @@ object IncrementalFactGeneratorTest {
 
   case class NumberKey(name: String) extends CompilerFactKey[NumberFact]
 
+  /** A key type no processor in these tests handles — for exercising the missing-producer diagnostic. */
+  case class UnhandledKey(name: String) extends CompilerFactKey[NumberFact]
+
   sealed trait Node
   case class Leaf(source: Ref[IO, Int])                                extends Node
   case class Derived(dep: String, f: Int => Int)                       extends Node
   case class Derived2(dep1: String, dep2: String, f: (Int, Int) => Int) extends Node
   case class Writer(dep: String, sideEffect: IO[Unit])                 extends Node
   case class Failing(message: String)                                  extends Node
+  case class Pushing(dep: String, sibling: String, f: Int => Int)      extends Node
+  case class Injecting(dep: String, injectedName: String, value: Int)  extends Node
 
   private def err(message: String): CompilerError =
     CompilerError(message, Seq.empty, "", "", PositionRange.zero)
@@ -382,7 +518,7 @@ object IncrementalFactGeneratorTest {
       body: IncrementalFactGenerator => IO[A]
   ): IO[(A, FactCacheData)] =
     for {
-      generator <- IncrementalFactGenerator.create(processor, prior)
+      generator <- IncrementalFactGenerator.create(processor, prior, strictAccounting = true)
       a         <- body(generator)
       cache     <- generator.buildCacheData()
     } yield (a, cache)
@@ -411,6 +547,13 @@ object IncrementalFactGeneratorTest {
           } yield NumberFact(key.name, f(a.value, b.value))
         case Some(Writer(dep, eff))    => getFactOrAbort(NumberKey(dep)) >> eff.to[CompilerIO].as(NumberFact(key.name, 1))
         case Some(Failing(message))    => registerCompilerError(err(message)) >> abort[NumberFact]
+        case Some(Pushing(dep, sib, f)) =>
+          getFactOrAbort(NumberKey(dep)).flatMap(d =>
+            registerFactIfClear(NumberFact(sib, f(d.value))).as(NumberFact(key.name, f(d.value)))
+          )
+        case Some(Injecting(dep, name, value)) =>
+          getFactOrAbort(NumberKey(dep)) >>
+            registerInjectedFactIfClear(NumberFact(name, value)).as(NumberFact(key.name, 1))
         case None                      => abort[NumberFact]
       }
   }

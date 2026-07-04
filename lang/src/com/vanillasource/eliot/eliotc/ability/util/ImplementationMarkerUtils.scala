@@ -47,7 +47,7 @@ object ImplementationMarkerUtils {
     findMarkerVfqn(moduleName, abilityName, index, platform).flatMap {
       case None             => None.pure[CompilerIO]
       case Some(markerVfqn) =>
-        getFact(UnifiedModuleValue.Key(markerVfqn, platform)).map(
+        getFactIfProduced(UnifiedModuleValue.Key(markerVfqn, platform)).map(
           _.flatMap(umv => firstArgTypeConstructorName(umv.namedValue.typeStack.signature))
         )
     }
@@ -72,7 +72,7 @@ object ImplementationMarkerUtils {
       index: Int,
       platform: Platform
   ): CompilerIO[Option[ValueFQN]] =
-    getFact(ModuleAbilities.Key(moduleName, platform)).map(_.flatMap(_.markerOf(abilityName, index)))
+    getFactIfProduced(ModuleAbilities.Key(moduleName, platform)).map(_.flatMap(_.markerOf(abilityName, index)))
 
   private def firstArgTypeConstructorName(signature: Expression): Option[String] = {
     import Expression.*
