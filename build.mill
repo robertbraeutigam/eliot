@@ -172,6 +172,12 @@ object `package` extends Module {
        override def forkEnv =
          Task { super.forkEnv() + ("ELIOT_REPO_ROOT" -> mill.api.BuildCtx.workspaceRoot.toString) }
 
+       // Test-fork JVM tuning (never applied to production compiles). Mill runs test classes across many parallel
+       // worker JVMs; each is short-lived and compile-heavy, so full C2 JIT never amortizes (C1-only warms faster),
+       // and left uncapped each worker's cats-effect pool sizes to *all* cores — with ~13 workers that oversubscribes
+       // a 20-core box badly. Capping to 2 CPUs/worker cuts the contention. Together: ~19s -> ~16s on `jvm.test`.
+       override def forkArgs = Task { super.forkArgs() ++ Seq("-XX:TieredStopAtLevel=1", "-XX:ActiveProcessorCount=2") }
+
        override def mvnDeps = Seq(
          mvn"org.scalatest::scalatest:3.2.17",
          mvn"org.typelevel::cats-effect-testing-scalatest:1.5.0"
