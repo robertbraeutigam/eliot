@@ -2,7 +2,7 @@
  * The console effect: reading lines from and writing lines to the standard text streams.
  *
  * The everyday I/O effect — declare `{Console}` and call `printLine`/`readLine`. Like the other
- * fine-grained effects it runs on any carrier with a `Sync` base, so the same `{Console}` code runs on
+ * fine-grained effects it runs on any carrier with a `Suspend` base, so the same `{Console}` code runs on
  * the production runtime or on a pure test carrier.
  *
  * ```eliot

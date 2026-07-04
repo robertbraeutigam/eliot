@@ -488,7 +488,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   "effect-set sugar" should "desugar a single effect into one carrier-applied signature" in {
-    namedValue("def f(x: {Sync} String): {Sync} Unit").asserting { nv =>
+    namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting { nv =>
       nv.typeStack.signatureStructure shouldBe Lambda(
         "F",
         App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T)),
@@ -498,12 +498,12 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "mark the synthesized carrier inferable" in {
-    namedValue("def f(x: {Sync} String): {Sync} Unit").asserting(_.inferableArity shouldBe 1)
+    namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting(_.inferableArity shouldBe 1)
   }
 
   it should "add one constraint per distinct effect on the carrier, deduplicating repeats" in {
-    namedValue("def f(x: {Sync} String): {Sync} Unit").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("Sync", Seq(Ref("F", T)))))
+    namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Suspend", Seq(Ref("F", T)))))
     }
   }
 
@@ -514,13 +514,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "carry every distinct effect of a multi-effect set" in {
-    namedValue("def f(x: {Sync, Abort} String): String").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("Sync", Seq(Ref("F", T))), ("Abort", Seq(Ref("F", T)))))
+    namedValue("def f(x: {Suspend, Abort} String): String").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Suspend", Seq(Ref("F", T))), ("Abort", Seq(Ref("F", T)))))
     }
   }
 
   it should "produce the same signature as the hand-written carrier form" in {
-    (namedValue("def f(x: {Sync} String): {Sync} Unit"), namedValue("def f[auto F[_] ~ Sync](x: F[String]): F[Unit]"))
+    (namedValue("def f(x: {Suspend} String): {Suspend} Unit"), namedValue("def f[auto F[_] ~ Suspend](x: F[String]): F[Unit]"))
       .mapN { (sugar, hand) =>
         (sugar.typeStack.signatureStructure, constraintShapes(sugar), sugar.inferableArity) shouldBe
           (hand.typeStack.signatureStructure, constraintShapes(hand), hand.inferableArity)
@@ -528,7 +528,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "treat the effect set as unordered" in {
-    (namedValue("def f(x: {Sync, Abort} String): String"), namedValue("def f(x: {Abort, Sync} String): String"))
+    (namedValue("def f(x: {Suspend, Abort} String): String"), namedValue("def f(x: {Abort, Suspend} String): String"))
       .mapN { (ab, ba) =>
         (ab.typeStack.signatureStructure, constraintShapes(ab).view.mapValues(_.toSet).toMap) shouldBe
           (ba.typeStack.signatureStructure, constraintShapes(ba).view.mapValues(_.toSet).toMap)
@@ -536,7 +536,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "avoid clashing the carrier name with an existing generic parameter" in {
-    namedValue("def f[F](x: {Sync} F): F").asserting { nv =>
+    namedValue("def f[F](x: {Suspend} F): F").asserting { nv =>
       constraintShapes(nv).keySet shouldBe Set("F0")
     }
   }

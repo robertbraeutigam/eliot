@@ -473,16 +473,16 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
-  // --- constrained HKT instance `implement[F[_] ~ Sync] Console[F]` (effects M2) ---
+  // --- constrained HKT instance `implement[F[_] ~ Suspend] Console[F]` (effects M2) ---
 
   it should "resolve a constrained higher-kinded instance through a recursive carrier constraint" in {
     // The net-new M2 case: a fine effect `Console[F]` whose instance is generic over the carrier and constrained by
-    // a base effect (`F ~ Sync`), never pinned to a concrete carrier. Resolving `cprintln` at `F := Mio` must match
-    // the `[F[_] ~ Sync] Console[F]` instance and, in turn, discharge its own `Sync[Mio]` obligation from the body's
-    // `sync` call — the `Console → Sync → carrier` layering of Decisions 9/10, type-checked end-to-end.
+    // a base effect (`F ~ Suspend`), never pinned to a concrete carrier. Resolving `cprintln` at `F := Mio` must match
+    // the `[F[_] ~ Suspend] Console[F]` instance and, in turn, discharge its own `Suspend[Mio]` obligation from the body's
+    // `suspend` call — the `Console → Suspend → carrier` layering of Decisions 9/10, type-checked end-to-end.
     runEngineForErrors("""
-        ability Sync[F[_]] {
-          def sync[A](thunk: Function[Unit, A]): F[A]
+        ability Suspend[F[_]] {
+          def suspend[A](thunk: Function[Unit, A]): F[A]
         }
 
         ability Console[F[_]] {
@@ -491,12 +491,12 @@ class AbilityImplementationCheckProcessorTest
 
         data Mio[A](block: Function[Unit, A])
 
-        implement Sync[Mio] {
-          def sync[A](thunk: Function[Unit, A]): Mio[A] = Mio(thunk)
+        implement Suspend[Mio] {
+          def suspend[A](thunk: Function[Unit, A]): Mio[A] = Mio(thunk)
         }
 
-        implement[F[_] ~ Sync] Console[F] {
-          def cprintln(s: String): F[String] = sync(_ -> s)
+        implement[F[_] ~ Suspend] Console[F] {
+          def cprintln(s: String): F[String] = suspend(_ -> s)
         }
 
         def program[F[_] ~ Console](s: String): F[String] = cprintln(s)
@@ -515,8 +515,8 @@ class AbilityImplementationCheckProcessorTest
           def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
         }
 
-        ability Sync[F[_]] {
-          def sync[A](thunk: Function[Unit, A]): F[A]
+        ability Suspend[F[_]] {
+          def suspend[A](thunk: Function[Unit, A]): F[A]
         }
 
         ability Console[F[_]] {
@@ -529,12 +529,12 @@ class AbilityImplementationCheckProcessorTest
           def flatMap[A, B](fa: Mio[A], f: Function[A, Mio[B]]): Mio[B] = f(apply(block(fa), miounit))
         }
 
-        implement Sync[Mio] {
-          def sync[A](thunk: Function[Unit, A]): Mio[A] = Mio(thunk)
+        implement Suspend[Mio] {
+          def suspend[A](thunk: Function[Unit, A]): Mio[A] = Mio(thunk)
         }
 
-        implement[F[_] ~ Sync] Console[F] {
-          def cprintln(s: String): F[String] = sync(_ -> s)
+        implement[F[_] ~ Suspend] Console[F] {
+          def cprintln(s: String): F[String] = suspend(_ -> s)
         }
 
         def miounit: Unit

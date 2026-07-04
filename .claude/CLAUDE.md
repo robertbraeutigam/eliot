@@ -233,7 +233,7 @@ keyword, or instance mechanism — co-located definitions of the same qualified 
 **Layers *mix*, they do not *stack*; every file must stand on its own.** Name resolution is per-file (a file's
 dictionary is its own declarations + imports, never names declared in a *sibling* file of the same module). So when one
 file needs a name another file of the same module declares — e.g. a carrier-generic ability instance
-`implement[F[_] ~ Sync] Console[F]`, which must be colocated with its ability and therefore lives in the ability's
+`implement[F[_] ~ Suspend] Console[F]`, which must be colocated with its ability and therefore lives in the ability's
 module — that file must **re-declare (copy) what it needs** (here, `ability Console[F[_]]` itself); the merge then
 **verifies the copies agree** (`signatureEquality`) rather than letting them drift. Duplication is the sanctioned
 mechanism here — do *not* "fix" a cross-file reference by widening the resolver to span sibling files.

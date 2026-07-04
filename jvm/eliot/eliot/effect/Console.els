@@ -1,4 +1,4 @@
-import eliot.effect.Sync
+import eliot.effect.Suspend
 
 ability Console[F[_]] {
    def printLine(s: String): F[Unit]
@@ -7,14 +7,14 @@ ability Console[F[_]] {
 }
 
 /**
- * The JVM `Console` instance, generic over any carrier with a `Sync` base (never pinned to `IO`): each operation reifies
- * a `private` impure leaf native through `sync`. Because it rides `Sync`, the same instance serves `IO`, `AbortCarrier[IO]`,
+ * The JVM `Console` instance, generic over any carrier with a `Suspend` base (never pinned to `IO`): each operation reifies
+ * a `private` impure leaf native through `suspend`. Because it rides `Suspend`, the same instance serves `IO`, `AbortCarrier[IO]`,
  * etc. — the whole `IO(_ -> ...)` tree stays Eliot-visible to monomorphization; only the leaf natives are opaque.
  */
-implement[F[_] ~ Sync] Console[F] {
-   def printLine(s: String): F[Unit] = sync(_ -> printLineInternal(s))
+implement[F[_] ~ Suspend] Console[F] {
+   def printLine(s: String): F[Unit] = suspend(_ -> printLineInternal(s))
 
-   def readLine: F[String] = sync(_ -> readLineInternal)
+   def readLine: F[String] = suspend(_ -> readLineInternal)
 }
 
 /**

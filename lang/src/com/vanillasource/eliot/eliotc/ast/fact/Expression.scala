@@ -193,7 +193,7 @@ object Expression {
       case None        => FlatExpression(parts)
     }
 
-  /** Parses the effect-set sugar `{ Eff (, Eff)* } <type atom>`, e.g. `{Sync} String` or `{State[Account], Abort} A`.
+  /** Parses the effect-set sugar `{ Eff (, Eff)* } <type atom>`, e.g. `{Suspend} String` or `{State[Account], Abort} A`.
     * Each brace entry is parsed as an ability reference (the same shape as a `~` ability constraint). The braces must be
     * non-empty (an empty effect set is just the plain type). See [[EffectfulType]].
     */

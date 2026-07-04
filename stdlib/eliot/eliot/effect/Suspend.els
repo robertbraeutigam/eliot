@@ -1,13 +1,13 @@
 /**
  * The low-level bridge that embeds a deferred, possibly side-effecting thunk into a carrier `F[_]`.
  *
- * Not a user-facing effect: application code never declares `{Sync}` or calls `sync`. It is the
+ * Not a user-facing effect: application code never declares `{Suspend}` or calls `suspend`. It is the
  * single primitive a platform uses to wrap an impure operation into its carrier.
  */
-ability Sync[F[_]] {
+ability Suspend[F[_]] {
    /**
     * Embed a deferred thunk into the carrier. The thunk is not run until the carrier is, so its effect
     * is not performed when the `F[A]` is built.
     */
-   def sync[A](thunk: Unit => A): F[A]
+   def suspend[A](thunk: Unit => A): F[A]
 }

@@ -98,13 +98,13 @@ implement[A ~ Show] Show[Box[A]] {          // conditional instance: needs Show[
    def show(box: Box[A]): String = show(box.content)
 }
 
-implement[G[_] ~ Sync & Effect] Sync[AbortCarrier[G]] { ... }   // & = several constraints on one binder
+implement[G[_] ~ Suspend & Effect] Suspend[AbortCarrier[G]] { ... }   // & = several constraints on one binder
 ```
 
 Rules users must know: an `implement` must live either in the ability's module or with the target
 type's module; instances must be **unique per type combination** in the whole program (no overlap);
 resolution happens fully at monomorphization (no runtime dictionaries). Constrain a generic with
-`~`: `[A ~ Show]`, `[F[_] ~ Sync & Effect]`; a bare `[A ~ Show]` applies the ability to `A` itself.
+`~`: `[A ~ Show]`, `[F[_] ~ Suspend & Effect]`; a bare `[A ~ Show]` applies the ability to `A` itself.
 
 **Design rule — an ability is a minimal algebra.** Declare in the ability only the *primitive
 operations* an implementor must give meaning to — the ones that cannot be derived from the others.
@@ -313,7 +313,7 @@ def parse(s: String): {Throw[String]} Tree = raise("not a tree")
   | `{Dep[X]}` | `dependency` (type-dispatched; provide via `implement Dep[X, IO]`) | resolved at compile time |
   | `{Inf}` | `forever(step)` | never discharged — may reach `main` (server/firmware loop) |
 
-  `Sync` and the carriers (`AbortCarrier`, `ThrowCarrier`, `StateCarrier`) are plumbing —
+  `Suspend` and the carriers (`AbortCarrier`, `ThrowCarrier`, `StateCarrier`) are plumbing —
   application code never names them.
 - **`main` is concrete**: `def main: IO[Unit] = …` — the one place the carrier is pinned to `IO`.
   Keep business logic carrier-polymorphic (`{Console} Unit`, not `IO[Unit]`) so it runs on the
@@ -331,7 +331,7 @@ def parse(s: String): {Throw[String]} Tree = raise("not a tree")
   the binder (`val x = logic orElse f` then `runStateToPair(x, s0)`): the `val` binds the plain
   value direct-style and the remaining effects float upward, so `x` is not a carrier.
 - **The cross-lift matrix is partial** (verified 2026-07): `State`+`Abort` compose in either
-  discharge order, and every effect composes with the `Sync`-riding ones (`Console`, `Log`). But
+  discharge order, and every effect composes with the `Suspend`-riding ones (`Console`, `Log`). But
   `State`+`Throw` has no cross-lift instance yet — combining them fails with a missing-instance
   error ("does not implement ability …"). When you hit that, switch to `Abort`, or add the missing
   `implement` in the jvm layer.

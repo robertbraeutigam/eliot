@@ -299,17 +299,17 @@ class OperatorResolverProcessorTest
 
   "effect-set sugar" should "resolve {E} A to the same signature as the hand-written carrier form" in {
     val source =
-      "data Str\ndata Unt\nability Sync[F[_]] { def delay(value: Str): F[Str] }\n" +
-        "def sugar(x: {Sync} Str): {Sync} Unt\ndef hand[F[_] ~ Sync](x: F[Str]): F[Unt]"
+      "data Str\ndata Unt\nability Suspend[F[_]] { def delay(value: Str): F[Str] }\n" +
+        "def sugar(x: {Suspend} Str): {Suspend} Unt\ndef hand[F[_] ~ Suspend](x: F[Str]): F[Unt]"
     (runEngineForResolvedValue(source, "sugar"), runEngineForResolvedValue(source, "hand")).mapN { (sugar, hand) =>
       (signatureShow(sugar), constraintShow(sugar)) shouldBe (signatureShow(hand), constraintShow(hand))
     }
   }
 
-  it should "resolve {Sync, Abort} and {Abort, Sync} to the same signature and effect set" in {
+  it should "resolve {Suspend, Abort} and {Abort, Suspend} to the same signature and effect set" in {
     val source =
-      "data Str\nability Sync[F[_]] { def s(value: Str): F[Str] }\nability Abort[F[_]] { def a(value: Str): F[Str] }\n" +
-        "def ab(x: {Sync, Abort} Str): Str\ndef ba(x: {Abort, Sync} Str): Str"
+      "data Str\nability Suspend[F[_]] { def s(value: Str): F[Str] }\nability Abort[F[_]] { def a(value: Str): F[Str] }\n" +
+        "def ab(x: {Suspend, Abort} Str): Str\ndef ba(x: {Abort, Suspend} Str): Str"
     (runEngineForResolvedValue(source, "ab"), runEngineForResolvedValue(source, "ba")).mapN { (ab, ba) =>
       (signatureShow(ab), constraintShow(ab).view.mapValues(_.toSet).toMap) shouldBe
         (signatureShow(ba), constraintShow(ba).view.mapValues(_.toSet).toMap)

@@ -1,5 +1,5 @@
 import eliot.effect.Effect
-import eliot.effect.Sync
+import eliot.effect.Suspend
 import eliot.effect.State
 import eliot.lang.Option
 
@@ -26,12 +26,12 @@ implement[G[_] ~ Effect] Effect[AbortCarrier[G]] {
 }
 
 /**
- * The base-effect lift: `AbortCarrier[G]` is `Sync` whenever `G` is, by running the inner sync action and wrapping its
- * result in `Some`. This single per-carrier lift is what carries every `Sync`-keyed fine effect (`Console`, `Log`, …)
+ * The base-effect lift: `AbortCarrier[G]` is `Suspend` whenever `G` is, by running the inner suspend action and wrapping its
+ * result in `Some`. This single per-carrier lift is what carries every `Suspend`-keyed fine effect (`Console`, `Log`, …)
  * through the `AbortCarrier` layer for free.
  */
-implement[G[_] ~ Sync & Effect] Sync[AbortCarrier[G]] {
-   def sync[A](thunk: Function[Unit, A]): AbortCarrier[G, A] = AbortCarrier(map(a -> Some(a), sync(thunk)))
+implement[G[_] ~ Suspend & Effect] Suspend[AbortCarrier[G]] {
+   def suspend[A](thunk: Function[Unit, A]): AbortCarrier[G, A] = AbortCarrier(map(a -> Some(a), suspend(thunk)))
 }
 
 /**

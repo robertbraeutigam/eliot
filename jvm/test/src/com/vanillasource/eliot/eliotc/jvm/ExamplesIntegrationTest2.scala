@@ -58,9 +58,9 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   }
 
   // The Decision-10 acceptance: a `{Console, Abort}` program. `Console` rides the `AbortCarrier[IO]` stack via the single
-  // `Sync[AbortCarrier[G]]` base lift (no per-effect lifting), so the print runs; then `abort` short-circuits the result to
-  // `None`. Proves the constrained-HKT instance + base-Sync-lift path end to end.
-  "a {Console, Abort} program" should "run Console through the AbortCarrier[IO] stack via the Sync lift, then short-circuit" in {
+  // `Suspend[AbortCarrier[G]]` base lift (no per-effect lifting), so the print runs; then `abort` short-circuits the result to
+  // `None`. Proves the constrained-HKT instance + base-Suspend-lift path end to end.
+  "a {Console, Abort} program" should "run Console through the AbortCarrier[IO] stack via the Suspend lift, then short-circuit" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Effect
@@ -282,9 +282,9 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "on")
   }
 
-  // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Sync[StateCarrier[S, G]]` base lift
+  // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Suspend[StateCarrier[S, G]]` base lift
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
-  "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Sync lift" in {
+  "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Suspend lift" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Effect

@@ -1,5 +1,5 @@
 import eliot.effect.Effect
-import eliot.effect.Sync
+import eliot.effect.Suspend
 
 data IO[A](block: Function[Unit, A])
 
@@ -18,8 +18,8 @@ implement Effect[IO] {
 
 /**
  * The base reification instance — the ONLY place the concrete carrier `IO` is named in the effect machinery. Wrapping a
- * deferred thunk as `IO` is the bridge that lets every `Sync`-keyed fine effect (`Console`, ...) run on `IO`.
+ * deferred thunk as `IO` is the bridge that lets every `Suspend`-keyed fine effect (`Console`, ...) run on `IO`.
  */
-implement Sync[IO] {
-   def sync[A](thunk: Function[Unit, A]): IO[A] = IO(thunk)
+implement Suspend[IO] {
+   def suspend[A](thunk: Function[Unit, A]): IO[A] = IO(thunk)
 }

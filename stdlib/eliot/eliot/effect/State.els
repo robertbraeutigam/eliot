@@ -42,7 +42,7 @@ def updateState[S](f: S => S): {State[S]} Unit = putState(f(state))
  *
  * Plumbing only — application code never names it. A function that threads state declares `{State[S]}` and discharges it
  * with `runStateToPair`; this carrier is what that operates on under the hood. Generic over the base carrier `G`, so it
- * composes over `IO`, `AbortCarrier[IO]`, and so on. Its representation (the `Effect`/`Sync`/`State` instances) is
+ * composes over `IO`, `AbortCarrier[IO]`, and so on. Its representation (the `Effect`/`Suspend`/`State` instances) is
  * supplied by the platform layer.
  */
 type StateCarrier[S, G[_], A]

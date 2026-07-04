@@ -12,10 +12,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - introduce **one** shared inferable higher-kinded carrier `F[_]` per signature (marked `auto`, so it counts
   *     toward `inferableArity` and is omittable at use sites),
   *   - for each distinct brace entry `Ei` add an ability constraint `F ~ Ei` (the carrier appended as `Ei`'s final type
-  *     argument: `Sync` becomes `Sync[F]`, `State[Account]` becomes `State[Account, F]`),
+  *     argument: `Suspend` becomes `Suspend[F]`, `State[Account]` becomes `State[Account, F]`),
   *   - rewrite every `{…} A` occurrence to `F[A]`.
   *
-  * So `def readLine: {Sync} String` becomes `def readLine[auto F[_] ~ Sync]: F[String]`, identical (signature-wise) to
+  * So `def readLine: {Suspend} String` becomes `def readLine[auto F[_] ~ Suspend]: F[String]`, identical (signature-wise) to
   * the hand-written form. No effect-specific classification or wrapping survives: after desugaring everything
   * downstream sees plain HKT-constrained generics. There is no body lifting here (that is the later `effect` phase) —
   * bodies must already be in monadic form; the rewrite still descends into the body so no [[Expression.EffectfulType]]

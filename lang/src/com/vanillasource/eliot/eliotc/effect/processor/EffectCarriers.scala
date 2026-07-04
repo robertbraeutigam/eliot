@@ -31,7 +31,7 @@ object EffectCarriers {
     view.binders.filter(isHktBinder).map(_.name.value).toSet
 
   /** The user-facing effects a value *declares*: the ability FQNs constrained on its `carriers`, with the internal
-    * machinery abilities (`Effect`/`Sync`) removed — those are inserted by the compiler, never declared as
+    * machinery abilities (`Effect`/`Suspend`) removed — those are inserted by the compiler, never declared as
     * effects. This is both a callee's propagated effect set and the declared set the subset check honours.
     */
   def declaredEffects(

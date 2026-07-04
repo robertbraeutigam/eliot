@@ -12,13 +12,13 @@ def main: IO[Unit] = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
-  // --- Effects M2: library spine (Effect/Sync/Console) + the Console -> Sync -> IO layering, run end-to-end ---
+  // --- Effects M2: library spine (Effect/Suspend/Console) + the Console -> Suspend -> IO layering, run end-to-end ---
 
   // The headline M2 acceptance: a hand-monadic `{Console}` computation reading a line and echoing it. `flatMap` is an
   // `Effect[IO]` op resolved at the concrete use site (the carrier is not in `echo`'s declared effect set); `readLine`
-  // and `printLine` resolve through the constrained HKT instance `implement[F[_] ~ Sync] Console[F]` at `F := IO`, which
-  // in turn discharges `Sync[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
-  "console effect" should "read a line and echo it through the Console -> Sync -> IO layering" in {
+  // and `printLine` resolve through the constrained HKT instance `implement[F[_] ~ Suspend] Console[F]` at `F := IO`, which
+  // in turn discharges `Suspend[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
+  "console effect" should "read a line and echo it through the Console -> Suspend -> IO layering" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Effect
@@ -30,8 +30,8 @@ def main: IO[Unit] = printLine("Hello World!")""")
     ).asserting(_ shouldBe "echoed line")
   }
 
-  // `printLine` is now the `Console` effect's method, generic over any `Sync` carrier — yet a plain `main : IO[Unit]`
-  // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Sync[IO]`), so the original HelloWorld
+  // `printLine` is now the `Console` effect's method, generic over any `Suspend` carrier — yet a plain `main : IO[Unit]`
+  // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Suspend[IO]`), so the original HelloWorld
   // keeps working unchanged.
   it should "still print a literal via the Console effect at a concrete IO main" in {
     compileAndRun("""import eliot.effect.Console
@@ -220,9 +220,9 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
 
   // --- Effects M4: multi-effect composition + propagation + Dep ---
 
-  // The `Log` effect mirrors `Console` (a fine effect riding the `Sync` base): `log` writes a tagged line. A `{Log}`
+  // The `Log` effect mirrors `Console` (a fine effect riding the `Suspend` base): `log` writes a tagged line. A `{Log}`
   // business function pinned to `IO` at the call site runs through the JVM `Log` instance.
-  "log effect" should "emit a tagged diagnostic line through the Log -> Sync -> IO layering" in {
+  "log effect" should "emit a tagged diagnostic line through the Log -> Suspend -> IO layering" in {
     compileAndRun(
       """import eliot.effect.Log
         |def announce: {Log} Unit = log("starting up")

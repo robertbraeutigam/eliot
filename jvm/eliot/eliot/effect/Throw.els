@@ -1,5 +1,5 @@
 import eliot.effect.Effect
-import eliot.effect.Sync
+import eliot.effect.Suspend
 import eliot.lang.Either
 
 // Re-declared here so the colocated `ThrowCarrier` instances below can resolve the `Throw` ability — name resolution
@@ -25,11 +25,11 @@ implement[E, G[_] ~ Effect] Effect[ThrowCarrier[E, G]] {
 }
 
 /**
- * The base-effect lift: `ThrowCarrier[E, G]` is `Sync` whenever `G` is, running the inner sync action and wrapping its
- * result in `Right`. Carries every `Sync`-keyed fine effect through the `ThrowCarrier` layer.
+ * The base-effect lift: `ThrowCarrier[E, G]` is `Suspend` whenever `G` is, running the inner suspend action and wrapping its
+ * result in `Right`. Carries every `Suspend`-keyed fine effect through the `ThrowCarrier` layer.
  */
-implement[E, G[_] ~ Sync & Effect] Sync[ThrowCarrier[E, G]] {
-   def sync[A](thunk: Function[Unit, A]): ThrowCarrier[E, G, A] = ThrowCarrier(map(a -> Right(a), sync(thunk)))
+implement[E, G[_] ~ Suspend & Effect] Suspend[ThrowCarrier[E, G]] {
+   def suspend[A](thunk: Function[Unit, A]): ThrowCarrier[E, G, A] = ThrowCarrier(map(a -> Right(a), suspend(thunk)))
 }
 
 /**

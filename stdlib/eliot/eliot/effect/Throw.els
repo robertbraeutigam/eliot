@@ -27,7 +27,7 @@ ability Throw[E, F[_]] {
  *
  * Plumbing only — application code never names it. A function that may fail declares `{Throw[E]}` and discharges it with
  * `runThrow`/`catch`; this carrier is what those operate on under the hood. Generic over the base carrier `G`, so it
- * composes over `IO`, `AbortCarrier[IO]`, and so on. Its representation (the `Effect`/`Sync`/`Throw` instances) is
+ * composes over `IO`, `AbortCarrier[IO]`, and so on. Its representation (the `Effect`/`Suspend`/`Throw` instances) is
  * supplied by the platform layer.
  */
 type ThrowCarrier[E, G[_], A]

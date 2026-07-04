@@ -4,7 +4,7 @@ ability Inf[F[_]] {
 
 /**
  * The JVM `Inf` instance: `forever` is pinned to the concrete runtime carrier `IO`. `Inf` is *run, not discharged*, so
- * there is no transformer and no `Sync` lift — the loop is realised directly on `IO`. `forever` wraps the unbounded
+ * there is no transformer and no `Suspend` lift — the loop is realised directly on `IO`. `forever` wraps the unbounded
  * loop in a fresh `IO` thunk; running that `IO` (via `main`'s `apply(block(...), unit)`) drives `foreverInternal`,
  * which re-invokes the step's deferred block on every iteration so the step's effects repeat. It never returns.
  */

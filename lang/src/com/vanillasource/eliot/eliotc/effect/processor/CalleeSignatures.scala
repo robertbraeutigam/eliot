@@ -39,8 +39,8 @@ class CalleeSignatures {
     *     [[Qualifier.Ability]]), e.g. `Console`/`Log`/`Dep`;
     *   - an ordinary `{E...}` function propagates the effects declared on its own carrier binder(s).
     *
-    * The internal machinery abilities (`Effect`/`Sync`) are excluded — they are inserted by the compiler
-    * and never named by users, so a hand-written or auto-inserted `flatMap`/`pure`/`sync` does not pollute the set.
+    * The internal machinery abilities (`Effect`/`Suspend`) are excluded — they are inserted by the compiler
+    * and never named by users, so a hand-written or auto-inserted `flatMap`/`pure`/`suspend` does not pollute the set.
     */
   private def effectAbilitiesOf(
       fqn: ValueFQN,
@@ -48,7 +48,7 @@ class CalleeSignatures {
       carrierBinders: Set[String]
   ): Set[AbilityFQN] =
     EffectMachinery.abilityNameOf(fqn) match {
-      // An ability method performs its owning ability — unless it is internal machinery (Effect/Sync).
+      // An ability method performs its owning ability — unless it is internal machinery (Effect/Suspend).
       case Some(abilityName) =>
         if (EffectMachinery.isMachineryAbility(abilityName)) Set.empty
         else Set(AbilityFQN(fqn.moduleName, abilityName))

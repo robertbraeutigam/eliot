@@ -32,7 +32,7 @@ object ModuleName {
   val defaultSystemPackage = Seq("eliot", "lang")
 
   /** The package for the effect surface and its machinery: the abilities a user writes in a `{...}` set
-    * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), the sequencing machinery (`Effect`/`Sync`), and each
+    * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), the sequencing machinery (`Effect`/`Suspend`), and each
     * effect's carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`). `Console`/`Log`/`Dep` are
     * auto-imported from here (see [[defaultSystemModules]]); the rest are imported explicitly or resolved by FQN. The
     * `Effect` ability's FQN is read by [[com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery]]; the
@@ -69,7 +69,7 @@ object ModuleName {
   // (that would double-import and shadow).
   // Only the `eliot.lang` prelude (the `java.lang` analogue) is auto-imported. Everything in a domain package —
   // including every effect in `eliot.effect` (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/…) and the machinery
-  // (`Effect`/`Sync`) — is import-required: a file that prints declares `import eliot.effect.Console`. The two
+  // (`Effect`/`Suspend`) — is import-required: a file that prints declares `import eliot.effect.Console`. The two
   // Phase-6 ambients `Int`/`Runtime` are here because every value-position integer literal desugars to
   // `integerLiteral[n] : Int[n, n]`, so they must resolve with no import.
   val defaultSystemModules                 = Seq(

@@ -1,5 +1,5 @@
 import eliot.effect.Effect
-import eliot.effect.Sync
+import eliot.effect.Suspend
 import eliot.effect.Abort
 import eliot.lang.Pair
 
@@ -27,11 +27,11 @@ implement[S, G[_] ~ Effect] Effect[StateCarrier[S, G]] {
 }
 
 /**
- * The base-effect lift: `StateCarrier[S, G]` is `Sync` whenever `G` is, running the inner sync action and pairing its
- * result with the unchanged state. Carries every `Sync`-keyed fine effect through the `StateCarrier` layer.
+ * The base-effect lift: `StateCarrier[S, G]` is `Suspend` whenever `G` is, running the inner suspend action and pairing its
+ * result with the unchanged state. Carries every `Suspend`-keyed fine effect through the `StateCarrier` layer.
  */
-implement[S, G[_] ~ Sync & Effect] Sync[StateCarrier[S, G]] {
-   def sync[A](thunk: Unit => A): StateCarrier[S, G, A] = StateCarrier(s -> map(a -> Pair(a, s), sync(thunk)))
+implement[S, G[_] ~ Suspend & Effect] Suspend[StateCarrier[S, G]] {
+   def suspend[A](thunk: Unit => A): StateCarrier[S, G, A] = StateCarrier(s -> map(a -> Pair(a, s), suspend(thunk)))
 }
 
 /**
