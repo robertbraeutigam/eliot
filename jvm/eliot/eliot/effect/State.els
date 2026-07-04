@@ -10,7 +10,7 @@ ability State[S, F[_]] {
    def putState(s: S): F[Unit]
 }
 
-data StateCarrier[S, G[_], A](runStateCarrier: Function[S, G[Pair[A, S]]])
+data StateCarrier[S, G[_], A](runStateCarrier: S => G[Pair[A, S]])
 
 /**
  * `StateCarrier[S, G]` is an effect carrier whenever its base `G` is: `pure` produces the value without touching the
@@ -20,9 +20,9 @@ data StateCarrier[S, G[_], A](runStateCarrier: Function[S, G[Pair[A, S]]])
  */
 implement[S, G[_] ~ Effect] Effect[StateCarrier[S, G]] {
    def pure[A](a: A): StateCarrier[S, G, A] = StateCarrier(s -> pure(Pair(a, s)))
-   def flatMap[A, B](f: Function[A, StateCarrier[S, G, B]], fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
+   def flatMap[A, B](f: A => StateCarrier[S, G, B], fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
       StateCarrier(s -> flatMap(p -> runStateCarrier(f(first(p)))(second(p)), runStateCarrier(fa)(s)))
-   def map[A, B](f: Function[A, B], fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
+   def map[A, B](f: A => B, fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
       StateCarrier(s -> map(p -> Pair(f(first(p)), second(p)), runStateCarrier(fa)(s)))
 }
 
@@ -31,7 +31,7 @@ implement[S, G[_] ~ Effect] Effect[StateCarrier[S, G]] {
  * result with the unchanged state. Carries every `Sync`-keyed fine effect through the `StateCarrier` layer.
  */
 implement[S, G[_] ~ Sync & Effect] Sync[StateCarrier[S, G]] {
-   def sync[A](thunk: Function[Unit, A]): StateCarrier[S, G, A] = StateCarrier(s -> map(a -> Pair(a, s), sync(thunk)))
+   def sync[A](thunk: Unit => A): StateCarrier[S, G, A] = StateCarrier(s -> map(a -> Pair(a, s), sync(thunk)))
 }
 
 /**

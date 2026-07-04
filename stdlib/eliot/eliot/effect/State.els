@@ -15,12 +15,12 @@ import eliot.lang.Pair
  */
 ability State[S, F[_]] {
    /**
-    * Read the current state. The effect floats up to the caller's `{State[S]}` set.
+    * Read the current state.
     */
    def state: F[S]
 
    /**
-    * Replace the current state with `s`. The effect floats up to the caller's `{State[S]}` set.
+    * Replace the current state with `s`.
     */
    def putState(s: S): F[Unit]
 }
@@ -53,7 +53,7 @@ type StateCarrier[S, G[_], A]
  * initial state through this function. (The type is spelled `Function[…]` rather than the idiomatic `=>` because a
  * `data` field type — the concrete `StateCarrier` this must merge with — cannot be written with the `=>` alias.)
  */
-def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): Function[S, G[Pair[A, S]]]
+def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): S => G[Pair[A, S]]
 
 /**
  * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state, threaded
