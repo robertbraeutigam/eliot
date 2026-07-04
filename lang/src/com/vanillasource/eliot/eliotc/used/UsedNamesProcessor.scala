@@ -79,7 +79,8 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
         _                <- markVisited(vfqn, projected)
         monomorphicMaybe <- getFact(MonomorphicValue.Key(vfqn, typeArgs)).liftToUsedNames
         _                <- monomorphicMaybe.fold(markFailed()) { mv =>
-                              checkConvergence(vfqn, mv.name, ancestors) >>
+                              recordNaturalArity(vfqn, mv.naturalArity) >>
+                                checkConvergence(vfqn, mv.name, ancestors) >>
                                 processMonomorphicValue(mv, vfqn :: ancestors)
                             }
       } yield ()

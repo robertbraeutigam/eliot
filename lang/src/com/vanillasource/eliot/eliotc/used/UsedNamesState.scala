@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
 
 case class UsedNamesState(
     usedNames: Map[ValueFQN, UsedNamesState.UsageStatsBuilder] = Map.empty,
+    naturalArities: Map[ValueFQN, Int] = Map.empty,
     visited: Set[(ValueFQN, Seq[GroundValue])] = Set.empty,
     failed: Boolean = false
 )
@@ -29,6 +30,18 @@ object UsedNamesState {
         case None        => Some(1)
       })
 
+    /** Cap every recorded direct-call arity at the value's natural arity: an over-applied spine is a direct call
+      * absorbing `naturalArity` arguments whose *returned function value* absorbs the rest one `apply` at a time (see
+      * the backend's over-application split), so the excess must not inflate the arity the value is emitted at.
+      */
+    def cappedAt(naturalArity: Option[Int]): UsageStatsBuilder =
+      naturalArity.fold(this)(cap =>
+        copy(directCallApplications = directCallApplications.foldLeft(Map.empty[Int, Int]) {
+          case (acc, (arity, count)) =>
+            acc.updatedWith(arity min cap)(existing => Some(existing.getOrElse(0) + count))
+        })
+      )
+
     def toUsageStats: UsageStats =
       UsageStats(monomorphicTypeParameters, directCallApplications)
   }
@@ -40,7 +53,7 @@ object UsedNamesState {
   def getUsedNames(rootFQN: ValueFQN, state: UsedNamesState): UsedNames =
     UsedNames(
       rootFQN,
-      usedNames = state.usedNames.map((vfqn, builder) => vfqn -> builder.toUsageStats)
+      usedNames = state.usedNames.map((vfqn, builder) => vfqn -> builder.cappedAt(state.naturalArities.get(vfqn)).toUsageStats)
     )
 
   def isVisited(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): UsedNamesIO[Boolean] =
@@ -56,6 +69,19 @@ object UsedNamesState {
       val builder = state.usedNames.getOrElse(vfqn, UsageStatsBuilder())
       val updated = builder.addTypeParameters(typeArgs).addDirectCallApplication(applicationCount)
       state.copy(usedNames = state.usedNames.updated(vfqn, updated))
+    }
+
+  /** Remember the natural arity of a walked value ([[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.naturalArity]]),
+    * so the final statistics can cap the recorded direct-call arities. Recorded per `vfqn` (the granularity of the
+    * usage statistics), taking the minimum across walked instances; a body-less value contributes nothing (no cap).
+    */
+  def recordNaturalArity(vfqn: ValueFQN, naturalArity: Option[Int]): UsedNamesIO[Unit] =
+    StateT.modify[CompilerIO, UsedNamesState] { state =>
+      naturalArity.fold(state)(arity =>
+        state.copy(naturalArities =
+          state.naturalArities.updatedWith(vfqn)(existing => Some(existing.fold(arity)(_ min arity)))
+        )
+      )
     }
 
   def markFailed(): UsedNamesIO[Unit] =

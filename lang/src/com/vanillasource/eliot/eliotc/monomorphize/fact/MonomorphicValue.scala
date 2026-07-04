@@ -5,6 +5,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
+import scala.annotation.tailrec
+
 /** A monomorphized (specialized) value with all type parameters instantiated to concrete types via NbE.
   *
   * @param vfqn
@@ -27,6 +29,14 @@ case class MonomorphicValue(
 ) extends CompilerFact {
   override def key(): CompilerFactKey[MonomorphicValue] =
     MonomorphicValue.Key(vfqn, typeArguments)
+
+  /** The number of arguments a direct call to this instance can absorb: the count of leading
+    * [[MonomorphicExpression.FunctionLiteral]]s of the runtime body. An application spine longer than this is an
+    * over-application — the excess arguments must be applied one at a time to the function *value* the direct call
+    * returns — so both the `used` arity statistics and the backend call sites cap the direct-call arity here. `None`
+    * for a body-less (native) value, whose emitted arity is the platform's decision.
+    */
+  def naturalArity: Option[Int] = runtime.map(body => MonomorphicValue.countLeadingLambdas(body.value, 0))
 }
 
 object MonomorphicValue {
@@ -35,4 +45,11 @@ object MonomorphicValue {
     * arguments produces different keys.
     */
   case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[MonomorphicValue]
+
+  @tailrec
+  private def countLeadingLambdas(expression: MonomorphicExpression.Expression, count: Int): Int =
+    expression match {
+      case MonomorphicExpression.FunctionLiteral(_, _, body) => countLeadingLambdas(body.value.expression, count + 1)
+      case _                                                 => count
+    }
 }

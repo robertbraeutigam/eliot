@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdent
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -94,17 +94,12 @@ object ExpressionCodeGenerator {
                               .whenA(parameterIndex.isEmpty || parameterType.isEmpty)
           _              <- methodGenerator
                               .addLoadVar[CompilationTypesIO](valueType(parameterType.get.parameterType), parameterIndex.get)
-          classes        <- arguments.zipWithIndex.flatTraverse { (expression, idx) =>
-                              for {
-                                cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
-                                _  <- methodGenerator
-                                        .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
-                                        .whenA(idx < arguments.size - 1)
-                              } yield cs
-                            }
-          _              <- methodGenerator.addCastTo[CompilationTypesIO](
-                              valueType(expectedResultType)
+          classes        <- applyArgumentsToFunctionValue(
+                              moduleName,
+                              outerClassGenerator,
+                              methodGenerator,
+                              arguments,
+                              expectedResultType
                             )
         } yield classes
       case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) if Intrinsics.isIntrinsic(sourcedCalledVfqn.value) =>
@@ -166,19 +161,52 @@ object ExpressionCodeGenerator {
                              body,
                              createExpressionCode
                            )
-          argClasses    <- arguments.zipWithIndex.flatTraverse { (expression, idx) =>
-                             for {
-                               cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                               _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
-                               _  <- methodGenerator
-                                       .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
-                                       .whenA(idx < arguments.size - 1)
-                             } yield cs
-                           }
-          _             <- methodGenerator.addCastTo[CompilationTypesIO](valueType(expectedResultType))
+          argClasses    <- applyArgumentsToFunctionValue(
+                             moduleName,
+                             outerClassGenerator,
+                             methodGenerator,
+                             arguments,
+                             expectedResultType
+                           )
         } yield lambdaClasses ++ argClasses
-      case FunctionApplication(target, arguments2)                => ??? // FIXME: applying on a result function?
+      case FunctionApplication(_, _)                              =>
+        // Applying the result of another application: the inner application leaves a function value on the stack
+        // (its own final cast is to its Function-carrier expression type), the arguments are then applied to it.
+        for {
+          targetClasses <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, typedTarget)
+          argClasses    <- applyArgumentsToFunctionValue(
+                             moduleName,
+                             outerClassGenerator,
+                             methodGenerator,
+                             arguments,
+                             expectedResultType
+                           )
+        } yield targetClasses ++ argClasses
     }
+
+  /** Apply arguments one at a time to the function *value* on top of the stack (a `java.util.function.Function`), then
+    * cast the final result to the expected type. `apply` returns `Object`, so every intermediate result is cast back to
+    * the function interface before absorbing the next argument.
+    */
+  private def applyArgumentsToFunctionValue(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      arguments: Seq[UncurriedMonomorphicExpression],
+      expectedResultType: GroundValue
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    for {
+      classes <- arguments.zipWithIndex.flatTraverse { (expression, idx) =>
+                   for {
+                     cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                     _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
+                     _  <- methodGenerator
+                             .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
+                             .whenA(idx < arguments.size - 1)
+                   } yield cs
+                 }
+      _       <- methodGenerator.addCastTo[CompilationTypesIO](valueType(expectedResultType))
+    } yield classes
 
   private def generatePatternMatchCall(
       moduleName: ModuleName,
@@ -399,8 +427,14 @@ object ExpressionCodeGenerator {
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
-      uncurriedMaybe <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
-      resultClasses  <- uncurriedMaybe match
+      // An application spine can be longer than the callee's natural arity (`unwrap(w)("x")` on a 1-parameter
+      // accessor): the direct call absorbs `naturalArity` arguments, and the excess is applied one at a time to the
+      // function value it returns. Body-less natives have no natural arity and keep the full spine.
+      monomorphicMaybe          <- getFact(MonomorphicValue.Key(calledVfqn, typeArgs)).liftToTypes
+      directCallArity            = monomorphicMaybe.flatMap(_.naturalArity).fold(arguments.length)(_ min arguments.length)
+      (directArgs, overApplied)  = arguments.splitAt(directCallArity)
+      uncurriedMaybe            <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, directArgs.length)).liftToTypes
+      resultClasses             <- uncurriedMaybe match
                           case Some(uncurriedValue) =>
                             val returnType = valueType(uncurriedValue.returnType)
                             val methodName =
@@ -422,7 +456,7 @@ object ExpressionCodeGenerator {
                                 else uncurriedValue.parameters.pure[CompilationTypesIO]
                               parameterTypes = parameters.map(p => valueType(p.parameterType))
                               classes       <-
-                                arguments.flatTraverse(expression =>
+                                directArgs.flatTraverse(expression =>
                                   createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
                                 )
                               _             <- methodGenerator.addCallTo[CompilationTypesIO](
@@ -431,12 +465,24 @@ object ExpressionCodeGenerator {
                                                  returnType,
                                                  Some(methodName)
                                                )
-                              _             <- methodGenerator
-                                                 .addCastTo[CompilationTypesIO](
-                                                   valueType(expectedResultType)
-                                                 )
-                                                 .whenA(valueType(expectedResultType) =!= returnType)
-                            } yield classes
+                              overClasses   <-
+                                if (overApplied.isEmpty)
+                                  methodGenerator
+                                    .addCastTo[CompilationTypesIO](valueType(expectedResultType))
+                                    .whenA(valueType(expectedResultType) =!= returnType)
+                                    .as(Seq.empty[ClassFile])
+                                else
+                                  methodGenerator
+                                    .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
+                                    .whenA(returnType =!= NativeType.systemFunctionValue) >>
+                                    applyArgumentsToFunctionValue(
+                                      moduleName,
+                                      outerClassGenerator,
+                                      methodGenerator,
+                                      overApplied,
+                                      expectedResultType
+                                    )
+                            } yield classes ++ overClasses
                           case None                 =>
                             compilerError(
                               sourcedCalledVfqn.as("Could not find uncurried function."),

@@ -60,7 +60,7 @@ def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): Function[S, G[Pair[
  * from `initial`. Any other effects remain in the carrier `G`. Reach for `runStateToValue` or `runStateToFinalState` to
  * keep only one side of the pair.
  */
-def runStateToPair[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateCarrier(p), initial)
+def runStateToPair[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, S]] = runStateCarrier(p)(initial)
 
 /**
  * Discharge the `State[S]` effect keeping only the result, discarding the final state. Threads `initial` through the

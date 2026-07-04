@@ -65,6 +65,14 @@ notes.
   correctness.
 
 - Separate the cache graph from the values, so not everything has to be deserialized.
+- **Incremental cache corrupted by concurrent/out-of-date compilers.** A stale `.eliot-cache`
+  made a CLI compile report errors from a *previous version* of an edited file (positions and
+  types from old content, underlining unrelated new text); deleting the cache fixed it. Suspected
+  trigger: an out-of-date IntelliJ plugin's resident LSP compiler running against the same
+  workspace breaks the cache every time it runs. Harden the cache: content-hash (not
+  mtime) invalidation, a compiler-version/cache-format stamp so a different compiler build never
+  reuses (or silently poisons) another's cache, and ideally per-writer isolation or locking for
+  concurrent compilers.
 - Default imports should not be hardcoded; all of `lang.*` should be imported.
 - Remove the `Show` instances used for printing expression/fact internals.
 - Rename processors to generators?
