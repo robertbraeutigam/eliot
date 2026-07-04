@@ -34,7 +34,7 @@ ability State[S, F[_]] {
  * def tick: {State[Int]} Unit = updateState(n -> n + 1)
  * ```
  */
-def updateState[S](f: Function[S, S]): {State[S]} Unit = putState(f(state))
+def updateState[S](f: S => S): {State[S]} Unit = putState(f(state))
 
 /**
  * The internal carrier that realises the `State[S]` effect: a `StateCarrier[S, G, A]` maps an incoming state to a
@@ -50,7 +50,8 @@ type StateCarrier[S, G[_], A]
 /**
  * Unwrap a `StateCarrier` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor
  * of the carrier; the platform layer supplies the body. Discharge the effect with `runStateToPair`, which threads an
- * initial state through this function.
+ * initial state through this function. (The type is spelled `Function[…]` rather than the idiomatic `=>` because a
+ * `data` field type — the concrete `StateCarrier` this must merge with — cannot be written with the `=>` alias.)
  */
 def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): Function[S, G[Pair[A, S]]]
 
@@ -66,11 +67,11 @@ def runStateToPair[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, 
  * computation and yields its value.
  */
 def runStateToValue[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[A] =
-   map(pair -> first(pair), runStateToPair(p, initial))
+   map(pair -> pair.first, runStateToPair(p, initial))
 
 /**
  * Discharge the `State[S]` effect keeping only the final state, discarding the result. Threads `initial` through the
  * computation and yields the state left behind.
  */
 def runStateToFinalState[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[S] =
-   map(pair -> second(pair), runStateToPair(p, initial))
+   map(pair -> pair.second, runStateToPair(p, initial))

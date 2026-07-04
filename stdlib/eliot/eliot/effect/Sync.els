@@ -11,5 +11,5 @@ ability Sync[F[_]] {
     * Embed a deferred thunk into the carrier. The thunk is not run until the carrier is, so its effect
     * is not performed when the `F[A]` is built.
     */
-   def sync[A](thunk: Function[Unit, A]): F[A]
+   def sync[A](thunk: Unit => A): F[A]
 }
