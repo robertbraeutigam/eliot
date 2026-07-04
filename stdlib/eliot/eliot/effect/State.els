@@ -50,8 +50,7 @@ type StateCarrier[S, G[_], A]
 /**
  * Unwrap a `StateCarrier` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor
  * of the carrier; the platform layer supplies the body. Discharge the effect with `runStateToPair`, which threads an
- * initial state through this function. (The type is spelled `Function[…]` rather than the idiomatic `=>` because a
- * `data` field type — the concrete `StateCarrier` this must merge with — cannot be written with the `=>` alias.)
+ * initial state through this function.
  */
 def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): S => G[Pair[A, S]]
 
