@@ -1,0 +1,24 @@
+import eliot.lang.Bool
+
+// The compiler-pool `Eq[Type]` instance and its native leaf. The `Eq` ability itself is declared abstractly in the
+// base layer (`stdlib/.../Eq.els`); this file re-declares it because name resolution is per-file — an `implement Eq`
+// must be colocated with the ability, so the file that hosts the instance must carry its own copy of the declaration,
+// and the layer merge then verifies the copies agree. Structural type equality is only meaningful at compile time
+// (types are erased at runtime), so this instance and its leaf are compiler-pool-only.
+
+ability Eq[A] {
+   def equals(a: A, b: A): Bool
+}
+
+/**
+ * Structural equality on types: `true` when `a` and `b` are the same type.
+ *
+ * A native leaf. Comparing two types is comparing their normal forms, which is the compiler's one notion of
+ * definitional equality read back as a `Bool`; walking a value of unknown depth is a loop, which user code cannot
+ * express, so it bottoms out here (like `fold`/`add`). The reduction is supplied by `SystemNativesProcessor`.
+ */
+private def typeEquals(a: Type, b: Type): Bool
+
+implement Eq[Type] {
+   def equals(a: Type, b: Type): Bool = typeEquals(a, b)
+}

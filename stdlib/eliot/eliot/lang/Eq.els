@@ -1,0 +1,32 @@
+import eliot.lang.Bool
+
+/**
+ * Equality — the ability that supplies `==` and `!=` for a type `A`.
+ *
+ * Because Eliot draws no line between the type level and the value level, `Eq` works for ordinary values
+ * *and* for types: an instance for the type of all types (`Eq[Type]`, structural equality of types) lets a
+ * compiler-evaluated guard such as `where E1 != E2` decide whether two type parameters are the same. Value
+ * instances (`Eq[Int]`, `Eq[String]`, …) are added by the platform layers where a representation exists.
+ *
+ * `equals` is the single primitive; `==` and `!=` are the operators built on it.
+ */
+ability Eq[A] {
+   /**
+    * `true` when `a` and `b` are equal.
+    */
+   def equals(a: A, b: A): Bool
+}
+
+/**
+ * Equality operator: `a == b` is `true` when `a` and `b` are equal under `Eq[A]`.
+ *
+ * Binds tighter than `&&`, so `a == b && c == d` reads as `(a == b) && (c == d)`.
+ */
+infix left above &&
+def ==[A ~ Eq](a: A, b: A): Bool = equals(a, b)
+
+/**
+ * Inequality operator: the negation of `==`. `a != b` is `true` exactly when `a == b` is `false`.
+ */
+infix left at ==
+def !=[A ~ Eq](a: A, b: A): Bool = fold(equals(a, b), false, true)

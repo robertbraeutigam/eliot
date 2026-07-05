@@ -60,6 +60,14 @@ object WellKnownTypes {
     */
   val boolFoldFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
 
+  /** The `typeEquals(a: Type, b: Type): Bool` native leaf backing the compiler-pool `Eq[Type]` instance — structural
+    * comparison of two types, i.e. the compiler's one notion of definitional equality (equality of normal forms) read
+    * back as a `Bool`. Declared body-less in the compiler layer (`compiler/eliot/eliot/lang/Eq.els`); its reduction is
+    * supplied by `SystemNativesProcessor`. Compiler-pool-only, since types are erased at runtime.
+    */
+  val typeEqualsFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Eq"), QualifiedName("typeEquals", Qualifier.Default))
+
   private val eitherModule: ModuleName = ModuleName(defaultSystemPackage, "Either")
 
   /** The `Either[E, A]` type constructor — the discharge carrier of the `Throw[E]` effect (`runThrow` reflects a

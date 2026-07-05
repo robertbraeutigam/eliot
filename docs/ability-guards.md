@@ -1,10 +1,11 @@
 # Ability Implementation Guards
 
-Status: **planned** (design agreed; not yet implemented). Revised 2026-07-05: the coherence stance is
+Status: **Stage 0 landed** (2026-07-05); Stages 1-6 planned. Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
-`Throw` but the language's general "computed instance applicability" primitive.
+`Throw` but the language's general "computed instance applicability" primitive. Stage 0 (the `Eq` ability +
+`Eq[Type]` leaf) is implemented — see §5 for what shipped and the two naming/method decisions it settled.
 
 ## 1. Motivation
 
@@ -311,15 +312,30 @@ Ordering note: **Stage 0 gates only the `Throw` client** (the only equality guar
 shared machinery, exercisable by the `IntArith` client alone — landing Stage 5 before Stages 0/4 is a
 valid de-risking order.
 
-**Stage 0 — `Eq` ability + `Eq[Type]` leaf** (for the `Throw` client).
-- `ability Eq[A] { def ==(a: A, b: A): Bool }` abstract in the base, `!=` derived; `==`/`!=` infix with
-  precedence declarations (placement to decide).
-- `Eq[Type]` structural-equality native leaf, **concrete-only** semantics (§2.2): pure normal-form
-  compare (never through the `Unifier`), defensively stuck on non-concrete input; compiler pool; itself
-  unguarded. Base value instances (`Eq[Int]`, `Eq[String]`, `Eq[BigInteger]`) as needed.
+**Stage 0 — `Eq` ability + `Eq[Type]` leaf** (for the `Throw` client). **LANDED.**
+- `ability Eq[A] { def equals(a: A, b: A): Bool }` abstract in the base (`stdlib/.../Eq.els`); `==`/`!=`
+  are **top-level `infix` operators** delegating to `equals` — *not* ability methods, because
+  `AbilityBlock` drops fixity/precedence when desugaring an ability method (so an `infix def ==` inside
+  the ability would silently lose its fixity). This resolves the open "method naming" question: named
+  method `equals` + operators. `!=` is `fold(equals(a, b), false, true)`. Precedence: `==`/`!=` are
+  `infix left`, `== above &&` (binds tighter than logical-and), `!= at ==`; arithmetic-vs-comparison
+  precedence deferred until a runtime `Eq[Int]` makes it exercisable.
+- `Eq[Type]` instance + its `typeEquals` leaf live in `compiler/.../Eq.els` (compiler-pool-only — types
+  are erased at runtime), with the ability re-declared there per the layer-merge duplication rule. The
+  leaf is `typeEquals(a: Type, b: Type): Bool`, a Scala native in `SystemNativesProcessor` (well-known
+  `WellKnownTypes.typeEqualsFQN`): **concrete-only** structural normal-form compare (mirrors
+  `Unifier.groundEquals`, never through the `Unifier`), defensively stuck (`VStuckNative`) on non-concrete
+  input; itself unguarded. Base value instances (`Eq[Int]`, `Eq[String]`, `Eq[BigInteger]`) **deferred** —
+  not needed by the `Throw` client, and each needs a backend comparison native.
 - ~~Enforce "a generic parameter's type must implement `Eq`"~~ — dropped; the constraint is
   demand-driven from guard bodies (§2.2).
-- Test: `Int == Int` → true, `Int == String` → false; `==` in ordinary user code; precedence.
+- **Verified:** `EqTypeLeafTest` (leaf reduces `Int==Int`→true, `Int==String`→false, `Int[0,5]` vs
+  `Int[0,10]`→false, stuck on a meta); `EqOperatorResolutionTest` (compiler track: `==`/`!=` at `A=Type`
+  resolve the `Eq[Type]` instance through the first-order `[A ~ Eq]` constraint, inline to `equals`, `==`
+  above `&&`); `EqTypeIntegrationTest` (the shipped `stdlib/.../Eq.els` parses/merges into a real build).
+  Note: `Eq[Type]` fully fires only in a **type/signature position** on the **compiler track** — a runtime
+  value using `==` on types cannot resolve the compiler-pool instance and correctly fails (confirmed), so
+  the concrete end-to-end firing arrives with the Stage-4 guard.
 
 **Stage 1 — marker synthesis: guard as return slot, body retired.**
 - Parse `where <expr>` in `ast/fact/ImplementBlock.scala` (between the head-pattern parse and the body),
