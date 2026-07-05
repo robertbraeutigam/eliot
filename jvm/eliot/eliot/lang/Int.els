@@ -30,25 +30,25 @@ opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
   fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
        JvmBigInteger[]))))
 
-// JVM integer addition: widens both operands to their common representation, runs the right-sized leaf operation,
-// then narrows the result back to the declared range.
+// JVM integer addition: widens both operands to their common representation, runs the right-sized leaf operation
+// (selected by the `IntArith` width-dispatch family below), then narrows the result back to the declared range.
 infix left
 def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)] =
-  nativeWiden(dispatchAdd(
+  nativeWiden(addOp(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
 // JVM integer subtraction; the same width-dispatch shape as `+`.
 infix left at +
 def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)] =
-  nativeWiden(dispatchSubtract(
+  nativeWiden(subtractOp(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
 // JVM integer multiplication; the same width-dispatch shape as `+`.
 infix left above +
 def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)] =
-  nativeWiden(dispatchMultiply(
+  nativeWiden(multiplyOp(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
@@ -112,44 +112,73 @@ def nativeMultiplyLongToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigIntege
 def nativeMultiplyBigIntegerToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
 
 /**
- * Select the right-sized `+` leaf for two operands already at a common representation: the outer choice picks
- * the operand width, the inner picks the result width (one width up when the sum carries).
+ * The JVM integer arithmetic width dispatch, as a guarded ability family (ability-implementation guards, the `IntArith`
+ * client). One instance per operand machine width — byte, short, int, long, big — each selecting the concretely-sized
+ * leaf for two operands *already at a common representation* (`Cmin, Cmax`). What was one ordered `fold(fitsIn[...])`
+ * chain becomes five instances made disjoint by explicit `where` guards: the ordered chain's implicit smallest-first
+ * priority is now the explicit complement `fitsIn[thisWidth] && not(fitsIn[nextSmaller])`, so a coverage gap or overlap
+ * in the conditions is a hard error at the manifest instantiation rather than a silent wrong-width leaf.
+ *
+ * Each method still makes the inner *result*-width choice with a `fold` (one width up when the operation carries out of
+ * the operand width). Bodies are deliberately lambda-free (direct native calls + `fold`) so the five same-named method
+ * sets do not collide their generated lambda classes.
  */
-def dispatchAdd[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
-  fold(fitsIn[-128, 127, Cmin, Cmax],
-    fold(fitsIn[-128, 127, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddByteToByte(left, right), nativeAddByteToShort(left, right)),
-  fold(fitsIn[-32768, 32767, Cmin, Cmax],
-    fold(fitsIn[-32768, 32767, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddShortToShort(left, right), nativeAddShortToInt(left, right)),
-  fold(fitsIn[-2147483648, 2147483647, Cmin, Cmax],
-    fold(fitsIn[-2147483648, 2147483647, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddIntToInt(left, right), nativeAddIntToLong(left, right)),
-  fold(fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax],
-    fold(fitsIn[-9223372036854775808, 9223372036854775807, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddLongToLong(left, right), nativeAddLongToBigInteger(left, right)),
-    nativeAddBigIntegerToBigInteger(left, right)))))
+ability IntArith[Cmin: BigInteger, Cmax: BigInteger] {
+   def addOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)]
+   def subtractOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)]
+   def multiplyOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)]
+}
 
-/**
- * Select the right-sized `-` leaf, like `dispatchAdd` but for the subtraction result range.
- */
-def dispatchSubtract[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
-  fold(fitsIn[-128, 127, Cmin, Cmax],
-    fold(fitsIn[-128, 127, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractByteToByte(left, right), nativeSubtractByteToShort(left, right)),
-  fold(fitsIn[-32768, 32767, Cmin, Cmax],
-    fold(fitsIn[-32768, 32767, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractShortToShort(left, right), nativeSubtractShortToInt(left, right)),
-  fold(fitsIn[-2147483648, 2147483647, Cmin, Cmax],
-    fold(fitsIn[-2147483648, 2147483647, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractIntToInt(left, right), nativeSubtractIntToLong(left, right)),
-  fold(fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax],
-    fold(fitsIn[-9223372036854775808, 9223372036854775807, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractLongToLong(left, right), nativeSubtractLongToBigInteger(left, right)),
-    nativeSubtractBigIntegerToBigInteger(left, right)))))
+// Byte operands: the smallest width, so the guard is simply "fits in a byte".
+implement[Cmin: BigInteger, Cmax: BigInteger] IntArith[Cmin, Cmax] where fitsIn[-128, 127, Cmin, Cmax] {
+   def addOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
+     fold(fitsIn[-128, 127, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddByteToByte(a, b), nativeAddByteToShort(a, b))
+   def subtractOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
+     fold(fitsIn[-128, 127, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractByteToByte(a, b), nativeSubtractByteToShort(a, b))
+   def multiplyOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
+     fold(fitsIn[-128, 127, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyByteToByte(a, b), nativeMultiplyByteToShort(a, b))
+}
 
-/**
- * Select the right-sized `*` leaf, like `dispatchAdd` but for the multiplication result range.
- */
-def dispatchMultiply[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
-  fold(fitsIn[-128, 127, Cmin, Cmax],
-    fold(fitsIn[-128, 127, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyByteToByte(left, right), nativeMultiplyByteToShort(left, right)),
-  fold(fitsIn[-32768, 32767, Cmin, Cmax],
-    fold(fitsIn[-32768, 32767, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyShortToShort(left, right), nativeMultiplyShortToInt(left, right)),
-  fold(fitsIn[-2147483648, 2147483647, Cmin, Cmax],
-    fold(fitsIn[-2147483648, 2147483647, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyIntToInt(left, right), nativeMultiplyIntToLong(left, right)),
-  fold(fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax],
-    fold(fitsIn[-9223372036854775808, 9223372036854775807, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyLongToLong(left, right), nativeMultiplyLongToBigInteger(left, right)),
-    nativeMultiplyBigIntegerToBigInteger(left, right)))))
+// Short operands: fits in a short but not a byte.
+implement[Cmin: BigInteger, Cmax: BigInteger] IntArith[Cmin, Cmax]
+      where fitsIn[-32768, 32767, Cmin, Cmax] && not(fitsIn[-128, 127, Cmin, Cmax]) {
+   def addOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
+     fold(fitsIn[-32768, 32767, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddShortToShort(a, b), nativeAddShortToInt(a, b))
+   def subtractOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
+     fold(fitsIn[-32768, 32767, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractShortToShort(a, b), nativeSubtractShortToInt(a, b))
+   def multiplyOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
+     fold(fitsIn[-32768, 32767, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyShortToShort(a, b), nativeMultiplyShortToInt(a, b))
+}
+
+// Int operands: fits in an int but not a short.
+implement[Cmin: BigInteger, Cmax: BigInteger] IntArith[Cmin, Cmax]
+      where fitsIn[-2147483648, 2147483647, Cmin, Cmax] && not(fitsIn[-32768, 32767, Cmin, Cmax]) {
+   def addOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
+     fold(fitsIn[-2147483648, 2147483647, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddIntToInt(a, b), nativeAddIntToLong(a, b))
+   def subtractOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
+     fold(fitsIn[-2147483648, 2147483647, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractIntToInt(a, b), nativeSubtractIntToLong(a, b))
+   def multiplyOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
+     fold(fitsIn[-2147483648, 2147483647, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyIntToInt(a, b), nativeMultiplyIntToLong(a, b))
+}
+
+// Long operands: fits in a long but not an int.
+implement[Cmin: BigInteger, Cmax: BigInteger] IntArith[Cmin, Cmax]
+      where fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax] && not(fitsIn[-2147483648, 2147483647, Cmin, Cmax]) {
+   def addOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
+     fold(fitsIn[-9223372036854775808, 9223372036854775807, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddLongToLong(a, b), nativeAddLongToBigInteger(a, b))
+   def subtractOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
+     fold(fitsIn[-9223372036854775808, 9223372036854775807, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractLongToLong(a, b), nativeSubtractLongToBigInteger(a, b))
+   def multiplyOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
+     fold(fitsIn[-9223372036854775808, 9223372036854775807, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyLongToLong(a, b), nativeMultiplyLongToBigInteger(a, b))
+}
+
+// Big operands: does not fit in a long, so it stays a bignum in and out — no inner result-width choice.
+implement[Cmin: BigInteger, Cmax: BigInteger] IntArith[Cmin, Cmax]
+      where not(fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax]) {
+   def addOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
+     nativeAddBigIntegerToBigInteger(a, b)
+   def subtractOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
+     nativeSubtractBigIntegerToBigInteger(a, b)
+   def multiplyOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
+     nativeMultiplyBigIntegerToBigInteger(a, b)
+}

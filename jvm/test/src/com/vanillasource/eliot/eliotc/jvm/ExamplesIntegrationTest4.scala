@@ -113,6 +113,50 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "1000000")
   }
 
+  // Ability-implementation guards, the `IntArith` client (Stage 5): the jvm width dispatch for `+`/`-`/`*` is now a
+  // five-instance guarded ability family (byte/short/int/long/big), disjoint by explicit `fitsIn && not(fitsIn)`
+  // range guards. One program doing arithmetic at four operand widths resolves four *distinct* guarded `IntArith`
+  // instances in a single compilation, each guard discharged at its concrete bounds — the ladder end to end. (The
+  // fifth, big-operand, instance rides the JvmBigInteger representation, whose codegen is a separate pre-existing gap.)
+  "the IntArith guarded width family" should "select the right instance at each operand width in one program" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |def byteSum: Int[0, 200] = 100 + 100
+        |def shortDiff: Int[-1000, 1000] = 500 - 300
+        |def intProduct: Int[0, 1000000] = 1000 * 1000
+        |def longSum: Int[0, 10000000000] = 5000000000 + 5000000000
+        |
+        |def main: IO[Unit] = {
+        |   printLine(intToString(byteSum))
+        |   printLine(intToString(shortDiff))
+        |   printLine(intToString(intProduct))
+        |   printLine(intToString(longSum))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "200\n200\n1000000\n10000000000")
+  }
+
+  // The headline benefit of the guarded family over the old ordered `fold` chain: a *coverage gap* in the range guards
+  // is a hard error at the manifest instantiation, not a silent wrong-width leaf. A user `Widen` ability covering only
+  // the byte range, used at an int-width range, finds no surviving instance — "No ability implementation found" at the
+  // concrete `[0, 100000]` — rather than mis-selecting.
+  "a guarded ability family with a coverage gap" should "hard-error at the uncovered instantiation" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |
+        |ability Widen[Mn: BigInteger, Mx: BigInteger] {
+        |   def widen(x: Int[Mn, Mx]): Int[Mn, Mx]
+        |}
+        |
+        |implement[Mn: BigInteger, Mx: BigInteger] Widen[Mn, Mx] where fitsIn[-128, 127, Mn, Mx] {
+        |   def widen(x: Int[Mn, Mx]): Int[Mn, Mx] = x
+        |}
+        |
+        |def useBig(x: Int[0, 100000]): Int[0, 100000] = widen(x)
+        |
+        |def main: IO[Unit] = printLine(intToString(useBig(50000)))""".stripMargin
+    ).asserting(_ should include("No ability implementation found for ability 'Widen'"))
+  }
+
   it should "carry a value beyond 32 bits at the 64-bit representation" in {
     compileAndRun(
       """import eliot.effect.Console

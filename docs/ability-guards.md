@@ -1,6 +1,6 @@
 # Ability Implementation Guards
 
-Status: **Stages 0–4 landed** (2026-07-05); Stages 5-6 planned. Revised 2026-07-05: the coherence stance is
+Status: **Stages 0–5 landed** (2026-07-05); Stage 6 planned. Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
@@ -466,11 +466,27 @@ the plan's spikes):
   → the lift declines via `where String != String`, the native wins with no ambiguity), and `EffectsThrow`/`EffectsTwoDeps`
   regress clean. Full `lang` (832) + `jvm` (176) suites green; `HelloWorld` builds & runs.
 
-**Stage 5 — the `IntArith` client** (§4.1; may precede Stages 0/4).
-- Replace `dispatchAdd`/`dispatchSubtract`/`dispatchMultiply` with the five-instance guarded family;
-  `+`/`-`/`*` call the ability methods.
-- Test: examples suite green; a deliberately-introduced guard gap errors at the instantiation (not
-  silently mis-selects); compilation-time comparison on an arithmetic-heavy example.
+**Stage 5 — the `IntArith` client (§4.1). LANDED (2026-07-05).**
+- Replaced `dispatchAdd`/`dispatchSubtract`/`dispatchMultiply` in `jvm/.../lang/Int.els` with `ability
+  IntArith[Cmin, Cmax] { addOp; subtractOp; multiplyOp }` and **five range-guarded instances** (byte/short/int/
+  long/big). Each guard is the explicit disjoint complement of the ordered chain's implicit priority —
+  `fitsIn[thisWidth, Cmin, Cmax] && not(fitsIn[nextSmaller, Cmin, Cmax])` — with the byte instance unguarded-by-
+  complement (`fitsIn[byte]`) and the big instance the pure `not(fitsIn[long])`. Each method body keeps the inner
+  *result*-width `fold` (unchanged from the old dispatch). `+`/`-`/`*` now call `addOp`/`subtractOp`/`multiplyOp`
+  (a use-site-deferred ability call — no `IntArith` constraint on `+`, resolved at each concrete instantiation).
+- Needed one base addition: **`def not(b: Bool): Bool = fold(b, false, true)`** in `lang/.../lang/Bool.els`
+  (platform-independent; where `fold`/`true`/`false` are in scope). No `Eq` — the guards use only the
+  already-compiler-evaluable `fitsIn`/`&&`/`not`/`lessThanOrEqual` natives, so they reduce through the *standard*
+  signature evaluation (the Stage-4 ability-dispatched machinery is not engaged: the guards' sub-values carry no
+  ground type arguments, so `reduceGuardSubValues` yields nothing and the ordinary checkSig reduction discharges them).
+- **Verified:** `Arithmetic`/`Ranges` and the whole examples suite compile and run unchanged; new
+  `ExamplesIntegrationTest4` cases: a four-width ladder (byte/short/int/long selected in one program) and the
+  headline gap-error — a user `Widen` family covering only the byte range, used at `Int[0,100000]`, hard-errors
+  "No ability implementation found for ability 'Widen'" at the manifest instantiation (no silent mis-select).
+  Full `lang` (832) + `jvm` (178) suites green. Watch items resolved: lambda-free bodies → no same-module lambda
+  collision; resolution cost is fine on the suite. (Orthogonal pre-existing find, *not* Stage 5: the
+  `JvmBigInteger` representation overflows for values beyond `long` — the big-operand instance and any
+  long→bignum promotion are codegen-untested; unchanged by this refactor.)
 
 **Stage 6 — guarded `Coerce`** (§4.2; exploratory, after the caveat is resolved).
 

@@ -29,3 +29,8 @@ def false: Bool
  * ```
  */
 def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A
+
+/**
+ * Logical negation: `true` when `b` is `false` and vice versa.
+ */
+def not(b: Bool): Bool = fold(b, false, true)
