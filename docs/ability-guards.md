@@ -1,6 +1,6 @@
 # Ability Implementation Guards
 
-Status: **Stages 0–1 landed** (2026-07-05); Stages 2-6 planned. Revised 2026-07-05: the coherence stance is
+Status: **Stages 0–2 landed** (2026-07-05); Stages 3-6 planned. Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
@@ -379,16 +379,41 @@ the plan's spikes):
   `PlatformScopedAbilityResolutionTest`, `MonomorphicTypeCheckProcessorTest`, `JvmClassGeneratorProcessorTest`)
   register a `Bool` stub the same way.
 
-**Stage 2 — use-site discharge + 3-way interpretation.**
-- In `verifyImplementation`, after `matchImpl` returns `Some(implTypeArgs)`, discharge the marker return
-  and keep/decline/error per §3.1; refuse (internal error) if any guard-mentioned parameter's binding
-  came from the `metaToGround` fallback rather than the structural trace.
-- Preferred route (spike 1): demand the marker's **compiler-track monomorphization** at `implTypeArgs`
-  and read its deep return — the `readMonomorphicReturnGround` pattern
-  (`CalculatedReturnResolver.scala:187`) — rather than hand-assembling a `CheckIO` context (carrier
-  pinning, `Env.bind`) inside the ability processor. Known blocker: compiler-track re-entry is not yet
-  threaded (NOTE at `CalculatedReturnResolver.scala:183`), already on the books as a follow-up increment.
-- Test (hand-built guarded marker): `true` keeps, `false` declines, `error(msg)` surfaces `msg`.
+**Stage 2 — use-site discharge + 3-way interpretation. LANDED (2026-07-05).**
+- `AbilityImplementationProcessor.verifyImplementation` now discharges the guard after a `matchImpl` `Some`
+  (`dischargeGuard`). An **unguarded** marker (return slot is exactly the default `eliot.lang.Bool::true`
+  reference — detected via `SignatureView.of(markerSig).returnType`) is kept verbatim, *without* monomorphizing
+  the marker (the pre-guards behaviour + the efficiency win — only real guards pay). A **real** guard is
+  discharged by requesting `CompilerMonomorphicValue.Key(markerVfqn, groundArgs)` — the marker on the
+  **compiler track**, always, regardless of the queried `platform`, since guards are compile-time computations —
+  and reading `signature.deepReturnType` (§3.1's "deep-return read", as a *direct fact request* from the ability
+  processor, not a `CheckIO` back-edge, so the `CalculatedReturnResolver.scala:183` compiler-track re-entry
+  blocker never applies). `interpretGuard` maps the reduced verdict: `Bool` `true` / `Right(true)` → keep,
+  `Bool` `false` / `Right(false)` → decline (`Seq.empty` → resolution falls through), `Left(msg)` →
+  `compilerError(msg) >> abort` (hard). Both `Bool` shapes are accepted — a body-less `Bool::true`/`false`
+  reference (`GroundValue.Structure` head) and a native-reduced `GroundValue.Direct(Boolean)`.
+- The kind check accepts a `Bool` guard return: `CalculatedReturnResolver.isGuardCarrier` now recognises a
+  `boolFQN`-headed *inferred type* (a `Bool`-typed value in a type position) in addition to the W2b `eitherFQN`
+  carrier. A *normal* `Bool` return type still infers kind `Type`, so this only fires for a guard.
+- **Fail-safe (`metaToGround` caveat, §3.1):** `AbilityMatcher.matchImpl` now returns a `Match(groundArgs,
+  allTraced)`; `allTraced` is false when any leading param's binding fell back to the lossy `metaToGround`
+  (`GroundValue.Type`-collapsing) path rather than the faithful `tracePatternMetas`. A real guard over an
+  untraced binding is an internal error, not a silent (possibly-wrong) verdict. (Conservative: refuses on *any*
+  untraced param, not only guard-mentioned ones — safe, and `false` never arises for the planned clients whose
+  params are all structural.) A stuck / unrecognised verdict is likewise an internal error, never a silent keep.
+- **Verified:** `AbilityGuardDischargeTest` (compiler-pool, self-contained `Bool`+`Either`, no effect machinery)
+  — unguarded keeps without discharge; `where fold(false,false,true)` keeps; `where false` declines (→ "No
+  ability implementation found"); `where Right(true)`/`Right(false)` keep/decline via the payload; `where
+  Left("…")` is a hard error carrying the message. Full suite green + `HelloWorld` builds & runs.
+- **Stage-4 watch item** (surfaced here): the discharge reads the *reduced signature return*. That reduces
+  cleanly for constructor / native-direct guards (`true`/`false`/`fold`/`Left`/`Right`). An **ability-dispatched**
+  guard (`E1 != E2` via `Eq[Type]::equals`) must fully reduce *in the signature-return position* — but
+  `PostDrainQuoter.quoteSem` renormalises the SemValue with only the marker's own binding cache + drain-resolved
+  `implBindings`, which do **not** include an ability method's transitive impl body unless it was resolved during
+  the marker's own check. If `E1 != E2` stays stuck, the discharge fail-safe-errors (never miscompiles), so
+  Stage 4 must ensure the `Eq[Type]` guard reduces (e.g. apply `abilityResolutions` to the signature SemValue
+  before read-back, mirroring `resolveAbilityRefs` for bodies), or route the guard through the body-reduction
+  (`reduceSourced`) path instead of the signature-return read.
 
 **Stage 3 — definition-time overlap becomes the conservative lint (§3.2).**
 - `patternsOverlap` reports overlap only when the patterns unify AND both markers are unguarded

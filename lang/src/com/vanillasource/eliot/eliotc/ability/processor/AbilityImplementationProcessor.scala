@@ -4,13 +4,14 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.{AbilityImplementation, AbilityImplementationCheck}
 import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, QualifiedName, Qualifier, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue}
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
@@ -139,14 +140,97 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               markerVfqn <- markerVfqnFor(vfqn, expectedAbilityFQN.abilityName).pure[CompilerIO]
               marker     <- getFactOrAbort(OperatorResolvedValue.Key(markerVfqn, platform))
               markerSig   = marker.typeStack.as(marker.typeStack.value.signature)
-              result     <- AbilityMatcher.matchImpl(markerSig, expectedTypeArgs)
-            } yield result match {
-              case Some(implTypeArgs) => Seq((vfqn, implTypeArgs))
-              case None               => Seq.empty
-            }
+              matched    <- AbilityMatcher.matchImpl(markerSig, expectedTypeArgs)
+              result     <- matched match {
+                              case None    => Seq.empty[(ValueFQN, Seq[GroundValue])].pure[CompilerIO]
+                              case Some(m) => dischargeGuard(vfqn, markerVfqn, markerSig, m)
+                            }
+            } yield result
           case _ => Seq.empty.pure[CompilerIO]
         }
     }
+
+  /** Filter a matched candidate by its `where` guard (ability-guards Stage 2). The guard rides the marker's
+    * return-type slot (§2.3): an unguarded marker's slot is the literal `eliot.lang.Bool::true` reference, kept
+    * verbatim without evaluation (and without paying to monomorphize the marker). Any other slot is a real guard,
+    * discharged at the concrete match binding by monomorphizing the marker on the **compiler track** — guards are
+    * compile-time `Bool` computations (`Eq[Type]` is compiler-pool-only), so they always evaluate there regardless of
+    * the queried `platform` — and reading its reduced return. Three outcomes (§3.1): `true` keeps, `false` declines
+    * (dropped from candidates so resolution falls through to another instance), `error(msg)` is a hard compile error
+    * carrying the author's message.
+    *
+    * Fail-safe: a real guard is discharged only over faithfully-traced bindings — a `metaToGround`-collapsed binding
+    * could compare equal wrongly (§3.1), so an untraced match is an internal error rather than a silent wrong verdict.
+    */
+  private def dischargeGuard(
+      vfqn: ValueFQN,
+      markerVfqn: ValueFQN,
+      markerSig: Sourced[OperatorResolvedExpression],
+      matched: AbilityMatcher.Match
+  ): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] = {
+    val keep = Seq((vfqn, matched.groundArgs))
+    if (isUnguarded(markerSig)) keep.pure[CompilerIO]
+    else if (!matched.allTraced)
+      error[CompilerIO](
+        s"Internal: cannot discharge the guard of '${vfqn.name.name}' — a matched type parameter was not faithfully traced."
+      ) >> abort[Seq[(ValueFQN, Seq[GroundValue])]]
+    else
+      getFactOrAbort(CompilerMonomorphicValue.Key(markerVfqn, matched.groundArgs))
+        .flatMap(cmv => interpretGuard(cmv.signature.deepReturnType, markerSig, keep))
+  }
+
+  /** Whether the marker carries no real guard — i.e. its return slot is exactly the default `eliot.lang.Bool::true`
+    * reference that [[com.vanillasource.eliot.eliotc.ast.fact.ImplementBlock]] installs when there is no `where`
+    * clause (or the author wrote `where true`, which is semantically unguarded).
+    */
+  private def isUnguarded(markerSig: Sourced[OperatorResolvedExpression]): Boolean =
+    OperatorResolvedExpression.SignatureView.of(markerSig).returnType.value match {
+      case OperatorResolvedExpression.ValueReference(name, _) => name.value == WellKnownTypes.boolTrueFQN
+      case _                                                  => false
+    }
+
+  /** Interpret a discharged guard's reduced return value (§3.1). Both `Bool` representations are accepted: a body-less
+    * `eliot.lang.Bool::true`/`false` reference (a [[GroundValue.Structure]] head) and a native-reduced
+    * [[GroundValue.Direct]] boolean. A `Right(bool)` unwraps to its `Bool` payload (a guard using the `{Throw[String]}`
+    * channel that succeeded); a `Left(msg)` is a hard rejection carrying the author's message; anything else cannot
+    * occur at a concrete use site (a stuck guard) and is an internal error, never a silent accept.
+    */
+  private def interpretGuard(
+      verdict: GroundValue,
+      at: Sourced[?],
+      keep: Seq[(ValueFQN, Seq[GroundValue])]
+  ): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] =
+    verdict match {
+      case GroundValue.Direct(true, _)                                           => keep.pure[CompilerIO]
+      case GroundValue.Direct(false, _)                                          => declined
+      case GroundValue.Structure(fqn, _, _) if fqn == WellKnownTypes.boolTrueFQN  => keep.pure[CompilerIO]
+      case GroundValue.Structure(fqn, _, _) if fqn == WellKnownTypes.boolFalseFQN => declined
+      case GroundValue.Structure(fqn, args, _) if fqn == WellKnownTypes.rightFQN  =>
+        args.lastOption match {
+          case Some(payload) => interpretGuard(payload, at, keep)
+          case None          => internalGuardError(at)
+        }
+      case GroundValue.Structure(fqn, args, _) if fqn == WellKnownTypes.leftFQN   =>
+        compilerError(at.as(guardMessage(args.lastOption))) >> abort[Seq[(ValueFQN, Seq[GroundValue])]]
+      case _                                                                      => internalGuardError(at)
+    }
+
+  private val declined: CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] =
+    Seq.empty[(ValueFQN, Seq[GroundValue])].pure[CompilerIO]
+
+  /** The author message carried by a `Left(msg)` rejection — a literal `String` field. A non-literal (should not occur
+    * at a concrete site) falls back to a generic message so the rejection is still reported, never silently dropped.
+    */
+  private def guardMessage(field: Option[GroundValue]): String =
+    field match {
+      case Some(GroundValue.Direct(s: String, _)) => s
+      case _                                       => "A type guard rejected this use."
+    }
+
+  private def internalGuardError(at: Sourced[?]): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] =
+    error[CompilerIO](
+      "Internal: ability guard did not reduce to a concrete `Bool` verdict at a concrete use site."
+    ) >> abort[Seq[(ValueFQN, Seq[GroundValue])]]
 
   private def markerVfqnFor(implVfqn: ValueFQN, abilityName: String): ValueFQN =
     ValueFQN(implVfqn.moduleName, QualifiedName(abilityName, implVfqn.name.qualifier))

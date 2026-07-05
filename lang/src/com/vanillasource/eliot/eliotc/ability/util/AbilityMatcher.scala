@@ -23,14 +23,22 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 object AbilityMatcher {
 
+  /** The outcome of a successful [[matchImpl]]: the GroundValue each of the impl's leading type parameters was bound
+    * to (declaration order), plus whether every one of those bindings was recovered by the faithful structural trace
+    * ([[tracePatternMetas]]) rather than the lossy [[metaToGround]] fallback. A guard must not be evaluated over a
+    * fallback-collapsed binding (it could compare equal wrongly — ability-guards §3.1 fail-safe), so the discharge
+    * refuses when `allTraced` is false.
+    */
+  case class Match(groundArgs: Seq[GroundValue], allTraced: Boolean)
+
   /** Match an impl's pattern (given as its marker-function ORE signature) against a concrete tuple of query type
-    * arguments. On a match, returns the GroundValue each of the impl's leading type parameters was bound to, in
-    * declaration order; returns None when there is no match.
+    * arguments. On a match, returns the [[Match]] binding each of the impl's leading type parameters to a GroundValue,
+    * in declaration order; returns None when there is no match.
     */
   def matchImpl(
       markerSignature: Sourced[OperatorResolvedExpression],
       queryArgs: Seq[GroundValue]
-  ): CompilerIO[Option[Seq[GroundValue]]] =
+  ): CompilerIO[Option[Match]] =
     for {
       setup <- setupEvaluation(Seq(markerSignature))
       peeled = peelPattern(setup, markerSignature)
@@ -214,7 +222,7 @@ object AbilityMatcher {
       peeled: Peeled,
       queryArgs: Seq[GroundValue],
       sourceRef: Sourced[?]
-  ): Option[Seq[GroundValue]] =
+  ): Option[Match] =
     if (peeled.args.size != queryArgs.size) None
     else {
       val querySems = queryArgs.map(Evaluator.groundToSem)
@@ -229,9 +237,11 @@ object AbilityMatcher {
         // quoting the metastore for cases we can't structurally trace (runtime-bodied aliases, etc.).
         val traced: Map[MetaId, GroundValue] =
           peeled.args.zip(queryArgs).flatMap { case (p, q) => tracePatternMetas(p, q) }.toMap
-        Some(peeled.paramMetas.map { case (_, id) =>
+        val groundArgs                       = peeled.paramMetas.map { case (_, id) =>
           traced.getOrElse(id, metaToGround(id, unified.metaStore))
-        })
+        }
+        val allTraced                        = peeled.paramMetas.forall { case (_, id) => traced.contains(id) }
+        Some(Match(groundArgs, allTraced))
       }
     }
 

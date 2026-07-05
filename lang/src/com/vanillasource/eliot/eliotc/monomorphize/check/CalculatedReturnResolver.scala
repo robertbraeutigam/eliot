@@ -211,18 +211,25 @@ class CalculatedReturnResolver(
 
   // === Effectful-signatures discharge (W2b) ===
 
-  /** The guard-carrier recognition for the *kind* position (W2b). A return-type expression whose *value* is on the
-    * compile-time `Throw[String]` carrier `Either[String, _]` is a guarded type: it denotes a type but may instead
-    * reject, so its inferred *type* is `Either[..]` (a [[WellKnownTypes.eitherFQN]]-headed value), not the bare `Type`
-    * an ordinary return position has. The checker calls this when checking a term against the `Type` kind — `true`
-    * means "accept this as a guarded type", since the kind check would otherwise reject `Either[..]` as ≠ `Type`; the
-    * value itself is discharged to its payload type (or rejected) by [[dischargeGuardedSignature]] /
-    * [[dischargeGuardedReturn]] once the bounds are concrete. A fully-applied type constructor `Either[String, Int]` is
-    * a *type* (its inferred kind is `Type`, not `Either[..]`), so it is unaffected.
+  /** The guard-carrier recognition for the *kind* position (W2b, and ability-implementation guards). A return-type
+    * expression whose *value* is a guard denotes a type/verdict but may instead reject, so its inferred *type* is not
+    * the bare `Type` an ordinary return position has. Two guard-carrier shapes are accepted where a `Type` kind is
+    * expected:
+    *   - the effectful-signatures carrier `Either[String, _]` ([[WellKnownTypes.eitherFQN]]-headed), from `error`/`when
+    *     orError` on the compile-time `Throw[String]` channel — discharged to its payload type (or rejected) by
+    *     [[dischargeGuardedSignature]] / [[dischargeGuardedReturn]] once the bounds are concrete;
+    *   - a bare `Bool` ([[WellKnownTypes.boolFQN]]-headed), the applicability verdict of an ability-implementation
+    *     `where` guard riding the marker's return slot (ability-guards §2.3) — read as keep/decline at the use-site
+    *     discharge in the ability processor.
+    *
+    * `true` here means "accept this as a guarded return", since the kind check would otherwise reject `Either[..]` /
+    * `Bool` as ≠ `Type`. A *normal* `Bool` or `Either[..]` used as a *return type* infers kind `Type` (a fully-applied
+    * type constructor `Either[String, Int]` is a type), so `inferred` is `VType` there and this is unaffected — only a
+    * `Bool`/`Either`-*typed value* sitting in a type position (a `true` / `E1 != E2` / `error("…")`) is a guard.
     */
   def isGuardCarrier(inferred: SemValue): CheckIO[Boolean] =
     force(inferred).map {
-      case VTopDef(fqn, _, _) => fqn === WellKnownTypes.eitherFQN
+      case VTopDef(fqn, _, _) => fqn === WellKnownTypes.eitherFQN || fqn === WellKnownTypes.boolFQN
       case _                  => false
     }
 
