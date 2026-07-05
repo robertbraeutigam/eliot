@@ -169,7 +169,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       matched: AbilityMatcher.Match
   ): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] = {
     val keep = Seq((vfqn, matched.groundArgs))
-    if (isUnguarded(markerSig)) keep.pure[CompilerIO]
+    if (AbilityMatcher.isUnguarded(markerSig)) keep.pure[CompilerIO]
     else if (!matched.allTraced)
       error[CompilerIO](
         s"Internal: cannot discharge the guard of '${vfqn.name.name}' — a matched type parameter was not faithfully traced."
@@ -178,16 +178,6 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       getFactOrAbort(CompilerMonomorphicValue.Key(markerVfqn, matched.groundArgs))
         .flatMap(cmv => interpretGuard(cmv.signature.deepReturnType, markerSig, keep))
   }
-
-  /** Whether the marker carries no real guard — i.e. its return slot is exactly the default `eliot.lang.Bool::true`
-    * reference that [[com.vanillasource.eliot.eliotc.ast.fact.ImplementBlock]] installs when there is no `where`
-    * clause (or the author wrote `where true`, which is semantically unguarded).
-    */
-  private def isUnguarded(markerSig: Sourced[OperatorResolvedExpression]): Boolean =
-    OperatorResolvedExpression.SignatureView.of(markerSig).returnType.value match {
-      case OperatorResolvedExpression.ValueReference(name, _) => name.value == WellKnownTypes.boolTrueFQN
-      case _                                                  => false
-    }
 
   /** Interpret a discharged guard's reduced return value (§3.1). Both `Bool` representations are accepted: a body-less
     * `eliot.lang.Bool::true`/`false` reference (a [[GroundValue.Structure]] head) and a native-reduced

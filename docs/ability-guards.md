@@ -1,6 +1,6 @@
 # Ability Implementation Guards
 
-Status: **Stages 0–2 landed** (2026-07-05); Stages 3-6 planned. Revised 2026-07-05: the coherence stance is
+Status: **Stages 0–3 landed** (2026-07-05); Stages 4-6 planned. Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
@@ -415,12 +415,23 @@ the plan's spikes):
   before read-back, mirroring `resolveAbilityRefs` for bodies), or route the guard through the body-reduction
   (`reduceSourced`) path instead of the signature-return read.
 
-**Stage 3 — definition-time overlap becomes the conservative lint (§3.2).**
-- `patternsOverlap` reports overlap only when the patterns unify AND both markers are unguarded
-  (return-slot literal `true`); any explicit guard on either side → defer.
-- Test: native + guarded-lift no longer errors; two unguarded overlapping impls still error (existing
-  behaviour); two *guarded* overlapping impls compile at definition and produce "Multiple ability
-  implementations" at a concrete use site.
+**Stage 3 — definition-time overlap becomes the conservative lint (§3.2). LANDED (2026-07-05).**
+- The overlap scan now reports overlap only when the patterns structurally overlap AND *both* markers are
+  unguarded; any explicit `where` guard on either side → defer silently to the use site. The "unguarded"
+  test (return-slot is exactly the default `eliot.lang.Bool::true` reference) was **lifted out of
+  `AbilityImplementationProcessor` into `AbilityMatcher.isUnguarded`** — one shared definition, so the
+  Stage-2 discharge (skip discharge for an unguarded marker) and the Stage-3 lint (defer a guarded pair)
+  can't drift. `AbilityMatcher.patternsOverlap` stays a **purely structural** predicate (unchanged); the
+  guard-deferral policy lives in `ModuleAbilityOverlapCheckProcessor.reportOverlaps` (the lint owner),
+  which decides "report only if `isUnguarded(sigA) && isUnguarded(sigB)`". This is the minimal §3.2 arm
+  set (unguarded-overlap → error; any guard → defer) — no symbolic guard evaluation, no MGU-binding
+  evaluation, no `Eq` reflexivity on the critical path.
+- **Verified:** `AbilityGuardOverlapLintTest` (compiler-pool, self-contained `Bool`+`Function`, mirrors
+  `AbilityGuardDischargeTest`) — triggering the overlap-check fact directly: two unguarded overlapping
+  impls → 2 "Overlapping" errors (pre-guards behaviour preserved); native (unguarded) + guarded → 0
+  errors; two guarded → 0 errors. The third §3.2 consequence end-to-end: two guarded impls whose guards
+  both reduce to `true` pass the definition-time lint yet produce "Multiple ability implementations" at the
+  concrete use site (`AbilityImplementation.Key`). Full `lang` (832) + `jvm` (173) suites green.
 - (Optional, later, feedback-only: evaluate guards under the MGU to prove the diagonal disjoint —
   requires the symbolic `Eq` semantics.)
 

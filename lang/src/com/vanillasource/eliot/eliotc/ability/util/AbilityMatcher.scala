@@ -46,6 +46,10 @@ object AbilityMatcher {
 
   /** Do two impl marker patterns overlap — i.e. would some concrete query tuple match both? Used for
     * definition-time overlap detection on implementations of the same ability in the same module.
+    *
+    * This is a purely *structural* question about the argument patterns; it deliberately ignores the markers' `where`
+    * guards. The definition-time lint layers the guard policy on top (defer whenever either marker is guarded, since
+    * guard disjointness is undecidable) via [[isUnguarded]] — see ability-guards §3.2.
     */
   def patternsOverlap(
       sigA: Sourced[OperatorResolvedExpression],
@@ -56,6 +60,22 @@ object AbilityMatcher {
       peeledA = peelPattern(setup, sigA)
       peeledB = peelPattern(peeledA.setup, sigB)
     } yield attemptOverlap(peeledB.setup, peeledA.args, peeledB.args, sigA)
+
+  /** Whether an impl marker carries no real `where` guard — i.e. its return-type slot is exactly the default
+    * `eliot.lang.Bool::true` reference that [[com.vanillasource.eliot.eliotc.ast.fact.ImplementBlock]] installs when
+    * there is no `where` clause (or the author wrote `where true`, which is semantically unguarded — ability-guards
+    * §2.3).
+    *
+    * Shared by the two guard clients so they agree on what "unguarded" means: the Stage-2 use-site discharge
+    * (`AbilityImplementationProcessor`) keeps an unguarded candidate verbatim without monomorphizing the marker, and
+    * the Stage-3 definition-time overlap lint (`ModuleAbilityOverlapCheckProcessor`) reports overlap only when *both*
+    * markers are unguarded, deferring any guarded pair to the use site (§3.2).
+    */
+  def isUnguarded(markerSignature: Sourced[OperatorResolvedExpression]): Boolean =
+    OperatorResolvedExpression.SignatureView.of(markerSignature).returnType.value match {
+      case OperatorResolvedExpression.ValueReference(name, _) => name.value == WellKnownTypes.boolTrueFQN
+      case _                                                  => false
+    }
 
   /** Check that an impl method's signature is compatible with the ability's abstract method signature.
     *

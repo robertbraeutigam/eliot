@@ -11,15 +11,21 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-/** Checks, for a given `(module, abilityName)` pair, that no two implementations of that ability in that module have
-  * structurally overlapping patterns.
+/** Checks, for a given `(module, abilityName)` pair, that no two *unguarded* implementations of that ability in that
+  * module have structurally overlapping patterns.
   *
   * Runs at definition time — as soon as any call site triggers ability resolution for this ability — so overlap errors
   * point at the offending implementations rather than at call sites that merely expose the ambiguity.
   *
-  * Cross-module overlap is still detected at call time by the ambiguity check in `AbilityImplementationProcessor`: the
-  * definition-time check here can only see impls in one module at a time, whereas impls can legitimately live in either
-  * the ability's module or a type's module.
+  * Since ability-guards (§3.2) this is a **conservative lint, not the soundness mechanism**: the real coherence rule is
+  * "exactly one candidate survives at every manifest use site", enforced by the use-site discharge + ambiguity check in
+  * `AbilityImplementationProcessor`. Guard disjointness (`∀x. ¬(g₁(x) ∧ g₂(x))`) is undecidable, so a `where` guard on
+  * either impl makes the pair *undecided* here and it is deferred silently to the use site — only two provably
+  * overlapping *unguarded* impls are rejected at definition time (exactly the pre-guards behaviour).
+  *
+  * Cross-module overlap is likewise detected only at call time by the ambiguity check in
+  * `AbilityImplementationProcessor`: the definition-time check here can only see impls in one module at a time, whereas
+  * impls can legitimately live in either the ability's module or a type's module.
   */
 class ModuleAbilityOverlapCheckProcessor
     extends TransformationProcessor[ModuleAbilities.Key, ModuleAbilityOverlapCheck.Key](key =>
@@ -58,10 +64,16 @@ class ModuleAbilityOverlapCheckProcessor
       j <- (i + 1) until withSignatures.size
     } yield (withSignatures(i), withSignatures(j))).toList.traverse_ {
       case ((v1, sig1), (v2, sig2)) =>
-        for {
-          overlaps <- recover(AbilityMatcher.patternsOverlap(sig1, sig2))(false)
-          _        <- if (overlaps) reportOverlapError(v1, v2, platform) else ().pure[CompilerIO]
-        } yield ()
+        // ability-guards §3.2: the definition-time check is a conservative lint, not the soundness mechanism. Report
+        // overlap only when the patterns structurally overlap AND *both* markers are unguarded. A `where` guard on
+        // either side makes disjointness undecidable here, so we defer silently to the use-site discharge, which
+        // decides applicability exactly at each concrete instantiation.
+        if (AbilityMatcher.isUnguarded(sig1) && AbilityMatcher.isUnguarded(sig2))
+          for {
+            overlaps <- recover(AbilityMatcher.patternsOverlap(sig1, sig2))(false)
+            _        <- if (overlaps) reportOverlapError(v1, v2, platform) else ().pure[CompilerIO]
+          } yield ()
+        else ().pure[CompilerIO]
     }
 
   private def reportOverlapError(v1: ValueFQN, v2: ValueFQN, platform: Platform): CompilerIO[Unit] =
