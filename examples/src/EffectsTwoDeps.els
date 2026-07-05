@@ -1,0 +1,28 @@
+import eliot.effect.Dep
+import eliot.effect.Console
+import eliot.effect.Effect
+
+data Database(url: String)
+data Topic(name: String)
+
+// The "filling in": each dependency is injected globally, one value per type
+// (ability coherence guarantees at most one Dep[Database], one Dep[Topic]).
+implement Dep[Database, IO] {
+   def dependency: IO[Database] = pure(Database("jdbc://app-db"))
+}
+
+implement Dep[Topic, IO] {
+   def dependency: IO[Topic] = pure(Topic("events"))
+}
+
+// ONE function pulls in BOTH dependencies. The row is their union — but unlike
+// Throw, both are just constraints on the SAME carrier F; each `dependency` is
+// dispatched by the type its use expects (.url -> Database, .name -> Topic).
+def describe: {Dep[Database], Dep[Topic], Console} Unit = {
+   printLine(dependency.url)
+   printLine(dependency.name)
+}
+
+// The function above pins F := IO; both Dep constraints are satisfied by their
+// two concrete instances on that one IO carrier — no nesting, no lift.
+def main: IO[Unit] = describe

@@ -1,0 +1,20 @@
+import eliot.effect.Console
+import eliot.effect.Throw
+
+data NetError(netReason: String)
+data ParseError(parseReason: String)
+
+// Each failure source carries its own error type.
+def fetch(url: String): {Throw[NetError]} String = raise(NetError("http 503"))
+
+def parse(raw: String): {Throw[ParseError]} String = raise(ParseError("unexpected token"))
+
+// ONE function, BOTH error types. The row is their union — the auto-lift threads
+// each callee's effect into the shared carrier.
+def loadConfig(url: String): {Throw[NetError], Throw[ParseError]} String = parse(fetch(url))
+
+// Handle BOTH — each handler accesses a field unique to its error type, which
+// pins which Throw layer that catch discharges. Discharged inside printLine so
+// the residual carrier is IO.
+def main: IO[Unit] =
+   printLine(loadConfig("https://cfg") catch ((netErr:NetError) -> netErr.netReason) catch ((parseErr: ParseError) -> parseErr.parseReason))
