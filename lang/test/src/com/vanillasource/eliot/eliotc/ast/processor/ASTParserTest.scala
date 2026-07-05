@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, Expression, Fixity, SourceAST, Visibility}
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier
@@ -476,6 +477,36 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "default the implement marker guard to the literal true in its return slot" in {
+    runEngineForFunctionReturnTypeShows("implement Show[A] { def show: String = a }").asserting(
+      _ should contain("Show" -> "eliot.lang.Bool::true")
+    )
+  }
+
+  it should "carry a where-clause guard as the implement marker return type" in {
+    runEngineForFunctionReturnTypeShows("implement Show[A] where cond { def show: String = a }").asserting(
+      _ should contain("Show" -> "cond")
+    )
+  }
+
+  it should "retire the implement marker body (both guarded and unguarded)" in {
+    runEngineForFunctionBodyPresence("implement Show[A] where cond { def show: String = a }").asserting(
+      _ should contain allOf ("show" -> true, "Show" -> false)
+    )
+  }
+
+  it should "stop a where guard at the body brace so both guard and method parse" in {
+    // The infix guard `MIN != MAX` must not swallow the following `{ … }` body — `{` is not a type-atom start, so the
+    // guard's greedy type-run ends there (ability-guards §2.1).
+    runEngineForErrors("implement Show[A] where MIN != MAX { def show: String = a }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "keep the infix guard expression intact as the marker return type" in {
+    runEngineForFunctionReturnTypeShows("implement Show[A] where MIN != MAX { def show: String = a }").asserting(
+      _ should contain("Show" -> "MIN != MAX")
+    )
+  }
+
   it should "qualify implement type declarations with AbilityImplementation qualifier" in {
     runEngineForFunctions("implement Show[A] { type Element = String }").asserting(
       _.head shouldBe
@@ -828,6 +859,30 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
           functions.map(f => (f.name.value.name, f.typeDefinition.value))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionReturnTypeShows(source: String): IO[Seq[(String, String)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.typeDefinition.value.show))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionBodyPresence(source: String): IO[Seq[(String, Boolean)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.body.isDefined))
         }
         .toSeq
         .flatten

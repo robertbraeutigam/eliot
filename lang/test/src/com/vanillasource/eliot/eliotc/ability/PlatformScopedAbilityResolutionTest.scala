@@ -45,6 +45,9 @@ class PlatformScopedAbilityResolutionTest
     lang("Unit")         -> "type Unit",
     lang("String")       -> "type String",
     lang("IO")           -> "type IO",
+    // Every synthesized `implement`/`data` marker's default `true` guard resolves to `eliot.lang.Bool::true`, so Bool
+    // is on both pools just like the real base layer (ability-guards §2.3).
+    lang("Bool")         -> ProcessorTest.boolImportContent,
     internal("PatternMatch") -> "",
     internal("TypeMatch")    -> ""
   )

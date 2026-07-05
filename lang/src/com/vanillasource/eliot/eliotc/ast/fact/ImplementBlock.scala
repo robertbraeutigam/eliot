@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionApplication
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.{
   acceptIfAll,
@@ -26,6 +25,12 @@ object ImplementBlock {
           genericParameters   <- component[Seq[GenericParameter]]
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           pattern             <- bracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
+          // Optional `where <guard>` clause (ability-guards Stage 1). `where` is a soft keyword (a lowercase
+          // identifier in a unique position — no tokenizer change). The guard is parsed with `typeRunParser` — the
+          // same parser as a return type — so an infix guard like `E1 != E2` reads without parentheses and the run
+          // stops cleanly at the body's `{` (`{` is not a type-atom start), giving the parse boundary of §2.1 for
+          // free. It rides the marker's return-type slot below.
+          guard               <- (identifierWith("where") *> sourced(Expression.typeRunParser)).optional()
           (errors, functions) <-
             (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
               .recoveringAtLeastOnce(t => isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t)))
@@ -52,14 +57,20 @@ object ImplementBlock {
             // We add the implementation to the default method as a marker, that this type implements the marker.
             // The marker takes one argument per pattern element so its signature fully encodes the pattern,
             // which is what drives implementation selection during dispatch.
+            //
+            // The marker is a pure signature vessel: its return-type slot carries the guard (the `where <expr>`, or
+            // the literal `true` when absent) and it is body-less. This co-opts the return slot rather than threading
+            // a new `guard` field through the whole front-end; matching is unaffected because `AbilityMatcher` drops
+            // the return before unifying the pattern arguments. The former identity body (`arg0`) is retired
+            // uniformly so it never fights the guard at concrete discharge (ability-guards §2.3).
             FunctionDefinition(
               name.as(
                 QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.map(_.content), -1))
               ),
               genericParameters,
               pattern.zipWithIndex.map { case (p, i) => ArgumentDefinition(name.as(s"arg$i"), p) },
-              pattern.head,
-              Some(name.as(FunctionApplication(None, name.as("arg0"), None, Seq.empty)))
+              guard.getOrElse(Expression.trueReference(name)),
+              None
             )
         )
     }

@@ -10,7 +10,6 @@ import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 /** Structural ability-pattern matching via the monomorphize NbE unifier.
   *
@@ -85,20 +84,14 @@ object AbilityMatcher {
   ): CompilerIO[Map[ValueFQN, Binding]] =
     OperatorResolvedExpression.foldValueReferences(expr, acc) { (map, name) =>
       if (map.contains(name.value) || name.value == WellKnownTypes.typeFQN) map.pure[CompilerIO]
-      else classifyValueRef(name.value, name, map)
+      else classifyValueRef(name.value, map)
     }
 
   private def classifyValueRef(
       vfqn: ValueFQN,
-      sourceRef: Sourced[ValueFQN],
       acc: Map[ValueFQN, Binding]
   ): CompilerIO[Map[ValueFQN, Binding]] =
     getFactIfProduced(OperatorResolvedValue.Key(vfqn)).flatMap {
-      case None       =>
-        vfqn.name.qualifier match {
-          case Qualifier.Type => (acc + (vfqn -> Binding.Constructor)).pure[CompilerIO]
-          case _              => compilerAbort[Map[ValueFQN, Binding]](sourceRef.as("Can not evaluate referenced value."))
-        }
       case Some(fact) =>
         // Use `checkingRuntime`, not `runtime`: an `opaque` value (e.g. the jvm `Int`) must stay a stuck head here so
         // that ability-pattern matching compares by type constructor (`Coerce[Int, Int]`) instead of unfolding the
@@ -109,13 +102,24 @@ object AbilityMatcher {
             // `collectBindings` guards against cycles because we add the Body entry before recursing.
             collectBindings(body.value, acc + (vfqn -> Binding.Body(body)))
           case None       =>
-            vfqn.name.qualifier match {
-              case _: Qualifier.Ability | _: Qualifier.AbilityImplementation =>
-                (acc + (vfqn -> Binding.AbstractAbility)).pure[CompilerIO]
-              case _                                                         =>
-                (acc + (vfqn -> Binding.Constructor)).pure[CompilerIO]
-            }
+            (acc + (vfqn -> bodylessBinding(vfqn))).pure[CompilerIO]
         }
+      case None       =>
+        // The reference resolved to a valid FQN (resolution guarantees that) but has no `OperatorResolvedValue` in the
+        // platform looked up here — e.g. a `Default`-qualified value like a marker's default `true` guard, which lives
+        // only in the pool being matched and is dropped from the pattern (`extractFunctionArgs` discards the return)
+        // before evaluation. Classify it as a stuck leaf, mirroring the body-less case, rather than aborting: pattern
+        // matching never needs its value, and a genuinely broken reference is reported at its own definition.
+        (acc + (vfqn -> bodylessBinding(vfqn))).pure[CompilerIO]
+    }
+
+  /** How to bind a referenced value whose body is unavailable (body-less, or no fact produced in this platform): an
+    * ability member stays a fresh meta so equal references unify; anything else is a stuck constructor head.
+    */
+  private def bodylessBinding(vfqn: ValueFQN): Binding =
+    vfqn.name.qualifier match {
+      case _: Qualifier.Ability | _: Qualifier.AbilityImplementation => Binding.AbstractAbility
+      case _                                                         => Binding.Constructor
     }
 
   // ---- Phase 2: build a pure Evaluator over the classifications ----

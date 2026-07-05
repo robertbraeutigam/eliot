@@ -167,6 +167,9 @@ object DataDefinitionDesugarer {
           Seq(selectorType, typeExpr(s.as(resultParamName)))
         )
 
+        // Like every implementation marker, this is a body-less signature vessel whose return-type slot carries the
+        // guard — here the default (unguarded) `true`, so the use-site guard discharge keeps it unconditionally
+        // (ability-guards §2.3). The former identity body (`arg`) is retired uniformly with `ImplementBlock`.
         val implMarker = FunctionDefinition(
           s.as(
             QualifiedName(
@@ -176,8 +179,8 @@ object DataDefinitionDesugarer {
           ),
           definition.genericParameters,
           Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
-          dataTypeRef,
-          Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), None, Seq.empty)))
+          SourceExpression.trueReference(s),
+          None
         )
 
         val casesTypeDef = FunctionDefinition(
@@ -246,12 +249,13 @@ object DataDefinitionDesugarer {
       Seq(typeExpr(s.as("Unit")), typeExpr(s.as(resultParamName)))
     )
 
+    // Body-less signature vessel with the default (unguarded) `true` guard in the return-type slot, as above.
     val implMarker = FunctionDefinition(
       s.as(QualifiedName("TypeMatch", abilityQualifier)),
       definition.genericParameters,
       Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
-      dataTypeRef,
-      Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), None, Seq.empty)))
+      SourceExpression.trueReference(s),
+      None
     )
 
     val fieldsTypeDef = FunctionDefinition(

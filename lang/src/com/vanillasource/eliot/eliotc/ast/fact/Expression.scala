@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.*
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.pos.Position
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
@@ -53,6 +54,22 @@ object Expression {
       extends Expression
 
   case class MatchCase(pattern: Sourced[Pattern], body: Sourced[Expression])
+
+  /** A reference to the boolean literal `true` (`eliot.lang.Bool::true`), the default ability-implementation guard
+    * (ability-guards §2.3): a synthesized `implement`/`data` marker's return-type slot carries its guard, and an
+    * unguarded implementation gets this `true`. It is written *module-qualified* rather than as the bare name `true`
+    * so it resolves in every module without that module importing `Bool` (the resolver's `module::name` path looks the
+    * value up by FQN, bypassing import scope) — mirroring real builds, where `Bool` is always on the layer path.
+    */
+  def trueReference(at: Sourced[?]): Sourced[Expression] =
+    at.as(
+      FunctionApplication(
+        Some(at.as(WellKnownTypes.boolTrueFQN.moduleName.show)),
+        at.as(WellKnownTypes.boolTrueFQN.name.name),
+        None,
+        Seq.empty
+      )
+    )
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                                 => value

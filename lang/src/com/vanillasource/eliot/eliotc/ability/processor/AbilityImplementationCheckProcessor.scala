@@ -141,6 +141,12 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   ): CompilerIO[Unit] = {
     val implByName = implMethods.map(m => m.vfqn.name.name -> m).toMap
     abilityMethods
+      // Skip the synthetic marker method (local name == ability name): it is a pattern vessel, not a real ability
+      // method. Its return-type slot now carries the implementation guard (ability-guards §2.3), which is not part of
+      // the method contract, so comparing the impl marker's signature against the ability marker's would spuriously
+      // unify the guard against the ability marker's own return. The marker's pattern is already validated at this
+      // same use site by `matchImpl` in `collectImplMethods`.
+      .filterNot(_.vfqn.name.name == abilityFQN.abilityName)
       .flatMap(abstractMethod => implByName.get(abstractMethod.vfqn.name.name).map(abstractMethod -> _))
       .traverse_ { case (abstractMethod, implMethod) =>
         for {

@@ -47,6 +47,11 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("TypeMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("Int", ProcessorTest.intStubContent),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
+    // Registered (loadable) but NOT auto-imported (absent from `defaultSystemModules`): every synthesized
+    // ability-implementation marker's default guard is a module-qualified reference to `eliot.lang.Bool::true`
+    // (ability-guards §2.3), which resolves by FQN without an import but does need the module producible — mirroring
+    // real builds, where `Bool` is always on the layer path.
+    SystemImport("Bool", ProcessorTest.boolImportContent),
     SystemImport("Console", ProcessorTest.consoleStubContent, ModuleName.effectPackage),
     SystemImport("Log", ProcessorTest.logStubContent, ModuleName.effectPackage),
     SystemImport("Dep", ProcessorTest.depStubContent, ModuleName.effectPackage)

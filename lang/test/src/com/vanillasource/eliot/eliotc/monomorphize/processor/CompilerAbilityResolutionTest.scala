@@ -55,6 +55,9 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
     compilerScan(Seq("eliot", "compiler"), "Type", "type Type") ++
       compilerScan(Seq("eliot", "lang"), "Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B") ++
       compilerScan(Seq("eliot", "lang"), "String", "type String") ++
+      // Every synthesized `implement` marker's default `true` guard resolves to `eliot.lang.Bool::true`
+      // (ability-guards §2.3), so Bool must be in the pool — as it always is in a real compiler layer.
+      compilerScan(Seq("eliot", "lang"), "Bool", "type Bool\ndef true: Bool\ndef false: Bool") ++
       compilerScan(
         Seq("eliot", "effect"),
         "Effect",

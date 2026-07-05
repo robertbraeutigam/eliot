@@ -1,6 +1,6 @@
 # Ability Implementation Guards
 
-Status: **Stage 0 landed** (2026-07-05); Stages 1-6 planned. Revised 2026-07-05: the coherence stance is
+Status: **Stages 0–1 landed** (2026-07-05); Stages 2-6 planned. Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
@@ -337,15 +337,47 @@ valid de-risking order.
   value using `==` on types cannot resolve the compiler-pool instance and correctly fails (confirmed), so
   the concrete end-to-end firing arrives with the Stage-4 guard.
 
-**Stage 1 — marker synthesis: guard as return slot, body retired.**
+**Stage 1 — marker synthesis: guard as return slot, body retired. LANDED (2026-07-05).**
 - Parse `where <expr>` in `ast/fact/ImplementBlock.scala` (between the head-pattern parse and the body),
-  as a value expression, soft keyword via `identifierWith("where")`; test the `{` parse boundary (§2.1).
-- Marker: return slot = guard expression (default the literal `true`), **body = `None`**, uniformly for
-  all markers (§2.3).
-- Type-check the guard against `{Throw[String]} Bool` (reuse body checking) — malformed guards are
-  ordinary errors.
-- Test: `implement … where <expr> { }` parses/round-trips; **full suite** green (the body retirement is
-  the behaviour change to watch).
+  soft keyword via `identifierWith("where")`. Parsed with **`Expression.typeRunParser`** (the return-type
+  parser), which gives the `{` parse boundary of §2.1 *for free* — `{` is not a type-atom start, so the
+  greedy type-run ends there — and lets an infix guard like `E1 != E2` read without parentheses. Tested.
+- Marker: return slot = guard expression, **body = `None`**, **uniformly for all markers** — the
+  `ImplementBlock` marker *and* the two `data`-generated markers (`DataDefinitionDesugarer`'s
+  `PatternMatch`/`TypeMatch` impl markers). The default (unguarded) guard is the literal `true`, written as
+  the **module-qualified** reference `eliot.lang.Bool::true` (`Expression.trueReference`, shared by both
+  synthesis sites) so it resolves in every module *without an import* (the resolver's `module::name` path
+  looks up by FQN, bypassing import scope).
+- Guard type-checking against `{Throw[String]} Bool` is **deferred to the use-site discharge (Stage 2)** —
+  markers are never monomorphized (not reached from `main`), so there is no definition-time check hook, and
+  deferring to the use site is exactly the Sound-Not-Modular stance (§3). The default `true` is trivially
+  well-typed; no real guarded marker exists until Stage 4.
+- Test: `implement … where <expr> { }` parses/round-trips (return slot = guard, body-less, guard stops at
+  `{`); **full suite green**.
+
+Two things the body retirement + `true`-return surfaced (both fixed here, neither anticipated verbatim by
+the plan's spikes):
+- **`AbilityImplementationCheckProcessor.checkSignatures` must skip the marker.** The marker (local name ==
+  ability name) is in both `abilityMethods` and `implMethods`, so `checkSignatures` paired the ability
+  marker (return = first generic → the pattern) against the impl marker (return now `true`) and
+  `signaturesCompatible` unified the guard against the pattern → spurious "Signature … does not match".
+  Fixed by excluding the marker from the *signature*-compat pairing only (its pattern is already validated
+  at the same use site by `matchImpl`); completeness/extras keep the marker on both sides. Spike 4 assumed
+  "peelPattern drops returns" sufficed, but the marker is *also* passed as a method sig (peeled to body,
+  keeping the return) — that gap.
+- **`AbilityMatcher.classifyValueRef` must not abort on an unproduced reference.** It looks up
+  `OperatorResolvedValue` in the (default `Runtime`) platform; the old marker return referenced only
+  `Type`-qualified names (classified without the fact), but the new `true` is `Default`-qualified. In a
+  compiler-pool-only match the Runtime lookup misses and it aborted "Can not evaluate referenced value."
+  Fixed by classifying an unproduced reference as a stuck leaf (`bodylessBinding`, mirroring the body-less
+  case) instead of aborting — the marker's guard return is dropped by `extractFunctionArgs` before
+  evaluation anyway, so matching never needs its value.
+
+  Test-harness consequence: every synthesized `implement`/`data` marker now depends on `eliot.lang.Bool`
+  being in the pool (real builds always have it). `ProcessorTest.systemImports` registers `Bool` (loadable,
+  not auto-imported); custom-source-set tests that build their own pools (`CompilerAbilityResolutionTest`,
+  `PlatformScopedAbilityResolutionTest`, `MonomorphicTypeCheckProcessorTest`, `JvmClassGeneratorProcessorTest`)
+  register a `Bool` stub the same way.
 
 **Stage 2 — use-site discharge + 3-way interpretation.**
 - In `verifyImplementation`, after `matchImpl` returns `Some(implTypeArgs)`, discharge the marker return

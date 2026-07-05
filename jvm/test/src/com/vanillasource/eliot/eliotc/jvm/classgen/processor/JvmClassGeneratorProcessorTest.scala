@@ -50,6 +50,9 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
                      ModuleName(ModuleName.defaultSystemPackage, "Function") -> "type Function[A, B]",
                      ModuleName(ModuleName.compilerPackage, "Type")          -> "type Type",
                      ModuleName(ModuleName.defaultSystemPackage, "Unit")     -> "type Unit",
+                     // A synthesized `implement`/`data` marker's default `true` guard resolves to `eliot.lang.Bool::true`
+                     // (ability-guards §2.3), so Bool must be loadable — as it always is in a real layer.
+                     ModuleName(ModuleName.defaultSystemPackage, "Bool")     -> "type Bool\ndef true: Bool\ndef false: Bool",
                      ModuleName(ModuleName.defaultSystemPackage, "PatternMatch") -> "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}",
                      ModuleName(ModuleName.defaultSystemPackage, "TypeMatch")    -> "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
                    ).traverse { (moduleName, content) =>
