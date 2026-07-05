@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ability.fact.{AbilityImplementation, Abili
 import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -143,7 +143,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               matched    <- AbilityMatcher.matchImpl(markerSig, expectedTypeArgs)
               result     <- matched match {
                               case None    => Seq.empty[(ValueFQN, Seq[GroundValue])].pure[CompilerIO]
-                              case Some(m) => dischargeGuard(vfqn, markerVfqn, markerSig, m)
+                              case Some(m) => dischargeGuard(vfqn, markerVfqn, markerSig, m, platform)
                             }
             } yield result
           case _ => Seq.empty.pure[CompilerIO]
@@ -153,11 +153,16 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   /** Filter a matched candidate by its `where` guard (ability-guards Stage 2). The guard rides the marker's
     * return-type slot (§2.3): an unguarded marker's slot is the literal `eliot.lang.Bool::true` reference, kept
     * verbatim without evaluation (and without paying to monomorphize the marker). Any other slot is a real guard,
-    * discharged at the concrete match binding by monomorphizing the marker on the **compiler track** — guards are
-    * compile-time `Bool` computations (`Eq[Type]` is compiler-pool-only), so they always evaluate there regardless of
-    * the queried `platform` — and reading its reduced return. Three outcomes (§3.1): `true` keeps, `false` declines
-    * (dropped from candidates so resolution falls through to another instance), `error(msg)` is a hard compile error
-    * carrying the author's message.
+    * discharged at the concrete match binding by monomorphizing the marker and reading its reduced return. Three
+    * outcomes (§3.1): `true` keeps, `false` declines (dropped from candidates so resolution falls through to another
+    * instance), `error(msg)` is a hard compile error carrying the author's message.
+    *
+    * The marker is monomorphized on the **queried `platform`'s track** — the platform where the implementation (and its
+    * synthesized marker) is declared, which is the only pool the marker exists in. The guard is still a compile-time
+    * `Bool` computation, but it reduces on either track: its `Eq[Type]` instance lives in the base layer (on both
+    * source paths) and its `typeEquals` leaf is a platform-agnostic native. So a runtime-layer guarded instance (the
+    * `Throw` self-lift, `where E1 != E2`) is discharged on the runtime track — where its marker lives — while a
+    * compiler-pool guarded instance is discharged on the compiler track.
     *
     * Fail-safe: a real guard is discharged only over faithfully-traced bindings — a `metaToGround`-collapsed binding
     * could compare equal wrongly (§3.1), so an untraced match is an internal error rather than a silent wrong verdict.
@@ -166,7 +171,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       vfqn: ValueFQN,
       markerVfqn: ValueFQN,
       markerSig: Sourced[OperatorResolvedExpression],
-      matched: AbilityMatcher.Match
+      matched: AbilityMatcher.Match,
+      platform: Platform
   ): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] = {
     val keep = Seq((vfqn, matched.groundArgs))
     if (AbilityMatcher.isUnguarded(markerSig)) keep.pure[CompilerIO]
@@ -175,9 +181,25 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
         s"Internal: cannot discharge the guard of '${vfqn.name.name}' — a matched type parameter was not faithfully traced."
       ) >> abort[Seq[(ValueFQN, Seq[GroundValue])]]
     else
-      getFactOrAbort(CompilerMonomorphicValue.Key(markerVfqn, matched.groundArgs))
-        .flatMap(cmv => interpretGuard(cmv.signature.deepReturnType, markerSig, keep))
+      readGuardVerdict(markerVfqn, matched.groundArgs, platform)
+        .flatMap(verdict => interpretGuard(verdict, markerSig, keep))
   }
+
+  /** Monomorphize the marker at its matched ground arguments on the queried platform's track and read its reduced
+    * return-slot guard. The two tracks are distinct fact types ([[MonomorphicValue]] / [[CompilerMonomorphicValue]]),
+    * both carrying a ground `signature`; the guard verdict is that signature's deep return type.
+    */
+  private def readGuardVerdict(
+      markerVfqn: ValueFQN,
+      groundArgs: Seq[GroundValue],
+      platform: Platform
+  ): CompilerIO[GroundValue] =
+    platform match {
+      case Platform.Compiler =>
+        getFactOrAbort(CompilerMonomorphicValue.Key(markerVfqn, groundArgs)).map(_.signature.deepReturnType)
+      case Platform.Runtime  =>
+        getFactOrAbort(MonomorphicValue.Key(markerVfqn, groundArgs)).map(_.signature.deepReturnType)
+    }
 
   /** Interpret a discharged guard's reduced return value (§3.1). Both `Bool` representations are accepted: a body-less
     * `eliot.lang.Bool::true`/`false` reference (a [[GroundValue.Structure]] head) and a native-reduced

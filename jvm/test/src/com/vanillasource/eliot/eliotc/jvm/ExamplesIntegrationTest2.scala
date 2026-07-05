@@ -122,6 +122,69 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "parsed-value\nmalformed input")
   }
 
+  // Ability-implementation guards, the Throw client (ability-guards Stage 4): TWO distinct error types in one effect
+  // row force the `ThrowCarrier` to nest, which needs both the native `Throw[E, ThrowCarrier[E, G]]` instance and the
+  // lift `Throw[E2, ThrowCarrier[E1, G]] where E1 != E2`. Those structurally overlap on the diagonal `E1 = E2`; the
+  // `where E1 != E2` guard (discharged at the concrete use site by reducing `Eq[Type]`) makes them disjoint, so the
+  // lift routes the foreign error inward while the native owns its own slot. Here `fetch` raises first, so the
+  // outer `NetError` catch recovers to its reason. This is the `examples/src/EffectsTwoThrows.els` probe end to end.
+  "two distinct Throw error types in one row" should "compile via the guarded self-lift and catch each by its type" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Throw
+        |
+        |data NetError(netReason: String)
+        |data ParseError(parseReason: String)
+        |
+        |def fetch(url: String): {Throw[NetError]} String = raise(NetError("http 503"))
+        |def parse(raw: String): {Throw[ParseError]} String = raise(ParseError("unexpected token"))
+        |
+        |def loadConfig(url: String): {Throw[NetError], Throw[ParseError]} String = parse(fetch(url))
+        |
+        |def main: IO[Unit] =
+        |   printLine(loadConfig("https://cfg") catch ((netErr: NetError) -> netErr.netReason) catch ((parseErr: ParseError) -> parseErr.parseReason))""".stripMargin
+    ).asserting(_ shouldBe "http 503")
+  }
+
+  it should "recover the inner error type when the outer computation succeeds" in {
+    // `fetch` succeeds, `parse` raises: the residual row after the `NetError` catch is `{Throw[ParseError]}`, recovered
+    // by the second catch — exercising the lift routing a *foreign* error inward (off the diagonal) and then its own
+    // native discharge.
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Throw
+        |
+        |data NetError(netReason: String)
+        |data ParseError(parseReason: String)
+        |
+        |def fetch(url: String): {Throw[NetError]} String = url
+        |def parse(raw: String): {Throw[ParseError]} String = raise(ParseError("unexpected token"))
+        |
+        |def loadConfig(url: String): {Throw[NetError], Throw[ParseError]} String = parse(fetch(url))
+        |
+        |def main: IO[Unit] =
+        |   printLine(loadConfig("https://cfg") catch ((netErr: NetError) -> netErr.netReason) catch ((parseErr: ParseError) -> parseErr.parseReason))""".stripMargin
+    ).asserting(_ shouldBe "unexpected token")
+  }
+
+  // The degenerate diagonal: the *same* error type appears in both throwing functions, so the row collapses to one
+  // `{Throw[String]}` on a single carrier. The guarded lift declines on the diagonal (`where String != String` = false),
+  // so the native `Throw[String, ThrowCarrier[String, IO]]` wins deterministically — no "Multiple ability
+  // implementations" ambiguity — and the single `catch` recovers the raised error.
+  "two same-typed throws composed on one carrier" should "resolve to the native instance (the lift declines)" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Throw
+        |
+        |def first: {Throw[String]} String = raise("first failed")
+        |def second(prev: String): {Throw[String]} String = prev
+        |
+        |def combined: {Throw[String]} String = second(first)
+        |
+        |def main: IO[Unit] = printLine(combined catch (err -> err))""".stripMargin
+    ).asserting(_ shouldBe "first failed")
+  }
+
   // The Abort analogue: a single `import eliot.effect.Abort` brings in `abort` AND the infix `orElse` utility, which
   // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`AbortCarrier` named.
   "the Abort effect's orElse" should "discharge-and-default in one step via a single import and infix orElse" in {

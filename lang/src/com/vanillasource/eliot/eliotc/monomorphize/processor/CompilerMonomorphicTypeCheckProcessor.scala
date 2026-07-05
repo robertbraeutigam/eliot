@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleNames, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.check.{Track, TypeStackLoop}
+import com.vanillasource.eliot.eliotc.monomorphize.check.{MarkerGuardSignature, Track, TypeStackLoop}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -80,24 +80,29 @@ class CompilerMonomorphicTypeCheckProcessor
   override protected def generateFromKeyAndFact(
       key: CompilerMonomorphicValue.Key,
       saturatedValue: SaturatedValue
-  ): CompilerIO[CompilerMonomorphicValue] =
+  ): CompilerIO[CompilerMonomorphicValue] = {
+    // An ability-implementation marker is monomorphized only to discharge its `where` guard (ability-guards §2.3); its
+    // pattern-argument types are not real value parameters, so they are stripped to leave binders + guard return.
+    val value = MarkerGuardSignature.strippedForGuard(saturatedValue.value)
     TypeStackLoop
       .process(
         key.typeArguments,
-        saturatedValue.value,
-        fetchBinding = fetchBinding(saturatedValue.value.name),
+        value,
+        fetchBinding = fetchBinding(value.name),
         resolveAbility = resolveAbilityImpl,
-        track = Track.Compiler
+        track = Track.Compiler,
+        reduceInstance = ReducedBindingClosure.reduceInstance
       )
       .map(result =>
         CompilerMonomorphicValue(
           key.vfqn,
           key.typeArguments,
-          saturatedValue.value.typeStack.as(key.vfqn.name),
+          value.typeStack.as(key.vfqn.name),
           result.signature,
           result.body
         )
       )
+  }
 
   /** Resolve an ability in the **compiler** pool: a compiler-track value is entirely compile-time, so all of its
     * ability references belong to the compiler platform.

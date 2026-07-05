@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.monomorphize.check.{Track, TypeStackLoop}
+import com.vanillasource.eliot.eliotc.monomorphize.check.{MarkerGuardSignature, Track, TypeStackLoop}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -24,24 +24,29 @@ class MonomorphicTypeCheckProcessor
   override protected def generateFromKeyAndFact(
       key: MonomorphicValue.Key,
       saturatedValue: SaturatedValue
-  ): CompilerIO[MonomorphicValue] =
+  ): CompilerIO[MonomorphicValue] = {
+    // An ability-implementation marker is monomorphized only to discharge its `where` guard (ability-guards §2.3); its
+    // pattern-argument types are not real value parameters, so they are stripped to leave binders + guard return.
+    val value = MarkerGuardSignature.strippedForGuard(saturatedValue.value)
     TypeStackLoop
       .process(
         key.typeArguments,
-        saturatedValue.value,
+        value,
         fetchBinding = fetchBinding,
         resolveAbility = resolveAbilityImpl,
-        track = Track.Runtime
+        track = Track.Runtime,
+        reduceInstance = ReducedBindingClosure.reduceInstance
       )
       .map(result =>
         MonomorphicValue(
           key.vfqn,
           key.typeArguments,
-          saturatedValue.value.typeStack.as(key.vfqn.name),
+          value.typeStack.as(key.vfqn.name),
           result.signature,
           result.body
         )
       )
+  }
 
   private def resolveAbilityImpl(
       vfqn: ValueFQN,

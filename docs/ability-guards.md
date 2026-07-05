@@ -1,6 +1,6 @@
 # Ability Implementation Guards
 
-Status: **Stages 0–3 landed** (2026-07-05); Stages 4-6 planned. Revised 2026-07-05: the coherence stance is
+Status: **Stages 0–4 landed** (2026-07-05); Stages 5-6 planned. Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
@@ -435,11 +435,36 @@ the plan's spikes):
 - (Optional, later, feedback-only: evaluate guards under the MGU to prove the diagonal disjoint —
   requires the symbolic `Eq` semantics.)
 
-**Stage 4 — the `Throw` client.**
-- Add `where E1 != E2` to the jvm `ThrowCarrier` `Throw` lift instance; restore the native instance.
-- `examples/src/EffectsTwoThrows.els` compiles and runs; add it and a degenerate same-type-stack case
-  (`ThrowCarrier[E, ThrowCarrier[E, IO]]` — the native must win the outer slot deterministically) to
-  `ExamplesIntegrationTest`; re-run the full suite + `EffectsTwoDeps` for regressions.
+**Stage 4 — the `Throw` client. LANDED (2026-07-05).**
+- Added the guarded lift `implement[E1, E2, G[_] ~ Throw[E2] & Effect] Throw[E2, ThrowCarrier[E1, G]] where E1 != E2`
+  to `jvm/.../effect/Throw.els` beside the native `Throw[E, ThrowCarrier[E, G]]` (`import eliot.lang.Eq` for `!=`).
+- The Stage-2 discharge design (monomorphize the marker on the *compiler* track, always) did **not** survive contact
+  with a runtime-layer marker; three problems surfaced and were fixed, all reusable by any guard client:
+  1. **Marker lives only in the queried pool.** The `Throw` marker is in the `jvm` (runtime) layer, absent from the
+     compiler path, so a compiler-track `CompilerMonomorphicValue` for it "Could not find" it. Fix:
+     `AbilityImplementationProcessor.dischargeGuard` now monomorphizes the marker on the **queried `platform`'s track**
+     (`MonomorphicValue` on runtime, `CompilerMonomorphicValue` on compiler) — the pool the impl was found in. The
+     guard is still compile-time, but reduces on either track (`Eq[Type]` is in the base layer on both paths; its
+     `typeEquals` leaf is a platform-agnostic native).
+  2. **Higher-kinded pattern-arg types fail the kind check.** A marker's argument types encode the ability head, so a
+     carrier pattern (`arg1: ThrowCarrier[E1, G]`, kind `Type -> Type`) is not kind `Type` and the full checker rejects
+     it. Fix: `MarkerGuardSignature.strippedForGuard` (applied in both mono processors) drops the pattern-argument
+     arrows before monomorphizing a marker, leaving *binders + guard return* — the only part the guard needs. Safe:
+     markers are monomorphized *only* for guard discharge.
+  3. **The ability-dispatched guard stays stuck at signature read-back** (the Stage-2 watch item, confirmed). `E1 != E2`
+     unfolds to `fold(equals(E1,E2), false, true)`, and `equals` (the `Eq` method) is reached only *inside* `!=`'s body,
+     so it never surfaces as a directly-collected ability ref — the type-stack walk inlines `!=`'s *generic* native and
+     `equals` stays a stuck native. Fix (`TypeStackLoop`, gated on a body-less guarded signature): reduce each bodied
+     sub-value the guard calls (`!=`) per-instantiation on the compiler track (`ReducedBindingClosure.reduceInstance` →
+     `CompilerMonomorphicValue(!=, [Type]).reduced`, `equals` already resolved to `Eq[Type]::equals` with its
+     `typeEquals` leaf folded), then **re-evaluate the guard return** against the concrete binder env with those reduced
+     bindings seeded, so the guard collapses to a concrete `Bool` the discharge reads. Neither the plan's first
+     suggestion (apply `abilityResolutions` to the signature SemValue) alone sufficed — `equals` is never *collected* —
+     so this is the "route the guard through a reduced form" alternative, done as a targeted re-evaluation.
+- **Verified:** `examples/src/EffectsTwoThrows.els` compiles and runs (`http 503`); `ExamplesIntegrationTest2` gains
+  the off-diagonal lift (two distinct error types, both catch orders), the degenerate diagonal (two same-typed throws
+  → the lift declines via `where String != String`, the native wins with no ambiguity), and `EffectsThrow`/`EffectsTwoDeps`
+  regress clean. Full `lang` (832) + `jvm` (176) suites green; `HelloWorld` builds & runs.
 
 **Stage 5 — the `IntArith` client** (§4.1; may precede Stages 0/4).
 - Replace `dispatchAdd`/`dispatchSubtract`/`dispatchMultiply` with the five-instance guarded family;

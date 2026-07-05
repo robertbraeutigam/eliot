@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.MonomorphicEvaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicExpression, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
@@ -23,6 +23,21 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
   * position) can then reduce.
   */
 object ReducedBindingClosure {
+
+  /** Reduce `vfqn` at concrete `typeArguments` on the **compiler track** and return its reduced body as a self-contained
+    * NbE binding, or [[None]] if it produced no [[CompilerMonomorphicValue]] / has no reduced body.
+    *
+    * This is how an ability-dispatched guard's bodied sub-values are reduced *per instantiation* (ability-guards Stage
+    * 4): a guard `where E1 != E2` reaches the `Eq` method `equals` only inside `!=`'s body, so `equals` never resolves
+    * off the marker's own signature. Reducing `!=` here at its inferred `[Type]` yields a body with `equals` already
+    * resolved to `Eq[Type]::equals` (and its `typeEquals` leaf folded in), which the signature read-back inlines to
+    * fully reduce the guard. Always the compiler track: a guard is a compile-time computation.
+    */
+  def reduceInstance(vfqn: ValueFQN, typeArguments: Seq[GroundValue]): CompilerIO[Option[SemValue]] =
+    getFactIfProduced(CompilerMonomorphicValue.Key(vfqn, typeArguments)).flatMap {
+      case Some(cmv) => cmv.reduced.traverse(r => buildBinding(vfqn, r.value, Platform.Compiler))
+      case None      => None.pure[CompilerIO]
+    }
 
   /** Build the NbE binding for `vfqn` from its reduced compile-time body, resolving each dependency's binding in the
     * given `platform` pool. The dependencies are resolved once here; the resulting `VTopDef` thunk is self-contained, so

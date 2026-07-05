@@ -1,6 +1,7 @@
 import eliot.effect.Effect
 import eliot.effect.Suspend
 import eliot.lang.Either
+import eliot.lang.Eq
 
 // Re-declared here so the colocated `ThrowCarrier` instances below can resolve the `Throw` ability — name resolution
 // is per-file, so a sibling layer file's declaration is not in scope. The merge verifies this copy agrees with the
@@ -33,8 +34,24 @@ implement[E, G[_] ~ Suspend & Effect] Suspend[ThrowCarrier[E, G]] {
 }
 
 /**
- * The `Throw` instance: `raise(err)` is the failure — a `ThrowCarrier` whose inner computation purely yields `Left(err)`.
+ * The `Throw` native instance (base case): the layer that *owns* the error type `E` discharges into its own slot —
+ * `raise(err)` is the failure, a `ThrowCarrier` whose inner computation purely yields `Left(err)`. Requires only that
+ * the base `G` is an `Effect`. On the diagonal `E1 = E2` (an error routed to its own carrier) this is the instance that
+ * applies; the lift below declines there via its `where E1 != E2` guard.
  */
 implement[E, G[_] ~ Effect] Throw[E, ThrowCarrier[E, G]] {
    def raise[A](err: E): ThrowCarrier[E, G, A] = ThrowCarrier(pure(Left(err)))
+}
+
+/**
+ * The `Throw` lift instance (inductive step): a *foreign* error type `E2` raised on a `ThrowCarrier[E1]` layer that owns
+ * a *different* error type `E1` is delegated inward — `raise(err)` runs on the inner `G` (which must itself be `Throw[E2]`)
+ * and its result is wrapped in `Right`, threading the outer `E1` slot through untouched. This is what lets two distinct
+ * `Throw[E]` effects stack as nested carriers (`ThrowCarrier[E1, ThrowCarrier[E2, IO]]`).
+ *
+ * It structurally overlaps the native on the diagonal `E1 = E2`; the `where E1 != E2` guard makes the two genuinely
+ * disjoint, so the native wins when the error is routed to its own carrier and the lift applies only for a foreign error.
+ */
+implement[E1, E2, G[_] ~ Throw[E2] & Effect] Throw[E2, ThrowCarrier[E1, G]] where E1 != E2 {
+   def raise[A](err: E2): ThrowCarrier[E1, G, A] = ThrowCarrier(map(a -> Right(a), raise(err)))
 }

@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
@@ -24,7 +24,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, com
 class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
-    track: Track
+    track: Track,
+    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO]
 ) {
   import TypeStackLoop.{AbilityRef, PassContext, PostDrainPass}
 
@@ -134,23 +135,100 @@ class TypeStackLoop(
       // structural for codegen); they are merged ahead of the checker's own binding cache below.
       implBindings <- track.implBindings(fetchBinding)
 
+      // The SemValue analogue of `PostDrainQuoter.resolveAbilityRefs` (which rewrites ability references in a *body*
+      // SemExpression): map each drain-resolved ability *method* FQN to its impl body, so an ability call that survives
+      // in a type-position SemValue reduces during signature read-back — the case where a guard names an ability method
+      // directly (`where equals(E1, E2)`). The impl bodies are already dependency-closed, so a single inline suffices.
+      // Keyed by the ability-method FQN; a guard resolves one instance per method, so there is no conflation.
+      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
+                                implBindings.get(implFqn).map(ref.value -> _)
+                              }.toMap
+
+      // Guarded-signature reduction (ability-guards Stage 4): a body-less guard marker's `where` guard reaches its
+      // ability *through* an operator (`where E1 != E2` unfolds to `fold(equals(E1,E2), false, true)`), so the `Eq`
+      // method `equals` is buried inside `!=`'s body. The type-stack walk evaluated the guard with `!=`'s *generic*
+      // native, leaving `equals` a stuck native. To reduce it, reduce each bodied sub-value the guard calls (`!=`)
+      // per-instantiation on the compiler track — yielding a `!=[Type]` body with `equals` already resolved — then
+      // re-evaluate the guard return against that (so `!=` inlines the reduced form and the guard collapses to a
+      // concrete `Bool`). Gated on a body-less guarded signature, so ordinary and W2b (bodied) signatures are untouched.
+      guardMarker    = sawGuard && resolvedValue.checkingRuntime.isEmpty
+      guardBindings <- if (guardMarker) reduceGuardSubValues(levelExprs) else pure(Map.empty[ValueFQN, SemValue])
+      finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(resolvedValue, guardBindings) else pure(checkSig)
+      quoterState   <- get
+
       // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
       // SemValue → GroundValue transition and has no silent fallback; Quoter reports unresolved metas as compiler
       // errors.
       quoter     = new PostDrainQuoter(
-                     state.unifier.metaStore,
-                     state.abilityResolutions,
+                     quoterState.unifier.metaStore,
+                     quoterState.abilityResolutions,
                      monoEnv,
-                     fqn => implBindings.get(fqn).orElse(state.bindingCache.getOrElse(fqn, None)),
+                     fqn =>
+                       implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(quoterState.bindingCache.getOrElse(fqn, None)),
                      track.platform
                    )
-      groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.typeStack))
+      groundSig <- liftF(quoter.quoteSem(finalSig, resolvedValue.typeStack))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
       monoBody  <- reconciled.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
     } yield TypeStackLoop.Result(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
+
+  /** Reduce the bodied sub-values a guarded signature calls, per instantiation, on the compiler track (ability-guards
+    * Stage 4 — see the call site). Walks the checked signature levels for value references whose type arguments are
+    * ground and reduces each via [[reduceInstance]] (compiler-track `CompilerMonomorphicValue` → self-contained reduced
+    * binding). A ref with no reduced form (a native, a body-less type constructor, an unresolved instance) is skipped.
+    * The returned bindings are keyed by FQN and take precedence in the read-back evaluator's lookup, so a guard's `!=`
+    * reduces via its `[Type]`-instantiated body (with `equals` resolved) rather than its generic, ability-stuck native.
+    */
+  private def reduceGuardSubValues(
+      levelExprs: Seq[Sourced[SemExpression]]
+  ): CheckIO[Map[ValueFQN, SemValue]] =
+    for {
+      state <- get
+      refs   = levelExprs.flatMap(collectValueRefs).distinctBy(_._1.value)
+      result <- refs.foldLeftM(Map.empty[ValueFQN, SemValue]) { case (acc, (vfqn, typeArgs)) =>
+                  typeArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore)) match {
+                    case Right(groundArgs) if groundArgs.nonEmpty =>
+                      liftF(reduceInstance(vfqn.value, groundArgs)).map {
+                        case Some(sem) => acc + (vfqn.value -> sem)
+                        case None      => acc
+                      }
+                    case _                                        => pure(acc)
+                  }
+                }
+    } yield result
+
+  /** Re-evaluate a guard marker's `where` guard with its bodied sub-values reduced per-instantiation
+    * (`guardBindings`), so an ability the guard reaches through an operator (`Eq`'s `equals`, via `!=`) resolves and the
+    * guard collapses to a concrete `Bool` (ability-guards Stage 4). Seeds `guardBindings` into the binding cache
+    * (overriding the sub-values' generic, ability-stuck natives), then evaluates the guard expression — the stripped
+    * marker signature's return — against the current env ρ, where the marker's type-parameter binders are already bound
+    * to the concrete match arguments. The result is the reduced guard verdict, read back by the caller's quoter.
+    */
+  private def reevaluateGuardReturn(
+      resolvedValue: OperatorResolvedValue,
+      guardBindings: Map[ValueFQN, SemValue]
+  ): CheckIO[SemValue] =
+    for {
+      _         <- guardBindings.toList.traverse_ { case (fqn, sem) => modify(_.cacheBinding(fqn, Some(sem))) }
+      guardExpr  = SignatureView.of(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature)).returnType
+      reduced   <- checker.evalExpr(guardExpr.value)
+    } yield reduced
+
+  /** Collect every [[SemExpression.ValueReference]] in a checked expression tree with its (unquoted) type arguments,
+    * descending through applications and lambda bodies.
+    */
+  private def collectValueRefs(expr: Sourced[SemExpression]): Seq[(Sourced[ValueFQN], Seq[SemValue])] = {
+    def go(se: SemExpression): Seq[(Sourced[ValueFQN], Seq[SemValue])] = se.expression match {
+      case SemExpression.ValueReference(vfqn, typeArgs)        => Seq((vfqn, typeArgs))
+      case SemExpression.FunctionApplication(target, argument) => go(target.value) ++ go(argument.value)
+      case SemExpression.FunctionLiteral(_, _, body)           => go(body.value)
+      case _                                                   => Seq.empty
+    }
+    go(expr.value)
+  }
 
   /** W4 (Limit 5): a calculated return is *calculated from the body*; a value with no body the checker can see cannot
     * calculate it, and an output position must not quantify it instead, so the bare return must be stated explicitly.
@@ -452,9 +530,10 @@ object TypeStackLoop {
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
-      track: Track
+      track: Track,
+      reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO]
   ): CompilerIO[Result] =
-    new TypeStackLoop(fetchBinding, resolveAbility, track).process(typeArguments, resolvedValue)
+    new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance).process(typeArguments, resolvedValue)
 
   private type AbilityRef = AbilityResolver.AbilityRef
 
