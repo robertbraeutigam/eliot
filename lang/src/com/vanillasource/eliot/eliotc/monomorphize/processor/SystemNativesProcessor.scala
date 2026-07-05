@@ -2,11 +2,13 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
+  bigIntFQN,
   boolFQN,
   boolFalseFQN,
   boolFoldFQN,
   boolTrueFQN,
   functionDataTypeFQN,
+  integerLiteralFQN,
   typeEqualsFQN,
   typeFQN
 }
@@ -22,8 +24,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** The `system` native contributor: emits the total [[ContributedBinding]] under [[ContributedBinding.systemLabel]] for
   * the language-intrinsic system values the compiler itself reasons about — Function (type constructor), Type, the
-  * compile-time Bool primitives `true`/`false`/`fold`, and the `Eq[Type]` structural-equality leaf `typeEquals` — and
-  * `None` for every other name.
+  * compile-time Bool primitives `true`/`false`/`fold`, the `Eq[Type]` structural-equality leaf `typeEquals`, and the
+  * value-position literal protocol `integerLiteral` — and `None` for every other name.
   *
   * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B): the Π-former is
   * the single primitive type former, so every function type is a VPi (read back to a Function structure only at quote
@@ -75,6 +77,7 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     else if (vfqn === boolFalseFQN) Evaluator.falseValue.some
     else if (vfqn === boolFoldFQN) boolFoldNative.some
     else if (vfqn === typeEqualsFQN) typeEqualsNative.some
+    else if (vfqn === integerLiteralFQN) integerLiteralNative.some
     else none
 
   /** Function[A, B] is a curried native: first takes A (domain), then B (codomain), and produces VPi(A, _ => B). */
@@ -97,6 +100,21 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     case VConst(GroundValue.Direct(false, _)) => whenFalse
     case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
   }
+
+  /** `integerLiteral[V]: IntegerLiteralType[V]` — the value-position literal protocol. A value-position literal `n` is
+    * desugared to `integerLiteral[n]` so the checker types it as the platform singleton `IntegerLiteralType[n]`
+    * (`CoreExpressionConverter`; see [[WellKnownTypes.integerLiteralFQN]]). The backend reads it back by a *quote-time
+    * rewrite* to a plain `IntegerLiteral` node ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]]) —
+    * so a value body's literal is never evaluated and stays structural for codegen.
+    *
+    * But when the literal is *consumed by a compile-time computation* — a `where` guard bound `fitsIn[byteMin, …]`, or
+    * any type-level use where its `BigInteger` value feeds a native like `lessThanOrEqual` — the rewrite is too late: the
+    * consuming native must fire during *evaluation*, and an unreduced `integerLiteral[V]` argument leaves it stuck. So the
+    * evaluator reduction is its arithmetic value: `integerLiteral[V]` reduces to `V`. This never disturbs codegen, where
+    * the body is quoted structurally (the native is not consulted) and the rewrite still applies.
+    */
+  private def integerLiteralNative: SemValue =
+    VNative(VTopDef(bigIntFQN, None, Spine.SNil), v => v)
 
   /** `typeEquals(a: Type, b: Type): Bool` — the `Eq[Type]` leaf. Compares two types by their normal forms, which (since
     * everything is forced/normalised first) is exactly the compiler's one notion of definitional equality read back as a
