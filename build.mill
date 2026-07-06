@@ -71,21 +71,20 @@ object `package` extends Module {
 
      // CP1.5: the abstract base (lang + stdlib) and the jvm target layer are no longer discovered on the classpath;
      // they are passed as ordinary filesystem source roots — each layer module's `eliot/` source root (its
-     // `eliotSource` task). `--compiler-path` feeds the compile-time (type-checking) pool, `--runtime-path` the codegen
-     // pool; the user's positional `<path>` (their program) folds into the runtime path. CP2: the `compiler` platform
-     // layer is added to the compiler path only — it implements the base for the compile-time phase and is never on the
-     // runtime/codegen path. Referencing the modules' `eliotSource()` tasks (rather than string-building from the
-     // workspace root) hands the build absolute paths *and* registers the `.els` trees as proper task inputs. The layer
-     // options are appended *after* the user's args (the `jvm exe-jar …` command): scopt only accepts these top-level
-     // options trailing the command, exactly as the existing `-o` is (CP1.5).
+     // `eliotSource` task). `--runtime-path` carries the base + the jvm target; the user's positional `<path>` (their
+     // program) folds into the runtime path. `--compiler-path` carries *only* the `compiler` platform override overlay:
+     // the compile-time pool scans the whole runtime path *plus* this overlay (see `PathScanner`), and an overlay
+     // definition wins any redefinition of a runtime name (the compiler-as-platform override). So base + jvm need not be
+     // repeated here — the compiler track sees them through the runtime path. Referencing the modules' `eliotSource()`
+     // tasks (rather than string-building from the workspace root) hands the build absolute paths *and* registers the
+     // `.els` trees as proper task inputs. The layer options are appended *after* the user's args (the `jvm exe-jar …`
+     // command): scopt only accepts these top-level options trailing the command, exactly as the existing `-o` is.
      override def run(args: Task[mill.api.Args] = Task.Anon(mill.api.Args())) = Task.Command(exclusive = true) {
        runForkedTask(
          finalMainClass,
          Task.Anon {
            mill.api.Args(
              args().value ++ Seq(
-               "--compiler-path", lang.eliotSource().path.toString,
-               "--compiler-path", stdlib.eliotSource().path.toString,
                "--compiler-path", compiler.eliotSource().path.toString,
                "--runtime-path", lang.eliotSource().path.toString,
                "--runtime-path", stdlib.eliotSource().path.toString,
@@ -113,8 +112,6 @@ object `package` extends Module {
          Task.Anon {
            mill.api.Args(
              args().value ++ Seq(
-               "--compiler-path", lang.eliotSource().path.toString,
-               "--compiler-path", stdlib.eliotSource().path.toString,
                "--compiler-path", compiler.eliotSource().path.toString,
                "--runtime-path", lang.eliotSource().path.toString,
                "--runtime-path", stdlib.eliotSource().path.toString,

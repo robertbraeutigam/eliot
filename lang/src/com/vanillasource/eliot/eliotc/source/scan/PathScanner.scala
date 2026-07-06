@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
+import java.net.URI
 import java.nio.file.Path
 
 /** Resolves a module path against the *platform-scoped* pool of source mounts (the "compiler as a platform" plan,
@@ -31,17 +32,31 @@ class PathScanner(compilerMounts: Seq[SourceMount], runtimeMounts: Seq[SourceMou
     extends SingleFactProcessor[PathScan.Key]
     with Logging {
 
-  private def mountsFor(platform: Platform): Seq[SourceMount] = platform match {
-    case Platform.Compiler => compilerMounts
-    case Platform.Runtime  => runtimeMounts
-  }
+  private def resolveAll(mounts: Seq[SourceMount], path: Path): CompilerIO[List[URI]] =
+    mounts.toList.traverse(_.resolve(path)).map(_.flatten.distinct)
 
   override protected def generateSingleFact(key: PathScan.Key): CompilerIO[PathScan] =
-    for {
-      fileUris <- mountsFor(key.platform).toList.traverse(_.resolve(key.path)).map(_.flatten.distinct)
-      _        <- debug[CompilerIO](s"Found files (${key.platform}): ${fileUris.mkString(", ")}")
-      _        <- abortOnMissing(key).whenA(fileUris.isEmpty)
-    } yield PathScan(key.path, fileUris, key.platform)
+    key.platform match {
+      case Platform.Runtime  =>
+        for {
+          fileUris <- resolveAll(runtimeMounts, key.path)
+          _        <- debug[CompilerIO](s"Found files (${key.platform}): ${fileUris.mkString(", ")}")
+          _        <- abortOnMissing(key).whenA(fileUris.isEmpty)
+        } yield PathScan(key.path, fileUris, key.platform)
+      // The compiler track sees the runtime track *completely* plus its own override overlay: it scans both mount pools.
+      // Files from the compiler-side mounts are recorded as `overrideFiles`, so the merge prefers an overlay
+      // implementation over the platform's for the same name (the compiler-as-platform override), while everything the
+      // overlay does not redefine falls through to the runtime layer's definition (the "read compiler-runnable functions
+      // from a platform codebase" case). Override URIs are listed first so they win any `distinct` tie.
+      case Platform.Compiler =>
+        for {
+          overrideUris <- resolveAll(compilerMounts, key.path)
+          runtimeUris  <- resolveAll(runtimeMounts, key.path)
+          fileUris      = (overrideUris ++ runtimeUris).distinct
+          _            <- debug[CompilerIO](s"Found files (${key.platform}): ${fileUris.mkString(", ")}")
+          _            <- abortOnMissing(key).whenA(fileUris.isEmpty)
+        } yield PathScan(key.path, fileUris, key.platform, overrideUris.toSet)
+    }
 
   /** How an empty scan (no mount has the path in this platform's pool) is reported, which depends on the marker:
     *
@@ -60,7 +75,7 @@ class PathScanner(compilerMounts: Seq[SourceMount], runtimeMounts: Seq[SourceMou
     key.platform match {
       case Platform.Runtime  =>
         compilerGlobalError(
-          s"Could not find path ${key.path} at given ${key.platform} mounts: ${mountsFor(key.platform).mkString(", ")}"
+          s"Could not find path ${key.path} at given ${key.platform} mounts: ${runtimeMounts.mkString(", ")}"
         ).to[CompilerIO] >> abort
       case Platform.Compiler => abort
     }

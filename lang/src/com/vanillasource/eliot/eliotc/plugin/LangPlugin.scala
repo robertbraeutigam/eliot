@@ -33,7 +33,8 @@ class LangPlugin extends CompilerPlugin {
       .unbounded()
       .action((path, config) => config.updatedWith(compilerPathKey, _.getOrElse(Seq.empty).appended(path).some))
       .text(
-        "a source root scanned for compile-time evaluation (the abstract base and the compiler-platform layer); repeatable"
+        "the compiler-platform override overlay: a source root added on top of the runtime path for compile-time " +
+          "evaluation, whose definitions supersede the platform's; repeatable"
       ),
     opt[Path]("runtime-path")
       .unbounded()
@@ -51,18 +52,19 @@ class LangPlugin extends CompilerPlugin {
             FileStatProcessor(),
             FileContentReader(),
             SourceContentReader(),
-            // The marker selects which mount pool `PathScanner` scans. Since CP1.5 the two root lists are the *only*
-            // filesystem source of `.els`: `--compiler-path` carries the abstract base (+ compiler platform),
-            // `--runtime-path` the base + target layer. The positional `<path>` args (the user's program) carry no
-            // platform representation, and — types being values — any `def` in them may be forced at the type level, so
-            // they fold into *both* pools (CP-C step a): the compiler track must reach user type-level code, matching
-            // the stated design that each platform "unifies the base + the user program + its own layer independently".
-            // Only the platform *layers* stay pool-exclusive; the application is shared like the base. Roots become
-            // mounts through the (substitutable) factory; plugins may contribute extra runtime mounts — both settled in
+            // The two root lists are the *only* filesystem source of `.els` (CP1.5). `--runtime-path` carries the base +
+            // the selected target layer; `--compiler-path` carries the compiler-platform **override overlay** only. The
+            // marker no longer selects one exclusive pool: `PathScanner` scans the runtime mounts for a runtime request,
+            // but for a compiler request it scans the runtime mounts *and* the override mounts, tagging the override
+            // mounts' files so the merge prefers an overlay definition over the platform's (the compiler-as-platform
+            // override). So the platform layer is no longer pool-exclusive — the compiler track sees all of it and
+            // borrows what it does not override. The positional `<path>` (the user's program) folds into the runtime
+            // pool *only* — the compiler scan still reaches it through the runtime union (so user type-level code is
+            // checked in both tracks), while keeping the override set exactly the compiler overlay. Roots become mounts
+            // through the (substitutable) factory; plugins may contribute extra runtime mounts — both settled in
             // configure(), which completes before any initialize.
             PathScanner(
-              (configuration.getOrElse(compilerPathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty))
-                .map(mountFactory(configuration)),
+              configuration.getOrElse(compilerPathKey, Seq.empty).map(mountFactory(configuration)),
               (configuration.getOrElse(runtimePathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty))
                 .map(mountFactory(configuration)) ++
                 configuration.getOrElse(PathScanner.extraRuntimeMountsKey, Seq.empty)
