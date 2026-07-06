@@ -11,9 +11,26 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import java.net.URI
 
 /** A value of generic type transformed from a given snippet of code inside a given source code file.
+  *
+  * Identity ignores the URI *scheme*, comparing by scheme-specific-part (the path) instead: the same file reached on
+  * disk as `file:/x` or through an editor overlay as `vfs:/x` (see the LSP's `VfsUris`, whose `vfs:` URI shares the
+  * `file:` scheme-specific-part) is one source location. Distinct paths still differ, so this does not conflate
+  * different files or modules; for a single-scheme (non-overlay) compilation it is exactly the default field equality.
+  * Without this, a name cached under `file:` fails to match the same name recomputed under `vfs:` — differing only by
+  * scheme — so a `Map[QualifiedName, _]` lookup (e.g. a module's name set) spuriously misses it, producing a transient
+  * "Could not find" for a synthesized name such as `handleCases^PatternMatch#0` on the first compile after a file is
+  * opened in the editor.
   */
 case class Sourced[+T](uri: URI, range: PositionRange, value: T) {
   def reFocus(newRange: PositionRange): Sourced[T] = copy(range = newRange)
+
+  override def equals(other: Any): Boolean = other match {
+    case that: Sourced[?] =>
+      uri.getSchemeSpecificPart == that.uri.getSchemeSpecificPart && range == that.range && value == that.value
+    case _                => false
+  }
+
+  override def hashCode(): Int = (uri.getSchemeSpecificPart, range, value).hashCode()
 }
 
 object Sourced extends Logging {
