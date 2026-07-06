@@ -10,15 +10,18 @@ import eliot.effect.Effect
  * like `State` or `Throw` — nothing about *which* `X` is provided is baked into the signature.
  *
  * The value is injected only when the effect is discharged, by `provide`: it hands `x` to
- * every `dependency` read of that type and yields the residual carrier. Supplying two distinct dependency
- * types is two chained `.provide`s (one per type), the reader counterpart of two chained `catch`es for
- * `Throw`.
+ * every `dependency` read of that type and yields the residual carrier.
  *
  * ```eliot
- * // Lookup a random row
- * def lookup(key: String): {Dep[Database]} Row = dependency.query("select ...")
+ * // Lookup something from a database
+ * def lookup(key: String): {Dep[Configuration], DBIO} Row = dependency.query("select ...")
  *
- * def main: IO[Unit] = printLine(lookup("42").provide(Database("jdbc://app-db")).rowText)
+ * // Provide the dependency in main
+ * def main: IO[Unit] = printLine(
+ *    lookup("42")
+ *      .provide(Database("jdbc://app-db"))
+ *      .rowText
+ * )
  * ```
  */
 ability Dep[X, F[_]] {
@@ -49,16 +52,17 @@ def runDepCarrier[X, G[_], A](obj: DepCarrier[X, G, A]): X => G[A]
 
 /**
  * Discharge the `Dep[X]` effect by supplying the environment value `x`: every `dependency` read of type `X`
- * in `computation` sees `x`, and the residual carrier `G` (still carrying any other effects) is returned. The
- * everyday way to inject a dependency — `computation` is the last parameter, so it reads as `computation.provide(x)`
- * and never exposes `DepCarrier`.
- *
- * To supply two distinct dependency types, chain two `.provide`s — each peels one `Dep` layer:
+ * in `computation` sees `x`, and the residual carrier `G` (still carrying any other effects) is returned.
  *
  * ```eliot
- * def describe: {Dep[Database], Dep[Topic]} Unit = ...
+ * // Some logic using two distinct dependencies
+ * def logic: {Dep[Database], Dep[Topic]} Unit = ...
  *
- * def main: IO[Unit] = describe.provide(Database("jdbc://app-db")).provide(Topic("events"))
+ * // Main providing both dependencies to run logic
+ * def main: IO[Unit] =
+ *    describe
+ *      .provide(Database("jdbc://app-db"))
+ *      .provide(Topic("events"))
  * ```
  */
 def provide[X, G[_], A](x: X, computation: DepCarrier[X, G, A]): G[A] = runDepCarrier(computation)(x)
