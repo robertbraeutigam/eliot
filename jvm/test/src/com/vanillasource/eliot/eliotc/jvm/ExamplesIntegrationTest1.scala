@@ -280,7 +280,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
 
   // Two distinct-typed `Dep`s in one body each read their own environment and yield the correct distinct value (the
   // first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two. Each is
-  // supplied by its own nested `provide` (the inner peels the outermost `Dep` layer).
+  // supplied by its own chained `.provide` (fully discharged to a pure result — the flex-flex carrier-alias case).
   "two distinct-typed Deps" should "each resolve dependency to its own value in one body" in {
     val program =
       """import eliot.effect.Console
@@ -292,7 +292,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def first: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
-        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), first)))""".stripMargin
+        |def main: IO[Unit] = printLine(first.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
     compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
       .asserting(_ shouldBe "the-db")
   }
@@ -310,7 +310,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def pick(a: String, b: String): String = b
         |
-        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), second)))""".stripMargin
+        |def main: IO[Unit] = printLine(second.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
 }

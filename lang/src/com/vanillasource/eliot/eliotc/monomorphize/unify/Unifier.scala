@@ -261,6 +261,21 @@ case class Unifier(
       case (VNeutral(h1, sp1), VNeutral(h2, sp2)) if h1 == h2 =>
         unifySpines(fl, fr, sp1, sp2, context)
 
+      // Flex-flex where the left meta is *applied* but the right is a *bare, unsolved* meta: solve the bare meta to
+      // the applied one rather than postponing (the mirror orientation — bare left — already solves directly via the
+      // next case). Without this, a carrier application produced through a polymorphic combinator — the `.` operator's
+      // result `?B := ?carrier[payload]` — stays hidden behind `?B`, so a downstream effect-lift never sees the
+      // argument as carrier-headed and mis-solves `?B` to the pure payload type.
+      //
+      // The solve is *candidate-free* (like [[solveAdopting]]): `?B` merely *aliases* the callee's result, it is not a
+      // `Combine` join contributor. Recording `?carrier[payload]` as a candidate would flag `?B` combinable-with-
+      // candidates, rerouting it through the post-saturation upper-bounds deferral (`?B ~ E` ⤳ `?carrier[payload] ~ E`)
+      // instead of the effect-lift — the same starvation `solveAdopting` documents.
+      case (VMeta(idA, spineA), VMeta(idB, Spine.SNil))
+          if spineA.toList.nonEmpty && idA.value != idB.value && metaStore.lookup(idB).isEmpty =>
+        if (occursIn(idB, fl)) addOccursError(context)
+        else copy(metaStore = metaStore.solve(idB, fl))
+
       // Meta solving (pattern rule)
       case (VMeta(id, spine), rhs)                            =>
         solveMeta(id, spine, rhs, context)

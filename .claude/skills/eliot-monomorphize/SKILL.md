@@ -374,7 +374,13 @@ Pattern unification on `SemValue`s with a `postponed` queue (`drain()` retries u
    (injectivity decomposition against a *rigid* `VTopDef(None)` / `VNeutral` head, equal-arity or partial-application),
    else postpone. A carrier meta postponed against a non-rigid `VPi` (`?F[A,B] ~ Function[A,B]`) is **deliberately not
    decomposed** — `CarrierKindChecker` documents this as higher-order unification the pattern unifier cannot solve
-   (see the diagnosing note on the two-arg HKT-over-Function limitation).
+   (see the diagnosing note on the two-arg HKT-over-Function limitation). **Flex-flex `?F[a..] ~ ?B`** (applied meta vs a
+   *bare, unsolved* meta) solves the bare meta **in either orientation** — `?B := ?F[a..]` — rather than postponing when
+   the applied side is on the left; this solve is **candidate-free** (an alias, not a `Combine` contributor — same
+   rationale as `solveAdopting`). Without it, a carrier application aliased through a polymorphic combinator (the `.`
+   operator's result `?B := ?carrier[payload]`) stays hidden behind `?B`, so the effect-lift never sees the argument as
+   carrier-headed — the bug that broke dot-chained effect discharge (`x.provide(a).provide(b)` fully discharged to a pure
+   result). Pinned by `unify/MetaApplicationUnifyTest`.
 
 There is **no** assignability / widening / `refinements` map in `unify`. Coercion is the `Coerce` ability inserted in the
 checker's check mode (`RefinementSolver`), recognised by protocol name (`WellKnownTypes.coerceFQN`), never by type. The
