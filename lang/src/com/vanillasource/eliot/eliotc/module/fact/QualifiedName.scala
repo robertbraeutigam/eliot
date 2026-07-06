@@ -7,7 +7,8 @@ case class QualifiedName(name: String, qualifier: Qualifier)
 object QualifiedName {
   given Show[QualifiedName] with {
     override def show(name: QualifiedName): String =
-      name.name + (if (name.qualifier == Qualifier.Default) ("") else ("^" + name.qualifier.toString))
+      if (name.qualifier == Qualifier.Default) name.name
+      else s"${name.name}^${Show[Qualifier].show(name.qualifier)}"
   }
 
   given Eq[QualifiedName] = Eq.fromUniversalEquals
