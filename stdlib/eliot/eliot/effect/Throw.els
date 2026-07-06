@@ -9,6 +9,13 @@ import eliot.lang.Either
  * drops straight into ordinary code, and the effect floats up to the caller. The success-or-error
  * outcome is materialised only when the effect is discharged by `runThrow`, as an `Either[E, A]`.
  *
+ * Programs can use `String` as `E` to just indicate an issue without being able to recover
+ * from distinguished error cases.
+ *
+ * If recovering from different errors is expected, then programs should create their own error
+ * union type and raise that. Different error types compose in the effect set freely so using
+ * different error hierarchies comes at no cost to the user.
+ *
  * ```eliot
  * def parse(s: String): {Throw[String]} Tree = raise("not a tree")
  * ```
@@ -45,7 +52,11 @@ def runThrow[E, G[_], A](obj: ThrowCarrier[E, G, A]): G[Either[E, A]]
  * `onError`. The everyday way to discharge `Throw` — reads like an exception handler and never exposes `Either`:
  *
  * ```eliot
- * def configOrDefault: {Console} Config = catch(readConfig, err -> reportAndFallback(err))
+ * // Parse the configuration from a string
+ * def parseConfiguration(config: String): {Throw[String]} Configuration = raise("Input not a valid configuration.")
+ *
+ * // Recover with an empty configuration
+ * def configOrDefault(config: String): Configuration = parseConfiguration(config) catch (_ -> emptyConfiguration)
  * ```
  *
  * On success it yields the computed value; on `raise(err)` it yields `onError(err)`.
