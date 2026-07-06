@@ -1,18 +1,62 @@
+import eliot.effect.Effect
+
 /**
- * The dependency effect: read-only access to an injected value of a given type.
+ * The dependency effect (a reader): read-only access to an environment value of type `X` that is
+ * *supplied at the discharge site*, not fixed globally.
  *
- * A function that needs an `X` from the environment declares `{Dep[X]}` and
- * calls `dependency` to obtain it; `dependency` is dispatched by the type expected at the call site, so distinct
- * dependency types are distinct effects (`{Dep[Database], Dep[Topic]}`). At most one value may be
- * provided per type, which the ordinary ability-coherence rule already guarantees.
+ * A function that needs an `X` from the environment declares `{Dep[X]}` and calls `dependency` to read
+ * it; `dependency` is dispatched by the type expected at the call site, so distinct dependency types are
+ * distinct effects (`{Dep[Database], Dep[Topic]}`). The effect floats up to the caller unchanged, exactly
+ * like `State` or `Throw` — nothing about *which* `X` is provided is baked into the signature.
+ *
+ * The value is injected only when the effect is discharged, by `provide(computation, x)`: it hands `x` to
+ * every `dependency` read of that type and yields the residual carrier. Supplying two distinct dependency
+ * types is two nested `provide`s (one per type), the reader counterpart of two chained `catch`es for
+ * `Throw`.
  *
  * ```eliot
  * def lookup: {Dep[Database]} Row = dependency.query("select ...")
+ *
+ * def main: IO[Unit] = printLine(provide(lookup, Database("jdbc://app-db")).rowText)
  * ```
  */
 ability Dep[X, F[_]] {
    /**
-    * Obtain the injected value of type `X`, dispatched by the type expected at the use site.
+    * Read the environment value of type `X`, dispatched by the type expected at the use site. The reader's
+    * `ask`: it returns whatever `provide` later supplies for `X`.
     */
    def dependency: F[X]
 }
+
+/**
+ * The internal carrier that realises the `Dep[X]` effect: a `DepCarrier[X, G, A]` is a function from an
+ * environment `X` to a `G`-computation of the result — the reader transformer `X -> G[A]`.
+ *
+ * Plumbing only — application code never names it. A function that reads a dependency declares `{Dep[X]}` and
+ * discharges it with `provide`; this carrier is what that operates on under the hood. Generic over the base
+ * carrier `G`, so it composes over `IO`, another `DepCarrier[Y, IO]`, and so on. Its representation (the
+ * `Effect`/`Suspend`/`Dep` instances) is supplied by the platform layer.
+ */
+type DepCarrier[X, G[_], A]
+
+/**
+ * Unwrap a `DepCarrier` to its underlying environment-transition function `Function[X, G[A]]`. The single
+ * accessor of the carrier; the platform layer supplies the body. Discharge the effect with `provide`, which
+ * hands an environment value to this function.
+ */
+def runDepCarrier[X, G[_], A](obj: DepCarrier[X, G, A]): X => G[A]
+
+/**
+ * Discharge the `Dep[X]` effect by supplying the environment value `x`: every `dependency` read of type `X`
+ * in `computation` sees `x`, and the residual carrier `G` (still carrying any other effects) is returned. The
+ * everyday way to inject a dependency — it reads like passing an argument and never exposes `DepCarrier`.
+ *
+ * To supply two distinct dependency types, nest two `provide`s — each peels one `Dep` layer:
+ *
+ * ```eliot
+ * def describe: {Dep[Database], Dep[Topic]} Unit = ...
+ *
+ * def main: IO[Unit] = provide(provide(describe, Database("jdbc://app-db")), Topic("events"))
+ * ```
+ */
+def provide[X, G[_], A](computation: DepCarrier[X, G, A], x: X): G[A] = runDepCarrier(computation)(x)

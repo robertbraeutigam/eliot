@@ -1,0 +1,67 @@
+import eliot.effect.Effect
+import eliot.effect.Suspend
+import eliot.lang.Eq
+
+// Re-declared here so the colocated `DepCarrier` instances below can resolve the `Dep` ability — name resolution
+// is per-file, so a sibling layer file's declaration is not in scope. The merge verifies this copy agrees with the
+// abstract declaration in the base layer.
+ability Dep[X, F[_]] {
+   def dependency: F[X]
+}
+
+data DepCarrier[X, G[_], A](runDepCarrier: X => G[A])
+
+/**
+ * `DepCarrier[X, G]` (the reader transformer `X -> G[_]`) is an effect carrier whenever its base `G` is: every
+ * operation threads the *same* environment `x` into each sub-computation. `pure` ignores the environment and injects
+ * via `G`'s `pure`; `flatMap` runs the first computation under `x`, then runs the continuation under the same `x`
+ * (the reader semantics — the environment is shared, never consumed); `map` transforms the result and leaves the
+ * environment untouched.
+ */
+implement[X, G[_] ~ Effect] Effect[DepCarrier[X, G]] {
+   def pure[A](a: A): DepCarrier[X, G, A] = DepCarrier(x -> pure(a))
+   def flatMap[A, B](f: A => DepCarrier[X, G, B], fa: DepCarrier[X, G, A]): DepCarrier[X, G, B] =
+      DepCarrier(x -> flatMap(a -> runDepCarrier(f(a))(x), runDepCarrier(fa)(x)))
+   def map[A, B](f: A => B, fa: DepCarrier[X, G, A]): DepCarrier[X, G, B] =
+      DepCarrier(x -> map(f, runDepCarrier(fa)(x)))
+}
+
+/**
+ * The base-effect lift: `DepCarrier[X, G]` is `Suspend` whenever `G` is, running the inner suspend action under the
+ * ignored environment. Carries every `Suspend`-keyed fine effect (`Console`, `Log`, …) through the `DepCarrier` layer.
+ */
+implement[X, G[_] ~ Suspend & Effect] Suspend[DepCarrier[X, G]] {
+   def suspend[A](thunk: Unit => A): DepCarrier[X, G, A] = DepCarrier(x -> suspend(thunk))
+}
+
+/**
+ * The `Dep` native instance (base case): the layer that *owns* the dependency type `X` reads it out of its own slot —
+ * `dependency` is the reader `ask`, a `DepCarrier` whose environment-transition function purely returns the supplied
+ * environment. On the diagonal `X1 = X2` (a dependency read from its own carrier) this is the instance that applies;
+ * the lift below declines there via its `where X1 != X2` guard.
+ *
+ * Its body delegates to the named helper `providedValue` (rather than an inline `x -> pure(x)`) so it generates no
+ * `dependency$lambda$N` class — which would otherwise collide with the cross-lift's `dependency` lambda in this same
+ * module (see the lambda-class-collision gotcha; `Throw`'s native `raise` is lambda-free for the same reason).
+ */
+implement[X, G[_] ~ Effect] Dep[X, DepCarrier[X, G]] {
+   def dependency: DepCarrier[X, G, X] = DepCarrier(providedValue)
+}
+
+// The reader `ask` as a named function: returns the provided environment as the result, purely. Kept top-level (not an
+// inline lambda) so the native `Dep` instance above stays lambda-free — see its doc.
+private def providedValue[X, G[_] ~ Effect](x: X): G[X] = pure(x)
+
+/**
+ * The `Dep` lift instance (inductive step): a *foreign* dependency type `X2` read on a `DepCarrier[X1]` layer that owns
+ * a *different* dependency type `X1` is delegated inward — `dependency` runs on the inner `G` (which must itself be
+ * `Dep[X2]`), ignoring the outer `X1` environment. This is what lets two distinct `Dep[X]` effects stack as nested
+ * carriers (`DepCarrier[X1, DepCarrier[X2, IO]]`), each discharged by its own `provide`.
+ *
+ * It structurally overlaps the native on the diagonal `X1 = X2`; the `where X1 != X2` guard makes the two genuinely
+ * disjoint, so the native wins when the dependency is read from its own carrier and the lift applies only for a foreign
+ * dependency.
+ */
+implement[X1, X2, G[_] ~ Dep[X2] & Effect] Dep[X2, DepCarrier[X1, G]] where X1 != X2 {
+   def dependency: DepCarrier[X1, G, X2] = DepCarrier(x1 -> dependency)
+}

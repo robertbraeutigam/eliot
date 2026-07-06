@@ -1,9 +1,17 @@
 # Optimization Thread: Reduce-and-Reify
 
-Status: **Design record / discussion writeup (2026-07-05).** Nothing here is implemented. It captures a
-connected line of optimization ideas and their feasibility, plus one enabling language redesign (`Dep` as a
-Reader). The purpose is to record *why these are the same optimization* and *what the single missing piece
-is*, so the work — if taken — lands as one coherent capability rather than three ad-hoc passes.
+Status: **Design record / discussion writeup (2026-07-05).** It captures a connected line of optimization
+ideas and their feasibility, plus one enabling language redesign (`Dep` as a Reader). The purpose is to record
+*why these are the same optimization* and *what the single missing piece is*, so the work — if taken — lands as
+one coherent capability rather than three ad-hoc passes.
+
+**Update (2026-07-06): §1 (the `Dep`→Reader redesign) is now IMPLEMENTED** — `DepCarrier` + `provide` ship in
+`stdlib`/`jvm`, the per-dependency `implement Dep[X, IO]` is gone, and multi-dep is nested `provide`s (see
+`EffectsTwoDeps`/`EffectsMulti`). The peel/static-inlining optimization proper (§2–4) is still design-only. One
+implementation refinement §1.3 did not anticipate: the native `Dep` instance is written lambda-free
+(`DepCarrier(providedValue)`, a named helper) rather than the sketch's inline `DepCarrier(x -> pure(x))`, so it
+emits no `dependency$lambda$N` class that would collide with the cross-lift's — the same trick `Throw`'s native
+`raise` uses. The cross-lift `Dep[X2, DepCarrier[X1, G]] where X1 != X2` mirrors `Throw`'s foreign-error lift.
 
 ## 0. Thesis
 

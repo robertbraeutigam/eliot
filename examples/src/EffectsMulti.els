@@ -18,15 +18,6 @@ import eliot.effect.Effect
 data Database(url: String)
 
 /**
- * The application's single database dependency, injected as a compile-time singleton. Coherence (the ordinary ability
- * overlap rule) guarantees at most one `Dep[Database]` instance, so `dependency` is unambiguous; monomorphization collapses
- * this to a direct reference.
- */
-implement Dep[Database, IO] {
-   def dependency: IO[Database] = pure(Database("jdbc://app-db"))
-}
-
-/**
  * Logs the injected database url, then echoes a line of input — `dependency` (Dep), `log` (Log), `readLine` and
  * `printLine` (Console), sequenced left to right. Direct style: the three effects share one carrier and the block
  * sequences its statements automatically — no hand-written `flatMap` or sequencing helper.
@@ -36,4 +27,6 @@ def run: {Dep[Database], Log, Console} Unit = {
    printLine(readLine)
 }
 
-def main: IO[Unit] = run
+// The database dependency is injected at the discharge site with `provide`, which hands the value to every
+// `dependency` read and leaves the residual carrier IO. `run` itself never names a concrete Database.
+def main: IO[Unit] = provide(run, Database("jdbc://app-db"))

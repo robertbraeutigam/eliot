@@ -33,10 +33,11 @@ object CommonPatterns {
     *
     * The impl-disambiguator is required because two implementations of the same ability share the method's *local* name
     * (`dependency`) and, when the method is return-type-dispatched into an erasing carrier, also share the erased JVM
-    * descriptor: `Dep[Database, IO].dependency` and `Dep[Logger, IO].dependency` are both `() -> IO`. Without the implementation
-    * index in the name they collide into one JVM method (a duplicate-method `ClassFormatError`, or one call silently
-    * binding to the wrong impl). Implementations whose methods differ in their value-parameter descriptors (the common
-    * `Show[Hello]`/`Show[World]` case) never collided, but folding the index in uniformly is harmless for them.
+    * descriptor: the `Dep` reader's native `Dep[X, DepCarrier[X, G]].dependency` and its cross-lift
+    * `Dep[X2, DepCarrier[X1, G]].dependency` are both `() -> DepCarrier`. Without the implementation index in the name
+    * they collide into one JVM method (a duplicate-method `ClassFormatError`, or one call silently binding to the wrong
+    * impl). Implementations whose methods differ in their value-parameter descriptors (the common `Show[Hello]`/`Show[World]`
+    * case) never collided, but folding the index in uniformly is harmless for them.
     */
   def mangledMethodName(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): String =
     vfqn.name.name + implementationSuffix(vfqn.name.qualifier) + mangleSuffix(typeArgs)

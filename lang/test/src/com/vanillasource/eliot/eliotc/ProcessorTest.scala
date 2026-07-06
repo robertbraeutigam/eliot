@@ -208,7 +208,7 @@ object ProcessorTest {
   val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): F[Unit]\n}"
 
   /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els`. Import-required (in `effectPackage`);
-    * application/layer code supplies the concrete instances per dependency type.
+    * this is just the reader `ability` (the `ask`) — the concrete carrier + `provide` discharge live in the jvm layer.
     */
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: F[X]\n}"
 

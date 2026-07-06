@@ -6,20 +6,22 @@ package com.vanillasource.eliot.eliotc.jvm
   * class-level helper (e.g. `orderingPrelude`) must stay in the same part as that helper. */
 class ExamplesIntegrationTest2 extends FullIntegrationTest {
 
-  // Coherence: two implementations of `Dep` for the same dependency type overlap and are rejected (at most one `Dep`
-  // per type), via the ordinary ability overlap check.
-  "two same-type Dep implementations" should "be rejected as overlapping" in {
+  // Coherence: two implementations of an ability for the same type overlap and are rejected (at most one instance per
+  // type combination), via the ordinary ability overlap check.
+  "two same-type ability implementations" should "be rejected as overlapping" in {
     compileForErrors(
       """import eliot.effect.Console
-        |import eliot.effect.Dep
-        |import eliot.effect.Effect
+        |
+        |ability Show[A] {
+        |   def show(a: A): String
+        |}
         |
         |data Database(url: String)
         |
-        |implement Dep[Database, IO] { def dependency: IO[Database] = pure(Database("one")) }
-        |implement Dep[Database, IO] { def dependency: IO[Database] = pure(Database("two")) }
+        |implement Show[Database] { def show(d: Database): String = "one" }
+        |implement Show[Database] { def show(d: Database): String = "two" }
         |
-        |def useDb: {Dep[Database]} String = url(dependency)
+        |def useDb: String = show(Database("x"))
         |
         |def main: IO[Unit] = printLine(useDb)""".stripMargin
     ).asserting(_ should include("Overlapping ability implementation"))

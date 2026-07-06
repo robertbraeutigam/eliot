@@ -259,7 +259,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   }
 
   // The headline M4 program: three effects (`Dep[Database]`, `Log`, `Console`) composed in one direct-style body, run
-  // end to end. `dependency` is dispatched by the dependency type and collapses to the injected singleton.
+  // end to end. `dependency` reads the environment; the Database is injected at the discharge site by `provide`.
   "a multi-effect Dep/Log/Console program" should "compile and run end to end" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -269,22 +269,19 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |data Database(url: String)
         |
-        |implement Dep[Database, IO] {
-        |   def dependency: IO[Database] = pure(Database("jdbc://app-db"))
-        |}
-        |
         |def run: {Dep[Database], Log, Console} Unit = andThen(log(dependency.url), printLine(readLine))
         |
         |def andThen(first: Unit, second: Unit): Unit = second
         |
-        |def main: IO[Unit] = run""".stripMargin,
+        |def main: IO[Unit] = provide(run, Database("jdbc://app-db"))""".stripMargin,
       stdin = "echoed\n"
     ).asserting(_ shouldBe "[LOG] jdbc://app-db\nechoed")
   }
 
-  // Two distinct-typed `Dep`s in one body each resolve `dependency` to their own instance and yield the correct distinct value
-  // (the first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two.
-  "two distinct-typed Deps" should "each resolve dependency to its own instance in one body" in {
+  // Two distinct-typed `Dep`s in one body each read their own environment and yield the correct distinct value (the
+  // first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two. Each is
+  // supplied by its own nested `provide`.
+  "two distinct-typed Deps" should "each resolve dependency to its own value in one body" in {
     val program =
       """import eliot.effect.Console
         |import eliot.effect.Dep
@@ -293,12 +290,9 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |data Database(url: String)
         |data Logger(name: String)
         |
-        |implement Dep[Database, IO] { def dependency: IO[Database] = pure(Database("the-db")) }
-        |implement Dep[Logger, IO] { def dependency: IO[Logger] = pure(Logger("the-logger")) }
-        |
         |def first: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
-        |def main: IO[Unit] = printLine(first)""".stripMargin
+        |def main: IO[Unit] = printLine(provide(provide(first, Database("the-db")), Logger("the-logger")))""".stripMargin
     compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
       .asserting(_ shouldBe "the-db")
   }
@@ -312,14 +306,11 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |data Database(url: String)
         |data Logger(name: String)
         |
-        |implement Dep[Database, IO] { def dependency: IO[Database] = pure(Database("the-db")) }
-        |implement Dep[Logger, IO] { def dependency: IO[Logger] = pure(Logger("the-logger")) }
-        |
         |def second: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
         |def pick(a: String, b: String): String = b
         |
-        |def main: IO[Unit] = printLine(second)""".stripMargin
+        |def main: IO[Unit] = printLine(provide(provide(second, Database("the-db")), Logger("the-logger")))""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
 }
