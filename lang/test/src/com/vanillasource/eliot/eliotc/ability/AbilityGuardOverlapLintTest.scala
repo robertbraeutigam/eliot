@@ -25,7 +25,8 @@ import java.nio.file.Path
   *
   * These tests exercise both arms directly by triggering the overlap-check fact, and show the third §3.2 consequence
   * end-to-end: two *guarded* overlapping impls pass the definition-time lint yet, when both guards happen to admit the
-  * same concrete use site, produce "Multiple ability implementations" there.
+  * same concrete use site, record the `Ambiguous` outcome there — which every demanding use site reports as "Multiple
+  * ability implementations".
   *
   * The whole scenario lives in the **compiler** source pool (self-contained: `Bool` + `Function`, no effect
   * machinery), mirroring `AbilityGuardDischargeTest` — guards reduce through constructor / native reductions alone.
@@ -99,10 +100,10 @@ class AbilityGuardOverlapLintTest extends ProcessorTest(LangProcessors(systemMod
       toTestErrors(errors).count(_.message.contains("Overlapping ability implementation"))
     }
 
-  /** Resolve `Show[Widget]` at the concrete use site, returning the resulting errors. */
-  private def useSiteErrors(guard1: String, guard2: String): IO[Seq[String]] =
+  /** Resolve `Show[Widget]` at the concrete use site, returning the recorded resolution outcome. */
+  private def useSiteResolution(guard1: String, guard2: String): IO[Option[AbilityImplementation.Resolution]] =
     runGeneratorWithFacts(facts(guard1, guard2), AbilityImplementation.Key(showVfqn, Seq(widgetArg), Platform.Compiler))
-      .map { case (_, errors) => toTestErrors(errors).map(_.message) }
+      .map { case (impl, _) => impl.map(_.resolution) }
 
   "the overlap lint" should "report two unguarded overlapping impls (the pre-guards behaviour)" in {
     overlapErrorCount("", "").asserting(_ shouldBe 2)
@@ -116,8 +117,9 @@ class AbilityGuardOverlapLintTest extends ProcessorTest(LangProcessors(systemMod
     overlapErrorCount("where fold(false, false, true)", "where fold(false, false, true)").asserting(_ shouldBe 0)
   }
 
-  "two guarded impls whose guards both admit the same use site" should "produce a use-site ambiguity" in {
-    useSiteErrors("where fold(false, false, true)", "where fold(false, false, true)")
-      .asserting(_.exists(_.contains("Multiple ability implementations")) shouldBe true)
+  "two guarded impls whose guards both admit the same use site" should "record the use-site ambiguity" in {
+    // The `Ambiguous` outcome is what every demanding use site reports as "Multiple ability implementations".
+    useSiteResolution("where fold(false, false, true)", "where fold(false, false, true)")
+      .asserting(_ shouldBe Some(AbilityImplementation.Resolution.Ambiguous))
   }
 }

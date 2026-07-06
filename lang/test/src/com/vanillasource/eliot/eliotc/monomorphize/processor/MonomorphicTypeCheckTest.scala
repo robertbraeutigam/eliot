@@ -50,6 +50,15 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  it should "report a single mismatch for a cross-constructor mismatch (no spurious Coerce diagnostic)" in {
+    // The failed `Coerce[String, Int[..]]` probe must stay silent: the ability machinery records the failed outcome
+    // on the fact instead of erroring, and a probe (unlike a demand) reads a failed outcome as a plain decline. Before
+    // outcome-carrying resolution this emitted an extra "does not implement ability 'Coerce'" against the `Coerce`
+    // declaration itself.
+    runCoerce("def s: String\ndef test: Int[0, 10] = s")
+      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
+  }
+
   // --- Value-parameter function invoked with `[...]` (the jvm `Int` width-policy `fitsIn` pattern) ---
 
   "a value-parameter predicate invoked with [...]" should "type-check, the brackets only keeping the literal arguments BigInteger" in {
@@ -1231,8 +1240,8 @@ class MonomorphicTypeCheckTest
 
   // The former effect-phase rewrite-shape assertions, as *monomorphic body* assertions: the auto-lift is type-directed
   // elaboration in the checker now, so the sequenced `Effect.flatMap`/`map`/`pure` shape materialises in the
-  // monomorphic output (here at the stub `IO` carrier, whose refs stay abstract ability references — the resolved-impl
-  // behaviour is pinned end-to-end in the jvm `ExamplesIntegrationTest`).
+  // monomorphic output (here at the stub `IO` carrier, resolved against the stub instances in `effectLiftImports` —
+  // the real-impl behaviour is pinned end-to-end in the jvm `ExamplesIntegrationTest`).
 
   "the checker-side effect lift" should "sequence a direct-style printLine(readLine) with Effect.flatMap" in {
     liftedBody("import eliot.effect.Console\ndef echo: {Console} Unit = printLine(readLine)")
@@ -1364,21 +1373,34 @@ class MonomorphicTypeCheckTest
     ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "IO"), QualifiedName("IO", Qualifier.Type))
   private val ioCarrier: GroundValue = GroundValue.Structure(ioFQN, Seq.empty, GroundValue.Type)
 
+  // The `Effect`/`Console` stubs carry trivial `implement … [IO]` instances (bodies delegating to an abstract
+  // helper): the values are checked *at the ground stub `IO` carrier*, and a ground ability demand with no applicable
+  // instance is a use-site error by design (the ability machinery records `NoImplementation` and the checker's
+  // `AbilityResolver` reports the failed demand at the reference). The instances keep the demands resolvable; the
+  // emitted refs carry the same local names (`flatMap`/`pure`/`printLine`), so the shape assertions read unchanged.
   private val effectLiftImports: Seq[SystemImport] = ambientStubsWith(
     "IO"       -> "type IO[A]",
     "Option"   -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
     // The ambient stub plus the real `.` operator (mirroring `stdlib/.../Function.els`), for the dotted-subject case.
     "Function" ->
-      "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)"
+      "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)",
+    "Console"  ->
+      ("ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}\n" +
+        "def stubConsoleIO[A]: IO[A]\n" +
+        "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}")
   ) ++ Seq(
     SystemImport(
       "Effect",
-      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}",
+      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}\n" +
+        "def stubEffectIO[A]: IO[A]\n" +
+        "implement Effect[IO] {\ndef flatMap[A, B](f: Function[A, IO[B]], fa: IO[A]): IO[B] = stubEffectIO\ndef pure[A](a: A): IO[A] = stubEffectIO\ndef map[A, B](f: Function[A, B], fa: IO[A]): IO[B] = stubEffectIO\n}",
       ModuleName.effectPackage
     ),
     SystemImport(
       "State",
-      "ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}",
+      "ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}\n" +
+        "def stubStateIO[A]: IO[A]\n" +
+        "implement[S] State[S, IO] {\ndef state: IO[S] = stubStateIO\ndef putState(s: S): IO[Unit] = stubStateIO\n}",
       ModuleName.effectPackage
     )
   )

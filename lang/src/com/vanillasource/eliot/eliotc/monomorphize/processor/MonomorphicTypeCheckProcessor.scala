@@ -53,6 +53,6 @@ class MonomorphicTypeCheckProcessor
       typeArgs: Seq[GroundValue]
   ): CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
     getFactIfProduced(AbilityImplementation.Key(vfqn, typeArgs, Platform.Runtime)).map(
-      _.map(impl => (impl.implementationFQN, impl.implementationTypeArgs))
+      _.flatMap(_.resolution.resolved)
     )
 }

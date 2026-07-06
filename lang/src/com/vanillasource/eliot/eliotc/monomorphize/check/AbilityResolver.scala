@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -11,6 +12,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression,
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 /** The ability-resolution *saturation* concern (the fourth checker collaborator, symmetrical with `solver` / `carriers`
   * / `calcReturns`): discovering every ability-qualified value reference and resolving each to its concrete impl,
@@ -86,8 +88,11 @@ class AbilityResolver(
     *     unification connects them. The constraint path is the direct way to get concrete args.
     *   - Otherwise the ref's own type arguments are used.
     *   - Quoting failure (still-unsolved metas) leaves the ref pending for the next iteration.
-    *   - `resolveAbility` returning `None` also leaves it pending — the ref will stay unresolved in the final
-    *     [[CheckState]] and [[PostDrainQuoter]] will emit it as an abstract reference.
+    *   - `resolveAbility` returning `None` at *ground* arguments is a failed **demand**: the
+    *     [[AbilityImplementation]] fact's non-resolved outcome is read back and reported here, at this reference —
+    *     the demand site — and the check aborts (see [[reportFailedDemand]]). Only an *absent* fact (the resolution
+    *     aborted on an upstream error, already reported at its own definition) leaves the ref silently pending, to be
+    *     emitted by [[PostDrainQuoter]] as an abstract reference.
     */
   private def tryResolveOne(
       ref: AbilityRef,
@@ -130,7 +135,7 @@ class AbilityResolver(
                                                 _ <- modify(_.recordAbilityResolution(abilityVfqn, impl))
                                                 _ <- injectForImpl(abilityName, impl._1, abilityVfqn)
                                               } yield true
-                                            case None       => pure(false)
+                                            case None       => reportFailedDemand(abilityVfqn, abilityName, groundArgs)
                                           }
                             } yield stepped
                           case Left(_)           => pure(false)
@@ -139,6 +144,44 @@ class AbilityResolver(
       case _                              => pure(false)
     }
   }
+
+  /** A ground-argument demand did not resolve. The producer ([[com.vanillasource.eliot.eliotc.ability.processor.AbilityImplementationProcessor]])
+    * registers the failed [[AbilityImplementation.Resolution]] outcome on the fact instead of erroring — the position
+    * belongs to the demander, and this saturation pass is the demander: it holds the demanding reference, so the
+    * failure is reported *here*, at the use site, and the value's monomorphization aborts (the hard error at the
+    * manifest instantiation, ability-guards §3). An **absent** fact means the resolution itself aborted on an upstream
+    * error already reported at its own definition, so nothing is added and the reference stays silently pending. A
+    * `Resolved` outcome cannot reach this method (the `resolveAbility` callback returns it), but is left pending for
+    * the next round rather than treated as an error, keeping the match total and fail-safe.
+    */
+  private def reportFailedDemand(
+      ref: Sourced[ValueFQN],
+      abilityName: String,
+      groundArgs: Seq[GroundValue]
+  ): CheckIO[Boolean] =
+    liftF(getFactIfProduced(AbilityImplementation.Key(ref.value, groundArgs, platform))).flatMap { factOpt =>
+      val argsShown = groundArgs.map(_.show).mkString("[", ", ", "]")
+      factOpt.map(_.resolution) match {
+        case None                                                        => pure(false)
+        case Some(AbilityImplementation.Resolution.Resolved(_, _))       => pure(false)
+        case Some(AbilityImplementation.Resolution.NoImplementation)     =>
+          liftF(
+            compilerError(
+              ref.as(s"No ability implementation found for ability '$abilityName' with type arguments $argsShown.")
+            ) >> abort[Boolean]
+          )
+        case Some(AbilityImplementation.Resolution.Rejected(messages))   =>
+          liftF(messages.traverse_(message => compilerError(ref.as(message))) >> abort[Boolean])
+        case Some(AbilityImplementation.Resolution.Ambiguous)            =>
+          liftF(
+            compilerError(
+              ref.as(
+                s"Multiple ability implementations found for ability '$abilityName' with type arguments $argsShown."
+              )
+            ) >> abort[Boolean]
+          )
+      }
+    }
 
   /** The number of ability-level type parameters of the ability owning `methodVfqn` — read off the ability *marker*'s
     * signature (the synthetic value named after the ability, sharing the method's `Ability(name)` qualifier), whose

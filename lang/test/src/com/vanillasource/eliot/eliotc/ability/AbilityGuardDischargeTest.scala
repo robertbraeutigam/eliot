@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.ability
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
+import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation.Resolution
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -19,12 +20,16 @@ import java.nio.file.Path
   *
   * A guard rides the marker's return-type slot (§2.3). When [[com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher]]
   * matches an impl at a concrete type-argument tuple, `AbilityImplementationProcessor` discharges the guard by
-  * monomorphizing the marker on the **compiler track** (guards are compile-time computations) and reading its reduced
-  * return value:
-  *   - a `Bool` `true` (or a `Right(true)`) keeps the candidate — the instance resolves;
+  * monomorphizing the marker on the **queried platform's track** (here the compiler track — the pool this scenario
+  * lives in) and reading its reduced return value into the fact's [[Resolution]] outcome:
+  *   - a `Bool` `true` (or a `Right(true)`) keeps the candidate — the instance resolves ([[Resolution.Resolved]]);
   *   - a `Bool` `false` (or a `Right(false)`) declines — the candidate is dropped, so with no other instance the
-  *     resolution reports "No ability implementation found";
-  *   - a `Left(msg)` is a hard compile error carrying the author's message.
+  *     outcome is [[Resolution.NoImplementation]];
+  *   - a `Left(msg)` records [[Resolution.Rejected]] carrying the author's message.
+  *
+  * The producer reports **no errors** for these outcomes — a demanding use site (the checker's `AbilityResolver`)
+  * reads the outcome and reports there, while a checker-inserted probe (`Coerce`) reads a failed outcome as a silent
+  * decline.
   *
   * An unguarded impl (the default `eliot.lang.Bool::true` return slot) keeps verbatim, without monomorphizing the
   * marker at all — the pre-guards behaviour.
@@ -98,7 +103,10 @@ class AbilityGuardDischargeTest extends ProcessorTest(LangProcessors(systemModul
       .map { case (impl, errors) => (impl, toTestErrors(errors)) }
 
   private def resolvedName(guardClause: String): IO[Option[String]] =
-    resolve(guardClause).map { case (impl, _) => impl.map(_.implementationFQN.name.name) }
+    resolve(guardClause).map { case (impl, _) => impl.flatMap(_.resolution.resolved).map(_._1.name.name) }
+
+  private def resolution(guardClause: String): IO[Option[Resolution]] =
+    resolve(guardClause).map { case (impl, _) => impl.map(_.resolution) }
 
   "an unguarded implementation" should "resolve (the default `true` return slot, no discharge)" in {
     resolvedName("").asserting(_ shouldBe Some("show"))
@@ -108,14 +116,12 @@ class AbilityGuardDischargeTest extends ProcessorTest(LangProcessors(systemModul
     resolvedName("where fold(false, false, true)").asserting(_ shouldBe Some("show"))
   }
 
-  "a guard reducing to `false`" should "decline — the instance does not resolve" in {
-    resolve("where false").asserting { case (impl, _) => impl shouldBe None }
+  "a guard reducing to `false`" should "decline — the outcome is `NoImplementation`" in {
+    resolution("where false").asserting(_ shouldBe Some(Resolution.NoImplementation))
   }
 
-  it should "report no implementation once the sole candidate declines" in {
-    resolve("where false").asserting { case (_, errors) =>
-      errors.map(_.message).exists(_.contains("No ability implementation")) shouldBe true
-    }
+  it should "produce no error in the producer — reporting a failed demand belongs to the use site" in {
+    resolve("where false").asserting { case (_, errors) => errors shouldBe Seq.empty }
   }
 
   "a guard `Right(true)`" should "keep the candidate — the success payload is `true`" in {
@@ -123,16 +129,15 @@ class AbilityGuardDischargeTest extends ProcessorTest(LangProcessors(systemModul
   }
 
   "a guard `Right(false)`" should "decline — the success payload is `false`" in {
-    resolve("where Right(false)").asserting { case (impl, _) => impl shouldBe None }
+    resolution("where Right(false)").asserting(_ shouldBe Some(Resolution.NoImplementation))
   }
 
-  "a guard `Left(msg)`" should "be a hard compile error carrying the author's message" in {
-    resolve("""where Left("Widget is not showable here")""").asserting { case (_, errors) =>
-      errors.map(_.message).exists(_.contains("Widget is not showable here")) shouldBe true
-    }
+  "a guard `Left(msg)`" should "record a `Rejected` outcome carrying the author's message" in {
+    resolution("""where Left("Widget is not showable here")""")
+      .asserting(_ shouldBe Some(Resolution.Rejected(Seq("Widget is not showable here"))))
   }
 
-  it should "produce no implementation fact when the guard rejects" in {
-    resolve("""where Left("nope")""").asserting { case (impl, _) => impl shouldBe None }
+  it should "produce no error in the producer when the guard rejects — the demander reports the message" in {
+    resolve("""where Left("nope")""").asserting { case (_, errors) => errors shouldBe Seq.empty }
   }
 }

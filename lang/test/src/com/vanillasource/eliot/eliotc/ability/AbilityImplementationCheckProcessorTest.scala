@@ -58,7 +58,7 @@ class AbilityImplementationCheckProcessorTest
   it should "fail when no implementations are provided at all for an ability with all-default methods" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A = x }\ndata Int\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "Show"))
+    ).asserting(_ shouldBe Seq("No ability implementation found for ability 'Show' with type arguments [Int]." at "show"))
   }
 
   it should "resolve default ability implementation that calls another default ability implementation" in {
@@ -131,13 +131,13 @@ class AbilityImplementationCheckProcessorTest
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndef f[A](x: A): A = show(x)",
       Seq(intType)
-    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "Show"))
+    ).asserting(_ shouldBe Seq("No ability implementation found for ability 'Show' with type arguments [Int]." at "show"))
   }
 
   it should "fail when no implementation exists for the concrete type" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "Show"))
+    ).asserting(_ shouldBe Seq("No ability implementation found for ability 'Show' with type arguments [Int]." at "show"))
   }
 
   it should "check derived abilities" in {
@@ -198,7 +198,7 @@ class AbilityImplementationCheckProcessorTest
         }
 
         def f(x: String): Int = convert(x)
-    """).asserting(errors => errors.exists(_.message.contains("does not implement ability 'Convert'")) shouldBe true)
+    """).asserting(errors => errors.exists(_.message.contains("No ability implementation found for ability 'Convert'")) shouldBe true)
   }
 
   it should "preserve parameterised type arguments through a generic impl's binding" in {

@@ -87,7 +87,7 @@ class PlatformScopedAbilityResolutionTest
     runGeneratorWithFacts(pools, AbilityImplementation.Key(showVfqn, Seq(intArg), platform)).map(_._1)
 
   "platform-scoped ability resolution" should "resolve a compiler-pool-only instance under the compiler marker" in {
-    resolveUnder(Platform.Compiler).asserting(_.map(_.implementationFQN.name.name) shouldBe Some("show"))
+    resolveUnder(Platform.Compiler).asserting(_.flatMap(_.resolution.resolved).map(_._1.name.name) shouldBe Some("show"))
   }
 
   it should "tag the resolved implementation with the compiler marker" in {
@@ -95,6 +95,7 @@ class PlatformScopedAbilityResolutionTest
   }
 
   it should "not resolve the compiler-pool-only instance under the runtime marker" in {
-    resolveUnder(Platform.Runtime).asserting(_ shouldBe None)
+    resolveUnder(Platform.Runtime)
+      .asserting(_.map(_.resolution) shouldBe Some(AbilityImplementation.Resolution.NoImplementation))
   }
 }

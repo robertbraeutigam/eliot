@@ -33,9 +33,12 @@ object MarkerGuardSignature {
     else resolvedValue
 
   /** A marker's local name equals its ability's name (methods carry the method name); its qualifier is an
-    * [[Qualifier.AbilityImplementation]].
+    * [[Qualifier.AbilityImplementation]]. Public because the runtime [[Track]] also consults it: a marker's guard
+    * must survive to the published signature *undischarged* (the ability processor interprets the verdict per
+    * candidate), so markers skip the W2b effectful-signatures discharge that would otherwise hard-error a `Left(msg)`
+    * rejection at the marker itself.
     */
-  private def isMarker(resolvedValue: OperatorResolvedValue): Boolean =
+  def isMarker(resolvedValue: OperatorResolvedValue): Boolean =
     resolvedValue.name.value.qualifier match {
       case Qualifier.AbilityImplementation(abilityFQN, _) => resolvedValue.vfqn.name.name == abilityFQN.abilityName
       case _                                              => false

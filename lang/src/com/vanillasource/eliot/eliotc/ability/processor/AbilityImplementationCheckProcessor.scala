@@ -34,18 +34,11 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       implMethods    <- candidateModules.toSeq.flatTraverse(collectImplMethods(_, abilityFQN, typeArguments, key.platform))
       _              <- implMethods match {
                           case Nil =>
-                            // Point the error at the ability marker (the synthetic method whose local name
-                            // equals the ability name) when available, otherwise at any ability method.
-                            val errorSource =
-                              abilityMethods.find(_.vfqn.name.name == abilityFQN.abilityName)
-                                .orElse(abilityMethods.headOption)
-                            errorSource.traverse_(m =>
-                              compilerError(
-                                m.name.as(
-                                  s"The type parameter '${typeArguments.map(_.show).mkString(", ")}' does not implement ability '${abilityFQN.abilityName}'."
-                                )
-                              )
-                            )
+                            // No implementation matches structurally — nothing to signature-check, and not an error
+                            // *here*: `AbilityImplementationProcessor` registers the `NoImplementation` outcome, and
+                            // it is the demander that decides whether that is a compile error (a demanded capability,
+                            // reported at its use site) or a normal decline (a checker-inserted probe like `Coerce`).
+                            ().pure[CompilerIO]
                           case _   =>
                             checkCompleteness(abilityMethods, implMethods) >>
                               checkNoExtras(abilityMethods, implMethods) >>

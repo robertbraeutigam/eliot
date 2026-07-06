@@ -118,10 +118,11 @@ class RefinementSolver(
     * reasoning and is not handled here.
     *
     * Exposed to the checker so the effect-lift arms can be consulted *between* definitional equality and this probe:
-    * resolving `Coerce` generates ability facts whose missing-implementation diagnostic is a build-failing *side
-    * effect* (the same reason [[combinePair]] guards its probe), so a pure-into-carrier or carrier-into-pure shape a
-    * lift arm resolves must never reach it. The lift arms' guards are disjoint from every coercible shape (an `Int`
-    * range is neither carrier-headed nor an ambient carrier), so current widening behaviour is untouched.
+    * a pure-into-carrier or carrier-into-pure shape is the lift arms' decision, so it must be theirs before a `Coerce`
+    * lookup gets a say. (The probe itself is silent — the ability machinery registers a resolution *outcome*, and only
+    * a demanding use site reports a failure; a probe merely reads "no applicable instance" as a decline.) The lift
+    * arms' guards are disjoint from every coercible shape (an `Int` range is neither carrier-headed nor an ambient
+    * carrier), so current widening behaviour is untouched.
     */
   private[monomorphize] def tryCoerce(
       tm: Sourced[?],
@@ -134,8 +135,8 @@ class RefinementSolver(
       case Some(payload) => buildCoercedExpr(tm, expr, actual, expected, payload).map(Some(_))
     }
 
-  /** Build the coerced expression from the resolved `Coerce` instance's `some` payload (the value the coercion yields,
-    * with the `coerce` argument left as the reserved `NeutralHead.Marker.Coerce` marker). This is the principled Phase-5
+  /** Build the coerced expression from the resolved `Coerce` instance's conversion payload (the total `coerce` body
+    * evaluated with its argument left as the reserved `NeutralHead.Marker.Coerce` marker). This is the principled Phase-5
     * splice: rather
     * than re-typing the term (which loses the source representation and produces a wrong-width value at runtime), the
     * payload is materialised as a real conversion node wrapping the original expression.
@@ -189,11 +190,11 @@ class RefinementSolver(
       case _                       => Seq.empty
     }
 
-  /** Resolve `Coerce[actual, expected]` by name and report whether the coercion exists (the resolved `coerce` evaluates
-    * to `some`). This is the shared core of the check-mode insertion ([[tryCoerce]]) and the `Combine` contributor
+  /** Resolve `Coerce[actual, expected]` by name and report whether the coercion exists (an applicable instance
+    * resolves). This is the shared core of the check-mode insertion ([[tryCoerce]]) and the `Combine` contributor
     * check ([[coercionExists]]) — both need "does this coercion hold?" but differ in what they do with the answer. It
     * does **not** attempt definitional equality first (callers decide whether to); it returns `false` when the bounds
-    * are abstract/unsolved (cannot quote to ground), when no instance resolves, or when the instance yields `none`.
+    * are abstract/unsolved (cannot quote to ground) or when no instance applies (a guarded instance declines).
     */
   private def resolveCoercion(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
     resolveCoercionPayload(actual, expected, context).map(_.isDefined)
@@ -466,10 +467,9 @@ class RefinementSolver(
     * instance's leading type parameters to the matched type arguments returned by ability resolution. Returns the
     * joined type's [[SemValue]], or `None` if there is no instance.
     *
-    * Only attempted when the two candidates share a head constructor: probing `resolveAbility` for a pair with no
-    * implementation triggers the ability machinery's "does not implement" error as a side effect of fact generation
-    * (which the caller cannot suppress), so cross-constructor pairs (e.g. `String`/`Int`) skip straight to a strict
-    * mismatch. The only `Combine` instance today is the head-homogeneous `Combine[Int[..], Int[..]]`.
+    * Only attempted when the two candidates share a head constructor: every `Combine` instance today is
+    * head-homogeneous (`Combine[Int[..], Int[..]]`), so a cross-constructor pair (e.g. `String`/`Int`) can never
+    * combine and skips the probe straight to a strict mismatch.
     */
   private def combinePair(g1: GroundValue, g2: GroundValue): CheckIO[Option[SemValue]] =
     if (!sameHead(g1, g2))

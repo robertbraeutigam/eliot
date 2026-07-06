@@ -103,12 +103,19 @@ object Track {
         sawGuard: Boolean,
         resolvedValue: OperatorResolvedValue
     ): CheckIO[(SemValue, Option[VMeta])] =
-      checker.calcReturns.dischargeGuardedSignature(
-        instantiated,
-        sawGuard,
-        resolvedValue.checkingRuntime.isDefined,
-        resolvedValue.name
-      )
+      // An ability-implementation *marker*'s guard must survive to the published signature undischarged — the guard
+      // verdict (`true`/`false`/`Right`/`Left(msg)`) is interpreted per candidate by `AbilityImplementationProcessor`,
+      // and a `Left(msg)` is carried as the `Rejected` outcome to the demanding use site. Discharging it here would
+      // instead hard-error the rejection at the marker itself (the library instance, not the use). Ordinary values
+      // keep the W2b effectful-signatures discharge.
+      if (MarkerGuardSignature.isMarker(resolvedValue)) pure((instantiated, Option.empty[VMeta]))
+      else
+        checker.calcReturns.dischargeGuardedSignature(
+          instantiated,
+          sawGuard,
+          resolvedValue.checkingRuntime.isDefined,
+          resolvedValue.name
+        )
 
     override def pinCarriers(checker: Checker, resolvedValue: OperatorResolvedValue): CheckIO[Unit] = pure(())
 

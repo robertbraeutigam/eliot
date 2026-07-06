@@ -1,6 +1,9 @@
 # Ability Implementation Guards
 
-Status: **Stages 0–6 landed** (Stage 6: 2026-07-06). Revised 2026-07-05: the coherence stance is
+Status: **Stages 0–6 landed** (Stage 6: 2026-07-06), plus the **use-site diagnostics follow-up** (§5a,
+2026-07-06): resolution outcomes ride the `AbilityImplementation` fact and every failed *demand* — no
+applicable instance, a guard `error(msg)` rejection, an ambiguity — is reported at the demanding use-site
+reference, not at the ability/marker declaration. Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
@@ -120,11 +123,14 @@ every existing generic definition for no benefit.
   read-back rather than answering wrongly (fail-safe). The richer symbolic semantics (reflexivity on
   identical neutrals, stuck on distinct metas) are needed only by the *optional* definition-time
   disjointness proof (§3.2) and can be added if and when that lands.
-- **Placement**: `ability Eq` abstract in the base stdlib; the `Eq[Type]` instance is
-  **compiler-pool-only** (type values are erased at runtime — a runtime `==` on types is
-  unimplementable). The `Eq[Type]` instance must itself be **unguarded** — a guard on it would demand its
-  own resolution (same fact key → engine cycle error). Base value instances (`Eq[Int]`, `Eq[String]`,
-  `Eq[BigInteger]`) as needed (these can have runtime bodies); `Eq` for `data` derivable later.
+- **Placement**: `ability Eq` abstract in the base stdlib; the `Eq[Type]` instance lives in the **`lang`
+  base layer** (`lang/.../Eq.els`), so it resolves on *both* source paths — a guard is discharged on the
+  queried platform's track (§5 Stage 4), so a runtime-layer guarded instance needs `Eq[Type]` resolvable
+  under the runtime pool too. The comparison still only *reduces* at compile time (`typeEquals` is a
+  compiler-supplied native; types are erased at runtime). The `Eq[Type]` instance must itself be
+  **unguarded** — a guard on it would demand its own resolution (same fact key → engine cycle error). Base
+  value instances (`Eq[Int]`, `Eq[String]`, `Eq[BigInteger]`) as needed (these can have runtime bodies);
+  `Eq` for `data` derivable later.
 
 ### 2.3 The guard rides the marker's return type
 
@@ -197,8 +203,8 @@ type params (`E1/E2/G`) bound to concrete `GroundValue`s in declaration order �
 `Some`, discharge the marker's return under that binding and:
 
 - `Right(true)`  → keep the candidate;
-- `Right(false)` → return `Seq.empty` (decline);
-- `Left(msg)`    → emit `compilerError` with `msg`;
+- `Right(false)` → decline (dropped from the candidates);
+- `Left(msg)`    → a `Rejected(msg)` outcome, reported at each demanding use site (§5a);
 - anything else  → internal error (cannot happen at a concrete site, see below).
 
 Both `verifyImplementation` call sites (the normal path and `handleDefaultImplementation`) go through
@@ -320,8 +326,9 @@ valid de-risking order.
   method `equals` + operators. `!=` is `fold(equals(a, b), false, true)`. Precedence: `==`/`!=` are
   `infix left`, `== above &&` (binds tighter than logical-and), `!= at ==`; arithmetic-vs-comparison
   precedence deferred until a runtime `Eq[Int]` makes it exercisable.
-- `Eq[Type]` instance + its `typeEquals` leaf live in `compiler/.../Eq.els` (compiler-pool-only — types
-  are erased at runtime), with the ability re-declared there per the layer-merge duplication rule. The
+- `Eq[Type]` instance + its `typeEquals` leaf live in `lang/.../Eq.els` (the base layer, visible on both
+  source paths — which Stage 4's queried-platform discharge relies on; the leaf still only reduces at
+  compile time), with the ability re-declared there per the layer-merge duplication rule. The
   leaf is `typeEquals(a: Type, b: Type): Bool`, a Scala native in `SystemNativesProcessor` (well-known
   `WellKnownTypes.typeEqualsFQN`): **concrete-only** structural normal-form compare (mirrors
   `Unifier.groundEquals`, never through the `Unifier`), defensively stuck (`VStuckNative`) on non-concrete
@@ -496,10 +503,13 @@ the plan's spikes):
 - **The caveat, resolved.** "No applicable instance" for `Coerce` must be a *soft* "Type mismatch." at the use
   site, not the hard "No ability implementation found" a user ability (or an `IntArith` coverage gap) gets. The
   hard error is produced by the *producer* (`AbilityImplementationProcessor.handleMissingImplementation`), and
-  the checker's coercion probe (`RefinementSolver`) triggers it via `getFactIfProduced`. Fix: that producer now
-  *declines* (aborts with no error) when the ability is `Coerce` (`isCoerce`, keyed on `WellKnownTypes.coerceFQN`)
-  and there is no default — `Coerce` is checker-inserted and its non-applicability is a normal answer. Every other
-  ability still hard-errors on no-match, so the `IntArith` gap behaviour is unchanged.
+  the checker's coercion probe (`RefinementSolver`) triggers it via `getFactIfProduced`. Fix at the time: that
+  producer *declined* (aborted with no error) when the ability was `Coerce` (`isCoerce`, keyed on
+  `WellKnownTypes.coerceFQN`) and there was no default — `Coerce` is checker-inserted and its non-applicability
+  is a normal answer. Every other ability still hard-errored on no-match, so the `IntArith` gap behaviour was
+  unchanged. **Superseded by §5a**: the producer no longer errors for *any* ability — it registers the
+  resolution outcome, probes read a failed outcome as a decline, and demands report at the use site — so the
+  name-keyed `isCoerce` carve-out is deleted.
 - `RefinementSolver.coercionPayload` unifies the impl signature against `VPi(actual, _ => expected)` (was
   `Option[expected]`) and returns the evaluated body (`nativeWiden(marker)`) directly as the splice payload; the
   guard having resolved the instance *is* the existence proof, so there is no `some`/`none` to interpret.
@@ -512,6 +522,46 @@ the plan's spikes):
   so the stubs now match the real instance's `[Smin: BigInteger, …]`.
 
 **All six stages (0–6) are landed; the ability-guards plan is complete.**
+
+**§5a — Follow-up: use-site diagnostics (outcome-carrying resolution). LANDED (2026-07-06).**
+
+Review findings after Stage 6: the resolution errors were anchored in library code — "No ability
+implementation found" at the *ability declaration*, a guard `error(msg)` at the *marker* — and a plain
+cross-constructor mismatch (`String` where `Int[..]` expected) emitted a spurious "The type parameter
+'String, Int' does not implement ability 'Coerce'." against the shipped `Coerce.els` (the check
+processor's structural-no-match error, which the `isCoerce` carve-out never covered). Root cause: the
+*producers* reported resolution failures, but only the *demander* holds the use-site position — and for a
+checker-inserted probe a failure is not an error at all. Fix, in one move:
+
+- **The `AbilityImplementation` fact carries a `Resolution` outcome** — `Resolved(implFQN, implTypeArgs)` /
+  `NoImplementation` / `Rejected(messages)` / `Ambiguous` — and the producer registers it *without erroring*
+  (`AbilityImplementationProcessor` aggregates per-candidate `Keep`/`Decline`/`Reject` verdicts; the
+  check processor's structural-no-match arm no longer errors either). An **absent** fact now always means an
+  upstream error already reported at its own definition.
+- **Demands report at the use site**: the checker's saturation pass (`AbilityResolver.reportFailedDemand`)
+  holds the demanding `Sourced` reference; on a ground-argument demand whose fact carries a failed outcome it
+  reports there — "No ability implementation found …" / the guard's own `Rejected` messages / "Multiple
+  ability implementations …" — and aborts the value's monomorphization (the §3 hard error at the manifest
+  instantiation). **Probes stay silent**: `Coerce`/`Combine`/the lift arms read a failed outcome as a decline,
+  which *deletes the `isCoerce` carve-out* and fixes the spurious cross-constructor `Coerce` diagnostic
+  (regression: `MonomorphicTypeCheckTest` "single mismatch for a cross-constructor mismatch").
+- **A marker's guard survives to its published signature**: the runtime track's W2b signature discharge is
+  skipped for ability-implementation markers (`Track.Runtime.settleGuardedReturn` via the now-public
+  `MarkerGuardSignature.isMarker`) — previously a runtime-pool guard's `Left(msg)` hard-errored *inside the
+  marker's own monomorphization*, anchored at the marker; now the verdict reaches `interpretGuard`, rides the
+  fact as `Rejected`, and is reported at the demanding reference. (The compiler track already left marker
+  signatures undischarged, which is why the Stage-2 unit test saw the verdict.)
+- **One guard-verdict protocol**: the `Right`/`Left` payload-position convention and the rejection fallback
+  message are single-sourced in `monomorphize/check/GuardChannel`, shared by the W2b signature discharge
+  (`CalculatedReturnResolver`) and the ability-guard verdict interpreter.
+- Also retired: the `handleDefaultImplementation` internal-error corner (a default whose every sibling
+  declined is now an ordinary `NoImplementation`), and the "The type parameter … does not implement ability"
+  message (folded into the demander's "No ability implementation found for ability 'X' with type arguments
+  […]." at the use site).
+- **Test-harness consequence**: a unit scenario that monomorphizes a value at a *ground* stub carrier must
+  supply instances for the abilities it demands (a failed ground demand is now reported in-generation, which
+  suppresses the value's fact) — the effect-lift and carrier-bookkeeping stubs gained trivial
+  `implement …[IO]` instances delegating to an abstract helper.
 
 ## 6. Grounded hook points
 
@@ -561,7 +611,8 @@ Resolved this revision:
   simplification — it is what makes computed (range) guards possible at all.
 - **Marker shape**: uniform — every marker's return slot holds the guard (default literal `true`),
   bodies retired (§2.3).
-- **`Eq` placement**: abstract in base; `Eq[Type]` compiler-pool-only, unguarded (§2.2).
+- **`Eq` placement**: abstract in base; the `Eq[Type]` instance in the `lang` base layer (both source
+  paths — the queried-platform discharge needs it under the runtime pool too), unguarded (§2.2).
 - **No blanket `Eq` rule**: demand-driven from guard bodies (§2.2).
 
 Still open:

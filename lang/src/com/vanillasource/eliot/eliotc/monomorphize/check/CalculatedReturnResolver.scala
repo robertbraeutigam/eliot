@@ -241,15 +241,15 @@ class CalculatedReturnResolver(
     *     discharge / defer to the use site (a stuck guard is correct, not an error — Use-Site Verification).
     *
     * `Right`/`Left` are body-less value constructors, so a constructed carrier value is a `VTopDef` headed by
-    * [[WellKnownTypes.rightFQN]]/[[WellKnownTypes.leftFQN]] with the payload as the *last* spine entry (the
-    * constructor's value field; any leading entries are the implicit `E`/`A` type arguments).
+    * [[WellKnownTypes.rightFQN]]/[[WellKnownTypes.leftFQN]]; the payload spine entry and the rejection fallback are
+    * the [[GuardChannel]] protocol shared with the ability-guard verdict interpreter.
     */
   def dischargeGuardedReturn(retType: SemValue, at: Sourced[?]): CheckIO[Option[SemValue]] =
     force(retType).flatMap {
       case VTopDef(fqn, _, spine) if fqn === WellKnownTypes.rightFQN =>
-        pure(spine.toList.lastOption)
+        pure(GuardChannel.payload(spine.toList))
       case VTopDef(fqn, _, spine) if fqn === WellKnownTypes.leftFQN  =>
-        spine.toList.lastOption match {
+        GuardChannel.payload(spine.toList) match {
           case Some(msgSem) =>
             extractGuardMessage(msgSem).flatMap(msg => liftF(compilerError(at.as(msg)) >> abort[Option[SemValue]]))
           case None         => pure(None)
@@ -259,12 +259,13 @@ class CalculatedReturnResolver(
 
   /** The author message carried by a `Left(msg)` rejection. The carrier's error type is `String`, so a rejection's
     * message is a literal `String` that reads back directly; a non-literal (computed, not-yet-reduced) message falls
-    * back to a generic rejection so the guard is still reported, never silently dropped (fail-safe).
+    * back to the shared [[GuardChannel]] rejection message so the guard is still reported, never silently dropped
+    * (fail-safe).
     */
   private def extractGuardMessage(msgSem: SemValue): CheckIO[String] =
     force(msgSem).map {
       case VConst(GroundValue.Direct(s: String, _)) => s
-      case _                                        => "A type guard rejected this use."
+      case _                                        => GuardChannel.fallbackRejectionMessage
     }
 
   /** Discharge any guard in a *signature's* return position — the callee side (W2b). The signature is a chain of

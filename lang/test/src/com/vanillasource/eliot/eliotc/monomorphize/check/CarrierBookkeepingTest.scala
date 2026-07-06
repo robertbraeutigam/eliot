@@ -55,7 +55,16 @@ class CarrierBookkeepingTest
     runGenerator(
       source,
       CarrierProbe.Key(ValueFQN(testModuleName, default(name)), typeArgs),
-      ambientStubsWith("IO" -> "type IO[A]")
+      // The `Console` stub carries a trivial `implement Console[IO]`: probing at the ground stub `IO` demands the
+      // instance, and a ground demand with no applicable instance is a use-site error by design (the checker's
+      // `AbilityResolver` reports the failed demand and aborts, which would swallow the probe fact).
+      ambientStubsWith(
+        "IO"      -> "type IO[A]",
+        "Console" ->
+          ("ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}\n" +
+            "def stubConsoleIO[A]: IO[A]\n" +
+            "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}")
+      )
     ).map(_._2.values.collectFirst { case p: CarrierProbe => p })
 }
 
@@ -92,7 +101,7 @@ object CarrierBookkeepingTest {
         typeArgs: Seq[GroundValue]
     ): CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
       getFactIfProduced(AbilityImplementation.Key(vfqn, typeArgs, Platform.Runtime)).map(
-        _.map(impl => (impl.implementationFQN, impl.implementationTypeArgs))
+        _.flatMap(_.resolution.resolved)
       )
 
     override protected def generateFromKeyAndFact(
