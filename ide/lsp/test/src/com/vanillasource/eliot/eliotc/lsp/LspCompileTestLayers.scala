@@ -18,8 +18,8 @@ object LspCompileTestLayers {
   private val (compilerPaths, runtimePaths): (Seq[Path], Seq[Path]) =
     BundledLayers.fromRoots(moduleRoot("lang"), moduleRoot("stdlib"), moduleRoot("jvm"), moduleRoot("compiler"))
 
-  /** Add the compiler/runtime layer paths (compiler = base + the `compiler` platform layer; runtime = base + `jvm`
-    * `eliot/` source roots) to a test configuration.
+  /** Add the compiler/runtime layer paths (compiler = the `compiler` override overlay only; runtime = base + `jvm`
+    * `eliot/` source roots, which the compiler scan unions in) to a test configuration.
     */
   def add(configuration: Configuration): Configuration =
     configuration

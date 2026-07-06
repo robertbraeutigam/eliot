@@ -11,9 +11,11 @@ import java.nio.file.Path
   * per-phase root lists.
   *
   * The layers directory holds one subdirectory per module — `lang`, `stdlib`, `jvm`, `compiler` — each itself a
-  * `PathScanner` root (i.e. each contains `eliot/…`). The **compiler path** is the abstract base (`lang` + `stdlib`) plus
-  * the `compiler` platform layer (CP2); the **runtime path** is the base plus the `jvm` target. The user's own workspace
-  * roots are *not* included here: `LangPlugin` appends them (`LangPlugin.pathKey`) to the runtime path.
+  * `PathScanner` root (i.e. each contains `eliot/…`). The **compiler path** is the `compiler` override overlay *only*;
+  * the **runtime path** is the abstract base (`lang` + `stdlib`) plus the `jvm` target. The compiler scan unions the
+  * runtime path, so base + target resolve for compile-time too and the overlay's definitions supersede the platform's.
+  * The user's own workspace roots are *not* included here: `LangPlugin` appends them (`LangPlugin.pathKey`) to the
+  * runtime path.
   */
 object BundledLayers {
 
@@ -40,9 +42,9 @@ object BundledLayers {
       layersDirectory.resolve("compiler")
     )
 
-  /** `(compilerPath, runtimePath)` from the four explicit module roots: compiler path = base (`lang` + `stdlib`) + the
-    * `compiler` platform layer (CP2); runtime path = base + the `jvm` target.
+  /** `(compilerPath, runtimePath)` from the four explicit module roots: compiler path = the `compiler` override overlay
+    * only; runtime path = base (`lang` + `stdlib`) + the `jvm` target (the compiler scan unions it in).
     */
   def fromRoots(langRoot: Path, stdlibRoot: Path, jvmRoot: Path, compilerRoot: Path): (Seq[Path], Seq[Path]) =
-    (Seq(langRoot, stdlibRoot, compilerRoot), Seq(langRoot, stdlibRoot, jvmRoot))
+    (Seq(compilerRoot), Seq(langRoot, stdlibRoot, jvmRoot))
 }

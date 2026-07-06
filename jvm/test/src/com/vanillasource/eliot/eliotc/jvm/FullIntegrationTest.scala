@@ -176,8 +176,6 @@ object FullIntegrationTest {
         Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
       def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
       List(
-        "--compiler-path", root("lang"),
-        "--compiler-path", root("stdlib"),
         "--compiler-path", root("compiler"),
         "--runtime-path", root("lang"),
         "--runtime-path", root("stdlib"),
