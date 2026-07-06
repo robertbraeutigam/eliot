@@ -333,8 +333,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
               state   <- StateT.get[CompilerIO, TypeState]
             } yield (classes, state.lambdaCount)
 
+            // The closure-class prefix must be the *mangled* method name, not the bare local name: two
+            // implementations of one ability share the local name (`wrap`) but get distinct mangled names
+            // (`wrap$Wrap$impl$0…`/`wrap$Wrap$impl$1…`). Using the bare name here collided their lambda classes
+            // (`Test$wrap$lambda$1` twice → a duplicate-entry ZipException at JAR time) whenever both were
+            // co-located in one module.
             program
-              .run(TypeState(methodName = uncurriedValue.vfqn.name.name, lambdaCount = initialLambdaCount))
+              .run(TypeState(methodName = methodName, lambdaCount = initialLambdaCount))
               .map(_._2)
           }
       case None       =>
