@@ -242,6 +242,11 @@ object HtmlSite {
 
   private val components: String =
     """.layout{display:flex;align-items:flex-start}
+      |/* Render Eliot verbatim: JetBrains Mono ships programming ligatures (=> ⇒, != ≠, -> →, >= ≥, …) that would
+      | * misrepresent the source — Eliot operators are real named values, so the glyphs must match the text exactly.
+      | * Disable them wherever the mono family shows Eliot: every code well/inline code (code/pre) and operator-named
+      | * item headings (.item-name). Inherits into the highlighted .kw/.op spans; prose (Inter) keeps its ligatures. */
+      |code,pre,kbd,samp,.item-name{font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0}
       |.sidebar{position:sticky;top:0;height:100vh;width:280px;flex:0 0 280px;overflow-y:auto;border-right:1px solid var(--border);padding:22px 16px;background:var(--bg)}
       |.sidebar::-webkit-scrollbar{width:9px}
       |.sidebar::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:var(--radius-sm);border:2px solid var(--bg)}
