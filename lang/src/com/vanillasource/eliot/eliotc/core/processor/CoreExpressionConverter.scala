@@ -187,6 +187,11 @@ object CoreExpressionConverter {
 
   /** Curries applications into core format. f(a, b, c) becomes f(a)(b)(c). The convert function determines how each
     * argument is converted (body context for () args, type context for [] args).
+    *
+    * Each intermediate application node is sourced over the *combined* span of its target and argument (never just the
+    * argument's), so a whole construction `Database("…")` attributes an error to `Database("…")` rather than to only its
+    * constructor parameter `"…"`. `target` already carries the full application span (`expr.as(...)` at the call site),
+    * so the outline reaches the closing `)`.
     */
   private def curryApplicationWith(
       target: Sourced[Expression],
@@ -194,6 +199,7 @@ object CoreExpressionConverter {
       convert: Sourced[SourceExpression] => Sourced[Expression]
   ): Sourced[Expression] =
     args.foldLeft(target) { (acc, arg) =>
-      arg.as(FunctionApplication(acc, convert(arg)))
+      val applied = convert(arg)
+      Sourced.outline(Seq(acc, applied)).as(FunctionApplication(acc, applied))
     }
 }

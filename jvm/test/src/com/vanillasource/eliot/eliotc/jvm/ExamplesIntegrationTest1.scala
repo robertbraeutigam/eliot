@@ -273,14 +273,14 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def andThen(first: Unit, second: Unit): Unit = second
         |
-        |def main: IO[Unit] = provide(run, Database("jdbc://app-db"))""".stripMargin,
+        |def main: IO[Unit] = run.provide(Database("jdbc://app-db"))""".stripMargin,
       stdin = "echoed\n"
     ).asserting(_ shouldBe "[LOG] jdbc://app-db\nechoed")
   }
 
   // Two distinct-typed `Dep`s in one body each read their own environment and yield the correct distinct value (the
   // first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two. Each is
-  // supplied by its own nested `provide`.
+  // supplied by its own nested `provide` (the inner peels the outermost `Dep` layer).
   "two distinct-typed Deps" should "each resolve dependency to its own value in one body" in {
     val program =
       """import eliot.effect.Console
@@ -292,7 +292,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def first: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
-        |def main: IO[Unit] = printLine(provide(provide(first, Database("the-db")), Logger("the-logger")))""".stripMargin
+        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), first)))""".stripMargin
     compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
       .asserting(_ shouldBe "the-db")
   }
@@ -310,7 +310,7 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |
         |def pick(a: String, b: String): String = b
         |
-        |def main: IO[Unit] = printLine(provide(provide(second, Database("the-db")), Logger("the-logger")))""".stripMargin
+        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), second)))""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
 }

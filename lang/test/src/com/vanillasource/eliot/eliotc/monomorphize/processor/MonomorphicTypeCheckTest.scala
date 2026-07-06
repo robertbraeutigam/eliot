@@ -99,7 +99,7 @@ class MonomorphicTypeCheckTest
     // The join Int[3,7] does not fit the declared Int[3,5]; the result-against-declared-type check is deferred to drain
     // (after the join is known), so the join — not the first candidate Int[3,3] — is checked against Int[3,5].
     runCombine("def pick[A](first: A, second: A): A\ndef test: Int[3, 5] = pick(integerLiteral[3], integerLiteral[7])")
-      .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[7]"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "pick(integerLiteral[3], integerLiteral[7])"))
   }
 
   // --- Refinement reconciliation: the deferred resolutions' coercions are spliced, not just verified ---
@@ -355,7 +355,7 @@ class MonomorphicTypeCheckTest
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "i"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "id(i)"))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
@@ -405,7 +405,7 @@ class MonomorphicTypeCheckTest
 
   it should "fail when the explicit type arg conflicts with the declared return type" in {
     runForErrors("def id[A](a: A): A = a\ndef i: BigInteger\ndef f(s: String): String = id[BigInteger](i)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "i"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "id[BigInteger](i)"))
   }
 
   it should "fail with too many type arguments" in {
@@ -424,10 +424,10 @@ class MonomorphicTypeCheckTest
     ).asserting(_ should contain("Type mismatch." at "i"))
   }
 
-  it should "point type argument mismatch to the explicit type argument" in {
+  it should "anchor a type argument mismatch at the whole construction" in {
     runForErrors(
       "data Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[BigInteger](g)"
-    ).asserting(_ shouldBe Seq("Type mismatch." at "g"))
+    ).asserting(_ shouldBe Seq("Type mismatch." at "Box[BigInteger](g)"))
   }
 
   it should "type check with an applied generic type as a type argument" in {
@@ -675,7 +675,7 @@ class MonomorphicTypeCheckTest
   it should "reject calculated differing data values" in {
     runForErrors(
       "data Person(value: String)\ndef one: Person = Person(\"x\")\ndef two: Person = Person(\"y\")\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[two](str)"
-    ).asserting(_ shouldBe Seq("Type mismatch." at "str")) // TODO: attribution wrong!
+    ).asserting(_ shouldBe Seq("Type mismatch." at "Box[two](str)"))
   }
 
   it should "accept type-level function calls that are not Type types" in {
@@ -1342,10 +1342,10 @@ class MonomorphicTypeCheckTest
   // never strips a carrier. (The `Inf` subset rejection is pinned verbatim in `EffectCheckProcessorTest`.)
 
   it should "reject a non-carrier constructor argument with a plain mismatch (no lift)" in {
-    // The mismatch anchors at the application node, whose position is its last argument (`applyChain` convention).
+    // The mismatch anchors at the argument's application node, spanning the whole `box("x")` construction.
     liftedErrors(
       "import eliot.effect.Console\ntype Box[A]\ndef box[A](value: A): Box[A]\ndef echo: {Console} Unit = printLine(box(\"x\"))"
-    ).asserting(_ should contain("Type mismatch." at "\"x\""))
+    ).asserting(_ should contain("Type mismatch." at "box(\"x\")"))
   }
 
   it should "keep the friendly declared-pure diagnostic for an effectful body under a pure return" in {
@@ -1358,10 +1358,10 @@ class MonomorphicTypeCheckTest
   }
 
   it should "reject an effectful lambda body under a rigid pure codomain (no strip at return boundaries)" in {
-    // The mismatch anchors at the body's application node, positioned at its last argument (`applyChain` convention).
+    // The mismatch anchors at the body's application node, spanning the whole `printLine(s)` construction.
     liftedErrors(
       "import eliot.effect.Console\ndef twice(f: Function[String, String]): String = f(f(\"x\"))\ndef echo: {Console} String = twice(s -> printLine(s))"
-    ).asserting(_ should contain("Type mismatch." at "s"))
+    ).asserting(_ should contain("Type mismatch." at "printLine(s)"))
   }
 
   "coercion under a carrier-polymorphic callee" should "still widen an Int argument (no lift interference)" in {
