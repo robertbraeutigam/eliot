@@ -267,8 +267,14 @@ The **compiler is its own platform**, peer to runtime platforms like jvm. Source
 resolves names in the `compiler` platform; codegen (`used → uncurry → backend`) resolves in the `runtime` platform.
 So one abstract base name can have a **distinct concrete implementation per platform** — exactly as `add`/`fold`/`Bool`
 already do via the native-binding routing (`ContributedBinding` + `BindingMergerProcessor`: the compile-time reduction
-wins for checking, the runtime body is used for codegen). There is no "shared" platform: each unifies the base + the
-user program + its own layer independently. This is built and in place — the
+wins for checking, the runtime body is used for codegen). The compiler platform is **not** an independent pool: it scans
+the entire runtime track *plus* its own **override overlay**, and an overlay definition supersedes the platform's for
+the same name (the compiler-as-platform override — `PathScan.overrideFiles` + `UnifiedModuleValueProcessor`, order-free
+otherwise; the runtime track carries no override files so its merge is unchanged). So the compiler *borrows* a runtime
+body where it is compiler-runnable (fail-safe: one that reaches a bytecode leaf stalls loudly, never silently wrong) and
+keeps its own where it redefines — it keeps its own copy of a representation-neutral concrete even where a platform
+currently matches, since a platform can diverge later. `--compiler-path` therefore carries only the overlay; base + the
+target come via `--runtime-path`, which the compiler scan unions in. This is built and in place — the
 `compiler` source pool, the always-linked `compiler` Mill module, the native label that reads it
 (`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`),
 and the module's **first content** all exist. CP4 is the compile-time `Either` carrier
