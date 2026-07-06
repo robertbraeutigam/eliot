@@ -1,6 +1,5 @@
 import eliot.lang.Bool
 import eliot.compiler.Coerce
-import eliot.lang.Option
 
 /**
  * The fixed set of machine layouts an `Int[MIN, MAX]` can lower to on the JVM, smallest first: `JvmByte`,
@@ -63,16 +62,20 @@ def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigI
 
 /**
  * Range widening as a user-space `Coerce` instance: an `Int[Smin, Smax]` coerces to `Int[Tmin, Tmax]` exactly when
- * `[Smin, Smax]` is contained in `[Tmin, Tmax]`. The `some`/`none` result IS the existence proof — the checker's
- * check-mode `Coerce` insertion resolves this instance by name, evaluates `coerce` through the one NbE evaluator, and
- * splices the `some` payload (`nativeWiden value`) at the use site (or reports a type error on `none`).
+ * `[Smin, Smax]` is contained in `[Tmin, Tmax]`. That containment is the instance's `where` guard, so the instance
+ * *applies* precisely when the widening is valid — the checker's check-mode `Coerce` insertion resolves it by name,
+ * evaluates the total `coerce` body through the one NbE evaluator, and splices the `nativeWiden` conversion at the use
+ * site; a range that does not fit finds no applicable instance, which surfaces as the ordinary "Type mismatch." there.
  *
- * This instance lives in the platform layer (not `stdlib`) because its payload performs a real, representation-changing
+ * This instance lives in the platform layer (not `stdlib`) because its body performs a real, representation-changing
  * runtime conversion (`nativeWiden`): a JavaScript backend, with one numeric type, would supply an identity `Coerce`
- * here instead. The bounds check `lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax)` depends only on
- * type-level data, so NbE forces it away at compile time.
+ * here instead. The guard `lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax)` depends only on type-level data,
+ * so it is discharged at compile time.
  */
-implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
+implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]]
+      where lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax) {
+   def coerce(value: Int[Smin, Smax]): Int[Tmin, Tmax] = nativeWiden(value)
+}
 
 /**
  * The concretely-sized leaf operations for `+`, `-`, and `*`, one per (operand width, result width) pair.

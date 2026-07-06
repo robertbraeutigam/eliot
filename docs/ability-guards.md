@@ -1,6 +1,6 @@
 # Ability Implementation Guards
 
-Status: **Stages 0–5 landed** (2026-07-05); Stage 6 planned. Revised 2026-07-05: the coherence stance is
+Status: **Stages 0–6 landed** (Stage 6: 2026-07-06). Revised 2026-07-05: the coherence stance is
 settled (use-site exactly-one-survivor is the rule; definition-time overlap is a conservative lint), the
 marker-body decision is added, the blanket `Eq` rule is dropped, and two further clients — the `IntArith`
 width-dispatch family and a guarded `Coerce` — are folded in. Guards are thereby not a one-off fix for
@@ -488,7 +488,30 @@ the plan's spikes):
   `JvmBigInteger` representation overflows for values beyond `long` — the big-operand instance and any
   long→bignum promotion are codegen-untested; unchanged by this refactor.)
 
-**Stage 6 — guarded `Coerce`** (§4.2; exploratory, after the caveat is resolved).
+**Stage 6 — guarded `Coerce` (§4.2). LANDED (2026-07-06).**
+- Retired the `Option`-decline protocol. The `Coerce` ability now returns `To` directly
+  (`lang/.../compiler/Coerce.els`: `def coerce(value: From): To`), and the jvm instance is guarded:
+  `implement[…] Coerce[Int[Smin,Smax], Int[Tmin,Tmax]] where lessThanOrEqual(Tmin, Smin) &&
+  lessThanOrEqual(Smax, Tmax) { def coerce(value) = nativeWiden(value) }` — total body, no `some`/`none`.
+- **The caveat, resolved.** "No applicable instance" for `Coerce` must be a *soft* "Type mismatch." at the use
+  site, not the hard "No ability implementation found" a user ability (or an `IntArith` coverage gap) gets. The
+  hard error is produced by the *producer* (`AbilityImplementationProcessor.handleMissingImplementation`), and
+  the checker's coercion probe (`RefinementSolver`) triggers it via `getFactIfProduced`. Fix: that producer now
+  *declines* (aborts with no error) when the ability is `Coerce` (`isCoerce`, keyed on `WellKnownTypes.coerceFQN`)
+  and there is no default — `Coerce` is checker-inserted and its non-applicability is a normal answer. Every other
+  ability still hard-errors on no-match, so the `IntArith` gap behaviour is unchanged.
+- `RefinementSolver.coercionPayload` unifies the impl signature against `VPi(actual, _ => expected)` (was
+  `Option[expected]`) and returns the evaluated body (`nativeWiden(marker)`) directly as the splice payload; the
+  guard having resolved the instance *is* the existence proof, so there is no `some`/`none` to interpret.
+- Verified: full `lang` (832) + `jvm` (179) suites green; the narrowing-rejection tests
+  (`MonomorphicTypeCheckTest`: `Int[0,3] = 5`, `Byte = 5000`, `Int[0,3] = integerLiteral[5]`) still report the
+  clean single "Type mismatch." (the caveat holds); real-layer widening of both a parameter and a literal works.
+  Stub-fidelity fix along the way: the two `ProcessorTest` `Coerce` stubs were under-annotated
+  (`implement[Smin, …]` with no `: BigInteger`); the `Option` body tolerated the kind default (`Type`) but the
+  guard's `lessThanOrEqual` — which needs `BigInteger` — surfaced it as a spurious `Type → BigInteger` coercion,
+  so the stubs now match the real instance's `[Smin: BigInteger, …]`.
+
+**All six stages (0–6) are landed; the ability-guards plan is complete.**
 
 ## 6. Grounded hook points
 

@@ -57,6 +57,16 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     } yield ()
   }
 
+  /** Whether `abilityFQN` is the compiler's `Coerce` extension point. `Coerce` is *inserted by the checker* at a type
+    * boundary, never demanded as a required capability, and its instances are guarded (a widening only applies where the
+    * ranges nest). So "no applicable instance" is a normal, expected answer meaning "this coercion does not exist" — the
+    * check-mode inserter reads the missing fact and surfaces the ordinary "Type mismatch." at the use site. Reporting a
+    * build-failing "no implementation" here would turn every non-fitting range into the wrong diagnostic, so Coerce
+    * *declines* (aborts with no error) instead of erroring.
+    */
+  private def isCoerce(abilityFQN: AbilityFQN): Boolean =
+    abilityFQN.moduleName == WellKnownTypes.coerceFQN.moduleName && abilityFQN.abilityName == "Coerce"
+
   private def handleMissingImplementation(
       abilityValueFQN: ValueFQN,
       abilityFQN: AbilityFQN,
@@ -65,9 +75,11 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     for {
       resolved <- getFactOrAbort(OperatorResolvedValue.Key(abilityValueFQN, key.platform))
       _        <- resolved.runtime match {
-                    case Some(_) =>
+                    case Some(_)                  =>
                       handleDefaultImplementation(resolved, abilityFQN, key)
-                    case None    =>
+                    case None if isCoerce(abilityFQN) =>
+                      abort[Unit] // a declined coercion is not an error — see `isCoerce`
+                    case None                     =>
                       compilerError(
                         resolved.name.as(
                           s"No ability implementation found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments

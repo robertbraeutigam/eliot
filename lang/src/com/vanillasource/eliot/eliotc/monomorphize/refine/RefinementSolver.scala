@@ -67,11 +67,11 @@ class RefinementSolver(
   /** Resolve a term against an expected type. First attempt pure definitional equality (the unifier). If that fails,
     * attempt a check-mode `Coerce` insertion: where the inferred type is used where a different expected type built
     * from the same constructor is wanted (e.g. `Int[3,3]` where `Int[0,10]` is expected), resolve the user-defined
-    * `Coerce` ability by name and evaluate its `coerce` through the one NbE evaluator. A `some payload` result means
-    * the coercion exists, and the `some` payload is spliced as a real conversion node wrapping the term (see
-    * [[buildCoercedExpr]]) — for `Int` that is a `nativeWiden` the backend lowers to an unbox→rebox between the source
-    * and target representations. A `none` or stuck result means no coercion, so the original "Type mismatch." is
-    * committed.
+    * `Coerce` ability by name. A guarded instance *applies* precisely when the coercion is valid, so a resolved
+    * instance is the existence proof; its total `coerce` body, evaluated through the one NbE evaluator, is spliced as a
+    * real conversion node wrapping the term (see [[buildCoercedExpr]]) — for `Int` that is a `nativeWiden` the backend
+    * lowers to an unbox→rebox between the source and target representations. No applicable instance (or bounds too
+    * abstract to decide) means no coercion, so the original "Type mismatch." is committed.
     *
     * `unify` itself stays pure definitional equality — the directional widening lives here, in check mode only.
     */
@@ -112,8 +112,8 @@ class RefinementSolver(
     } yield result
 
   /** Try to resolve and apply a `Coerce[actual, expected]` instance. Returns the coerced expression on success (the
-    * resolved `coerce`'s `some` payload spliced around the term — see [[buildCoercedExpr]]), or `None` when no coercion
-    * applies (no instance, a `none` result, or bounds too abstract to decide). Only fires for leaf positions (argument
+    * resolved `coerce`'s body spliced around the term — see [[buildCoercedExpr]]), or `None` when no coercion
+    * applies (no applicable instance, or bounds too abstract to decide). Only fires for leaf positions (argument
     * / binding / return); coercing inside a constructor (e.g. `List[Int[0,5]] → List[Int[0,10]]`) needs variance
     * reasoning and is not handled here.
     *
@@ -198,10 +198,10 @@ class RefinementSolver(
   private def resolveCoercion(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
     resolveCoercionPayload(actual, expected, context).map(_.isDefined)
 
-  /** Resolve `Coerce[actual, expected]` by name and return the resolved instance's `some` payload (the value the
-    * coercion yields, with the `coerce` argument left as the `NeutralHead.Marker.Coerce` marker), or [[None]] when no coercion
-    * applies (abstract/unsolved bounds, no instance, or a `none` result). The shared core of [[tryCoerce]] (which
-    * splices the payload) and [[resolveCoercion]] (which only needs existence).
+  /** Resolve `Coerce[actual, expected]` by name and return the resolved instance's conversion payload (the value the
+    * coercion yields, with the `coerce` argument left as the `NeutralHead.Marker.Coerce` marker), or [[None]] when no
+    * coercion applies (abstract/unsolved bounds, or no applicable instance — a guarded instance whose guard declines).
+    * The shared core of [[tryCoerce]] (which splices the payload) and [[resolveCoercion]] (which only needs existence).
     */
   private def resolveCoercionPayload(
       actual: SemValue,
@@ -224,23 +224,23 @@ class RefinementSolver(
                 }
     } yield result
 
-  /** Evaluate the resolved `coerce` implementation against the concrete bounds and return its `some` payload (the value
-    * the coercion yields), or [[None]] when it yields `none`. The `coerce` argument is bound to a
-    * `NeutralHead.Marker.Coerce` marker neutral, so the payload carries that marker wherever the runtime value flows — [[buildCoercedExpr]] splices
-    * the actual expression in its place. A `Some(payload)` result therefore both proves the coercion exists and
-    * provides the conversion to splice.
+  /** Evaluate the resolved `coerce` implementation against the concrete bounds and return its conversion payload — the
+    * total `coerce` body evaluated with its value argument left as the `NeutralHead.Marker.Coerce` marker neutral, so the
+    * payload carries that marker wherever the runtime value flows and [[buildCoercedExpr]] splices the actual expression
+    * in its place. The guard already decided applicability (a non-fitting range resolved no instance), so a resolved
+    * instance always yields a real conversion — there is no `some`/`none` to interpret.
     *
     * The impl's generic bound parameters are not lambdas in its runtime body (only value parameters are — see
     * `CoreExpressionConverter.buildCurriedBody`); they are free names resolved through the env. So:
     *   - peel the impl signature's type-parameter `VLam`s into fresh metas (recording each `name → meta`);
-    *   - unify the resulting value-level function type against `VPi(actual, _ => Option[expected])` and drain, which
-    *     solves those metas to the concrete bounds;
+    *   - unify the resulting value-level function type against `VPi(actual, _ => expected)` and drain, which solves those
+    *     metas to the concrete bounds;
     *   - rebuild the body env binding each name to the **forced (concrete)** meta value — not the meta itself: the NbE
     *     evaluator has no metastore, so a native applied to an unforced `VMeta` would go stuck during evaluation.
     *
-    * Evaluating the runtime body in that concrete env and forcing it reduces the bounds-only existence check to
-    * `some`/`none`. Coercion runs user code at compile time, which Girard's paradox allows to diverge; the termination
-    * guard is deferred with the recursion/effect model.
+    * Evaluating the runtime body in that concrete env and forcing it yields the conversion (`nativeWiden(marker)`).
+    * Coercion runs user code at compile time, which Girard's paradox allows to diverge; the termination guard is deferred
+    * with the recursion/effect model.
     */
   private def coercionPayload(
       implFqn: ValueFQN,
@@ -256,9 +256,7 @@ class RefinementSolver(
                     for {
                       sigSem        <- evalExpr(orv.typeStack.value.signature, Some(Env.empty))
                       (mono, binds) <- peelSigMetas(sigSem, Seq.empty)
-                      optionExpected =
-                        Evaluator.applyValue(VTopDef(WellKnownTypes.optionFQN, None, Spine.SNil), expected)
-                      _             <- doUnify(mono, VPi(actual, _ => optionExpected), context)
+                      _             <- doUnify(mono, VPi(actual, _ => expected), context)
                       _             <- modify(st => st.withUnifier(st.unifier.drain()))
                       concreteEnv   <- binds.foldLeftM(Env.empty) { case (env, (name, meta)) =>
                                          force(meta).map(env.bind(name, _))
@@ -266,11 +264,10 @@ class RefinementSolver(
                       bodyVal       <- evalExpr(body.value, Some(concreteEnv))
                       applied        = Evaluator.applyValue(bodyVal, VNeutral(NeutralHead.Reserved(NeutralHead.Marker.Coerce), Spine.SNil))
                       forced        <- force(applied)
-                    } yield forced match {
-                      // `some payload` ⟹ coercion holds; the payload is the value argument of `some`.
-                      case VTopDef(fqn, _, spine) if fqn == WellKnownTypes.someFQN => spine.toList.lastOption
-                      case _                                                       => None
-                    }
+                      // The guard already decided applicability (a non-fitting range found no instance), so a resolved
+                      // instance always yields a real conversion: the total `coerce` body evaluated with its value
+                      // argument left as the marker — `nativeWiden(marker)` — which is the payload to splice.
+                    } yield Some(forced)
                 }
     } yield result
 
