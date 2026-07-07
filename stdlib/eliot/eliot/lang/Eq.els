@@ -29,4 +29,4 @@ def ==[A ~ Eq](a: A, b: A): Bool = equals(a, b)
  * Inequality operator: the negation of `==`. `a != b` is `true` exactly when `a == b` is `false`.
  */
 infix left at ==
-def !=[A ~ Eq](a: A, b: A): Bool = fold(equals(a, b), false, true)
+def !=[A ~ Eq](a: A, b: A): Bool = !equals(a, b)
