@@ -34,6 +34,7 @@ object NativeType {
   val types: Map[ValueFQN, NativeType] = Map.from(
     Seq(
       (systemLangType("String"), eliot_lang_String),
+      (systemLangType("Bool"), eliot_lang_Bool),
       (systemLangType("Function"), eliot_lang_Function),
       (systemLangType("Unit"), eliot_lang_Unit),
       (systemLangType("Any"), eliot_lang_Any),
@@ -89,6 +90,13 @@ object NativeType {
 
   private def eliot_lang_String: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[java.lang.String]
+  }
+
+  // The opaque `Bool` (no `data`, no chosen representation in the base) is carried at runtime as a boxed
+  // `java.lang.Boolean` — matching the compile-time `VConst(Direct(Boolean, …))` domain. `true`/`false`/`fold`/
+  // `&&`/`||`/`!` are emitted inline by `ExpressionCodeGenerator` (see `Intrinsics`) over this representation.
+  private def eliot_lang_Bool: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.lang.Boolean]
   }
 
   // We compile Unit to Void not "void", because there's just too many random exceptions

@@ -33,7 +33,8 @@ object NativeImplementation {
       (systemEffectValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
       (systemEffectValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
       (systemEffectValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
-      (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit)
+      (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit),
+      (systemLangValueFQN("Eq", "stringEquals"), eliot_lang_Eq_stringEquals)
     )
   )
 
@@ -82,6 +83,41 @@ object NativeImplementation {
             )
             methodVisitor.visitInsn(Opcodes.POP)          // discard the Unit result
             methodVisitor.visitJumpInsn(Opcodes.GOTO, loop)
+          }
+        }
+  }
+
+  /** `stringEquals(a: String, b: String): Bool` — the value-equality leaf behind the runtime `Eq[String]` instance
+    * (`jvm/.../Eq.els`). Realised as `Boolean.valueOf(a.equals(b))`, so the opaque `Bool` result is the boxed
+    * `java.lang.Boolean` the backend carries `Bool` as (see [[NativeType]]). Pure (`impure = false`), so it may stay a
+    * plain — here `private` — leaf. Its compile-time counterpart is `StdlibNativesProcessor.stringEquals`.
+    */
+  private def eliot_lang_Eq_stringEquals: NativeImplementation = new NativeImplementation {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] =
+      classGenerator
+        .createMethod[CompilerIO](
+          JvmIdentifier("stringEquals"),
+          Seq(systemLangType("String"), systemLangType("String")),
+          systemLangType("Bool")
+        )
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 1)
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/lang/String",
+              "equals",
+              "(Ljava/lang/Object;)Z",
+              false
+            )
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKESTATIC,
+              "java/lang/Boolean",
+              "valueOf",
+              "(Z)Ljava/lang/Boolean;",
+              false
+            )
           }
         }
   }

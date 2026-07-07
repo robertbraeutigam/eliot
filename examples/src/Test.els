@@ -1,0 +1,20 @@
+import eliot.lang.Bool
+import eliot.lang.Eq
+import eliot.effect.Console
+
+/**
+ * Exercises the runtime Bool operations. The condition is built from a runtime `String` (`readLine`), so the
+ * compiler cannot fold it away at compile time: `==` (via the new `Eq[String]`), `!`, `&&`, `||`, and the `fold`
+ * eliminator all survive to bytecode. Prints "yes-ish" for the inputs "yes" and "y", "nope" for anything else.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m Test
+ * echo "yes" | java -jar target/Test.jar
+ * ```
+ */
+def classify: {Console} Unit = {
+   val line = readLine
+   fold(((line == "yes") || (line == "y")) && !(line == "no"), printLine("yes-ish"), printLine("nope"))
+}
+
+def main: IO[Unit] = classify

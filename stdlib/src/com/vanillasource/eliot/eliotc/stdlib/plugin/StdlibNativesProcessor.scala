@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.stdlib.plugin
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
-import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{bigIntFQN, boolFQN}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{bigIntFQN, boolFQN, stringFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -13,8 +13,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 /** The `stdlib` native contributor: emits the total [[ContributedBinding]] under [[StdlibNativesProcessor.stdlibLabel]]
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
   * reason about — the compile-time arithmetic/comparison on [[BigInteger]] backing `Int`'s dependent bounds
-  * (`add`/`subtract`/`min`/`max`/`multiplyMin`/`multiplyMax`/ `lessThanOrEqual`), boolean conjunction (`&&`), and `inc`
-  * — and `None` for every other name.
+  * (`add`/`subtract`/`min`/`max`/`multiplyMin`/`multiplyMax`/ `lessThanOrEqual`), the boolean operators (`&&`/`||`/`!`),
+  * string equality (`stringEquals`, backing `Eq[String]`), and `inc` — and `None` for every other name.
   *
   * These are ordinary library functions (declared body-less in the stdlib layer's `BigInteger.els`/`Bool.els`); the
   * compiler only seeds the NbE evaluator with a native reduction rule so that, e.g., `add(2, 3)` reduces to `5` and
@@ -35,6 +35,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   private val bigIntegerModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
   private val boolModule: ModuleName       = ModuleName(ModuleName.defaultSystemPackage, "Bool")
+  private val eqModule: ModuleName         = ModuleName(ModuleName.defaultSystemPackage, "Eq")
 
   private def bigIntegerFn(name: String): ValueFQN = ValueFQN(bigIntegerModule, QualifiedName(name, Qualifier.Default))
 
@@ -49,9 +50,11 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private val boolAndFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("&&", Qualifier.Default))
   private val boolOrFQN: ValueFQN          = ValueFQN(boolModule, QualifiedName("||", Qualifier.Default))
   private val boolNotFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("!", Qualifier.Default))
+  private val stringEqualsFQN: ValueFQN    = ValueFQN(eqModule, QualifiedName("stringEquals", Qualifier.Default))
 
   private val bigIntType: SemValue = VTopDef(bigIntFQN, None, Spine.SNil)
   private val boolType: SemValue   = VTopDef(boolFQN, None, Spine.SNil)
+  private val stringType: SemValue = VTopDef(stringFQN, None, Spine.SNil)
 
   private val bindings: Map[ValueFQN, SemValue] = Map(
     incFQN             -> incNative,
@@ -64,7 +67,8 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     multiplyMaxFQN     -> bigIntCornerNative(multiplyMaxFQN)(_.max),
     boolAndFQN         -> andNative,
     boolOrFQN          -> orNative,
-    boolNotFQN         -> notNative
+    boolNotFQN         -> notNative,
+    stringEqualsFQN    -> stringEqualsNative
   )
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
@@ -170,6 +174,20 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
       VConst(GroundValue.Direct(!x, Evaluator.boolGroundType))
     case _                                         =>
       stuck(boolAndFQN, a)
+  }
+
+  /** `stringEquals(a, b): Bool` — the compile-time counterpart of the jvm `stringEquals` leaf (backing `Eq[String]`).
+    * Reduces to a concrete Bool when both arguments are concrete strings, otherwise stays stuck (a runtime string,
+    * e.g. a `readLine` result, keeps the comparison as a residual call for the backend to emit).
+    */
+  private def stringEqualsNative: SemValue =
+    VNative(stringType, a => VNative(stringType, b => stringEqualsResult(a, b)))
+
+  private def stringEqualsResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
+    case (VConst(GroundValue.Direct(x: String, _)), VConst(GroundValue.Direct(y: String, _))) =>
+      if (x === y) Evaluator.trueValue else Evaluator.falseValue
+    case _                                                                                    =>
+      stuck(stringEqualsFQN, a, b)
   }
 }
 

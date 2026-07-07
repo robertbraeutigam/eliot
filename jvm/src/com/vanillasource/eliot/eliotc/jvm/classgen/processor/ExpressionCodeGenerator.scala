@@ -18,7 +18,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
-import org.objectweb.asm.Opcodes
+import org.objectweb.asm.{Label, MethodVisitor, Opcodes}
 
 object ExpressionCodeGenerator {
 
@@ -292,6 +292,15 @@ object ExpressionCodeGenerator {
         classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)
         _       <- methodGenerator.runNative[CompilationTypesIO](convertRepresentation(sourceRep, targetRep))
       } yield classes
+    } else if (Intrinsics.boolOps.contains(calledVfqn)) {
+      generateBoolIntrinsic(
+        moduleName,
+        outerClassGenerator,
+        methodGenerator,
+        calledVfqn,
+        arguments,
+        expectedResultType
+      )
     } else {
       val resultRep = representationInternalName(expectedResultType)
       val leftRep   = representationInternalName(arguments(0).expressionType)
@@ -320,6 +329,82 @@ object ExpressionCodeGenerator {
       } yield classes1 ++ classes2
     }
   }
+
+  /** Emit a `Bool` primitive/operator inline over the `java.lang.Boolean` representation. Reached only for a genuinely
+    * runtime `Bool` — a constant-operand expression is folded away by the compile-time native before codegen.
+    *
+    *   - `true`/`false` push `Boolean.TRUE`/`FALSE`;
+    *   - `!a` unboxes and flips (`ICONST_1`/`IXOR`), reboxing;
+    *   - `a && b` / `a || b` unbox both operands and `IAND`/`IOR`, reboxing (both operands are ordinary strict values,
+    *     so there is nothing to short-circuit);
+    *   - `fold(cond, whenTrue, whenFalse)` branches on `cond` and emits *only the taken arm's* code (an `IFEQ` skip),
+    *     so the untaken branch is never evaluated — matching `fold`'s selecting semantics and avoiding the awkward
+    *     three-deep stack a strict select would need.
+    */
+  private def generateBoolIntrinsic(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      calledVfqn: ValueFQN,
+      arguments: Seq[UncurriedMonomorphicExpression],
+      expectedResultType: GroundValue
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    if (calledVfqn === Intrinsics.boolTrueFQN || calledVfqn === Intrinsics.boolFalseFQN)
+      methodGenerator
+        .runNative[CompilationTypesIO](pushBoolConstant(calledVfqn === Intrinsics.boolTrueFQN))
+        .as(Seq.empty)
+    else if (calledVfqn === Intrinsics.boolNotFQN)
+      for {
+        classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
+        _       <- methodGenerator.runNative[CompilationTypesIO](notBool)
+      } yield classes
+    else if (calledVfqn === Intrinsics.boolAndFQN || calledVfqn === Intrinsics.boolOrFQN) {
+      val opcode = if (calledVfqn === Intrinsics.boolAndFQN) Opcodes.IAND else Opcodes.IOR
+      for {
+        classes1 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
+        _        <- methodGenerator.runNative[CompilationTypesIO](unboxBool)
+        classes2 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
+        _        <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                      unboxBool(mv)
+                      mv.visitInsn(opcode)
+                      boxBool(mv)
+                    }
+      } yield classes1 ++ classes2
+    } else { // boolFoldFQN
+      val elseLabel = new Label()
+      val endLabel  = new Label()
+      for {
+        condClasses  <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
+        _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          unboxBool(mv)
+                          mv.visitJumpInsn(Opcodes.IFEQ, elseLabel)
+                        }
+        trueClasses  <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
+        _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          mv.visitJumpInsn(Opcodes.GOTO, endLabel)
+                          mv.visitLabel(elseLabel)
+                        }
+        falseClasses <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(2))
+        _            <- methodGenerator.runNative[CompilationTypesIO](_.visitLabel(endLabel))
+        _            <- methodGenerator.addCastTo[CompilationTypesIO](valueType(expectedResultType))
+      } yield condClasses ++ trueClasses ++ falseClasses
+    }
+
+  private def unboxBool(mv: MethodVisitor): Unit =
+    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false)
+
+  private def boxBool(mv: MethodVisitor): Unit =
+    mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false)
+
+  private def notBool(mv: MethodVisitor): Unit = {
+    unboxBool(mv)
+    mv.visitInsn(Opcodes.ICONST_1)
+    mv.visitInsn(Opcodes.IXOR)
+    boxBool(mv)
+  }
+
+  private def pushBoolConstant(value: Boolean)(mv: MethodVisitor): Unit =
+    mv.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", if (value) "TRUE" else "FALSE", "Ljava/lang/Boolean;")
 
   /** The primitive `long` opcode for an arithmetic leaf FQN. */
   private def longOpcode(leafVfqn: ValueFQN): Int =

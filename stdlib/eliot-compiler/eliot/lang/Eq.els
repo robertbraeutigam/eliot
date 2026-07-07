@@ -1,0 +1,23 @@
+import eliot.lang.Bool
+
+// The compiler-track `Eq[String]` instance (the `eliot-compiler/` overlay redefinition). The compiler platform must
+// resolve string equality when type-checking a program that uses `==` on strings, and must do so *self-sufficiently*
+// — without borrowing the jvm target, which may be absent (e.g. under the LSP). So this duplicates the runtime copy in
+// `jvm/.../Eq.els`; the overlay supersedes the borrowed jvm instance in the compiler pool. Here `stringEquals` reduces
+// at compile time via `StdlibNativesProcessor` (concrete-string comparison; a runtime operand keeps it stuck), rather
+// than the jvm bytecode leaf. `Eq[Type]` stays in the `lang` base (`lang/.../Eq.els`) — types are erased, so it needs
+// no runtime counterpart, while strings are not, which is exactly why `Eq[String]` is split across the two tracks.
+
+ability Eq[A] {
+   def equals(a: A, b: A): Bool
+}
+
+/**
+ * String equality: `true` when `a` and `b` are equal character-for-character. A native leaf; its compile-time
+ * reduction is supplied by `StdlibNativesProcessor`.
+ */
+private def stringEquals(a: String, b: String): Bool
+
+implement Eq[String] {
+   def equals(a: String, b: String): Bool = stringEquals(a, b)
+}
