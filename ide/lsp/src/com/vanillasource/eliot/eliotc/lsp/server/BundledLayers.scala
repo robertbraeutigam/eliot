@@ -2,49 +2,47 @@ package com.vanillasource.eliot.eliotc.lsp.server
 
 import java.nio.file.Path
 
-/** Resolves the bundled compiler/runtime layer source roots the resident LSP compile must hand to `PathScanner`.
+/** Resolves the bundled layer source roots the resident LSP compile must hand to `PathScanner` (via
+  * `LangPlugin.pathKey`).
   *
-  * Since CP1.5 the abstract base and the platform layers are supplied as ordinary filesystem roots — the classpath scan
-  * that used to discover them is gone (CP1.5). A packaged distribution stages those layer
-  * sources as plain directories beside the server jars (`ide/lsp/package.sh`) and the launcher points the
-  * [[layersDirectoryProperty]] system property at the staging directory; this object turns that directory into the two
-  * per-phase root lists.
+  * The abstract base and the platform layers are supplied as ordinary filesystem roots — the classpath scan that used to
+  * discover them is gone. A packaged distribution stages those layer sources as plain directories beside the server jars
+  * (`ide/lsp/package.sh`) and the launcher points the [[layersDirectoryProperty]] system property at the staging
+  * directory; this object turns that directory into the list of layer roots.
   *
-  * The layers directory holds one subdirectory per module — `lang`, `stdlib`, `jvm`, `compiler` — each itself a
-  * `PathScanner` root (i.e. each contains `eliot/…`). The **compiler path** is the `compiler` override overlay *only*;
-  * the **runtime path** is the abstract base (`lang` + `stdlib`) plus the `jvm` target. The compiler scan unions the
-  * runtime path, so base + target resolve for compile-time too and the overlay's definitions supersede the platform's.
-  * The user's own workspace roots are *not* included here: `LangPlugin` appends them (`LangPlugin.pathKey`) to the
-  * runtime path.
+  * The layers directory holds one subdirectory per module — `lang`, `stdlib`, `jvm` — each staging that module's
+  * in-tree `eliot/` root (and, where present, its `eliot-compiler/` compile-time overlay) under `<module>/`. A layer
+  * root is therefore `<layersDir>/<module>/eliot`; `LangPlugin` derives its `eliot-compiler/` sibling for the compiler
+  * pool. The user's own workspace roots are *not* included here: `EliotCompilationService` appends them to the same
+  * `LangPlugin.pathKey` list.
   */
 object BundledLayers {
 
-  /** System property naming the directory that holds the bundled `lang`/`stdlib`/`jvm`/`compiler` layer source roots.
-    * The package.sh launcher and the IntelliJ connection provider both set it to the `eliot-src` directory they stage.
+  /** System property naming the directory that holds the bundled `lang`/`stdlib`/`jvm` layer source roots. The
+    * package.sh launcher and the IntelliJ connection provider both set it to the `eliot-src` directory they stage.
     */
   val layersDirectoryProperty = "eliot.layers"
 
-  /** `(compilerPath, runtimePath)` from [[layersDirectoryProperty]], or two empty lists when it is unset (in which case
-    * the resident compile resolves only the user's own roots — every stdlib name is then unresolved, a degraded but safe
-    * state the caller surfaces as a warning rather than mis-resolving).
+  /** The layer roots from [[layersDirectoryProperty]], or an empty list when it is unset (in which case the resident
+    * compile resolves only the user's own roots — every stdlib name is then unresolved, a degraded but safe state the
+    * caller surfaces as a warning rather than mis-resolving).
     */
-  def fromSystemProperty: (Seq[Path], Seq[Path]) =
+  def fromSystemProperty: Seq[Path] =
     Option(System.getProperty(layersDirectoryProperty))
       .map(directory => fromDirectory(Path.of(directory)))
-      .getOrElse((Seq.empty, Seq.empty))
+      .getOrElse(Seq.empty)
 
-  /** `(compilerPath, runtimePath)` from a layers directory holding `lang`/`stdlib`/`jvm`/`compiler` subdirectories. */
-  def fromDirectory(layersDirectory: Path): (Seq[Path], Seq[Path]) =
+  /** The layer roots from a layers directory holding `lang`/`stdlib`/`jvm` subdirectories (each with an `eliot/` tree). */
+  def fromDirectory(layersDirectory: Path): Seq[Path] =
     fromRoots(
-      layersDirectory.resolve("lang"),
-      layersDirectory.resolve("stdlib"),
-      layersDirectory.resolve("jvm"),
-      layersDirectory.resolve("compiler")
+      layersDirectory.resolve("lang").resolve("eliot"),
+      layersDirectory.resolve("stdlib").resolve("eliot"),
+      layersDirectory.resolve("jvm").resolve("eliot")
     )
 
-  /** `(compilerPath, runtimePath)` from the four explicit module roots: compiler path = the `compiler` override overlay
-    * only; runtime path = base (`lang` + `stdlib`) + the `jvm` target (the compiler scan unions it in).
+  /** The layer roots from the explicit module `eliot/` roots. Each is scanned for the runtime pool; its sibling
+    * `eliot-compiler/` overlay (only `stdlib` ships one) is added for the compiler pool by `LangPlugin`.
     */
-  def fromRoots(langRoot: Path, stdlibRoot: Path, jvmRoot: Path, compilerRoot: Path): (Seq[Path], Seq[Path]) =
-    (Seq(compilerRoot), Seq(langRoot, stdlibRoot, jvmRoot))
+  def fromRoots(langRoot: Path, stdlibRoot: Path, jvmRoot: Path): Seq[Path] =
+    Seq(langRoot, stdlibRoot, jvmRoot)
 }

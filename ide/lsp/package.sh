@@ -22,11 +22,11 @@
 #                   ASM. The "Run main" feature launches the compiler CLI with `-cp "lib/*:compiler-lib/*"`.
 #                   eliot-jvm.jar lives in lib/ (not here): a second copy on that combined classpath would duplicate
 #                   the backend classes.
-#   eliot-src/    — the abstract base (lang+stdlib), the jvm runtime layer, and the compiler platform layer (CP2) as
-#                   plain .els source roots, one dir per module (CP1.5), copied from each module's in-tree `eliot/`
-#                   root. The launcher points the `eliot.layers` system property here so the server hands them to
-#                   PathScanner as --compiler-path/--runtime-path (the compiler layer feeds the compiler path only); the
-#                   "Run main" CLI passes the same subdirs.
+#   eliot-src/    — the abstract base (lang+stdlib) and the jvm runtime layer as plain .els source roots, one dir per
+#                   module, copied from each module's in-tree `eliot/` root (plus its `eliot-compiler/` compile-time
+#                   overlay where present — only stdlib has one). The launcher points the `eliot.layers` system property
+#                   here so the server hands each `<module>/eliot` root to PathScanner via `--path`; the compiler pool
+#                   additionally scans each root's `eliot-compiler/` sibling. The "Run main" CLI passes the same roots.
 #
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root (script lives at ide/lsp/package.sh)
@@ -80,17 +80,20 @@ copy_module_jar apidoc.jar "$LIB/eliot-apidoc.jar"
   | python3 -c "import sys, json; [print(p[p.index('/'):]) for p in json.load(sys.stdin) if p.endswith('.jar') and '/asm-' in p]" \
   | while read -r jar; do cp "$jar" "$COMPILER_LIB/"; done
 
-# eliot-src/ holds the layer .els as plain filesystem source roots (CP1.5). Since the classpath scan was removed, the
-# server and the "Run main" CLI take the abstract base (lang+stdlib), the jvm layer, and the compiler platform layer (CP2)
-# as --compiler-path/--runtime-path directories instead of finding them on the classpath (the compiler layer is on the
-# compiler path only). Each module's in-tree `eliot/` tree is staged as its OWN root
-# under eliot-src/<module>; they are deliberately NOT merged into one dir — same-path files like eliot/lang/String.els
-# exist in both lang and stdlib, and keeping them in separate roots lets PathScanner return all copies for the unifier
-# to merge (the very reason a fat jar is forbidden — see the header). The launcher points the `eliot.layers` system
-# property at this dir; EliotRunConfiguration passes the same subdirs to the CLI build.
-for m in lang stdlib jvm compiler; do
+# eliot-src/ holds the layer .els as plain filesystem source roots. Since the classpath scan was removed, the server and
+# the "Run main" CLI take the abstract base (lang+stdlib) and the jvm layer as `--path` directories instead of finding
+# them on the classpath; the compiler pool additionally scans each root's `eliot-compiler/` sibling (only stdlib ships
+# one). Each module's in-tree `eliot/` tree is staged under eliot-src/<module>/eliot as its OWN root (its overlay under
+# eliot-src/<module>/eliot-compiler); they are deliberately NOT merged into one dir — same-path files like
+# eliot/lang/String.els exist in both lang and stdlib, and keeping them in separate roots lets PathScanner return all
+# copies for the unifier to merge (the very reason a fat jar is forbidden — see the header). The launcher points the
+# `eliot.layers` system property at this dir; EliotRunConfiguration passes the same subdirs to the CLI build.
+for m in lang stdlib jvm; do
   mkdir -p "$ELIOT_SRC/$m"
-  cp -r "$m/eliot/." "$ELIOT_SRC/$m/"
+  cp -r "$m/eliot" "$ELIOT_SRC/$m/eliot"
+  # A layer's optional compile-time overlay (only stdlib ships one today): staged as a sibling of its `eliot/` root so
+  # PathScanner finds it as `<root>/eliot`'s `eliot-compiler` sibling for the compiler pool.
+  if [ -d "$m/eliot-compiler" ]; then cp -r "$m/eliot-compiler" "$ELIOT_SRC/$m/eliot-compiler"; fi
 done
 
 # Stable launcher: a wildcard classpath keeps the jars separate (layered resources preserved); `eliot.layers` points the
@@ -126,6 +129,6 @@ EOF
 echo
 echo "Built $LAUNCHER ($(ls "$LIB" | wc -l | tr -d ' ') jars in $LIB/)"
 echo "Compiler classpath: $(ls "$COMPILER_LIB" | wc -l | tr -d ' ') jars in $COMPILER_LIB/ (asm; jvm backend is in lib/)"
-echo "Layer sources: $(ls "$ELIOT_SRC" | tr '\n' ' ')in $ELIOT_SRC/ (--compiler-path/--runtime-path roots, CP1.5)"
+echo "Layer sources: $(ls "$ELIOT_SRC" | tr '\n' ' ')in $ELIOT_SRC/ (--path roots + eliot-compiler siblings)"
 echo "Ready-to-import LSP4IJ template: $TEMPLATE/"
 echo "See ide/lsp/intellij/README.md for IntelliJ setup."

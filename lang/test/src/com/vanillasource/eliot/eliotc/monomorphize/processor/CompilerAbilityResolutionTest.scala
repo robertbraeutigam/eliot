@@ -48,7 +48,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
     )
   }
 
-  // The compile-time carrier (a faithful copy of `compiler/eliot/eliot/lang/Either.els`) plus the abstract effect
+  // The compile-time carrier (a faithful copy of `stdlib/eliot-compiler/eliot/lang/Either.els`) plus the abstract effect
   // abilities it implements and the leaf stubs (`Type`, `Function`, `String`) they reference. Everything is compiler-pool.
   // `Type` is stubbed because the Increment-D sugar values (`{Throw[String]} Type`) name it in the carrier's kind.
   private val facts: Seq[com.vanillasource.eliot.eliotc.processor.CompilerFact] =

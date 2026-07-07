@@ -3,4 +3,8 @@ type Bool
 /**
  * Logical conjunction: `true` when both `a` and `b` are `true`.
  */
-infix def &&(a: Bool, b: Bool): Bool
+infix left def &&(a: Bool, b: Bool): Bool
+
+infix left at && def ||(a: Bool, b: Bool): Bool
+
+prefix def !(a: Bool): Bool

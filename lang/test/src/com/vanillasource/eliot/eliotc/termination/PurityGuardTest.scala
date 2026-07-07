@@ -48,9 +48,12 @@ class PurityGuardTest extends AnyFlatSpec with Matchers {
     elsFiles.map(_.getName) should contain("IO.els")
   }
 
-  /** Every `.els` file under any layer module's `eliot/` source root (the language + platform layers). */
+  /** Every `.els` file under any layer module's `eliot/` runtime root or `eliot-compiler/` compile-time overlay (the
+    * language + platform layers).
+    */
   private def elsFiles: Seq[File] = {
-    val layerRoots = Seq("lang", "stdlib", "jvm", "compiler").map(m => new File(repoRoot, s"$m/eliot"))
+    val layerRoots =
+      Seq("lang", "stdlib", "jvm").flatMap(m => Seq(new File(repoRoot, s"$m/eliot"), new File(repoRoot, s"$m/eliot-compiler")))
     layerRoots.filter(_.isDirectory).flatMap(allFilesUnder).filter(_.getName.endsWith(".els"))
   }
 

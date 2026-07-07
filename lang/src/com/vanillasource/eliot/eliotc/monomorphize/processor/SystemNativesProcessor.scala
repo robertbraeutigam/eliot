@@ -39,7 +39,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * layer's `StdlibNativesProcessor`, not here.
   *
   * `typeEquals` compares two type normal forms and reads the answer back as a `Bool` — definitional type equality made a
-  * first-class value, backing the compiler-pool `Eq[Type]` instance (`compiler/.../Eq.els`). Like `fold` it is a
+  * first-class value, backing the `Eq[Type]` instance (`lang/.../Eq.els`). Like `fold` it is a
   * compiler intrinsic the checker reasons about (a guard `where E1 != E2` runs it during ability resolution), so it is
   * owned here rather than in the library layer.
   *

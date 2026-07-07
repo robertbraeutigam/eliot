@@ -12,7 +12,6 @@ import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{compilerPathKey, pathKey, runtimePathKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
@@ -106,21 +105,21 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
       })
     }
 
-  /** The distinct source roots to document, each paired with a human-readable layer label. The base appears in both the
-    * compiler and runtime path; deduplicating by absolute path keeps it as one root. The user's program paths fold in as
-    * additional roots.
+  /** The distinct source roots to document, each paired with a human-readable layer label. Every configured root plus
+    * its compile-time `eliot-compiler/` overlay is documented; deduplicating by absolute path keeps the base as one
+    * root. The user's program paths fold in as additional roots.
     */
   private def rootsWithLayer(configuration: Configuration): Seq[(Path, String)] = {
-    val roots =
-      configuration.getOrElse(compilerPathKey, Seq.empty) ++
-        configuration.getOrElse(runtimePathKey, Seq.empty) ++
-        configuration.getOrElse(pathKey, Seq.empty)
-    roots.map(_.toAbsolutePath.normalize).distinct.map(root => root -> layerLabel(root))
+    val runtimeRoots = LangPlugin.allRoots(configuration).map(_.toAbsolutePath.normalize).distinct
+    val roots        = (runtimeRoots ++ runtimeRoots.map(LangPlugin.eliotCompilerOverlay)).distinct
+    roots.map(root => root -> layerLabel(root))
   }
 
   private def layerLabel(root: Path): String = {
     val fileName = root.getFileName.toString
-    if (fileName == "eliot") Option(root.getParent).map(_.getFileName.toString).getOrElse(fileName) else fileName
+    if (fileName == "eliot") Option(root.getParent).map(_.getFileName.toString).getOrElse(fileName)
+    else if (fileName == "eliot-compiler") "compiler"
+    else fileName
   }
 
   private def eliotFilesUnder(root: Path): IO[Seq[Path]] = IO.blocking {

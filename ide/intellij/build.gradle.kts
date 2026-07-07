@@ -84,17 +84,17 @@ val packageServer by tasks.registering(Exec::class) {
     inputs.dir(file("../../eliotc/src"))
     inputs.dir(file("../../jvm/src")) // the JVM backend jar is bundled in lib/ (resident type-checking) + used by "Run main"
     // The layer `.els` files live in each module's `eliot/` source root (not src, not resources — they are read from
-    // the filesystem by PathScanner since CP1.5). The resident server type-checks against them (jvm = the concrete
-    // platform layer; stdlib/lang = abstract base; compiler = the compile-time overlay), so an edit must re-trigger
+    // the filesystem by PathScanner). The resident server type-checks against them (jvm = the concrete platform layer;
+    // stdlib/lang = abstract base; stdlib/eliot-compiler = the compile-time overlay), so an edit must re-trigger
     // packaging.
     inputs.dir(file("../../lang/eliot"))
     inputs.dir(file("../../stdlib/eliot"))
+    inputs.dir(file("../../stdlib/eliot-compiler"))
     inputs.dir(file("../../jvm/eliot"))
-    inputs.dir(file("../../compiler/eliot"))
     outputs.dir(file("../lsp/dist/lib"))
     outputs.dir(file("../lsp/dist/compiler-lib"))
-    // The layer .els source roots (CP1.5): base (lang+stdlib) + the jvm layer, staged as plain dirs the server and the
-    // "Run main" CLI scan with --compiler-path/--runtime-path (the classpath scan is gone).
+    // The layer .els source roots: base (lang+stdlib) + the jvm layer (with stdlib's eliot-compiler overlay), staged as
+    // plain dirs the server and the "Run main" CLI scan with --path (the classpath scan is gone).
     outputs.dir(file("../lsp/dist/eliot-src"))
 }
 
@@ -106,8 +106,8 @@ tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask> 
     // resident LSP server does NOT load these — see EliotConnectionProvider vs. the run config's command).
     from(file("../lsp/dist/compiler-lib")) { into("eliot/compiler/lib") }
     // The layer .els source roots, staged beside server/lib as server/eliot-src so EliotPlugin.bundledLayersDir() finds
-    // them (CP1.5). The server (EliotConnectionProvider) points `eliot.layers` here; the "Run main" run config passes
-    // the per-module subdirs as --compiler-path/--runtime-path.
+    // them. The server (EliotConnectionProvider) points `eliot.layers` here; the "Run main" run config passes the
+    // per-module `eliot/` subdirs as `--path` (each root's `eliot-compiler/` sibling is scanned for the compiler pool).
     from(file("../lsp/dist/eliot-src")) { into("eliot/server/eliot-src") }
     from(file("../textmate")) {
         into("eliot/textmate")

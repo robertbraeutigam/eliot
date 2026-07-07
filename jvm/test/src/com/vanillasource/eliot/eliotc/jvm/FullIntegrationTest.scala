@@ -19,7 +19,8 @@ import scala.concurrent.duration.*
   * and runs it, asserting on its output (or on the compiler's diagnostics for the failing cases).
   *
   * The expensive part of such a compile is not the few-line test program — it is discovering the plugins and compiling
-  * the ~48 base-layer `.els` files (`lang` + `stdlib` + `jvm` + `compiler`) that every program stands on. Rather than
+  * the base-layer `.els` files (`lang` + `stdlib` + `jvm`, plus `stdlib`'s `eliot-compiler/` overlay) that every program
+  * stands on. Rather than
   * pay that cold start per test, every suite shares a single resident [[CompilationSession]] ([[FullIntegrationTest]]'s
   * companion): the base is compiled once and every subsequent test reuses the warm *in-memory* fact cache — which keeps
   * the monomorphized `SemValue`s, dropped only on disk serialization. Because the generator always re-reads leaf source
@@ -175,12 +176,9 @@ object FullIntegrationTest {
       val repoRoot             =
         Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
       def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
-      List(
-        "--compiler-path", root("compiler"),
-        "--runtime-path", root("lang"),
-        "--runtime-path", root("stdlib"),
-        "--runtime-path", root("jvm")
-      )
+      // One `--path` per layer `eliot/` root; the compiler pool additionally scans each root's sibling `eliot-compiler/`
+      // overlay (only `stdlib` ships one — the compile-time `Either`/`Option`/guard carriers).
+      List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
     }
 
     def create(): IO[SharedSession] =

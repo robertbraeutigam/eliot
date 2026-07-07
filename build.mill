@@ -32,17 +32,6 @@ object `package` extends Module {
      )
    }
 
-   // The compiler platform layer (CP2). A source-only Eliot layer — peer to `jvm` — that
-   // implements the abstract base for the *compile-time* phase (NbE / type checking), the way `jvm` implements it for the
-   // runtime phase. Depends on `stdlib` so the full abstract base is available to it. It ships only `.els` under its
-   // `eliot/` source root (no Scala processors — CP3's `CompilerNativesProcessor` lives in `lang`); that root is
-   // listed on the **compiler path** of every type-checking entry point (the `examples.run` driver below, the LSP server,
-   // the test harnesses) *unconditionally*, unlike runtime targets such as `jvm` which are selected per build. Initially
-   // empty — it holds only CP4's `Either` carrier once that lands.
-   object compiler extends EliotLayerModule {
-     override def moduleDeps = Seq(stdlib)
-   }
-
    // IDE tooling lives under ide/. The LSP server is a Scala module (ide/lsp); the TextMate
    // grammar (ide/textmate) is static editor files, not a build module.
    object ide extends Module {
@@ -69,15 +58,15 @@ object `package` extends Module {
      override def moduleDeps = Seq(eliotc, jvm)
      override def mainClass = Some("com.vanillasource.eliot.eliotc.compiler.Main")
 
-     // CP1.5: the abstract base (lang + stdlib) and the jvm target layer are no longer discovered on the classpath;
-     // they are passed as ordinary filesystem source roots — each layer module's `eliot/` source root (its
-     // `eliotSource` task). `--runtime-path` carries the base + the jvm target; the user's positional `<path>` (their
-     // program) folds into the runtime path. `--compiler-path` carries *only* the `compiler` platform override overlay:
-     // the compile-time pool scans the whole runtime path *plus* this overlay (see `PathScanner`), and an overlay
-     // definition wins any redefinition of a runtime name (the compiler-as-platform override). So base + jvm need not be
-     // repeated here — the compiler track sees them through the runtime path. Referencing the modules' `eliotSource()`
-     // tasks (rather than string-building from the workspace root) hands the build absolute paths *and* registers the
-     // `.els` trees as proper task inputs. The layer options are appended *after* the user's args (the `jvm exe-jar …`
+     // The abstract base (lang + stdlib) and the jvm target layer are passed as ordinary filesystem source roots — each
+     // layer module's `eliot/` source root (its `eliotSource` task) — via the single repeatable `--path`. Each `--path`
+     // root serves the runtime pool directly and, for the compile-time pool, contributes its sibling `eliot-compiler/`
+     // overlay (per-layer, opt-in; only `stdlib` ships one today). So there is no separate compiler path and no monolithic
+     // compiler module: the compiler platform is assembled from each layer's own `eliot-compiler/` contribution, borrowing
+     // the rest of the runtime track. The user's positional `<path>` (their program) folds into the same `--path` pool.
+     // Referencing the modules' `eliotSource()` tasks (rather than string-building from the workspace root) hands the build
+     // absolute paths *and* registers the `.els` trees as task inputs; the `eliot-compiler/` sibling is derived at runtime
+     // from the absolute `eliot/` path. The layer options are appended *after* the user's args (the `jvm exe-jar …`
      // command): scopt only accepts these top-level options trailing the command, exactly as the existing `-o` is.
      override def run(args: Task[mill.api.Args] = Task.Anon(mill.api.Args())) = Task.Command(exclusive = true) {
        runForkedTask(
@@ -85,10 +74,9 @@ object `package` extends Module {
          Task.Anon {
            mill.api.Args(
              args().value ++ Seq(
-               "--compiler-path", compiler.eliotSource().path.toString,
-               "--runtime-path", lang.eliotSource().path.toString,
-               "--runtime-path", stdlib.eliotSource().path.toString,
-               "--runtime-path", jvm.eliotSource().path.toString
+               "--path", lang.eliotSource().path.toString,
+               "--path", stdlib.eliotSource().path.toString,
+               "--path", jvm.eliotSource().path.toString
              )
            )
          }
@@ -112,10 +100,9 @@ object `package` extends Module {
          Task.Anon {
            mill.api.Args(
              args().value ++ Seq(
-               "--compiler-path", compiler.eliotSource().path.toString,
-               "--runtime-path", lang.eliotSource().path.toString,
-               "--runtime-path", stdlib.eliotSource().path.toString,
-               "--runtime-path", jvm.eliotSource().path.toString
+               "--path", lang.eliotSource().path.toString,
+               "--path", stdlib.eliotSource().path.toString,
+               "--path", jvm.eliotSource().path.toString
              )
            )
          }
@@ -124,13 +111,20 @@ object `package` extends Module {
    }
 
    /** A layer module that, besides its Scala code, ships Eliot `.els` sources contributing to the `eliot.lang`
-     * namespace (the abstract base in `lang`/`stdlib`, the `jvm` runtime target, the `compiler` platform overlay).
+     * namespace (the abstract base in `lang`/`stdlib`, the `jvm` runtime target).
      *
-     * Since CP1.5 these `.els` are resolved by `PathScanner` from the filesystem, never the classpath, so they get
-     * their own tracked source root `eliot/` (beside `src/` and `resources/`) rather than living under `resources/`
-     * where they would be bundled into the jar as dead weight. A module name like `eliot.lang.String` resolves under
-     * this root to `eliot/eliot/lang/String.els` — the inner `eliot/lang` is the language namespace, not the build.
-     * Mirrors the default `def resources = Task.Sources("resources")`.
+     * These `.els` are resolved by `PathScanner` from the filesystem, never the classpath, so they get their own
+     * tracked source root `eliot/` (beside `src/` and `resources/`) rather than living under `resources/` where they
+     * would be bundled into the jar as dead weight. A module name like `eliot.lang.String` resolves under this root to
+     * `eliot/eliot/lang/String.els` — the inner `eliot/lang` is the language namespace, not the build. Mirrors the
+     * default `def resources = Task.Sources("resources")`.
+     *
+     * A layer *may* also ship a sibling `eliot-compiler/` root: its **compile-time (compiler platform) contribution**,
+     * the redefinitions/instances the NbE type checker uses that its runtime `eliot/` sources can't express (a `data`
+     * carrier reaching a bytecode leaf, a checking-only ability instance). The compiler pool scans the whole runtime
+     * track *plus* each root's `eliot-compiler/` sibling (override-preferred); only `stdlib` ships one today (`Either`,
+     * `Option`, the guard combinators). The `--path <root>/eliot` argument carries both — the sibling is derived from it
+     * at runtime — so no separate compiler path or compiler module is needed.
      */
    trait EliotLayerModule extends DefaultScalaModule {
      def eliotSource: T[PathRef] = Task.Source("eliot")

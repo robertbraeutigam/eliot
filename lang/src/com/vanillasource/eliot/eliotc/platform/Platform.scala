@@ -4,10 +4,11 @@ package com.vanillasource.eliot.eliotc.platform
   * "compiler as a platform" plan, CP1). It is a plain namespace tag on the fact keys — processors are otherwise
   * unchanged — that selects *which pool of source roots* a name is resolved against:
   *
-  *   - [[Platform.Compiler]] scans the **compiler path** (the abstract base — `lang` + `stdlib` — plus, once CP2 lands,
-  *     the compiler-platform layer) and drives **compile-time evaluation** (NbE / type checking);
-  *   - [[Platform.Runtime]] scans the **runtime path** (the base, the selected target such as `jvm`, and the user's
-  *     program) and drives **codegen** (`used → uncurry → backend`).
+  *   - [[Platform.Compiler]] scans the **whole runtime track plus each root's `eliot-compiler/` overlay** (a layer's
+  *     opt-in compile-time contribution, override-preferred; only `stdlib` ships one) and drives **compile-time
+  *     evaluation** (NbE / type checking);
+  *   - [[Platform.Runtime]] scans the **runtime roots** (the base, the selected target such as `jvm`, and the user's
+  *     program — every `--path`, without the overlays) and drives **codegen** (`used → uncurry → backend`).
   *
   * Only platform-provided concretes (the `Int` representation, the compiler-platform `Either`, …) ever differ between
   * the two pools; most names are abstract-only or user code and unify identically under both markers. The fact graph is

@@ -79,11 +79,12 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
   private def documentAllLayers(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
     layerSourceFiles(configuration).flatMap(_.traverse_ { case (base, file) => demandDocs(compilation, base, file) })
 
-  /** Every `.els` under every (distinct) layer root, paired with the base directory its module name is relative to. */
+  /** Every `.els` under every (distinct) layer root, paired with the base directory its module name is relative to. Both
+    * the runtime roots and their compile-time `eliot-compiler/` overlays are documented, so hover reaches every name.
+    */
   private def layerSourceFiles(configuration: Configuration): IO[Seq[(Path, Path)]] = {
-    val roots = (configuration.getOrElse(LangPlugin.compilerPathKey, Seq.empty) ++
-      configuration.getOrElse(LangPlugin.runtimePathKey, Seq.empty) ++
-      configuration.getOrElse(LangPlugin.pathKey, Seq.empty)).map(_.toAbsolutePath.normalize).distinct
+    val runtimeRoots = LangPlugin.allRoots(configuration).map(_.toAbsolutePath.normalize).distinct
+    val roots        = (runtimeRoots ++ runtimeRoots.map(LangPlugin.eliotCompilerOverlay)).distinct
     roots.flatTraverse(baseAndFilesUnder)
   }
 

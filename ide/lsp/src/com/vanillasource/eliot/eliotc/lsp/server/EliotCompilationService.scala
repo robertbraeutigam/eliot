@@ -120,25 +120,23 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
 
   /** Build a session over the workspace source roots, start the cancel-restart server, and trigger the first compile.
     *
-    * Since CP1.5 the abstract base + platform layers are *not* discovered on this process's classpath; they are handed in
-    * as filesystem roots via the `--compiler-path`/`--runtime-path` configuration keys, resolved from the bundled
-    * `eliot.layers` staging directory ([[BundledLayers]]). Only the user's own roots come from the editor workspace; the
-    * runtime path additionally gets them through `LangPlugin.pathKey`.
+    * The abstract base + platform layers are *not* discovered on this process's classpath; they are handed in as
+    * filesystem roots via the single `LangPlugin.pathKey` list, resolved from the bundled `eliot.layers` staging
+    * directory ([[BundledLayers]]). The user's own editor-workspace roots go into the same list; each root's
+    * `eliot-compiler/` sibling (only the bundled `stdlib` has one) is added to the compile-time pool by `LangPlugin`.
     */
   def startWorkspace(roots: Seq[Path]): Unit = {
     rootsRef.set(roots)
-    val lspPlugin                     = LspPlugin(vfs)
-    val (compilerPaths, runtimePaths) = BundledLayers.fromSystemProperty
-    val configuration                 = Configuration()
+    val lspPlugin     = LspPlugin(vfs)
+    val layerPaths    = BundledLayers.fromSystemProperty
+    val configuration = Configuration()
       .set(Compiler.targetPathKey, roots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
-      .set(LangPlugin.pathKey, roots)
-      .set(LangPlugin.compilerPathKey, compilerPaths)
-      .set(LangPlugin.runtimePathKey, runtimePaths)
-    val started                       = (for {
+      .set(LangPlugin.pathKey, roots ++ layerPaths)
+    val started       = (for {
       _       <- warn[IO](
                    s"No bundled layer sources found: system property '${BundledLayers.layersDirectoryProperty}' is unset, " +
                      "so the standard library and platform layers will not resolve."
-                 ).whenA(runtimePaths.isEmpty)
+                 ).whenA(layerPaths.isEmpty)
       session <- CompilationSession.create(
                    lspPlugin,
                    Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),

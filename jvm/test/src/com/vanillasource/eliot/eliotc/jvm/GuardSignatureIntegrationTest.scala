@@ -14,7 +14,7 @@ package com.vanillasource.eliot.eliotc.jvm
   * `foldOption`'s `ifNone: B` is a flex eliminator slot the lift defers and then passes through (the effectful branch
   * value rides the eliminator's own return; see docs/effect-lift-in-checker.md). (Sequencing it would collapse
   * every guard to an unconditional `Left`; that is the regression this suite guards against.) This is also the first
-  * end-to-end exercise of the compile-time `Option` carrier (`compiler/.../Option.els`), since `when`/`orError` reduce
+  * end-to-end exercise of the compile-time `Option` carrier (`stdlib/eliot-compiler/.../Option.els`), since `when`/`orError` reduce
   * through its `Some`/`None`/`foldOption`.
   */
 class GuardSignatureIntegrationTest extends FullIntegrationTest {

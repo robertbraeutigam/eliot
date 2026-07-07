@@ -22,7 +22,7 @@ import java.nio.file.Path
   * body in, so the reduced body of `==[Type]` bottoms out in `typeEquals`. That is the whole chain a guard `where E1 !=
   * E2` will lean on — operator ⇒ ability method ⇒ compiler-pool instance ⇒ native leaf — minus the concrete-argument
   * firing (which needs a ground use site, i.e. a landed guard). The `Eq` machinery mirrors the shipped split
-  * (`stdlib/.../Eq.els` + `compiler/.../Eq.els`) flattened into one compiler-pool file; `Function` is auto-imported as
+  * (`stdlib/.../Eq.els` + `lang/.../Eq.els`) flattened into one compiler-pool file; `Function` is auto-imported as
   * in a real build so the arrow-typed signatures resolve.
   */
 class EqOperatorResolutionTest

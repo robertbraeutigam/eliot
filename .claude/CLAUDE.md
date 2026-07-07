@@ -267,33 +267,41 @@ The **compiler is its own platform**, peer to runtime platforms like jvm. Source
 resolves names in the `compiler` platform; codegen (`used → uncurry → backend`) resolves in the `runtime` platform.
 So one abstract base name can have a **distinct concrete implementation per platform** — exactly as `add`/`fold`/`Bool`
 already do via the native-binding routing (`ContributedBinding` + `BindingMergerProcessor`: the compile-time reduction
-wins for checking, the runtime body is used for codegen). The compiler platform is **not** an independent pool: it scans
-the entire runtime track *plus* its own **override overlay**, and an overlay definition supersedes the platform's for
-the same name (the compiler-as-platform override — `PathScan.overrideFiles` + `UnifiedModuleValueProcessor`, order-free
-otherwise; the runtime track carries no override files so its merge is unchanged). So the compiler *borrows* a runtime
-body where it is compiler-runnable (fail-safe: one that reaches a bytecode leaf stalls loudly, never silently wrong) and
-keeps its own where it redefines — it keeps its own copy of a representation-neutral concrete even where a platform
-currently matches, since a platform can diverge later. `--compiler-path` therefore carries only the overlay; base + the
-target come via `--runtime-path`, which the compiler scan unions in. This is built and in place — the
-`compiler` source pool, the always-linked `compiler` Mill module, the native label that reads it
-(`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`),
-and the module's **first content** all exist. CP4 is the compile-time `Either` carrier
-(`compiler/eliot/eliot/lang/Either.els`: concrete `data Either` + `foldEither` + `implement
-Effect[Either[String]]`/`Throw[String, Either[String]]`), with abstract `type Either[E, A]` promoted to the `stdlib` base
-and the runtime `jvm` `Either` unchanged — structurally identical, so the compiler overlay is transparent for runtime
-uses (the `add` pattern). The remaining compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`) are still Scala
-native **leaves** in `SystemNativesProcessor` / `StdlibNativesProcessor` — the compiler platform's leaf bottom, mirroring
-jvm's bytecode leaves. The `Effect`/`Throw` instances are compiler-pool-only; the effectful-signatures discharge (W2b,
-landed — `monomorphize/check/CalculatedReturnResolver.scala`: a `{Throw[String]}` return on the `Either[String, _]`
-carrier reads back as `Right(t)` ⤳ the type `t` / `Left(msg)` ⤳ a diagnostic) recognises the carrier's `Left`/`Right` by
-FQN and reduces `fold`/`foldEither` via the merged `NativeBinding`, so those instances are reached only once the W5
-combinators are written monadically.
+wins for checking, the runtime body is used for codegen). **The compiler platform is not a monolithic layer stacked on
+`stdlib`; it is assembled from each layer's opt-in compile-time contribution.** A layer that wants to support the compiler
+platform ships, beside its runtime `eliot/` root, a sibling **`eliot-compiler/`** root (its checking-time redefinitions /
+instances) plus Scala natives for what no Eliot body can express. The compiler pool scans the **entire runtime track**
+*plus* every root's `eliot-compiler/` overlay, and an overlay definition supersedes the borrowed platform one for the
+same name (the compiler-as-platform override — `PathScan.overrideFiles` + `UnifiedModuleValueProcessor`, order-free
+otherwise; the runtime track carries no override files so its merge is unchanged). So the compiler **borrows** a runtime
+body where it is compiler-runnable — a pure base body, a user program's pure helper, any pure `data`/fold — with the
+native-leaf boundary as the fail-safe (a body reaching a bytecode leaf stalls loudly, never silently wrong). What a layer
+may **not** borrow is a *sibling target* (jvm) that might be absent: so a layer's compile-time track must be
+**self-sufficient** from the base + its own `eliot-compiler/`. Roots reach the compiler via a **single repeatable
+`--path <root>/eliot`** (no separate `--compiler-path`/`--runtime-path`, no `compiler` Mill module); `LangPlugin` derives
+each root's `eliot-compiler/` sibling for the compiler pool (`LangPlugin.eliotCompilerOverlay`). Only **`stdlib`** ships
+an overlay today: `stdlib/eliot-compiler/eliot/lang/` holds the self-sufficient compile-time `Either`
+(concrete `data Either` + `foldEither` + `implement Effect[Either[String]]`/`Throw[String, Either[String]]`), `Option`
+(`data Option` + `foldOption`, needed by the guards), and the guard combinator bodies (`Guard.els`) — with abstract
+`type Either[E, A]`/`type Option[A]` in the `stdlib` base and the runtime `jvm` `Either`/`Option` structurally identical.
+Anything the compiler needs that is pure and already on the path (`Pair`, base bodies) is **borrowed**, not duplicated.
+`CompilerNativesProcessor` (contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`)
+reads that pool. The compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`, `typeEquals`) are Scala native
+**leaves** in `SystemNativesProcessor` (lang's own) / `StdlibNativesProcessor` (stdlib's arithmetic) — the compiler
+platform's leaf bottom, mirroring jvm's bytecode leaves. The `Effect`/`Throw` instances are compiler-pool-only; the
+effectful-signatures discharge (`monomorphize/check/CalculatedReturnResolver.scala`: a `{Throw[String]}` return on the
+`Either[String, _]` carrier reads back as `Right(t)` ⤳ the type `t` / `Left(msg)` ⤳ a diagnostic) recognises the
+carrier's `Left`/`Right` by FQN and reduces `fold`/`foldEither` via the merged `NativeBinding`.
 
 **Where to put new compiler code.** When a task needs something the compiler must *evaluate at compile time* — a
 carrier (e.g. the effectful-signatures `Either`), a compile-time intrinsic, or an ability instance used only during
-checking — and it is expressible in ordinary Eliot, write it as **Eliot in the compiler-platform module** (a Mill
-module depending on `stdlib`, shipping resources under the compiler prefix), keeping the abstract signature in
-`lang`/`stdlib` and the *runtime* concrete impl in `jvm`. Do **not** put `data`/bodies in the abstract base (it stays
+checking — and it is expressible in ordinary Eliot, write it as **Eliot in the owning layer's `eliot-compiler/` root**
+(for a base-owned name, `stdlib/eliot-compiler/…`), keeping the abstract signature in `lang`/`stdlib` and the *runtime*
+concrete impl in `jvm`. First ask whether it can be **borrowed** instead: a pure body that already lives in the base or
+is reachable on the runtime track needs no `eliot-compiler/` copy (the compiler borrows it — that is how duplication is
+avoided, e.g. `Pair`). Add an overlay copy only when the name must be *self-sufficient* (the layer can't depend on a
+sibling target for it — e.g. `Either`/`Option`, whose only runtime concrete is jvm's) or is a checking-only addition (an
+`Effect`/`Throw` instance with no runtime counterpart). Do **not** put `data`/bodies in the abstract base (it stays
 representation-free, per the cornerstone above), and do **not** reimplement `data`/`match`/instances as Scala
 `SemValue`s — the one NbE evaluator already runs them, so a Scala reimplementation is the single-evaluator
 anti-pattern. Reserve Scala natives (`SystemNativesProcessor`/`StdlibNativesProcessor`) for genuinely primitive

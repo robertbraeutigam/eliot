@@ -1,0 +1,27 @@
+import eliot.lang.Bool
+
+/**
+ * Total ordering. `lessThan` and `lessThanOrEqual` are the two primitives — the operations that
+ * differ by negation, which is not free on a backend without a fusing peephole. Every other
+ * comparison derives from them by argument swap (`>`, `>=`) or a single fold (`min`, `max`), so a
+ * platform writes two one-instruction natives and the rest cost nothing extra.
+ */
+ability Order[A] {
+   def lessThanOrEqual(a: A, b: A): Bool
+}
+
+infix none above &&
+def <[A ~ Compare](a: A, b: A): Bool = lessThan(a, b)
+
+infix none at <
+def <=[A ~ Compare](a: A, b: A): Bool = lessThanOrEqual(a, b)
+
+infix none at <
+def >[A ~ Compare](a: A, b: A): Bool = lessThan(b, a)
+
+infix none at <
+def >=[A ~ Compare](a: A, b: A): Bool = lessThanOrEqual(b, a)
+
+def min[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), a, b)
+
+def max[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)

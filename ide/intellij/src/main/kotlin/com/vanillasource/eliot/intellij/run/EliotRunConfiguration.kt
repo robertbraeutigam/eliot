@@ -74,11 +74,11 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
   fun jarPath(): Path = Path.of(resolvedOutputDir(), (mainModule ?: "").substringAfterLast('.') + ".jar")
 
   /**
-   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --compiler-path … --runtime-path …`, run as a child JVM
-   * off the bundled jars. Since CP1.5 the abstract base (lang+stdlib), the jvm layer, and the compiler platform layer
-   * (CP2) are handed to the compiler as filesystem source roots (the classpath scan is gone), from the bundled
-   * `eliot-src` staging — the compiler layer on the compiler path only. The layer options trail the `jvm exe-jar …`
-   * command — the only position scopt accepts these top-level options, exactly as `-o` does.
+   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --path … --path … --path …`, run as a child JVM off the
+   * bundled jars. The abstract base (lang+stdlib) and the jvm layer are handed to the compiler as filesystem source
+   * roots (the classpath scan is gone), from the bundled `eliot-src` staging — one `--path` per module `eliot/` root.
+   * The compiler pool additionally scans each root's `eliot-compiler/` sibling (only `stdlib` ships one). The layer
+   * options trail the `jvm exe-jar …` command — the only position scopt accepts these top-level options, as `-o` does.
    */
   fun compilerCommandLine(): GeneralCommandLine {
     val classpath = EliotPlugin.compilerClasspath()
@@ -94,14 +94,9 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       "-m", mainModule.orEmpty(),
       "-o", resolvedOutputDir(),
     )
-    val lang = layersDir.resolve("lang").toString()
-    val stdlib = layersDir.resolve("stdlib").toString()
-    val jvm = layersDir.resolve("jvm").toString()
-    val compiler = layersDir.resolve("compiler").toString()
-    command.addParameters(
-      "--compiler-path", lang, "--compiler-path", stdlib, "--compiler-path", compiler,
-      "--runtime-path", lang, "--runtime-path", stdlib, "--runtime-path", jvm,
-    )
+    for (module in listOf("lang", "stdlib", "jvm")) {
+      command.addParameters("--path", layersDir.resolve(module).resolve("eliot").toString())
+    }
     project.basePath?.let { command.withWorkDirectory(it) }
     return command
   }

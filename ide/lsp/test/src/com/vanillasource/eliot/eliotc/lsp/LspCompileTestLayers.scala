@@ -15,14 +15,13 @@ object LspCompileTestLayers {
     Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
   private def moduleRoot(module: String): Path = repoRoot.resolve(module).resolve("eliot")
 
-  private val (compilerPaths, runtimePaths): (Seq[Path], Seq[Path]) =
-    BundledLayers.fromRoots(moduleRoot("lang"), moduleRoot("stdlib"), moduleRoot("jvm"), moduleRoot("compiler"))
+  private val layerPaths: Seq[Path] =
+    BundledLayers.fromRoots(moduleRoot("lang"), moduleRoot("stdlib"), moduleRoot("jvm"))
 
-  /** Add the compiler/runtime layer paths (compiler = the `compiler` override overlay only; runtime = base + `jvm`
-    * `eliot/` source roots, which the compiler scan unions in) to a test configuration.
+  /** Add the base + `jvm` layer `eliot/` source roots to a test configuration, *appending* to any workspace roots the
+    * test already put in `LangPlugin.pathKey`. Each root's sibling `eliot-compiler/` overlay (only `stdlib` ships one)
+    * is added to the compile-time pool by `LangPlugin`.
     */
   def add(configuration: Configuration): Configuration =
-    configuration
-      .set(LangPlugin.compilerPathKey, compilerPaths)
-      .set(LangPlugin.runtimePathKey, runtimePaths)
+    configuration.updatedWith(LangPlugin.pathKey, existing => Some(existing.getOrElse(Seq.empty) ++ layerPaths))
 }

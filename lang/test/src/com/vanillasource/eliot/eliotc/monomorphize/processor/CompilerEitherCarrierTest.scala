@@ -31,7 +31,7 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
   private val eitherPath   = Path.of("eliot", "lang", "Either.els")
   private val eitherUri    = URI.create("eliot/lang/Either.els")
 
-  // A faithful copy of `compiler/eliot/eliot/lang/Either.els`'s shape: the concrete carrier plus the two
+  // A faithful copy of `stdlib/eliot-compiler/eliot/lang/Either.els`'s shape: the concrete carrier plus the two
   // compile-time ability instances. (The shipped file itself is exercised end-to-end by the LSP/jvm integration suites,
   // which point the compiler path at the real resource dir.)
   private val carrier =
