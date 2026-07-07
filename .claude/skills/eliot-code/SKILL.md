@@ -121,6 +121,30 @@ better or stronger (e.g. one atomic read-modify-write), mutually-defaulting prim
 alternative minimal definitions, or extending an already-published ability without breaking its
 instances. "It's convenient" is not one of these — convenience lives outside.
 
+**What varies decides where it lives — the three axes (base-stdlib design).** Whether a stdlib
+operation is an ability method, a top-level function, or *nothing at the language level*, follows from
+which kind of variation it has. Keep them apart:
+
+- **Per-platform** (JVM vs. ATtiny want different *bodies* for the same op) → the **layer merge**,
+  which redefines *any* `def`, method or top-level alike. Per-platform difference **alone never
+  justifies an ability** — `printLine` is redefined per layer without one.
+- **Per-type** (`Int`/`String`/`Money` order differently) → **ability dispatch**, the only
+  type-varying mechanism. This alone earns a place *inside* the ability.
+- **Per-hardware efficiency of a *derivable* op** (a one-instruction `min`, `<`, a branchless select)
+  → a **backend peephole on the derived form**, *not represented in the language*.
+
+So the primitive filter is sharper than "cannot be derived": an op belongs in the ability **only if it
+carries per-*type* meaning the primitive lacks.** A fast native instruction is per-hardware
+*efficiency*, not per-type *meaning* — leave it a derived top-level function and let codegen recover
+the instruction later. Worked case: `Ord[A]`'s sole primitive is `lessThanOrEqual`; `<`/`>`/`>=`,
+`min`, `max` are top-level derivations (`min(a, b) = fold(a <= b, a, b)` is identical for every type),
+so a native `min` is a codegen peephole, never a method. Two things *do* re-enter the ability: an op
+needing the type's own structure the primitive doesn't expose, and per-instantiation
+representation-**width** dispatch (`Int` compare differs byte vs. bignum) — but prefer *one* instance
+selecting the width native by a compile-time `fold` over many guarded instances when the result grows
+no bounds (comparison → `Bool`; contrast `IntArith`, whose result bounds grow). All of this governs the
+**base stdlib only** — platform layers and examples freely write concrete, representation-specific bodies.
+
 ### Generic parameters
 
 `[NAME]`, in UPPERCASE, with optional kind/type and constraints:
