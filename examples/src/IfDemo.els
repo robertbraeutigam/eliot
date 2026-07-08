@@ -31,7 +31,10 @@ def demo(flag: Bool): {Console, Abort} Unit = {
    if(flag, printLine("5. echain: A")) else if(!flag, printLine("5. echain: B")) else printLine("5. echain: C")
 
    // 6. A branch that runs a multi-statement effectful computation.
-   if(flag, announce("6. multi-effect branch")) else printLine("6. plain else")
+   if(flag) {
+      printLine("Mulit-statement body...")
+      printLine("     ...(announced)")
+   } else printLine("6. plain else")
 }
 
 def main: IO[Unit] = {

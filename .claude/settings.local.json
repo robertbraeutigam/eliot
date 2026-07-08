@@ -15,7 +15,11 @@
       "Bash(javap -p eliot/lang/Bool.class)",
       "Bash(grep -iE \"if\\\\\\\\\\\\$\")",
       "Bash(javap -p eliot/effect/Abort.class)",
-      "Bash(grep -iE 'runAbort\\\\$|pure\\\\$Effect\\\\$impl\\\\$0\\\\$AbortCarrier|abort\\\\$Abort\\\\$impl\\\\$0')"
+      "Bash(grep -iE 'runAbort\\\\$|pure\\\\$Effect\\\\$impl\\\\$0\\\\$AbortCarrier|abort\\\\$Abort\\\\$impl\\\\$0')",
+      "Bash(mkdir -p /tmp/demojar)",
+      "Bash(unzip -oq /home/robert/personal/eliot/target/IfDemo.jar)",
+      "Bash(javap -p IfDemo.class)",
+      "Bash(javap -p -c IfDemo.class)"
     ]
   },
   "enabledPlugins": {
