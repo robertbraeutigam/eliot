@@ -6,7 +6,13 @@
       "WebSearch",
       "WebFetch(domain:plugins.jetbrains.com)",
       "WebFetch(domain:plugins.gradle.org)",
-      "Skill(code-review)"
+      "Skill(code-review)",
+      "Bash(./mill examples.run jvm exe-jar /tmp/iffinal/ -m Mixed)",
+      "Bash(mkdir -p /tmp/mixedjar)",
+      "Read(//tmp/**)",
+      "Bash(rm -rf *)",
+      "Bash(unzip -oq /home/robert/personal/eliot/target/Mixed.jar)",
+      "Bash(javap -p eliot/lang/Bool.class)"
     ]
   },
   "enabledPlugins": {

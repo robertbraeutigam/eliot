@@ -67,6 +67,6 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): G[Option[A]]
  *   setting("key") else default
  * ```
  */
-infix left
+infix right
 def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: A): G[A] =
    map(o -> foldOption(o, fallback, a -> a), runAbort(computation))
