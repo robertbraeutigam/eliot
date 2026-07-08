@@ -148,12 +148,19 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    spelled with a leading `-`, meaning the value *discharges* `E`. `EffectSugarDesugarer` records negatives (no carrier
    constraint; a negatives-only set is a pure pass-through) in a `dischargedEffects` field that rides the same fact chain
    as `opaque` (resolved to `AbilityFQN` in resolve; part of `NamedValue.signatureEquality`) onto `OperatorResolvedValue`;
-   `EffectUsageCollector` subtracts a callee's `dischargedEffects` from its argument-effect union at a direct call, so a
+   `EffectUsageCollector` subtracts a callee's discharged effects from its argument-effect union at a direct call, so a
    body that fully discharges an internal effect (e.g. `printLine(if(f,"a") else "b")`) need not declare it — the former
-   phantom-`Abort` false positive. Only the five body-dischargers (`else`/`catch`/`runStateTo…`) are annotated; the raw
-   `data`-accessor trio (`runAbort`/`runThrow`/`runStateCarrier`) is left conservatively un-annotated (its generated jvm
-   accessor can't carry the marker). Subtraction only ever makes the check *more permissive*; monomorphization stays the
-   sound backstop, so a genuine leak is still rejected.
+   phantom-`Abort` false positive. A callee's discharge is its `EffectDischargeSummary` fact (Step 3), unifying
+   **declared** (the `{…, -E}` members on five annotated body-dischargers `else`/`catch`/`runStateTo…`; the raw
+   `data`-accessor trio `runAbort`/`runThrow`/`runStateCarrier` is left conservatively un-annotated — its generated jvm
+   accessor can't carry the marker) with **inferred** (a user handler discharges an effect that entered via a
+   carrier-typed parameter and did not *survive* its body — the collector's `survivingParamEffects` provenance).
+   `EffectDischargeSummaryProcessor` is single-owner recursive over callee summaries (a DAG, since Eliot has no
+   recursion), kept separate from `EffectCheckProcessor` so a caller reads a handler's discharge even if the handler's
+   own body fails a check. Only the argument-union is subtracted, never the callee's own `effectAbilities`, so a handler
+   whose result still declares `{E}` correctly re-propagates it; a *fully*-discharging handler needs a pure/residual
+   return, which still trips the declared-pure fail-safe (reconciliation is Step 6). Subtraction only ever makes the
+   check *more permissive*; monomorphization stays the sound backstop, so a genuine leak is still rejected.
 10. ability: Checks and returns a type-specific ability implementation.
 11. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.) Also hosts the **effect auto-lift** (`check/EffectLifter`): the bind/`pure` decision for an effectful term in a pure position is check-mode elaboration per concrete instantiation — undecidable from declared signatures alone — with flex argument slots deferred until later arguments rigidify them (Phase A/B in `Checker.inferSpine`).
 12. used: Collects all the used value names starting at a given "main".

@@ -1,19 +1,20 @@
 package com.vanillasource.eliot.eliotc.effect.processor
 
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.effect.fact.EffectCheckedValue
+import com.vanillasource.eliot.eliotc.effect.fact.{EffectCheckedValue, EffectDischargeSummary}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 
-/** Regression harness for discharge-aware effect accounting (docs/effect-discharge-accounting.md, Steps 0–2). A callee
-  * that *discharges* an effect (declares the negative `{…, -E}` member) removes that effect from the union of its
-  * arguments' effects, so a body that fully discharges an internal effect need not declare it — fixing the phantom
-  * false positive where `printLine(if(flag,"a") else "b")` forced a spurious `{Abort}`.
+/** Regression harness for discharge-aware effect accounting (docs/effect-discharge-accounting.md, Steps 0–3). A callee
+  * that *discharges* an effect removes it from the union of its arguments' effects, so a body that fully discharges an
+  * internal effect need not declare it — fixing the phantom false positive where `printLine(if(flag,"a") else "b")`
+  * forced a spurious `{Abort}`. The discharge is either *declared* (a `{…, -E}` negative member, Steps 0–2) or
+  * *inferred* from a user handler's body (Step 3): the parameters' effects that did not survive it.
   *
-  * The mechanism is exercised with a synthetic ability `MyE` and discharger `discharge` (declaring `{-MyE}`), so the
-  * subtraction is tested directly at the effect phase without the full `Abort`/`AbortCarrier` stack; the real `else`
-  * path is covered end-to-end by the `examples/` smoke compiles. The hard invariant — a *genuinely undischarged* effect
-  * must stay rejected — is locked below and must never turn green.
+  * The mechanism is exercised with a synthetic ability `MyE` and dischargers over it, so it is tested directly at the
+  * effect phase without the full `Abort`/`AbortCarrier` stack; the real `else` path is covered end-to-end by the
+  * `examples/` smoke compiles. The hard invariant — a *genuinely undischarged* effect must stay rejected — is locked
+  * below and must never turn green.
   */
 class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
 
@@ -26,9 +27,13 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
     )
 
   // A synthetic discharger surface: `emit` performs `MyE`; `emitBoth` performs `MyE` *and* `Log`; `discharge` is an
-  // (abstract) discharger declaring `{-MyE}`, so a direct call subtracts `MyE` from its argument's effects. `Carrier`
-  // stands in for the internal `AbortCarrier`-style carrier the discharger consumes — types are never checked at the
-  // effect phase, so its shape need only be nameable.
+  // (abstract) discharger *declaring* `{-MyE}`, so a direct call subtracts `MyE` from its argument's effects.
+  // `userDischarge` is a *user handler* that discharges `MyE` by *inference* — no annotation; its `{MyE}` parameter's
+  // effect does not survive its body (`discharge` consumes it), so Step 3 infers it discharges `MyE`. `passthru`
+  // returns its `{MyE}` parameter unchanged, so `MyE` survives and no discharge is inferred. `Carrier` stands in for the
+  // internal `AbortCarrier`-style carrier — types are never checked at the effect phase, so its shape need only be
+  // nameable (`userDischarge`'s pure return would trip the declared-pure fail-safe end-to-end — Step 6 — but its
+  // discharge *summary*, which callers read, is produced independently of its own check).
   private val dischargeStub =
     SystemImport(
       "Discharge",
@@ -37,7 +42,9 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
         "ability MyE[F[_]] {\ndef emit: F[Unit]\n}\n" +
         "def emitBoth: {MyE, Log} Unit\n" +
         "type Carrier[G[_], A]\n" +
-        "def discharge[G[_] ~ Effect, A](c: Carrier[G, A]): {-MyE} G[A]",
+        "def discharge[G[_] ~ Effect, A](c: Carrier[G, A]): {-MyE} G[A]\n" +
+        "def userDischarge[A](x: {MyE} A): A = discharge(x)\n" +
+        "def passthru[A](x: {MyE} A): {MyE} A = x",
       ModuleName.effectPackage
     )
 
@@ -79,8 +86,48 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
     runEffectCheckErrors("def greet(name: String): String = name").asserting(_ shouldBe Seq.empty)
   }
 
+  "discharge inference (Step 3)" should "record a declared discharger's negative member in its summary" in {
+    dischargeSummaryOf("discharge").asserting(_ shouldBe Set("MyE"))
+  }
+
+  it should "infer that a user handler discharges the effect its body consumes" in {
+    dischargeSummaryOf("userDischarge").asserting(_ shouldBe Set("MyE"))
+  }
+
+  it should "infer no discharge for a passthrough that returns its effectful parameter" in {
+    dischargeSummaryOf("passthru").asserting(_ shouldBe Set.empty)
+  }
+
+  it should "let a caller subtract a user handler's inferred discharge" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = printLine(userDischarge(emit))"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "still force the effect on a caller of a non-discharging passthrough" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = printLine(passthru(emit))"
+    ).asserting(
+      _.map(_.message) should contain(
+        "This value performs the effect 'MyE' but does not declare it; add it to its { ... } effect set."
+      )
+    )
+  }
+
   private def runEffectCheckErrors(source: String) =
     runGenerator(source, EffectCheckedValue.Key(definedVfqn(source)), allImports).map(_._1)
+
+  /** The discharged ability names in a `eliot.effect.Discharge`-module value's [[EffectDischargeSummary]]. */
+  private def dischargeSummaryOf(value: String) = {
+    val vfqn = ValueFQN(ModuleName(ModuleName.effectPackage, "Discharge"), QualifiedName(value, Qualifier.Default))
+    val key  = EffectDischargeSummary.Key(vfqn)
+    runGenerator("def probe: String = \"x\"", key, allImports).map { case (_, facts) =>
+      facts.get(key) match {
+        case Some(summary: EffectDischargeSummary) => summary.dischargedEffects.map(_.abilityName)
+        case _                                     => Set.empty[String]
+      }
+    }
+  }
 
   /** The single value defined by each snippet (the name after the first `def`, before `:`/`(`). */
   private def definedVfqn(source: String): ValueFQN = {

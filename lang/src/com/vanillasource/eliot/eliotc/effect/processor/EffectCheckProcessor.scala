@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.effect.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.fact.EffectCheckedValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{FunctionLiteral, SignatureView, arrow, spine}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{arrow, spine}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -60,27 +60,26 @@ class EffectCheckProcessor
       value: OperatorResolvedValue,
       body: Sourced[OperatorResolvedExpression]
   )(using Platform): CompilerIO[Unit] = {
-    val view                = SignatureView.of(value.typeStack.as(value.typeStack.value.signature))
-    // The value's own ambient effect carrier(s): a higher-kinded binder that carries an ability constraint — the M1
-    // `{E...}` carrier (`[F[_] ~ E...]`) or a hand-written `[F[_] ~ Effect]`. A bare higher-kinded generic (`C[_, _]`
-    // in `f[A, B, C[_, _]]`) is NOT a carrier.
-    val carrier             = EffectCarriers.carrierBinders(view).filter(value.paramConstraints.contains)
+    // Shared preparation: the ambient carrier binders (a higher-kinded binder that carries an ability constraint — the
+    // M1 `{E...}` carrier or a hand-written `[F[_] ~ Effect]`; a bare `C[_, _]` is NOT a carrier), the value
+    // parameters bound to their types, and the inner body with those parameter lambdas peeled.
+    val context         = EffectAccounting.bodyContext(value, body)
+    val carrier         = context.carrierEffects.keySet
 
     // The number of value parameters is the count of leading lambdas the *body* actually has, NOT the arrow-arity of
     // the declared type: a function-*valued* def (`def f : Function[A, B] = g`) has 0 parameters but a 2-arrow type, so
     // `SignatureView` would over-decompose its return to `B`. The effective return the inner body must produce is the
-    // declared type with only the peeled parameters' arrows removed. The body's leading value-parameter lambdas are
-    // unannotated (the type stack is the single source of truth), so each peeled parameter's type comes from the view.
-    val (paramNames, inner) = peelParameters(body, view.parameters.size)
-    val env                 = paramNames.map(_.value).zip(view.parameters.map(_.value)).toMap
-    val effectiveReturn     =
-      view.parameters.drop(paramNames.size).foldRight(view.returnType)((dom, cod) => cod.as(arrow(dom, cod)))
+    // declared type with only the peeled parameters' arrows removed.
+    val effectiveReturn =
+      context.view.parameters
+        .drop(context.env.size)
+        .foldRight(context.view.returnType)((dom, cod) => cod.as(arrow(dom, cod)))
     // A nullary return type (`Unit`, `String`) cannot host effects; an applied one (`F[Unit]`, `IO[Unit]`, `Box[A]`)
     // can — only an effectful body in the former case is the "declared pure" error.
-    val canHostEffects      = spine(effectiveReturn.value)._2.nonEmpty
+    val canHostEffects  = spine(effectiveReturn.value)._2.nonEmpty
 
     for {
-      usage <- collector.collect(inner, env, carrier)
+      usage <- collector.collect(context.inner, context.env, context.carrierEffects)
       _     <- effectChecker.verify(value, carrier, usage.usedEffects)
       _     <- if (usage.effectful && !canHostEffects)
                  compilerError(
@@ -92,18 +91,4 @@ class EffectCheckProcessor
                else ().pure[CompilerIO]
     } yield ()
   }
-
-  /** Peel `count` leading value-parameter [[FunctionLiteral]]s off a body, returning their names and the inner body. */
-  private def peelParameters(
-      body: Sourced[OperatorResolvedExpression],
-      count: Int
-  ): (Seq[Sourced[String]], Sourced[OperatorResolvedExpression]) =
-    if (count <= 0) (Seq.empty, body)
-    else
-      body.value match {
-        case FunctionLiteral(name, _, innerBody) =>
-          val (rest, inner) = peelParameters(innerBody, count - 1)
-          (name +: rest, inner)
-        case _                                   => (Seq.empty, body)
-      }
 }

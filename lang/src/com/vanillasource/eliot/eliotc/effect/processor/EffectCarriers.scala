@@ -42,10 +42,17 @@ object EffectCarriers {
       .flatMap(c => paramConstraints.getOrElse(c, Seq.empty).map(_.abilityFQN))
       .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
 
+  /** The carrier binder heading a type expression, if it is headed by one of `carrier` (e.g. `F` for `F[String]`).
+    * `None` for any other head. This is the effect-provenance primitive: a value parameter whose type is headed by an
+    * ability-constrained carrier binder carries that binder's declared effects (discharge-aware accounting, Step 3).
+    */
+  def carrierHead(tpe: OperatorResolvedExpression, carrier: Set[String]): Option[String] =
+    spine(tpe)._1 match {
+      case ParameterReference(n) if carrier.contains(n.value) => Some(n.value)
+      case _                                                  => None
+    }
+
   /** Whether a type expression is headed by one of `carrier` (a carrier-typed value, e.g. `F[String]`). */
   def carrierHeaded(tpe: OperatorResolvedExpression, carrier: Set[String]): Boolean =
-    spine(tpe)._1 match {
-      case ParameterReference(n) => carrier.contains(n.value)
-      case _                     => false
-    }
+    carrierHead(tpe, carrier).isDefined
 }

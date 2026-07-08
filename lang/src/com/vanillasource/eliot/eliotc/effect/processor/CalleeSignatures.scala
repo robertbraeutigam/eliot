@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.effect.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.effect.fact.EffectDischargeSummary
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{SignatureView, ValueReference}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -20,7 +21,13 @@ class CalleeSignatures {
   import CalleeSignatures.*
 
   def infoFor(fqn: Sourced[ValueFQN], platform: Platform): CompilerIO[CalleeInfo] =
-    getFactIfProduced(OperatorResolvedValue.Key(fqn.value, platform)).map {
+    for {
+      orvOpt    <- getFactIfProduced(OperatorResolvedValue.Key(fqn.value, platform))
+      // The callee's discharged effects — declared (`{…, -E}`) and inferred (Step 3) unified in the summary. Absent
+      // (an unproducible/recursion-rejected callee) is read as no discharge (conservative — never over-subtracts).
+      discharge <- getFactIfProduced(EffectDischargeSummary.Key(fqn.value, platform))
+                     .map(_.map(_.dischargedEffects).getOrElse(Set.empty))
+    } yield orvOpt match {
       case Some(orv) =>
         val view           = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
         val carrierBinders = EffectCarriers.carrierBinders(view)
@@ -29,10 +36,10 @@ class CalleeSignatures {
           view.returnType.value,
           carrierBinders,
           effectAbilitiesOf(fqn.value, orv, carrierBinders),
-          orv.dischargedEffects.toSet
+          discharge
         )
       case None      =>
-        CalleeInfo(Seq.empty, ValueReference(fqn.as(WellKnownTypes.typeFQN)), Set.empty, Set.empty, Set.empty)
+        CalleeInfo(Seq.empty, ValueReference(fqn.as(WellKnownTypes.typeFQN)), Set.empty, Set.empty, discharge)
     }
 
   /** The user-facing effects performing this callee contributes to the *caller's* effect set (Decision 6, propagation):
@@ -61,8 +68,9 @@ class CalleeSignatures {
 object CalleeSignatures {
 
   /** A callee's signature reduced to what the effect accounting reads, plus the user-facing effects it performs and the
-    * effects it discharges (the negative `{…, -E}` members — subtracted from a caller's argument-effect union when the
-    * caller invokes this callee directly; discharge-aware accounting, Step 2).
+    * effects it discharges — its [[com.vanillasource.eliot.eliotc.effect.fact.EffectDischargeSummary]], unifying the
+    * declared negative `{…, -E}` members (Step 2) with those inferred from a user handler's body (Step 3). Subtracted
+    * from a caller's argument-effect union when the caller invokes this callee directly.
     */
   case class CalleeInfo(
       valueParamTypes: Seq[OperatorResolvedExpression],

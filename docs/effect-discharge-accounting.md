@@ -1,6 +1,6 @@
 # Discharge-Aware Effect Accounting
 
-Status: **Steps 0–2 SHIPPED (2026-07-08); Steps 3–7 remain design record / plan.** Captures why an effectful
+Status: **Steps 0–3 SHIPPED (2026-07-08); Steps 4–7 remain design record / plan.** Captures why an effectful
 function whose internal `if..else` (or any handler) *fully discharges* an effect is nonetheless forced to
 declare that effect, and a staged plan to fix it. The fix keeps the one-carrier model and monomorphization as
 the sound backstop; it only makes the cheap, definition-local effect check *precise* instead of
@@ -191,6 +191,32 @@ axiomatic (they are the accessor that reifies the effect away).
 - **Verify:** `printLine(readSetting("k") orDefault "def")` in a `{Console}` fn compiles; a non-discharging
   passthrough `def run(x:{Abort} A) = x` still forces `{Abort}` (its Abort survives).
 
+**SHIPPED (2026-07-08).** As built:
+- **Provenance is effect-level, not per-occurrence-tagged.** `Usage.survivingParamEffects: Set[AbilityFQN]` — the
+  parameter-originated effects still reaching a subtree's result undischarged. A `ParameterReference` seeds its carrier
+  binder's declared effects (`EffectCarriers.carrierHead` finds the binder); a discharger call subtracts its
+  `dischargedEffects` from the arg-union's survivors; every other node unions its children (over-approximating survival,
+  so discharge is never *over*-inferred — the only unsound direction). A set is sufficient because "an effect survives
+  iff some undischarged occurrence remains" = "the effect is in the union of the subtrees' survivor sets" — which
+  already makes the **double-use** case (`pair(x else "d", x)` → Abort survives via the second, undischarged `x`)
+  correct, so Step 4's double-use falls out here. Per-*origin* tagging is only needed to make **let-binders** behave
+  like parameters (Step 5); deferred until then.
+- **`EffectDischargeSummary(vfqn, platform)`** fact + `EffectDischargeSummaryProcessor` (off `RecursionCheckedValue`):
+  `dischargedEffects = declared (`{…, -E}`) ∪ inferred (`paramEffects − survivingParamEffects`)`. Single-owner
+  recursion — it reads back callee summaries via `CalleeSignatures.infoFor` — with **no `activeFactKeys` guard needed**:
+  a summary is only computed for a recursion-checked value, and those form a DAG (a recursive callee produces no
+  `RecursionCheckedValue`, hence no summary, read conservatively as no discharge). Kept **separate from the effect
+  check** so a caller can read a handler's discharge even when the handler's *own* body fails a check.
+- **Only channel-1 (arg-union) subtraction happens; the callee's own `effectAbilities` are never reduced by its
+  discharge.** Sound: if a handler's result genuinely carries the effect (its return type still declares `{E}`), that
+  fresh occurrence must reach the caller — and it does, via `effectAbilities`. A handler that *fully* discharges must
+  therefore have a **non-`{E}` (pure/residual) return** — which trips the "declared pure but performs effects"
+  fail-safe. So a fully-discharging user handler's *summary* is inferred and its callers subtract (verified at the
+  processor level: `EffectDischargeAccountingTest` "let a caller subtract a user handler's inferred discharge"), but its
+  own **end-to-end compile awaits Step 6** (fail-safe reconciliation). The passthrough — return `{Abort} A` unchanged,
+  carrier-headed, no fail-safe — compiles today and correctly infers *no* discharge (`PassthruLeak` smoke: a `{Console}`
+  caller is still rejected for the undischarged `Abort`).
+
 ### Step 4 — Double / mixed effects correctness
 
 - **Keep-one, drop-one:** a `{State, Abort}` computation discharged with `runAbort` only → stays `{State}`
@@ -198,7 +224,8 @@ axiomatic (they are the accessor that reifies the effect away).
 - **Independent siblings:** one statement discharges its Abort, a sibling still aborts → block stays `{Abort}`
   (subtree scoping from Step 2 already gives this; add the test).
 - **Double-use of a parameter:** `pair(x else "d", x)` with `x:{Abort} A` → Abort **survives** (one occurrence
-  undischarged). The provenance test that proves per-occurrence, not per-label, semantics.
+  undischarged). *Already correct from Step 3's set-union survival* (the undischarged `x` keeps Abort in the union);
+  Step 4 just adds the explicit test.
 - **`Inf` is never discharged:** confirm no discharger lists `Inf` and that `Inf` still propagates (the subset
   check is also the `Inf` carrier — a regression here breaks the totality opt-out).
 
