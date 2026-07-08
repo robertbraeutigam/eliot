@@ -24,11 +24,11 @@ def demo(flag: Bool): {Console} Unit = {
    if(flag, printLine("4. effectful: then")) else printLine("4. effectful: else")
 
    // 5. Effectful  if .. else if .. else  chain.
-   if(flag, printLine("5. echain: A")) else if(!flag, printLine("5. echain: B")) else printLine("5. echain: C")
+   if(flag, printLine("5. chain: A")) else if(!flag, printLine("5. echain: B")) else printLine("5. echain: C")
 
    // 6. A branch that runs a multi-statement effectful computation.
    if(flag) {
-      printLine("Multi-statement body...")
+      printLine("6. Multi-statement body...")
       printLine("     ...(announced)")
    } else printLine("6. plain else")
 }
