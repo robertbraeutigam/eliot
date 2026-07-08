@@ -22,6 +22,30 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 object ImplementationMarkerUtils {
 
+  /** Whether `methodVfqn` denotes method `methodName` of an `implement <abilityName>[<targetTypeConstructor>, …]` block
+    * — i.e. the impl-method "namespace" a native binding attaches to. This is the index-free way to recognise an
+    * ability-implementation method: the impl's per-module `index` is assigned during resolution and is not knowable
+    * statically, so a native supplier (the compile-time `*NativesProcessor`, the jvm backend) cannot key a static map
+    * on the full FQN. It instead recognises the method by `(abilityName, methodName, first-pattern type)`: the
+    * qualifier already carries the ability name and the local method name, and [[firstPatternTypeConstructorName]]
+    * reads the impl's marker to confirm the instance's first type argument (the dispatch type). Reusable for any
+    * "native provided directly to an ability implementation" wiring.
+    */
+  def isImplementationMethodFor(
+      methodVfqn: ValueFQN,
+      abilityName: String,
+      methodName: String,
+      targetTypeConstructor: String,
+      platform: Platform = Platform.Runtime
+  ): CompilerIO[Boolean] =
+    methodVfqn.name.qualifier match {
+      case Qualifier.AbilityImplementation(name, _)
+          if name.value === abilityName && methodVfqn.name.name === methodName =>
+        firstPatternTypeConstructorName(methodVfqn, abilityName, platform).map(_.contains(targetTypeConstructor))
+      case _ =>
+        false.pure[CompilerIO]
+    }
+
   /** Look up the marker for the implementation containing `methodVfqn` (any method of that impl) and return the name of
     * the type constructor referenced by its first argument.
     */

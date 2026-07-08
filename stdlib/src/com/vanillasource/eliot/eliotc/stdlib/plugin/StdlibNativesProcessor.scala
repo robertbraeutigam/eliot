@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.stdlib.plugin
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{bigIntFQN, boolFQN, stringFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
@@ -12,18 +13,29 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** The `stdlib` native contributor: emits the total [[ContributedBinding]] under [[StdlibNativesProcessor.stdlibLabel]]
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
-  * reason about — the compile-time arithmetic/comparison on [[BigInteger]] backing `Int`'s dependent bounds
-  * (`add`/`subtract`/`min`/`max`/`multiplyMin`/`multiplyMax`/ `lessThanOrEqual`), the boolean operators (`&&`/`||`/`!`),
-  * string equality (`stringEquals`, backing `Eq[String]`), and `inc` — and `None` for every other name.
+  * reason about — the compile-time arithmetic on [[BigInteger]] backing `Int`'s dependent bounds
+  * (`add`/`subtract`/`multiplyMin`/`multiplyMax`/`inc`), the boolean operators (`&&`/`||`/`!`), string equality
+  * (`stringEquals`, backing `Eq[String]`), and the [[BigInteger]] ordering comparison behind `Order[BigInteger]` — and
+  * `None` for every other name.
   *
-  * These are ordinary library functions (declared body-less in the stdlib layer's `BigInteger.els`/`Bool.els`); the
-  * compiler only seeds the NbE evaluator with a native reduction rule so that, e.g., `add(2, 3)` reduces to `5` and
-  * `lessThanOrEqual(0, 1)` to `true` during type checking. Each native reduces only when its arguments are concrete,
+  * These are ordinary library functions; the compiler only seeds the NbE evaluator with a native reduction rule so that,
+  * e.g., `add(2, 3)` reduces to `5` during type checking. Each native reduces only when its arguments are concrete,
   * otherwise it stays stuck (a [[SemValue.VStuckNative]]) so the unifier falls back to ordinary unification on the
   * still-abstract bounds and `Evaluator.renormalize` re-fires it once they concretise. The runtime computation (e.g.
   * the `LADD` for `Int` addition) is supplied separately by the backend as a runtime body — the
   * [[BindingMergerProcessor]] reads this native for checking and that body for codegen, with no conflict (native
   * precedence).
+  *
+  * '''Ordering — an ability, reduced two ways.''' `lessThanOrEqual` is the `Order` ability's method
+  * (`eliot.lang.Order`), and `BigInteger` implements it with a *body-less* method (`implement Order[BigInteger]`), so its
+  * comparison is a compiler leaf like the arithmetic natives. The same [[lessThanOrEqualNative]] is registered under two
+  * FQNs: (1) the `Order.lessThanOrEqual` *ability-method* FQN — the load-bearing binding, because `Int`'s bound calculus
+  * (`fitsIn`/`Combine`/`min`/`max`) reaches the comparison *transitively* through other bodies during type-level
+  * reduction, where ability *dispatch* never fires, so on the compiler track the ability method itself must reduce (a
+  * compiler intrinsic, like `Bool.fold`); and (2) the `Order[BigInteger].lessThanOrEqual` *implementation-method* FQN via
+  * [[abilityImplNativeFor]] — the "native attached directly to the implementation" wiring, which a *value-level* `Order`
+  * instance (dispatched at a surfaced use site) would use, but which `BigInteger`'s purely type-level use does not
+  * exercise. `min`/`max` are derived `Order` combinators (a `fold` over `lessThanOrEqual`), so they need no native.
   *
   * This is a platform/library native supplier disjoint from the lang layer's `SystemNativesProcessor` (which owns the
   * compiler-intrinsic `Function`/`Type`/`Bool` primitives): each owns its own names, so the merger never has to choose
@@ -36,13 +48,14 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private val bigIntegerModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
   private val boolModule: ModuleName       = ModuleName(ModuleName.defaultSystemPackage, "Bool")
   private val eqModule: ModuleName         = ModuleName(ModuleName.defaultSystemPackage, "Eq")
+  private val orderModule: ModuleName      = ModuleName(ModuleName.defaultSystemPackage, "Order")
+
+  private val orderLessThanOrEqualFQN: ValueFQN =
+    ValueFQN(orderModule, QualifiedName("lessThanOrEqual", Qualifier.Ability("Order")))
 
   private def bigIntegerFn(name: String): ValueFQN = ValueFQN(bigIntegerModule, QualifiedName(name, Qualifier.Default))
 
   private val incFQN: ValueFQN             = bigIntegerFn("inc")
-  private val lessThanOrEqualFQN: ValueFQN = bigIntegerFn("lessThanOrEqual")
-  private val minFQN: ValueFQN             = bigIntegerFn("min")
-  private val maxFQN: ValueFQN             = bigIntegerFn("max")
   private val addFQN: ValueFQN             = bigIntegerFn("add")
   private val subtractFQN: ValueFQN        = bigIntegerFn("subtract")
   private val multiplyMinFQN: ValueFQN     = bigIntegerFn("multiplyMin")
@@ -58,9 +71,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   private val bindings: Map[ValueFQN, SemValue] = Map(
     incFQN             -> incNative,
-    lessThanOrEqualFQN -> lessThanOrEqualNative,
-    minFQN             -> bigIntBinaryNative(minFQN)((a, b) => a min b),
-    maxFQN             -> bigIntBinaryNative(maxFQN)((a, b) => a max b),
     addFQN             -> bigIntBinaryNative(addFQN)((a, b) => a + b),
     subtractFQN        -> bigIntBinaryNative(subtractFQN)((a, b) => a - b),
     multiplyMinFQN     -> bigIntCornerNative(multiplyMinFQN)(_.min),
@@ -68,13 +78,30 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     boolAndFQN         -> andNative,
     boolOrFQN          -> orNative,
     boolNotFQN         -> notNative,
-    stringEqualsFQN    -> stringEqualsNative
+    stringEqualsFQN    -> stringEqualsNative,
+    orderLessThanOrEqualFQN -> lessThanOrEqualNative
   )
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= StdlibNativesProcessor.stdlibLabel) abort
     else
-      ContributedBinding(key.vfqn, key.label, bindings.get(key.vfqn).map(BindingContribution.Leaf(_))).pure[CompilerIO]
+      bindings.get(key.vfqn) match {
+        case some @ Some(_) => ContributedBinding(key.vfqn, key.label, some.map(BindingContribution.Leaf(_))).pure[CompilerIO]
+        case None           =>
+          abilityImplNativeFor(key.vfqn).map(sem => ContributedBinding(key.vfqn, key.label, sem.map(BindingContribution.Leaf(_))))
+      }
+
+  /** The natives attached *directly* to an ability-implementation method rather than to a plain `Default`-qualified leaf.
+    * An impl method's FQN carries a per-module `index` assigned during resolution, so it cannot be keyed statically in
+    * [[bindings]]; instead it is recognised by `(ability, method, dispatch type)` through the impl marker
+    * ([[ImplementationMarkerUtils.isImplementationMethodFor]]). `Order[BigInteger].lessThanOrEqual` is the first such
+    * native — the compile-time bound comparison behind `Int`'s dependent ranges — and further ability-native leaves can
+    * be added here.
+    */
+  private def abilityImplNativeFor(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
+    ImplementationMarkerUtils
+      .isImplementationMethodFor(vfqn, "Order", "lessThanOrEqual", "BigInteger")
+      .map(Option.when(_)(lessThanOrEqualNative))
 
   /** The canonical stuck form of a native: a [[SemValue.VStuckNative]] carrying the native's own FQN and the
     * (not-yet-concrete) arguments as its spine — so it stays definitionally distinct, is re-fired by
@@ -103,10 +130,10 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     case (VConst(GroundValue.Direct(x: BigInt, _)), VConst(GroundValue.Direct(y: BigInt, _))) =>
       if (x <= y) Evaluator.trueValue else Evaluator.falseValue
     case _                                                                                    =>
-      stuck(lessThanOrEqualFQN, a, b)
+      stuck(orderLessThanOrEqualFQN, a, b)
   }
 
-  /** A curried `BigInteger -> BigInteger -> BigInteger` native (e.g. `min`/`max`/`add`/`subtract`): reduces to a
+  /** A curried `BigInteger -> BigInteger -> BigInteger` native (e.g. `add`/`subtract`): reduces to a
     * concrete BigInteger when both arguments are concrete, otherwise stays stuck on the still-abstract bounds.
     */
   private def bigIntBinaryNative(fqn: ValueFQN)(op: (BigInt, BigInt) => BigInt): SemValue =

@@ -26,6 +26,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   val file           = URI.create("Test.els")
   val testModuleName = ModuleName(Seq.empty, "Test")
   val sourceContent  = SourceContent(file, Sourced(file, PositionRange.zero, "test source"))
+
   /** The canonical module environment every test runs in: one stub per `ModuleName.defaultSystemModules` entry (so the
     * auto-imports resolve), plus modules that are *registered (loadable) but not auto-imported* — the import-required
     * effects `Console`/`Log`/`Dep` (in `effectPackage`; a snippet that prints must `import eliot.effect.Console`), and
@@ -33,10 +34,10 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     * `PatternMatch`/`TypeMatch` (in `compilerInternalPackage`) and `Type` (in `compilerPackage`, reached via the
     * resolver's bare-name special-case → `WellKnownTypes.typeFQN`). This is the SINGLE place the module set and each
     * module's package live. A test that needs richer content for a few modules calls [[ambientStubsWith]] to override
-    * just those, instead of re-listing the whole set — so relocating a module, or adding/removing one, touches only this
-    * list.
+    * just those, instead of re-listing the whole set — so relocating a module, or adding/removing one, touches only
+    * this list.
     */
-  val systemImports  = Seq(
+  val systemImports = Seq(
     SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
     SystemImport("Type", "type Type", ModuleName.compilerPackage),
     SystemImport("BigInteger", "type BigInteger"),
@@ -57,15 +58,17 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Dep", ProcessorTest.depStubContent, ModuleName.effectPackage)
   )
 
-  /** The canonical [[systemImports]] with the named modules' content replaced — existing entries keep their package
-    * (so e.g. `"PatternMatch" -> realDecl` stays in `compilerInternalPackage`), and any name not already present is
-    * added as a new `eliot.lang` stub. Lets a test enrich only the modules it exercises (a richer `Int`, a real
+  /** The canonical [[systemImports]] with the named modules' content replaced — existing entries keep their package (so
+    * e.g. `"PatternMatch" -> realDecl` stays in `compilerInternalPackage`), and any name not already present is added
+    * as a new `eliot.lang` stub. Lets a test enrich only the modules it exercises (a richer `Int`, a real
     * `PatternMatch` ability, an extra `Bool`/`Option`) without restating the rest of the prelude.
     */
   def ambientStubsWith(overrides: (String, String)*): Seq[SystemImport] = {
     val overrideMap = overrides.toMap
     systemImports.map(s => overrideMap.get(s.module).fold(s)(c => s.copy(content = c))) ++
-      overrides.collect { case (name, content) if !systemImports.exists(_.module == name) => SystemImport(name, content) }
+      overrides.collect {
+        case (name, content) if !systemImports.exists(_.module == name) => SystemImport(name, content)
+      }
   }
 
   def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)
@@ -120,10 +123,10 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       errors    <- generator.currentErrors()
     } yield (errors, facts)
 
-  /** A source stub for a system module the harness pre-registers (its `.els` path is derived from
-    * [[moduleName]] via the shared [[ModuleName.toPath]] layout). `packages` defaults to the `eliot.lang` prelude;
-    * relocated modules (e.g. `PatternMatch`/`TypeMatch` in [[ModuleName.compilerInternalPackage]]) are declared once in
-    * the canonical [[systemImports]], so tests reach them through [[ambientStubsWith]] and never repeat the package.
+  /** A source stub for a system module the harness pre-registers (its `.els` path is derived from [[moduleName]] via
+    * the shared [[ModuleName.toPath]] layout). `packages` defaults to the `eliot.lang` prelude; relocated modules (e.g.
+    * `PatternMatch`/`TypeMatch` in [[ModuleName.compilerInternalPackage]]) are declared once in the canonical
+    * [[systemImports]], so tests reach them through [[ambientStubsWith]] and never repeat the package.
     */
   case class SystemImport(module: String, content: String, packages: Seq[String] = ModuleName.defaultSystemPackage) {
     def moduleName: ModuleName = ModuleName(packages, module)
@@ -158,6 +161,20 @@ object ProcessorTest {
   val boolImportContent: String =
     "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool"
 
+  /** The `Order` ability stub, mirroring the real `eliot.lang.Order`: `lessThanOrEqual` is the single primitive (its
+    * `BigInteger` reduction is supplied by `StdlibNativesProcessor` under the ability-method FQN), `min`/`max` are
+    * derived, and `BigInteger` implements it with a body-less method (the native attaches to the implementation). The
+    * `Int` environment resolves `lessThanOrEqual`/`min`/`max` through this ability rather than through plain
+    * `BigInteger` defs. Requires a `fold`-carrying `Bool` stub for `min`/`max` (the `intImports` Bool override provides
+    * one).
+    */
+  val orderStubContent: String =
+    "import eliot.lang.Bool\n" +
+      "ability Order[A] { def lessThanOrEqual(a: A, b: A): Bool }\n" +
+      "def min[A ~ Order](a: A, b: A): A = fold(lessThanOrEqual(a, b), a, b)\n" +
+      "def max[A ~ Order](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)\n" +
+      "implement Order[BigInteger] { def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool }"
+
   /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal `n`
     * is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
     * auto-imported) and the test harness must register matching stubs. These minimal versions only declare the abstract
@@ -166,7 +183,8 @@ object ProcessorTest {
     */
   /** The package holding desugaring machinery relocated out of the `eliot.lang` prelude (`PatternMatch`/`TypeMatch`).
     * Re-exported here so the few tests that build a custom (non-`ambientStubsWith`) import set can register those stubs
-    * at the FQN the resolver/ability-checker loads. Most tests never need it — `ambientStubsWith` preserves the package.
+    * at the FQN the resolver/ability-checker loads. Most tests never need it — `ambientStubsWith` preserves the
+    * package.
     */
   val compilerInternalPackage: Seq[String] = ModuleName.compilerInternalPackage
 
@@ -192,12 +210,12 @@ object ProcessorTest {
     */
   val patternMatchAbilityStub: String =
     "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
-  val typeMatchAbilityStub: String     =
+  val typeMatchAbilityStub: String    =
     "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
 
   /** `Console` effect stub, mirroring `stdlib/eliot/eliot/effect/Console.els`. Import-required (in `effectPackage`, not
-    * ambient), registered so a snippet that does `import eliot.effect.Console` resolves. The concrete JVM instance lives
-    * in the real jvm layer, not here.
+    * ambient), registered so a snippet that does `import eliot.effect.Console` resolves. The concrete JVM instance
+    * lives in the real jvm layer, not here.
     */
   val consoleStubContent: String =
     "ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}"
@@ -207,8 +225,8 @@ object ProcessorTest {
     */
   val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): F[Unit]\n}"
 
-  /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els`. Import-required (in `effectPackage`);
-    * this is just the reader `ability` (the `ask`) — the concrete carrier + `provide` discharge live in the jvm layer.
+  /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els`. Import-required (in `effectPackage`); this is
+    * just the reader `ability` (the `ask`) — the concrete carrier + `provide` discharge live in the jvm layer.
     */
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: F[X]\n}"
 

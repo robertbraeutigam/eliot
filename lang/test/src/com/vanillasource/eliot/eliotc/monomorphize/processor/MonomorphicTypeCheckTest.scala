@@ -63,7 +63,7 @@ class MonomorphicTypeCheckTest
 
   "a value-parameter predicate invoked with [...]" should "type-check, the brackets only keeping the literal arguments BigInteger" in {
     runInt(
-      "import eliot.lang.Bool\ndef fitsIn(lo: BigInteger, hi: BigInteger): Bool = lessThanOrEqual(lo, hi)\ndef test: Bool = fitsIn[1, 2]"
+      "import eliot.lang.Bool\nimport eliot.lang.Order\ndef fitsIn(lo: BigInteger, hi: BigInteger): Bool = lessThanOrEqual(lo, hi)\ndef test: Bool = fitsIn[1, 2]"
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -1049,12 +1049,14 @@ class MonomorphicTypeCheckTest
     */
   private val intImports: Seq[SystemImport] = ambientStubsWith(
     "BigInteger" ->
-      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger",
+      "import eliot.lang.Bool\ntype BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger",
+    "Order"      -> ProcessorTest.orderStubContent,
     "Bool"       ->
       "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A",
     "Option"     -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
     "Int"        ->
       """import eliot.lang.Bool
+        |import eliot.lang.Order
         |import eliot.compiler.Coerce
         |import eliot.compiler.Combine
         |import eliot.lang.Option

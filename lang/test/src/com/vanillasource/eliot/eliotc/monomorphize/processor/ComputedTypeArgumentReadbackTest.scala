@@ -57,7 +57,7 @@ class ComputedTypeArgumentReadbackTest
   // termination M1 now rejects the value cycle outright.
   "a size-indexed recursion with a computed index" should "be rejected as recursion" in {
     runReadback(
-      "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]"
+      "import eliot.lang.Bool\nimport eliot.lang.Order\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]"
     ).asserting { case (errors, _) =>
       errors.map(_.message) should contain("Value 'countdown' is defined recursively.")
     }
@@ -105,7 +105,8 @@ class ComputedTypeArgumentReadbackTest
     */
   private val readbackImports: Seq[SystemImport] = ambientStubsWith(
     "BigInteger" ->
-      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger",
+      "import eliot.lang.Bool\ntype BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger",
+    "Order"      -> ProcessorTest.orderStubContent,
     "Bool"       -> "type Bool\ndef true: Bool\ndef false: Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
   )
 }

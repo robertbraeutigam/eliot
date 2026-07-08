@@ -1,4 +1,5 @@
 import eliot.lang.Bool
+import eliot.lang.Order
 import eliot.compiler.Coerce
 
 /**

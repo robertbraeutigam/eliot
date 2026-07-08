@@ -1,4 +1,5 @@
 import eliot.lang.Bool
+import eliot.lang.Order
 
 type BigInteger
 
@@ -6,34 +7,6 @@ type BigInteger
  * The successor of `bi` (`bi + 1`).
  */
 def inc(bi: BigInteger): BigInteger
-
-/**
- * True iff `a` is at most `b`.
- *
- * Compares integer bounds at compile time: it reduces once both arguments are concrete and otherwise stays
- * unresolved, so a comparison on still-abstract bounds is deferred to the concrete use site.
- */
-def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
-
-/**
- * True iff `a` is strictly greater than `b`.
- */
-infix def >(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(b), a)
-
-/**
- * True iff `a` is strictly less than `b`.
- */
-infix def <(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(a), b)
-
-/**
- * The smaller of `a` and `b`.
- */
-def min(a: BigInteger, b: BigInteger): BigInteger
-
-/**
- * The larger of `a` and `b`.
- */
-def max(a: BigInteger, b: BigInteger): BigInteger
 
 /**
  * The sum `a + b`.
