@@ -12,7 +12,10 @@
       "Read(//tmp/**)",
       "Bash(rm -rf *)",
       "Bash(unzip -oq /home/robert/personal/eliot/target/Mixed.jar)",
-      "Bash(javap -p eliot/lang/Bool.class)"
+      "Bash(javap -p eliot/lang/Bool.class)",
+      "Bash(grep -iE \"if\\\\\\\\\\\\$\")",
+      "Bash(javap -p eliot/effect/Abort.class)",
+      "Bash(grep -iE 'runAbort\\\\$|pure\\\\$Effect\\\\$impl\\\\$0\\\\$AbortCarrier|abort\\\\$Abort\\\\$impl\\\\$0')"
     ]
   },
   "enabledPlugins": {
