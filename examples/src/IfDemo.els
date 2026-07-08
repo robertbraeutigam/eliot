@@ -7,12 +7,6 @@ import eliot.effect.Abort
 // infix `else` (from `eliot.effect.Abort`) discharges with the alternative. Because the branch is a carrier value, it
 // may be pure OR effectful, and only the selected branch's effect is ever run — so this reads like an imperative `if`.
 
-// A branch may call out to a multi-statement effectful helper.
-def announce(what: String): {Console} Unit = {
-   printLine(what)
-   printLine("     ...(announced)")
-}
-
 // Every form of if..else, all driven by the single `flag` parameter.
 def demo(flag: Bool): {Console, Abort} Unit = {
    // 1. A pure value chosen by an if..else, then printed.
@@ -32,7 +26,7 @@ def demo(flag: Bool): {Console, Abort} Unit = {
 
    // 6. A branch that runs a multi-statement effectful computation.
    if(flag) {
-      printLine("Mulit-statement body...")
+      printLine("Multi-statement body...")
       printLine("     ...(announced)")
    } else printLine("6. plain else")
 }
