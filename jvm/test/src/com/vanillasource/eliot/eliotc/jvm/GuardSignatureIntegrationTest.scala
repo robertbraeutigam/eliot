@@ -113,13 +113,13 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("greeting unavailable"))
   }
 
-  // `>`/`<` are `Order` comparison operators (`eliot.lang.Order`), so each guard module imports `Order`. `BigInteger`
+  // `>`/`<` are `Compare` comparison operators (`eliot.lang.Compare`), so each guard module imports `Compare`. `BigInteger`
   // itself stays ambiently imported; only the ordering surface moved to the ability.
   "a satisfied `MIN > 0` infix guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.lang.Guard
-        |import eliot.lang.Order
+        |import eliot.lang.Compare
         |
         |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
         |
@@ -131,7 +131,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       """import eliot.effect.Console
         |import eliot.lang.Guard
-        |import eliot.lang.Order
+        |import eliot.lang.Compare
         |
         |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
         |
@@ -143,7 +143,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.lang.Guard
-        |import eliot.lang.Order
+        |import eliot.lang.Compare
         |
         |def small[N: BigInteger]: String[] when (N < 10) orError "too big" = "ok"
         |

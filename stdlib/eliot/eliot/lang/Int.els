@@ -1,5 +1,5 @@
 import eliot.compiler.Combine
-import eliot.lang.Order
+import eliot.lang.Compare
 
 /**
  * The type of all integers, carrying its inclusive value bounds `[MIN, MAX]`.

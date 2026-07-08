@@ -5,38 +5,38 @@ import eliot.lang.Bool
  * argument swap (`<=`/`>=`), negation (`<`/`>`), or a single fold (`min`/`max`). A platform therefore only
  * supplies one comparison and the rest cost nothing extra.
  */
-ability Order[A] {
+ability Compare[A] {
    def lessThanOrEqual(a: A, b: A): Bool
 }
 
 infix none above &&
-def <[A ~ Order](a: A, b: A): Bool = !lessThanOrEqual(b, a)
+def <[A ~ Compare](a: A, b: A): Bool = !lessThanOrEqual(b, a)
 
 infix none at <
-def <=[A ~ Order](a: A, b: A): Bool = lessThanOrEqual(a, b)
+def <=[A ~ Compare](a: A, b: A): Bool = lessThanOrEqual(a, b)
 
 infix none at <
-def >[A ~ Order](a: A, b: A): Bool = !lessThanOrEqual(a, b)
+def >[A ~ Compare](a: A, b: A): Bool = !lessThanOrEqual(a, b)
 
 infix none at <
-def >=[A ~ Order](a: A, b: A): Bool = lessThanOrEqual(b, a)
+def >=[A ~ Compare](a: A, b: A): Bool = lessThanOrEqual(b, a)
 
 /**
  * The smaller of `a` and `b` (`a` on a tie).
  */
-def min[A ~ Order](a: A, b: A): A = fold(lessThanOrEqual(a, b), a, b)
+def min[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), a, b)
 
 /**
  * The larger of `a` and `b` (`b` on a tie).
  */
-def max[A ~ Order](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)
+def max[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)
 
 /**
- * `BigInteger` supplies `Order` natively. The implementation is deliberately body-less: comparing two
+ * `BigInteger` supplies `Compare` natively. The implementation is deliberately body-less: comparing two
  * arbitrary-precision integers is a compiler/backend leaf (`BigInteger` has no in-language representation), so the
  * native reduction is attached directly to this implementation method's namespace rather than through a separate
  * wrapper function.
  */
-implement Order[BigInteger] {
+implement Compare[BigInteger] {
    def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
 }

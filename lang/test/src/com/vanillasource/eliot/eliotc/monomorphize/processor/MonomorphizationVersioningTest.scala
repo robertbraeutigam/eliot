@@ -49,7 +49,7 @@ class MonomorphizationVersioningTest
   // itself, so it is rejected outright. The non-recursive keying scenarios below (S2/S3/S4/S6) still pin the dedup.
   "S1 (size-indexed recursion, reified index)" should "be rejected as recursion" in {
     runVersioning(
-      "import eliot.lang.Bool\nimport eliot.lang.Order\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]",
+      "import eliot.lang.Bool\nimport eliot.lang.Compare\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]",
       imports = intImports
     ).asserting { case (errors, _) =>
       errors.map(_.message) should contain("Value 'countdown' is defined recursively.")
@@ -103,7 +103,7 @@ class MonomorphizationVersioningTest
   // it once pinned (a reified binder classifies as Specialize) stays covered non-recursively by S4 (`tag`).
   "S5 (reified value, self-referential)" should "be rejected as recursion" in {
     runVersioning(
-      "import eliot.lang.Bool\nimport eliot.lang.Order\ndef bigOf[V: BigInteger]: BigInteger = V\ndef gen[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], add(N, gen[subtract(N, bigOf[1])]))\ndef main: BigInteger = gen[3]",
+      "import eliot.lang.Bool\nimport eliot.lang.Compare\ndef bigOf[V: BigInteger]: BigInteger = V\ndef gen[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], add(N, gen[subtract(N, bigOf[1])]))\ndef main: BigInteger = gen[3]",
       imports = intImports
     ).asserting { case (errors, _) =>
       errors.map(_.message) should contain("Value 'gen' is defined recursively.")
@@ -162,14 +162,14 @@ class MonomorphizationVersioningTest
     */
   private val intImports: Seq[SystemImport] = ambientStubsWith(
     "BigInteger" ->
-      "import eliot.lang.Bool\nimport eliot.lang.Order\ntype BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger",
-    "Order"      -> ProcessorTest.orderStubContent,
+      "import eliot.lang.Bool\nimport eliot.lang.Compare\ntype BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger",
+    "Compare"    -> ProcessorTest.compareStubContent,
     "Bool"       ->
       "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A",
     "Option"     -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
     "Int"        ->
       """import eliot.lang.Bool
-        |import eliot.lang.Order
+        |import eliot.lang.Compare
         |import eliot.compiler.Coerce
         |import eliot.compiler.Combine
         |import eliot.lang.Option

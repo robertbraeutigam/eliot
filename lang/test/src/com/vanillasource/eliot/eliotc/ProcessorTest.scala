@@ -161,19 +161,19 @@ object ProcessorTest {
   val boolImportContent: String =
     "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool"
 
-  /** The `Order` ability stub, mirroring the real `eliot.lang.Order`: `lessThanOrEqual` is the single primitive (its
+  /** The `Compare` ability stub, mirroring the real `eliot.lang.Compare`: `lessThanOrEqual` is the single primitive (its
     * `BigInteger` reduction is supplied by `StdlibNativesProcessor` under the ability-method FQN), `min`/`max` are
     * derived, and `BigInteger` implements it with a body-less method (the native attaches to the implementation). The
     * `Int` environment resolves `lessThanOrEqual`/`min`/`max` through this ability rather than through plain
     * `BigInteger` defs. Requires a `fold`-carrying `Bool` stub for `min`/`max` (the `intImports` Bool override provides
     * one).
     */
-  val orderStubContent: String =
+  val compareStubContent: String =
     "import eliot.lang.Bool\n" +
-      "ability Order[A] { def lessThanOrEqual(a: A, b: A): Bool }\n" +
-      "def min[A ~ Order](a: A, b: A): A = fold(lessThanOrEqual(a, b), a, b)\n" +
-      "def max[A ~ Order](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)\n" +
-      "implement Order[BigInteger] { def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool }"
+      "ability Compare[A] { def lessThanOrEqual(a: A, b: A): Bool }\n" +
+      "def min[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), a, b)\n" +
+      "def max[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)\n" +
+      "implement Compare[BigInteger] { def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool }"
 
   /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal `n`
     * is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
