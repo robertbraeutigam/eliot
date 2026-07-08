@@ -10,16 +10,18 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
 import com.redhat.devtools.lsp4ij.commands.LSPCommand
 import com.redhat.devtools.lsp4ij.commands.LSPCommandAction
+import java.io.File
 
 /**
  * Handles the `eliot.runMain` LSP command emitted by the language server's "Run main" code lens.
  *
  * LSP4IJ dispatches a code-lens command client-side by looking up an IntelliJ action whose id equals the
  * command (`ActionManager.getAction("eliot.runMain")`); this action is registered under that id in
- * plugin.xml. The command arguments are `[sourceRoot, moduleName]` — exactly the `<root>` and `-m <module>`
- * the JVM backend needs. From them it creates (or reuses) a native [EliotRunConfiguration], attaches the
- * build-before-run step, and launches it under the Run executor, so the user gets the standard run console,
- * Stop button, and re-run.
+ * plugin.xml. The command arguments are `[sourceRoot, moduleName, dependencyRoot*]` — the `<root>` and
+ * `-m <module>` the JVM backend needs, then every other discovered source root (the layer/library roots to
+ * put on the compiler path, since none is bundled). From them it creates (or reuses) a native
+ * [EliotRunConfiguration], attaches the build-before-run step, and launches it under the Run executor, so
+ * the user gets the standard run console, Stop button, and re-run.
  */
 class EliotRunMainCommandAction : LSPCommandAction() {
   // Creating/launching a run configuration must happen on the EDT; the base class defaults to a background
@@ -30,10 +32,16 @@ class EliotRunMainCommandAction : LSPCommandAction() {
     val project = e.project ?: return
     val sourceRoot = command.getArgumentAt(0, String::class.java) ?: return
     val mainModule = command.getArgumentAt(1, String::class.java) ?: return
-    runMain(project, sourceRoot, mainModule)
+    // The remaining arguments are the dependency source roots (layer/library roots), variable in number.
+    val dependencyRoots = generateSequence(2) { it + 1 }
+      .map { command.getArgumentAt(it, String::class.java) }
+      .takeWhile { it != null }
+      .filterNotNull()
+      .toList()
+    runMain(project, sourceRoot, mainModule, dependencyRoots)
   }
 
-  private fun runMain(project: Project, sourceRoot: String, mainModule: String) {
+  private fun runMain(project: Project, sourceRoot: String, mainModule: String, dependencyRoots: List<String>) {
     val runManager = RunManager.getInstance(project)
     val type = EliotRunConfigurationType.getInstance()
     val factory = type.configurationFactories.first()
@@ -46,6 +54,7 @@ class EliotRunMainCommandAction : LSPCommandAction() {
     val configuration = settings.configuration as EliotRunConfiguration
     configuration.sourceRoot = sourceRoot
     configuration.mainModule = mainModule
+    configuration.dependencyPath = dependencyRoots.joinToString(File.pathSeparator)
 
     attachBuildTask(project, configuration)
     runManager.selectedConfiguration = settings

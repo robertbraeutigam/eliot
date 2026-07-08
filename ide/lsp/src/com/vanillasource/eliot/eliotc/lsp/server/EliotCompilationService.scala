@@ -118,19 +118,29 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
       rootsRef.get.filter(file.startsWith).maxByOption(_.getNameCount)
     } catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => None }
 
-  /** Build a session over the workspace source roots, start the cancel-restart server, and trigger the first compile.
+  /** All Eliot source roots the latest [[startWorkspace]] discovered (layer/library roots + application roots). The one
+    * containing a given `main` is its build root; the rest are the dependency roots the "Run main" build must put on the
+    * path (since none of them is bundled). Empty until the first workspace is started.
+    */
+  def sourceRoots: Seq[Path] = rootsRef.get
+
+  /** Build a session over the workspace's Eliot source roots, start the cancel-restart server, and trigger the first
+    * compile.
     *
     * The abstract base, the standard library and the platform layers are *not* bundled with the server; they are
-    * ordinary dependencies that arrive on the *same* `roots` list as the user's own code — the editor's workspace roots
-    * today, downloaded packages once a build system exists. Every root feeds the runtime pool via `LangPlugin.pathKey`,
-    * and its `eliot-compiler/` sibling the compile-time pool (added by `LangPlugin`). The whole-workspace driver
-    * ([[LspPlugin]]) recognises library modules by their reserved `eliot.*` package and leaves them undiagnosed.
+    * ordinary dependencies that arrive on the path alongside the user's own code — the editor's workspace folders today,
+    * downloaded packages once a build system exists. An editor hands over the *project folder*, not the source roots
+    * within it, so [[SourceRootDiscovery]] recovers the actual roots (the `eliot/` layer roots and the `.els`-bearing
+    * application roots) beneath it. Every discovered root feeds the runtime pool via `LangPlugin.pathKey`, and its
+    * `eliot-compiler/` sibling the compile-time pool (added by `LangPlugin`). The whole-workspace driver ([[LspPlugin]])
+    * recognises library modules by their reserved `eliot.*` package and leaves them undiagnosed.
     */
-  def startWorkspace(roots: Seq[Path]): Unit = {
+  def startWorkspace(workspaceRoots: Seq[Path]): Unit = {
+    val roots         = SourceRootDiscovery.discover(workspaceRoots)
     rootsRef.set(roots)
     val lspPlugin     = LspPlugin(vfs)
     val configuration = Configuration()
-      .set(Compiler.targetPathKey, roots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
+      .set(Compiler.targetPathKey, workspaceRoots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
       .set(LangPlugin.pathKey, roots)
     val started       = (for {
       session <- CompilationSession.create(

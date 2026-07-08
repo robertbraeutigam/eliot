@@ -130,8 +130,10 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
   /** Offer a "Run main" lens above each runnable `main`. A lens is emitted only when the document declares a `main`
     * ([[com.vanillasource.eliot.eliotc.lsp.index.MainIndex]]) *and* the file sits under a known workspace source root —
     * the root paired with the module name is exactly what the JVM backend needs to build the program (`exe-jar <root>
-    * -m <module>`). Both are carried as command arguments so the client (the IntelliJ plugin) can launch a native run
-    * configuration; the command itself is handled client-side (no `executeCommandProvider` is advertised).
+    * -m <module>`). The command arguments are `[buildRoot, moduleName, dependencyRoot*]`: the build root, the module,
+    * then every *other* discovered source root — the layer/library roots the build must put on the path, since none is
+    * bundled. The client (the IntelliJ plugin) launches a native run configuration from them; the command is handled
+    * client-side (no `executeCommandProvider` is advertised).
     */
   override def codeLens(params: CodeLensParams): CompletableFuture[util.List[? <: CodeLens]] = {
     val uri    = URI.create(params.getTextDocument.getUri)
@@ -139,7 +141,8 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
       entry <- service.mainIndex.mainAt(uri).toList
       root  <- service.sourceRootFor(uri).toList
     } yield {
-      val arguments = List[Object](root.toString, entry.moduleName.show).asJava
+      val dependencyRoots = service.sourceRoots.filterNot(_ == root).map(_.toString: Object)
+      val arguments       = (List[Object](root.toString, entry.moduleName.show) ++ dependencyRoots).asJava
       new CodeLens(LspPositions.toRange(entry.range), new Command("▶ Run main", "eliot.runMain", arguments), null)
     }
     CompletableFuture.completedFuture(lenses.asJava)

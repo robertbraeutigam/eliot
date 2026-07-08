@@ -16,6 +16,7 @@ import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
 import com.vanillasource.eliot.intellij.EliotPlugin
+import java.io.File
 import java.nio.file.Path
 
 /**
@@ -42,6 +43,12 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
     get() = options.mainModule
     set(value) {
       options.mainModule = value
+    }
+
+  var dependencyPath: String?
+    get() = options.dependencyPath
+    set(value) {
+      options.dependencyPath = value
     }
 
   var outputDir: String?
@@ -74,10 +81,11 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
   fun jarPath(): Path = Path.of(resolvedOutputDir(), (mainModule ?: "").substringAfterLast('.') + ".jar")
 
   /**
-   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output>`, run as a child JVM off the bundled compiler jars. The
-   * abstract base, the standard library and the platform (jvm) layer are NOT bundled with the plugin: like any program's
-   * dependencies they must be reachable on the source path — the same roots the resident language server resolved this
-   * `main` against. `<sourceRoot>` is that path; a build system will populate it with downloaded packages.
+   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --path <dep> …`, run as a child JVM off the bundled
+   * compiler jars. The abstract base, the standard library and the platform (jvm) layer are NOT bundled with the plugin:
+   * like any program's dependencies they must be reachable on the path. The server discovered them alongside `main` and
+   * passed them through the "Run main" command as [dependencyPath]; each becomes a trailing `--path` (the position scopt
+   * accepts these top-level options, as `-o` does). A build system will later populate that path with downloaded packages.
    */
   fun compilerCommandLine(): GeneralCommandLine {
     val classpath = EliotPlugin.compilerClasspath()
@@ -91,6 +99,9 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       "-m", mainModule.orEmpty(),
       "-o", resolvedOutputDir(),
     )
+    dependencyPath?.split(File.pathSeparator)?.filter { it.isNotBlank() }?.forEach { root ->
+      command.addParameters("--path", root)
+    }
     project.basePath?.let { command.withWorkDirectory(it) }
     return command
   }

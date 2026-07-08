@@ -4,13 +4,15 @@ import com.intellij.execution.configurations.RunConfigurationOptions
 
 /**
  * Persisted settings of an [EliotRunConfiguration]: the source root passed to the compiler, the module
- * that declares `main` (the backend's `-m` argument), and the output directory the executable jar is
- * written to and run from. Stored via the platform's options mechanism (round-tripped to the run
+ * that declares `main` (the backend's `-m` argument), the dependency roots put on the compiler path (the
+ * layer/library roots, path-separator-joined — none is bundled), and the output directory the executable
+ * jar is written to and run from. Stored via the platform's options mechanism (round-tripped to the run
  * configuration XML automatically).
  */
 class EliotRunConfigurationOptions : RunConfigurationOptions() {
   private val sourceRootOption = string("").provideDelegate(this, "sourceRoot")
   private val mainModuleOption = string("").provideDelegate(this, "mainModule")
+  private val dependencyPathOption = string("").provideDelegate(this, "dependencyPath")
   private val outputDirOption = string("").provideDelegate(this, "outputDir")
 
   var sourceRoot: String?
@@ -20,6 +22,11 @@ class EliotRunConfigurationOptions : RunConfigurationOptions() {
   var mainModule: String?
     get() = mainModuleOption.getValue(this)
     set(value) = mainModuleOption.setValue(this, value)
+
+  /** The dependency source roots to put on the compiler path, joined by the platform path separator. */
+  var dependencyPath: String?
+    get() = dependencyPathOption.getValue(this)
+    set(value) = dependencyPathOption.setValue(this, value)
 
   var outputDir: String?
     get() = outputDirOption.getValue(this)
