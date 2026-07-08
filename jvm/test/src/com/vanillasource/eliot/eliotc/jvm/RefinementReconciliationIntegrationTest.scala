@@ -47,7 +47,7 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
         |}
         |
         |def main: IO[Unit] = {
-        |  val result = runStateToPair(nextPort orElse 8080, "<none>")
+        |  val result = runStateToPair(nextPort else 8080, "<none>")
         |  printLine(intToString(result.first))
         |}""".stripMargin,
       stdin = "not-a-number\n"

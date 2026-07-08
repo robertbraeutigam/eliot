@@ -38,7 +38,7 @@ ability Abort[F[_]] {
  * `Option[A]` — `some(a)`, or `none` if it short-circuited.
  *
  * Plumbing only — application code never names it. A function that may short-circuit declares `{Abort}` and discharges it
- * with `runAbort`/`orElse`; this carrier is what those operate on under the hood. Generic over the base carrier `G`, so
+ * with `runAbort`/`else`; this carrier is what those operate on under the hood. Generic over the base carrier `G`, so
  * it composes over `IO`, `ThrowCarrier[String, IO]`, and so on. Its representation (the `Effect`/`Suspend`/`Abort`
  * instances) is supplied by the platform layer.
  */
@@ -47,7 +47,7 @@ type AbortCarrier[G[_], A]
 /**
  * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed, `None` if it
  * aborted. Any other effects remain in the carrier `G`. This is the single accessor of `AbortCarrier` — the platform
- * layer supplies its body. Consume the result with `foldOption`, or reach for `orElse` to supply a fallback in one step
+ * layer supplies its body. Consume the result with `foldOption`, or reach for `else` to supply a fallback in one step
  * without ever naming `Option`.
  */
 def runAbort[G[_], A](obj: AbortCarrier[G, A]): G[Option[A]]
@@ -64,9 +64,9 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): G[Option[A]]
  *
  * // This will always return a String and does not abort.
  * def settingWithDefault(key: String, default: String): String =
- *   setting("key") orElse default
+ *   setting("key") else default
  * ```
  */
 infix left
-def orElse[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: A): G[A] =
+def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: A): G[A] =
    map(o -> foldOption(o, fallback, a -> a), runAbort(computation))

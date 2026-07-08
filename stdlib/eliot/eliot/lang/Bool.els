@@ -8,3 +8,12 @@ infix left def &&(a: Bool, b: Bool): Bool
 infix left at && def ||(a: Bool, b: Bool): Bool
 
 prefix def !(a: Bool): Bool
+
+def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A
+
+/**
+ * Enables the "if" syntax to write conditional execution, even if the
+ * given value has effects. The `Abort` effect's `else` naturally
+ * extends this to the usual `if..else` syntax.
+ */
+def if[T](condition: Bool, value: T): {Abort} T = fold(condition, pure(value), abort)

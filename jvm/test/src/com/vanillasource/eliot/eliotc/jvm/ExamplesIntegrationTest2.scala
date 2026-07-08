@@ -1,9 +1,10 @@
 package com.vanillasource.eliot.eliotc.jvm
 
 /** Part 2 of 4 of the end-to-end example-program suite (see [[FullIntegrationTest]]). The 88 cases are split across
-  * four classes so Mill runs them in four parallel test-worker JVMs — each warming its own resident compilation
-  * session — instead of one worker compiling all 88 serially. Keep each part self-contained: a case that shares a
-  * class-level helper (e.g. `orderingPrelude`) must stay in the same part as that helper. */
+  * four classes so Mill runs them in four parallel test-worker JVMs — each warming its own resident compilation session
+  * — instead of one worker compiling all 88 serially. Keep each part self-contained: a case that shares a class-level
+  * helper (e.g. `orderingPrelude`) must stay in the same part as that helper.
+  */
 class ExamplesIntegrationTest2 extends FullIntegrationTest {
 
   // Coherence: two implementations of an ability for the same type overlap and are rejected (at most one instance per
@@ -187,9 +188,9 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "first failed")
   }
 
-  // The Abort analogue: a single `import eliot.effect.Abort` brings in `abort` AND the infix `orElse` utility, which
+  // The Abort analogue: a single `import eliot.effect.Abort` brings in `abort` AND the infix `else` utility, which
   // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`AbortCarrier` named.
-  "the Abort effect's orElse" should "discharge-and-default in one step via a single import and infix orElse" in {
+  "the Abort effect's else" should "discharge-and-default in one step via a single import and infix else" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Abort
@@ -198,8 +199,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |def giveUp: {Abort} String = abort
         |
         |def main: IO[Unit] = {
-        |   printLine(safe orElse "<fallback>")
-        |   printLine(giveUp orElse "<fallback>")
+        |   printLine(safe else "<fallback>")
+        |   printLine(giveUp else "<fallback>")
         |}""".stripMargin
     ).asserting(_ shouldBe "config-value\n<fallback>")
   }
