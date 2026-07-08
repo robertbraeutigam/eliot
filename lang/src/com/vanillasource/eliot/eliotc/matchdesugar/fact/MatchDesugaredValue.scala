@@ -19,7 +19,8 @@ case class MatchDesugaredValue(
     opaque: Boolean = false,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    platform: Platform = Platform.Runtime
+    platform: Platform = Platform.Runtime,
+    dischargedEffects: Seq[AbilityFQN] = Seq.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[MatchDesugaredValue] = MatchDesugaredValue.Key(vfqn, platform)
 }

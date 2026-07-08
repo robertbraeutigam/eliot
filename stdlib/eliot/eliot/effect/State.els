@@ -47,6 +47,11 @@ def updateState[S](f: S => S): {State[S]} Unit = putState(f(state))
  */
 type StateCarrier[S, G[_], A]
 
+// NOTE (discharge accounting): this raw accessor is deliberately NOT annotated `{-State[S]}`. Its jvm implementation is
+// the *generated* `StateCarrier` data-field accessor, which cannot carry a negative effect member, so annotating it
+// would fail the layer merge. The everyday discharge API (`runStateToPair`/`runStateToValue`/`runStateToFinalState`)
+// carries the annotation; a direct `runStateCarrier` call is conservatively over-counted (sound). See
+// docs/effect-discharge-accounting.md.
 /**
  * Unwrap a `StateCarrier` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor
  * of the carrier; the platform layer supplies the body. Discharge the effect with `runStateToPair`, which threads an
@@ -59,18 +64,18 @@ def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): S => G[Pair[A, S]]
  * from `initial`. Any other effects remain in the carrier `G`. Reach for `runStateToValue` or `runStateToFinalState` to
  * keep only one side of the pair.
  */
-def runStateToPair[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, S]] = runStateCarrier(p)(initial)
+def runStateToPair[S, G[_], A](p: StateCarrier[S, G, A], initial: S): {-State[S]} G[Pair[A, S]] = runStateCarrier(p)(initial)
 
 /**
  * Discharge the `State[S]` effect keeping only the result, discarding the final state. Threads `initial` through the
  * computation and yields its value.
  */
-def runStateToValue[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[A] =
+def runStateToValue[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): {-State[S]} G[A] =
    runStateToPair(p, initial).map(first)
 
 /**
  * Discharge the `State[S]` effect keeping only the final state, discarding the result. Threads `initial` through the
  * computation and yields the state left behind.
  */
-def runStateToFinalState[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): G[S] =
+def runStateToFinalState[S, G[_] ~ Effect, A](p: StateCarrier[S, G, A], initial: S): {-State[S]} G[S] =
    runStateToPair(p, initial).map(second)

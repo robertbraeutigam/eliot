@@ -1,9 +1,18 @@
 # Discharge-Aware Effect Accounting
 
-Status: **Design record / implementation plan (2026-07-08).** Captures why an effectful function whose
-internal `if..else` (or any handler) *fully discharges* an effect is nonetheless forced to declare that
-effect, and a staged plan to fix it. The fix keeps the one-carrier model and monomorphization as the sound
-backstop; it only makes the cheap, definition-local effect check *precise* instead of over-approximating.
+Status: **Steps 0–2 SHIPPED (2026-07-08); Steps 3–7 remain design record / plan.** Captures why an effectful
+function whose internal `if..else` (or any handler) *fully discharges* an effect is nonetheless forced to
+declare that effect, and a staged plan to fix it. The fix keeps the one-carrier model and monomorphization as
+the sound backstop; it only makes the cheap, definition-local effect check *precise* instead of
+over-approximating.
+
+**Shipped slice (Steps 0–2):** the negative effect-set syntax `{…, -E}`, the `dischargedEffects` field threaded
+`FunctionDefinition → NamedValue → ResolvedValue → BlockDesugaredValue → MatchDesugaredValue →
+OperatorResolvedValue` (resolved to `AbilityFQN` in the resolve phase, part of `NamedValue.signatureEquality`),
+the shallow direct-call subtraction in `EffectUsageCollector`, and the five body-discharger annotations. The
+symptom is fixed end-to-end: `IfDemo.demo` and `examples/DischargeDemo.els` now declare only `{Console}`; the
+`M5run`-style real leak stays rejected (`EffectDischargeAccountingTest` + `LeakDemo` smoke). One deliberate
+deviation from the plan is recorded under Step 1 below (the abstract-accessor trio).
 
 ## 0. The symptom
 
@@ -73,7 +82,9 @@ lives and dies inside the sub-expression), and only a *genuinely* undischarged a
 
 **Discharger primitives** (stdlib, explicit-carrier `XxxCarrier[…,G,A] → G[…]`): `else`, `runAbort` (→`Abort`);
 `catch`, `runThrow` (→`Throw`); `runStateToPair`, `runStateToValue`, `runStateToFinalState`, `runStateCarrier`
-(→`State`).
+(→`State`). *Shipped annotation set is the five with hand-written bodies* (`else`, `catch`, `runStateToPair`,
+`runStateToValue`, `runStateToFinalState`); the three raw accessors (`runAbort`, `runThrow`, `runStateCarrier`)
+are left conservative — see Step 1's shipped-deviation note.
 
 ## 3. Syntax: negative members in the effect set
 
@@ -118,6 +129,9 @@ axiomatic (they are the accessor that reifies the effect away).
 - **Cases:** `demo:{Console}` (must pass after Step 2); `M5run` real-leak (must *stay* rejected at
   monomorphize); `P1` pure (stays green); `{State,Abort}` mixed (Step 4).
 - **Done when:** the harness reproduces today's failures and encodes the target outcomes.
+- **Shipped:** `EffectDischargeAccountingTest` (processor-level, in-memory, no cache) locks subtraction-passes,
+  undischarged-still-rejected, partial-discharge-keeps-sibling, and pure-stays-green; `examples/DischargeDemo.els`
+  and the de-workaround'd `examples/IfDemo.els` are the end-to-end smoke compiles.
 
 ### Step 1 — Negative effect-set syntax + marker plumbing
 
@@ -132,8 +146,17 @@ axiomatic (they are the accessor that reifies the effect away).
 - **Thread** the field through the 5 downstream facts + the `.copy` in each producing processor
   (`CoreProcessor`, `ValueResolver`, matchdesugar, block, `OperatorResolverProcessor`); resolve the ability
   name to `AbilityFQN` where ability constraints resolve.
-- **Mark primitives:** annotate the 8 stdlib dischargers (Section 2) and their jvm redefinitions (must match
-  per the merge).
+- **Mark primitives:** annotate the stdlib dischargers (Section 2). **Shipped deviation:** only the **five
+  body-dischargers** (`else`, `catch`, `runStateToPair`, `runStateToValue`, `runStateToFinalState`) are
+  annotated — each lives in one layer only, so its annotation merges cleanly. The **three raw accessors**
+  (`runAbort`, `runThrow`, `runStateCarrier`) are deliberately **left un-annotated**: their jvm implementation is
+  the *generated* `data`-field accessor of `AbortCarrier`/`ThrowCarrier`/`StateCarrier`, which cannot carry a
+  negative member, so annotating the abstract stdlib side would either (a) be dropped at merge — the bodied jvm
+  accessor wins — or (b), with `dischargedEffects` in `signatureEquality`, **fail the merge** outright. This is a
+  *conservative, sound* gap: a direct raw-accessor call is over-counted (a false positive at worst, never a
+  missed effect), and the everyday discharge API (`else`/`catch`/`runStateTo…`) is fully covered. Each accessor
+  carries a `// NOTE (discharge accounting)` breadcrumb. Full coverage of the trio waits on Step 3 inference (or
+  a merge that unions `dischargedEffects` across layers).
 - **Verify:** `OperatorResolvedValue` for `else` carries `dischargedEffects = {Abort}`; no behaviour change yet.
 
 ### Step 2 — Shallow subtraction: direct invocation (fixes the symptom)
@@ -143,8 +166,11 @@ axiomatic (they are the accessor that reifies the effect away).
   `usedEffects = ownEffects ∪ (argUsage.usedEffects \ info.dischargedEffects)`. Subtracting from the whole
   arg-union is sound: the non-computation args (`fallback`, `initial`, `onError`) ride the inner carrier `G`
   and cannot carry the discharged ability.
-- **Verify (milestone, independently shippable):** `demo:{Console}` compiles; `P1` still passes; **M5run still
-  rejected at monomorphize** (a real `abort` has no internal discharger to subtract it).
+- **Verify (milestone, independently shippable) — DONE:** `demo:{Console}` compiles (`IfDemo`,
+  `DischargeDemo`); `P1`/pure still passes; a genuinely undischarged abort under `{Console}` **still rejected**
+  by the def-local subset check (`LeakDemo`: "performs the effect 'Abort' but does not declare it"), and a real
+  leak reaching a concrete carrier **still rejected at monomorphize** — the subtraction fires only at an actual
+  discharger call, never at a bare `if`.
 
 ### Step 3 — Extend to user-defined dischargers (inference)
 

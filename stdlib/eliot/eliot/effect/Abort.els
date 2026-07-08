@@ -44,6 +44,11 @@ ability Abort[F[_]] {
  */
 type AbortCarrier[G[_], A]
 
+// NOTE (discharge accounting): this raw accessor is deliberately NOT annotated `{-Abort}`, even though it does
+// discharge Abort. Its jvm implementation is the *generated* `AbortCarrier` data-field accessor, which cannot carry a
+// negative effect member, so a `{-Abort}` here would disagree with it and fail the layer merge. The everyday discharge
+// API (`else`) carries the annotation instead; a direct `runAbort` call is conservatively over-counted (sound — a
+// false positive at worst). See docs/effect-discharge-accounting.md.
 /**
  * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed, `None` if it
  * aborted. Any other effects remain in the carrier `G`. This is the single accessor of `AbortCarrier` — the platform
@@ -68,5 +73,5 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): G[Option[A]]
  * ```
  */
 infix right
-def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: G[A]): G[A] =
+def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: G[A]): {-Abort} G[A] =
    flatMap(o -> foldOption(o, fallback, a -> pure(a)), runAbort(computation))

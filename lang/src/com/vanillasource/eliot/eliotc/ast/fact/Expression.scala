@@ -44,14 +44,24 @@ object Expression {
     */
   case class BlockLine(binder: Option[LambdaParameterDefinition], expression: Sourced[Expression])
 
-  /** The effect-set sugar `{ E1, E2, … } A` written in a type position: the unordered set of effects `effects`
-    * (capabilities, each an ability reference) carried by a computation that produces a plain `resultType`. Pure,
-    * type-information-free sugar — it never survives past the core processor, where [[core.processor.EffectSugarDesugarer]]
-    * collapses every `{…} A` occurrence in a signature to `F[A]` under one shared inferable carrier `F[_]` (the effects
-    * becoming `F ~ Ei` constraints).
+  /** The effect-set sugar `{ E1, E2, … } A` written in a type position: the unordered set of effects the computation
+    * carries, producing a plain `resultType`. Effects come in two signs, split at parse time:
+    *
+    *   - `effects` — the **positive** members `Ei` a computation *performs*; the ordinary sugar. Pure,
+    *     type-information-free — they never survive past the core processor, where
+    *     [[core.processor.EffectSugarDesugarer]] collapses every positive `{…} A` occurrence in a signature to `F[A]`
+    *     under one shared inferable carrier `F[_]` (each becoming an `F ~ Ei` constraint).
+    *   - `negativeEffects` — the **negative** members `-Ei` a computation *discharges* (discharge-aware effect
+    *     accounting, docs/effect-discharge-accounting.md). They introduce no carrier constraint; the desugarer records
+    *     them in the value's `dischargedEffects` instead. A negatives-only set (`{-Abort} G[A]`) introduces no carrier at
+    *     all and passes its inner type through unchanged — this is how the explicit-carrier discharger primitives
+    *     (`else`, `catch`, …) annotate the effect they reify away.
     */
-  case class EffectfulType(effects: Seq[GenericParameter.AbilityConstraint], resultType: Sourced[Expression])
-      extends Expression
+  case class EffectfulType(
+      effects: Seq[GenericParameter.AbilityConstraint],
+      negativeEffects: Seq[GenericParameter.AbilityConstraint],
+      resultType: Sourced[Expression]
+  ) extends Expression
 
   case class MatchCase(pattern: Sourced[Pattern], body: Sourced[Expression])
 
@@ -90,8 +100,9 @@ object Expression {
     case FlatExpression(parts)                                                                => parts.map(_.value.show).mkString(" ")
     case MatchExpression(scrutinee, cases)                                                    =>
       s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
-    case EffectfulType(effects, resultType)                                                   =>
-      s"{${effects.map(showAbilityConstraint).mkString(", ")}} ${resultType.value.show}"
+    case EffectfulType(effects, negativeEffects, resultType)                                   =>
+      val members = effects.map(showAbilityConstraint) ++ negativeEffects.map("-" + showAbilityConstraint(_))
+      s"{${members.mkString(", ")}} ${resultType.value.show}"
     case BlockExpression(lines)                                                               =>
       lines.map(showBlockLine).mkString("{ ", "; ", " }")
   }
@@ -210,14 +221,27 @@ object Expression {
       case None        => FlatExpression(parts)
     }
 
-  /** Parses the effect-set sugar `{ Eff (, Eff)* } <type atom>`, e.g. `{Suspend} String` or `{State[Account], Abort} A`.
-    * Each brace entry is parsed as an ability reference (the same shape as a `~` ability constraint). The braces must be
-    * non-empty (an empty effect set is just the plain type). See [[EffectfulType]].
+  /** Parses one brace entry of the effect-set sugar: an ability reference optionally prefixed by `-`, marking it a
+    * *negative* (discharged) member. `Abort` is positive; `-Abort` / `-Throw[E]` is negative.
+    */
+  private lazy val signedEffectParser: Parser[Sourced[Token], (Boolean, GenericParameter.AbilityConstraint)] = for {
+    negative <- symbol("-").as(true).optional().map(_.getOrElse(false))
+    ability  <- component[GenericParameter.AbilityConstraint]
+  } yield (negative, ability)
+
+  /** Parses the effect-set sugar `{ Eff (, Eff)* } <type atom>`, e.g. `{Suspend} String`, `{State[Account], Abort} A`,
+    * or the discharge form `{-Abort} G[A]`. Each brace entry is an ability reference (the same shape as a `~` ability
+    * constraint) optionally prefixed by `-` to mark it discharged. The braces must be non-empty (an empty effect set is
+    * just the plain type). See [[EffectfulType]].
     */
   private lazy val effectfulTypeParser: Parser[Sourced[Token], Expression] = for {
-    effects    <- bracketedCommaSeparatedItems("{", component[GenericParameter.AbilityConstraint], "}")
+    entries    <- bracketedCommaSeparatedItems("{", signedEffectParser, "}")
     resultType <- sourced(typeAtom)
-  } yield EffectfulType(effects, resultType)
+  } yield EffectfulType(
+    entries.collect { case (false, ability) => ability },
+    entries.collect { case (true, ability) => ability },
+    resultType
+  )
 
   /** A named reference with an optional generic argument list `[…]` (always attached) and a value-argument list `(…)`
     * attached *only* when its `(` is adjacent to the preceding token (no intervening whitespace). The one call parser

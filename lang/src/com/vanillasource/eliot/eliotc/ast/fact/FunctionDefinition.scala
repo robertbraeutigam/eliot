@@ -28,7 +28,14 @@ case class FunctionDefinition(
     // The `/** ... */` documentation comment preceding this definition, if any. Attached by source-position adjacency
     // in `ASTParser` and consumed only by the apidoc tooling; never read by the compiler proper, never part of
     // `signatureEquality` (layers may document the same name differently), and dropped at the core boundary.
-    doc: Option[Sourced[String]] = None
+    doc: Option[Sourced[String]] = None,
+    // The effect abilities this definition *discharges* — the negative `{…, -E}` members of its effect set
+    // (docs/effect-discharge-accounting.md). Populated by `EffectSugarDesugarer` from the signature's `EffectfulType`
+    // negatives (as bare ability names, resolved to `AbilityFQN` in the resolve phase); empty for every ordinary
+    // definition. Rides the same fact chain as `opaque`, ending on `OperatorResolvedValue`, where the effect
+    // accounting subtracts it from a caller's used-effect set. Included in `signatureEquality` so a layer may not
+    // silently disagree with the abstract declaration about what it discharges.
+    dischargedEffects: Seq[Sourced[String]] = Seq.empty
 )
 
 object FunctionDefinition {

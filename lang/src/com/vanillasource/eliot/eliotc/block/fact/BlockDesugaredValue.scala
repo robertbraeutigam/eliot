@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, PrecedenceDeclaration, QualifiedName, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression, PrecedenceDeclaration, QualifiedName, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A resolved value with every `{ … }` [[Expression.BlockExpression]] in its runtime body lowered to a tower of
@@ -24,7 +24,8 @@ case class BlockDesugaredValue(
     opaque: Boolean = false,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    platform: Platform = Platform.Runtime
+    platform: Platform = Platform.Runtime,
+    dischargedEffects: Seq[AbilityFQN] = Seq.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[BlockDesugaredValue] = BlockDesugaredValue.Key(vfqn, platform)
 }

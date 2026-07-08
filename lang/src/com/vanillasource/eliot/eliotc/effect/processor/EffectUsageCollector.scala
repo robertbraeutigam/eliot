@@ -68,7 +68,14 @@ class EffectUsageCollector(calleeSignatures: CalleeSignatures) {
           info     <- calleeSignatures.infoFor(expr.as(fqn.value), platform)
           argUsage <- args.foldMapM(collect(_, env, carrier))
           effectful = info.resultEffectful(args.size)
-        } yield Usage(effectful, (if (effectful) info.effectAbilities else Set.empty) ++ argUsage.usedEffects)
+          // Shallow discharge subtraction (Step 2): a callee that discharges effect `E` (a discharger primitive such
+          // as `else`/`catch`/`runStateToPair`, declaring `{…, -E}`) removes `E` from the union of its arguments'
+          // effects — the discharged effect lived and died inside the argument sub-expression it consumes. Subtracting
+          // from the whole arg-union is sound: the non-computation arguments (`fallback`, `initial`, `onError`) ride
+          // the inner carrier and cannot carry the discharged ability. The callee's own performed effects
+          // (`effectAbilities`) are added back untouched.
+          used      = (argUsage.usedEffects -- info.dischargedEffects) ++ (if (effectful) info.effectAbilities else Set.empty)
+        } yield Usage(effectful, used)
       case FunctionLiteral(param, paramType, body) if args.sizeIs == 1 =>
         // An immediately-applied lambda `(x -> body)(arg)` — a `let`. An effectful bound value makes the let
         // effectful (the checker sequences it) unless the binder is annotated carrier-typed (deliberate storage).

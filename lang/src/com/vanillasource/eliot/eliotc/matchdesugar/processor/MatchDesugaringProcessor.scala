@@ -39,7 +39,8 @@ class MatchDesugaringProcessor
       blockDesugaredValue.opaque,
       blockDesugaredValue.inferableArity,
       blockDesugaredValue.roleHint,
-      blockDesugaredValue.platform
+      blockDesugaredValue.platform,
+      blockDesugaredValue.dischargedEffects
     )
 
   private def convertParamConstraints(

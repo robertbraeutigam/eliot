@@ -54,6 +54,7 @@ class ValueResolver
       resolvedStack       <- resolveTypeStack(namedValue.qualifiedName.as(namedValue.typeStack), false)
       resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
+      resolvedDischarged  <- namedValue.dischargedEffects.traverse(resolveAbilityName)
       resolvedPrecedence  <- resolvePrecedenceDeclarations(namedValue.precedence)
       _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
       _                   <- debug[ScopedIO](
@@ -70,7 +71,8 @@ class ValueResolver
       namedValue.opaque,
       namedValue.inferableArity,
       namedValue.roleHint,
-      key.platform
+      key.platform,
+      resolvedDischarged
     )
 
     resolveProgram.runA(scope)

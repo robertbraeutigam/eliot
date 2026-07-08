@@ -39,14 +39,18 @@ case class NamedValue(
     visibility: Visibility = Visibility.Public,
     roleHint: RoleHint = RoleHint.NoHint,
     opaque: Boolean = false,
-    inferableArity: Int = 0
+    inferableArity: Int = 0,
+    // The effect ability names this value discharges (the negative `{…, -E}` members). Still unresolved names here;
+    // the resolve phase turns them into `AbilityFQN`s. See [[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition.dischargedEffects]].
+    dischargedEffects: Seq[Sourced[String]] = Seq.empty
 )
 
 object NamedValue {
   case class CoreAbilityConstraint(abilityName: Sourced[String], typeArgs: Seq[Expression])
 
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
-    structuralEquality.eqv(x.typeStack.signature, y.typeStack.signature)
+    structuralEquality.eqv(x.typeStack.signature, y.typeStack.signature) &&
+      x.dischargedEffects.map(_.value).toSet === y.dischargedEffects.map(_.value).toSet
 
   given Show[NamedValue] = (namedValue: NamedValue) =>
     s"${namedValue.qualifiedName.value}: ${namedValue.typeStack.show}"

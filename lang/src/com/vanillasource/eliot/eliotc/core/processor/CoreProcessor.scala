@@ -128,7 +128,8 @@ class CoreProcessor
       function.visibility,
       roleHint,
       function.opaque,
-      inferableArity
+      inferableArity,
+      function.dischargedEffects
     )
   }
 }

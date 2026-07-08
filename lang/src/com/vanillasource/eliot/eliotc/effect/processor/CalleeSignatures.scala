@@ -28,10 +28,11 @@ class CalleeSignatures {
           view.parameters.map(_.value),
           view.returnType.value,
           carrierBinders,
-          effectAbilitiesOf(fqn.value, orv, carrierBinders)
+          effectAbilitiesOf(fqn.value, orv, carrierBinders),
+          orv.dischargedEffects.toSet
         )
       case None      =>
-        CalleeInfo(Seq.empty, ValueReference(fqn.as(WellKnownTypes.typeFQN)), Set.empty, Set.empty)
+        CalleeInfo(Seq.empty, ValueReference(fqn.as(WellKnownTypes.typeFQN)), Set.empty, Set.empty, Set.empty)
     }
 
   /** The user-facing effects performing this callee contributes to the *caller's* effect set (Decision 6, propagation):
@@ -59,12 +60,16 @@ class CalleeSignatures {
 
 object CalleeSignatures {
 
-  /** A callee's signature reduced to what the effect accounting reads, plus the user-facing effects it performs. */
+  /** A callee's signature reduced to what the effect accounting reads, plus the user-facing effects it performs and the
+    * effects it discharges (the negative `{…, -E}` members — subtracted from a caller's argument-effect union when the
+    * caller invokes this callee directly; discharge-aware accounting, Step 2).
+    */
   case class CalleeInfo(
       valueParamTypes: Seq[OperatorResolvedExpression],
       returnType: OperatorResolvedExpression,
       carrierBinders: Set[String],
-      effectAbilities: Set[AbilityFQN]
+      effectAbilities: Set[AbilityFQN],
+      dischargedEffects: Set[AbilityFQN]
   ) {
 
     /** Whether this callee applied to `appliedCount` value arguments yields an effectful result: it must be fully

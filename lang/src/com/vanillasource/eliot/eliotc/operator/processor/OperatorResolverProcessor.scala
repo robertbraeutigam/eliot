@@ -34,7 +34,8 @@ class OperatorResolverProcessor
       desugaredValue.opaque,
       desugaredValue.inferableArity,
       desugaredValue.roleHint,
-      platform = desugaredValue.platform
+      platform = desugaredValue.platform,
+      dischargedEffects = desugaredValue.dischargedEffects
     )
   }
 

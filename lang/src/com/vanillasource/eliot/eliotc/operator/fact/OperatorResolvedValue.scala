@@ -22,7 +22,12 @@ case class OperatorResolvedValue(
     // stack (implicit-generics, W3). Set by `SaturatedValueProcessor`; consumed by the monomorphize
     // checker — the callee infers the return from its body, the caller reads it off the callee's `MonomorphicValue`.
     calculatedReturn: Boolean = false,
-    platform: Platform = Platform.Runtime
+    platform: Platform = Platform.Runtime,
+    // The ability FQNs this value discharges (the negative `{…, -E}` members). The effect accounting
+    // ([[com.vanillasource.eliot.eliotc.effect.processor.EffectUsageCollector]]) subtracts these from a caller's
+    // used-effect set when the caller invokes this value directly (discharge-aware accounting, Step 2). Empty for
+    // every ordinary value; populated only for the discharger primitives (`else`, `catch`, `runStateTo…`).
+    dischargedEffects: Seq[AbilityFQN] = Seq.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn, platform)
 

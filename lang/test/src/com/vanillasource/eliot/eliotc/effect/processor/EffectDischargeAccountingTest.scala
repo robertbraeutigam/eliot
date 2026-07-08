@@ -1,0 +1,94 @@
+package com.vanillasource.eliot.eliotc.effect.processor
+
+import com.vanillasource.eliot.eliotc.ProcessorTest
+import com.vanillasource.eliot.eliotc.effect.fact.EffectCheckedValue
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
+
+/** Regression harness for discharge-aware effect accounting (docs/effect-discharge-accounting.md, Steps 0–2). A callee
+  * that *discharges* an effect (declares the negative `{…, -E}` member) removes that effect from the union of its
+  * arguments' effects, so a body that fully discharges an internal effect need not declare it — fixing the phantom
+  * false positive where `printLine(if(flag,"a") else "b")` forced a spurious `{Abort}`.
+  *
+  * The mechanism is exercised with a synthetic ability `MyE` and discharger `discharge` (declaring `{-MyE}`), so the
+  * subtraction is tested directly at the effect phase without the full `Abort`/`AbortCarrier` stack; the real `else`
+  * path is covered end-to-end by the `examples/` smoke compiles. The hard invariant — a *genuinely undischarged* effect
+  * must stay rejected — is locked below and must never turn green.
+  */
+class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
+
+  // Minimal effect machinery so a snippet naming the carrier resolves (mirrors `stdlib/.../Effect.els`).
+  private val effectStub =
+    SystemImport(
+      "Effect",
+      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}",
+      ModuleName.effectPackage
+    )
+
+  // A synthetic discharger surface: `emit` performs `MyE`; `emitBoth` performs `MyE` *and* `Log`; `discharge` is an
+  // (abstract) discharger declaring `{-MyE}`, so a direct call subtracts `MyE` from its argument's effects. `Carrier`
+  // stands in for the internal `AbortCarrier`-style carrier the discharger consumes — types are never checked at the
+  // effect phase, so its shape need only be nameable.
+  private val dischargeStub =
+    SystemImport(
+      "Discharge",
+      "import eliot.effect.Effect\n" +
+        "import eliot.effect.Log\n" +
+        "ability MyE[F[_]] {\ndef emit: F[Unit]\n}\n" +
+        "def emitBoth: {MyE, Log} Unit\n" +
+        "type Carrier[G[_], A]\n" +
+        "def discharge[G[_] ~ Effect, A](c: Carrier[G, A]): {-MyE} G[A]",
+      ModuleName.effectPackage
+    )
+
+  private val allImports = systemImports :+ effectStub :+ dischargeStub
+
+  "discharge accounting" should "subtract a discharged effect so an honest {Console} passes" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = printLine(discharge(emit))"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "still reject an effect that is performed but never discharged" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef bad: {Console} Unit = printLine(emit)"
+    ).asserting(
+      _.map(_.message) should contain(
+        "This value performs the effect 'MyE' but does not declare it; add it to its { ... } effect set."
+      )
+    )
+  }
+
+  it should "subtract only the discharged effect, leaving a sibling effect still required" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = printLine(discharge(emitBoth))"
+    ).asserting(
+      _.map(_.message) should contain(
+        "This value performs the effect 'Log' but does not declare it; add it to its { ... } effect set."
+      )
+    )
+  }
+
+  it should "accept when the surviving sibling of a partial discharge is declared" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Log\nimport eliot.effect.Discharge\ndef demo: {Console, Log} Unit = printLine(discharge(emitBoth))"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "leave a pure body green (no phantom discharge interaction)" in {
+    runEffectCheckErrors("def greet(name: String): String = name").asserting(_ shouldBe Seq.empty)
+  }
+
+  private def runEffectCheckErrors(source: String) =
+    runGenerator(source, EffectCheckedValue.Key(definedVfqn(source)), allImports).map(_._1)
+
+  /** The single value defined by each snippet (the name after the first `def`, before `:`/`(`). */
+  private def definedVfqn(source: String): ValueFQN = {
+    val name = source.linesIterator
+      .map(_.trim)
+      .find(_.startsWith("def "))
+      .map(_.drop(4).takeWhile(c => c != ':' && c != '(' && c != ' '))
+      .getOrElse("demo")
+    ValueFQN(testModuleName, QualifiedName(name, Qualifier.Default))
+  }
+}
