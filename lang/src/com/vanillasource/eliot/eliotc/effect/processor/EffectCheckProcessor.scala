@@ -20,9 +20,12 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   *
   *   - the **declared-effects subset check** ([[DeclaredEffectChecker]]): a `{E...}`-carrier body must declare every
   *     user-facing effect it performs — which is also what propagates `Inf` to callers;
-  *   - the **"declared pure but performs effects" fail-safe**: a value with no effect carrier (a nullary return such
-  *     as `Unit`) whose body nevertheless performs an effect is rejected here with a friendly message rather than a
-  *     raw monomorphization mismatch.
+  *   - the **"declared pure but result is effectful" fail-safe**: a value with a nullary/pure return (`Unit`, `String`)
+  *     whose body is nevertheless carrier-headed is rejected here with a friendly message rather than a raw
+  *     monomorphization mismatch. The message is **discharge-aware** ([[purelyDeclaredMessage]], Step 6): a genuinely
+  *     undischarged effect is reported as "performs an effect", a *fully discharged* result (its residual still rides a
+  *     carrier — discharge-to-a-pure-value has no Identity carrier) as "result rides an effect carrier", never
+  *     mislabelling the latter as performing an effect.
   *
   * Both are fed by one [[EffectUsageCollector]] walk (the accounting half of the former desugarer). The body passes
   * through untransformed; a value failing a check never produces its [[EffectCheckedValue]], so it never reaches
@@ -81,14 +84,27 @@ class EffectCheckProcessor
     for {
       usage <- collector.collect(context.inner, context.env, context.carrierEffects)
       _     <- effectChecker.verify(value, carrier, usage.usedEffects)
-      _     <- if (usage.effectful && !canHostEffects)
-                 compilerError(
-                   value.name.as(
-                     "This value performs an effect but is declared pure; declare an effect set with { ... } or return an " +
-                       "effect carrier."
-                   )
-                 )
+      _     <- if (usage.effectful && !canHostEffects) compilerError(value.name.as(purelyDeclaredMessage(usage)))
                else ().pure[CompilerIO]
     } yield ()
   }
+
+  /** The "declared pure but result is effectful" message, made **discharge-aware** (discharge-aware effect accounting,
+    * Step 6). Both cases are hard errors — a nullary/pure return cannot host a carrier-headed result, and neither
+    * monomorphizes (discharge-to-a-pure-value has no Identity carrier) — but the wording must be honest:
+    *
+    *   - a body performing a *genuine, undischarged* effect (`usedEffects` non-empty — `printLine(readLine)` under a
+    *     `String` return) is told it performs one; whereas
+    *   - a body whose effects are *fully discharged* yet whose result still rides the residual carrier (`usedEffects`
+    *     empty — a discharged `if(f,"A") else "B"` returned as a bare `String`, or a bare `pure` wrap) must **not** be
+    *     mislabelled as performing an effect; it is told its result rides a carrier the pure return cannot be.
+    *
+    * The actionable fix is the same in both: return an effect carrier (`IO[...]`) or declare a `{ ... }` set.
+    */
+  private def purelyDeclaredMessage(usage: EffectUsageCollector.Usage): String =
+    if (usage.usedEffects.nonEmpty)
+      "This value performs an effect but is declared pure; declare an effect set with { ... } or return an effect carrier."
+    else
+      "This value's result rides an effect carrier but its declared return type is pure; return an effect carrier such " +
+        "as IO[...] instead."
 }

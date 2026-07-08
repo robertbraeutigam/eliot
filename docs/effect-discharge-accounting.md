@@ -1,7 +1,9 @@
 # Discharge-Aware Effect Accounting
 
-Status: **Steps 0–4 SHIPPED; Step 5 INVESTIGATED — not clean, limitation documented + conservative behaviour
-locked (all 2026-07-08); Steps 6–7 remain plan.** Captures why an effectful
+Status: **COMPLETE (2026-07-08).** Steps 0–4 SHIPPED; Step 5 INVESTIGATED (not clean — limitation documented +
+conservative behaviour locked); Step 6 SHIPPED (fail-safe made discharge-aware; the "fully-discharging handler
+awaits Step 6" premise refuted — the real blocker is the absent Identity carrier, a Step-5-family limitation);
+Step 7 SHIPPED (CLAUDE.md + `eliot-code` skill). Captures why an effectful
 function whose internal `if..else` (or any handler) *fully discharges* an effect is nonetheless forced to
 declare that effect, and a staged plan to fix it. The fix keeps the one-carrier model and monomorphization as
 the sound backstop; it only makes the cheap, definition-local effect check *precise* instead of
@@ -301,6 +303,43 @@ ever wanted, it is a checker feature (use-directed store), tracked here — not 
   one still must.
 - Confirm apidoc/LSP hover effect rendering (if any) reflects the now-honest sets.
 - Re-run the whole `examples/` suite + `__.test`.
+
+**SHIPPED (2026-07-08).** The audit refuted one premise and produced one code change:
+
+- **The fail-safe is not the blocker it was thought to be.** Step 3 recorded that a fully-discharging user
+  handler with a pure/residual return "awaits Step 6" — the assumption being that relaxing the fail-safe would
+  let it compile. Ground truth (cold cache) refutes this: with the fail-safe *fully disabled*, a fully-discharged
+  **pure-return** body (`def demo(f): String = if(f,"A") else "B"`, and the `else`/`discharge` user-handler
+  shape) still fails at monomorphization — `Type mismatch. Expected: String, Actual: $bad-apply(String)`. The
+  real blocker is that **discharge-to-a-pure-value has no Identity carrier**: a discharger's residual is `G[A]`,
+  which cannot become a bare `String`. (This is the same limitation family as Step 5 — a discharge only ever
+  yields the residual *carrier*, so a discharging body must return a carrier-headed type: `IO[A]`, `{E'} A`, or a
+  generic `G[A]`. Those already compile and never trip the fail-safe, since a carrier-headed return has
+  `canHostEffects = true`.) So the doc's §0 "P1 ✅ passes" only ever meant the def-local *subset* check passes
+  (empty carrier ⇒ `DeclaredEffectChecker` skips); P1 was never an end-to-end compile, and the fail-safe (added
+  later, in the Step-4 effect-lift-into-checker commit) correctly turns the raw `$bad-apply` into a friendly
+  message.
+
+- **What actually shipped: the fail-safe message is now discharge-aware** (`EffectCheckProcessor.
+  purelyDeclaredMessage`). Both arms still hard-error (neither monomorphizes), but the wording is honest — this is
+  the "a fully-discharged body must not be flagged [as performing an effect]; a genuinely effectful one still
+  must" reconciliation, at the diagnostic level:
+    - `usedEffects` non-empty (a genuine undischarged effect, `printLine(readLine)` under `String`) → *"This value
+      performs an effect but is declared pure…"* (unchanged; pinned in `EffectCheckProcessorTest` /
+      `MonomorphicTypeCheckTest`);
+    - `usedEffects` empty (fully discharged, or a bare `pure` wrap — the residual still rides a carrier) → *"This
+      value's result rides an effect carrier but its declared return type is pure; return an effect carrier such
+      as IO[...] instead."* — no longer the false "performs an effect" claim.
+  Locked by two `EffectDischargeAccountingTest` cases under **"fail-safe reconciliation (Step 6)"**.
+
+- **apidoc / LSP hover: honest by construction, nothing to reconcile.** The only effect-set rendering is the
+  source-faithful signature (`ValueDoc` → `SignatureRenderer` → `Expression.show`, shared by the apidoc site and
+  the LSP doc hover). It renders straight from the parsed AST's `EffectfulType`, including negative members
+  (`{Console, -Abort} …`), so it always shows exactly what the author wrote — there is no separately-*computed*
+  effect set that discharge accounting could leave stale.
+
+- **`examples/` + `__.test`: green.** Full `./mill __.test` = 0 failures; `DischargeDemo`/`IfDemo` recompile and
+  run.
 
 ### Step 7 — Docs & skill updates
 

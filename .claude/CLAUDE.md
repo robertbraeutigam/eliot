@@ -144,7 +144,7 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    accounting walk): the declared-effects subset check (which is also what propagates `Inf`) and the "declared pure but
    performs effects" fail-safe. The body auto-lift itself is NOT here — it is type-directed elaboration in the
    monomorphize checker (see below and `docs/effect-lift-in-checker.md`). The accounting walk is **discharge-aware**
-   (`docs/effect-discharge-accounting.md`, Steps 0–2 shipped): an effect set may carry *negative* members `{…, -E}`
+   (`docs/effect-discharge-accounting.md`, **COMPLETE**): an effect set may carry *negative* members `{…, -E}`
    spelled with a leading `-`, meaning the value *discharges* `E`. `EffectSugarDesugarer` records negatives (no carrier
    constraint; a negatives-only set is a pure pass-through) in a `dischargedEffects` field that rides the same fact chain
    as `opaque` (resolved to `AbilityFQN` in resolve; part of `NamedValue.signatureEquality`) onto `OperatorResolvedValue`;
@@ -160,9 +160,16 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    `EffectDischargeSummaryProcessor` is single-owner recursive over callee summaries (a DAG, since Eliot has no
    recursion), kept separate from `EffectCheckProcessor` so a caller reads a handler's discharge even if the handler's
    own body fails a check. Only the argument-union is subtracted, never the callee's own `effectAbilities`, so a handler
-   whose result still declares `{E}` correctly re-propagates it; a *fully*-discharging handler needs a pure/residual
-   return, which still trips the declared-pure fail-safe (reconciliation is Step 6). Subtraction only ever makes the
-   check *more permissive*; monomorphization stays the sound backstop, so a genuine leak is still rejected.
+   whose result still declares `{E}` correctly re-propagates it. Subtraction only ever makes the check *more permissive*;
+   monomorphization stays the sound backstop, so a genuine leak is still rejected. Two boundary cases are **documented
+   limitations, not bugs** (both stem from the one fact that a discharge only ever yields the *residual carrier* `G[A]`,
+   never a pure value — there is no Identity carrier): a discharger consumes the *carrier*, so it must receive the
+   effectful call **directly** (`printLine(x else "d")`), never a `val`-bound binder — a `val x = <effectful>` sequences
+   the carrier away via `flatMap` (Step 5); and a *fully*-discharging handler must return a carrier-headed type
+   (`IO[A]`, `{E'} A`, generic `G[A]`), not a bare pure type. The "declared pure but result is effectful" fail-safe is
+   accordingly **discharge-aware** (`EffectCheckProcessor.purelyDeclaredMessage`, Step 6): a genuine undischarged effect
+   is reported as "performs an effect", a fully-discharged carrier-headed body under a pure return as "result rides an
+   effect carrier" — never mislabelling the latter.
 10. ability: Checks and returns a type-specific ability implementation.
 11. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.) Also hosts the **effect auto-lift** (`check/EffectLifter`): the bind/`pure` decision for an effectful term in a pure position is check-mode elaboration per concrete instantiation — undecidable from declared signatures alone — with flex argument slots deferred until later arguments rigidify them (Phase A/B in `Checker.inferSpine`).
 12. used: Collects all the used value names starting at a given "main".

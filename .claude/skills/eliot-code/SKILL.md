@@ -319,6 +319,24 @@ def parse(s: String): {Throw[String]} Tree = raise("not a tree")
 `{…}` sugar; hand-write the `[G[_] ~ Effect]` form only in carrier-generic library code that must
 *name* the carrier (a discharge combinator threading a `StateCarrier`/`AbortCarrier`/… ).
 
+**Authoring a discharger** (library code only): a `{…}` set may carry a **negative** member `{…, -E}`
+(leading `-`), declaring that this value *discharges* `E`. A negative member adds no carrier
+constraint, and a negatives-only set is a plain pass-through — so `else`'s residual return
+`{-Abort} G[A]` is just `G[A]` plus the discharge marker:
+
+```eliot
+infix right
+def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: G[A]): {-Abort} G[A] = …
+```
+
+Callers then subtract `E` automatically, so a body that fully discharges `E` need not declare it (see
+the "fully-discharged effect" bullet below). A discharger's result **must** be a carrier-headed
+residual (`G[A]`, `IO[A]`, `{E'} A`) — discharge-to-a-pure-value is unsupported (no Identity carrier),
+so `def getOr(…): String = x else d` is rejected ("result rides an effect carrier…"); return `G[A]`
+and let the caller pin it. User handlers need no `{-E}` at all — the compiler *infers* discharge from
+the body (`def orDefault[G[_] ~ Effect, A](x: AbortCarrier[G, A], d: G[A]): G[A] = x else d` is seen
+to discharge `Abort`).
+
 The sugar works in **any** type position, not just the return type — an **argument** may be an
 effectful value too. All `{…}` occurrences in one signature collapse onto the *same* inferred
 carrier, so an effectful-in/effectful-out combinator drops the hand-written binder entirely:
@@ -339,6 +357,11 @@ the carrier type (see the discharge combinators above); prefer the `{…}` row e
 - **used ⊆ declared**: a body may only perform effects its signature declares
   ("performs the effect '…' but does not declare it"); performing any effect while declared pure is
   an error. Declaring an unused effect is fine.
+- **A fully-discharged effect is not "performed"** — you do *not* declare it. `printLine(if(flag,"a")
+  else "b")` in a `{Console}` body declares **only** `{Console}`, never `{Console, Abort}`: every
+  `if`'s `{Abort}` is discharged by its matching `else` right there, so it never escapes. (This is
+  discharge-aware accounting — `docs/effect-discharge-accounting.md`. A *partially* discharged effect,
+  or one discharged in only one of several uses, still counts and must be declared.)
 - **The effects** (each import-required from `eliot.effect`):
 
   | Row | Operations | Discharge |
@@ -367,7 +390,8 @@ the carrier type (see the discharge combinators above); prefer the `{…}` row e
 - **A discharge wraps the computation expression** — pass the effectful call directly:
   `runStateToPair(logic orElse fallback, s0)`. Do NOT bind the effectful value first and discharge
   the binder (`val x = logic orElse f` then `runStateToPair(x, s0)`): the `val` binds the plain
-  value direct-style and the remaining effects float upward, so `x` is not a carrier.
+  value direct-style (`x` is the payload, not the carrier), so the discharger sees a bare value and
+  fails ("Type mismatch. Expected: `AbortCarrier(...)`, Actual: `String`"). Keep the discharge inline.
 - **The cross-lift matrix is partial** (verified 2026-07): `State`+`Abort` compose in either
   discharge order, and every effect composes with the `Suspend`-riding ones (`Console`, `Log`). But
   `State`+`Throw` has no cross-lift instance yet — combining them fails with a missing-instance
