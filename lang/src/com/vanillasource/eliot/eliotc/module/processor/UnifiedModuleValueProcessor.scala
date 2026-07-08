@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleNames, ModuleValue, Uni
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerError, compilerAbort}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 
@@ -54,11 +55,30 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
       } else {
         val chosen = effective.headOption.getOrElse(values.head)
 
-        logOverride(vfqn, overriding, implementations) *>
-          UnifiedModuleValue(chosen.vfqn, chosen.dictionary, chosen.namedValue, chosen.privateNames, platform)
-            .pure[CompilerIO]
+        unifyDischargedEffects(values).flatMap { discharged =>
+          logOverride(vfqn, overriding, implementations) *>
+            UnifiedModuleValue(
+              chosen.vfqn,
+              chosen.dictionary,
+              chosen.namedValue.copy(dischargedEffects = discharged),
+              chosen.privateNames,
+              platform
+            ).pure[CompilerIO]
+        }
       }
     }
+
+  /** Unify the discharge annotation (the negative `{…, -E}` members) across all co-located declarations of a name. It
+    * is a signature-level property but a generated `data`-field accessor cannot spell it, so it is kept out of
+    * `signatureEquality`: the annotated abstract declaration's discharge simply rides onto the chosen (concrete)
+    * implementation. Two layers carrying *different, non-empty* discharge sets is a real disagreement and is rejected.
+    */
+  private def unifyDischargedEffects(values: Seq[ModuleValue]): CompilerIO[Seq[Sourced[String]]] = {
+    val nonEmpty = values.map(_.namedValue.dischargedEffects).filter(_.nonEmpty)
+    if (nonEmpty.map(_.map(_.value).toSet).distinct.sizeIs > 1)
+      compilerError(values.head.namedValue.qualifiedName.as("Layers disagree on the discharged effects.")) *> abort
+    else nonEmpty.headOption.getOrElse(Seq.empty).pure[CompilerIO]
+  }
 
   /** Trace an *actual* override — an overlay implementation superseding at least one platform implementation. */
   private def logOverride(

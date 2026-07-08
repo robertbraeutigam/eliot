@@ -1,6 +1,6 @@
 # Discharge-Aware Effect Accounting
 
-Status: **Steps 0–3 SHIPPED (2026-07-08); Steps 4–7 remain design record / plan.** Captures why an effectful
+Status: **Steps 0–4 SHIPPED (2026-07-08); Steps 5–7 remain design record / plan.** Captures why an effectful
 function whose internal `if..else` (or any handler) *fully discharges* an effect is nonetheless forced to
 declare that effect, and a staged plan to fix it. The fix keeps the one-carrier model and monomorphization as
 the sound backstop; it only makes the cheap, definition-local effect check *precise* instead of
@@ -82,9 +82,9 @@ lives and dies inside the sub-expression), and only a *genuinely* undischarged a
 
 **Discharger primitives** (stdlib, explicit-carrier `XxxCarrier[…,G,A] → G[…]`): `else`, `runAbort` (→`Abort`);
 `catch`, `runThrow` (→`Throw`); `runStateToPair`, `runStateToValue`, `runStateToFinalState`, `runStateCarrier`
-(→`State`). *Shipped annotation set is the five with hand-written bodies* (`else`, `catch`, `runStateToPair`,
-`runStateToValue`, `runStateToFinalState`); the three raw accessors (`runAbort`, `runThrow`, `runStateCarrier`)
-are left conservative — see Step 1's shipped-deviation note.
+(→`State`). **All eight are annotated** as of Step 4 — the five with hand-written bodies directly, and the three
+raw `data`-field accessors (`runAbort`, `runThrow`, `runStateCarrier`) via the layer-merge union of discharge
+annotations (Step 4a), which lets the abstract declaration's `{-E}` ride onto the generated concrete accessor.
 
 ## 3. Syntax: negative members in the effect set
 
@@ -146,17 +146,14 @@ axiomatic (they are the accessor that reifies the effect away).
 - **Thread** the field through the 5 downstream facts + the `.copy` in each producing processor
   (`CoreProcessor`, `ValueResolver`, matchdesugar, block, `OperatorResolverProcessor`); resolve the ability
   name to `AbilityFQN` where ability constraints resolve.
-- **Mark primitives:** annotate the stdlib dischargers (Section 2). **Shipped deviation:** only the **five
-  body-dischargers** (`else`, `catch`, `runStateToPair`, `runStateToValue`, `runStateToFinalState`) are
+- **Mark primitives:** annotate the stdlib dischargers (Section 2). **As initially shipped (Steps 0–2)** only the
+  **five body-dischargers** (`else`, `catch`, `runStateToPair`, `runStateToValue`, `runStateToFinalState`) were
   annotated — each lives in one layer only, so its annotation merges cleanly. The **three raw accessors**
-  (`runAbort`, `runThrow`, `runStateCarrier`) are deliberately **left un-annotated**: their jvm implementation is
-  the *generated* `data`-field accessor of `AbortCarrier`/`ThrowCarrier`/`StateCarrier`, which cannot carry a
-  negative member, so annotating the abstract stdlib side would either (a) be dropped at merge — the bodied jvm
-  accessor wins — or (b), with `dischargedEffects` in `signatureEquality`, **fail the merge** outright. This is a
-  *conservative, sound* gap: a direct raw-accessor call is over-counted (a false positive at worst, never a
-  missed effect), and the everyday discharge API (`else`/`catch`/`runStateTo…`) is fully covered. Each accessor
-  carries a `// NOTE (discharge accounting)` breadcrumb. Full coverage of the trio waits on Step 3 inference (or
-  a merge that unions `dischargedEffects` across layers).
+  (`runAbort`, `runThrow`, `runStateCarrier`) were left un-annotated because their jvm implementation is the
+  *generated* `data`-field accessor of `AbortCarrier`/`ThrowCarrier`/`StateCarrier`, which cannot carry a negative
+  member — a `{-E}` on the abstract stdlib side would either be dropped at merge or, with `dischargedEffects` in
+  `signatureEquality`, **fail the merge**. This conservative gap was **closed in Step 4a** by the layer-merge union
+  (below): all three are now annotated and their discharge rides onto the concrete accessor.
 - **Verify:** `OperatorResolvedValue` for `else` carries `dischargedEffects = {Abort}`; no behaviour change yet.
 
 ### Step 2 — Shallow subtraction: direct invocation (fixes the symptom)
@@ -228,6 +225,23 @@ axiomatic (they are the accessor that reifies the effect away).
   Step 4 just adds the explicit test.
 - **`Inf` is never discharged:** confirm no discharger lists `Inf` and that `Inf` still propagates (the subset
   check is also the `Inf` carrier — a regression here breaks the totality opt-out).
+
+**SHIPPED (2026-07-08).** Mostly verification — the four properties were already correct from the set-subtraction
+mechanism of Steps 2–3 — plus one real change (Step 4a) so the *keep-one/drop-one* example works with the raw
+accessors it names:
+- **Step 4a — trio resolved via a layer-merge union of discharge annotations.** `dischargedEffects` is dropped from
+  `NamedValue.signatureEquality` (a generated `data`-field accessor legitimately can't spell it) and instead unioned
+  across all co-located declarations in `UnifiedModuleValueProcessor` — the annotated abstract declaration's `{-E}`
+  rides onto the chosen concrete implementation; two layers with *different non-empty* discharge sets is a hard
+  "Layers disagree on the discharged effects" error. `runAbort`/`runThrow`/`runStateCarrier` are now annotated
+  (`runStateCarrier`'s function return needs parens: `{-State[S]} (S => G[Pair[A, S]])`). Verified end-to-end
+  (`TrioDischarge`: `def tryIt[G[_] ~ Effect]: G[Option[String]] = runAbort(aborting)` compiles + runs — before Step 4a
+  it was rejected for the undischarged `Abort`). So `runStateToPair(runAbort(p), s0)` now discharges *both* orders
+  precisely.
+- **Keep-one/drop-one, independent siblings, double-use** all follow from set subtraction being at ability granularity
+  and per-subtree; **`Inf` is never discharged** because no discharger annotates it and inference only ever *removes*
+  what a discharger discharges (a `{Inf}` parameter's `Inf` survives any non-`Inf` discharge). Locked in
+  `EffectDischargeAccountingTest`'s "double / mixed effects (Step 4)" cases.
 
 ### Step 5 — Let-binds (investigate → implement if clean)
 

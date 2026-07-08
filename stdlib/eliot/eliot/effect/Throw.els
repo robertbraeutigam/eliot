@@ -39,17 +39,14 @@ ability Throw[E, F[_]] {
  */
 type ThrowCarrier[E, G[_], A]
 
-// NOTE (discharge accounting): this raw accessor is deliberately NOT annotated `{-Throw[E]}`. Its jvm implementation is
-// the *generated* `ThrowCarrier` data-field accessor, which cannot carry a negative effect member, so annotating it
-// would fail the layer merge. The everyday discharge API (`catch`) carries the annotation; a direct `runThrow` call is
-// conservatively over-counted (sound). See docs/effect-discharge-accounting.md.
 /**
  * Discharge the `Throw[E]` effect, materialising it as an `Either[E, A]`: `Right(a)` if the computation completed,
  * `Left(err)` if it failed. Any other effects remain in the carrier `G`. This is the single accessor of `ThrowCarrier`
- * — the platform layer supplies its body. Consume the result with `foldEither`, or reach for `catch` to recover in one
- * step without ever naming `Either`.
+ * — the platform layer supplies its body (the *generated* `ThrowCarrier` data-field accessor, which cannot spell
+ * `{-Throw[E]}`; the annotation here rides onto it through the layer merge). Consume the result with `foldEither`, or
+ * reach for `catch` to recover in one step without ever naming `Either`.
  */
-def runThrow[E, G[_], A](obj: ThrowCarrier[E, G, A]): G[Either[E, A]]
+def runThrow[E, G[_], A](obj: ThrowCarrier[E, G, A]): {-Throw[E]} G[Either[E, A]]
 
 /**
  * Run a `{Throw[E]}` computation, recovering any raised error to a value of the *same* type as the success with

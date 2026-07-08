@@ -26,6 +26,10 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
       ModuleName.effectPackage
     )
 
+  // The `Inf` opt-out effect (import-required), so a `{Inf}` snippet resolves and the "never discharged" case can name it.
+  private val infStub =
+    SystemImport("Inf", "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}", ModuleName.effectPackage)
+
   // A synthetic discharger surface: `emit` performs `MyE`; `emitBoth` performs `MyE` *and* `Log`; `discharge` is an
   // (abstract) discharger *declaring* `{-MyE}`, so a direct call subtracts `MyE` from its argument's effects.
   // `userDischarge` is a *user handler* that discharges `MyE` by *inference* — no annotation; its `{MyE}` parameter's
@@ -39,16 +43,23 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
       "Discharge",
       "import eliot.effect.Effect\n" +
         "import eliot.effect.Log\n" +
+        "import eliot.effect.Inf\n" +
         "ability MyE[F[_]] {\ndef emit: F[Unit]\n}\n" +
         "def emitBoth: {MyE, Log} Unit\n" +
+        "def useMyE: {MyE} String\n" +
+        "def combine[A](a: A, b: A): A\n" +
         "type Carrier[G[_], A]\n" +
         "def discharge[G[_] ~ Effect, A](c: Carrier[G, A]): {-MyE} G[A]\n" +
         "def userDischarge[A](x: {MyE} A): A = discharge(x)\n" +
-        "def passthru[A](x: {MyE} A): {MyE} A = x",
+        "def passthru[A](x: {MyE} A): {MyE} A = x\n" +
+        // Double-use: `x` is discharged in one occurrence and used raw in the other, so `MyE` survives → no discharge.
+        "def doubleUse[A](x: {MyE} A): A = combine(discharge(x), x)\n" +
+        // `discharge` discharges `MyE`, never the `{Inf}` carried by `x`, so `Inf` survives → no discharge.
+        "def tryInf[A](x: {Inf} A): {Inf} A = discharge(x)",
       ModuleName.effectPackage
     )
 
-  private val allImports = systemImports :+ effectStub :+ dischargeStub
+  private val allImports = systemImports :+ effectStub :+ infStub :+ dischargeStub
 
   "discharge accounting" should "subtract a discharged effect so an honest {Console} passes" in {
     runEffectCheckErrors(
@@ -112,6 +123,31 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
         "This value performs the effect 'MyE' but does not declare it; add it to its { ... } effect set."
       )
     )
+  }
+
+  "double / mixed effects (Step 4)" should "infer no discharge when a parameter is also used undischarged (double-use)" in {
+    dischargeSummaryOf("doubleUse").asserting(_ shouldBe Set.empty)
+  }
+
+  it should "never infer a discharge of Inf (the totality opt-out must keep propagating)" in {
+    dischargeSummaryOf("tryInf").asserting(_ shouldBe Set.empty)
+  }
+
+  it should "keep an undischarged sibling's effect while another argument is discharged (subtree scoping)" in {
+    // `discharge(emit)` discharges MyE in the first argument only; `useMyE` in the second still performs it.
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = printLine(combine(discharge(emit), useMyE))"
+    ).asserting(
+      _.map(_.message) should contain(
+        "This value performs the effect 'MyE' but does not declare it; add it to its { ... } effect set."
+      )
+    )
+  }
+
+  it should "leave a discharged argument fully local (a pure sibling forces nothing)" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = printLine(combine(discharge(emit), \"ok\"))"
+    ).asserting(_ shouldBe Seq.empty)
   }
 
   private def runEffectCheckErrors(source: String) =

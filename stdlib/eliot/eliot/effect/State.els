@@ -47,17 +47,13 @@ def updateState[S](f: S => S): {State[S]} Unit = putState(f(state))
  */
 type StateCarrier[S, G[_], A]
 
-// NOTE (discharge accounting): this raw accessor is deliberately NOT annotated `{-State[S]}`. Its jvm implementation is
-// the *generated* `StateCarrier` data-field accessor, which cannot carry a negative effect member, so annotating it
-// would fail the layer merge. The everyday discharge API (`runStateToPair`/`runStateToValue`/`runStateToFinalState`)
-// carries the annotation; a direct `runStateCarrier` call is conservatively over-counted (sound). See
-// docs/effect-discharge-accounting.md.
 /**
  * Unwrap a `StateCarrier` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor
- * of the carrier; the platform layer supplies the body. Discharge the effect with `runStateToPair`, which threads an
- * initial state through this function.
+ * of the carrier; the platform layer supplies the body (the *generated* `StateCarrier` data-field accessor, which cannot
+ * spell `{-State[S]}`; the annotation here rides onto it through the layer merge). Discharge the effect with
+ * `runStateToPair`, which threads an initial state through this function.
  */
-def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): S => G[Pair[A, S]]
+def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): {-State[S]} (S => G[Pair[A, S]])
 
 /**
  * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state, threaded

@@ -151,10 +151,12 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    `EffectUsageCollector` subtracts a callee's discharged effects from its argument-effect union at a direct call, so a
    body that fully discharges an internal effect (e.g. `printLine(if(f,"a") else "b")`) need not declare it — the former
    phantom-`Abort` false positive. A callee's discharge is its `EffectDischargeSummary` fact (Step 3), unifying
-   **declared** (the `{…, -E}` members on five annotated body-dischargers `else`/`catch`/`runStateTo…`; the raw
-   `data`-accessor trio `runAbort`/`runThrow`/`runStateCarrier` is left conservatively un-annotated — its generated jvm
-   accessor can't carry the marker) with **inferred** (a user handler discharges an effect that entered via a
-   carrier-typed parameter and did not *survive* its body — the collector's `survivingParamEffects` provenance).
+   **declared** (the `{…, -E}` members on all eight stdlib dischargers — `else`/`catch`/`runStateTo…` directly, and the
+   raw `data`-accessor trio `runAbort`/`runThrow`/`runStateCarrier` via the layer-merge *union* of `dischargedEffects`
+   in `UnifiedModuleValueProcessor`, kept out of `NamedValue.signatureEquality` since a generated accessor can't spell
+   the marker, a both-non-empty disagreement erroring) with **inferred** (a user handler discharges an effect that
+   entered via a carrier-typed parameter and did not *survive* its body — the collector's `survivingParamEffects`
+   provenance).
    `EffectDischargeSummaryProcessor` is single-owner recursive over callee summaries (a DAG, since Eliot has no
    recursion), kept separate from `EffectCheckProcessor` so a caller reads a handler's discharge even if the handler's
    own body fails a check. Only the argument-union is subtracted, never the callee's own `effectAbilities`, so a handler

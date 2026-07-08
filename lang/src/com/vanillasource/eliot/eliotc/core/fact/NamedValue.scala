@@ -42,6 +42,10 @@ case class NamedValue(
     inferableArity: Int = 0,
     // The effect ability names this value discharges (the negative `{…, -E}` members). Still unresolved names here;
     // the resolve phase turns them into `AbilityFQN`s. See [[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition.dischargedEffects]].
+    // NOT part of `signatureEquality`: a generated `data`-field accessor (the concrete form of an abstract discharger
+    // like `runAbort`) cannot carry the marker, so its empty set must be allowed to unify with the annotated abstract
+    // declaration — the discharge is unioned across layers in `UnifiedModuleValueProcessor`, which flags a genuine
+    // (both-non-empty, differing) disagreement.
     dischargedEffects: Seq[Sourced[String]] = Seq.empty
 )
 
@@ -49,8 +53,7 @@ object NamedValue {
   case class CoreAbilityConstraint(abilityName: Sourced[String], typeArgs: Seq[Expression])
 
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
-    structuralEquality.eqv(x.typeStack.signature, y.typeStack.signature) &&
-      x.dischargedEffects.map(_.value).toSet === y.dischargedEffects.map(_.value).toSet
+    structuralEquality.eqv(x.typeStack.signature, y.typeStack.signature)
 
   given Show[NamedValue] = (namedValue: NamedValue) =>
     s"${namedValue.qualifiedName.value}: ${namedValue.typeStack.show}"
