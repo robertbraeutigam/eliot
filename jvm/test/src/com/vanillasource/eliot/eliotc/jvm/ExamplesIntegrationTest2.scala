@@ -205,6 +205,29 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "config-value\n<fallback>")
   }
 
+  // Regression for the carrier-depth mangling collision. `grade`'s `if..else if..else` chain monomorphizes `if` at the
+  // nested carrier `AbortCarrier[AbortCarrier[IO]]`, while the plain `if(..) else ..` in `main` uses `AbortCarrier[IO]`.
+  // Both once mangled to a single `if$AbortCarrier$String` method (head-only type-argument suffix), so the backend's
+  // signature-dedup treated the two different bodies as byte-identical and dropped one; the surviving wrong-carrier body
+  // then produced a value one nesting level off, crashing at runtime with a ClassCastException in the `runAbort`
+  // accessor. Recursive type-argument mangling keeps the two depths distinct.
+  "if..else used at two effect-carrier nesting depths" should "not collapse into one mangled JVM method" in {
+    compileAndRun(
+      """import eliot.lang.Bool
+        |import eliot.lang.Eq
+        |import eliot.effect.Console
+        |import eliot.effect.Abort
+        |
+        |def grade(s: String): {Abort} String =
+        |   if(s == "A", "excellent") else if(s == "B", "good") else "fail"
+        |
+        |def main: IO[Unit] = {
+        |   printLine(grade("A") else "?")
+        |   printLine(if(true, "taken") else "skipped")
+        |}""".stripMargin
+    ).asserting(_ shouldBe "excellent\ntaken")
+  }
+
   // Static testability (M5): the SAME carrier-polymorphic {Abort} business logic runs under a pure `Id` test carrier
   // (G := Id), with no production IO — the effect discharges to a plain Option the test inspects. main only does IO to
   // print the already-computed pure results.

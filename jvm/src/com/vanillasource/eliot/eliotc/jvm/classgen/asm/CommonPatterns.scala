@@ -26,7 +26,32 @@ object CommonPatterns {
 
   def mangleSuffix(typeArgs: Seq[GroundValue]): String =
     if (typeArgs.isEmpty) ""
-    else "$" + typeArgs.map(v => valueType(v).name.name).mkString("$")
+    else "$" + typeArgs.map(mangleTypeArgument).mkString("$")
+
+  /** Mangle a single monomorphic type argument into a JVM-identifier token, recursing through type-constructor
+    * application so that structurally-distinct instantiations sharing a head constructor get distinct names.
+    *
+    * The head token is the argument's erased carrier ([[valueType]]); the type-constructor arguments applied to it are
+    * appended recursively. This is required because an effect carrier can appear at different *nesting depths* —
+    * `AbortCarrier[IO]` for a top-level `{Abort}` computation versus `AbortCarrier[AbortCarrier[IO]]` for one nested
+    * inside another `{Abort}` function (e.g. every `if` used inside another effectful body). Both share the head
+    * `AbortCarrier` and, once carriers erase to reference types, the *same* JVM descriptor, yet they are genuinely
+    * different specializations with different bodies (`AbortCarrier(IO(..))` vs `AbortCarrier(AbortCarrier(..))`). A
+    * head-only suffix collapses them onto one method name; [[JvmClassGenerator]]'s signature-dedup then treats them as
+    * byte-identical and silently drops one body — a whole-program miscompile surfacing as a runtime `ClassCastException`
+    * in the wrong-carrier accessor. Recursing on the applied arguments keeps the depth distinct.
+    *
+    * Value-level (`Direct`) arguments — e.g. the `Int[MIN, MAX]` refinement bounds — carry no carrier structure and are
+    * dropped, so `Int[0, 3]` and `Int[0, 5]` still mangle identically and legitimately share their one `Byte` method.
+    */
+  private def mangleTypeArgument(v: GroundValue): String =
+    v match {
+      case GroundValue.Structure(_, args, _) =>
+        val structuralArgs = args.collect { case arg if !arg.isInstanceOf[GroundValue.Direct] => arg }
+        (valueType(v).name.name +: structuralArgs.map(mangleTypeArgument)).mkString("$")
+      case _                                 =>
+        valueType(v).name.name
+    }
 
   /** The JVM method name for a monomorphic value: its base name, plus an impl-disambiguator when the value is an
     * ability-implementation method, plus the type-argument suffix for generic instantiations.
