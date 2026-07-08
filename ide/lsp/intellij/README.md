@@ -23,10 +23,10 @@ This produces `ide/lsp/dist/` (git-ignored):
 - `ide/lsp/dist/lsp4ij-template/template.json` — a ready-to-import LSP4IJ template with the **absolute**
   launcher path already filled in for this checkout.
 
-> **Do not** use `mill ide.lsp.assembly` (a fat jar). Eliot's platform layers keep multiple files at the
-> same resource path (e.g. `eliot/lang/String.els` exists in both the `lang` and `stdlib` layers — the
-> latter is where `printLine` lives). A fat jar collapses them into one entry and silently drops a
-> layer, so names like `printLine` stop resolving. `package.sh` keeps the jars separate on purpose.
+> **Do not** use `mill ide.lsp.assembly` (a fat jar). Each layer jar carries a same-path
+> `META-INF/services/…CompilerPlugin` ServiceLoader file (naming `LangPlugin` / `StdlibPlugin` /
+> `JvmPlugin` / `ApiDocPlugin`); a fat jar collapses those to one entry and silently drops plugin
+> registrations. `package.sh` keeps the jars separate on purpose.
 
 Re-run `./ide/lsp/package.sh` after changing compiler/server code to refresh the jars.
 
@@ -58,8 +58,10 @@ Either import the generated template or configure it by hand.
 ## 4. Use it
 
 Open any project containing `.els` files (the project root becomes the workspace the server checks —
-there is no build file; the open folder *is* the project model, and the standard library ships inside
-the server's own jars). Errors appear as you **save** (`didSave`) or when files change on disk.
+there is no build file; the open folder *is* the project model). The standard library and platform
+layers are **not** bundled with the server — like any dependency they must be on the open project's
+path (until a build system downloads them, the project has to include the base/stdlib/jvm `eliot/`
+roots itself). Errors appear as you **save** (`didSave`) or when files change on disk.
 
 You can watch traffic under **Language Servers → Eliot → (right-click) → … trace** or set the
 **Debug** tab's trace level to `verbose`.
@@ -76,8 +78,9 @@ You can watch traffic under **Language Servers → Eliot → (right-click) → �
 
 ## Troubleshooting
 
-- **Everything shows "Name not defined" (e.g. `printLine`)** — you're almost certainly launching a fat
-  assembly jar instead of `ide/lsp/dist/eliot-lsp`. Use the launcher; see the warning in step 1.
+- **Every stdlib name shows "Name not defined" (e.g. `printLine`)** — the standard library is not on the
+  open project's path. The server bundles no layers; the project must include the base/stdlib/jvm `eliot/`
+  roots (a fat jar dropping a plugin registration is the other, rarer cause — see the warning in step 1).
 - **Server doesn't start** — run `ide/lsp/dist/eliot-lsp` in a terminal; it should block waiting for LSP
   input on stdin. Check `java` is on `PATH`. All server logs go to **stderr** (stdout is the protocol
   channel), so the LSP4IJ console's error stream shows them.

@@ -60,13 +60,18 @@ Everything editor/IDE-related lives under the top-level **`ide/`** directory:
 - **`ide/lsp/`** - The LSP language server. This is a Mill module nested under `ide`, so its build
   target is **`ide.lsp`** (e.g. `./mill ide.lsp.compile`, `./mill ide.lsp.test`, `./mill ide.lsp.jar`);
   its build output lands under `out/ide/lsp/`. Depends on `lang` + `stdlib`; main class is `LspMain`.
-  - `ide/lsp/package.sh` builds a runnable distribution under `ide/lsp/dist/` (git-ignored). It
-    deliberately produces a `lib/` of **separate per-module jars**, never a fat assembly jar — a fat jar
-    collapses same-path layer resources (e.g. `String.els` in both `lang` and `stdlib`) and silently
-    drops a layer. See the script header and [[gotcha_assembly_jar_breaks_layers]]. It also stages a
-    second classpath dir `compiler-lib/` (the `jvm` backend jar + ASM) — the extra jars the "Run main"
-    feature needs to *build* an executable jar; kept out of `lib/` so the resident server still type-checks
-    the abstract (platform-independent) workspace.
+  - `ide/lsp/package.sh` builds a runnable distribution under `ide/lsp/dist/` (git-ignored). It bundles
+    **code only** — the layer `.els` are NOT shipped; the base/stdlib/platform layers reach the compiler on
+    the *path* as ordinary dependencies (the client's workspace roots today, downloaded packages once a
+    build system exists — see [[project_lsp_layers_from_path_not_bundled]]). It deliberately produces a
+    `lib/` of **separate per-module jars**, never a fat assembly jar — each layer jar carries a same-path
+    `META-INF/services/…CompilerPlugin` ServiceLoader file and a fat jar collapses those to one, dropping
+    plugin registrations. See the script header and [[gotcha_assembly_jar_breaks_layers]]. It also stages a
+    second classpath dir `compiler-lib/` holding **only ASM** — the one backend dep the "Run main" feature
+    needs to emit bytecode that is not already in `lib/`. That CLI runs `-cp "lib/*:compiler-lib/*"` (jvm
+    backend classes from `lib/eliot-jvm.jar` + ASM); ASM is staged apart so the resident server's `lib/`
+    classpath stays minimal, and `eliot-jvm.jar` stays in `lib/` (not duplicated into `compiler-lib/`, which
+    would make the combined "Run main" classpath carry the backend twice).
   - `ide/lsp/intellij/` - manual *user-defined server* setup for LSP4IJ (zero-build fallback): setup
     guide + importable template. Superseded for normal use by the shipped plugin in `ide/intellij/`.
   - Status: the spine is built & verified — whole-workspace diagnostics, hover/go-to-def (reverse

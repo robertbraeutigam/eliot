@@ -2,31 +2,26 @@
 #
 # Build a runnable distribution of the Eliot LSP server under ide/lsp/dist/.
 #
-# Layer .els sources are staged as plain filesystem roots (CP1.5), NOT read from the classpath:
-#   Eliot's platform-layer design relies on *multiple files at the same resource path* being discovered together.
-#   For example eliot/eliot/lang/String.els exists in BOTH the `lang` layer (declaring `type String`, needed for
-#   string-literal typing) and the `stdlib` layer (adding `def println`); PathScanner must find both and let the
-#   module unifier merge them. Since CP1.5 the compiler does this by scanning explicit filesystem roots — one per
-#   module under eliot-src/ — rather than via ClassLoader.getResources. Keeping each module's `eliot/` source root in
-#   its OWN eliot-src/<module> dir (never merged into one) preserves the same-path copies, exactly as separate jars did.
-#   This is also why the server is still NOT a `mill ide.lsp.assembly` fat jar: a fat jar's class layout is fine, but
-#   the per-module split keeps the bundle honest and the staging trivial (one cp per module).
+# This distribution ships CODE ONLY. The server does NOT bundle any Eliot `.els` layer sources: the abstract base,
+# the standard library and the platform layers are ordinary dependencies that reach the compiler on the *path* — the
+# editor's workspace roots today, downloaded packages once a build system exists — exactly like any other program's
+# stdlib. So there is nothing here to keep the per-module `.els` from colliding; the jars carry compiled classes only.
 #
-# Three output dirs are produced:
+# The server is still NOT a `mill ide.lsp.assembly` fat jar: each module jar carries a same-path ServiceLoader file
+# (META-INF/services/…CompilerPlugin, naming LangPlugin / StdlibPlugin / JvmPlugin / ApiDocPlugin), and a fat jar would
+# collapse those four to one — silently dropping the plugin registrations the compiler CLI discovers via ServiceLoader.
+# The per-module split also keeps the bundle honest and staging trivial (one cp per module).
+#
+# Two output dirs are produced:
 #   lib/          — the LSP server's CODE classpath (lang + stdlib + jvm + eliotc + lsp + deps). Run as
-#                   `-cp "lib/*"`. The jars also still carry their .els resources, but those are now inert: the
-#                   resident type-checker reads layer sources from eliot-src/ (below), not the classpath. eliot-jvm.jar
-#                   is here for the JVM backend *classes* the "Run main" CLI needs; the jvm module's processors are
-#                   never added to the resident server's plugin list, so the server itself emits no bytecode.
+#                   `-cp "lib/*"`. These jars carry compiled classes ONLY — no .els (each layer keeps its `.els` in a
+#                   separate `eliot/` source root, not `resources/`, so they are never jar-bundled). eliot-jvm.jar is
+#                   here for the JVM backend *classes* the "Run main" CLI needs; the jvm module's processors are never
+#                   added to the resident server's plugin list, so the server itself emits no bytecode.
 #   compiler-lib/ — the one extra jar the JVM backend needs to BUILD a runnable jar that is not already in lib/:
 #                   ASM. The "Run main" feature launches the compiler CLI with `-cp "lib/*:compiler-lib/*"`.
 #                   eliot-jvm.jar lives in lib/ (not here): a second copy on that combined classpath would duplicate
 #                   the backend classes.
-#   eliot-src/    — the abstract base (lang+stdlib) and the jvm runtime layer as plain .els source roots, one dir per
-#                   module, copied from each module's in-tree `eliot/` root (plus its `eliot-compiler/` compile-time
-#                   overlay where present — only stdlib has one). The launcher points the `eliot.layers` system property
-#                   here so the server hands each `<module>/eliot` root to PathScanner via `--path`; the compiler pool
-#                   additionally scans each root's `eliot-compiler/` sibling. The "Run main" CLI passes the same roots.
 #
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root (script lives at ide/lsp/package.sh)
@@ -34,10 +29,9 @@ cd "$(dirname "$0")/../.."   # repo root (script lives at ide/lsp/package.sh)
 DIST="ide/lsp/dist"
 LIB="$DIST/lib"
 COMPILER_LIB="$DIST/compiler-lib"
-ELIOT_SRC="$DIST/eliot-src"
 LAUNCHER="$DIST/eliot-lsp"
 rm -rf "$DIST"
-mkdir -p "$LIB" "$COMPILER_LIB" "$ELIOT_SRC"
+mkdir -p "$LIB" "$COMPILER_LIB"
 
 echo "Building module jars..."
 
@@ -53,9 +47,9 @@ copy_module_jar() { # <mill-jar-target> <destination-file>
 }
 
 # Per-module CODE jars for the server/CLI classpath. eliot-jvm.jar carries the JVM backend *classes* the "Run main" CLI
-# needs; its .els resources ride along but are inert now (the resident server reads layer sources from eliot-src/, not
-# the classpath — CP1.5). Kept as separate jars (not a fat assembly) so the bundle stays honest; the layered .els
-# merge happens across the separate eliot-src/<module> roots staged below, not across these jars.
+# needs; the jars hold no .els (layer sources live in a separate `eliot/` source root, not `resources/`, so they are
+# never jar-bundled — they reach the compiler on the path as dependencies, not from this distribution). Kept as separate
+# jars (not a fat assembly) so the bundle stays honest.
 copy_module_jar ide.lsp.jar "$LIB/eliot-lsp.jar"
 copy_module_jar lang.jar "$LIB/eliot-lang.jar"
 copy_module_jar stdlib.jar "$LIB/eliot-stdlib.jar"
@@ -80,29 +74,14 @@ copy_module_jar apidoc.jar "$LIB/eliot-apidoc.jar"
   | python3 -c "import sys, json; [print(p[p.index('/'):]) for p in json.load(sys.stdin) if p.endswith('.jar') and '/asm-' in p]" \
   | while read -r jar; do cp "$jar" "$COMPILER_LIB/"; done
 
-# eliot-src/ holds the layer .els as plain filesystem source roots. Since the classpath scan was removed, the server and
-# the "Run main" CLI take the abstract base (lang+stdlib) and the jvm layer as `--path` directories instead of finding
-# them on the classpath; the compiler pool additionally scans each root's `eliot-compiler/` sibling (only stdlib ships
-# one). Each module's in-tree `eliot/` tree is staged under eliot-src/<module>/eliot as its OWN root (its overlay under
-# eliot-src/<module>/eliot-compiler); they are deliberately NOT merged into one dir — same-path files like
-# eliot/lang/String.els exist in both lang and stdlib, and keeping them in separate roots lets PathScanner return all
-# copies for the unifier to merge (the very reason a fat jar is forbidden — see the header). The launcher points the
-# `eliot.layers` system property at this dir; EliotRunConfiguration passes the same subdirs to the CLI build.
-for m in lang stdlib jvm; do
-  mkdir -p "$ELIOT_SRC/$m"
-  cp -r "$m/eliot" "$ELIOT_SRC/$m/eliot"
-  # A layer's optional compile-time overlay (only stdlib ships one today): staged as a sibling of its `eliot/` root so
-  # PathScanner finds it as `<root>/eliot`'s `eliot-compiler` sibling for the compiler pool.
-  if [ -d "$m/eliot-compiler" ]; then cp -r "$m/eliot-compiler" "$ELIOT_SRC/$m/eliot-compiler"; fi
-done
-
-# Stable launcher: a wildcard classpath keeps the jars separate (layered resources preserved); `eliot.layers` points the
-# server at the staged layer sources (CP1.5), found beside lib/ in this same dist.
+# Stable launcher: a wildcard classpath keeps the per-module jars separate. The launcher carries no layer sources — the
+# language client hands the server its workspace roots on `initialize`, and the standard library + platform layers come
+# in on that same path as dependencies (see EliotCompilationService).
 cat > "$LAUNCHER" <<'EOF'
 #!/usr/bin/env bash
 # Eliot LSP server launcher. Speaks LSP (JSON-RPC) over stdin/stdout; logs go to stderr.
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec java -Deliot.layers="$DIR/eliot-src" -cp "$DIR/lib/*" com.vanillasource.eliot.eliotc.lsp.server.LspMain "$@"
+exec java -cp "$DIR/lib/*" com.vanillasource.eliot.eliotc.lsp.server.LspMain "$@"
 EOF
 chmod +x "$LAUNCHER"
 
@@ -129,6 +108,5 @@ EOF
 echo
 echo "Built $LAUNCHER ($(ls "$LIB" | wc -l | tr -d ' ') jars in $LIB/)"
 echo "Compiler classpath: $(ls "$COMPILER_LIB" | wc -l | tr -d ' ') jars in $COMPILER_LIB/ (asm; jvm backend is in lib/)"
-echo "Layer sources: $(ls "$ELIOT_SRC" | tr '\n' ' ')in $ELIOT_SRC/ (--path roots + eliot-compiler siblings)"
 echo "Ready-to-import LSP4IJ template: $TEMPLATE/"
 echo "See ide/lsp/intellij/README.md for IntelliJ setup."

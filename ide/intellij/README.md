@@ -27,9 +27,10 @@ ide/intellij/                              ← self-contained Gradle build (not 
 At **build time**, `prepareSandbox` bundles these into the plugin distribution as loose files:
 
 - **`<plugin>/server/lib/*.jar`** — the language-server jars produced by [`../lsp/package.sh`](../lsp/package.sh).
-  These are the **separate per-module jars** (lang, stdlib, eliotc, lsp + deps), *never a fat jar* — a fat
-  jar collapses same-path layer resources (e.g. `String.els` in both `lang` and `stdlib`) and silently
-  drops a layer. `package.sh` is the single source of truth for that jar set.
+  These are the **separate per-module jars** (lang, stdlib, eliotc, lsp + deps), *never a fat jar* — each
+  layer jar carries a same-path `META-INF/services/…CompilerPlugin` ServiceLoader file, and a fat jar
+  collapses those to one, silently dropping plugin registrations. `package.sh` is the single source of
+  truth for that jar set. The jars ship **code only** — no layer `.els` (see below).
 - **`<plugin>/compiler/lib/*.jar`** — the extra jars the JVM backend needs to *build* a runnable jar
   (`eliot-jvm.jar` + ASM), also from `package.sh`. Kept separate from `server/lib` so the resident server
   keeps type-checking the abstract, platform-independent workspace; only the "Run main" build adds them.
@@ -43,13 +44,15 @@ At **run time**, `EliotConnectionProvider` launches the server out-of-process:
 
 Running out-of-process is deliberate: it isolates the server's `lsp4j`/`gson`/`log4j`/`cats-effect` from
 the IDE's own copies (LSP4IJ ships its own `lsp4j`, so in-process would clash), and the `-cp .../lib/*`
-classpath of *separate* jars preserves Eliot's platform-layer resource semantics. The JVM expands the
+classpath of *separate* jars keeps each layer's ServiceLoader service file distinct. The JVM expands the
 `/*` wildcard itself, so there is no shell wrapper (works on Windows too), and the IDE's bundled JBR is
 the runtime, so no separately installed JDK is required.
 
 The server reads its workspace roots from the LSP `initialize` handshake (`workspaceFolders`/`rootUri`),
-which LSP4IJ fills in from the open project — so the open folder *is* the project model, and the standard
-library travels inside the bundled jars. No build file or configuration is needed.
+which LSP4IJ fills in from the open project — so the open folder *is* the project model. The standard
+library and platform layers are **not** bundled with the plugin: like any program's dependencies they
+reach the compiler on that same path (the workspace roots today, downloaded packages once a build system
+exists), so the open project must have them on its path. No build file or configuration is needed.
 
 ## Running a `main`
 
@@ -93,7 +96,9 @@ and highlighting plus diagnostics (on save / on-disk change) light up.
 The IDE will offer to install LSP4IJ from the Marketplace (a declared dependency). Restart.
 
 > Re-run `./gradlew buildPlugin` after changing compiler/server code — the server jars are rebuilt from
-> source (the `packageServer` task tracks `ide/lsp`, `lang`, `stdlib`, `eliotc` sources as inputs).
+> source (the `packageServer` task tracks the `ide/lsp`, `lang`, `stdlib`, `eliotc`, `jvm` **`src`**
+> dirs as inputs). Editing layer `.els` does *not* re-trigger packaging: the `.els` are never bundled —
+> they reach the compiler on the workspace path as dependencies.
 
 ## Versions
 
@@ -122,8 +127,13 @@ Added by this plugin:
 
 ## Troubleshooting
 
-- **Everything shows "Name not defined" (e.g. `printLine`)** — a layer was dropped, which means a fat jar
-  snuck in. The plugin must bundle the per-module jars from `package.sh`; never wire in `mill ide.lsp.assembly`.
+- **Every stdlib name shows "Name not defined" (e.g. `printLine`)** — the standard library and platform
+  layers are not bundled with the plugin; they must be on the open project's path. Confirm the workspace
+  actually contains the base/stdlib/jvm `eliot/` roots (until a build system downloads them as
+  dependencies, the open project has to provide them itself).
+- **Diagnostics never appear / a whole phase seems missing** — a fat jar may have snuck in, collapsing the
+  per-layer `META-INF/services/…CompilerPlugin` files and dropping a plugin registration. The plugin must
+  bundle the per-module jars from `package.sh`; never wire in `mill ide.lsp.assembly`.
 - **Server doesn't start** — open **Language Servers → Eliot** (the LSP4IJ tool window) and check its
   console; all server logs go to **stderr**. Confirm the bundled `server/lib/` is present in the
   installed plugin directory.

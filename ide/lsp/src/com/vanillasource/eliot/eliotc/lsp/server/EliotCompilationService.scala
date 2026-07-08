@@ -120,23 +120,19 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
 
   /** Build a session over the workspace source roots, start the cancel-restart server, and trigger the first compile.
     *
-    * The abstract base + platform layers are *not* discovered on this process's classpath; they are handed in as
-    * filesystem roots via the single `LangPlugin.pathKey` list, resolved from the bundled `eliot.layers` staging
-    * directory ([[BundledLayers]]). The user's own editor-workspace roots go into the same list; each root's
-    * `eliot-compiler/` sibling (only the bundled `stdlib` has one) is added to the compile-time pool by `LangPlugin`.
+    * The abstract base, the standard library and the platform layers are *not* bundled with the server; they are
+    * ordinary dependencies that arrive on the *same* `roots` list as the user's own code — the editor's workspace roots
+    * today, downloaded packages once a build system exists. Every root feeds the runtime pool via `LangPlugin.pathKey`,
+    * and its `eliot-compiler/` sibling the compile-time pool (added by `LangPlugin`). The whole-workspace driver
+    * ([[LspPlugin]]) recognises library modules by their reserved `eliot.*` package and leaves them undiagnosed.
     */
   def startWorkspace(roots: Seq[Path]): Unit = {
     rootsRef.set(roots)
     val lspPlugin     = LspPlugin(vfs)
-    val layerPaths    = BundledLayers.fromSystemProperty
     val configuration = Configuration()
       .set(Compiler.targetPathKey, roots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
-      .set(LangPlugin.pathKey, roots ++ layerPaths)
+      .set(LangPlugin.pathKey, roots)
     val started       = (for {
-      _       <- warn[IO](
-                   s"No bundled layer sources found: system property '${BundledLayers.layersDirectoryProperty}' is unset, " +
-                     "so the standard library and platform layers will not resolve."
-                 ).whenA(layerPaths.isEmpty)
       session <- CompilationSession.create(
                    lspPlugin,
                    Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),

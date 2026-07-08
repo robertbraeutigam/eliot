@@ -36,12 +36,11 @@ object `package` extends Module {
    // grammar (ide/textmate) is static editor files, not a build module.
    object ide extends Module {
      object lsp extends DefaultScalaModule {
-       // Depends on `jvm` for the concrete platform layer (e.g. `Pair`, `StateCarrier`, `AbortCarrier`, the concrete `IO`): the
-       // resident server type-checks platform-specific code the same way the program actually runs, so it must see the
-       // platform layer. Since CP1.5 it reads those `.els` from filesystem source roots (the bundled `eliot-src`,
-       // `package.sh`), not the classpath; the dep keeps the jvm module built and its `.els`/backend jar available to
-       // bundle. Only the resources are needed: the jvm module's processors are codegen-only and are never added to the
-       // resident server's plugin list, so no bytecode is generated here.
+       // Depends on `jvm` so the JVM backend *classes* jar (eliot-jvm.jar) is built and bundled into the distribution's
+       // server/lib (`package.sh`), where the "Run main" CLI needs it to emit bytecode. The resident server never runs
+       // JvmPlugin (its processors are codegen-only, and it is not in the server's plugin list), so the server emits no
+       // bytecode itself. No layer `.els` are bundled: the concrete platform layer, like the base and stdlib, reaches
+       // the compiler on the path as a dependency — the client's workspace roots (see EliotCompilationService).
        // Depends on `apidoc` for its doc-comment pipeline: the LSP activates `ApiDocPlugin` (processors only — its HTML
        // `run` never fires, since only the target `LspPlugin`'s does) so hover can read the same `ValueDoc` facts the
        // documentation site is built from.

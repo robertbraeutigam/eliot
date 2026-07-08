@@ -70,8 +70,9 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
       _       <- documentAllLayers(configuration, compilation)
     } yield ()
 
-  /** Demand the documentation ([[ValueDoc]]) of every declared name across *all* layer roots — the bundled base and
-    * platform layers as well as the user's workspace — so the hover index can document any name the editor resolves,
+  /** Demand the documentation ([[ValueDoc]]) of every declared name across *all* layer roots — the base and
+    * platform layers (on the path as dependencies) as well as the user's workspace — so the hover index can document
+    * any name the editor resolves,
     * stdlib functions included (not just the user's own modules, which is all `checkModule` reaches). Docs come from the
     * parsed AST only, so this forces at most a parse of each layer file (cached across recompiles); it never resolves or
     * type-checks the bundled dependencies.
@@ -155,7 +156,7 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 
   private def modulesUnder(root: Path): IO[Seq[ModuleName]] = IO.blocking {
     if (Files.isRegularFile(root) && isEliotSource(root)) {
-      Seq(moduleNameOf(root.getParent, root)).filterNot(isBundledLibraryModule)
+      Seq(moduleNameOf(root.getParent, root)).filterNot(isLibraryModule)
     } else if (Files.isDirectory(root)) {
       Files
         .walk(root)
@@ -163,17 +164,17 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
         .asScala
         .filter(p => Files.isRegularFile(p) && isEliotSource(p))
         .map(p => moduleNameOf(root, p))
-        .filterNot(isBundledLibraryModule)
+        .filterNot(isLibraryModule)
         .toSeq
     } else {
       Seq.empty
     }
   }
 
-  /** Whether a path-derived module belongs to the bundled Eliot library namespace — the standard library and platform
-    * layers under `eliot.lang` / `eliot.effect` / `eliot.compiler` ([[LspPlugin.bundledLibraryPackages]]). These are
-    * supplied to the compile as bundled layer roots (`BundledLayers`), so the whole-workspace driver must not diagnose
-    * them: they are dependencies, not the user's own modules.
+  /** Whether a path-derived module belongs to the Eliot library namespace — the standard library and platform
+    * layers under `eliot.lang` / `eliot.effect` / `eliot.compiler` ([[LspPlugin.bundledLibraryPackages]]). These arrive
+    * on the path as dependencies (never bundled with the server), so the whole-workspace driver must not diagnose them:
+    * they are dependencies, not the user's own modules.
     *
     * The reserved package sequence is matched as a contiguous sub-path of the module's segments (rather than a prefix)
     * because a workspace folder is rarely exactly a source root. Opening the compiler repo yields the source root inside
@@ -183,9 +184,9 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
     * mis-rooted stdlib file auto-import (and so shadow) its own name — the spurious "Imported names shadow local names"
     * diagnostic this guard exists to prevent.
     */
-  private def isBundledLibraryModule(moduleName: ModuleName): Boolean = {
+  private def isLibraryModule(moduleName: ModuleName): Boolean = {
     val segments = moduleName.packages :+ moduleName.name
-    LspPlugin.bundledLibraryPackages.exists(segments.containsSlice)
+    LspPlugin.libraryPackages.exists(segments.containsSlice)
   }
 
   /** A module name is its file's path relative to the source root, with `.els` stripped: `pkg/Sub/Foo.els` under root
@@ -206,11 +207,11 @@ object LspPlugin {
   private val eliotExtension = ".els"
 
   /** The reserved Eliot library packages (`eliot.lang`, `eliot.effect`, `eliot.compiler`), each as its directory
-    * sequence. The whole-workspace driver treats any file whose path contains one of these as a bundled dependency
-    * rather than a user module (see [[LspPlugin.isBundledLibraryModule]]). Derived from [[ModuleName]] so a new reserved
+    * sequence. The whole-workspace driver treats any file whose path contains one of these as a library dependency
+    * rather than a user module (see [[LspPlugin.isLibraryModule]]). Derived from [[ModuleName]] so a new reserved
     * package is picked up here without a second list to keep in sync. `eliot.compiler.internal` needs no separate entry —
     * `eliot.compiler` already matches it as a sub-path.
     */
-  private val bundledLibraryPackages: Seq[Seq[String]] =
+  private val libraryPackages: Seq[Seq[String]] =
     Seq(ModuleName.defaultSystemPackage, ModuleName.effectPackage, ModuleName.compilerPackage)
 }

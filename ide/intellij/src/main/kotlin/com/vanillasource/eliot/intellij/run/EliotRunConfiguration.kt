@@ -74,17 +74,14 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
   fun jarPath(): Path = Path.of(resolvedOutputDir(), (mainModule ?: "").substringAfterLast('.') + ".jar")
 
   /**
-   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --path … --path … --path …`, run as a child JVM off the
-   * bundled jars. The abstract base (lang+stdlib) and the jvm layer are handed to the compiler as filesystem source
-   * roots (the classpath scan is gone), from the bundled `eliot-src` staging — one `--path` per module `eliot/` root.
-   * The compiler pool additionally scans each root's `eliot-compiler/` sibling (only `stdlib` ships one). The layer
-   * options trail the `jvm exe-jar …` command — the only position scopt accepts these top-level options, as `-o` does.
+   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output>`, run as a child JVM off the bundled compiler jars. The
+   * abstract base, the standard library and the platform (jvm) layer are NOT bundled with the plugin: like any program's
+   * dependencies they must be reachable on the source path — the same roots the resident language server resolved this
+   * `main` against. `<sourceRoot>` is that path; a build system will populate it with downloaded packages.
    */
   fun compilerCommandLine(): GeneralCommandLine {
     val classpath = EliotPlugin.compilerClasspath()
       ?: throw ExecutionException("Cannot locate the bundled Eliot compiler jars.")
-    val layersDir = EliotPlugin.bundledLayersDir()
-      ?: throw ExecutionException("Cannot locate the bundled Eliot layer sources.")
     val command = GeneralCommandLine(
       EliotPlugin.javaExecutable(),
       "-cp", classpath,
@@ -94,9 +91,6 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       "-m", mainModule.orEmpty(),
       "-o", resolvedOutputDir(),
     )
-    for (module in listOf("lang", "stdlib", "jvm")) {
-      command.addParameters("--path", layersDir.resolve(module).resolve("eliot").toString())
-    }
     project.basePath?.let { command.withWorkDirectory(it) }
     return command
   }

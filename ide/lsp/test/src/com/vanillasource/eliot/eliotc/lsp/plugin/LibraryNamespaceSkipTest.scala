@@ -14,23 +14,23 @@ import org.scalatest.matchers.should.Matchers
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
-/** Regression for the whole-workspace driver enumerating bundled-library files as if they were user modules.
+/** Regression for the whole-workspace driver enumerating library-dependency files as if they were user modules.
   *
   * The workspace folder an editor hands the server is whatever directory the user opened — for the Eliot compiler repo
   * itself, that is the repo root, a folder that *contains* the layer source roots rather than *being* one. The driver
   * then derives each stdlib file's module name relative to that folder (e.g. `layer.eliot.lang.String` instead of
   * `eliot.lang.String`), which breaks the "don't import yourself" filter in `ModuleValueProcessor`: the mis-rooted file
-  * auto-imports the real `eliot.lang.String` and reports `Imported names shadow local names`. Those files are supplied by
-  * the bundled layer roots ([[com.vanillasource.eliot.eliotc.lsp.server.BundledLayers]]), so the driver must skip them —
-  * they are dependencies, not the user's own code.
+  * auto-imports the real `eliot.lang.String` and reports `Imported names shadow local names`. Those files arrive on the
+  * path as library dependencies (never bundled with the server), so the driver must skip them — they are dependencies,
+  * not the user's own code.
   */
-class BundledNamespaceSkipTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+class LibraryNamespaceSkipTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   // Type-checks against the *abstract* platform-independent workspace the LSP compiles (see VirtualFileSystemCompileTest).
   private val userSource   = """def greeting: String = "Hello World!""""
   // A stdlib redefinition placed below the workspace root, so its module name mis-roots to `layer.eliot.lang.String`.
   private val stdlibSource = """type String"""
 
-  "the whole-workspace driver" should "not diagnose bundled-namespace files nested under the workspace root" in {
+  "the whole-workspace driver" should "not diagnose library-namespace files nested under the workspace root" in {
     withWorkspace { (root, compile) =>
       for {
         errors <- compile
@@ -42,7 +42,7 @@ class BundledNamespaceSkipTest extends AsyncFlatSpec with AsyncIOSpec with Match
   }
 
   /** A workspace root holding a user module (`app/Main.els`) plus a nested source root whose `eliot/lang/String.els`
-    * redefines a bundled type — the shape that made the compiler repo light up with shadow errors.
+    * redefines a library type — the shape that made the compiler repo light up with shadow errors.
     */
   private def withWorkspace[A](body: (Path, IO[Seq[String]]) => IO[A]): IO[A] =
     tempDirectory.use { root =>

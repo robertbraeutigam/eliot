@@ -40,15 +40,6 @@ object EliotPlugin {
    */
   fun compilerLibDir(): Path? = pluginPath()?.resolve("compiler")?.resolve("lib")
 
-  /**
-   * Directory of the bundled layer `.els` source roots (`<plugin>/server/eliot-src`, staged beside [serverLibDir]),
-   * holding a `lang`/`stdlib`/`jvm` subdirectory each (with `stdlib`'s `eliot-compiler/` compile-time overlay). The
-   * compiler does NOT discover the abstract base or the platform layers on the classpath; the language server and the
-   * "Run main" CLI take them as filesystem source roots from here (`eliot.layers` for the server, one `--path` per
-   * `<module>/eliot` root for the CLI — the compiler pool additionally scans each root's `eliot-compiler/` sibling).
-   */
-  fun bundledLayersDir(): Path? = serverLibDir()?.resolveSibling("eliot-src")
-
   /** Path to the `java` of the IDE's own runtime (JBR), so no separately installed JDK is required. */
   fun javaExecutable(): String =
     Path.of(System.getProperty("java.home"), "bin", if (SystemInfo.isWindows) "java.exe" else "java").toString()
@@ -56,9 +47,9 @@ object EliotPlugin {
   /**
    * The compiler/server classpath as a single `-cp` value: a trailing-star wildcard over each of the
    * `server/lib` and `compiler/lib` directories. Java itself expands the wildcards (works on Windows too),
-   * and keeping the jars separate preserves Eliot's platform-layer resource semantics (a fat jar would
-   * collapse same-path `.els` files). NOTE: avoid writing the literal lib-slash-star here — in a KDoc the
-   * slash-star sequence opens a nested block comment and breaks the build.
+   * and keeping the jars separate keeps each layer's same-path `META-INF/services/...CompilerPlugin` file
+   * distinct (a fat jar would collapse them and drop plugin registrations). NOTE: avoid writing the literal
+   * lib-slash-star here — in a KDoc the slash-star sequence opens a nested block comment and breaks the build.
    */
   fun compilerClasspath(): String? {
     val serverLib = serverLibDir() ?: return null

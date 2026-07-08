@@ -62,11 +62,12 @@ java {
 // Bundling the language server.
 //
 // The server MUST travel as the per-module + dependency jars produced by ide/lsp/package.sh, never a
-// fat assembly jar: Eliot's platform layers keep multiple files at the same resource path (e.g.
-// eliot/lang/String.els in both the lang and stdlib layers) and a fat jar would collapse them, silently
-// dropping a layer. package.sh is the single source of truth for that jar set. We copy its output into
-// the plugin distribution under "<plugin>/server/lib/" and launch a child JVM with `-cp .../server/lib/*`
-// (EliotConnectionProvider), which preserves the layered-resource semantics.
+// fat assembly jar: each layer jar carries a same-path ServiceLoader file
+// (META-INF/services/…CompilerPlugin, naming LangPlugin / StdlibPlugin / JvmPlugin / ApiDocPlugin) and a
+// fat jar would collapse those four to one, silently dropping plugin registrations the compiler CLI
+// discovers via ServiceLoader. package.sh is the single source of truth for that jar set. We copy its
+// output into the plugin distribution under "<plugin>/server/lib/" and launch a child JVM with
+// `-cp .../server/lib/*` (EliotConnectionProvider), which keeps the per-module service files distinct.
 //
 // The TextMate grammar (ide/textmate, a VS Code-extension-layout bundle) is copied to "<plugin>/textmate/"
 // and registered by EliotTextMateBundleProvider, which needs a real on-disk path.
@@ -83,19 +84,11 @@ val packageServer by tasks.registering(Exec::class) {
     inputs.dir(file("../../stdlib/src"))
     inputs.dir(file("../../eliotc/src"))
     inputs.dir(file("../../jvm/src")) // the JVM backend jar is bundled in lib/ (resident type-checking) + used by "Run main"
-    // The layer `.els` files live in each module's `eliot/` source root (not src, not resources — they are read from
-    // the filesystem by PathScanner). The resident server type-checks against them (jvm = the concrete platform layer;
-    // stdlib/lang = abstract base; stdlib/eliot-compiler = the compile-time overlay), so an edit must re-trigger
-    // packaging.
-    inputs.dir(file("../../lang/eliot"))
-    inputs.dir(file("../../stdlib/eliot"))
-    inputs.dir(file("../../stdlib/eliot-compiler"))
-    inputs.dir(file("../../jvm/eliot"))
+    // NOTE: the module `eliot/` source roots are deliberately NOT inputs. package.sh bundles CODE only — the layer
+    // `.els` are never packaged; they reach the compiler on the path as dependencies (see package.sh / the plugin's
+    // EliotConnectionProvider + EliotRunConfiguration). So an `.els` edit does not need to re-trigger packaging.
     outputs.dir(file("../lsp/dist/lib"))
     outputs.dir(file("../lsp/dist/compiler-lib"))
-    // The layer .els source roots: base (lang+stdlib) + the jvm layer (with stdlib's eliot-compiler overlay), staged as
-    // plain dirs the server and the "Run main" CLI scan with --path (the classpath scan is gone).
-    outputs.dir(file("../lsp/dist/eliot-src"))
 }
 
 tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask> {
@@ -105,10 +98,8 @@ tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask> 
     // The JVM backend + ASM, used by the "Run main" run configuration to build an executable jar (the
     // resident LSP server does NOT load these — see EliotConnectionProvider vs. the run config's command).
     from(file("../lsp/dist/compiler-lib")) { into("eliot/compiler/lib") }
-    // The layer .els source roots, staged beside server/lib as server/eliot-src so EliotPlugin.bundledLayersDir() finds
-    // them. The server (EliotConnectionProvider) points `eliot.layers` here; the "Run main" run config passes the
-    // per-module `eliot/` subdirs as `--path` (each root's `eliot-compiler/` sibling is scanned for the compiler pool).
-    from(file("../lsp/dist/eliot-src")) { into("eliot/server/eliot-src") }
+    // No layer `.els` are bundled: the abstract base, the standard library and the platform layers reach the compiler
+    // on the path as dependencies (the client's workspace roots today), never from the plugin distribution.
     from(file("../textmate")) {
         into("eliot/textmate")
         exclude("README.md")
