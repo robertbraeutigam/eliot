@@ -33,11 +33,10 @@ class EliotRunMainCommandAction : LSPCommandAction() {
     val sourceRoot = command.getArgumentAt(0, String::class.java) ?: return
     val mainModule = command.getArgumentAt(1, String::class.java) ?: return
     // The remaining arguments are the dependency source roots (layer/library roots), variable in number.
-    val dependencyRoots = generateSequence(2) { it + 1 }
-      .map { command.getArgumentAt(it, String::class.java) }
-      .takeWhile { it != null }
-      .filterNotNull()
-      .toList()
+    // Bound the loop by the actual argument count: LSP4IJ's getArgumentAt throws (not returns null) once the
+    // index reaches the list size, so probing past the end for a null terminator would abort the command.
+    val dependencyRoots = (2 until command.arguments.size)
+      .mapNotNull { command.getArgumentAt(it, String::class.java) }
     runMain(project, sourceRoot, mainModule, dependencyRoots)
   }
 
