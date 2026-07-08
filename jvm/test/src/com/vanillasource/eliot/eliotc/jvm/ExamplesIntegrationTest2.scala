@@ -228,6 +228,34 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "excellent\ntaken")
   }
 
+  // `if`'s branch is a carrier value `F[T]`, so a branch may itself be effectful. Only the SELECTED branch's effect
+  // runs — both branches are built, the unchosen one is never executed — matching an imperative `if`.
+  "if..else with effectful branches" should "run only the selected branch's effect" in {
+    compileAndRun(
+      """import eliot.lang.Bool
+        |import eliot.effect.Console
+        |import eliot.effect.Abort
+        |
+        |def main: IO[Unit] = {
+        |   if(true, printLine("then")) else printLine("else")
+        |   if(false, printLine("then")) else printLine("else")
+        |}""".stripMargin
+    ).asserting(_ shouldBe "then\nelse")
+  }
+
+  // A bare pure value supplied to a generic effect-carrier parameter `F[A]` auto-lifts via `pure` — previously it
+  // degenerately unified `F[A] := String` and miscompiled to a runtime VerifyError.
+  "a pure value into a generic effect-carrier parameter" should "auto-lift via pure" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
+        |
+        |def echo[F[_] ~ Effect, A](value: F[A]): F[A] = value
+        |
+        |def main: IO[Unit] = printLine(echo("hello"))""".stripMargin
+    ).asserting(_ shouldBe "hello")
+  }
+
   // Static testability (M5): the SAME carrier-polymorphic {Abort} business logic runs under a pure `Id` test carrier
   // (G := Id), with no production IO — the effect discharges to a plain Option the test inspects. main only does IO to
   // print the already-computed pure results.

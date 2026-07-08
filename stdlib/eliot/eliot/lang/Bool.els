@@ -1,4 +1,3 @@
-import eliot.effect.Effect
 import eliot.effect.Abort
 
 type Bool
@@ -15,8 +14,12 @@ prefix def !(a: Bool): Bool
 def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A
 
 /**
- * Enables the "if" syntax to write conditional execution, even if the
- * given value has effects. The `Abort` effect's `else` naturally
- * extends this to the usual `if..else` syntax.
+ * Conditional execution — the `if` of `if..else`. Yields `value` when `condition` holds, otherwise short-circuits via
+ * the `Abort` effect, which the `else` operator (in `eliot.effect.Abort`) discharges with the alternative.
+ *
+ * The branch is a carrier value `F[T]`, so `value` may be a pure value (`if(cond, "yes")` — auto-lifted with `pure`)
+ * or an effectful computation (`if(cond, printLine("hi"))`). Only the selected branch's effect is performed: both
+ * branches are *built*, but the unchosen one is never *run*, so this reads like an imperative `if`. Chains
+ * right-associatively as `if(..) else if(..) else ..`.
  */
-def if[T](condition: Bool, value: T): {Abort} T = fold(condition, pure(value), abort)
+def if[F[_] ~ Abort, T](condition: Bool, value: F[T]): F[T] = fold(condition, value, abort)

@@ -68,16 +68,6 @@ class EffectLifter(
     * (`AbortCarrier[G]`) and the payload is the last argument (`A`).
     */
   def effectCarrierSplit(tpe: SemValue): CheckIO[Option[(SemValue, SemValue)]] =
-    carrierSplit(tpe, ambientOnly = false)
-
-  /** Like [[effectCarrierSplit]] but recognizing only the *ambient* carriers (the value-under-check's own binders) —
-    * the pure-wrap arm's condition: a pure value is lifted only into the def's own carrier, never into an arbitrary
-    * callee-side one.
-    */
-  def ambientCarrierSplit(tpe: SemValue): CheckIO[Option[(SemValue, SemValue)]] =
-    carrierSplit(tpe, ambientOnly = true)
-
-  private def carrierSplit(tpe: SemValue, ambientOnly: Boolean): CheckIO[Option[(SemValue, SemValue)]] =
     for {
       forced <- force(tpe)
       state  <- get
@@ -86,7 +76,7 @@ class EffectLifter(
       forced match {
         case VMeta(id, Spine.SApp(prefix, payload))
             if ambient.contains(CheckState.CarrierHead.Meta(id.value)) ||
-              (!ambientOnly && state.unifier.isEffectCarrier(id.value)) =>
+              state.unifier.isEffectCarrier(id.value) =>
           Some((VMeta(id, prefix), payload))
         case VTopDef(fqn, cached, Spine.SApp(prefix, payload))
             if ambient.contains(CheckState.CarrierHead.TopDef(fqn)) =>
@@ -125,12 +115,15 @@ class EffectLifter(
       case _                           => pure(false)
     }
 
-  /** The pure-wrap dual of [[mustLiftBeforeUnify]]: the *expected* side is headed by an ambient carrier *metavariable*
+  /** The pure-wrap dual of [[mustLiftBeforeUnify]]: the *expected* side is headed by an effect-carrier *metavariable*
     * and the pure actual is a rigid head applied to fewer arguments (`String ~ ?F[Unit]`), which unification can only
-    * postpone, never solve.
+    * *degenerately* solve (`?F := const String`) — a solution that miscompiles because the carrier and its payload have
+    * different runtime representations. Consulting pure-wrap first inserts the correct `Effect.pure` lift. This covers
+    * both the def's own ambient carrier and a *callee's* ability-constrained carrier parameter (`echo`'s / `if`'s
+    * `F[_] ~ Effect`), so a bare pure value supplied to any effect-carrier slot lifts rather than miscompiling.
     */
   def mustPureWrapBeforeUnify(actual: SemValue, expected: SemValue): CheckIO[Boolean] =
-    ambientCarrierSplit(expected).flatMap {
+    effectCarrierSplit(expected).flatMap {
       case Some((VMeta(_, prefix), _)) => force(actual).map(underApplied(_, prefix.toList.length + 1))
       case _                           => pure(false)
     }
@@ -178,8 +171,9 @@ class EffectLifter(
         } yield result
     }
 
-  /** The pure-wrap arm (ladder arm 4): if the *expected* type forces to `C[T]` headed by an *ambient* carrier, the
-    * inferred type is itself pure (not effect-carrier-headed — never double-wrap), and it speculatively unifies with
+  /** The pure-wrap arm (ladder arm 4): if the *expected* type forces to `C[T]` headed by an effect carrier — the def's
+    * own ambient carrier *or* a callee's ability-constrained carrier parameter (`echo`'s / `if`'s `F[_] ~ Effect`) —
+    * the inferred type is itself pure (not effect-carrier-headed — never double-wrap), and it speculatively unifies with
     * the payload `T`, wrap the term with `Effect.pure` (`ValueReference(pureFQN, [C, T])` applied to the term, typed
     * at the expected carrier type). Subsumes the effect phase's body-level `pureWrap`. Returns [[None]] when the arm
     * does not apply.
@@ -190,7 +184,7 @@ class EffectLifter(
       actual: SemValue,
       expected: SemValue
   ): CheckIO[Option[SemExpression]] =
-    ambientCarrierSplit(expected).flatMap {
+    effectCarrierSplit(expected).flatMap {
       case None                     => pure(None)
       case Some((carrier, payload)) =>
         effectCarrierSplit(actual).flatMap {

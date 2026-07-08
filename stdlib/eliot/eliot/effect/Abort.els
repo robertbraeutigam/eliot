@@ -53,20 +53,20 @@ type AbortCarrier[G[_], A]
 def runAbort[G[_], A](obj: AbortCarrier[G, A]): G[Option[A]]
 
 /**
- * Run an `{Abort}` computation, supplying `fallback` as the result if it short-circuits. The everyday way to discharge
- * `Abort` — it reads like a default and never exposes `Option`. On completion it yields the computed value; on `abort`
- * it yields `fallback`.
+ * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
+ * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback` instead,
+ * never exposing `Option`. The fallback is itself a `G`-computation, so it may be a pure value (auto-lifted with `pure`)
+ * or effectful; the result stays in the carrier `G` — the `Abort` layer is discharged, any other effects remain. Binds
+ * right-associatively, so `if(..) else if(..) else default` nests as expected.
  *
  * ```eliot
- * // Get a setting as string for a given key. If the setting
- * // does not exists, this function aborts.
+ * // Get a setting for a key; aborts if the setting does not exist.
  * def setting(key: String): {Abort} String
  *
- * // This will always return a String and does not abort.
- * def settingWithDefault(key: String, default: String): String =
- *   setting("key") else default
+ * // Discharged at the use site, inside an effectful context.
+ * def main: IO[Unit] = printLine(setting("host") else "localhost")
  * ```
  */
 infix right
-def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: A): G[A] =
-   map(o -> foldOption(o, fallback, a -> a), runAbort(computation))
+def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: G[A]): G[A] =
+   flatMap(o -> foldOption(o, fallback, a -> pure(a)), runAbort(computation))
