@@ -52,6 +52,9 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
         "def discharge[G[_] ~ Effect, A](c: Carrier[G, A]): {-MyE} G[A]\n" +
         "def userDischarge[A](x: {MyE} A): A = discharge(x)\n" +
         "def passthru[A](x: {MyE} A): {MyE} A = x\n" +
+        // Let-bound discharge (Step 5, investigated — conservative): the `val y = x` bind detaches the effect from the
+        // binder's occurrences, so no discharge is inferred even though `discharge(y)` would discharge it in direct style.
+        "def userDischargeLet[A](x: {MyE} A): A = {\nval y = x\ndischarge(y)\n}\n" +
         // Double-use: `x` is discharged in one occurrence and used raw in the other, so `MyE` survives → no discharge.
         "def doubleUse[A](x: {MyE} A): A = combine(discharge(x), x)\n" +
         // `discharge` discharges `MyE`, never the `{Inf}` carried by `x`, so `Inf` survives → no discharge.
@@ -148,6 +151,30 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
     runEffectCheckErrors(
       "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = printLine(combine(discharge(emit), \"ok\"))"
     ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // ── Let-binds (Step 5) — investigated, documented limitation ────────────────────────────────────────────────────
+  // Let-bound discharge is NOT supported: `val y = e` is an immediately-applied lambda that the *checker* sequences
+  // with `Effect.flatMap`, binding `y` to the payload type (`String`), not the carrier — so a later discharger (which
+  // needs the carrier) fails at monomorphization with a raw type mismatch. Fixing only the def-local accounting would
+  // move that clear def-site error to a worse use-site one; direct style (`printLine(discharge(emit))`, above) is the
+  // supported path (docs/effect-discharge-accounting.md, Step 5). These lock the conservative, still-sound behaviour:
+  // the accounting never *silently drops* a let-bound effect.
+
+  "let-binds (Step 5)" should "conservatively still require a let-bound effect that a body discharges only via the binder" in {
+    // Direct `printLine(discharge(emit))` passes (first test); through a `val` bind the effect is not discharged, so
+    // demo genuinely still performs MyE and must declare it — no phantom-free pass, no silent drop.
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Discharge\ndef demo: {Console} Unit = {\nval y = emit\nprintLine(discharge(y))\n}"
+    ).asserting(
+      _.map(_.message) should contain(
+        "This value performs the effect 'MyE' but does not declare it; add it to its { ... } effect set."
+      )
+    )
+  }
+
+  it should "infer no discharge for a handler that discharges only through a let binder (conservative)" in {
+    dischargeSummaryOf("userDischargeLet").asserting(_ shouldBe Set.empty)
   }
 
   private def runEffectCheckErrors(source: String) =

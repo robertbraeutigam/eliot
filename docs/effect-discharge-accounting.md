@@ -1,6 +1,7 @@
 # Discharge-Aware Effect Accounting
 
-Status: **Steps 0–4 SHIPPED (2026-07-08); Steps 5–7 remain design record / plan.** Captures why an effectful
+Status: **Steps 0–4 SHIPPED; Step 5 INVESTIGATED — not clean, limitation documented + conservative behaviour
+locked (all 2026-07-08); Steps 6–7 remain plan.** Captures why an effectful
 function whose internal `if..else` (or any handler) *fully discharges* an effect is nonetheless forced to
 declare that effect, and a staged plan to fix it. The fix keeps the one-carrier model and monomorphization as
 the sound backstop; it only makes the cheap, definition-local effect check *precise* instead of
@@ -255,6 +256,43 @@ accessors it names:
   **document the limitation** and stop — direct style covers the real cases.
 - **Verify:** let-bound discharge compiles, or a written-down limitation + a test asserting the conservative
   (still-sound) behaviour.
+
+**INVESTIGATED (2026-07-08) — not clean; limitation documented, conservative behaviour locked.** The fix
+would need far more than the def-local accounting tweak the plan sketched, because the blocker is **not** in
+the accounting — it is in the **checker's own let-bind elaboration**, one phase later. Ground truth
+(`examples/`, cold cache): `{ val x = mightAbort(f); printLine(x else "default") }` fails, and *keeps* failing
+even when `demo` is hand-annotated `{Console, Abort}` to bypass the def-local check entirely — with a fresh,
+worse error at monomorphization:
+
+```
+error: Type mismatch.  Expected: AbortCarrier(IO, String)  Actual: String   (at `x else "default"`)
+```
+
+**Why.** A `val x = e` lowers to the immediately-applied lambda `(x -> body)(e)`. The checker's
+`typeImmediateLambda` (monomorphize/check/Checker.scala) sees the carrier-headed argument, **sequences it with
+`Effect.flatMap`**, and binds `x` to the action's *payload* type `T'` (`String`), **not** the carrier
+`AbortCarrier[IO, String]` (EffectLifter's bind-lift, docs/effect-lift-in-checker.md). So inside the body `x :
+String` — the carrier has already been unwrapped by the bind, and a later discharger (`else`, which needs an
+`AbortCarrier`) can no longer act on it. The effect is therefore *bound* (propagated), never *discharged*;
+`demo` genuinely still performs `Abort`. Direct style (`mightAbort(f) else "default"`, and what `if..else`
+lowers to) avoids this because the carrier value is a *direct* argument to the discharger — no intervening
+bind — and it compiles + runs (verified).
+
+Making the let form work would require the checker to make a **use-directed** bind-vs-store decision (look
+ahead: does a later occurrence of `x` feed a discharger? if so, *store* the carrier instead of binding it) —
+or the user to annotate the binder with the carrier type (the existing `stored` path), which is impractical:
+`AbortCarrier` is documented plumbing that application code never names, and spelling its `G` would commit to a
+platform. Either is a substantial change well outside discharge accounting, with its own soundness subtleties
+(unused binder, value-param aliasing at one ability). Per the plan's escape clause, we **stop here**.
+
+Crucially, the current behaviour is already **fail-safe**, not a silent gap: the def-local accounting
+*conservatively rejects* the let form with the clear def-site message *"performs the effect 'Abort' but does
+not declare it"* — it never silently drops the effect. Making the accounting pass would only relocate that
+error to the confusing use-site type-mismatch above (strictly worse diagnostics), so leaving it conservative is
+also the better UX. Locked by two tests in `EffectDischargeAccountingTest` under **"let-binds (Step 5)"**: the
+subset check still rejects a let-bound-then-discharged effect (contrast the direct form, which passes), and a
+handler that discharges only through a `let` infers *no* discharge (conservative). If let-bound discharge is
+ever wanted, it is a checker feature (use-directed store), tracked here — not an accounting one.
 
 ### Step 6 — Fail-safe & interaction audit
 
