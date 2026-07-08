@@ -1,0 +1,46 @@
+import eliot.lang.Bool
+import eliot.lang.Eq
+import eliot.effect.Console
+import eliot.effect.Abort
+
+// `if` is an ordinary function: `if(cond, value)` yields `value`, or short-circuits via the `Abort` effect, which the
+// infix `else` (from `eliot.effect.Abort`) discharges with the alternative. Because the branch is a carrier value, it
+// may be pure OR effectful, and only the selected branch's effect is ever run — so this reads like an imperative `if`.
+
+// A branch may call out to a multi-statement effectful helper.
+def announce(what: String): {Console} Unit = {
+   printLine(what)
+   printLine("     ...(announced)")
+}
+
+// Every form of if..else, all driven by the single `flag` parameter.
+def demo(flag: Bool): {Console, Abort} Unit = {
+   // 1. A pure value chosen by an if..else, then printed.
+   printLine(if(flag, "1. pure value: ON") else "1. pure value: OFF")
+
+   // 2. Guard-style default: a value, or a fallback when the condition fails.
+   printLine(if(flag, "2. guard: custom") else "2. guard: default")
+
+   // 3. Pure  if .. else if .. else  chain (else is right-associative, so the chain nests).
+   printLine(if(flag, "3. chain: first") else if(!flag, "3. chain: second") else "3. chain: third")
+
+   // 4. Effectful branches: only the taken branch's printLine is executed.
+   if(flag, printLine("4. effectful: then")) else printLine("4. effectful: else")
+
+   // 5. Effectful  if .. else if .. else  chain.
+   if(flag, printLine("5. echain: A")) else if(!flag, printLine("5. echain: B")) else printLine("5. echain: C")
+
+   // 6. A branch that runs a multi-statement effectful computation.
+   if(flag, announce("6. multi-effect branch")) else printLine("6. plain else")
+}
+
+def main: IO[Unit] = {
+   // Called with a compile-time constant: `demo(true)` may be reduced by the compiler.
+   printLine("========== demo(true) ==========")
+   demo(true) else unit
+
+   // Called with a runtime value: `readLine == "yes"` is only known at run time, so the ifs are genuinely executed
+   // by the generated JVM bytecode. Feed "yes" on stdin for the true branches, anything else for the false branches.
+   printLine("========== demo(readLine == yes) ==========")
+   demo(readLine == "yes") else unit
+}
