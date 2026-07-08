@@ -316,7 +316,21 @@ def parse(s: String): {Throw[String]} Tree = raise("not a tree")
 ```
 
 `{E1, E2} A` desugars to one shared inferable carrier: `[auto F[_] ~ E1 & E2] F[A]`. Write the
-`{…}` sugar; hand-write the `[G[_] ~ Effect]` form only in carrier-generic library code.
+`{…}` sugar; hand-write the `[G[_] ~ Effect]` form only in carrier-generic library code that must
+*name* the carrier (a discharge combinator threading a `StateCarrier`/`AbortCarrier`/… ).
+
+The sugar works in **any** type position, not just the return type — an **argument** may be an
+effectful value too. All `{…}` occurrences in one signature collapse onto the *same* inferred
+carrier, so an effectful-in/effectful-out combinator drops the hand-written binder entirely:
+
+```eliot
+def if[T](condition: Bool, value: {Abort} T): {Abort} T = fold(condition, value, abort)
+// desugars to  def if[auto F[_] ~ Abort, T](condition: Bool, value: F[T]): F[T]
+```
+
+Here `value`'s effect row and the result row are one carrier — exactly what `if` needs (only the
+taken branch's effect runs). Reach for the explicit `[F[_] ~ …]` form only when you genuinely name
+the carrier type (see the discharge combinators above); prefer the `{…}` row everywhere else.
 
 - **Direct style is the point.** An effectful call yields its plain value (`readLine : String` in a
   `{Console}` body); the checker inserts `flatMap`/`map`/`pure` for you, through blocks, arguments,

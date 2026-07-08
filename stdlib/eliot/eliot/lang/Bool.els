@@ -17,9 +17,10 @@ def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A
  * Conditional execution — the `if` of `if..else`. Yields `value` when `condition` holds, otherwise short-circuits via
  * the `Abort` effect, which the `else` operator (in `eliot.effect.Abort`) discharges with the alternative.
  *
- * The branch is a carrier value `F[T]`, so `value` may be a pure value (`if(cond, "yes")` — auto-lifted with `pure`)
- * or an effectful computation (`if(cond, printLine("hi"))`). Only the selected branch's effect is performed: both
+ * The branch type `{Abort} T` is the effect-row sugar (one inferred carrier for the whole signature), so `value` may be
+ * a pure value (`if(cond, "yes")` — auto-lifted with `pure`) or an effectful computation (`if(cond, printLine("hi"))`,
+ * whose own effects join the row). Only the selected branch's effect is performed: both
  * branches are *built*, but the unchosen one is never *run*, so this reads like an imperative `if`. Chains
  * right-associatively as `if(..) else if(..) else ..`.
  */
-def if[F[_] ~ Abort, T](condition: Bool, value: F[T]): F[T] = fold(condition, value, abort)
+def if[T](condition: Bool, value: {Abort} T): {Abort} T = fold(condition, value, abort)
