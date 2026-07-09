@@ -65,6 +65,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "widen an arithmetic result into a broader declared range at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
         |def total: Int[0, 1000] = 3 + 4
         |
         |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
@@ -76,6 +77,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "calculate a bare Int return from the body and run it (W3)" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
         |def double(x: Int): Int = x + x
         |
         |def main: IO[Unit] = printLine(intToString(double(21)))""".stripMargin
@@ -107,6 +109,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "compute a product that overflows 16 bits at the 32-bit representation" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
         |def product: Int[0, 1000000] = 1000 * 1000
         |
         |def main: IO[Unit] = printLine(intToString(product))""".stripMargin
@@ -121,6 +124,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   "the IntArith guarded width family" should "select the right instance at each operand width in one program" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
         |def byteSum: Int[0, 200] = 100 + 100
         |def shortDiff: Int[-1000, 1000] = 500 - 300
         |def intProduct: Int[0, 1000000] = 1000 * 1000
@@ -171,6 +175,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   "generic instantiation" should "reuse one method for two same-representation ranges at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
         |def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
         |def a: Int[0, 3] = 3
         |def b: Int[0, 5] = 5
@@ -184,6 +189,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "dispatch distinct methods for two different-representation ranges at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
         |def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
         |def a: Int[0, 3] = 3
         |def big: Int[0, 5000000000] = 5000000000
@@ -256,6 +262,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "match out two integer fields at different representations and sum them" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
         |data IntPair(small: Int[0, 255], large: Int[0, 5000000000])
         |
         |def sum(p: IntPair): Int[0, 5000000255] = p match {

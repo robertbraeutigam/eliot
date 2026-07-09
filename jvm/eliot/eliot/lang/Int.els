@@ -31,27 +31,43 @@ opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
   fold(fitsLong[MIN, MAX], JvmLong[],
        JvmBigInteger[]))))
 
-// JVM integer addition: widens both operands to their common representation, runs the right-sized leaf operation
-// (selected by the `IntArith` width-dispatch family below), then narrows the result back to the declared range.
-infix left
-def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)] =
+// The JVM's width-dispatch integer primitives — the representation-dependent half of integer arithmetic. Each widens
+// both operands to their common representation, runs the right-sized leaf (selected by the `IntArith` width-dispatch
+// family below), then narrows the result back to the declared range. These are plain functions (not operators): the
+// `Arithmetic[Int, Int]` instance below builds `add`/`subtract`/`multiply` on them, and the generic `+`/`-`/`*`
+// operators (defined once in `Arithmetic`) reach them through that instance. Their explicit result formula makes each
+// self-typed, so the instance methods can delegate with a calculated `Int` return.
+def intAdd[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)] =
   nativeWiden(addOp(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
-// JVM integer subtraction; the same width-dispatch shape as `+`.
-infix left at +
-def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)] =
+def intSubtract[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)] =
   nativeWiden(subtractOp(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
-// JVM integer multiplication; the same width-dispatch shape as `+`.
-infix left above +
-def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)] =
+def intMultiply[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)] =
   nativeWiden(multiplyOp(
     nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
+
+// The JVM's concrete `Arithmetic[Int, Int]`. The `AddResult`/`SubResult`/`MulResult` aliases carry the exact dependent
+// formulas (sum/difference/corner-product of the operand bounds), which the generic `+`/`-`/`*` operators project at
+// each use site. The methods delegate to the width-dispatch primitives above with a calculated `Int` return — the
+// formula cannot be restated on the method signature itself, since inside the impl a bare `add`/`subtract`/`multiply`
+// there would re-dispatch to this very instance rather than to `BigInteger`'s. Because the two operand ranges are
+// independent parameters, `Int[0, 100]` and `Int[0, 50]` add to the precise `Int[0, 150]`, never a widened
+// over-approximation.
+implement[L1: BigInteger, H1: BigInteger, L2: BigInteger, H2: BigInteger] Arithmetic[Int[L1, H1], Int[L2, H2]] {
+   type AddResult = Int[add(L1, L2), add(H1, H2)]
+   type SubResult = Int[subtract(L1, H2), subtract(H1, L2)]
+   type MulResult = Int[multiplyMin(L1, H1, L2, H2), multiplyMax(L1, H1, L2, H2)]
+
+   def add(a: Int[L1, H1], b: Int[L2, H2]): Int = intAdd(a, b)
+   def subtract(a: Int[L1, H1], b: Int[L2, H2]): Int = intSubtract(a, b)
+   def multiply(a: Int[L1, H1], b: Int[L2, H2]): Int = intMultiply(a, b)
+}
 
 /**
  * Reinterpret an integer at a different declared range, keeping the same logical value.

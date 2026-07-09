@@ -1,6 +1,5 @@
 import eliot.compiler.Combine
 import eliot.lang.Compare
-import eliot.lang.Arithmetic
 
 /**
  * The type of all integers, carrying its inclusive value bounds `[MIN, MAX]`.
@@ -27,30 +26,6 @@ type Long            = Int[longMin, longMax]
 type UnsignedLong    = Int[0, 18446744073709551615]
 
 /**
- * Integer addition. The result range is the sum of the operand ranges:
- * `Int[LMin, LMax] + Int[RMin, RMax]` has type `Int[add(LMin, RMin), add(LMax, RMax)]`.
- *
- * The bounds are tracked in the type, so a sum cannot silently overflow its declared range — the result type
- * simply grows to fit.
- */
-infix left
-def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
-
-/**
- * Integer subtraction. The result range is `Int[subtract(LMin, RMax), subtract(LMax, RMin)]`: the smallest
- * difference subtracts the largest right bound from the smallest left bound, and the largest does the opposite.
- */
-infix left at +
-def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]
-
-/**
- * Integer multiplication. The result range spans the minimum and maximum of the four corner products of the
- * operand ranges, so it stays correct even when a range straddles zero.
- */
-infix left above +
-def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
-
-/**
  * Render an integer as its decimal `String`. The bounds do not affect the output.
  */
 def intToString[Min: BigInteger, Max: BigInteger](value: Int[Min, Max]): String
@@ -67,25 +42,3 @@ def intToString[Min: BigInteger, Max: BigInteger](value: Int[Min, Max]): String
  * instance.
  */
 implement[Amin: BigInteger, Amax: BigInteger, Bmin: BigInteger, Bmax: BigInteger] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }
-
-/**
- * `Int` implements `Arithmetic` for every pair of operand ranges. Each operation's result range is exactly that of the
- * corresponding `+`/`-`/`*` operator — the sum/difference/corner-product of the operand bounds — so the methods simply
- * delegate to the operators and reuse the platform layer's representation dispatch unchanged. Because the two operand
- * ranges (`Int[L1,H1]` and `Int[L2,H2]`) are independent type parameters, adding an `Int[0,100]` and an `Int[0,50]`
- * yields the precise `Int[0,150]`, never a widened over-approximation.
- *
- * The `Add`/`Sub`/`Mul` result aliases carry the same formulas the method signatures spell out; the ability's use sites
- * resolve their result type through these aliases. (The signatures repeat the formulas rather than reusing the alias
- * names because a parameterised associated type referenced by bare name inside its own implementation is the unapplied
- * bound function, not the applied type.)
- */
-implement[L1: BigInteger, H1: BigInteger, L2: BigInteger, H2: BigInteger] Arithmetic[Int[L1, H1], Int[L2, H2]] {
-   type AddResult = Int[add(L1, L2), add(H1, H2)]
-   type SubResult = Int[subtract(L1, H2), subtract(H1, L2)]
-   type MulResult = Int[multiplyMin(L1, H1, L2, H2), multiplyMax(L1, H1, L2, H2)]
-
-   def add(a: Int[L1, H1], b: Int[L2, H2]): Int = a + b
-   def subtract(a: Int[L1, H1], b: Int[L2, H2]): Int = a - b
-   def multiply(a: Int[L1, H1], b: Int[L2, H2]): Int = a * b
-}

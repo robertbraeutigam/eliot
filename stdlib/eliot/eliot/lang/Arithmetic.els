@@ -18,3 +18,27 @@ ability Arithmetic[A, B] {
    def multiply(a: A, b: B): MulResult
 }
 
+/**
+ * Infix `+` — addition over any two types with an `Arithmetic[X, Y]` implementation. It simply delegates to `add`, so
+ * its result is that instance's `AddResult`: for `Int` the dependent sum range (`Int[0, 100] + Int[0, 50] : Int[0, 150]`),
+ * for `BigInteger` again a `BigInteger`. This is the one type-generic operator every numeric type shares — a type gains
+ * `+` purely by implementing `Arithmetic`, with no operator of its own.
+ */
+infix left
+def +[X, Y ~ Arithmetic[X, Y]](left: X, right: Y): AddResult = add(left, right)
+
+/**
+ * Infix `-` — subtraction over any `Arithmetic[X, Y]`, delegating to `subtract`; the result is the instance's `SubResult`
+ * (for `Int`, `Int[0, 100] - Int[0, 50] : Int[-50, 100]`).
+ */
+infix left at +
+def -[X, Y ~ Arithmetic[X, Y]](left: X, right: Y): SubResult = subtract(left, right)
+
+/**
+ * Infix `*` — multiplication over any `Arithmetic[X, Y]`, delegating to `multiply`; the result is the instance's
+ * `MulResult` (for `Int`, the corner-product range that stays correct even when an operand range straddles zero). Binds
+ * tighter than `+`/`-`.
+ */
+infix left above +
+def *[X, Y ~ Arithmetic[X, Y]](left: X, right: Y): MulResult = multiply(left, right)
+

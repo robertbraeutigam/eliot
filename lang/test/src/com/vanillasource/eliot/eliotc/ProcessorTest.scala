@@ -179,9 +179,10 @@ object ProcessorTest {
     * primitives (their `BigInteger` reductions are supplied by `StdlibNativesProcessor` under the ability-method FQNs),
     * and `BigInteger` implements them body-less (the natives attach to the implementation). `Arithmetic` is heterogeneous
     * — two operand types `A`/`B` with a per-operation result type — so each `BigInteger` result is the associated type
-    * `AddResult`/`SubResult`/`MulResult` = `BigInteger`. `Int`'s `+`/`-` operators resolve `add`/`subtract` through this
-    * ability. (`multiplyMin`/`multiplyMax`, the `*` corner-product bounds, stay plain `BigInteger` defs — see the
-    * `intImports` `BigInteger` stub.)
+    * `AddResult`/`SubResult`/`MulResult` = `BigInteger`. The generic `+`/`-`/`*` operators are defined *on top of* this
+    * ability (`def +[X, Y ~ Arithmetic[X, Y]](...): AddResult = add(...)` in the real `Arithmetic` module) rather than
+    * per type — this minimal stub omits them, and tests needing the operators declare their own. (`multiplyMin`/
+    * `multiplyMax`, the `*` corner-product bounds, stay plain `BigInteger` defs — see the `intImports` `BigInteger` stub.)
     */
   val arithmeticStubContent: String =
     "ability Arithmetic[A, B] { type AddResult\n type SubResult\n type MulResult\n def add(a: A, b: B): AddResult\n def subtract(a: A, b: B): SubResult\n def multiply(a: A, b: B): MulResult }\n" +

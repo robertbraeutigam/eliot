@@ -276,7 +276,10 @@ patterns.** Exhaustiveness is checked. Pitfall: a lowercase name is a *binder*, 
   `Int[0, 255]` ≠ `Int[0, 1000]`. Aliases: `Byte`, `UnsignedByte`, `Short`, `UnsignedShort`,
   `Medium`, `UnsignedMedium`, `Long`, `UnsignedLong`.
 - Arithmetic carries bounds in the result type (`+` gives `Int[add(LMin,RMin), add(LMax,RMax)]`,
-  `*` binds tighter than `+`/`-`), so results grow instead of overflowing.
+  `*` binds tighter than `+`/`-`), so results grow instead of overflowing. The `+`/`-`/`*` operators are
+  **generic over the `Arithmetic[X, Y]` ability** (defined once in `eliot.lang.Arithmetic`, delegating to
+  `add`/`subtract`/`multiply`), so a file doing arithmetic must `import eliot.lang.Arithmetic` — they are
+  *not* ambient (unlike `Int` itself). A type gains `+`/`-`/`*` for free by implementing `Arithmetic`.
 - **Widening is automatic** via the `Coerce[From, To]` ability, inserted by the checker wherever the
   types don't already match: `def count: UnsignedByte = 7` just works. `Coerce`/`Combine`
   (`import eliot.compiler.Coerce` / `.Combine`) are open extension points — implement them for your
