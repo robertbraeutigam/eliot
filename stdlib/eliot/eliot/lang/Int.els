@@ -39,8 +39,8 @@ type UnsignedLong    = Int[0, 18446744073709551615]
  * result types at each use site.
  */
 implement[L1: BigInteger, H1: BigInteger, L2: BigInteger, H2: BigInteger] Arithmetic[Int[L1, H1], Int[L2, H2]] {
-   type AddResult = Int[add(L1, L2), add(H1, H2)]
-   type SubResult = Int[subtract(L1, H2), subtract(H1, L2)]
+   type AddResult = Int[L1 + L2, H1 + H2]
+   type SubResult = Int[L1 - H2, H1 - L2]
    type MulResult = Int[multiplyMin(L1, H1, L2, H2), multiplyMax(L1, H1, L2, H2)]
 
    def add(a: Int[L1, H1], b: Int[L2, H2]): AddResult
