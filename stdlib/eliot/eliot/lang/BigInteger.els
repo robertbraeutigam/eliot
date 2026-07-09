@@ -1,6 +1,6 @@
 import eliot.lang.Bool
 import eliot.lang.Compare
-import eliot.lang.Numeric
+import eliot.lang.Arithmetic
 
 type BigInteger
 

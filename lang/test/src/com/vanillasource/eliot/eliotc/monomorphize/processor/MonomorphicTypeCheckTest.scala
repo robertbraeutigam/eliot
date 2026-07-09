@@ -1049,16 +1049,16 @@ class MonomorphicTypeCheckTest
     */
   private val intImports: Seq[SystemImport] = ambientStubsWith(
     "BigInteger" ->
-      "import eliot.lang.Bool\nimport eliot.lang.Compare\nimport eliot.lang.Numeric\ntype BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger = min(min(multiply(a, c), multiply(a, d)), min(multiply(b, c), multiply(b, d)))\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger = max(max(multiply(a, c), multiply(a, d)), max(multiply(b, c), multiply(b, d)))",
+      "import eliot.lang.Bool\nimport eliot.lang.Compare\nimport eliot.lang.Arithmetic\ntype BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger = min(min(multiply(a, c), multiply(a, d)), min(multiply(b, c), multiply(b, d)))\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger = max(max(multiply(a, c), multiply(a, d)), max(multiply(b, c), multiply(b, d)))",
     "Compare"    -> ProcessorTest.compareStubContent,
-    "Numeric"    -> ProcessorTest.numericStubContent,
+    "Arithmetic"    -> ProcessorTest.arithmeticStubContent,
     "Bool"       ->
       "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A",
     "Option"     -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
     "Int"        ->
       """import eliot.lang.Bool
         |import eliot.lang.Compare
-        |import eliot.lang.Numeric
+        |import eliot.lang.Arithmetic
         |import eliot.compiler.Coerce
         |import eliot.compiler.Combine
         |import eliot.lang.Option

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -481,7 +481,20 @@ class Checker(
                       // solves from this call's arguments. Signatures reference only their own parameters or top-level
                       // values, so they evaluate under an empty env — outer-session bindings are not in scope.
                       for {
+                        // For an ability-method reference, freshen this ability's abstract associated types *per
+                        // reference*: evict them from the binding cache so the signature evaluation below re-creates
+                        // them as metas unique to this call, and snapshot the pre-existing abstract-assoc metas so the
+                        // ones this evaluation adds can be attributed to this reference (recordRefAssocMetas). Without
+                        // this, the cache hands every `add` call one shared `AddResult` meta and nested calls collide.
+                        isAbilityMethod  <- pure(vfqn.value.name.qualifier.isInstanceOf[Qualifier.Ability])
+                        _                <- if (isAbilityMethod) modify(_.evictAbilityAssocs(vfqn.value)) else pure(())
+                        assocBefore      <- if (isAbilityMethod) inspect(_.unifier.abstractAssocMetaIds)
+                                            else pure(Set.empty[Int])
                         sig              <- evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty))
+                        _                <- if (isAbilityMethod)
+                                              inspect(_.unifier.abstractAssocMetaIds)
+                                                .flatMap(after => modify(_.recordRefAssocMetas(vfqn, after -- assocBefore)))
+                                            else pure(())
                         explicitTypeArgs <- typeArgs.traverse(ta => evalExpr(ta.value))
                         appliedSig        = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
                         // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no

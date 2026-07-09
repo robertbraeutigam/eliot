@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, Val
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -133,7 +133,13 @@ class AbilityResolver(
                                             case Some(impl) =>
                                               for {
                                                 _ <- modify(_.recordAbilityResolution(abilityVfqn, impl))
-                                                _ <- injectForImpl(abilityName, impl._1, abilityVfqn)
+                                                _ <- injectForImpl(
+                                                       abilityName,
+                                                       impl._1,
+                                                       impl._2,
+                                                       state.refAssocMetas.get(abilityVfqn),
+                                                       abilityVfqn
+                                                     )
                                               } yield true
                                             case None       => reportFailedDemand(abilityVfqn, abilityName, groundArgs)
                                           }
@@ -201,16 +207,32 @@ class AbilityResolver(
   /** For every abstract associated type of the given ability, unify its standing meta against the concrete impl's
     * corresponding associated-type value (looked up via [[fetchBinding]]). Missing impl bindings are silently skipped —
     * they were never in use, so no constraint is needed.
+    *
+    * A parameterised implementation's associated type is a *function of the impl's leading generic parameters* — e.g.
+    * `implement[L1,H1,L2,H2] Arithmetic[Int[L1,H1], Int[L2,H2]] { type AddResult = Int[add(L1,L2), add(H1,H2)] }`
+    * desugars its `AddResult` to `AddResult[L1,H1,L2,H2] = Int[add(L1,L2), add(H1,H2)]`. It must therefore be **applied**
+    * to the impl's matched ground arguments (`implTypeArgs`, one per impl generic, in declaration order) before it can
+    * solve the standing 0-arity abstract-assoc meta; otherwise those generics leak into the quoted type (`Int(0,150, +4
+    * stray metas)`). A non-parameterised impl (`implement AssociatedType[Name] { type MagicType = String }`) has no
+    * ground args, so the fold is a no-op and the binding is unified as-is.
     */
   private def injectForImpl(
       abilityName: String,
       implFqn: ValueFQN,
+      implTypeArgs: Seq[GroundValue],
+      refAssocMetas: Option[Set[Int]],
       source: Sourced[?]
   ): CheckIO[Unit] =
     for {
       state  <- get
+      // Solve only the abstract-assoc metas belonging to *this* reference (`refAssocMetas`, captured per reference in
+      // `Checker.infer`), so nested calls to the same ability method resolve independently. A reference without a
+      // recorded set (`None`) falls back to every abstract-assoc meta of the ability — the pre-per-reference behaviour,
+      // correct whenever the associated type is instance-constant (e.g. a non-parameterised `type MagicType = String`).
       targets = state.unifier.metaRoles.toSeq.collect {
-                  case (rawId, MetaRole.AbstractAssoc(absFqn)) if absFqn.name.qualifier == Qualifier.Ability(abilityName) =>
+                  case (rawId, MetaRole.AbstractAssoc(absFqn))
+                      if absFqn.name.qualifier == Qualifier.Ability(abilityName) &&
+                        refAssocMetas.forall(_.contains(rawId)) =>
                     (absFqn, SemValue.MetaId(rawId))
                 }
       _      <- targets.traverse_ { case (absFqn, metaId) =>
@@ -218,16 +240,19 @@ class AbilityResolver(
                   liftF(fetchBinding(implAssocFqn)).flatMap {
                     case None      => pure(())
                     case Some(sem) =>
-                      modify(s =>
+                      modify { s =>
+                        val applied = implTypeArgs
+                          .map(Evaluator.groundToSem)
+                          .foldLeft(sem)(Evaluator.applyValue)
                         s.withUnifier(
                           s.unifier
                             .unify(
                               VMeta(metaId, Spine.SNil),
-                              sem,
+                              Evaluator.force(applied, s.unifier.metaStore),
                               source.as(s"Associated type '${absFqn.name.name}' mismatch.")
                             )
                         )
-                      )
+                      }
                   }
                 }
     } yield ()

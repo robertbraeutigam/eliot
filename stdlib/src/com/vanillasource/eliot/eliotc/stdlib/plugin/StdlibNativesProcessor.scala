@@ -13,11 +13,11 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** The `stdlib` native contributor: emits the total [[ContributedBinding]] under [[StdlibNativesProcessor.stdlibLabel]]
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
-  * reason about — the compile-time arithmetic behind `Int`'s dependent bounds ([[BigInteger]]'s `Numeric` ability
+  * reason about — the compile-time arithmetic behind `Int`'s dependent bounds ([[BigInteger]]'s `Arithmetic` ability
   * `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`), string equality (`stringEquals`,
   * backing `Eq[String]`), and the [[BigInteger]] ordering comparison behind `Compare[BigInteger]` — and `None` for every
   * other name. (The `*` corner-product bounds `multiplyMin`/`multiplyMax` are ordinary Eliot bodies over
-  * `Numeric.multiply` + `Compare.min`/`max`, not natives — they reduce through these leaves.)
+  * `Arithmetic.multiply` + `Compare.min`/`max`, not natives — they reduce through these leaves.)
   *
   * These are ordinary library functions; the compiler only seeds the NbE evaluator with a native reduction rule so that,
   * e.g., `add(2, 3)` reduces to `5` during type checking. Each native reduces only when its arguments are concrete,
@@ -27,11 +27,12 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * [[BindingMergerProcessor]] reads this native for checking and that body for codegen, with no conflict (native
   * precedence).
   *
-  * '''`Compare` and `Numeric` — abilities reduced two ways.''' `BigInteger`'s comparison (`lessThanOrEqual`, the
-  * `Compare` ability's method) and its arithmetic (`add`/`subtract`/`multiply`, the `Numeric` ability's methods) are all
-  * implemented with *body-less* methods (`implement Compare[BigInteger]` / `implement Numeric[BigInteger]`), so each is a
-  * compiler leaf. Every such native is registered under two FQNs: (1) the *ability-method* FQN (`Compare.lessThanOrEqual`,
-  * `Numeric.add`, …) — the load-bearing binding, because `Int`'s bound calculus reaches these during type-level reduction
+  * '''`Compare` and `Arithmetic` — abilities reduced two ways.''' `BigInteger`'s comparison (`lessThanOrEqual`, the
+  * `Compare` ability's method) and its arithmetic (`add`/`subtract`/`multiply`, the `Arithmetic` ability's methods) are all
+  * implemented with *body-less* methods (`implement Compare[BigInteger]` / `implement Arithmetic[BigInteger, BigInteger]`),
+  * so each is a compiler leaf. Every such native is registered under two FQNs: (1) the *ability-method* FQN
+  * (`Compare.lessThanOrEqual`, `Arithmetic.add`, …) — the load-bearing binding, because `Int`'s bound calculus reaches
+  * these during type-level reduction
   * (`add`/`subtract` directly in the `+`/`-` result types; `lessThanOrEqual` transitively through `fitsIn`/`min`/`max`),
   * where ability *dispatch* never fires, so on the compiler track the ability method itself must reduce (a compiler
   * intrinsic, like `Bool.fold`); and (2) the *implementation-method* FQN via [[abilityImplNativeFor]] — the "native
@@ -54,17 +55,17 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private val boolModule: ModuleName       = ModuleName(ModuleName.defaultSystemPackage, "Bool")
   private val eqModule: ModuleName         = ModuleName(ModuleName.defaultSystemPackage, "Eq")
   private val compareModule: ModuleName    = ModuleName(ModuleName.defaultSystemPackage, "Compare")
-  private val numericModule: ModuleName    = ModuleName(ModuleName.defaultSystemPackage, "Numeric")
+  private val arithmeticModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Arithmetic")
 
   private val compareLessThanOrEqualFQN: ValueFQN =
     ValueFQN(compareModule, QualifiedName("lessThanOrEqual", Qualifier.Ability("Compare")))
 
-  private def numericFn(name: String): ValueFQN =
-    ValueFQN(numericModule, QualifiedName(name, Qualifier.Ability("Numeric")))
+  private def arithmeticFn(name: String): ValueFQN =
+    ValueFQN(arithmeticModule, QualifiedName(name, Qualifier.Ability("Arithmetic")))
 
-  private val numericAddFQN: ValueFQN      = numericFn("add")
-  private val numericSubtractFQN: ValueFQN = numericFn("subtract")
-  private val numericMultiplyFQN: ValueFQN = numericFn("multiply")
+  private val arithmeticAddFQN: ValueFQN      = arithmeticFn("add")
+  private val arithmeticSubtractFQN: ValueFQN = arithmeticFn("subtract")
+  private val arithmeticMultiplyFQN: ValueFQN = arithmeticFn("multiply")
 
   private def bigIntegerFn(name: String): ValueFQN = ValueFQN(bigIntegerModule, QualifiedName(name, Qualifier.Default))
 
@@ -80,9 +81,9 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   private val bindings: Map[ValueFQN, SemValue] = Map(
     incFQN                    -> incNative,
-    numericAddFQN             -> addNative,
-    numericSubtractFQN        -> subtractNative,
-    numericMultiplyFQN        -> multiplyNative,
+    arithmeticAddFQN          -> addNative,
+    arithmeticSubtractFQN     -> subtractNative,
+    arithmeticMultiplyFQN     -> multiplyNative,
     boolAndFQN                -> andNative,
     boolOrFQN                 -> orNative,
     boolNotFQN                -> notNative,
@@ -90,13 +91,13 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     compareLessThanOrEqualFQN -> lessThanOrEqualNative
   )
 
-  /** `BigInteger`'s `Numeric` arithmetic, each reducing to a concrete `BigInteger` when both operands are concrete
+  /** `BigInteger`'s `Arithmetic` operations, each reducing to a concrete `BigInteger` when both operands are concrete
     * (otherwise stuck on the still-abstract `Int` bounds). Shared by the load-bearing ability-method [[bindings]] and the
     * value-level [[abilityImplNatives]] wiring.
     */
-  private def addNative: SemValue      = bigIntBinaryNative(numericAddFQN)((a, b) => a + b)
-  private def subtractNative: SemValue = bigIntBinaryNative(numericSubtractFQN)((a, b) => a - b)
-  private def multiplyNative: SemValue = bigIntBinaryNative(numericMultiplyFQN)((a, b) => a * b)
+  private def addNative: SemValue      = bigIntBinaryNative(arithmeticAddFQN)((a, b) => a + b)
+  private def subtractNative: SemValue = bigIntBinaryNative(arithmeticSubtractFQN)((a, b) => a - b)
+  private def multiplyNative: SemValue = bigIntBinaryNative(arithmeticMultiplyFQN)((a, b) => a * b)
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= StdlibNativesProcessor.stdlibLabel) abort
@@ -111,8 +112,8 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     * An impl method's FQN carries a per-module `index` assigned during resolution, so it cannot be keyed statically in
     * [[bindings]]; instead it is recognised by `(ability, method, dispatch type)` through the impl marker
     * ([[ImplementationMarkerUtils.isImplementationMethodFor]]), matched against [[abilityImplNatives]]: the
-    * `Compare[BigInteger].lessThanOrEqual` comparison and the `Numeric[BigInteger]` `add`/`subtract`/`multiply` arithmetic
-    * behind `Int`'s dependent ranges. Further ability-native leaves are added there.
+    * `Compare[BigInteger].lessThanOrEqual` comparison and the `Arithmetic[BigInteger, BigInteger]` `add`/`subtract`/`multiply`
+    * arithmetic behind `Int`'s dependent ranges. Further ability-native leaves are added there.
     */
   private def abilityImplNativeFor(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
     abilityImplNatives.toList
@@ -127,9 +128,9 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     */
   private def abilityImplNatives: Seq[(String, String, String, SemValue)] = Seq(
     ("Compare", "lessThanOrEqual", "BigInteger", lessThanOrEqualNative),
-    ("Numeric", "add", "BigInteger", addNative),
-    ("Numeric", "subtract", "BigInteger", subtractNative),
-    ("Numeric", "multiply", "BigInteger", multiplyNative)
+    ("Arithmetic", "add", "BigInteger", addNative),
+    ("Arithmetic", "subtract", "BigInteger", subtractNative),
+    ("Arithmetic", "multiply", "BigInteger", multiplyNative)
   )
 
   /** The canonical stuck form of a native: a [[SemValue.VStuckNative]] carrying the native's own FQN and the

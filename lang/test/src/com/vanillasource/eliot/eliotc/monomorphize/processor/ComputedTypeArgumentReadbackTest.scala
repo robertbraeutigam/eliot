@@ -46,7 +46,7 @@ class ComputedTypeArgumentReadbackTest
   // reduced index `2`, with no "Cannot resolve type." error.
   "a computed type argument through a reified value" should "normalise before read-back" in {
     runReadback(
-      "import eliot.lang.Numeric\ndef bigOf[V: BigInteger]: BigInteger = V\ndef h[N: BigInteger]: BigInteger = bigOf[N]\ndef g[N: BigInteger]: BigInteger = h[subtract(N, bigOf[1])]\ndef main: BigInteger = g[3]"
+      "import eliot.lang.Arithmetic\ndef bigOf[V: BigInteger]: BigInteger = V\ndef h[N: BigInteger]: BigInteger = bigOf[N]\ndef g[N: BigInteger]: BigInteger = h[subtract(N, bigOf[1])]\ndef main: BigInteger = g[3]"
     ).asserting { case (errors, args) =>
       (errors, indicesOf(args, "h")) shouldBe (Seq.empty, Set(BigInt(2)))
     }
@@ -57,7 +57,7 @@ class ComputedTypeArgumentReadbackTest
   // termination M1 now rejects the value cycle outright.
   "a size-indexed recursion with a computed index" should "be rejected as recursion" in {
     runReadback(
-      "import eliot.lang.Bool\nimport eliot.lang.Compare\nimport eliot.lang.Numeric\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]"
+      "import eliot.lang.Bool\nimport eliot.lang.Compare\nimport eliot.lang.Arithmetic\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]"
     ).asserting { case (errors, _) =>
       errors.map(_.message) should contain("Value 'countdown' is defined recursively.")
     }
@@ -99,14 +99,14 @@ class ComputedTypeArgumentReadbackTest
       case Seq(GroundValue.Direct(v: BigInt, _), _*) => v
     }
 
-  /** Ambient stubs plus the `Numeric` arithmetic (`subtract`/`add`), `Compare`'s `lessThanOrEqual`, and the `Bool` `fold`
+  /** Ambient stubs plus the `Arithmetic` arithmetic (`subtract`/`add`), `Compare`'s `lessThanOrEqual`, and the `Bool` `fold`
     * the reified / size-indexed scenarios reference. `Int`/`Runtime`/`Console`/`Log`/`Dep` are in `defaultSystemModules`,
     * so their stubs must be present even though these tests compute on `BigInteger` directly.
     */
   private val readbackImports: Seq[SystemImport] = ambientStubsWith(
     "BigInteger" -> "type BigInteger",
     "Compare"    -> ProcessorTest.compareStubContent,
-    "Numeric"    -> ProcessorTest.numericStubContent,
+    "Arithmetic"    -> ProcessorTest.arithmeticStubContent,
     "Bool"       -> "type Bool\ndef true: Bool\ndef false: Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
   )
 }

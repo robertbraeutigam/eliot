@@ -175,15 +175,17 @@ object ProcessorTest {
       "def max[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)\n" +
       "implement Compare[BigInteger] { def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool }"
 
-  /** The `Numeric` ability stub, mirroring the real `eliot.lang.Numeric`: `add`/`subtract`/`multiply` are the primitives
-    * (their `BigInteger` reductions are supplied by `StdlibNativesProcessor` under the ability-method FQNs), and
-    * `BigInteger` implements them body-less (the natives attach to the implementation). `Int`'s `+`/`-` operators resolve
-    * `add`/`subtract` through this ability. (`multiplyMin`/`multiplyMax`, the `*` corner-product bounds, stay plain
-    * `BigInteger` defs — see the `intImports` `BigInteger` stub.)
+  /** The `Arithmetic` ability stub, mirroring the real `eliot.lang.Arithmetic`: `add`/`subtract`/`multiply` are the
+    * primitives (their `BigInteger` reductions are supplied by `StdlibNativesProcessor` under the ability-method FQNs),
+    * and `BigInteger` implements them body-less (the natives attach to the implementation). `Arithmetic` is heterogeneous
+    * — two operand types `A`/`B` with a per-operation result type — so each `BigInteger` result is the associated type
+    * `AddResult`/`SubResult`/`MulResult` = `BigInteger`. `Int`'s `+`/`-` operators resolve `add`/`subtract` through this
+    * ability. (`multiplyMin`/`multiplyMax`, the `*` corner-product bounds, stay plain `BigInteger` defs — see the
+    * `intImports` `BigInteger` stub.)
     */
-  val numericStubContent: String =
-    "ability Numeric[A] { def add(a: A, b: A): A\n def subtract(a: A, b: A): A\n def multiply(a: A, b: A): A }\n" +
-      "implement Numeric[BigInteger] { def add(a: BigInteger, b: BigInteger): BigInteger\n def subtract(a: BigInteger, b: BigInteger): BigInteger\n def multiply(a: BigInteger, b: BigInteger): BigInteger }"
+  val arithmeticStubContent: String =
+    "ability Arithmetic[A, B] { type AddResult\n type SubResult\n type MulResult\n def add(a: A, b: B): AddResult\n def subtract(a: A, b: B): SubResult\n def multiply(a: A, b: B): MulResult }\n" +
+      "implement Arithmetic[BigInteger, BigInteger] { type AddResult = BigInteger\n type SubResult = BigInteger\n type MulResult = BigInteger\n def add(a: BigInteger, b: BigInteger): AddResult\n def subtract(a: BigInteger, b: BigInteger): SubResult\n def multiply(a: BigInteger, b: BigInteger): MulResult }"
 
   /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal `n`
     * is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always

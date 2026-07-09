@@ -1,0 +1,9 @@
+import eliot.effect.Console
+import eliot.lang.Arithmetic
+
+def sum(x: Int[0, 100], y: Int[0, 50]): Int[0, 150] = add(x, y)
+def diff(x: Int[0, 100], y: Int[0, 50]): Int[-50, 100] = subtract(x, y)
+def prod(x: Int[0, 100], y: Int[0, 50]): Int[0, 5000] = multiply(x, y)
+
+// Nested calls to the same ability method — this is what collided before (shared AddResult meta).
+def main: IO[Unit] = printLine(intToString(add(sum(30, 20), add(diff(40, 10), prod(3, 4)))))
