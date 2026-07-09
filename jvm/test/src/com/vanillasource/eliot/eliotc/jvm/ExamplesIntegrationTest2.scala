@@ -9,7 +9,10 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
 
   // Coherence: two implementations of an ability for the same type overlap and are rejected (at most one instance per
   // type combination), via the ordinary ability overlap check.
-  "two same-type ability implementations" should "be rejected as overlapping" in {
+  "two overlapping ability implementations" should "be rejected as overlapping" in {
+    // A generic `Show[A]` and a specific `Show[Database]` are distinct implementations (different `(ability, pattern)`
+    // identities) whose patterns unify, so the definition-time overlap lint rejects the pair. (Two *identical*
+    // `Show[Database]` would instead be the same identity and collide as a duplicate name.)
     compileForErrors(
       """import eliot.effect.Console
         |
@@ -19,7 +22,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |
         |data Database(url: String)
         |
-        |implement Show[Database] { def show(d: Database): String = "one" }
+        |implement[A] Show[A] { def show(a: A): String = "one" }
         |implement Show[Database] { def show(d: Database): String = "two" }
         |
         |def useDb: String = show(Database("x"))

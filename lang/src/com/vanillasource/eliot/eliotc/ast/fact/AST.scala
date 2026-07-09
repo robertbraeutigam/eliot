@@ -49,29 +49,10 @@ object AST {
         val abilitiesImpl        =
           items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption)
         val abilityImplErrors    = abilitiesImpl.flatMap(_._1)
-        // Assign a deterministic per-ability index to each implement block, in source order.
-        // All functions emitted from the same block share the same index (they were parsed
-        // together as one Seq[FunctionDefinition]). The index disambiguates between multiple
-        // implementations of the same ability within this module.
-        val counters             = scala.collection.mutable.Map.empty[String, Int].withDefaultValue(0)
-        val abilityImplFunctions = abilitiesImpl.flatMap { case (_, blockFunctions) =>
-          blockFunctions.headOption.flatMap(_.name.value.qualifier match {
-            case Qualifier.AbilityImplementation(abilityName, _) => Some(abilityName)
-            case _                                               => None
-          }) match {
-            case Some(abilityName) =>
-              val idx = counters(abilityName.value)
-              counters.update(abilityName.value, idx + 1)
-              blockFunctions.map { f =>
-                val newQualifier = f.name.value.qualifier match {
-                  case Qualifier.AbilityImplementation(n, _) => Qualifier.AbilityImplementation(n, idx)
-                  case other                                 => other
-                }
-                f.copy(name = f.name.map(qn => QualifiedName(qn.name, newQualifier)))
-              }
-            case None              => blockFunctions
-          }
-        }
+        // Each implement block already carries its identity in the `AbilityImplementation` qualifier — a canonical
+        // `(pattern + guard)` key assigned by `ImplementBlock` — so no source-order numbering is needed here; the
+        // block's functions pass through unchanged.
+        val abilityImplFunctions = abilitiesImpl.flatMap(_._2)
         (
           errors ++ abilityErrors ++ abilityImplErrors,
           AST(

@@ -123,7 +123,7 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
   it should "reconstruct an implementation from its marker" in {
     SignatureRenderer.implementation(
       "Show",
-      fn("Show", Qualifier.AbilityImplementation(s("Show"), -1), args = Seq(arg("arg0", ty("Hello"))))
+      fn("Show", Qualifier.AbilityImplementation("Show", "Hello"), args = Seq(arg("arg0", ty("Hello"))))
     ) shouldBe "implement Show[Hello]"
   }
 }

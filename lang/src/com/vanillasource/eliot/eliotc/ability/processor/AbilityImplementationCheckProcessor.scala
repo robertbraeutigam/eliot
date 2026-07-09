@@ -104,8 +104,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       .traverse_ { m =>
         implMethods.headOption match {
           case Some(implHead) =>
-            val implSource = implHead.vfqn.name.qualifier.asInstanceOf[Qualifier.AbilityImplementation].name
-            compilerError(implSource.as(s"Ability implementation is missing method '${m.vfqn.name.name}'."))
+            compilerError(implHead.name.as(s"Ability implementation is missing method '${m.vfqn.name.name}'."))
           case None           =>
             compilerError(m.name.map(qn => s"Ability implementation is missing method '${qn.name}'."))
         }

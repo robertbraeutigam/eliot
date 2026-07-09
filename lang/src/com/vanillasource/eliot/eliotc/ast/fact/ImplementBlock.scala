@@ -37,6 +37,15 @@ object ImplementBlock {
               .between(symbol("{"), symbol("}"))
               .optional()
               .map(_.getOrElse(Seq.empty, Seq.empty))
+          // The implementation's identity: a canonical, position-independent string of *what* it implements — the
+          // surface form of its type-argument pattern plus its `where` guard. Two `implement` blocks are the same
+          // instance iff this key matches (independent of file/position/order), which is what lets an instance be split
+          // across layers and merged, while keeping distinct patterns (`Eq[Type]` vs `Eq[String]`) and guard-disjoint
+          // siblings (the `IntArith` width family, same pattern + different guard) apart. `Show[Expression]` drops
+          // source positions, so the key is stable across layers that spell the pattern identically (the same
+          // character-exact discipline the layer merge already requires).
+          patternKey           = pattern.map(_.value.show).mkString(", ") +
+            guard.map(g => s" where ${g.value.show}").getOrElse("")
         } yield (
           errors,
           functions.map(f =>
@@ -45,7 +54,7 @@ object ImplementBlock {
             // Note: the implement qualifier has to include the instantiation type parameters
             // Visibility is always public for implementation functions.
             FunctionDefinition(
-              f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), -1))),
+              f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey))),
               genericParameters ++ f.genericParameters,
               f.args,
               f.typeDefinition,
@@ -65,7 +74,7 @@ object ImplementBlock {
             // uniformly so it never fights the guard at concrete discharge (ability-guards §2.3).
             FunctionDefinition(
               name.as(
-                QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.map(_.content), -1))
+                QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.value.content, patternKey))
               ),
               genericParameters,
               pattern.zipWithIndex.map { case (p, i) => ArgumentDefinition(name.as(s"arg$i"), p) },

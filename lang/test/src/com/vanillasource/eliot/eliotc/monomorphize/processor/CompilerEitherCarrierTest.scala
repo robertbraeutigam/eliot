@@ -69,7 +69,7 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
 
   // The ability names of every ability-implementation member declared in the module.
   private def implementedAbilities(names: Set[QualifiedName]): Set[String] =
-    names.collect { case QualifiedName(_, Qualifier.AbilityImplementation(name, _)) => name.value }
+    names.collect { case QualifiedName(_, Qualifier.AbilityImplementation(name, _)) => name }
 
   "the compiler-platform Either carrier" should "extract the concrete data names under the compiler marker" in {
     compilerNames.asserting(

@@ -91,10 +91,11 @@ class AbilityImplementationCheckProcessorTest
   }
 
   it should "report overlap at definition time when two impls of the same ability have unifiable patterns" in {
-    // Two impls of Show both for Int → their marker signatures unify → overlap.
-    // The error fires at the impls, not at the call site.
+    // A generic `Show[A]` and a specific `Show[Int]` → distinct `(ability, pattern)` identities that coexist, yet their
+    // marker signatures unify → overlap. The error fires at the impls, not at the call site. (Two *identical* `Show[Int]`
+    // would be the same identity and collide as a duplicate name instead — the lint is about distinct unifiable patterns.)
     runEngineForErrors(
-      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
+      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement[A] Show[A] { def show(x: A): A = x }\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
     ).asserting(errors => errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 2)
   }
 

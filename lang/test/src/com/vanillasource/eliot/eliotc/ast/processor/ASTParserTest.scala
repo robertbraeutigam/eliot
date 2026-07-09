@@ -405,10 +405,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       _.head shouldBe
         (
           "show",
-          Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            0
-          )
+          Qualifier.AbilityImplementation("Show", "A")
         )
     )
   }
@@ -418,17 +415,11 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       _.take(2) shouldBe Seq(
         (
           "show",
-          Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            0
-          )
+          Qualifier.AbilityImplementation("Show", "A")
         ),
         (
           "display",
-          Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            0
-          )
+          Qualifier.AbilityImplementation("Show", "A")
         )
       )
     )
@@ -446,10 +437,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
         ("f", Qualifier.Default),
         (
           "show",
-          Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(2, 11), Position(2, 15)), "Show"),
-            0
-          )
+          Qualifier.AbilityImplementation("Show", "A")
         )
       )
     )
@@ -512,23 +500,20 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       _.head shouldBe
         (
           "Element",
-          Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            0
-          )
+          Qualifier.AbilityImplementation("Show", "A")
         )
     )
   }
 
-  it should "assign increasing indices to successive impl blocks of the same ability" in {
+  it should "identify successive impl blocks of the same ability by their distinct type patterns" in {
     runEngineForFunctions("implement Show[A] { def show: String = a }\nimplement Show[B] { def show: String = b }")
       .asserting(
         _.take(4).map { case (name, q) =>
           name -> (q match {
-            case Qualifier.AbilityImplementation(_, idx) => idx
-            case _                                       => -1
+            case Qualifier.AbilityImplementation(_, pattern) => pattern
+            case _                                           => ""
           })
-        } shouldBe Seq(("show", 0), ("Show", 0), ("show", 1), ("Show", 1))
+        } shouldBe Seq(("show", "A"), ("Show", "A"), ("show", "B"), ("Show", "B"))
       )
   }
 

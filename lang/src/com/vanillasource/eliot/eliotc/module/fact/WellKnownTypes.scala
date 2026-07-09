@@ -166,7 +166,7 @@ object WellKnownTypes {
   /** The ability name an implementation method belongs to, if its qualifier is an ability implementation. */
   private def abilityImplementationName(vfqn: ValueFQN): Option[String] =
     vfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(name, _) => Some(name.value)
+      case Qualifier.AbilityImplementation(name, _) => Some(name)
       case _                                        => None
     }
 

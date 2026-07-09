@@ -23,7 +23,7 @@ class CompletionIndexTest extends AnyFlatSpec with Matchers {
     qn("Counter", Qualifier.Type)                                            -> fqn("Counter"),
     qn("Counter", Qualifier.Default)                                         -> fqn("Counter"),
     qn("combine", Qualifier.Ability("Combine"))                              -> fqn("combine"),
-    qn("Combine", Qualifier.AbilityImplementation(Sourced(uri, range, "Combine"), 0)) -> fqn("Combine"),
+    qn("Combine", Qualifier.AbilityImplementation("Combine", "Int")) -> fqn("Combine"),
     qn("ambientOnly", Qualifier.Default)                                     -> fqn("ambientOnly")
   )
   private val index      = CompletionIndex.build(Seq(moduleValue(dictionary)), Seq(resolved("printLine", "String")))

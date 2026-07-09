@@ -30,24 +30,11 @@ class CoreProcessor
       sourceAst: SourceAST
   ): CompilerIO[CoreAST] = {
     val sourceAstData = sourceAst.ast.value
-    // Track per-ability implementation-index counters. User-written impls have already been
-    // assigned indices at AST assembly time; we continue numbering from the max used per ability
-    // so synthetic PatternMatch/TypeMatch impls don't collide with any user-defined ones.
-    val counters      = scala.collection.mutable.Map.empty[String, Int]
-    sourceAstData.functionDefinitions.foreach { f =>
-      f.name.value.qualifier match {
-        case Qualifier.AbilityImplementation(name, idx) =>
-          counters.update(name.value, math.max(counters.getOrElse(name.value, -1), idx) + 1)
-        case _                                          => ()
-      }
-    }
-    val desugaredFromData: Seq[(FunctionDefinition, RoleHint)] = sourceAstData.typeDefinitions.flatMap { definition =>
-      val pmIdx = counters.getOrElse("PatternMatch", 0)
-      counters.update("PatternMatch", pmIdx + 1)
-      val tmIdx = counters.getOrElse("TypeMatch", 0)
-      counters.update("TypeMatch", tmIdx + 1)
-      DataDefinitionDesugarer.desugar(definition, pmIdx, tmIdx)
-    }
+    // Each data definition's synthetic PatternMatch/TypeMatch implementations are keyed by the data type's name (a
+    // stable per-module identity), so no cross-cutting index bookkeeping is needed — they cannot collide with each
+    // other or with user implementations (which are keyed by their own `(ability, pattern)`).
+    val desugaredFromData: Seq[(FunctionDefinition, RoleHint)] =
+      sourceAstData.typeDefinitions.flatMap(DataDefinitionDesugarer.desugar)
     val allFunctions  = sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++ desugaredFromData
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,

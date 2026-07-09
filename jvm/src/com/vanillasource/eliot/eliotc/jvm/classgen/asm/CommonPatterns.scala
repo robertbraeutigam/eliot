@@ -69,8 +69,12 @@ object CommonPatterns {
 
   private def implementationSuffix(qualifier: Qualifier): String =
     qualifier match {
-      case Qualifier.AbilityImplementation(abilityName, index) => "$" + abilityName.value + "$impl$" + index
-      case _                                                   => ""
+      // The implementation's identity is its `(ability, pattern)` key. The pattern string is not a legal JVM identifier
+      // (it holds `[`, `,`, spaces), so it is encoded as a stable hex hash; deterministic per pattern, and the
+      // monomorphized type-argument suffix appended by the caller further separates concrete instantiations.
+      case Qualifier.AbilityImplementation(abilityName, pattern) =>
+        "$" + abilityName + "$impl$" + Integer.toHexString(pattern.hashCode)
+      case _                                                     => ""
     }
 
   def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =

@@ -94,6 +94,20 @@ So a layer may **add a body but must not change the signature** — and the conc
 whole signature**, including fixity/precedence (`infix left …`), because the merge takes the entire
 `NamedValue`, not just the body.
 
+### An `implement` can be *split* across layers
+
+An ability implementation's identity is `(ability, type-args pattern + guard)` — not source order or position (see
+[[reference_ability_impl_identity]]). So the **same `implement X[T]` may be split across layers** and its members merge
+exactly like plain names: put the associated types + abstract method signatures in the base, the method *bodies* in a
+platform layer. Both `implement` blocks must spell the **same pattern with the same generic names** (character-exact, so
+their keys and signatures match — the usual merge discipline). Per member: `type Assoc = …` concrete in the base +
+`type Assoc` abstract in the platform → merges to the base's; `def m(…): Assoc` abstract in the base + `def m(…): Assoc =
+body` concrete in the platform → merges to the platform's. `Arithmetic[Int, Int]` is the worked example (base owns the
+result-bound formulas, jvm owns the width-dispatch bodies). A **bare** associated-type reference inside a method
+signature (`def add(…): AddResult`) auto-resolves to the concrete type (the resolver applies the impl generics) — you do
+*not* write `AddResult[L1,H1,L2,H2]`. Two *identical* patterns in one file are the **same** identity → a duplicate-name
+error, not two instances; distinct-but-unifiable patterns are what the overlap lint checks.
+
 ## Mechanical gotchas
 
 - **`signatureEquality` is core-structural** (`NamedValue.signatureEquality` → `Expression.structuralEquality`

@@ -27,16 +27,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 object DataDefinitionDesugarer {
 
   def desugar(
-      definition: DataDefinition,
-      patternMatchIndex: Int,
-      typeMatchIndex: Int
+      definition: DataDefinition
   ): Seq[(FunctionDefinition, RoleHint)] = {
+    // The synthetic `PatternMatch`/`TypeMatch` implementations are keyed by the data type's own name — there is exactly
+    // one of each per data type per module, so the name is a stable, position-independent identity (matching the
+    // `(ability, pattern)` scheme user implementations use, with the data type standing in for the pattern).
+    val implKey                                            = definition.name.value
     val mainFunctions: Seq[(FunctionDefinition, RoleHint)] =
       (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
         .map { case (fd, hint) => (fd.copy(visibility = definition.visibility), hint) }
     mainFunctions ++
-      createPatternMatchImpl(definition, patternMatchIndex).map(_ -> RoleHint.NoHint) ++
-      createTypeMatch(definition, typeMatchIndex).map(_ -> RoleHint.NoHint)
+      createPatternMatchImpl(definition, implKey).map(_ -> RoleHint.NoHint) ++
+      createTypeMatch(definition, implKey).map(_ -> RoleHint.NoHint)
   }
 
   private def createTypeFunction(definition: DataDefinition): Seq[(FunctionDefinition, RoleHint)] =
@@ -138,7 +140,7 @@ object DataDefinitionDesugarer {
     *   1. Implementation marker function (signals this type implements PatternMatch) 2. Cases[R] associated type alias
     *      (Church encoding wrapper type) 3. handleCases[R] method (abstract - JVM backend generates implementation)
     */
-  private def createPatternMatchImpl(definition: DataDefinition, index: Int): Seq[FunctionDefinition] =
+  private def createPatternMatchImpl(definition: DataDefinition, implKey: String): Seq[FunctionDefinition] =
     definition.constructors
       .filter(_.nonEmpty)
       .toSeq
@@ -174,7 +176,7 @@ object DataDefinitionDesugarer {
           s.as(
             QualifiedName(
               "PatternMatch",
-              Qualifier.AbilityImplementation(s.as("PatternMatch"), index)
+              Qualifier.AbilityImplementation("PatternMatch", implKey)
             )
           ),
           definition.genericParameters,
@@ -187,7 +189,7 @@ object DataDefinitionDesugarer {
           s.as(
             QualifiedName(
               "Cases",
-              Qualifier.AbilityImplementation(s.as("PatternMatch"), index)
+              Qualifier.AbilityImplementation("PatternMatch", implKey)
             )
           ),
           definition.genericParameters,
@@ -201,7 +203,7 @@ object DataDefinitionDesugarer {
           s.as(
             QualifiedName(
               "handleCases",
-              Qualifier.AbilityImplementation(s.as("PatternMatch"), index)
+              Qualifier.AbilityImplementation("PatternMatch", implKey)
             )
           ),
           definition.genericParameters :+ resultParam,
@@ -227,7 +229,7 @@ object DataDefinitionDesugarer {
     * \= Function[String, R] def typeMatch[R](obj: Type, matchCase: Function[String, R], elseCase: Function[Unit, R]): R
     * }
     */
-  private def createTypeMatch(definition: DataDefinition, index: Int): Seq[FunctionDefinition] = {
+  private def createTypeMatch(definition: DataDefinition, implKey: String): Seq[FunctionDefinition] = {
     val s               = definition.name
     val existingNames   = definition.genericParameters.map(_.name.value).toSet
     val resultParamName = freshName("R", existingNames)
@@ -241,7 +243,7 @@ object DataDefinitionDesugarer {
       definition.genericParameters.map(gp => typeExpr(gp.name))
     )
 
-    val abilityQualifier = Qualifier.AbilityImplementation(s.as("TypeMatch"), index)
+    val abilityQualifier = Qualifier.AbilityImplementation("TypeMatch", implKey)
 
     val matchCaseType = typeMatchHandlerType(definition, resultParamName)
     val elseCaseType  = typeExpr(

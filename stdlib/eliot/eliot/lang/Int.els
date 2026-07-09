@@ -27,37 +27,25 @@ type Long            = Int[longMin, longMax]
 type UnsignedLong    = Int[0, 18446744073709551615]
 
 /**
- * The bounds-typed integer arithmetic primitives. A sum has type `Int[add(LMin, RMin), add(LMax, RMax)]`, a difference
- * `Int[subtract(LMin, RMax), subtract(LMax, RMin)]`, a product the corner-product range — so a result range grows to fit
- * and can never silently overflow. These *result-bound* semantics are universal and fixed here; only the machine
- * representation and the actual computation are platform-specific, so the bodies are supplied by the platform layer
- * (body-less here, like `intToString`). The `Arithmetic[Int, Int]` instance below is built on them.
- */
-def intAdd[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
-def intSubtract[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]
-def intMultiply[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
-
-/**
- * `Int` implements `Arithmetic` for every pair of operand ranges. This is a platform-*independent* fact, so the instance
- * and its result-bound formulas (`AddResult`/`SubResult`/`MulResult`) live here in the base, not in any platform layer:
- * a platform supplies *how* integers are added, never *what type* an integer sum has. Because the two operand ranges are
- * independent parameters, `Int[0, 100]` and `Int[0, 50]` add to the precise `Int[0, 150]`, never a widened
- * over-approximation. The generic `+`/`-`/`*` operators (in `Arithmetic`) project these result types at each use site.
+ * `Int` implements `Arithmetic` for every pair of operand ranges. This instance is *split across layers*: the base owns
+ * *what* an integer sum's type is — the platform-independent result-bound formulas (`AddResult`/`SubResult`/`MulResult`,
+ * the sum/difference/corner-product of the operand bounds) plus the abstract method signatures — while a platform layer
+ * redefines the same instance to supply *how* the operation is computed (the method bodies). The two halves merge into
+ * one implementation because an `implement` block's identity is its `(ability, pattern)` — here
+ * `Arithmetic[Int[L1, H1], Int[L2, H2]]` — independent of which layer or file it appears in.
  *
- * Each method delegates to the bounds-typed primitive above with a calculated `Int` return. It deliberately does *not*
- * restate the result formula on its own signature: inside the impl a bare `add`/`subtract`/`multiply` in a method's
- * return type resolves to *this* instance rather than to `BigInteger`'s, so the formula is spelled only on the
- * `AddResult`/… aliases (which are not method names and resolve correctly) and the methods read their result through
- * the self-typed primitive.
+ * Because the two operand ranges are independent parameters, `Int[0, 100]` and `Int[0, 50]` add to the precise
+ * `Int[0, 150]`, never a widened over-approximation. The generic `+`/`-`/`*` operators (in `Arithmetic`) project these
+ * result types at each use site.
  */
 implement[L1: BigInteger, H1: BigInteger, L2: BigInteger, H2: BigInteger] Arithmetic[Int[L1, H1], Int[L2, H2]] {
    type AddResult = Int[add(L1, L2), add(H1, H2)]
    type SubResult = Int[subtract(L1, H2), subtract(H1, L2)]
    type MulResult = Int[multiplyMin(L1, H1, L2, H2), multiplyMax(L1, H1, L2, H2)]
 
-   def add(a: Int[L1, H1], b: Int[L2, H2]): Int = intAdd(a, b)
-   def subtract(a: Int[L1, H1], b: Int[L2, H2]): Int = intSubtract(a, b)
-   def multiply(a: Int[L1, H1], b: Int[L2, H2]): Int = intMultiply(a, b)
+   def add(a: Int[L1, H1], b: Int[L2, H2]): AddResult
+   def subtract(a: Int[L1, H1], b: Int[L2, H2]): SubResult
+   def multiply(a: Int[L1, H1], b: Int[L2, H2]): MulResult
 }
 
 /**

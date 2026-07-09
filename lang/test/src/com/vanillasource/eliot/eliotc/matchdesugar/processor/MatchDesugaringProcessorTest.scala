@@ -229,14 +229,14 @@ class MatchDesugaringProcessorTest
     vfqn.moduleName == testMN &&
       vfqn.name.name == "handleCases" &&
       (vfqn.name.qualifier match {
-        case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "PatternMatch"
+        case Qualifier.AbilityImplementation(abilityName, _) => abilityName == "PatternMatch"
         case _                                               => false
       })
 
   private def isTypeMatch(vfqn: ValueFQN): Boolean =
     vfqn.name.name == "typeMatch" &&
       (vfqn.name.qualifier match {
-        case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "TypeMatch"
+        case Qualifier.AbilityImplementation(abilityName, _) => abilityName == "TypeMatch"
         case _                                               => false
       })
 

@@ -60,9 +60,12 @@ class AbilityGuardOverlapLintTest extends ProcessorTest(LangProcessors(systemMod
 
   private val moduleName = ModuleName(Seq("test"), "M")
 
-  /** Two `implement Show[Widget]` instances in one module, each carrying `guard1`/`guard2` (a `where <expr>` clause or
-    * the empty string for an unguarded instance). Both impls target the *same* type, so their marker patterns always
-    * structurally overlap — the only variable is whether the overlap lint fires, which the guards decide.
+  /** A generic `implement[A] Show[A]` and a specific `implement Show[Widget]` in one module, each carrying
+    * `guard1`/`guard2` (a `where <expr>` clause or the empty string for an unguarded instance). Their marker patterns
+    * structurally overlap (the generic `A` unifies with `Widget`) yet are *distinct* implementations — different
+    * `(ability, pattern)` identities that coexist — so the overlap lint has two markers to compare; whether it fires is
+    * decided purely by the guards. (Two *identical* `Show[Widget]` patterns would instead be the same identity and
+    * collide as a duplicate name, a different diagnostic; the lint is about distinct-but-unifiable patterns.)
     */
   private def moduleContent(guard1: String, guard2: String): String =
     s"""import eliot.lang.Function
@@ -72,8 +75,8 @@ class AbilityGuardOverlapLintTest extends ProcessorTest(LangProcessors(systemMod
        |
        |data Widget
        |
-       |implement Show[Widget] $guard1 {
-       |   def show(x: Widget): Widget = x
+       |implement[A] Show[A] $guard1 {
+       |   def show(x: A): A = x
        |}
        |
        |implement Show[Widget] $guard2 {

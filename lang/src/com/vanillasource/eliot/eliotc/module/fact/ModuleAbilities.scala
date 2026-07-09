@@ -44,10 +44,11 @@ case class ModuleAbilities(
   def markersOf(abilityName: String): Seq[ValueFQN] =
     namedImplementationMethodsOf(abilityName, abilityName)
 
-  /** The marker method of the implementation of `abilityName` at `index`, if present. */
-  def markerOf(abilityName: String, index: Int): Option[ValueFQN] =
+  /** The marker method of the implementation of `abilityName` with the given `pattern` key, if present. */
+  def markerOf(abilityName: String, pattern: String): Option[ValueFQN] =
     implementations.collectFirst {
-      case impl if impl.abilityName == abilityName && impl.methodName == abilityName && impl.index == index => impl.vfqn
+      case impl if impl.abilityName == abilityName && impl.methodName == abilityName && impl.pattern == pattern =>
+        impl.vfqn
     }
 }
 
@@ -70,10 +71,11 @@ object ModuleAbilities {
     *   The method's local name (equal to the ability name for the implementation's marker method).
     * @param abilityName
     *   The implemented ability's local name.
-    * @param index
-    *   The implementation index disambiguating multiple implementations of the same ability in one module.
+    * @param pattern
+    *   The implementation's pattern key ([[Qualifier.AbilityImplementation.pattern]]) disambiguating multiple
+    *   implementations of the same ability in one module.
     */
-  case class Impl(vfqn: ValueFQN, methodName: String, abilityName: String, index: Int)
+  case class Impl(vfqn: ValueFQN, methodName: String, abilityName: String, pattern: String)
 
   case class Key(moduleName: ModuleName, platform: Platform = Platform.Runtime) extends CompilerFactKey[ModuleAbilities]
 }

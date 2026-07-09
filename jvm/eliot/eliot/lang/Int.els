@@ -31,25 +31,29 @@ opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
   fold(fitsLong[MIN, MAX], JvmLong[],
        JvmBigInteger[]))))
 
-// The JVM's width-dispatch implementations of the bounds-typed integer primitives declared abstractly in the base
-// `Int` (`intAdd`/`intSubtract`/`intMultiply`, on which the base's `Arithmetic[Int, Int]` instance is built). Each
-// widens both operands to their common representation, runs the right-sized leaf (selected by the `IntArith`
-// width-dispatch family below), then narrows the result back to the declared range. The result-bound *type* is fixed by
-// the base signature; this layer only supplies the representation and computation.
-def intAdd[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)] =
-  nativeWiden(addOp(
-    nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
-    nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
+// The JVM half of the base's split `Arithmetic[Int, Int]` instance: same `(ability, pattern)`, so it merges with the
+// base's abstract half into one implementation. The base fixes the result-bound *types* (its concrete `AddResult`/…
+// aliases, left abstract here); this layer supplies the method *bodies*. Each widens both operands to their common
+// representation, runs the right-sized leaf (selected by the `IntArith` width-dispatch family below), then narrows the
+// result back to the declared range.
+implement[L1: BigInteger, H1: BigInteger, L2: BigInteger, H2: BigInteger] Arithmetic[Int[L1, H1], Int[L2, H2]] {
+   type AddResult
+   type SubResult
+   type MulResult
 
-def intSubtract[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)] =
-  nativeWiden(subtractOp(
-    nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
-    nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
-
-def intMultiply[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)] =
-  nativeWiden(multiplyOp(
-    nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
-    nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
+   def add(a: Int[L1, H1], b: Int[L2, H2]): AddResult =
+     nativeWiden(addOp(
+       nativeWiden[L1, H1, min(L1, L2), max(H1, H2)](a),
+       nativeWiden[L2, H2, min(L1, L2), max(H1, H2)](b)))
+   def subtract(a: Int[L1, H1], b: Int[L2, H2]): SubResult =
+     nativeWiden(subtractOp(
+       nativeWiden[L1, H1, min(L1, L2), max(H1, H2)](a),
+       nativeWiden[L2, H2, min(L1, L2), max(H1, H2)](b)))
+   def multiply(a: Int[L1, H1], b: Int[L2, H2]): MulResult =
+     nativeWiden(multiplyOp(
+       nativeWiden[L1, H1, min(L1, L2), max(H1, H2)](a),
+       nativeWiden[L2, H2, min(L1, L2), max(H1, H2)](b)))
+}
 
 /**
  * Reinterpret an integer at a different declared range, keeping the same logical value.

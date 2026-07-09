@@ -81,15 +81,17 @@ class ValueResolver
   private def convertQualifiedName(
       name: Sourced[CoreQualifiedName]
   ): ScopedIO[Sourced[QualifiedName]] =
-    convertQualifier(name.value.qualifier).map(q => name.map(n => QualifiedName(n.name, q)))
+    convertQualifier(name.value.qualifier, name).map(q => name.map(n => QualifiedName(n.name, q)))
 
-  private def convertQualifier(qualifier: CoreQualifier): ScopedIO[Qualifier] =
+  private def convertQualifier(qualifier: CoreQualifier, at: Sourced[?]): ScopedIO[Qualifier] =
     qualifier match {
-      case CoreQualifier.Default                             => (Qualifier.Default: Qualifier).pure[ScopedIO]
-      case CoreQualifier.Type                                => (Qualifier.Type: Qualifier).pure[ScopedIO]
-      case CoreQualifier.Ability(n)                          => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
-      case CoreQualifier.AbilityImplementation(name, index) =>
-        resolveAbilityName(name).map(resolvedName => Qualifier.AbilityImplementation(resolvedName, index))
+      case CoreQualifier.Default                               => (Qualifier.Default: Qualifier).pure[ScopedIO]
+      case CoreQualifier.Type                                  => (Qualifier.Type: Qualifier).pure[ScopedIO]
+      case CoreQualifier.Ability(n)                            => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
+      case CoreQualifier.AbilityImplementation(name, pattern) =>
+        // The module qualifier carries the ability name as a bare string (identity is position-independent); borrow the
+        // enclosing name's position for any "Ability not found" diagnostic.
+        resolveAbilityName(at.as(name)).map(resolvedName => Qualifier.AbilityImplementation(resolvedName, pattern))
     }
 
   private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityFQN] =
@@ -133,6 +135,34 @@ class ValueResolver
         paramName.value +: collectGenericParamsFromExpr(body.value.signature)
       case _                                         => Seq.empty
     }
+
+  /** Resolve a bare reference to a member of the *current* ability implementation (found via the implementation scope).
+    * An associated type's declaration carries the implementation's generic parameters — they are prepended to every
+    * member — so a *bare* reference names the unapplied bound function. Apply it to those generics, which are all in
+    * scope right here, so it resolves to the concrete associated type: inside
+    * `implement Arithmetic[Int[L1, H1], Int[L2, H2]]`, a method's `AddResult` return resolves to
+    * `Int[add(L1, L2), add(H1, H2)]`, not to the λ over the four bounds. Explicit type arguments, when written, are
+    * honoured verbatim instead. The applied generics are the associated type's *leading* parameters that are in scope,
+    * so an associated type with its own extra generics (`Fields[R]`) is unaffected when referenced with arguments.
+    */
+  private def resolveImplementationScopedName(
+      implVfqn: ValueFQN,
+      nameSrc: Sourced[CoreQualifiedName],
+      typeArgExprs: Seq[Sourced[CoreExpression]]
+  ): ScopedIO[Expression] =
+    if (typeArgExprs.nonEmpty)
+      typeArgExprs
+        .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
+        .map(resolved => Expression.ValueReference(nameSrc.as(implVfqn), resolved))
+    else
+      for {
+        platform    <- getPlatform
+        implValue   <- getFactIfProduced(UnifiedModuleValue.Key(implVfqn, platform)).liftToScoped
+        params      <- getParameters
+        implGenerics =
+          implValue.map(v => collectGenericParams(v.namedValue.typeStack)).getOrElse(Seq.empty).takeWhile(params.contains)
+        argRefs      = implGenerics.map(g => nameSrc.as(Expression.ParameterReference(nameSrc.as(g)): Expression))
+      } yield Expression.ValueReference(nameSrc.as(implVfqn), argRefs)
 
   /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
     * on below levels, but go out of scope outside the type stack.
@@ -179,7 +209,7 @@ class ValueResolver
                   if (!runtime) searchImplementationScope(nameSrc.value.name)
                   else None.pure[ScopedIO]
                 implSearch.flatMap {
-                  case Some(implVfqn) => Expression.ValueReference(nameSrc.as(implVfqn)).pure[ScopedIO]
+                  case Some(implVfqn) => resolveImplementationScopedName(implVfqn, nameSrc, typeArgExprs)
                   case None           =>
                     // Not in implementation scope, it might be coming from an ability
                     searchAbilities(nameSrc.value.name).flatMap {

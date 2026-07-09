@@ -90,7 +90,7 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
             )
           )
         ),
-        (userModule, "src", ast(functions = Seq(fn("Show", Qualifier.AbilityImplementation(s("Show"), 0), args = Seq(arg("arg0", ty("Hello")))))))
+        (userModule, "src", ast(functions = Seq(fn("Show", Qualifier.AbilityImplementation("Show", "Hello"), args = Seq(arg("arg0", ty("Hello")))))))
       )
     ).modules
     val item       = moduleNamed(modules, "Show").items.find(_.kind == DocItem.Kind.Ability).getOrElse(fail("no ability item"))

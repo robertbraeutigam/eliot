@@ -31,6 +31,9 @@ object ValueResolverScope {
   def isParameter(name: String): ScopedIO[Boolean] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.parameters.contains(name))
 
+  def getParameters: ScopedIO[Set[String]] =
+    StateT.get[CompilerIO, ValueResolverScope].map(_.parameters)
+
   def getValue(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.dictionary.get(name))
 

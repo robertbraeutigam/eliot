@@ -40,7 +40,7 @@ object ImplementationMarkerUtils {
   ): CompilerIO[Boolean] =
     methodVfqn.name.qualifier match {
       case Qualifier.AbilityImplementation(name, _)
-          if name.value === abilityName && methodVfqn.name.name === methodName =>
+          if name === abilityName && methodVfqn.name.name === methodName =>
         firstPatternTypeConstructorName(methodVfqn, abilityName, platform).map(_.contains(targetTypeConstructor))
       case _ =>
         false.pure[CompilerIO]
@@ -55,8 +55,8 @@ object ImplementationMarkerUtils {
       platform: Platform = Platform.Runtime
   ): CompilerIO[Option[String]] =
     methodVfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(_, index) =>
-        firstPatternTypeConstructorName(methodVfqn.moduleName, abilityName, index, platform)
+      case Qualifier.AbilityImplementation(_, pattern) =>
+        firstPatternTypeConstructorName(methodVfqn.moduleName, abilityName, pattern, platform)
       case _                                         =>
         None.pure[CompilerIO]
     }
@@ -65,10 +65,10 @@ object ImplementationMarkerUtils {
   def firstPatternTypeConstructorName(
       moduleName: ModuleName,
       abilityName: String,
-      index: Int,
+      pattern: String,
       platform: Platform
   ): CompilerIO[Option[String]] =
-    findMarkerVfqn(moduleName, abilityName, index, platform).flatMap {
+    findMarkerVfqn(moduleName, abilityName, pattern, platform).flatMap {
       case None             => None.pure[CompilerIO]
       case Some(markerVfqn) =>
         getFactIfProduced(UnifiedModuleValue.Key(markerVfqn, platform)).map(
@@ -84,8 +84,8 @@ object ImplementationMarkerUtils {
       platform: Platform
   ): CompilerIO[Option[String]] =
     implQualifier match {
-      case Qualifier.AbilityImplementation(_, index) =>
-        firstPatternTypeConstructorName(moduleName, abilityName, index, platform)
+      case Qualifier.AbilityImplementation(_, pattern) =>
+        firstPatternTypeConstructorName(moduleName, abilityName, pattern, platform)
       case _                                         =>
         None.pure[CompilerIO]
     }
@@ -93,10 +93,10 @@ object ImplementationMarkerUtils {
   private def findMarkerVfqn(
       moduleName: ModuleName,
       abilityName: String,
-      index: Int,
+      pattern: String,
       platform: Platform
   ): CompilerIO[Option[ValueFQN]] =
-    getFactIfProduced(ModuleAbilities.Key(moduleName, platform)).map(_.flatMap(_.markerOf(abilityName, index)))
+    getFactIfProduced(ModuleAbilities.Key(moduleName, platform)).map(_.flatMap(_.markerOf(abilityName, pattern)))
 
   private def firstArgTypeConstructorName(signature: Expression): Option[String] = {
     import Expression.*
