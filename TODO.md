@@ -64,6 +64,18 @@ notes.
   conservatively as representation, so it is not collapse-erased; refining that is a size win, not
   correctness.
 
+- **Fail-safe hole: leftover postponed unification constraints are silently dropped.** The unifier's
+  `postponed` queue (`monomorphize/unify/Unifier.scala`) re-attempts constraints on every `drain()`,
+  but a constraint that never discharges is simply carried along and forgotten at the end of the
+  check — nothing converts survivors into errors, so an unproven equality can pass silently. This is
+  what let the pre-fix applied-associated-type garbage through unnoticed (2026-07-09, see the
+  associated-type application work): the body-vs-declared unification postponed forever and the value
+  compiled anyway. Fix direction: after the post-drain pipeline's finalizer, treat every remaining
+  postponed constraint as a hard "Type mismatch" (with its recorded context) — with a triage pass
+  first, since some postponements may currently be benign-by-accident (e.g. constraints whose metas
+  get defaulted to `Type` and would then trivially re-verify). Per the fail-safe rule, an unproven
+  obligation must be an error, never a silent drop.
+
 - Separate the cache graph from the values, so not everything has to be deserialized.
 - **Incremental cache corrupted by concurrent/out-of-date compilers.** A stale `.eliot-cache`
   made a CLI compile report errors from a *previous version* of an edited file (positions and
