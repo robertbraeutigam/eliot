@@ -9,16 +9,6 @@ type BigInteger
 def inc(bi: BigInteger): BigInteger
 
 /**
- * The sum `a + b`.
- */
-def add(a: BigInteger, b: BigInteger): BigInteger
-
-/**
- * The difference `a - b`.
- */
-def subtract(a: BigInteger, b: BigInteger): BigInteger
-
-/**
  * The minimum of the four corner products of the ranges `[a, b]` and `[c, d]` — the lower result bound of
  * integer `*`. A single corner is not enough, since either range may straddle zero.
  */

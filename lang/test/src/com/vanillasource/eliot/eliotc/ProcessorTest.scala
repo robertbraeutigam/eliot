@@ -175,6 +175,16 @@ object ProcessorTest {
       "def max[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)\n" +
       "implement Compare[BigInteger] { def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool }"
 
+  /** The `Numeric` ability stub, mirroring the real `eliot.lang.Numeric`: `add`/`subtract`/`multiply` are the primitives
+    * (their `BigInteger` reductions are supplied by `StdlibNativesProcessor` under the ability-method FQNs), and
+    * `BigInteger` implements them body-less (the natives attach to the implementation). `Int`'s `+`/`-` operators resolve
+    * `add`/`subtract` through this ability. (`multiplyMin`/`multiplyMax`, the `*` corner-product bounds, stay plain
+    * `BigInteger` defs — see the `intImports` `BigInteger` stub.)
+    */
+  val numericStubContent: String =
+    "ability Numeric[A] { def add(a: A, b: A): A\n def subtract(a: A, b: A): A\n def multiply(a: A, b: A): A }\n" +
+      "implement Numeric[BigInteger] { def add(a: BigInteger, b: BigInteger): BigInteger\n def subtract(a: BigInteger, b: BigInteger): BigInteger\n def multiply(a: BigInteger, b: BigInteger): BigInteger }"
+
   /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal `n`
     * is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
     * auto-imported) and the test harness must register matching stubs. These minimal versions only declare the abstract
