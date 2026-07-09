@@ -5,6 +5,22 @@ import eliot.lang.Arithmetic
 type BigInteger
 
 /**
+ * `BigInteger` supplies `Arithmetic` natively. Every result is again a `BigInteger`, so the three result types are all
+ * `BigInteger` and the methods are deliberately body-less: arbitrary-precision arithmetic is a compiler/backend leaf
+ * (`BigInteger` has no in-language representation), so each reduction is attached directly to its implementation method.
+ * These back `Int`'s dependent bounds during type checking.
+ */
+implement Arithmetic[BigInteger, BigInteger] {
+   type AddResult = BigInteger
+   type SubResult = BigInteger
+   type MulResult = BigInteger
+
+   def add(a: BigInteger, b: BigInteger): AddResult
+   def subtract(a: BigInteger, b: BigInteger): SubResult
+   def multiply(a: BigInteger, b: BigInteger): MulResult
+}
+
+/**
  * The successor of `bi` (`bi + 1`).
  */
 def inc(bi: BigInteger): BigInteger

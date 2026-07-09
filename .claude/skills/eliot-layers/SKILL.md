@@ -64,6 +64,25 @@ an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the releva
 | value-converting `implement` | **jvm** | e.g. `Coerce[Int,Int]` (does `nativeWiden`) |
 | something the compiler must evaluate at compile time, expressible in Eliot | **borrow** it if pure & already on the path; else the owning layer's **`eliot-compiler/`** (base names → `stdlib/eliot-compiler`) | not Scala `SemValue`s — the one NbE evaluator runs it |
 
+### Ability module vs. type module — which of the two allowed homes
+
+An `implement X[T]` may sit with ability `X` *or* with type `T` (the coherence rule above). **Default to the
+type's module.** The organizing principle:
+
+- **The ability's module holds the ability declaration + the convenience/feature functions built *on top of*
+  it** — the derived combinators every implementation inherits for free (e.g. `Compare`'s `min`/`max` fold over
+  `lessThanOrEqual`; `BigInteger`'s `multiplyMin`/`multiplyMax` derive over `Arithmetic.multiply`). These are
+  generic over the ability, not tied to any one instance.
+- **A data type's module holds *that type's* implementations of the various abilities it supports** — `Int`'s
+  `implement Arithmetic[Int,Int]` and `Combine[Int,Int]` live in `Int.els`; `BigInteger`'s
+  `implement Arithmetic[BigInteger,BigInteger]` lives in `BigInteger.els`. This keeps each ability module
+  instance-agnostic and each type module the one place to see everything that type can do.
+
+Put an instance in the **ability's** module only when it genuinely can't colocate with the type — a
+carrier-*generic* instance (`implement[F[_] ~ Suspend] Console[F]`, no single concrete `T`), or an instance for a
+bare abstract type declared in another layer. (Historical wart now fixed: `implement Arithmetic[BigInteger,…]`
+used to sit in `Arithmetic.els` while `Int`'s sat correctly in `Int.els` — moved to `BigInteger.els`.)
+
 ## The merge, mechanically
 
 For each name, `UnifiedModuleValueProcessor.unifyValues` collects every layer's `ModuleValue` for that pool:
