@@ -1,5 +1,6 @@
 import eliot.lang.Bool
 import eliot.lang.Compare
+import eliot.lang.Numeric
 
 type BigInteger
 
@@ -12,12 +13,14 @@ def inc(bi: BigInteger): BigInteger
  * The minimum of the four corner products of the ranges `[a, b]` and `[c, d]` — the lower result bound of
  * integer `*`. A single corner is not enough, since either range may straddle zero.
  */
-def multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
+def multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger =
+  min(min(multiply(a, c), multiply(a, d)), min(multiply(b, c), multiply(b, d)))
 
 /**
  * The maximum of the four corner products of the ranges `[a, b]` and `[c, d]` — the upper result bound of integer `*`.
  */
-def multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
+def multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger =
+  max(max(multiply(a, c), multiply(a, d)), max(multiply(b, c), multiply(b, d)))
 
 /**
  * True iff the range `[min, max]` is fully contained in `[lo, hi]`.

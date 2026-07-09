@@ -1049,7 +1049,7 @@ class MonomorphicTypeCheckTest
     */
   private val intImports: Seq[SystemImport] = ambientStubsWith(
     "BigInteger" ->
-      "import eliot.lang.Bool\ntype BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger",
+      "import eliot.lang.Bool\nimport eliot.lang.Compare\nimport eliot.lang.Numeric\ntype BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger = min(min(multiply(a, c), multiply(a, d)), min(multiply(b, c), multiply(b, d)))\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger = max(max(multiply(a, c), multiply(a, d)), max(multiply(b, c), multiply(b, d)))",
     "Compare"    -> ProcessorTest.compareStubContent,
     "Numeric"    -> ProcessorTest.numericStubContent,
     "Bool"       ->

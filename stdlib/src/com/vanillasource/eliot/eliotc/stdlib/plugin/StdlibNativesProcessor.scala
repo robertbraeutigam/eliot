@@ -14,9 +14,10 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 /** The `stdlib` native contributor: emits the total [[ContributedBinding]] under [[StdlibNativesProcessor.stdlibLabel]]
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
   * reason about — the compile-time arithmetic behind `Int`'s dependent bounds ([[BigInteger]]'s `Numeric` ability
-  * `add`/`subtract`/`multiply`, the `*` corner-product bounds `multiplyMin`/`multiplyMax`, and `inc`), the boolean
-  * operators (`&&`/`||`/`!`), string equality (`stringEquals`, backing `Eq[String]`), and the [[BigInteger]] ordering
-  * comparison behind `Compare[BigInteger]` — and `None` for every other name.
+  * `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`), string equality (`stringEquals`,
+  * backing `Eq[String]`), and the [[BigInteger]] ordering comparison behind `Compare[BigInteger]` — and `None` for every
+  * other name. (The `*` corner-product bounds `multiplyMin`/`multiplyMax` are ordinary Eliot bodies over
+  * `Numeric.multiply` + `Compare.min`/`max`, not natives — they reduce through these leaves.)
   *
   * These are ordinary library functions; the compiler only seeds the NbE evaluator with a native reduction rule so that,
   * e.g., `add(2, 3)` reduces to `5` during type checking. Each native reduces only when its arguments are concrete,
@@ -36,9 +37,10 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * intrinsic, like `Bool.fold`); and (2) the *implementation-method* FQN via [[abilityImplNativeFor]] — the "native
   * attached directly to the implementation" wiring, which a *value-level* instance (dispatched at a surfaced use site)
   * would use, but which `BigInteger`'s purely type-level use does not exercise. `min`/`max` are derived `Compare`
-  * combinators (a `fold` over `lessThanOrEqual`); the `*` corner-product bounds `multiplyMin`/`multiplyMax` are kept their
-  * own leaf natives ([[bigIntCornerNative]]) rather than a bodied derivation over `multiply`/`min`/`max`, since such a
-  * body invoked from the `*` result type leaves its nested `fold` a stuck native at read-back.
+  * combinators (a `fold` over `lessThanOrEqual`), and `multiplyMin`/`multiplyMax` derive further over `multiply` +
+  * `min`/`max`; all reduce through these leaf natives even when reached only transitively from a result type, because the
+  * checker prefetches bindings transitively (`Checker.prefetchBindings`) so `renormalize` can re-fire the nested stuck
+  * natives once the bound metavariables solve.
   *
   * This is a platform/library native supplier disjoint from the lang layer's `SystemNativesProcessor` (which owns the
   * compiler-intrinsic `Function`/`Type`/`Bool` primitives): each owns its own names, so the merger never has to choose
@@ -67,8 +69,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private def bigIntegerFn(name: String): ValueFQN = ValueFQN(bigIntegerModule, QualifiedName(name, Qualifier.Default))
 
   private val incFQN: ValueFQN             = bigIntegerFn("inc")
-  private val multiplyMinFQN: ValueFQN     = bigIntegerFn("multiplyMin")
-  private val multiplyMaxFQN: ValueFQN     = bigIntegerFn("multiplyMax")
   private val boolAndFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("&&", Qualifier.Default))
   private val boolOrFQN: ValueFQN          = ValueFQN(boolModule, QualifiedName("||", Qualifier.Default))
   private val boolNotFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("!", Qualifier.Default))
@@ -83,8 +83,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     numericAddFQN             -> addNative,
     numericSubtractFQN        -> subtractNative,
     numericMultiplyFQN        -> multiplyNative,
-    multiplyMinFQN            -> bigIntCornerNative(multiplyMinFQN)(_.min),
-    multiplyMaxFQN            -> bigIntCornerNative(multiplyMaxFQN)(_.max),
     boolAndFQN                -> andNative,
     boolOrFQN                 -> orNative,
     boolNotFQN                -> notNative,
@@ -177,31 +175,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
       case _                                                                                    =>
         stuck(fqn, a, b)
     }
-
-  /** A curried 4-argument `BigInteger -> … -> BigInteger` native over the corner products of `Int[a,b] * Int[c,d]`
-    * (`multiplyMin`/`multiplyMax`): when all four bounds are concrete it reduces to `op(Seq(a*c, a*d, b*c, b*d))`
-    * (`min`/`max`), otherwise it stays stuck. Kept a single Scala native (rather than an Eliot body over `Numeric`'s
-    * `multiply` and `Compare`'s `min`/`max`) because a bodied definition invoked from the `*` result *type* leaves its
-    * transitively-nested `fold` a stuck native at read-back — the corner products must reduce in one leaf step.
-    */
-  private def bigIntCornerNative(fqn: ValueFQN)(op: Seq[BigInt] => BigInt): SemValue = {
-    def collect(acc: Seq[SemValue], remaining: Int): SemValue =
-      if (remaining === 0) bigIntCornerResult(fqn, op, acc)
-      else VNative(bigIntType, arg => collect(acc :+ arg, remaining - 1))
-    collect(Seq.empty, 4)
-  }
-
-  private def bigIntCornerResult(fqn: ValueFQN, op: Seq[BigInt] => BigInt, args: Seq[SemValue]): SemValue = args match {
-    case Seq(
-          VConst(GroundValue.Direct(a: BigInt, t)),
-          VConst(GroundValue.Direct(b: BigInt, _)),
-          VConst(GroundValue.Direct(c: BigInt, _)),
-          VConst(GroundValue.Direct(d: BigInt, _))
-        ) =>
-      VConst(GroundValue.Direct(op(Seq(a * c, a * d, b * c, b * d)), t))
-    case _ =>
-      stuck(fqn, args*)
-  }
 
   /** `&&(a, b)`: reduces to `Direct(a && b)` when both arguments are concrete Bools, otherwise stays stuck. */
   private def andNative: SemValue =
