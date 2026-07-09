@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BodyValueReferences, GroundValue}
 import com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver
 import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -102,10 +102,24 @@ class Checker(
                                       _    <- modify(_.recordAbstractTypeMeta(vfqn, meta.id))
                                     } yield Some(meta: SemValue)
                                   else pure(opt)
-                      _        <- modify(_.cacheBinding(vfqn, replaced))
+                      _        <- modify(_.cacheBinding(vfqn, replaced)) // cache before recursing so cycles short-circuit
+                      _        <- ensureBodyBindings(vfqn)
                     } yield replaced
                 }
     } yield result
+
+  /** Ensure the bindings of everything `vfqn`'s checking body references transitively — reached via the memoized
+    * [[BodyValueReferences]] fact (walked once per value, never re-walked here) and recursing through `ensureBinding`,
+    * whose binding-cache short-circuit both dedups and terminates on the (recursion-free, but diamond-shaped) reference
+    * DAG. This is what lets `renormalize` re-fire a nested stuck native once its bound metavariables solve: a native
+    * reached only through a bodied helper (e.g. `multiply`/`lessThanOrEqual`/`fold` inside a derived `multiplyMin` used
+    * in the `*` result type) must already be in the flat [[CheckState.bindingCache]] the re-fire lookup consults.
+    */
+  private def ensureBodyBindings(vfqn: ValueFQN): CheckIO[Unit] =
+    for {
+      refs <- liftF(getFactIfProduced(BodyValueReferences.Key(vfqn, platform)))
+      _    <- refs.fold(Set.empty[ValueFQN])(_.references).toList.traverse_(ensureBinding)
+    } yield ()
 
   /** Evaluate an ORE expression against an env (defaulting to the current state's env). Prefetches every reachable
     * binding into [[CheckState.bindingCache]] first — including rewriting abstract associated-ability-types to fresh
@@ -899,45 +913,15 @@ class Checker(
           )
       }
 
-  /** Prefetch-only traversal: ensures the binding of every ValueReference *transitively reachable* through the checking
-    * bodies of the values `ore` names — not just the ones appearing directly. The transitivity is load-bearing for
-    * `renormalize`: when a type-level term is evaluated while its inputs are still metavariables, a native reached only
-    * through a bodied helper (e.g. the `multiply`/`lessThanOrEqual`/`fold` inside a derived `multiplyMin` used in the `*`
-    * result type) fires on metas and becomes a stuck native; once the metas solve, `renormalize` re-fires it via the flat
-    * [[CheckState.bindingCache]], which therefore must already hold that nested native's reducer. A body-less native /
-    * `opaque` type contributes no further references, so the walk terminates at the non-recursive value-reference DAG.
+  /** Prefetch-only traversal: walks an ORE and calls [[ensureBinding]] at every ValueReference, discarding any resulting
+    * SemValue. Used for subtrees whose actual evaluation is deferred to a pure [[Evaluator]] invocation inside a
+    * [[VLam]] closure — the closure must find every reachable binding already in the cache. `ensureBinding` itself pulls
+    * each value's transitive body dependencies (see [[ensureBodyBindings]]), so this need only visit `ore`'s own
+    * references.
     */
   private def prefetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] =
-    collectRefs(ore).flatMap(refs => prefetchClosure(refs.toList, Set.empty))
-
-  /** The set of value-reference FQNs appearing directly in `ore`. */
-  private def collectRefs(ore: OperatorResolvedExpression): CheckIO[Set[ValueFQN]] =
-    OperatorResolvedExpression.foldValueReferences[CheckIO, Set[ValueFQN]](ore, Set.empty) { (acc, vfqn) =>
-      pure(acc + vfqn.value)
-    }
-
-  /** Worklist closure: ensure each FQN's binding, then descend into its checking body's references. `visited` guards the
-    * DAG's diamonds (Eliot has no recursion, so it terminates).
-    */
-  private def prefetchClosure(worklist: List[ValueFQN], visited: Set[ValueFQN]): CheckIO[Unit] =
-    worklist match {
-      case Nil                                    => pure(())
-      case vfqn :: rest if visited.contains(vfqn) => prefetchClosure(rest, visited)
-      case vfqn :: rest                           =>
-        for {
-          _        <- ensureBinding(vfqn)
-          bodyRefs <- bodyRefsOf(vfqn)
-          _        <- prefetchClosure(bodyRefs.toList ++ rest, visited + vfqn)
-        } yield ()
-    }
-
-  /** The value references in `vfqn`'s checking body, or empty for a body-less native / type constructor (`opaque` bodies
-    * are empty here too, so a representation `type` is not walked).
-    */
-  private def bodyRefsOf(vfqn: ValueFQN): CheckIO[Set[ValueFQN]] =
-    liftF(getFactIfProduced(SaturatedValue.Key(vfqn, platform))).flatMap {
-      case Some(sv) => sv.value.checkingRuntime.fold(pure(Set.empty[ValueFQN]))(b => collectRefs(b.value))
-      case None     => pure(Set.empty[ValueFQN])
+    OperatorResolvedExpression.foldValueReferences[CheckIO, Unit](ore, ()) { (_, vfqn) =>
+      ensureBinding(vfqn.value).void
     }
 
 }

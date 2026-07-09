@@ -22,6 +22,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   BindingMergerProcessor,
+  BodyValueReferencesProcessor,
   CompilerMonomorphicTypeCheckProcessor,
   CompilerNativesProcessor,
   DataTypeNativesProcessor,
@@ -105,6 +106,7 @@ object LangProcessors {
     CompilerMonomorphicTypeCheckProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     TransparentBindingProcessor(),
+    BodyValueReferencesProcessor(),
     MonomorphicUncurryingProcessor()
   )
 }
