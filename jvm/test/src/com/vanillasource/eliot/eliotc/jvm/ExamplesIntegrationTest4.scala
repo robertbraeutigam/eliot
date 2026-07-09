@@ -328,4 +328,77 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def main: IO[Unit] = printLine(item(Wrap("wrapped")))""".stripMargin
     ).asserting(_ shouldBe "wrapped")
   }
+
+  // --- Arithmetic ability: heterogeneous add/subtract/multiply on bounded Int, with exact (non-widened) result bounds. ---
+
+  // Nested calls to the same ability method must resolve independently: `add(a, add(b, c))` widens the range in two
+  // steps to Int[0, 175]. Before per-reference associated-type meta identity, the outer and inner `add` shared one
+  // AddResult meta and the outer inherited the inner's bounds; the exact Int[0, 175] annotation would then fail to
+  // type-check. The exact annotation compiling (and the value being correct) proves both.
+  "the Arithmetic ability" should "add ranged ints with an exact widened result bound across nested calls" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |
+        |def a: Int[0, 100] = 30
+        |def b: Int[0, 50] = 20
+        |def c: Int[0, 25] = 10
+        |
+        |def total: Int[0, 175] = add(a, add(b, c))
+        |
+        |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
+    ).asserting(_ shouldBe "60")
+  }
+
+  // A declared result bound too tight for the computed sum is rejected — evidence the bound is genuinely computed
+  // (Int[0, 100] + Int[0, 50] = Int[0, 150], which does not fit the declared Int[0, 100]).
+  it should "reject a declared result bound too tight for the computed sum" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |
+        |def a: Int[0, 100] = 30
+        |def b: Int[0, 50] = 20
+        |
+        |def tooTight: Int[0, 100] = add(a, b)
+        |
+        |def main: IO[Unit] = printLine(intToString(tooTight))""".stripMargin
+    ).asserting(_ should include("mismatch"))
+  }
+
+  // Constraint-based associated-type projection: a plain generic function whose return is the bare associated type
+  // `AddResult` of its `~ Arithmetic[X, Y]` constraint. The concrete return (Int[0, 150] here) is projected at the call
+  // from the monomorphized callee via the calculated-return back-edge. The exact Int[0, 150] annotation confirms it.
+  it should "project the associated result type of a generic function's constraint" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |
+        |def plus[X, Y ~ Arithmetic[X, Y]](x: X, y: Y): AddResult = add(x, y)
+        |
+        |def a: Int[0, 100] = 30
+        |def b: Int[0, 50] = 20
+        |
+        |def total: Int[0, 150] = plus(a, b)
+        |
+        |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
+    ).asserting(_ shouldBe "50")
+  }
+
+  // Generic arithmetic composed over all three result types, with a generic call feeding another. `times(a, b)` is
+  // Int[0, 5000] (value 600), and `plus(that, a)` projects AddResult again (value 630).
+  it should "compose generic arithmetic over all three result types" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |
+        |def plus[X, Y ~ Arithmetic[X, Y]](x: X, y: Y): AddResult = add(x, y)
+        |def times[X, Y ~ Arithmetic[X, Y]](x: X, y: Y): MulResult = multiply(x, y)
+        |
+        |def a: Int[0, 100] = 30
+        |def b: Int[0, 50] = 20
+        |
+        |def main: IO[Unit] = printLine(intToString(plus(times(a, b), a)))""".stripMargin
+    ).asserting(_ shouldBe "630")
+  }
 }
