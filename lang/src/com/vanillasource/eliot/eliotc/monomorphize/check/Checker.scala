@@ -171,7 +171,12 @@ class Checker(
       expected: SemValue
   ): CheckIO[SemExpression] =
     for {
-      forcedExpected <- force(expected)
+      forced         <- force(expected)
+      // Reduce applied abstract associated types in the expected type (`AddResult[Int[0, 1], Int[2, 3]]` ⤳ the Int
+      // impl's `Int[2, 4]`) before matching against it: a declared, computable type application must constrain the
+      // body. This is also where a codomain-buried application surfaces (the enclosing check applied the codomain), so
+      // recursion through here reaches every return position.
+      forcedExpected <- abilityResolver.reduceAssocApplications(forced, tm)
       result         <- tm.value match {
                           // FunctionLiteral against a known VPi — unify domain, bind param, check body against codomain.
                           // Works for both annotated (unify annotated paramType with domain) and unannotated (use domain
@@ -217,8 +222,13 @@ class Checker(
                           case _ =>
                             for {
                               (expr, inferred) <- infer(tm)
-                              forcedExp        <- force(expected)
-                              checkedResult    <- checkAgainst(tm, expr, inferred, forcedExp, expected)
+                              // Re-force (inference may have solved metas in the expectation) and re-reduce. The
+                              // reduced expected replaces the original only when reduction changed it — the ladder's
+                              // unify targets must stay the original metas otherwise, so their solutions propagate.
+                              forcedExp0       <- force(expected)
+                              forcedExp        <- abilityResolver.reduceAssocApplications(forcedExp0, tm)
+                              effectiveExp      = if (forcedExp eq forcedExp0) expected else forcedExp
+                              checkedResult    <- checkAgainst(tm, expr, inferred, forcedExp, effectiveExp)
                             } yield checkedResult
                         }
     } yield result
@@ -472,52 +482,8 @@ class Checker(
 
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
       for {
-        _      <- ensureBinding(vfqn.value)
-        svOpt  <- liftF(getFactIfProduced(SaturatedValue.Key(vfqn.value, platform)))
-        result <- svOpt match {
-                    case Some(sv) =>
-                      // Read the *saturated* signature, so a callee's parameter-position bare omittable references
-                      // (e.g. bare `Int`) present as ordinary leading generic binders that the instantiation machinery
-                      // solves from this call's arguments. Signatures reference only their own parameters or top-level
-                      // values, so they evaluate under an empty env — outer-session bindings are not in scope.
-                      for {
-                        // For an ability-method reference, freshen this ability's abstract associated types *per
-                        // reference*: evict them from the binding cache so the signature evaluation below re-creates
-                        // them as metas unique to this call, and snapshot the pre-existing abstract-assoc metas so the
-                        // ones this evaluation adds can be attributed to this reference (recordRefAssocMetas). Without
-                        // this, the cache hands every `add` call one shared `AddResult` meta and nested calls collide.
-                        isAbilityMethod  <- pure(vfqn.value.name.qualifier.isInstanceOf[Qualifier.Ability])
-                        _                <- if (isAbilityMethod) modify(_.evictAbilityAssocs(vfqn.value)) else pure(())
-                        assocBefore      <- if (isAbilityMethod) inspect(_.unifier.abstractAssocMetaIds)
-                                            else pure(Set.empty[Int])
-                        sig              <- evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty))
-                        _                <- if (isAbilityMethod)
-                                              inspect(_.unifier.abstractAssocMetaIds)
-                                                .flatMap(after => modify(_.recordRefAssocMetas(vfqn, after -- assocBefore)))
-                                            else pure(())
-                        explicitTypeArgs <- typeArgs.traverse(ta => evalExpr(ta.value))
-                        appliedSig        = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
-                        // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no
-                        // parameters left to apply, so its whole type forced to the `Type` placeholder `saturate`
-                        // installed — is resolved from its monomorphized return here, so a no-argument producer used by
-                        // name (`def y: Int = x`) works instead of leaking `Type` into a mismatch. The applied case
-                        // keeps a `VPi` here (resolved by `applyInferred`); a calculated-return *function* passed
-                        // unapplied keeps the placeholder inside its codomain (the higher-order limit, out of scope).
-                        calcReturn       <- if (sv.value.calculatedReturn)
-                                              calcReturns.resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
-                                            else pure(Option.empty[SemValue])
-                        afterCalc         = calcReturn.getOrElse(appliedSig)
-                        // Discharge a `{Throw[String]}` guard on a *complete* (fully applied) value read by name (W2b):
-                        // `def y: Bar = foo` where `foo`'s return is `Right(Bar)`. A guarded *function* read unapplied
-                        // stays a `VPi`/`VLam` (the guard is in its codomain), so it is left untouched here.
-                        resultType       <- calcReturns.dischargeGuardedReturn(afterCalc, vfqn).map(_.getOrElse(afterCalc))
-                      } yield (
-                        SemExpression(resultType, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
-                        resultType
-                      )
-                    case None     =>
-                      liftF(compilerError(tm.as("Name not defined.")) >> abort)
-                  }
+        explicitTypeArgs <- typeArgs.traverse(ta => evalExpr(ta.value))
+        result           <- inferValueReference(tm, vfqn, explicitTypeArgs)
       } yield result
 
     case OperatorResolvedExpression.FunctionApplication(_, _) =>
@@ -541,6 +507,68 @@ class Checker(
       liftF(compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort)
   }
 
+  /** Infer a value reference's type from its saturated signature, applying the given (already-evaluated) explicit type
+    * arguments. Shared by [[infer]]'s `ValueReference` case and the associated-type application spine head in
+    * [[inferSpine]] (an application spine headed by an abstract associated type IS its explicit instantiation — the
+    * member's parameters are the ability's binders).
+    */
+  private def inferValueReference(
+      tm: Sourced[OperatorResolvedExpression],
+      vfqn: Sourced[ValueFQN],
+      explicitTypeArgs: Seq[SemValue]
+  ): CheckIO[(SemExpression, SemValue)] =
+      for {
+        _      <- ensureBinding(vfqn.value)
+        svOpt  <- liftF(getFactIfProduced(SaturatedValue.Key(vfqn.value, platform)))
+        result <- svOpt match {
+                    case Some(sv) =>
+                      // Read the *saturated* signature, so a callee's parameter-position bare omittable references
+                      // (e.g. bare `Int`) present as ordinary leading generic binders that the instantiation machinery
+                      // solves from this call's arguments. Signatures reference only their own parameters or top-level
+                      // values, so they evaluate under an empty env — outer-session bindings are not in scope.
+                      for {
+                        // For an ability-method reference, freshen this ability's abstract associated types *per
+                        // reference*: evict them from the binding cache so the signature evaluation below re-creates
+                        // them as metas unique to this call, and snapshot the pre-existing abstract-assoc metas so the
+                        // ones this evaluation adds can be attributed to this reference (recordRefAssocMetas). Without
+                        // this, the cache hands every `add` call one shared `AddResult` meta and nested calls collide.
+                        isAbilityMethod  <- pure(vfqn.value.name.qualifier.isInstanceOf[Qualifier.Ability])
+                        _                <- if (isAbilityMethod) modify(_.evictAbilityAssocs(vfqn.value)) else pure(())
+                        assocBefore      <- if (isAbilityMethod) inspect(_.unifier.abstractAssocMetaIds)
+                                            else pure(Set.empty[Int])
+                        sig              <- evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty))
+                        _                <- if (isAbilityMethod)
+                                              inspect(_.unifier.abstractAssocMetaIds)
+                                                .flatMap(after => modify(_.recordRefAssocMetas(vfqn, after -- assocBefore)))
+                                            else pure(())
+                        appliedSig        = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
+                        // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no
+                        // parameters left to apply, so its whole type forced to the `Type` placeholder `saturate`
+                        // installed — is resolved from its monomorphized return here, so a no-argument producer used by
+                        // name (`def y: Int = x`) works instead of leaking `Type` into a mismatch. The applied case
+                        // keeps a `VPi` here (resolved by `applyInferred`); a calculated-return *function* passed
+                        // unapplied keeps the placeholder inside its codomain (the higher-order limit, out of scope).
+                        calcReturn       <- if (sv.value.calculatedReturn)
+                                              calcReturns.resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
+                                            else pure(Option.empty[SemValue])
+                        afterCalc         = calcReturn.getOrElse(appliedSig)
+                        // Discharge a `{Throw[String]}` guard on a *complete* (fully applied) value read by name (W2b):
+                        // `def y: Bar = foo` where `foo`'s return is `Right(Bar)`. A guarded *function* read unapplied
+                        // stays a `VPi`/`VLam` (the guard is in its codomain), so it is left untouched here.
+                        discharged       <- calcReturns.dischargeGuardedReturn(afterCalc, vfqn).map(_.getOrElse(afterCalc))
+                        // Reduce an applied abstract associated type in the reference's (top-level) type — a complete
+                        // value declared `AddResult[Int[0, 1], Int[2, 3]]` reads as the concrete `Int[2, 4]`, so the
+                        // caller never unifies against the unreduced application.
+                        resultType       <- abilityResolver.reduceAssocApplications(discharged, tm)
+                      } yield (
+                        SemExpression(resultType, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
+                        resultType
+                      )
+                    case None     =>
+                      liftF(compilerError(tm.as("Name not defined.")) >> abort)
+                  }
+      } yield result
+
   /** Infer a function application by operating on its full spine: decompose the nested (curried) applications at the
     * root, resolve the head once — an immediately-applied unannotated lambda `(x -> body)(arg)` routes to
     * [[typeImmediateLambda]] (it is a `let`, the shape a non-effectful block `val`/statement lowers to; the lambda
@@ -562,6 +590,28 @@ class Checker(
     */
   private def inferSpine(tm: Sourced[OperatorResolvedExpression]): CheckIO[(SemExpression, SemValue)] = {
     val (head, apps) = decomposeSpine(tm)
+    head.value match {
+      // An application spine headed by an abstract associated ability type IS its explicit instantiation: the
+      // member's parameters are the ability's binders, so `AddResult[Int[0, 1], Int[2, 3]]` (a curried type-position
+      // application) supplies them directly — never peel-then-apply, which would consume the binders with fresh
+      // metavariables and reject the arguments with "Not a function.".
+      case OperatorResolvedExpression.ValueReference(vfqn, declaredTypeArgs)
+          if ValueFQN.isAbstractAbilityType(vfqn.value) =>
+        for {
+          declaredArgs <- declaredTypeArgs.traverse(ta => evalExpr(ta.value))
+          spineArgs    <- apps.traverse { case (_, arg) => evalExpr(arg.value) }
+          result       <- inferValueReference(tm, vfqn, declaredArgs ++ spineArgs)
+        } yield result
+      case _                                                                                        =>
+        inferSpineApplications(tm, head, apps)
+    }
+  }
+
+  private def inferSpineApplications(
+      tm: Sourced[OperatorResolvedExpression],
+      head: Sourced[OperatorResolvedExpression],
+      apps: List[(Sourced[OperatorResolvedExpression], Sourced[OperatorResolvedExpression])]
+  ): CheckIO[(SemExpression, SemValue)] = {
     for {
       (start, rest)    <- head.value match {
                             case OperatorResolvedExpression.FunctionLiteral(paramName, None, body) =>

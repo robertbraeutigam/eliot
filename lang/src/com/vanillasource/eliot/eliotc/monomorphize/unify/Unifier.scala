@@ -328,9 +328,18 @@ case class Unifier(
                 if (isCombinable(id.value)) solvedU.recordCandidate(id, rhs, context) else solvedU
               }
             } else {
-              // Non-empty spine — try injectivity decomposition first, otherwise postpone.
-              tryDecomposeApplied(id, spineList, rhs, context)
-                .getOrElse(copy(postponed = (VMeta(id, spine), rhs, context) :: postponed))
+              roleOf(id.value) match {
+                case _: MetaRole.AbstractAssoc =>
+                  // An applied abstract associated type is a *type-function application* — non-injective, exactly like
+                  // a stuck native (`?AddResult[Int[0,1], Int[2,3]] ~ Int[a, b]` must not solve `?AddResult := Int` and
+                  // decompose the arguments). Postpone; the associated-type application reducer resolves it through the
+                  // matching instance once the arguments ground.
+                  copy(postponed = (VMeta(id, spine), rhs, context) :: postponed)
+                case _                         =>
+                  // Non-empty spine — try injectivity decomposition first, otherwise postpone.
+                  tryDecomposeApplied(id, spineList, rhs, context)
+                    .getOrElse(copy(postponed = (VMeta(id, spine), rhs, context) :: postponed))
+              }
             }
         }
     }

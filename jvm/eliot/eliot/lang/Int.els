@@ -186,3 +186,19 @@ implement[Cmin: BigInteger, Cmax: BigInteger] IntArith[Cmin, Cmax] where not(fit
    def multiplyOp(a: Int[Cmin, Cmax], b: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
      nativeMultiplyBigIntegerToBigInteger(a, b)
 }
+
+/**
+ * Value ordering of two integers at a common range. A backend leaf: unlike the arithmetic leaves, one native covers
+ * every width, because the result is a `Bool` — there is no result-width to dispatch on. The emission picks its
+ * working representation (primitive `long` comparison, or `BigInteger.compareTo`) from the operands' lowered
+ * representations.
+ */
+private def intLessThanOrEqual[L: BigInteger, H: BigInteger](a: Int[L, H], b: Int[L, H]): Bool
+
+/**
+ * Runtime value ordering for `Int`: `Compare` over any single range, delegating to the one width-agnostic leaf.
+ * Bounds do not affect the ordering, so no width dispatch is needed (contrast `IntArith`, whose result bounds grow).
+ */
+implement[L: BigInteger, H: BigInteger] Compare[Int[L, H]] {
+   def lessThanOrEqual(a: Int[L, H], b: Int[L, H]): Bool = intLessThanOrEqual(a, b)
+}

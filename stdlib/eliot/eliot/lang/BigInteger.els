@@ -1,6 +1,7 @@
 import eliot.lang.Bool
 import eliot.lang.Compare
 import eliot.lang.Arithmetic
+import eliot.compiler.Combine
 
 type BigInteger
 
@@ -19,6 +20,13 @@ implement Arithmetic[BigInteger, BigInteger] {
    def subtract(a: BigInteger, b: BigInteger): SubResult
    def multiply(a: BigInteger, b: BigInteger): MulResult
 }
+
+/**
+ * Combining `BigInteger` with itself is `BigInteger` — the unbounded type is its own join. Purely type-level and
+ * platform-independent (like `Combine[Int, Int]`), used e.g. by `Interval`'s multiplication result formula, whose
+ * corner-product types meet in a `Combined`.
+ */
+implement Combine[BigInteger, BigInteger] { type Combined = BigInteger }
 
 /**
  * The successor of `bi` (`bi + 1`).

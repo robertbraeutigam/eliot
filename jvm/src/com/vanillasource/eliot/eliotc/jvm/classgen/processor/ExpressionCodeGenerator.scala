@@ -301,6 +301,41 @@ object ExpressionCodeGenerator {
         arguments,
         expectedResultType
       )
+    } else if (calledVfqn === Intrinsics.intLessThanOrEqualFQN) {
+      // The ordering leaf: compare in primitive `long` (`LCMP`) when both operands fit it, else via
+      // `BigInteger.compareTo`; either way branch the comparison outcome into a boxed `Boolean`.
+      val leftRep       = representationInternalName(arguments(0).expressionType)
+      val rightRep      = representationInternalName(arguments(1).expressionType)
+      val viaBigInteger = leftRep === bigIntegerInternalName || rightRep === bigIntegerInternalName
+      val trueLabel     = new Label()
+      val endLabel      = new Label()
+      for {
+        classes1 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
+        _        <- methodGenerator.runNative[CompilationTypesIO](
+                      if (viaBigInteger) pushAsBigInteger(leftRep) else unboxToLong(leftRep)
+                    )
+        classes2 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
+        _        <- methodGenerator.runNative[CompilationTypesIO](
+                      if (viaBigInteger) pushAsBigInteger(rightRep) else unboxToLong(rightRep)
+                    )
+        _        <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                      if (viaBigInteger)
+                        mv.visitMethodInsn(
+                          Opcodes.INVOKEVIRTUAL,
+                          bigIntegerInternalName,
+                          "compareTo",
+                          "(Ljava/math/BigInteger;)I",
+                          false
+                        )
+                      else mv.visitInsn(Opcodes.LCMP)
+                      mv.visitJumpInsn(Opcodes.IFLE, trueLabel)
+                      pushBoolConstant(false)(mv)
+                      mv.visitJumpInsn(Opcodes.GOTO, endLabel)
+                      mv.visitLabel(trueLabel)
+                      pushBoolConstant(true)(mv)
+                      mv.visitLabel(endLabel)
+                    }
+      } yield classes1 ++ classes2
     } else {
       val resultRep = representationInternalName(expectedResultType)
       val leftRep   = representationInternalName(arguments(0).expressionType)

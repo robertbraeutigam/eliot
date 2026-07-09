@@ -204,6 +204,177 @@ class AbilityResolver(
     }
   }
 
+  /** Reduce every *applied* abstract associated-type form inside a semantic value through its resolved ability
+    * implementation. `AddResult[Int[0, 1], Int[2, 3]]` — the ability member as a first-class type function, applied to
+    * ground ability arguments — resolves the `Arithmetic[Int[0, 1], Int[2, 3]]` implementation and reduces to that
+    * impl's associated-type binding applied to the matched impl generics (`Int[2, 4]`), recursively (a formula like
+    * `Interval[AddResult[S1, S2], AddResult[E1, E2]]` reduces its nested applications too). Two head shapes carry such
+    * an application: an applied [[MetaRole.AbstractAssoc]] metavariable (an in-session reference, created by
+    * `Checker.ensureBinding`) and an applied body-less [[VTopDef]] with an abstract-ability-type FQN (the
+    * missing-binding fallback inside a fetched impl binding).
+    *
+    * An application whose ability-arity argument prefix is not yet ground is left stuck (rebuilt with reduced
+    * arguments) — it reduces on a later pass once metavariables solve, or fails loudly at read-back. Ground arguments
+    * with no resolvable implementation are a failed demand, reported here at the demanding position
+    * ([[reportFailedDemand]]). Every successful reduction is recorded in [[CheckState.assocReductionCache]] for the
+    * pure post-drain substitution ([[substituteAssocReductions]]).
+    *
+    * `VPi` codomains (Scala closures) cannot be rewritten by this IO walk — only the domain is reduced here. A
+    * codomain-buried application is reduced when it *surfaces* (the body check applies the codomain, re-entering this
+    * reducer through `Checker.check`), and read back through the cache-driven substitution.
+    */
+  def reduceAssocApplications(v: SemValue, source: Sourced[?]): CheckIO[SemValue] =
+    get.flatMap { state =>
+      if (containsAssocApplication(v, state)) reduceAssoc(v, source) else pure(v)
+    }
+
+  /** Cheap pure pre-check for [[reduceAssocApplications]]: whether the value contains an applied abstract
+    * associated-type form anywhere the IO reducer can reach (spines and `VPi` domains — deliberately mirroring the
+    * reducer's reach, so a `false` here never skips a reducible form).
+    */
+  private def containsAssocApplication(v: SemValue, state: CheckState): Boolean = {
+    def go(x: SemValue): Boolean = Evaluator.force(x, state.unifier.metaStore) match {
+      case VMeta(id, spine)       =>
+        val args = spine.toList
+        (args.nonEmpty && state.unifier.roleOf(id.value).isInstanceOf[MetaRole.AbstractAssoc]) || args.exists(go)
+      case VTopDef(fqn, _, spine) =>
+        val args = spine.toList
+        (args.nonEmpty && ValueFQN.isAbstractAbilityType(fqn)) || args.exists(go)
+      case VStuckNative(_, spine) => spine.toList.exists(go)
+      case VNeutral(_, spine)     => spine.toList.exists(go)
+      case VPi(domain, _)         => go(domain)
+      case _                      => false
+    }
+    go(v)
+  }
+
+  private def reduceAssoc(v: SemValue, source: Sourced[?]): CheckIO[SemValue] =
+    get.flatMap { state =>
+      Evaluator.force(v, state.unifier.metaStore) match {
+        case VMeta(id, spine) if spine.toList.nonEmpty =>
+          state.unifier.roleOf(id.value) match {
+            case MetaRole.AbstractAssoc(fqn) => reduceAssocApplication(fqn, spine.toList, source)
+            case _                           => rebuildSpine(VMeta(id, Spine.SNil), spine, source)
+          }
+        case VTopDef(fqn, None, spine) if ValueFQN.isAbstractAbilityType(fqn) && spine.toList.nonEmpty =>
+          reduceAssocApplication(fqn, spine.toList, source)
+        case VTopDef(fqn, cached, spine)               => rebuildSpine(VTopDef(fqn, cached, Spine.SNil), spine, source)
+        case VStuckNative(fqn, spine)                  => rebuildSpine(VStuckNative(fqn, Spine.SNil), spine, source)
+        case VNeutral(head, spine)                     => rebuildSpine(VNeutral(head, Spine.SNil), spine, source)
+        case VPi(domain, codomain)                     => reduceAssoc(domain, source).map(VPi(_, codomain))
+        case other                                     => pure(other)
+      }
+    }
+
+  private def rebuildSpine(head: SemValue, spine: Spine, source: Sourced[?]): CheckIO[SemValue] =
+    spine.toList.traverse(reduceAssoc(_, source)).map(_.foldLeft(head)(Evaluator.applyValue))
+
+  /** Reduce one associated-type application `fqn[args...]`. The leading ability-arity prefix of the (recursively
+    * reduced) arguments must quote to ground values for the implementation query; otherwise the application is left
+    * stuck with its reduced arguments.
+    */
+  private def reduceAssocApplication(
+      fqn: ValueFQN,
+      args: List[SemValue],
+      source: Sourced[?]
+  ): CheckIO[SemValue] =
+    for {
+      reducedArgs <- args.traverse(reduceAssoc(_, source))
+      arity       <- abilityNameOf(fqn).fold(pure(Int.MaxValue))(name => abilityArity(fqn, name))
+      state       <- get
+      stuck        = reducedArgs.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(Evaluator.applyValue)
+      result      <- if (reducedArgs.length < arity) pure(stuck)
+                     else
+                       reducedArgs.take(arity).traverse(a => Quoter.quote(0, a, state.unifier.metaStore)) match {
+                         case Left(_)           => pure(stuck)
+                         case Right(groundArgs) =>
+                           state.assocReductionCache.get((fqn, groundArgs)) match {
+                             case Some(cached) =>
+                               pure(reducedArgs.drop(arity).foldLeft(cached)(Evaluator.applyValue))
+                             case None         =>
+                               resolveAndProject(fqn, groundArgs, reducedArgs.drop(arity), stuck, source)
+                           }
+                       }
+    } yield result
+
+  /** Resolve the implementation for one ground associated-type application and project its binding. A resolvable impl
+    * without a binding for this member mirrors [[injectForImpl]]'s silent skip (the member was never given a concrete
+    * value — surfaced at read-back, never silently retyped). A ground application with no resolvable impl is a failed
+    * demand, reported at this position.
+    */
+  private def resolveAndProject(
+      fqn: ValueFQN,
+      groundArgs: Seq[GroundValue],
+      extraArgs: List[SemValue],
+      stuck: SemValue,
+      source: Sourced[?]
+  ): CheckIO[SemValue] =
+    liftF(resolveAbility(fqn, groundArgs)).flatMap {
+      case Some((implFqn, implTypeArgs)) =>
+        val implAssocFqn = ValueFQN(implFqn.moduleName, QualifiedName(fqn.name.name, implFqn.name.qualifier))
+        liftF(fetchBinding(implAssocFqn)).flatMap {
+          case None      => pure(stuck)
+          case Some(sem) =>
+            val applied = implTypeArgs.map(Evaluator.groundToSem).foldLeft(sem)(Evaluator.applyValue)
+            for {
+              reduced <- reduceAssoc(applied, source)
+              _       <- if (extraArgs.isEmpty) modify(_.cacheAssocReduction(fqn, groundArgs, reduced)) else pure(())
+            } yield extraArgs.foldLeft(reduced)(Evaluator.applyValue)
+        }
+      case None                          =>
+        abilityNameOf(fqn) match {
+          case Some(name) => reportFailedDemand(source.as(fqn), name, groundArgs).as(stuck)
+          case None       => pure(stuck)
+        }
+    }
+
+  private def abilityNameOf(fqn: ValueFQN): Option[String] = fqn.name.qualifier match {
+    case Qualifier.Ability(name) => Some(name)
+    case _                       => None
+  }
+
+  /** Pure post-drain substitution of already-reduced associated-type applications, from
+    * [[CheckState.assocReductionCache]]. Unlike the IO reducer this walk *can* descend under binders (it rebuilds
+    * `VPi`/`VLam` closures purely), so a codomain-buried application the body check already reduced — the impl
+    * method's own published return — reads back concrete. An application not in the cache is left as-is: the strict
+    * quoter rejects it loudly, never silently.
+    */
+  def substituteAssocReductions(v: SemValue): CheckIO[SemValue] =
+    inspect(state => assocSubstitution(state)(v))
+
+  /** The pure substitution function over a state snapshot — see [[substituteAssocReductions]]. Also handed to the
+    * [[PostDrainQuoter]], where every quoted type slot (signature and body alike) passes through it.
+    */
+  def assocSubstitution(state: CheckState): SemValue => SemValue = {
+    def lookup(fqn: ValueFQN, args: List[SemValue], emptyHead: SemValue): SemValue = {
+      val rebuilt = args.foldLeft(emptyHead)(Evaluator.applyValue)
+      args.traverse(a => Quoter.quote(0, a, state.unifier.metaStore).toOption) match {
+        case Some(ground) => state.assocReductionCache.getOrElse((fqn, ground), rebuilt)
+        case None         => rebuilt
+      }
+    }
+    def go(x: SemValue): SemValue = Evaluator.force(x, state.unifier.metaStore) match {
+      case VMeta(id, spine)          =>
+        val args = spine.toList.map(go)
+        state.unifier.roleOf(id.value) match {
+          case MetaRole.AbstractAssoc(fqn) if args.nonEmpty => lookup(fqn, args, VMeta(id, Spine.SNil))
+          case _                                            => args.foldLeft(VMeta(id, Spine.SNil): SemValue)(Evaluator.applyValue)
+        }
+      case VTopDef(fqn, None, spine) =>
+        val args = spine.toList.map(go)
+        if (ValueFQN.isAbstractAbilityType(fqn) && args.nonEmpty) lookup(fqn, args, VTopDef(fqn, None, Spine.SNil))
+        else args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(Evaluator.applyValue)
+      case VStuckNative(fqn, spine)  =>
+        spine.toList.map(go).foldLeft(VStuckNative(fqn, Spine.SNil): SemValue)(Evaluator.applyValue)
+      case VNeutral(head, spine)     =>
+        spine.toList.map(go).foldLeft(VNeutral(head, Spine.SNil): SemValue)(Evaluator.applyValue)
+      case VPi(domain, codomain)     => VPi(go(domain), arg => go(codomain(arg)))
+      case VLam(name, closure)       => VLam(name, arg => go(closure(arg)))
+      case other                     => other
+    }
+    go
+  }
+
   /** For every abstract associated type of the given ability, unify its standing meta against the concrete impl's
     * corresponding associated-type value (looked up via [[fetchBinding]]). Missing impl bindings are silently skipped —
     * they were never in use, so no constraint is needed.
@@ -240,19 +411,25 @@ class AbilityResolver(
                   liftF(fetchBinding(implAssocFqn)).flatMap {
                     case None      => pure(())
                     case Some(sem) =>
-                      modify { s =>
-                        val applied = implTypeArgs
-                          .map(Evaluator.groundToSem)
-                          .foldLeft(sem)(Evaluator.applyValue)
-                        s.withUnifier(
-                          s.unifier
-                            .unify(
-                              VMeta(metaId, Spine.SNil),
-                              Evaluator.force(applied, s.unifier.metaStore),
-                              source.as(s"Associated type '${absFqn.name.name}' mismatch.")
-                            )
-                        )
-                      }
+                      val applied = implTypeArgs
+                        .map(Evaluator.groundToSem)
+                        .foldLeft(sem)(Evaluator.applyValue)
+                      for {
+                        // A formula binding may itself contain associated-type *applications* (Interval's
+                        // `Interval[AddResult[S1, S2], AddResult[E1, E2]]`) — now applied to ground impl generics, so
+                        // reduce them through their own instances before solving the standing meta.
+                        reduced <- reduceAssocApplications(applied, source)
+                        _       <- modify { s =>
+                                     s.withUnifier(
+                                       s.unifier
+                                         .unify(
+                                           VMeta(metaId, Spine.SNil),
+                                           Evaluator.force(reduced, s.unifier.metaStore),
+                                           source.as(s"Associated type '${absFqn.name.name}' mismatch.")
+                                         )
+                                     )
+                                   }
+                      } yield ()
                   }
                 }
     } yield ()

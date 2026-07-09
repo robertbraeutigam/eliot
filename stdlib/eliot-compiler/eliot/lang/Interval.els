@@ -1,0 +1,36 @@
+import eliot.lang.Arithmetic
+import eliot.lang.Compare
+
+/**
+ * The compile-time `Interval`: the compiler platform's self-sufficient copy of the representation and the instance
+ * bodies, structurally identical to the JVM layer's (the bodies are pure — endpoint-wise delegation to the endpoints'
+ * own `Arithmetic`/`Compare` — so the same Eliot code runs under the compiler's NbE evaluator). Self-sufficiency is
+ * the point: a compile-time interval (e.g. as an `Int` bound object) must not depend on a sibling *runtime* target's
+ * layer being present.
+ */
+data Interval[S, E](start: S, end: E)
+
+// The compiler half of the base's split `Arithmetic[Interval, Interval]` instance — same `(ability, pattern)` as the
+// base's abstract half, merged in the compiler pool (this overlay supersedes the borrowed runtime copy for these
+// names).
+implement[S1, E1, S2, E2 ~ Arithmetic[S1, S2] & Arithmetic[E1, E2] & Arithmetic[S1, E2] & Arithmetic[E1, S2]]
+      Arithmetic[Interval[S1, E1], Interval[S2, E2]] {
+   type AddResult
+   type SubResult
+   type MulResult
+
+   def add(a: Interval[S1, E1], b: Interval[S2, E2]): AddResult =
+      Interval(start(a) + start(b), end(a) + end(b))
+   def subtract(a: Interval[S1, E1], b: Interval[S2, E2]): SubResult =
+      Interval(start(a) - end(b), end(a) - start(b))
+   // The corner binders carry explicit `MulResult[...]` annotations: an unannotated `val`'s type would still be the
+   // multiplication's unsolved associated-type metavariable when `min`/`max` unify their two argument slots, aliasing
+   // the corners' metas into one instead of joining the four concrete corner types.
+   def multiply(a: Interval[S1, E1], b: Interval[S2, E2]): MulResult = {
+      val c11: MulResult[S1, S2] = start(a) * start(b)
+      val c12: MulResult[S1, E2] = start(a) * end(b)
+      val c21: MulResult[E1, S2] = end(a) * start(b)
+      val c22: MulResult[E1, E2] = end(a) * end(b)
+      Interval(min(min(min(c11, c12), c21), c22), max(max(max(c11, c12), c21), c22))
+   }
+}

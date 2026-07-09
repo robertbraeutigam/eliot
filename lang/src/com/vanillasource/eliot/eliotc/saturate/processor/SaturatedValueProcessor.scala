@@ -134,13 +134,17 @@ class SaturatedValueProcessor
     val (head, args) = spine(SignatureView.of(signature).returnType.value)
     head match {
       case _: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
-        // An abstract associated-type return (e.g. `AddResult` of `Arithmetic[X, Y]`) from a plain generic function
-        // (`def twice[X, Y ~ Arithmetic[X, Y]]: AddResult`) is calculated: its concrete type is the associated type the
-        // constraint projects at each call's type arguments, read from the monomorphized callee
-        // ([[com.vanillasource.eliot.eliotc.monomorphize.check.CalculatedReturnResolver]]). Ability members are excluded
-        // (`isAbilityMember`) — a method's own associated-type return resolves through per-reference ability resolution
+        // A *bare* abstract associated-type return (e.g. `AddResult` of `Arithmetic[X, Y]`) from a plain generic
+        // function (`def twice[X, Y ~ Arithmetic[X, Y]]: AddResult`) is calculated: its concrete type is the associated
+        // type the constraint projects at each call's type arguments, read from the monomorphized callee
+        // ([[com.vanillasource.eliot.eliotc.monomorphize.check.CalculatedReturnResolver]]). An *applied* one
+        // (`AddResult[Int[0, 1], Int[2, 3]]`) is a declared, computable type — marking it calculated would silently
+        // replace the declaration with whatever the body infers; it is reduced through the instance by the checker's
+        // associated-type application reducer instead. Ability members are excluded (`isAbilityMember`) — a method's
+        // own associated-type return resolves through per-reference ability resolution
         // ([[com.vanillasource.eliot.eliotc.monomorphize.check.AbilityResolver]] `injectForImpl`), not this back-edge.
-        if (!isAbilityMember && ValueFQN.isAbstractAbilityType(headFqn(head))) true.pure[CompilerIO]
+        if (ValueFQN.isAbstractAbilityType(headFqn(head)))
+          (!isAbilityMember && args.isEmpty).pure[CompilerIO]
         else inferableInfo(headFqn(head)).map(_.exists { case (arity, _) => args.length < arity })
       case _                                                                          => false.pure[CompilerIO]
     }

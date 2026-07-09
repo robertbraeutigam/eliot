@@ -408,4 +408,95 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def main: IO[Unit] = printLine(intToString(plus(times(a, b), a)))""".stripMargin
     ).asserting(_ shouldBe "630")
   }
+
+  // --- Associated types as first-class type functions: `AddResult[X, Y]` applied directly in a signature. ---
+
+  // A direct application of an ability's associated type to ground arguments reduces through the matching instance:
+  // `AddResult[Int[0, 1], Int[2, 3]]` IS `Int[2, 4]`, so the widening literal compiles and runs.
+  "associated type application" should "reduce a directly applied associated type in a signature" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |
+        |def four: AddResult[Int[0, 1], Int[2, 3]] = 4
+        |
+        |def main: IO[Unit] = printLine(intToString(four))""".stripMargin
+    ).asserting(_ shouldBe "4")
+  }
+
+  // The reduced application genuinely constrains the body: 5 does not fit Int[2, 4]. (This used to be silently
+  // accepted — the applied associated-type return was discarded as a calculated return and refilled from the body.)
+  it should "reject a body outside the reduced associated type's range" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |
+        |def five: AddResult[Int[0, 1], Int[2, 3]] = 5
+        |
+        |def main: IO[Unit] = printLine(intToString(five))""".stripMargin
+    ).asserting(_ should include("mismatch"))
+  }
+
+  // --- Interval: the split-instance client of associated-type applications (endpoint-wise interval arithmetic). ---
+
+  // Interval addition is endpoint-wise; the exact endpoint annotations compiling proves the instance's result formula
+  // `Interval[AddResult[S1, S2], AddResult[E1, E2]]` reduced to the exact endpoint types.
+  "the Interval type" should "add intervals with exact endpoint result types" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |import eliot.lang.Interval
+        |
+        |def a: Interval[Int[0, 0], Int[1, 1]] = Interval(0, 1)
+        |def b: Interval[Int[1, 1], Int[2, 2]] = Interval(1, 2)
+        |
+        |def sum: Interval[Int[1, 1], Int[3, 3]] = a + b
+        |
+        |def main: IO[Unit] = {
+        |  printLine(intToString(sum.start))
+        |  printLine(intToString(sum.end))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "1\n3")
+  }
+
+  // Subtraction pairs a start with the other interval's end (the crossing is value-level); multiplication selects the
+  // min/max of the four corner products at runtime (via the `Compare[Int]` ordering leaf), with both result endpoints
+  // in the corners' `Combine` join.
+  it should "subtract and multiply intervals with exact endpoint result types" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |import eliot.lang.Interval
+        |
+        |def a: Interval[Int[0, 0], Int[1, 1]] = Interval(0, 1)
+        |def b: Interval[Int[1, 1], Int[2, 2]] = Interval(1, 2)
+        |
+        |def diff: Interval[Int[-2, -2], Int[0, 0]] = a - b
+        |def prod: Interval[Int[0, 2], Int[0, 2]] = a * b
+        |
+        |def main: IO[Unit] = {
+        |  printLine(intToString(diff.start))
+        |  printLine(intToString(diff.end))
+        |  printLine(intToString(prod.start))
+        |  printLine(intToString(prod.end))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "-2\n0\n0\n2")
+  }
+
+  // A declared endpoint type the computed one does not fit is rejected — the interval result types are genuinely
+  // computed, not widened or inferred from the body.
+  it should "reject a declared interval endpoint the computed sum does not produce" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |import eliot.lang.Arithmetic
+        |import eliot.lang.Interval
+        |
+        |def a: Interval[Int[0, 0], Int[1, 1]] = Interval(0, 1)
+        |def b: Interval[Int[1, 1], Int[2, 2]] = Interval(1, 2)
+        |
+        |def wrong: Interval[Int[0, 0], Int[3, 3]] = a + b
+        |
+        |def main: IO[Unit] = printLine(intToString(wrong.start))""".stripMargin
+    ).asserting(_ should include("mismatch"))
+  }
 }

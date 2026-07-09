@@ -48,6 +48,13 @@ object Intrinsics {
     */
   val nativeWidenFQN: ValueFQN = langInt("nativeWiden")
 
+  /** `intLessThanOrEqual(a, b): Bool` — the ordering leaf behind the runtime `Compare[Int]` instance. One leaf covers
+    * every width: the result is a `Bool` (no result-width growth to dispatch on), and the emission picks its working
+    * representation (primitive `long` via `LCMP`, or `BigInteger.compareTo`) from the operands' lowered
+    * representations.
+    */
+  val intLessThanOrEqualFQN: ValueFQN = langInt("intLessThanOrEqual")
+
   /** The operand→result width suffixes naming the Phase-4 arithmetic leaves (see `Int.els`). */
   private val widthSuffixes: Seq[String] =
     Seq(
@@ -76,7 +83,7 @@ object Intrinsics {
     Set(boolTrueFQN, boolFalseFQN, boolFoldFQN, boolAndFQN, boolOrFQN, boolNotFQN)
 
   val all: Set[ValueFQN] =
-    Set(intToStringFQN, nativeWidenFQN) ++ addLeaves ++ subtractLeaves ++ multiplyLeaves ++ boolOps
+    Set(intToStringFQN, nativeWidenFQN, intLessThanOrEqualFQN) ++ addLeaves ++ subtractLeaves ++ multiplyLeaves ++ boolOps
 
   def isIntrinsic(vfqn: ValueFQN): Boolean = all.contains(vfqn)
 }

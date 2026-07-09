@@ -153,7 +153,14 @@ class TypeStackLoop(
       // concrete `Bool`). Gated on a body-less guarded signature, so ordinary and W2b (bodied) signatures are untouched.
       guardMarker    = sawGuard && resolvedValue.checkingRuntime.isEmpty
       guardBindings <- if (guardMarker) reduceGuardSubValues(levelExprs) else pure(Map.empty[ValueFQN, SemValue])
-      finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(resolvedValue, guardBindings) else pure(checkSig)
+      guardedSig    <- if (guardBindings.nonEmpty) reevaluateGuardReturn(resolvedValue, guardBindings) else pure(checkSig)
+
+      // Resolve associated-type *applications* left in the published signature: top-level (and `VPi`-domain) forms via
+      // the IO reducer, codomain-buried ones (the impl method's own return formula) via the pure cache-driven
+      // substitution — the body check already reduced the same applications, so the cache carries them. An application
+      // that slips both is rejected loudly by the strict quoter, never published abstract.
+      reducedSig    <- checker.abilityResolver.reduceAssocApplications(guardedSig, resolvedValue.name)
+      finalSig      <- checker.abilityResolver.substituteAssocReductions(reducedSig)
       quoterState   <- get
 
       // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
@@ -165,7 +172,8 @@ class TypeStackLoop(
                      monoEnv,
                      fqn =>
                        implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(quoterState.bindingCache.getOrElse(fqn, None)),
-                     track.platform
+                     track.platform,
+                     checker.abilityResolver.assocSubstitution(quoterState)
                    )
       groundSig <- liftF(quoter.quoteSem(finalSig, resolvedValue.typeStack))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
