@@ -219,8 +219,8 @@ class RefinementChannelProcessor
       operandB: (BigInt, BigInt)
   ): CompilerIO[Option[(BigInt, BigInt)]] =
     applyIntervalInstance(
-      arithmeticAbilityMethod(leaf),
-      Seq(intervalType, intervalType),
+      numericAbilityMethod(leaf),
+      Seq(intervalType),
       Seq(intervalValue(operandA), intervalValue(operandB))
     )
 
@@ -243,8 +243,8 @@ class RefinementChannelProcessor
     * the `Interval` transfer / `Meta.join`. `None` when the instance does not resolve (channel cannot compute — silent
     * in shadow mode) or the result does not read back to an interval.
     *
-    * @param abilityMethodFqn the ability *method* to resolve (`Arithmetic::add`/…, or `Meta::join`)
-    * @param abilityTypeArgs  the ability's type arguments (`[Interval, Interval]` for `Arithmetic`, `[Interval]` for `Meta`)
+    * @param abilityMethodFqn the ability *method* to resolve (`Numeric::add`/…, or `Meta::join`)
+    * @param abilityTypeArgs  the ability's type arguments (`[Interval]` for both single-parameter `Numeric` and `Meta`)
     * @param intervalValues   the value arguments to apply (each an `Interval(lo, hi)` ground value)
     */
   private def applyIntervalInstance(
@@ -273,7 +273,7 @@ class RefinementChannelProcessor
 
 object RefinementChannelProcessor {
   private val intModule: ModuleName      = ModuleName(ModuleName.defaultSystemPackage, "Int")
-  private val arithModule: ModuleName    = ModuleName(ModuleName.defaultSystemPackage, "Arithmetic")
+  private val numericModule: ModuleName  = ModuleName(ModuleName.defaultSystemPackage, "Numeric")
   private val intervalModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Interval")
   private val bigIntModule: ModuleName   = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
 
@@ -305,16 +305,17 @@ object RefinementChannelProcessor {
   private[channel] def isArithmeticLeaf(vfqn: ValueFQN): Boolean =
     vfqn == nativeAddFqn || vfqn == nativeSubtractFqn || vfqn == nativeMultiplyFqn
 
-  /** The `Arithmetic` ability method that computes the transfer for a leaf — `add`/`subtract`/`multiply`, in the
-    * `Ability("Arithmetic")` namespace. Resolved on the `Interval` operand type to reach the compiler-pool interval
-    * instance.
+  /** The `Numeric` ability method that computes the transfer for a leaf — `add`/`subtract`/`multiply`, in the
+    * `Ability("Numeric")` namespace. Resolved on the single `Interval` operand type (`Numeric[Interval[T, T]]`) to reach
+    * the compiler-pool interval instance — the non-associated-type domain arithmetic (`docs/bounds-as-refinements.md`
+    * Step 5), off `Arithmetic`'s associated-type machinery.
     */
-  private[channel] def arithmeticAbilityMethod(leaf: ValueFQN): ValueFQN = {
+  private[channel] def numericAbilityMethod(leaf: ValueFQN): ValueFQN = {
     val name =
       if (leaf == nativeAddFqn) "add"
       else if (leaf == nativeSubtractFqn) "subtract"
       else "multiply"
-    ValueFQN(arithModule, QualifiedName(name, Qualifier.Ability("Arithmetic")))
+    ValueFQN(numericModule, QualifiedName(name, Qualifier.Ability("Numeric")))
   }
 
   private def operatorName(leaf: ValueFQN): String =

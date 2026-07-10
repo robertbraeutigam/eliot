@@ -1,0 +1,30 @@
+/**
+ * Homogeneous arithmetic over a single type `A`: `add`, `subtract`, and `multiply`, each `A -> A -> A`. Unlike the
+ * heterogeneous `Arithmetic[A, B]` (whose result type is computed from *both* operand types so a dependently-bounded
+ * `Int[L1,H1] + Int[L2,H2]` can name a distinct result range), `Numeric` keeps the operand and result types the same —
+ * the shape a number type wants once its value range is tracked in the refinement channel rather than in its type
+ * (`docs/bounds-as-refinements.md`), so `add` is simply `A -> A -> A`.
+ *
+ * This is the ability the refinement channel's domain code runs: the compile-time `Interval` closes under arithmetic
+ * through its endpoints' `Numeric` (a single-parameter instance, no associated result types), which is what lets the
+ * `^Meta` transfer companions dispatch on ground types. `Numeric` deliberately declares no `+`/`-`/`*` operators — those
+ * stay on `Arithmetic` until the flag day, so `Numeric` is reached only by name (`add`/`subtract`/`multiply`) or through
+ * an instance's own body.
+ */
+ability Numeric[A] {
+   def add(a: A, b: A): A
+   def subtract(a: A, b: A): A
+   def multiply(a: A, b: A): A
+}
+
+/**
+ * `BigInteger` supplies `Numeric` natively. Like `Compare[BigInteger]` and `Arithmetic[BigInteger, BigInteger]`, the
+ * methods are deliberately body-less: arbitrary-precision arithmetic is a compiler/backend leaf (`BigInteger` has no
+ * in-language representation), so each reduction is attached directly to its implementation method. This is the
+ * endpoint arithmetic the compile-time `Interval` domain instance delegates to when the channel evaluates a transfer.
+ */
+implement Numeric[BigInteger] {
+   def add(a: BigInteger, b: BigInteger): BigInteger
+   def subtract(a: BigInteger, b: BigInteger): BigInteger
+   def multiply(a: BigInteger, b: BigInteger): BigInteger
+}

@@ -1,10 +1,13 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN — direction adopted (C); Steps 0–3 landed, Step 4 partial.** Steps 0–3 done; Step 4's
-`^Meta` **desugar machinery** landed (4a meta structure + 4b-i transfer-companion desugar + Int's slot,
-all committed & green), but the channel's **evaluation** of the companion (4c) is blocked on the
-associated-type lane and has been **re-ordered after Step 5** — see §8 Step 4 for the full state and
-the re-order rationale. Written 2026-07-10, following the
+**Status: DESIGN — direction adopted (C); Steps 0–3 + 5 landed, Step 4 partial (4c next).** Steps 0–3 done;
+Step 4's `^Meta` **desugar machinery** landed (4a meta structure + 4b-i transfer-companion desugar + Int's
+slot, all committed & green), but the channel's **evaluation** of the companion (4c) was blocked on the
+associated-type lane and was **re-ordered after Step 5** — see §8 Step 4 for the re-order rationale. **Step 5
+is now landed** (2026-07-10): single-parameter `Numeric[T]` + `implement Numeric[BigInteger]`, and the
+domain-side compile-time `Interval` arithmetic the channel evaluates is rewritten onto a non-associated-type
+`Numeric[Interval[T, T]]` instance — so 4c's transfer companion now has ground-typed dispatch and is
+unblocked. Written 2026-07-10, following the
 Interval/Arithmetic associated-types work (commit 3ad7ba38) and the design discussion it triggered.
 Extended the same day with the channel's semantics (§4), and again 2026-07-10 with the decisive
 simplification that reframes §3–§4: meta-information is carried by a **`^Meta` companion** in a new
@@ -856,8 +859,11 @@ the runtime pool, never code-generated); only the `^Meta` *transfer companions* 
   `Int$Meta` generated in the real stdlib+jvm compile; verified unperturbed (jvm 193/0). Inert and
   transitional (Int keeps its `[MIN, MAX]` parameters, the shadow-mode source of truth until Step 6).
 
-- 4c — **channel evaluates the `^Meta` transfer companion — BLOCKED on the assoc lane; RE-ORDERED to
-  AFTER Step 5.** The companion's *home* is resolved (Robert chose dedicated base-layer transfer
+- 4c — **channel evaluates the `^Meta` transfer companion — was BLOCKED on the assoc lane; RE-ORDERED to
+  AFTER Step 5, which has now LANDED (2026-07-10), so 4c is UNBLOCKED and is the next step.** The blocking
+  cause below is now resolved: the domain-side Interval arithmetic is plain `Interval → Interval → Interval`
+  (`Numeric[Interval[T, T]]`, no `AddResult`), so a vessel calling *that* directly has ground-typed dispatch.
+  The companion's *home* is resolved (Robert chose dedicated base-layer transfer
   vessels `def rangeAdd(a: Int, b: Int): Int {range(a) + range(b)}` / `rangeSubtract` / `rangeMultiply`
   in stdlib `Int.els`, co-located with the `range` slot so `Int$Meta` + the accessor resolve
   per-file; the channel maps each leaf `nativeAdd → rangeAdd^Meta`, `reduceInstance`s the companion,
@@ -880,21 +886,47 @@ the runtime pool, never code-generated); only the `^Meta` *transfer companions* 
   `^Meta`, `match` ⤳ `Meta.join`), retiring the Step-2b `handleCases` recognition. First-order only —
   the higher-order `^Meta`-of-function-args boundary (§7 Q3) stays deferred.
 
-**Checkpoint (2026-07-10):** 4a + 4b-i + 4b-ii-a are committed and green (full suite 1271/0; jvm
-193/0). The transfer (2a) and join (2b) shadow checks still fire via the existing Step-2 paths, so
-there is **no coverage regression**. The `^Meta` desugar machinery is complete; only the channel's
-companion *evaluation* (4c) is pending, and it is now gated on Step 5. `where`-on-defs and any
-value-position contract remain out of Step 4 (deferred — Option B / §8 Step 8).
+**Checkpoint (2026-07-10):** 4a + 4b-i + 4b-ii-a + **Step 5** are committed and green (full suite 1271/0).
+The transfer (2a) and join (2b) shadow checks still fire via the existing Step-2 paths — now over the
+`Numeric[Interval[T, T]]` domain instance rather than the assoc `Arithmetic[Interval, Interval]` one — so
+there is **no coverage regression** (proven by forced-mismatch). The `^Meta` desugar machinery is complete
+and the non-assoc domain arithmetic 4c needs is in place; only the channel's companion *evaluation* (4c) is
+pending, now unblocked. `where`-on-defs and any value-position contract remain out of Step 4 (deferred —
+Option B / §8 Step 8).
 
-**Step 5 (now sequenced BEFORE Step 4c — the transfer companion's evaluation depends on this
-non-assoc arithmetic; see Step 4): `Numeric` groundwork; the domain code comes off `Arithmetic`.**
-Land single-parameter
+**Step 5 (sequenced BEFORE Step 4c — the transfer companion's evaluation depends on this
+non-assoc arithmetic; see Step 4): `Numeric` groundwork; the domain code comes off `Arithmetic`. — DONE
+(2026-07-10).** Land single-parameter
 `Numeric[T]` + `implement Numeric[BigInteger]` (plain `T -> T -> T` signatures), and rewrite the
 *domain-side* Interval arithmetic — the code the channel has been running since step 2 — onto
 `Numeric[BigInteger]`/the BigInteger natives directly, off `Arithmetic`'s assoc machinery. The
 `+`/`-`/`*` *operators* cannot switch yet (pre-flag-day, `Int[0,100] + Int[0,50]` still needs the
 heterogeneous typing), and the runtime `Interval[S, E]` instance stays on `Arithmetic` untouched.
-Green: channel agreement suite unchanged; `Arithmetic` now has no compile-time-critical client.
+*Landed:* `stdlib/eliot/eliot/lang/Numeric.els` declares `ability Numeric[A]` (`add`/`subtract`/`multiply :
+A -> A -> A`, **no operators** — reached only by name or inside an instance body) + body-less
+`implement Numeric[BigInteger]`, mirroring `Arithmetic[BigInteger]` (runtime track, borrowed to the compiler
+pool; native-bound compile-time). `StdlibNativesProcessor` binds `Numeric::add`/`subtract`/`multiply` both
+ways (ability-method FQN + impl-method dispatch), alongside — not replacing — the `Arithmetic` twins. The
+compiler overlay `stdlib/eliot-compiler/eliot/lang/Interval.els` gains
+`implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T, T]]` — bodies only, endpoint arithmetic via
+`Numeric`, corner min/max via `Compare`, **no `AddResult`/`SubResult`/`MulResult` formulas and no
+corner-binder `MulResult[...]` annotations** (the S2 payoff, arriving early because both endpoints share one
+type `T` at the domain). The overlay's old `Arithmetic[Interval, Interval]` copy is **removed** (its
+`add`/`subtract`/`multiply` names collided with `Numeric`'s in the one file — "Name defined in multiple
+abilities" — and the channel no longer resolves it; the runtime `Arithmetic[Interval]` split across base + jvm
+is untouched). `RefinementChannelProcessor.runTransfer` re-points from `Arithmetic::add`/… on `[Interval,
+Interval]` to `Numeric::add`/… on the single `[Interval]` type arg (`numericAbilityMethod`). Calling the bare
+ability method (`add(start(a), start(b))`) inside the same ability's instance body resolves to the abstract
+`Numeric::add` (dispatched per-type at monomorphization) and passes the recursion check — the resolver's
+`searchImplementationScope` over-match is gated to type-context, not bodies (precedent:
+`Effect[ThrowCarrier]::pure`). `FactCache.CACHE_VERSION` 6→7. **Load-bearing PROVEN by forced-mismatch**
+(break the `Numeric[Interval]` `add` high endpoint → the CLI build of `ArithmeticAbility` hard-errors
+"Refinement channel disagrees … channel computed [0, 50] but the type is [0, 150]"), so the channel genuinely
+evaluates the `Numeric` instance rather than silently skipping. Green: full suite 1271/0; the arithmetic
+examples (`ArithmeticAbility`/`Intervals`/`Ranges`/`MatchRanges`) build + run end-to-end.
+The refinement channel is now fully off `Arithmetic`; the only remaining compile-time `Arithmetic` clients
+are `Int`'s type-parameter bound formulas (`L1 + L2`, `multiplyMin`/`multiplyMax`), which die at the Step 6
+flag day.
 
 **Step 6 — the flag day: `Int` loses its type parameters.** The one bounded atom; everything it
 needs was pre-landed. Contents: (a) stdlib `Int.els` → plain `type Int {range: …}`; aliases stay

@@ -1,13 +1,17 @@
-import eliot.lang.Arithmetic
+import eliot.lang.Numeric
 import eliot.lang.Compare
 import eliot.compiler.Meta
 
 /**
- * The compile-time `Interval`: the compiler platform's self-sufficient copy of the representation and the instance
- * bodies, structurally identical to the JVM layer's (the bodies are pure — endpoint-wise delegation to the endpoints'
- * own `Arithmetic`/`Compare` — so the same Eliot code runs under the compiler's NbE evaluator). Self-sufficiency is
- * the point: a compile-time interval (e.g. as an `Int` bound object) must not depend on a sibling *runtime* target's
- * layer being present.
+ * The compile-time `Interval`: the compiler platform's self-sufficient copy of the representation and the domain
+ * instance bodies (the bodies are pure — endpoint-wise delegation to the endpoints' own `Numeric`/`Compare` — so the
+ * same Eliot code runs under the compiler's NbE evaluator). Self-sufficiency is the point: a compile-time interval
+ * (e.g. as an `Int` bound object) must not depend on a sibling *runtime* target's layer being present.
+ *
+ * Only the refinement-domain instances live here (`Meta[Interval[T, T]]`, `Numeric[Interval[T, T]]`) — the ones the
+ * bounds-as-refinements channel evaluates. The runtime `Arithmetic[Interval, Interval]` instance (with its
+ * associated-type result formulas) stays split across the base + jvm layers; the compiler track no longer needs it,
+ * so it is not copied into this overlay (`docs/bounds-as-refinements.md` Step 5).
  */
 data Interval[S, E](start: S, end: E)
 
@@ -24,27 +28,32 @@ implement[T ~ Compare[T]] Meta[Interval[T, T]] {
       Interval(min(start(a), start(b)), max(end(a), end(b)))
 }
 
-// The compiler half of the base's split `Arithmetic[Interval, Interval]` instance — same `(ability, pattern)` as the
-// base's abstract half, merged in the compiler pool (this overlay supersedes the borrowed runtime copy for these
-// names).
-implement[S1, E1, S2, E2 ~ Arithmetic[S1, S2] & Arithmetic[E1, E2] & Arithmetic[S1, E2] & Arithmetic[E1, S2]]
-      Arithmetic[Interval[S1, E1], Interval[S2, E2]] {
-   type AddResult
-   type SubResult
-   type MulResult
-
-   def add(a: Interval[S1, E1], b: Interval[S2, E2]): AddResult =
-      Interval(start(a) + start(b), end(a) + end(b))
-   def subtract(a: Interval[S1, E1], b: Interval[S2, E2]): SubResult =
-      Interval(start(a) - end(b), end(a) - start(b))
-   // The corner binders carry explicit `MulResult[...]` annotations: an unannotated `val`'s type would still be the
-   // multiplication's unsolved associated-type metavariable when `min`/`max` unify their two argument slots, aliasing
-   // the corners' metas into one instead of joining the four concrete corner types.
-   def multiply(a: Interval[S1, E1], b: Interval[S2, E2]): MulResult = {
-      val c11: MulResult[S1, S2] = start(a) * start(b)
-      val c12: MulResult[S1, E2] = start(a) * end(b)
-      val c21: MulResult[E1, S2] = end(a) * start(b)
-      val c22: MulResult[E1, E2] = end(a) * end(b)
+/**
+ * A same-endpoint `Interval[T, T]` closes under `Numeric` — the single-parameter, non-associated-type arithmetic the
+ * refinement channel evaluates as its transfer (`docs/bounds-as-refinements.md` Step 5). It is the domain-side twin of
+ * the base's split `Arithmetic[Interval, Interval]` instance, moved off `Arithmetic`'s associated-type machinery: because
+ * both endpoints share one type `T`, every result endpoint is again a `T`, so the operation is a plain
+ * `Interval[T, T] -> Interval[T, T] -> Interval[T, T]` and needs no `AddResult`/`SubResult`/`MulResult` formulas (nor
+ * the corner-binder `MulResult[...]` annotations the heterogeneous instance carried). The endpoint arithmetic delegates
+ * to the endpoints' own `Numeric` (and, for multiplication's corner selection, `Compare`).
+ *
+ *   - `[a, b] + [c, d] = [a + c, b + d]`
+ *   - `[a, b] - [c, d] = [a - d, b - c]`   (subtraction pairs a start with the other end)
+ *   - `[a, b] * [c, d] = [min of the four corner products, max of them]`
+ *
+ * At the `Int` domain (`T = BigInteger`) this is what the channel runs to recompute a transfer; the `add`/`subtract`/
+ * `multiply` calls in the bodies dispatch to `Numeric[BigInteger]` (the compile-time leaves).
+ */
+implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T, T]] {
+   def add(a: Interval[T, T], b: Interval[T, T]): Interval[T, T] =
+      Interval(add(start(a), start(b)), add(end(a), end(b)))
+   def subtract(a: Interval[T, T], b: Interval[T, T]): Interval[T, T] =
+      Interval(subtract(start(a), end(b)), subtract(end(a), start(b)))
+   def multiply(a: Interval[T, T], b: Interval[T, T]): Interval[T, T] = {
+      val c11 = multiply(start(a), start(b))
+      val c12 = multiply(start(a), end(b))
+      val c21 = multiply(end(a), start(b))
+      val c22 = multiply(end(a), end(b))
       Interval(min(min(min(c11, c12), c21), c22), max(max(max(c11, c12), c21), c22))
    }
 }

@@ -46,17 +46,17 @@ class RefinementChannelProcessorTest extends AnyFlatSpec with Matchers {
     isArithmeticLeaf(ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Int"), QualifiedName("nativeWiden", Qualifier.Default))) shouldBe false
   }
 
-  "arithmeticAbilityMethod" should "map each leaf to its Arithmetic ability method" in {
-    Seq(nativeAddFqn, nativeSubtractFqn, nativeMultiplyFqn).map(arithmeticAbilityMethod(_).name) shouldBe
+  "numericAbilityMethod" should "map each leaf to its Numeric ability method" in {
+    Seq(nativeAddFqn, nativeSubtractFqn, nativeMultiplyFqn).map(numericAbilityMethod(_).name) shouldBe
       Seq(
-        QualifiedName("add", Qualifier.Ability("Arithmetic")),
-        QualifiedName("subtract", Qualifier.Ability("Arithmetic")),
-        QualifiedName("multiply", Qualifier.Ability("Arithmetic"))
+        QualifiedName("add", Qualifier.Ability("Numeric")),
+        QualifiedName("subtract", Qualifier.Ability("Numeric")),
+        QualifiedName("multiply", Qualifier.Ability("Numeric"))
       )
   }
 
-  it should "resolve the method in the eliot.lang.Arithmetic module" in {
-    arithmeticAbilityMethod(nativeAddFqn).moduleName shouldBe ModuleName(ModuleName.defaultSystemPackage, "Arithmetic")
+  it should "resolve the method in the eliot.lang.Numeric module" in {
+    numericAbilityMethod(nativeAddFqn).moduleName shouldBe ModuleName(ModuleName.defaultSystemPackage, "Numeric")
   }
 
   "metaJoinFqn" should "name the Meta ability's join in the compiler package" in {
