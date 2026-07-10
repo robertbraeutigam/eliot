@@ -670,6 +670,35 @@ serialize for the incremental cache). Shadow assertion: channel interval == type
 interval everywhere, hard error under test. Green: no user-visible change plus the agreement
 suite. Split into 2a (straight-line propagation) and 2b (joins) if needed.
 
+**Step 2a — DONE (2026-07-10).** Straight-line transfers, shadow assertion, and the exported
+fact, built as a **post-pass** (not the in-checker rider the prose above imagines) — refinements
+are strictly downstream of type formation (§3's held invariant), so the channel can run entirely
+over the checker's output with zero risk to the checker's ~15 invariants; a `where`-guarded
+*instance* selection over a refinement stays downstream too (it may change which body runs, never a
+result type — the invariant outlaws the type-changing half), so it never forces the rider unless
+refinements become type identity (§7.1, deferred). Landed:
+`monomorphize/channel/RefinementChannelProcessor` (a `TransformationProcessor[MonomorphicValue.Key,
+RefinementTable.Key]`) walks each ground body; at the platform arithmetic **leaves**
+(`eliot.lang.Int::nativeAdd`/`nativeSubtract`/`nativeMultiply` — where operands/result are concrete)
+it recomputes the result interval by resolving the compiler-pool `Arithmetic[Interval[BigInteger,
+BigInteger], …]` instance (`AbilityImplementation.Key(add/subtract/multiply, [Interval, Interval],
+Platform.Compiler)`) and evaluating its reduced body on the two interval *values* through the one
+NbE evaluator (`ReducedBindingClosure.reduceInstance` + `Evaluator.applyValue`/`force` +
+`Quoter.quote` — the `RefinementSolver.combinePair` pattern re-pointed at the `Interval` transfer),
+then asserts it equals the interval the `Int` associated-type formulas produced. A divergence is a
+hard `compilerError` at the node (fail-safe verified by a forced-mismatch probe). The `RefinementTable`
+fact (per-node `[min,max]` by source position, first-order/serializable; `FactCache.CACHE_VERSION`
+bumped 4→5) is demanded once per generated value from `MonomorphicUncurryingProcessor`, so the check
+runs on the critical path and gates the build. The whole existing integration suite is now the
+agreement harness (871/871 green); the genuine cross-check is **multiplication** (Interval's
+corner `min`/`max` vs `Int`'s `multiplyMin`/`multiplyMax` — e.g. `(0,100)×(0,50)=(0,5000)`), add/subtract
+agree by construction but are live regression guards. Seeding is "from the type" (transitional, per
+(b)); the transfer/join machinery is the durable part. **Deferred to 2b:** the `Meta` ability +
+`implement Meta[Interval[…]]` and branch-merge joins via `Meta.join` (2a needs neither — transfers use
+the existing `Arithmetic[Interval,Interval]`); the `Combine`-at-covariant-meta join is already
+materialised as `nativeWiden` coercions post-monomorphization, so only `match`/`if` joins remain to
+recompute there.
+
 **Step 3: representation from the channel.** Add `Represent` + the jvm instance (the
 `fitsByte/…` fold logic as an Eliot body over the interval). `RepresentationLowering` computes
 the layout **both** ways — opaque-body unfold and `Represent.layout(channel interval)` — asserts

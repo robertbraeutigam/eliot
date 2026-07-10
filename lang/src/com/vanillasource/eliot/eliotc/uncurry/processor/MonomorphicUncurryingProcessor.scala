@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering.representationOf
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -30,6 +31,12 @@ class MonomorphicUncurryingProcessor
   ): CompilerIO[UncurriedMonomorphicValue] =
     for {
       _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} (${key.typeArguments.size} type args) to ${key.arity}")
+      // Run the refinement channel (shadow mode, Step 2a of docs/bounds-as-refinements.md) for this instance before
+      // lowering it: a demand triggers the shadow check (channel-computed interval == the type's interval at every
+      // arithmetic node), which fails the build on a divergence. Every value the backend generates is uncurried, so
+      // this is a natural once-per-generated-value gate on the critical path. The table itself is consumed by codegen
+      // from Step 3 onward; here we only need it produced so its assertion runs.
+      _                               <- getFactIfProduced(RefinementTable.Key(key.vfqn, key.typeArguments))
       (parameterTypes, returnType)    <- extractParameters(monomorphicValue.name, monomorphicValue.signature, key.arity)
       (parameterNames, convertedBody) <- monomorphicValue.runtime match {
                                            case Some(body) =>

@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor,
   UnifiedModuleValueProcessor
 }
+import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   BindingMergerProcessor,
@@ -104,6 +105,7 @@ object LangProcessors {
     ),
     MonomorphicTypeCheckProcessor(),
     CompilerMonomorphicTypeCheckProcessor(),
+    RefinementChannelProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     TransparentBindingProcessor(),
     BodyValueReferencesProcessor(),
