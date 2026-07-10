@@ -1,6 +1,10 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN — direction adopted (C); Steps 0–3 landed.** Written 2026-07-10, following the
+**Status: DESIGN — direction adopted (C); Steps 0–3 landed, Step 4 partial.** Steps 0–3 done; Step 4's
+`^Meta` **desugar machinery** landed (4a meta structure + 4b-i transfer-companion desugar + Int's slot,
+all committed & green), but the channel's **evaluation** of the companion (4c) is blocked on the
+associated-type lane and has been **re-ordered after Step 5** — see §8 Step 4 for the full state and
+the re-order rationale. Written 2026-07-10, following the
 Interval/Arithmetic associated-types work (commit 3ad7ba38) and the design discussion it triggered.
 Extended the same day with the channel's semantics (§4), and again 2026-07-10 with the decisive
 simplification that reframes §3–§4: meta-information is carried by a **`^Meta` companion** in a new
@@ -817,38 +821,74 @@ in the overlay caused a *silent* double-import shadow (only surfaced because the
 swallowing channel, not the base compile) that aborted the file's `ModuleValue` merge — the fix is to import
 only `Bool` and `Interval`. 1261/1261 green.
 
-**Step 4: the `^Meta` companion, replacing the shadow-mode Scala recognition — proven on a toy
-type.** Steps 2–3 compute transfers, joins, and layout by **recognizing native FQNs in Scala**
-inside `RefinementChannelProcessor`/`RefinementRepresentation` (matching `eliot.lang.Int::nativeAdd`
-&c., parsing the Scott-encoded `handleCases` arms). Step 4 replaces that scaffolding with the
-uniform `^Meta` mechanism (§4.2/§4.4); it is therefore **net-subtractive** in Scala. Landed per
-construct so nothing is ever parse-but-ignored (per the fail-safe rule):
+**Step 4: the `^Meta` companion, replacing the shadow-mode Scala recognition.** Steps 2–3 compute
+transfers, joins, and layout by **recognizing native FQNs in Scala** inside
+`RefinementChannelProcessor`/`RefinementRepresentation`. Step 4 replaces that scaffolding with the
+uniform `^Meta` mechanism (§4.2/§4.4); net-subtractive in Scala. Landed per construct so nothing is
+ever parse-but-ignored (per the fail-safe rule).
 
-- 4a — **`Qualifier.Meta` + the meta constructor.** Add the namespace; extend
-  `DataDefinitionDesugarer` with a fourth generator emitting `X^Meta` (+ slot accessors) from a
-  `type X {slots}` declaration, and auto-derived from a `data`'s fields. Land `Meta[Unit]` (trivial)
-  and the always-produce rule. Declare Int's `range` slot *alongside* its still-present type
-  parameters (transitional; the slot is inert — seeding stays "from type args" until Step 6). The
-  toy type gets its meta constructor + accessors here, on the unambiguous declaration position —
-  where the grammar risk (suffix brace vs block/effect-row) is confronted first, with adjacency
-  separating the suffix meta bracket from the leading effect row and the meta bracket confined to
-  the type-atom parser (§3).
-- 4b — **`^Meta` transfers, retiring the Step-2a recognition.** Return braces desugar to `^Meta`
-  companions; give the arith natives their braces (`nativeAdd: Int {a + b}` ⤳ `nativeAdd^Meta`) and
-  switch the channel to **evaluate the callee's `^Meta`** instead of matching FQNs. The Step-2a
-  Scala transfer recognition is deleted. The shadow assertion (channel interval == type formula) is
-  *kept* — it now checks the `^Meta` result, still the safety net until Step 6.
-- 4c — **body meta-translation (View A) + α, retiring the Step-2b recognition.** Synthesize `^Meta`
-  for braceless bodied defs by meta-translating the body (calls ⤳ `^Meta` calls, literals ⤳ α,
-  `match` ⤳ `Meta.join`); α is the value constructor's `^Meta`. The Step-2b `handleCases`/`Combine`
-  recognition is deleted; joins now fall out of the translated `match`. First-order only — the
-  higher-order `^Meta`-of-function-args boundary (§7 Q3) stays deferred.
+**Design as built — the meta value is a `data` STRUCTURE named `T$Meta`, not the bare domain
+(2026-07-10).** `type Int {range: Interval[BigInteger, BigInteger]}` desugars *exactly as*
+`data Int$Meta(range: Interval[BigInteger, BigInteger])` — type ctor, value ctor, slot accessor, and
+a `PatternMatch` impl the accessor reduces through — by reusing `DataDefinitionDesugarer` on a
+synthetic `DataDefinition`. The `$Meta` name suffix (`$` is not an identifier character, so it can
+never collide with a user type) keeps the meta type distinct from `Int^Type` **without** a separate
+`MetaType` namespace — which was considered but rejected because `CoreExpressionConverter` qualifies
+a bare uppercase name to `Type` with no way to say `MetaType`, so the meta structure's self-references
+would mis-resolve. This is what makes the transfer companion's parameter type a pure name transform
+(`T → T$Meta`) with **no cross-definition lookup**. Meta structures are compiler-pool-only (dead in
+the runtime pool, never code-generated); only the `^Meta` *transfer companions* live in
+`Qualifier.Meta`. (A rename to a real `MetaType` namespace is mechanical if ever wanted.)
 
-Each sub-step is additive and green; the toy tracked type gets end-to-end tests (α, transfers,
-joins) without touching Int. `where`-on-defs and any value-position contract are **not** in Step 4
-(deferred — Option B / §8 Step 8).
+- 4a — **`Qualifier.Meta` + the meta structure. DONE** (781d226c + reworked 39a980f4). `Qualifier.Meta`
+  in both `module.fact` and `resolve.fact` Qualifiers (4 exhaustive matches updated: 2 `Show`,
+  `ValueResolver.convertQualifier`, `DocText.kindLabel`); the `type X {slots}` grammar (parsed after
+  the generic params, before the `= body`) → `FunctionDefinition.metaSlots`; `MetaConstructorDesugarer`
+  synthesizes the `X$Meta` `DataDefinition` and reuses `DataDefinitionDesugarer` (so multi-slot types
+  are multi-field structures for free). `Meta[Unit]`/always-produce and the `data`-field auto-derive
+  are deferred (only field-less native `Int` needs the explicit declaration so far).
+- 4b-i — **return-brace → `^Meta` transfer companion desugar. DONE** (805521e3). The return brace
+  `: T {expr, …}` → `FunctionDefinition.returnMeta`; `MetaTransferDesugarer` emits
+  `f^Meta(a: T$Meta, …): R$Meta = R$Meta(<brace exprs>)` in `Qualifier.Meta`, parameter/return types
+  via the `T → T$Meta` name transform. Inert (no real def carried a brace yet).
+- 4b-ii-a — **Int's `range` slot. DONE** (f4b62dc7). `type Int[auto MIN, auto MAX] {range:
+  Interval[BigInteger, BigInteger]}` in stdlib `Int.els` (+ `import eliot.lang.Interval`) →
+  `Int$Meta` generated in the real stdlib+jvm compile; verified unperturbed (jvm 193/0). Inert and
+  transitional (Int keeps its `[MIN, MAX]` parameters, the shadow-mode source of truth until Step 6).
 
-**Step 5: `Numeric` groundwork; the domain code comes off `Arithmetic`.** Land single-parameter
+- 4c — **channel evaluates the `^Meta` transfer companion — BLOCKED on the assoc lane; RE-ORDERED to
+  AFTER Step 5.** The companion's *home* is resolved (Robert chose dedicated base-layer transfer
+  vessels `def rangeAdd(a: Int, b: Int): Int {range(a) + range(b)}` / `rangeSubtract` / `rangeMultiply`
+  in stdlib `Int.els`, co-located with the `range` slot so `Int$Meta` + the accessor resolve
+  per-file; the channel maps each leaf `nativeAdd → rangeAdd^Meta`, `reduceInstance`s the companion,
+  wraps operands as `Int$Meta(Interval(lo, hi))`, and reads back the result `range`). The companion
+  **resolves and monomorphizes** on the compiler track — but evaluating it fails with *"Cannot quote
+  stuck native application `Arithmetic::add^Arithmetic`"*. Root cause: the vessel's `+` routes through
+  the **associated-type** layer (`AddResult`), whose non-ground type args stop the compiler-track
+  ability dispatch from resolving `Arithmetic[Interval]::add`. The dispatch machinery is *present*
+  (`TypeStackLoop` wires `resolveAbilityImpl` + binds the impl body at post-drain quote — it handles
+  the guard combinators, which are also Eliot-body instances); it is the assoc that starves it of
+  ground types — the *same* failure class as the associated-type work (commit 3ad7ba38).
+  **Decision (Robert, 2026-07-10): do NOT fix the assoc dispatch.** The assoc lane is deleted at
+  Step 7c, so making it dispatch here would prop up machinery we are about to remove. Instead the
+  transfer must use **non-assoc** Interval arithmetic — which is exactly Step 5's job. So **Step 5
+  lands before 4c**: once the domain-side Interval arithmetic is plain `Interval → Interval → Interval`
+  (no `AddResult`) and the vessel calls *that* directly rather than the still-assoc `+` operator (which
+  cannot switch until the flag day), the companion's dispatch has ground types and fires on the
+  compiler track — no workaround, nothing later-deleted. 4c then also folds in the join half (body
+  meta-translation of a braceless def: calls ⤳ `^Meta` calls, literals ⤳ α = the value constructor's
+  `^Meta`, `match` ⤳ `Meta.join`), retiring the Step-2b `handleCases` recognition. First-order only —
+  the higher-order `^Meta`-of-function-args boundary (§7 Q3) stays deferred.
+
+**Checkpoint (2026-07-10):** 4a + 4b-i + 4b-ii-a are committed and green (full suite 1271/0; jvm
+193/0). The transfer (2a) and join (2b) shadow checks still fire via the existing Step-2 paths, so
+there is **no coverage regression**. The `^Meta` desugar machinery is complete; only the channel's
+companion *evaluation* (4c) is pending, and it is now gated on Step 5. `where`-on-defs and any
+value-position contract remain out of Step 4 (deferred — Option B / §8 Step 8).
+
+**Step 5 (now sequenced BEFORE Step 4c — the transfer companion's evaluation depends on this
+non-assoc arithmetic; see Step 4): `Numeric` groundwork; the domain code comes off `Arithmetic`.**
+Land single-parameter
 `Numeric[T]` + `implement Numeric[BigInteger]` (plain `T -> T -> T` signatures), and rewrite the
 *domain-side* Interval arithmetic — the code the channel has been running since step 2 — onto
 `Numeric[BigInteger]`/the BigInteger natives directly, off `Arithmetic`'s assoc machinery. The
