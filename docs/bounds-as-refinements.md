@@ -730,12 +730,34 @@ different animal: at runtime the value is exactly `a`, so the endgame channel (t
 which the channel leaves alone). This is the sharpest way to see that the channel is not "verifying
 the type system" but a genuinely independent, more precise analysis.
 
-**Step 3: representation from the channel.** Add `Represent` + the jvm instance (the
+**Step 3: representation from the channel. — DONE (2026-07-10).** Add `Represent` + the jvm instance (the
 `fitsByte/…` fold logic as an Eliot body over the interval). `RepresentationLowering` computes
 the layout **both** ways — opaque-body unfold and `Represent.layout(channel interval)` — asserts
 they agree, then the backend consumes the channel-derived one; the opaque path is demoted to a
 shadow check. Green: layouts provably identical on the whole suite. After this step, the only
-load-bearing consumers of bounds-in-types are the three that die at the flag day.
+load-bearing consumers of bounds-in-types are the three that die at the flag day. *Landed:*
+`ability Represent[D] { def layout(range: D): Type }` in `lang/eliot/eliot/compiler/Represent.els`
+(**domain-keyed like `Meta[D]`**, not the design's per-tracked-type `Represent[Int]` — deferred to
+Step 8's second-domain work, since one interval-tracked type exists; `layout` returns `Type` because a
+layout *is* a representation-type value in λ*). The jvm instance
+`implement Represent[Interval[BigInteger, BigInteger]]` ships in a **new jvm compiler overlay**
+`jvm/eliot-compiler/eliot/compiler/Represent.els` (jvm's first `eliot-compiler/` root, colocated with the
+ability — the ability is re-declared per the per-file-resolution `Console` precedent), its `layout` body the
+verbatim `opaque type Int` fold reading `start`/`end` of the interval **value** instead of the `MIN`/`MAX`
+type parameters. `monomorphize/channel/RefinementRepresentation.channelLayout` resolves the compiler-pool
+`Represent[Interval]` instance and evaluates `layout(Interval(min,max))` through the one NbE evaluator
+(`ReducedBindingClosure.reduceInstance` + `applyValue`/`force`/`Quoter` — the `RefinementChannelProcessor`
+transfer/join pattern re-pointed at `Represent.layout`); `RepresentationLowering.representInt` runs it
+alongside the `opaque` unfold and hard-errors on divergence (fail-safe verified by a forced-mismatch probe:
+the whole jvm suite went 193/0 → 162/31 and the CLI emits "Refinement channel disagrees with the type at an
+integer representation: channel chose …JvmBigInteger… but the opaque body chose …JvmByte…"). When no platform
+`Represent` instance is on the path — a bare representation-bearing `Int` stub in a lang unit test with no
+overlay — `channelLayout` returns `None` and lowering falls back to the `opaque` unfold (reduced coverage,
+never a false accept). `FactCache.CACHE_VERSION` 5→6 (uncurry gained the `Represent` dependency). **Gotcha
+hit:** `Int`/`BigInteger` are auto-imported `eliot.lang` prelude modules, so `import eliot.lang.Int`/`BigInteger`
+in the overlay caused a *silent* double-import shadow (only surfaced because the overlay is demanded via the
+swallowing channel, not the base compile) that aborted the file's `ModuleValue` merge — the fix is to import
+only `Bool` and `Interval`. 1261/1261 green.
 
 **Step 4: slots, contracts, projections — proven on a toy type.** The syntax and its semantics,
 landed per construct so nothing is ever parse-but-ignored (per the fail-safe rule):

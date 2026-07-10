@@ -323,7 +323,7 @@ object RefinementChannelProcessor {
     else "multiplication"
 
   /** `Interval[BigInteger, BigInteger]` — the domain type the channel carries for an `Int`'s value range. */
-  private val intervalType: GroundValue = GroundValue.Structure(
+  private[channel] val intervalType: GroundValue = GroundValue.Structure(
     ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Type)),
     Seq(bigIntType, bigIntType),
     GroundValue.Type
@@ -332,7 +332,7 @@ object RefinementChannelProcessor {
   private val intervalCtorFqn: ValueFQN = ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Default))
 
   /** The interval *value* `Interval(lo, hi)` fed to an instance. */
-  private def intervalValue(bounds: (BigInt, BigInt)): GroundValue =
+  private[channel] def intervalValue(bounds: (BigInt, BigInt)): GroundValue =
     GroundValue.Structure(
       intervalCtorFqn,
       Seq(GroundValue.Direct(bounds._1, bigIntType), GroundValue.Direct(bounds._2, bigIntType)),

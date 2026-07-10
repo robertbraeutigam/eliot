@@ -1,23 +1,32 @@
 package com.vanillasource.eliot.eliotc.monomorphize.lowering
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementRepresentation
 import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, TransparentBinding}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
+import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 
 /** Phase 3: the generic "unfold to representation" pass. Re-reveals the machine representation that `opaque` hid from
   * the type checker, running *after* checking on already-monomorphized [[GroundValue]]s.
   *
-  * The rule is general and never names `Int`: to lay out a value, unfold `opaque`-bodied type definitions until the head
-  * is a type with no further body (a representation type like `JvmByte`, or any body-less platform/data type). The width
-  * *policy* lives entirely in the Eliot `opaque type Int` body; this pass only evaluates-and-substitutes it.
+  * The rule is general and never names `Int` for a *generic* opaque type: to lay out a value, unfold `opaque`-bodied
+  * type definitions until the head is a type with no further body (a representation type like `JvmByte`, or any
+  * body-less platform/data type). The width *policy* lives entirely in the Eliot `opaque type Int` body; this pass only
+  * evaluates-and-substitutes it.
   *
   * Example: `Int[0, 255]` ⟶ (unfold opaque `Int` body with `MIN=0, MAX=255`) ⟶ `JvmByte`, which the JVM backend then
   * maps to `java.lang.Byte`.
+  *
+  * **Step 3 of the bounds-as-refinements migration** (`docs/bounds-as-refinements.md`): for the tracked `Int` type the
+  * layout is *also* computed from its value-range refinement — the platform's `Represent[Interval[…]]` instance run
+  * through the one NbE evaluator ([[RefinementRepresentation.channelLayout]]) — and the two are asserted equal before the
+  * backend consumes the channel-derived one (the `opaque` unfold demoted to a shadow check on the way to its deletion,
+  * §5.1/Step 7d). When no platform `Represent` instance is on the path the channel yields nothing and this pass falls
+  * back to the `opaque` unfold, so the representation stays correct with reduced cross-check coverage.
   */
 object RepresentationLowering {
 
@@ -35,10 +44,44 @@ object RepresentationLowering {
         if (s.asFunctionType.isDefined) lowerLeaf(s, context)
         else
           getFactIfProduced(OperatorResolvedValue.Key(s.typeName)).flatMap {
-            case Some(orv) if orv.runtime.isDefined => unfold(s, context)
+            case Some(orv) if orv.runtime.isDefined =>
+              if (RefinementRepresentation.isTrackedIntType(s)) representInt(s, context)
+              else unfold(s, context)
             case _                                  => lowerLeaf(s, context)
           }
     }
+
+  /** Lower the tracked `Int` type (Step 3): compute its layout via the refinement channel *and* by unfolding the
+    * `opaque` body, assert the two agree, and return the channel-derived one (the backend's source of truth from now on).
+    * A divergence is a hard error — the shadow-mode invariant while both representations of the width policy coexist.
+    * When the channel cannot compute the layout — no platform `Represent` instance on the path — fall back to the
+    * `opaque` unfold; the representation is still correct, only the cross-check is skipped.
+    */
+  private def representInt(s: GroundValue.Structure, context: Sourced[?]): CompilerIO[GroundValue] =
+    for {
+      opaqueRepr <- unfold(s, context)
+      channelRaw <- RefinementRepresentation.channelLayout(s)
+      result     <- channelRaw match {
+                      case None      => opaqueRepr.pure[CompilerIO]
+                      case Some(raw) =>
+                        representationOf(raw, context).flatMap { channelRepr =>
+                          if (channelRepr == opaqueRepr) channelRepr.pure[CompilerIO]
+                          else
+                            compilerError(
+                              context.as(
+                                s"Refinement channel disagrees with the type at an integer representation: " +
+                                  s"channel chose ${channelRepr.typeFQN.map(_.show).getOrElse(channelRepr.toString)} " +
+                                  s"but the opaque body chose ${opaqueRepr.typeFQN.map(_.show).getOrElse(opaqueRepr.toString)}."
+                              ),
+                              Seq(
+                                "This is an internal shadow-mode invariant of the bounds-as-refinements migration; the " +
+                                  "platform's Represent instance and the opaque Int representation body must agree on every " +
+                                  "program."
+                              )
+                            ).as(opaqueRepr)
+                        }
+                    }
+    } yield result
 
   /** No unfolding for this head: keep it, but lower its arguments (and the value-type) so nested `Int`s reduce too. */
   private def lowerLeaf(s: GroundValue.Structure, context: Sourced[?]): CompilerIO[GroundValue] =
