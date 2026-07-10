@@ -13,7 +13,6 @@ import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {
   private val T = Qualifier.Type
-  private val M = Qualifier.Meta
 
   "core processor" should "transform a simple constant reference" in {
     namedValue("def a: A = b", QualifiedName("a", Qualifier.Default)).asserting { nv =>
@@ -446,36 +445,47 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "meta-slot brace (bounds Step 4a)" should "generate a ^Meta constructor for a single-slot type" in {
+  "meta-slot brace (bounds Step 4a)" should "generate the meta structure's type and value constructors" in {
     namedValues("type Int {range: Interval}").asserting { nvs =>
-      nvs.map(_.qualifiedName.value) should contain(QualifiedName("Int", Qualifier.Meta))
+      nvs.map(_.qualifiedName.value) should contain allOf (
+        QualifiedName("Int$Meta", Qualifier.Type),
+        QualifiedName("Int$Meta", Qualifier.Default)
+      )
     }
   }
 
-  it should "type the single-slot ^Meta constructor as domain -> domain" in {
-    namedValue("type Int {range: Interval}", QualifiedName("Int", Qualifier.Meta)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function", T), Ref("Interval", T)), Ref("Interval", T))
+  it should "type the meta value constructor as domain -> metaType" in {
+    namedValue("type Int {range: Interval}", QualifiedName("Int$Meta", Qualifier.Default)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe
+        App(App(Ref("Function", T), Ref("Interval", T)), Ref("Int$Meta", Qualifier.Type))
     }
   }
 
-  it should "give the single-slot ^Meta constructor an identity body over the slot" in {
-    namedValue("type Int {range: Interval}", QualifiedName("Int", Qualifier.Meta)).asserting { nv =>
-      nv.runtimeStructure shouldBe Some(Lambda("range", Empty, Ref("range")))
+  it should "generate a slot accessor from the meta structure onto the domain" in {
+    namedValue("type Int {range: Interval}", QualifiedName("range", Qualifier.Default)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe
+        App(App(Ref("Function", T), Ref("Int$Meta", Qualifier.Type)), Ref("Interval", T))
     }
   }
 
-  it should "not generate a ^Meta constructor for a slotless type" in {
-    namedValues("type Foo").asserting { nvs =>
-      nvs.map(_.qualifiedName.value) should not contain QualifiedName("Foo", Qualifier.Meta)
+  it should "generate a PatternMatch implementation for the meta structure" in {
+    namedValues("type Int {range: Interval}").asserting { nvs =>
+      findByNameAndImplQualifier(nvs, "handleCases") should not be empty
     }
   }
 
-  it should "still generate the ordinary type constructor alongside the ^Meta one" in {
+  it should "keep the ordinary type constructor alongside the meta structure" in {
     namedValues("type Int {range: Interval}").asserting { nvs =>
       nvs.map(_.qualifiedName.value) should contain allOf (
         QualifiedName("Int", Qualifier.Type),
-        QualifiedName("Int", Qualifier.Meta)
+        QualifiedName("Int$Meta", Qualifier.Type)
       )
+    }
+  }
+
+  it should "not generate a meta structure for a slotless type" in {
+    namedValues("type Foo").asserting { nvs =>
+      nvs.map(_.qualifiedName.value.name) should not contain "Foo$Meta"
     }
   }
 
