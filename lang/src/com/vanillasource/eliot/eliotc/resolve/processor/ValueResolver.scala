@@ -87,6 +87,7 @@ class ValueResolver
     qualifier match {
       case CoreQualifier.Default                               => (Qualifier.Default: Qualifier).pure[ScopedIO]
       case CoreQualifier.Type                                  => (Qualifier.Type: Qualifier).pure[ScopedIO]
+      case CoreQualifier.Meta                                  => (Qualifier.Meta: Qualifier).pure[ScopedIO]
       case CoreQualifier.Ability(n)                            => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
       case CoreQualifier.AbilityImplementation(name, pattern) =>
         // The module qualifier carries the ability name as a bare string (identity is position-independent); borrow the

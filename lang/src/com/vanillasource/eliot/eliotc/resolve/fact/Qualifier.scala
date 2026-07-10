@@ -8,6 +8,7 @@ sealed trait Qualifier
 object Qualifier {
   case object Default                                            extends Qualifier
   case object Type                                               extends Qualifier
+  case object Meta                                               extends Qualifier
   case class Ability(name: String)                                    extends Qualifier
   case class AbilityImplementation(name: AbilityFQN, pattern: String) extends Qualifier
 
@@ -18,6 +19,7 @@ object Qualifier {
     override def show(qualifier: Qualifier): String = qualifier match {
       case Default                                => "Default"
       case Type                                   => "Type"
+      case Meta                                   => "Meta"
       case Ability(name)                          => name
       case AbilityImplementation(name, pattern)   => s"${name.abilityName}#$pattern"
     }

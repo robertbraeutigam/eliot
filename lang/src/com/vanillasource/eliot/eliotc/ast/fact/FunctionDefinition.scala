@@ -35,7 +35,13 @@ case class FunctionDefinition(
     // definition. Rides the same fact chain as `opaque`, ending on `OperatorResolvedValue`, where the effect
     // accounting subtracts it from a caller's used-effect set. Included in `signatureEquality` so a layer may not
     // silently disagree with the abstract declaration about what it discharges.
-    dischargedEffects: Seq[Sourced[String]] = Seq.empty
+    dischargedEffects: Seq[Sourced[String]] = Seq.empty,
+    // The named meta *slots* of a type declared with a `{slots}` brace (bounds-as-refinements §4.2), e.g.
+    // `type Int {range: Interval[BigInteger, BigInteger]}` carries one slot `range: Interval[…]`. Each slot is
+    // name+domain, so an `ArgumentDefinition` is the right shape. Populated only by `TypeAliasDefinition`; empty for
+    // every ordinary `def`/alias. Consumed at the core boundary by `MetaConstructorDesugarer`, which emits the type's
+    // `^Meta` constructor from it, then dropped (never part of `NamedValue`/`signatureEquality`).
+    metaSlots: Seq[ArgumentDefinition] = Seq.empty
 )
 
 object FunctionDefinition {

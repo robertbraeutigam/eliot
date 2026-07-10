@@ -56,6 +56,7 @@ object DocText {
   /** A human label for a name's kind, used only in the ignored-duplicate warning text. */
   def kindLabel(qn: QualifiedName): String = qn.qualifier match {
     case Qualifier.Type                          => "type"
+    case Qualifier.Meta                          => "meta"
     case Qualifier.Ability(ability) if qn.name == ability => "ability"
     case Qualifier.Ability(_)                    => "ability method"
     case _: Qualifier.AbilityImplementation      => "implementation"

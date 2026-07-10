@@ -13,6 +13,7 @@ import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {
   private val T = Qualifier.Type
+  private val M = Qualifier.Meta
 
   "core processor" should "transform a simple constant reference" in {
     namedValue("def a: A = b", QualifiedName("a", Qualifier.Default)).asserting { nv =>
@@ -442,6 +443,39 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "have abstract body for handleCases" in {
     namedValues("data Box[A](value: A)").asserting { nvs =>
       findByNameAndImplQualifier(nvs, "handleCases").head.runtime shouldBe None
+    }
+  }
+
+  "meta-slot brace (bounds Step 4a)" should "generate a ^Meta constructor for a single-slot type" in {
+    namedValues("type Int {range: Interval}").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("Int", Qualifier.Meta))
+    }
+  }
+
+  it should "type the single-slot ^Meta constructor as domain -> domain" in {
+    namedValue("type Int {range: Interval}", QualifiedName("Int", Qualifier.Meta)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function", T), Ref("Interval", T)), Ref("Interval", T))
+    }
+  }
+
+  it should "give the single-slot ^Meta constructor an identity body over the slot" in {
+    namedValue("type Int {range: Interval}", QualifiedName("Int", Qualifier.Meta)).asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Lambda("range", Empty, Ref("range")))
+    }
+  }
+
+  it should "not generate a ^Meta constructor for a slotless type" in {
+    namedValues("type Foo").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should not contain QualifiedName("Foo", Qualifier.Meta)
+    }
+  }
+
+  it should "still generate the ordinary type constructor alongside the ^Meta one" in {
+    namedValues("type Int {range: Interval}").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain allOf (
+        QualifiedName("Int", Qualifier.Type),
+        QualifiedName("Int", Qualifier.Meta)
+      )
     }
   }
 

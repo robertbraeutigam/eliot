@@ -22,6 +22,11 @@ object TypeAliasDefinition {
       (isOpaque, vis, fixity, prec) <- FunctionDefinition.modifierPrefix("type")
       name                          <- typeName
       genericParameters             <- component[Seq[GenericParameter]]
+      // The meta-slot brace (bounds-as-refinements §4.2): `type Int {range: Interval[BigInteger, BigInteger]}` declares
+      // the named meta slots the type carries, each `name: Domain` (an `ArgumentDefinition`). Parsed here — after the
+      // generic params `[…]`, before the optional `= body` — because `component[Seq[GenericParameter]]` sees `{` (not
+      // `[`) and yields empty, leaving the brace unconsumed exactly at this point. Absent for an ordinary alias.
+      metaSlots                     <- optionalBracketedCommaSeparatedItems("{", component[ArgumentDefinition], "}")
       // A type-alias body is a type position, so parse it with `typeRunParser` (an operator run of type atoms), NOT the
       // greedy full expression parser. The full parser would consume the following top-level definition's leading
       // `left`/`right`/… fixity identifiers as an application chain, silently dropping its fixity; `typeRunParser` stops
@@ -46,7 +51,8 @@ object TypeAliasDefinition {
         fixity = fixity,
         precedence = prec,
         visibility = vis,
-        opaque = isOpaque
+        opaque = isOpaque,
+        metaSlots = metaSlots
       )
     }
   }

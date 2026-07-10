@@ -18,6 +18,13 @@ object Qualifier {
     */
   case object Type extends Qualifier
 
+  /** Denotes a name in the meta-information channel (bounds-as-refinements §4): the `^Meta` companion of a value (its
+    * transfer function) or the meta constructor / slot accessor of a type declared with a `{slots}` brace. A parallel
+    * namespace to [[Type]]/[[Default]], carried by the same [[QualifiedName]]; erased before codegen (compiler-pool
+    * only).
+    */
+  case object Meta extends Qualifier
+
   /** Functions belonging to a given ability.
     */
   case class Ability(name: String) extends Qualifier
@@ -44,6 +51,7 @@ object Qualifier {
     override def show(qualifier: Qualifier): String = qualifier match {
       case Default                              => "Default"
       case Type                                 => "Type"
+      case Meta                                 => "Meta"
       case Ability(name)                        => name
       case AbilityImplementation(name, pattern) => s"$name#$pattern"
     }

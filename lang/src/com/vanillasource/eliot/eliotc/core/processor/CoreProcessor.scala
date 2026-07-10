@@ -35,7 +35,12 @@ class CoreProcessor
     // other or with user implementations (which are keyed by their own `(ability, pattern)`).
     val desugaredFromData: Seq[(FunctionDefinition, RoleHint)] =
       sourceAstData.typeDefinitions.flatMap(DataDefinitionDesugarer.desugar)
-    val allFunctions  = sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++ desugaredFromData
+    // Meta-slot brace on a type declaration (`type Int {range: …}`) → the type's `^Meta` constructor
+    // (bounds-as-refinements §4.2, Step 4a). Type aliases are `FunctionDefinition`s, so this runs over them.
+    val desugaredMetaConstructors: Seq[(FunctionDefinition, RoleHint)] =
+      sourceAstData.functionDefinitions.flatMap(MetaConstructorDesugarer.desugar)
+    val allFunctions  =
+      sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++ desugaredFromData ++ desugaredMetaConstructors
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so
