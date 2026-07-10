@@ -116,12 +116,12 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "1000000")
   }
 
-  // Ability-implementation guards, the `IntArith` client (Stage 5): the jvm width dispatch for `+`/`-`/`*` is now a
-  // five-instance guarded ability family (byte/short/int/long/big), disjoint by explicit `fitsIn && not(fitsIn)`
-  // range guards. One program doing arithmetic at four operand widths resolves four *distinct* guarded `IntArith`
-  // instances in a single compilation, each guard discharged at its concrete bounds — the ladder end to end. (The
-  // fifth, big-operand, instance rides the JvmBigInteger representation, whose codegen is a separate pre-existing gap.)
-  "the IntArith guarded width family" should "select the right instance at each operand width in one program" in {
+  // Width-agnostic arithmetic leaves (bounds-as-refinements Step 1): the jvm `+`/`-`/`*` are now three width-agnostic
+  // leaves (`nativeAdd`/`nativeSubtract`/`nativeMultiply`) whose emission reads each site's operand/result
+  // representations to pick the machine instruction — no `IntArith` guarded family, no per-width leaves. One program
+  // doing arithmetic at four operand widths compiles to correctly-sized code for each in a single compilation, end to
+  // end. (Big-operand arithmetic rides the JvmBigInteger representation, whose codegen is a separate pre-existing gap.)
+  "the jvm arithmetic leaves" should "compute the right result at each operand width in one program" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.lang.Arithmetic

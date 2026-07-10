@@ -317,8 +317,9 @@ def main: IO[Unit] = printLine(intToString(3 - 10))""".stripMargin
     ).asserting(_ shouldBe "-7")
   }
 
-  // Byte operands whose sum overflows a byte carry up to a Short result (`nativeAddByteToShort`): 100 and 100 each fit
-  // `Byte` ([-128,127]) but 200 does not, so the result is laid out at the wider representation.
+  // Byte operands whose sum overflows a byte carry up to a Short result: 100 and 100 each fit `Byte` ([-128,127]) but
+  // 200 does not, so `nativeAdd`'s dependent result bound (`[200,200]`) is laid out at the wider representation and the
+  // emission reboxes there.
   it should "carry a byte-operand sum into a wider result representation at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -327,8 +328,9 @@ def main: IO[Unit] = printLine(intToString(100 + 100))""".stripMargin
     ).asserting(_ shouldBe "200")
   }
 
-  // Short operands whose difference fits a byte: 1000 and 999 are `Short`, but the result range [1,1] fits `Byte`, so
-  // the surrounding `nativeWiden` narrows the leaf's result back down (additive cancellation).
+  // Short operands whose difference fits a byte: 1000 and 999 are `Short`, but `nativeSubtract`'s result range [1,1]
+  // fits `Byte`, so the emission reboxes the `long` result directly at the `Byte` representation (additive cancellation)
+  // — no separate narrowing step.
   it should "narrow a short-operand difference into a byte result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console

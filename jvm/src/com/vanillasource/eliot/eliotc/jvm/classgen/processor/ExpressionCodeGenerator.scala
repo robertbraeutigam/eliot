@@ -258,13 +258,13 @@ object ExpressionCodeGenerator {
     *   - `intToString` unboxes its operand to `long` and calls `Long.toString(long)`;
     *   - `nativeWiden` converts its operand from the source to the target representation (unbox/rebox, via `BigInteger`
     *     when the target is `BigInteger`);
-    *   - an arithmetic leaf (`nativeAdd…`/`nativeSubtract…`/`nativeMultiply…`) computes in primitive `long`
+    *   - an arithmetic leaf (`nativeAdd`/`nativeSubtract`/`nativeMultiply`) computes in primitive `long`
     *     (`LADD`/`LSUB`/`LMUL`, then rebox at the result representation) when operands and result fit `Long`, or in
-    *     `java.math.BigInteger` (`add`/`subtract`/`multiply`) when anything overflows it — so `nativeMultiplyLongToBigInteger`
-    *     never truncates through a `long`.
+    *     `java.math.BigInteger` (`add`/`subtract`/`multiply`) when anything overflows it — so a `Long`×`Long` product
+    *     whose result range spills into `BigInteger` never truncates through a `long`.
     *
-    * This is the JVM realisation of the Phase-4 leaf natives; a microcontroller backend would instead pick
-    * width-specific instructions per leaf FQN from the same lowered representations.
+    * This is the JVM realisation of the width-agnostic arithmetic leaves; a microcontroller backend would instead pick
+    * width-specific instructions from the same lowered representations.
     */
   private def generateIntrinsic(
       moduleName: ModuleName,
@@ -341,7 +341,7 @@ object ExpressionCodeGenerator {
       val leftRep   = representationInternalName(arguments(0).expressionType)
       val rightRep  = representationInternalName(arguments(1).expressionType)
       // `Long`-range operands and results compute in primitive `long`; anything that touches `BigInteger` (a
-      // `BigInteger` operand, or a result that overflowed `Long` — e.g. `nativeMultiplyLongToBigInteger`) computes in
+      // `BigInteger` operand, or a result that overflowed `Long` — e.g. a `Long`×`Long` product) computes in
       // `BigInteger` so no value is truncated through a `long` round-trip.
       val viaBigInteger =
         resultRep === bigIntegerInternalName || leftRep === bigIntegerInternalName || rightRep === bigIntegerInternalName
@@ -443,18 +443,18 @@ object ExpressionCodeGenerator {
 
   /** The primitive `long` opcode for an arithmetic leaf FQN. */
   private def longOpcode(leafVfqn: ValueFQN): Int =
-    if (Intrinsics.addLeaves.contains(leafVfqn)) Opcodes.LADD
-    else if (Intrinsics.subtractLeaves.contains(leafVfqn)) Opcodes.LSUB
-    else Opcodes.LMUL // multiplyLeaves
+    if (leafVfqn === Intrinsics.nativeAddFQN) Opcodes.LADD
+    else if (leafVfqn === Intrinsics.nativeSubtractFQN) Opcodes.LSUB
+    else Opcodes.LMUL // nativeMultiply
 
   /** The `java.math.BigInteger` instance method for an arithmetic leaf FQN; applied to the two `BigInteger`s on the
     * stack, it leaves the (already-boxed) `BigInteger` result.
     */
   private def bigIntegerOp(leafVfqn: ValueFQN)(mv: org.objectweb.asm.MethodVisitor): Unit = {
     val method =
-      if (Intrinsics.addLeaves.contains(leafVfqn)) "add"
-      else if (Intrinsics.subtractLeaves.contains(leafVfqn)) "subtract"
-      else "multiply" // multiplyLeaves
+      if (leafVfqn === Intrinsics.nativeAddFQN) "add"
+      else if (leafVfqn === Intrinsics.nativeSubtractFQN) "subtract"
+      else "multiply" // nativeMultiply
     mv.visitMethodInsn(
       Opcodes.INVOKEVIRTUAL,
       bigIntegerInternalName,

@@ -637,15 +637,25 @@ covers a real leak) and a `$bad-apply` head (a phantom meta defaulted to `VType`
 — already-diagnosed or vacuous). The class the flush is the sole backstop for is a postponed
 application whose meta *solved to a concrete head* that then mismatches. See `PostponedFlushTest`.
 
-**Step 1: collapse the jvm width machinery into width-reading intrinsics.** Replace the 27
-width-pair leaves + the `IntArith` 5-instance guard family + the inner result-width `fold`s with
-three width-agnostic intrinsics (`add`/`subtract`/`multiply` on `Int`) whose emission reads the
+**Step 1: collapse the jvm width machinery into width-reading intrinsics. — DONE (2026-07-10).**
+Replace the 27 width-pair leaves + the `IntArith` 5-instance guard family + the inner result-width
+`fold`s with three width-agnostic intrinsics (`add`/`subtract`/`multiply` on `Int`) whose emission reads the
 operands'/result's *lowered representations* — exactly what `intLessThanOrEqual` already does
 (one leaf, all widths), and on the JVM all 27 leaves already share one emission pattern (unbox,
 apply, rebox), so the codegen barely changes. No type-system change; result types still come
 from the assoc formulas. Lands green against the unchanged integration suite, deletes ~150 lines
 of `jvm/Int.els` early, and establishes the "codegen reads widths, not names" pattern the
-channel needs later.
+channel needs later. *Landed:* `jvm/eliot/eliot/lang/Int.els` now has three body-less leaves
+`nativeAdd`/`nativeSubtract`/`nativeMultiply` (dependent result signatures unchanged — `add`/`subtract`/
+`multiplyMin`/`multiplyMax` of the operand bounds), the `Arithmetic[Int, Int]` method bodies are single
+calls to them (no `nativeWiden` widen/narrow), and the whole `IntArith` ability + its 5 guarded instances
+are gone (205 → 108 lines). `Intrinsics.addLeaves`/`subtractLeaves`/`multiplyLeaves` (9 FQNs each) collapse
+to `nativeAddFQN`/`nativeSubtractFQN`/`nativeMultiplyFQN`; `ExpressionCodeGenerator`'s arithmetic-leaf arm
+is unchanged in behavior (it already read the reps) — only `longOpcode`/`bigIntegerOp` now match the three
+FQNs by `===`. `nativeWiden` + the guarded `Coerce[Int, Int]` stay (deleted at Step 7). Operands may now
+reach a leaf at *different* representations (the old code pre-widened to a common one); the emission already
+unboxes each operand from its own rep, so this is correct and more precise. Full `__.test` green; the
+`ArithmeticAbility`/`Ranges` examples build and run end-to-end.
 
 **Step 2: the channel in shadow mode.** Introduce the rider: a per-binding/per-node meta value
 carried through the monomorphize walk, with (a) `Meta` in `eliot.compiler` +

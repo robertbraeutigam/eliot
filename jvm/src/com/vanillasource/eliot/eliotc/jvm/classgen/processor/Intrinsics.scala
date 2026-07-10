@@ -8,10 +8,10 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   * [[ExpressionCodeGenerator]], and excluded from `JvmClassGenerator`'s body-less "Function not implemented." method
   * generation.
   *
-  * `intToString` renders via `Long.toString`. The arithmetic *leaves* (`nativeAdd…`/`nativeSubtract…`/
-  * `nativeMultiply…`) and the representation converter `nativeWiden` are the Phase-4 platform primitives the
-  * `+`/`-`/`*` width dispatch in `Int.els` resolves to; each is one fixed unbox/op/rebox instruction group, so it is
-  * cheapest inline.
+  * `intToString` renders via `Long.toString`. The three width-agnostic arithmetic leaves (`nativeAdd`/`nativeSubtract`/
+  * `nativeMultiply`) and the representation converter `nativeWiden` are the platform primitives the `Arithmetic[Int]`
+  * instance in `Int.els` resolves to; each is one unbox/op/rebox instruction group whose width is read from the
+  * operand/result representations, so it is cheapest inline.
   *
   * Integer *literals* are NOT intrinsics: `integerLiteral[V]` is rewritten into a plain `MonomorphicExpression.
   * IntegerLiteral(V)` at the `lang` readback boundary (`PostDrainQuoter`), so it reaches codegen as an ordinary
@@ -55,35 +55,28 @@ object Intrinsics {
     */
   val intLessThanOrEqualFQN: ValueFQN = langInt("intLessThanOrEqual")
 
-  /** The operand→result width suffixes naming the Phase-4 arithmetic leaves (see `Int.els`). */
-  private val widthSuffixes: Seq[String] =
-    Seq(
-      "ByteToByte",
-      "ByteToShort",
-      "ShortToShort",
-      "ShortToInt",
-      "IntToInt",
-      "IntToLong",
-      "LongToLong",
-      "LongToBigInteger",
-      "BigIntegerToBigInteger"
-    )
-
-  /** The arithmetic leaf natives grouped by operator. Each takes both operands at a single representation (the dispatch
-    * widens them first) and produces a result whose representation its name encodes, so a microcontroller backend can
-    * pick width-specific instructions. On the JVM all leaves of one operator collapse to the same code — unbox the
-    * operands, apply the operator in the common working representation, rebox at the result representation — so they are
-    * grouped here only by operator.
+  /** The three arithmetic leaf natives, one per operator (`Int.els`). Each is width-agnostic: it takes its operands at
+    * whatever representation their bounds lowered to and produces a result at its own true-bound representation. The
+    * emission reads those operand/result representations to pick the working machine type (`long` or `BigInteger`) and
+    * instruction — so one leaf covers every width, and a microcontroller backend would select width-specific
+    * instructions from the same lowered representations.
     */
-  val addLeaves: Set[ValueFQN]      = widthSuffixes.map(s => langInt("nativeAdd" + s)).toSet
-  val subtractLeaves: Set[ValueFQN] = widthSuffixes.map(s => langInt("nativeSubtract" + s)).toSet
-  val multiplyLeaves: Set[ValueFQN] = widthSuffixes.map(s => langInt("nativeMultiply" + s)).toSet
+  val nativeAddFQN: ValueFQN      = langInt("nativeAdd")
+  val nativeSubtractFQN: ValueFQN = langInt("nativeSubtract")
+  val nativeMultiplyFQN: ValueFQN = langInt("nativeMultiply")
 
   val boolOps: Set[ValueFQN] =
     Set(boolTrueFQN, boolFalseFQN, boolFoldFQN, boolAndFQN, boolOrFQN, boolNotFQN)
 
   val all: Set[ValueFQN] =
-    Set(intToStringFQN, nativeWidenFQN, intLessThanOrEqualFQN) ++ addLeaves ++ subtractLeaves ++ multiplyLeaves ++ boolOps
+    Set(
+      intToStringFQN,
+      nativeWidenFQN,
+      intLessThanOrEqualFQN,
+      nativeAddFQN,
+      nativeSubtractFQN,
+      nativeMultiplyFQN
+    ) ++ boolOps
 
   def isIntrinsic(vfqn: ValueFQN): Boolean = all.contains(vfqn)
 }

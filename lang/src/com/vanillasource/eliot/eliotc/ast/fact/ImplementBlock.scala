@@ -40,8 +40,9 @@ object ImplementBlock {
           // The implementation's identity: a canonical, position-independent string of *what* it implements — the
           // surface form of its type-argument pattern plus its `where` guard. Two `implement` blocks are the same
           // instance iff this key matches (independent of file/position/order), which is what lets an instance be split
-          // across layers and merged, while keeping distinct patterns (`Eq[Type]` vs `Eq[String]`) and guard-disjoint
-          // siblings (the `IntArith` width family, same pattern + different guard) apart. `Show[Expression]` drops
+          // across layers and merged, while keeping distinct patterns (`Eq[Type]` vs `Eq[String]`) and a guarded
+          // instance (whose `where` clause, e.g. the `Coerce[Int, Int]` widening guard, is part of its identity) apart
+          // from an otherwise same-pattern sibling. `Show[Expression]` drops
           // source positions, so the key is stable across layers that spell the pattern identically (the same
           // character-exact discipline the layer merge already requires).
           patternKey           = pattern.map(_.value.show).mkString(", ") +
