@@ -1,16 +1,18 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN — direction adopted (C); Steps 0–3 + 5 landed, Step 4 nearly done (4c transfer half landed;
-only the Step-6-gated join generalization remains); Step 6 adopted "Staged R2" and its first sub-step (6-i:
-representation sourced from the per-node channel table, shadow-verified) has landed — see §8 Step 6.** Steps 0–3 done; Step 4's `^Meta` **desugar machinery**
-landed (4a meta structure + 4b-i transfer-companion desugar + Int's slot), **Step 5** landed (single-parameter
-`Numeric[T]` + `implement Numeric[BigInteger]`), and **Step 4c's transfer half** landed (2026-07-10): the
-channel now evaluates the leaf's `^Meta` transfer companion (`rangeAdd^Meta`/…) instead of Scala-resolving the
-domain instance. The transfer is spelled as **plain** `intervalAdd`/… functions bottoming at `Numeric[BigInteger]`
-natives — *not* a `Numeric[Interval]` ability instance, because a transitively-reached Eliot-body instance never
-dispatches under the channel's NbE (see §8 Step 4c). All committed & green (1271/0). The one remaining Step-4
-piece — retiring the 2b `handleCases` join recognition via general body-meta-translation — needs flow-derived
-metas and is therefore **Step-6-gated**. Written 2026-07-10, following the
+**Status: DESIGN adopted (C); migration UNDERWAY — Step 6 (the flag day) in progress as "Staged R2".** Landed
+and green on the full suite: **Steps 0–3**, **Step 5** (single-parameter `Numeric[T]` + `implement
+Numeric[BigInteger]`), and **Step 4's `^Meta` desugar machinery** (4a meta structure + 4b-i transfer-companion
+desugar + Int's `range` slot + **4c's transfer half** — the channel now evaluates the leaf's `^Meta` transfer
+companion `rangeAdd^Meta`/… instead of Scala-resolving the domain instance; the transfer is spelled as **plain**
+`intervalAdd`/… functions bottoming at `Numeric[BigInteger]` natives, *not* a `Numeric[Interval]` ability
+instance, because a transitively-reached Eliot-body instance never dispatches under the channel's NbE — see §8
+Step 4c). **Step 6 is split** (§8 Step 6): sub-step **6-i** — an `Int`'s machine representation is now sourced
+from the per-node channel table (`RefinementTable`, keyed by source position), shadow-verified byte-for-byte
+against the `Int[min, max]` type — **has landed**; sub-step **6-ii**, the atomic flip where `Int` loses its type
+parameters, is **next**. The one remaining Step-4 piece — retiring 2b's `handleCases` join recognition via
+general body-meta-translation — needs flow-derived metas and is therefore folded into 6-ii (**Step-6-gated**).
+See §8 for the per-step state. Written 2026-07-10, following the
 Interval/Arithmetic associated-types work (commit 3ad7ba38) and the design discussion it triggered.
 Extended the same day with the channel's semantics (§4), and again 2026-07-10 with the decisive
 simplification that reframes §3–§4: meta-information is carried by a **`^Meta` companion** in a new
