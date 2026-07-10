@@ -1,13 +1,15 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN — direction adopted (C); Steps 0–3 + 5 landed, Step 4 partial (4c next).** Steps 0–3 done;
-Step 4's `^Meta` **desugar machinery** landed (4a meta structure + 4b-i transfer-companion desugar + Int's
-slot, all committed & green), but the channel's **evaluation** of the companion (4c) was blocked on the
-associated-type lane and was **re-ordered after Step 5** — see §8 Step 4 for the re-order rationale. **Step 5
-is now landed** (2026-07-10): single-parameter `Numeric[T]` + `implement Numeric[BigInteger]`, and the
-domain-side compile-time `Interval` arithmetic the channel evaluates is rewritten onto a non-associated-type
-`Numeric[Interval[T, T]]` instance — so 4c's transfer companion now has ground-typed dispatch and is
-unblocked. Written 2026-07-10, following the
+**Status: DESIGN — direction adopted (C); Steps 0–3 + 5 landed, Step 4 nearly done (4c transfer half landed;
+only the Step-6-gated join generalization remains).** Steps 0–3 done; Step 4's `^Meta` **desugar machinery**
+landed (4a meta structure + 4b-i transfer-companion desugar + Int's slot), **Step 5** landed (single-parameter
+`Numeric[T]` + `implement Numeric[BigInteger]`), and **Step 4c's transfer half** landed (2026-07-10): the
+channel now evaluates the leaf's `^Meta` transfer companion (`rangeAdd^Meta`/…) instead of Scala-resolving the
+domain instance. The transfer is spelled as **plain** `intervalAdd`/… functions bottoming at `Numeric[BigInteger]`
+natives — *not* a `Numeric[Interval]` ability instance, because a transitively-reached Eliot-body instance never
+dispatches under the channel's NbE (see §8 Step 4c). All committed & green (1271/0). The one remaining Step-4
+piece — retiring the 2b `handleCases` join recognition via general body-meta-translation — needs flow-derived
+metas and is therefore **Step-6-gated**. Written 2026-07-10, following the
 Interval/Arithmetic associated-types work (commit 3ad7ba38) and the design discussion it triggered.
 Extended the same day with the channel's semantics (§4), and again 2026-07-10 with the decisive
 simplification that reframes §3–§4: meta-information is carried by a **`^Meta` companion** in a new
@@ -859,40 +861,51 @@ the runtime pool, never code-generated); only the `^Meta` *transfer companions* 
   `Int$Meta` generated in the real stdlib+jvm compile; verified unperturbed (jvm 193/0). Inert and
   transitional (Int keeps its `[MIN, MAX]` parameters, the shadow-mode source of truth until Step 6).
 
-- 4c — **channel evaluates the `^Meta` transfer companion — was BLOCKED on the assoc lane; RE-ORDERED to
-  AFTER Step 5, which has now LANDED (2026-07-10), so 4c is UNBLOCKED and is the next step.** The blocking
-  cause below is now resolved: the domain-side Interval arithmetic is plain `Interval → Interval → Interval`
-  (`Numeric[Interval[T, T]]`, no `AddResult`), so a vessel calling *that* directly has ground-typed dispatch.
-  The companion's *home* is resolved (Robert chose dedicated base-layer transfer
-  vessels `def rangeAdd(a: Int, b: Int): Int {range(a) + range(b)}` / `rangeSubtract` / `rangeMultiply`
-  in stdlib `Int.els`, co-located with the `range` slot so `Int$Meta` + the accessor resolve
-  per-file; the channel maps each leaf `nativeAdd → rangeAdd^Meta`, `reduceInstance`s the companion,
-  wraps operands as `Int$Meta(Interval(lo, hi))`, and reads back the result `range`). The companion
-  **resolves and monomorphizes** on the compiler track — but evaluating it fails with *"Cannot quote
-  stuck native application `Arithmetic::add^Arithmetic`"*. Root cause: the vessel's `+` routes through
-  the **associated-type** layer (`AddResult`), whose non-ground type args stop the compiler-track
-  ability dispatch from resolving `Arithmetic[Interval]::add`. The dispatch machinery is *present*
-  (`TypeStackLoop` wires `resolveAbilityImpl` + binds the impl body at post-drain quote — it handles
-  the guard combinators, which are also Eliot-body instances); it is the assoc that starves it of
-  ground types — the *same* failure class as the associated-type work (commit 3ad7ba38).
-  **Decision (Robert, 2026-07-10): do NOT fix the assoc dispatch.** The assoc lane is deleted at
-  Step 7c, so making it dispatch here would prop up machinery we are about to remove. Instead the
-  transfer must use **non-assoc** Interval arithmetic — which is exactly Step 5's job. So **Step 5
-  lands before 4c**: once the domain-side Interval arithmetic is plain `Interval → Interval → Interval`
-  (no `AddResult`) and the vessel calls *that* directly rather than the still-assoc `+` operator (which
-  cannot switch until the flag day), the companion's dispatch has ground types and fires on the
-  compiler track — no workaround, nothing later-deleted. 4c then also folds in the join half (body
-  meta-translation of a braceless def: calls ⤳ `^Meta` calls, literals ⤳ α = the value constructor's
-  `^Meta`, `match` ⤳ `Meta.join`), retiring the Step-2b `handleCases` recognition. First-order only —
-  the higher-order `^Meta`-of-function-args boundary (§7 Q3) stays deferred.
+- 4c — **channel evaluates the `^Meta` transfer companion (transfer half). — DONE (2026-07-10).** The
+  channel now recomputes each arithmetic transfer by evaluating an Eliot `^Meta` companion instead of
+  Scala-resolving the domain instance directly. Base-layer vessels `def rangeAdd(a: Int, b: Int): Int
+  {intervalAdd(range(a), range(b))}` / `rangeSubtract` / `rangeMultiply` in stdlib `Int.els` (co-located
+  with the `range` slot, so `Int$Meta` + the accessor resolve per-file) desugar (`MetaTransferDesugarer`)
+  to `rangeAdd^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(intervalAdd(range(a), range(b)))`;
+  `RefinementChannelProcessor.runTransfer` maps each leaf `nativeAdd → rangeAdd^Meta`,
+  `ReducedBindingClosure.reduceInstance`s the companion at empty type args, applies the two operand ranges
+  wrapped as `Int$Meta(Interval(lo, hi))`, and reads the result `Int$Meta`'s `range` slot back. Verified
+  load-bearing by forced-mismatch (break `intervalAdd` → CLI `ArithmeticAbility` build hard-errors "channel
+  computed [0, 50] but the type is [0, 150]"). Full suite 1271/0.
 
-**Checkpoint (2026-07-10):** 4a + 4b-i + 4b-ii-a + **Step 5** are committed and green (full suite 1271/0).
-The transfer (2a) and join (2b) shadow checks still fire via the existing Step-2 paths — now over the
-`Numeric[Interval[T, T]]` domain instance rather than the assoc `Arithmetic[Interval, Interval]` one — so
-there is **no coverage regression** (proven by forced-mismatch). The `^Meta` desugar machinery is complete
-and the non-assoc domain arithmetic 4c needs is in place; only the channel's companion *evaluation* (4c) is
-pending, now unblocked. `where`-on-defs and any value-position contract remain out of Step 4 (deferred —
-Option B / §8 Step 8).
+  **The blocker that Step 5 was supposed to fix was only half the story.** The original blocker was the
+  assoc `+` (`Arithmetic[Interval]::add`, `AddResult`), which Step 5 removed by giving the domain a
+  non-assoc `Numeric[Interval]` instance. But routing the vessel through *any* Eliot-body ability **instance**
+  — assoc or not — still fails: a transitively-reached ability method evaluates to a `VStuckNative` in a
+  type/`SemValue` position that the checker's ability-ref collector (`collectAbilityRefs`, expression-only)
+  and the only type-position rewriter (`reduceAssoc`, associated-types-only) both ignore, so it never
+  dispatches to the instance body and `Quoter.quote` fails ("Cannot quote stuck native application
+  `Numeric::add^Numeric`"). Instance dispatch under the channel only ever works via the **explicit**
+  `AbilityImplementation.Key` resolution the channel does for the join (and Step 5's transfer did) —
+  *never* implicitly through a companion body. The resolution: spell the transfer as a **plain function**,
+  not an ability instance. `implement Numeric[Interval[T, T]]` in the compiler overlay is replaced by plain
+  `intervalAdd`/`intervalSubtract`/`intervalMultiply[T ~ Numeric (& Compare)]` functions whose bodies bottom
+  directly at the endpoints' `Numeric[BigInteger]` **natives** (which *do* re-fire transitively) + `Compare`;
+  the vessel calls those. Step 5's `Numeric[T]`/`Numeric[BigInteger]` groundwork is fully load-bearing (the
+  endpoints); only the `Numeric[Interval]` *instance* it added is superseded by the plain functions. `opaque`
+  is **not** touched — it was never the blocker (Robert flagged it as removable; it turned out to be the
+  Eliot-instance-dispatch limitation, not `opaque`). `FactCache.CACHE_VERSION` 7→8.
+
+  **The join half stays via `Meta[Interval]::join` (not yet body-meta-translation).** The 2b `handleCases`
+  recognition + explicit `Meta.join` resolution is kept: it already routes the merge through the Eliot
+  `Meta.join` instance (the ^Meta protocol's join), via the *explicit* `AbilityImplementation.Key` path that
+  works. Fully *retiring* the `handleCases` recognition needs general body-meta-translation (every node's
+  meta from α/`^Meta`/`Meta.join`), which requires **flow-derived** operand metas — but in shadow mode the
+  channel reads operand metas from *types*, so body-meta-translation is a **Step-6-era** generalization (once
+  metas come from flow, not types). Recorded here rather than forced now. First-order only; the higher-order
+  `^Meta`-of-function-args boundary (§7 Q3) stays deferred.
+
+**Checkpoint (2026-07-10):** 4a + 4b-i + 4b-ii-a + **Step 5 + Step 4c (transfer half)** are committed and
+green (full suite 1271/0). The transfer (2a) shadow check now fires via the `^Meta` companions; the join
+(2b) still via the explicit `Meta[Interval]::join` path — **no coverage regression** (both proven by
+forced-mismatch). The `^Meta` desugar machinery is complete and exercised end-to-end on real `Int`
+arithmetic. What remains of Step 4 is only the join-half generalization, which is Step-6-gated (flow metas).
+`where`-on-defs and any value-position contract remain out of Step 4 (deferred — Option B / §8 Step 8).
 
 **Step 5 (sequenced BEFORE Step 4c — the transfer companion's evaluation depends on this
 non-assoc arithmetic; see Step 4): `Numeric` groundwork; the domain code comes off `Arithmetic`. — DONE

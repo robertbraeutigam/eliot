@@ -21,9 +21,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * node, records the interval the channel knows for it into a [[RefinementTable]]. The point of the pass is the
   * *agreement harness* at the two places the channel *computes* rather than reads:
   *
-  *   - **Transfers (2a):** at an `Int` `+`/`-`/`*` the result interval is recomputed by running the compiler-pool
-  *     `Interval` arithmetic instance (the future single source of truth, once `Int` loses its type parameters at Step
-  *     6) through the one NbE evaluator, and asserted equal to the interval the `Int` associated-type formulas produced.
+  *   - **Transfers (2a, Step-4c form):** at an `Int` `+`/`-`/`*` the result interval is recomputed by evaluating the
+  *     leaf's `^Meta` transfer companion (`rangeAdd^Meta`/… — the base-layer vessels' companions, whose return braces
+  *     spell the transfer as the plain `intervalAdd`/… endpoint arithmetic bottoming at `Numeric[BigInteger]` natives)
+  *     through the one NbE evaluator, and asserted equal to the interval the `Int` associated-type formulas produced.
+  *     This is the future single source of truth, once `Int` loses its type parameters at Step 6.
   *   - **Joins (2b):** at a `match` whose arms carry different `Int` ranges, the merged interval is recomputed by
   *     `Meta.join` on the arms' pre-widening intervals and asserted equal to the interval the type-level `Combine` join
   *     produced (the `handleCases` result type). This is the branch merge where the channel *must* join — a
@@ -109,8 +111,8 @@ class RefinementChannelProcessor
       case _                                                           => (node, Seq.empty)
     }
 
-  /** The transfer shadow assertion (2a): recompute the result interval via the compiler-pool `Interval` arithmetic
-    * instance and assert it equals the interval the type formulas produced (the node's own type). Records nothing —
+  /** The transfer shadow assertion (2a, Step-4c form): recompute the result interval via the leaf's `^Meta` transfer
+    * companion and assert it equals the interval the type formulas produced (the node's own type). Records nothing —
     * [[walkNode]] already recorded the node's interval from its type; this only verifies. Silent when the transfer
     * cannot be computed (shadow mode: the type stays the source of truth).
     */
@@ -213,16 +215,42 @@ class RefinementChannelProcessor
       case _                                                 => node
     }
 
+  /** Recompute an arithmetic transfer by evaluating the leaf's `^Meta` transfer companion (`docs/bounds-as-refinements.md`
+    * Step 4c). `nativeAdd`/… maps to `rangeAdd^Meta`/… (the base-layer vessels' companions); the companion is applied to
+    * the two operand ranges wrapped as `Int$Meta(Interval(lo,hi))` and its result `Int$Meta`'s `range` slot is read
+    * back. This replaces Step 5's direct resolution of the `Numeric[Interval]` instance — the transfer now lives in the
+    * vessel's return brace (Eliot), evaluated via the uniform `^Meta` mechanism.
+    */
   private def runTransfer(
       leaf: ValueFQN,
       operandA: (BigInt, BigInt),
       operandB: (BigInt, BigInt)
   ): CompilerIO[Option[(BigInt, BigInt)]] =
-    applyIntervalInstance(
-      numericAbilityMethod(leaf),
-      Seq(intervalType),
-      Seq(intervalValue(operandA), intervalValue(operandB))
+    applyMetaCompanion(
+      metaTransferCompanion(leaf),
+      Seq(intMetaValue(operandA), intMetaValue(operandB))
     )
+
+  /** Reduce a compiler-pool `^Meta` transfer companion (non-generic, so empty type args), apply it to the operand meta
+    * values through the one NbE evaluator, and read the result `Int$Meta`'s single `range` slot back as an interval —
+    * `ReducedBindingClosure.reduceInstance` + `Evaluator.applyValue`/`force` + `Quoter.quote`, the same pattern
+    * [[applyIntervalInstance]] uses for the join, re-pointed from an ability instance to the `^Meta` companion. `None`
+    * when the companion does not reduce (channel cannot compute — silent in shadow mode) or the result is not the
+    * expected `Int$Meta(Interval(...))` shape.
+    */
+  private def applyMetaCompanion(
+      companionFqn: ValueFQN,
+      metaValues: Seq[GroundValue]
+  ): CompilerIO[Option[(BigInt, BigInt)]] =
+    ReducedBindingClosure.reduceInstance(companionFqn, Seq.empty).map {
+      case None       => None
+      case Some(body) =>
+        val applied = metaValues.foldLeft(body) { (f, mv) =>
+          Evaluator.applyValue(f, Evaluator.groundToSem(mv))
+        }
+        val forced  = Evaluator.force(applied, MetaStore.empty)
+        Quoter.quote(0, forced, MetaStore.empty).toOption.flatMap(unwrapIntMeta).flatMap(twoBigIntArgs)
+    }
 
   /** Fold a list of arm intervals pairwise through `Meta.join`. `None` if any step does not compute. */
   private def runJoinAll(intervals: Seq[(BigInt, BigInt)]): CompilerIO[Option[(BigInt, BigInt)]] =
@@ -273,7 +301,6 @@ class RefinementChannelProcessor
 
 object RefinementChannelProcessor {
   private val intModule: ModuleName      = ModuleName(ModuleName.defaultSystemPackage, "Int")
-  private val numericModule: ModuleName  = ModuleName(ModuleName.defaultSystemPackage, "Numeric")
   private val intervalModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Interval")
   private val bigIntModule: ModuleName   = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
 
@@ -305,17 +332,40 @@ object RefinementChannelProcessor {
   private[channel] def isArithmeticLeaf(vfqn: ValueFQN): Boolean =
     vfqn == nativeAddFqn || vfqn == nativeSubtractFqn || vfqn == nativeMultiplyFqn
 
-  /** The `Numeric` ability method that computes the transfer for a leaf — `add`/`subtract`/`multiply`, in the
-    * `Ability("Numeric")` namespace. Resolved on the single `Interval` operand type (`Numeric[Interval[T, T]]`) to reach
-    * the compiler-pool interval instance — the non-associated-type domain arithmetic (`docs/bounds-as-refinements.md`
-    * Step 5), off `Arithmetic`'s associated-type machinery.
+  /** The `^Meta` transfer companion that computes the transfer for a leaf — `rangeAdd`/`rangeSubtract`/`rangeMultiply`,
+    * in the [[Qualifier.Meta]] namespace (`docs/bounds-as-refinements.md` Step 4c). These are the base-layer vessels'
+    * companions (`stdlib/.../Int.els`), generated by `MetaTransferDesugarer` from each vessel's return brace, which the
+    * channel reduces and evaluates to propagate an `Int`'s range through arithmetic.
     */
-  private[channel] def numericAbilityMethod(leaf: ValueFQN): ValueFQN = {
-    val name =
-      if (leaf == nativeAddFqn) "add"
-      else if (leaf == nativeSubtractFqn) "subtract"
-      else "multiply"
-    ValueFQN(numericModule, QualifiedName(name, Qualifier.Ability("Numeric")))
+  private[channel] def metaTransferCompanion(leaf: ValueFQN): ValueFQN =
+    if (leaf == nativeAddFqn) rangeAddMetaFqn
+    else if (leaf == nativeSubtractFqn) rangeSubtractMetaFqn
+    else rangeMultiplyMetaFqn
+
+  private[channel] val rangeAddMetaFqn: ValueFQN      = ValueFQN(intModule, QualifiedName("rangeAdd", Qualifier.Meta))
+  private[channel] val rangeSubtractMetaFqn: ValueFQN = ValueFQN(intModule, QualifiedName("rangeSubtract", Qualifier.Meta))
+  private[channel] val rangeMultiplyMetaFqn: ValueFQN = ValueFQN(intModule, QualifiedName("rangeMultiply", Qualifier.Meta))
+
+  /** `Int$Meta` — the meta structure `MetaConstructorDesugarer` emits for `type Int {range: …}` (the `$Meta` suffix is
+    * `MetaConstructorDesugarer.metaTypeSuffix`). Its value constructor takes the sole `range` slot (an `Interval`).
+    */
+  private val intMetaType: GroundValue = GroundValue.Structure(
+    ValueFQN(intModule, QualifiedName("Int$Meta", Qualifier.Type)),
+    Seq.empty,
+    GroundValue.Type
+  )
+  private val intMetaCtorFqn: ValueFQN = ValueFQN(intModule, QualifiedName("Int$Meta", Qualifier.Default))
+
+  /** An operand's range wrapped as the `Int$Meta(Interval(lo, hi))` value the `^Meta` companion consumes. */
+  private[channel] def intMetaValue(bounds: (BigInt, BigInt)): GroundValue =
+    GroundValue.Structure(intMetaCtorFqn, Seq(intervalValue(bounds)), intMetaType)
+
+  /** Peel one `Int$Meta(interval)` structure level to its sole `range`-slot argument (the result `Interval`), so the
+    * endpoints can be read by [[twoBigIntArgs]]. `None` for any other shape.
+    */
+  private def unwrapIntMeta(gv: GroundValue): Option[GroundValue] = gv match {
+    case GroundValue.Structure(_, Seq(interval), _) => Some(interval)
+    case _                                          => None
   }
 
   private def operatorName(leaf: ValueFQN): String =

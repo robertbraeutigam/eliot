@@ -66,3 +66,16 @@ def intToString[Min: BigInteger, Max: BigInteger](value: Int[Min, Max]): String
  * instance.
  */
 implement[Amin: BigInteger, Amax: BigInteger, Bmin: BigInteger, Bmax: BigInteger] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }
+
+// The refinement channel's `^Meta` transfer vessels for integer arithmetic (`docs/bounds-as-refinements.md` §4.2,
+// Step 4c). Each carries only a return brace — the range transfer — and no runtime body: `MetaTransferDesugarer`
+// turns `def rangeAdd(a: Int, b: Int): Int {expr}` into the companion
+// `rangeAdd^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(expr)` (in the `Qualifier.Meta` namespace), which the
+// channel evaluates to propagate an `Int`'s value range through an `add`/`subtract`/`multiply`. The brace computes the
+// result range from the operand ranges (`range(a)`, `range(b)`, the `Int$Meta` slot) through the plain
+// `intervalAdd`/`intervalSubtract`/`intervalMultiply` functions (the compile-time `Interval` domain arithmetic, resolved
+// per the compiler pool). These vessels are co-located with the `range` slot so `Int$Meta` and its accessor resolve
+// per-file; they are compiler-pool-only carriers (never called at runtime).
+def rangeAdd(a: Int, b: Int): Int {intervalAdd(range(a), range(b))}
+def rangeSubtract(a: Int, b: Int): Int {intervalSubtract(range(a), range(b))}
+def rangeMultiply(a: Int, b: Int): Int {intervalMultiply(range(a), range(b))}
