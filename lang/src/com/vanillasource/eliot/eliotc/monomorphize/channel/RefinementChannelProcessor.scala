@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.channel
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
@@ -14,27 +14,35 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-/** The refinement channel in **shadow mode** — Step 2a of `docs/bounds-as-refinements.md`.
+/** The refinement channel in **shadow mode** — Steps 2a (transfers) and 2b (joins) of
+  * `docs/bounds-as-refinements.md`.
   *
   * A post-pass over each [[MonomorphicValue]] (runtime track): it walks the fully-ground body and, for every Int-typed
   * node, records the interval the channel knows for it into a [[RefinementTable]]. The point of the pass is the
-  * *agreement harness* at arithmetic nodes: at an `Int` `+`/`-`/`*` the result interval is recomputed **independently
-  * of the type**, by running the compiler-pool `Interval` arithmetic instance (the future single source of truth, once
-  * `Int` loses its type parameters at Step 6) through the one NbE evaluator, and asserted equal to the interval the
-  * `Int` associated-type formulas produced (today's source of truth). A divergence is a hard compiler error — the
-  * fail-safe the migration wants while the two representations of the same lattice coexist.
+  * *agreement harness* at the two places the channel *computes* rather than reads:
+  *
+  *   - **Transfers (2a):** at an `Int` `+`/`-`/`*` the result interval is recomputed by running the compiler-pool
+  *     `Interval` arithmetic instance (the future single source of truth, once `Int` loses its type parameters at Step
+  *     6) through the one NbE evaluator, and asserted equal to the interval the `Int` associated-type formulas produced.
+  *   - **Joins (2b):** at a `match` whose arms carry different `Int` ranges, the merged interval is recomputed by
+  *     `Meta.join` on the arms' pre-widening intervals and asserted equal to the interval the type-level `Combine` join
+  *     produced (the `handleCases` result type). This is the branch merge where the channel *must* join — a
+  *     runtime-chosen result the channel cannot narrow — as opposed to a `pick[A](a: A, b: A): A` covariant "join",
+  *     which is a type artifact: at runtime the value is exactly `a`, so the endgame channel is *tighter* than the
+  *     type there and the two legitimately diverge (that case dies with `Combine` at Step 6, so it is not checked).
+  *
+  * A divergence at either is a hard compiler error — the fail-safe the migration wants while the two representations of
+  * the same lattice coexist.
   *
   * Why a post-pass and not a rider inside the checker: refinements are, by the design's held invariant, strictly
   * *downstream* of type formation (they flow into checks and codegen, never back into a type), so the channel can run
   * entirely over the checker's output with zero risk to the checker's invariants. See the design doc §3.
   *
   * The arithmetic is recognised at the platform's native leaves (`eliot.lang.Int::nativeAdd`/`nativeSubtract`/
-  * `nativeMultiply`) — the point where the transfer is realised, with concrete operand/result types in hand. Those
-  * leaves are the JVM layer's names; recognising them here is the channel being legitimately platform-aware (it sits
-  * next to codegen). A backend using other leaf names simply gets no shadow check for its arithmetic — reduced
-  * coverage, never a false accept, since the type formulas remain the source of truth in shadow mode.
-  *
-  * Scope of this step: **straight-line transfers only** (2a). Branch-merge joins (`Meta.join`) are 2b.
+  * `nativeMultiply`); the merge at the pattern-match eliminator (`handleCases`), with the arms' pre-join intervals read
+  * off the operands of the `nativeWiden` coercions the type-level join inserted. A backend using other leaf names, or a
+  * merge shape this does not recognise, simply gets no shadow check there — reduced coverage, never a false accept,
+  * since the type formulas remain the source of truth in shadow mode.
   */
 class RefinementChannelProcessor
     extends TransformationProcessor[MonomorphicValue.Key, RefinementTable.Key](key =>
@@ -50,133 +58,217 @@ class RefinementChannelProcessor
   ): CompilerIO[RefinementTable] =
     for {
       intervals <- mv.runtime match {
-                     case Some(body) => walkNode(body, body.value, mv.signature)
+                     case Some(body) => walkNode(body.as(MonomorphicExpression(mv.signature, body.value)))
                      case None       => Seq.empty[RefinementTable.NodeInterval].pure[CompilerIO]
                    }
     } yield RefinementTable(key.vfqn, key.typeArguments, intervals)
 
-  /** Walk one body node: record its own interval (if Int-typed), descend into children, and — when the node is an
-    * arithmetic transfer application — run the shadow check. `sourced` carries the node's source position (URI + range)
-    * for the recorded entry and any diagnostic; `expr`/`tpe` are the node's expression and ground type (threaded
-    * separately because the runtime root is a bare `Expression` without its own `expressionType`).
+  /** Walk one body node: record its own interval (if Int-typed), descend into children (the flattened application head
+    * and every argument, or a lambda body), and — when the node is an arithmetic transfer or a pattern-match merge —
+    * run the shadow check.
     */
-  private def walkNode(
-      sourced: Sourced[?],
-      expr: MonomorphicExpression.Expression,
-      tpe: GroundValue
-  ): CompilerIO[Seq[RefinementTable.NodeInterval]] = {
+  private def walkNode(node: Sourced[MonomorphicExpression]): CompilerIO[Seq[RefinementTable.NodeInterval]] = {
     val selfInterval: Seq[RefinementTable.NodeInterval] =
-      intIntervalOf(tpe).map { case (lo, hi) => RefinementTable.NodeInterval(sourced.range, lo, hi) }.toSeq
+      intIntervalOf(node.value.expressionType).map { case (lo, hi) =>
+        RefinementTable.NodeInterval(node.range, lo, hi)
+      }.toSeq
 
-    expr match {
-      case MonomorphicExpression.FunctionApplication(target, argument) =>
+    node.value.expression match {
+      case _: MonomorphicExpression.FunctionApplication =>
+        val (head, args) = flatten(node)
         for {
-          targetIntervals   <- walkChild(target)
-          argumentIntervals <- walkChild(argument)
-          shadowIntervals   <- arithmeticTransfer(target, argument) match {
-                                 case Some((leaf, operandA, operandB)) =>
-                                   shadowCheck(sourced, leaf, operandA, operandB, tpe)
-                                 case None                             =>
-                                   Seq.empty[RefinementTable.NodeInterval].pure[CompilerIO]
-                               }
-        } yield selfInterval ++ targetIntervals ++ argumentIntervals ++ shadowIntervals
+          childIntervals <- (head +: args).flatTraverse(walkNode)
+          shadowIntervals <- head.value.expression match {
+                               case MonomorphicExpression.MonomorphicValueReference(vfqn, _)
+                                   if isArithmeticLeaf(vfqn.value) && args.sizeIs == 2 =>
+                                 shadowCheckArithmetic(node, vfqn.value, args(0), args(1))
+                               case MonomorphicExpression.MonomorphicValueReference(vfqn, _)
+                                   if WellKnownTypes.isPatternMatchHandleCases(vfqn.value) =>
+                                 shadowCheckJoin(node, args)
+                               case _ =>
+                                 Seq.empty[RefinementTable.NodeInterval].pure[CompilerIO]
+                             }
+        } yield selfInterval ++ childIntervals ++ shadowIntervals
 
       case MonomorphicExpression.FunctionLiteral(_, _, body) =>
-        walkChild(body).map(selfInterval ++ _)
+        walkNode(body).map(selfInterval ++ _)
 
       case _ =>
         selfInterval.pure[CompilerIO]
     }
   }
 
-  private def walkChild(child: Sourced[MonomorphicExpression]): CompilerIO[Seq[RefinementTable.NodeInterval]] =
-    walkNode(child, child.value.expression, child.value.expressionType)
-
-  /** Recognise a fully-applied binary arithmetic leaf: an application whose target is itself an application of one of
-    * the three native arithmetic leaves to its first operand. Returns the leaf FQN and the two operand nodes.
-    */
-  private def arithmeticTransfer(
-      target: Sourced[MonomorphicExpression],
-      argument: Sourced[MonomorphicExpression]
-  ): Option[(ValueFQN, Sourced[MonomorphicExpression], Sourced[MonomorphicExpression])] =
-    target.value.expression match {
-      case MonomorphicExpression.FunctionApplication(innerTarget, operandA) =>
-        innerTarget.value.expression match {
-          case MonomorphicExpression.MonomorphicValueReference(vfqn, _) if isArithmeticLeaf(vfqn.value) =>
-            Some((vfqn.value, operandA, argument))
-          case _                                                                                        => None
-        }
-      case _                                                                => None
+  /** Flatten a curried application into its ultimate head and its arguments in source order. */
+  private def flatten(
+      node: Sourced[MonomorphicExpression]
+  ): (Sourced[MonomorphicExpression], Seq[Sourced[MonomorphicExpression]]) =
+    node.value.expression match {
+      case MonomorphicExpression.FunctionApplication(target, argument) =>
+        val (head, args) = flatten(target)
+        (head, args :+ argument)
+      case _                                                           => (node, Seq.empty)
     }
 
-  /** The shadow assertion: recompute the transfer's result interval via the compiler-pool `Interval` instance and
-    * assert it equals the interval the type formulas produced. Records nothing itself — the result node's interval is
-    * already recorded from its type by [[walkNode]]; this only verifies. If the transfer cannot be computed (no
-    * instance, abstract operands, a stuck read-back) it stays silent: in shadow mode the type is the source of truth,
-    * so a missing channel computation is reduced coverage, never a false accept.
+  /** The transfer shadow assertion (2a): recompute the result interval via the compiler-pool `Interval` arithmetic
+    * instance and assert it equals the interval the type formulas produced (the node's own type). Records nothing —
+    * [[walkNode]] already recorded the node's interval from its type; this only verifies. Silent when the transfer
+    * cannot be computed (shadow mode: the type stays the source of truth).
     */
-  private def shadowCheck(
-      sourced: Sourced[?],
+  private def shadowCheckArithmetic(
+      node: Sourced[MonomorphicExpression],
       leaf: ValueFQN,
       operandA: Sourced[MonomorphicExpression],
-      operandB: Sourced[MonomorphicExpression],
-      resultType: GroundValue
+      operandB: Sourced[MonomorphicExpression]
   ): CompilerIO[Seq[RefinementTable.NodeInterval]] =
-    (intIntervalOf(operandA.value.expressionType), intIntervalOf(operandB.value.expressionType), intIntervalOf(resultType)) match {
+    (intIntervalOf(operandA.value.expressionType), intIntervalOf(operandB.value.expressionType), intIntervalOf(node.value.expressionType)) match {
       case (Some(a), Some(b), Some(expected)) =>
-        runTransfer(leaf, a, b).flatMap {
-          case Some(computed) if computed =!= expected =>
-            compilerError(
-              sourced.as(
-                s"Refinement channel disagrees with the type at an integer ${operatorName(leaf)}: " +
-                  s"channel computed [${computed._1}, ${computed._2}] but the type is [${expected._1}, ${expected._2}]."
-              ),
-              Seq(
-                s"Operands: [${a._1}, ${a._2}] ${operatorName(leaf)} [${b._1}, ${b._2}].",
-                "This is an internal shadow-mode invariant of the bounds-as-refinements migration; the compiler-pool " +
-                  "Interval instance and the Int result-bound formulas must agree on every program."
-              )
-            ).as(Seq.empty[RefinementTable.NodeInterval])
-          case _                                       =>
-            Seq.empty[RefinementTable.NodeInterval].pure[CompilerIO]
-        }
+        runTransfer(leaf, a, b).flatMap(assertAgreement(node, s"integer ${operatorName(leaf)}", expected, _))
       case _                                  =>
         Seq.empty[RefinementTable.NodeInterval].pure[CompilerIO]
     }
 
-  /** Compute `[la, ha] op [lb, hb]` by resolving the compiler-pool `Interval` arithmetic instance for the operator and
-    * evaluating its reduced body applied to the two interval values through the one NbE evaluator — the
-    * `RefinementSolver.combinePair` pattern, re-pointed at the `Interval` transfer. `None` when the instance does not
-    * resolve (channel cannot compute — silent in shadow mode) or the result does not read back to an interval.
+  /** The join shadow assertion (2b): recompute the merged interval by `Meta.join` on the arms' pre-coercion intervals
+    * and assert it equals the merge's result interval (the `handleCases` node's type — the type-level `Combine` join).
+    *
+    * `match` desugars to `handleCases(scrutinee, cases)`, where `cases` is the Scott encoding of the arms —
+    * `Lam($selector -> $selector(arm1)(arm2)…)`, each `armK` a lambda over the constructor's fields whose body is the
+    * arm's value, coerced (`nativeWiden`) to the merged range where the arm is narrower. [[matchArmIntervals]] reads
+    * *every* arm's pre-coercion interval — narrow arms off the `nativeWiden` operand, an arm already at the merged
+    * range off its own type — so the assertion is the genuine join of the arms, not the already-merged values (which
+    * would be vacuous, and dropping a widest un-widened arm would false-mismatch). Fires only when the whole `cases`
+    * structure parses to ≥2 Int arms; any other shape is silently skipped (fail-safe: no false accept).
     */
+  private def shadowCheckJoin(
+      node: Sourced[MonomorphicExpression],
+      args: Seq[Sourced[MonomorphicExpression]]
+  ): CompilerIO[Seq[RefinementTable.NodeInterval]] =
+    (intIntervalOf(node.value.expressionType), args.lift(1).flatMap(matchArmIntervals)) match {
+      case (Some(expected), Some(arms)) if arms.sizeIs >= 2 =>
+        runJoinAll(arms).flatMap(assertAgreement(node, "match join", expected, _))
+      case _                                                =>
+        Seq.empty[RefinementTable.NodeInterval].pure[CompilerIO]
+    }
+
+  /** Parse the `cases` argument of a `handleCases` into the pre-coercion interval of every arm. The structure is
+    * `Lam($selector -> $selector(arm1)(arm2)…)`; peel the selector lambda(s), confirm the body is the selector applied
+    * to the arm lambdas, and read each arm's interval via [[armBodyInterval]]. `None` if the structure is not this
+    * shape or any arm is not an extractable `Int` — either way the join check is skipped rather than risk a false
+    * mismatch from a partial arm set.
+    */
+  private def matchArmIntervals(cases: Sourced[MonomorphicExpression]): Option[Seq[(BigInt, BigInt)]] = {
+    val (selector, arms) = flatten(peelLambdas(cases))
+    selector.value.expression match {
+      case MonomorphicExpression.ParameterReference(_) if arms.nonEmpty =>
+        arms.toList.traverse(arm => armBodyInterval(peelLambdas(arm)))
+      case _                                                            => None
+    }
+  }
+
+  /** Compare a channel-computed interval against the expected (type-derived) one, reporting a hard error on divergence.
+    * Records nothing; a `None` computation is silent (shadow mode: the type is the source of truth).
+    */
+  private def assertAgreement(
+      node: Sourced[MonomorphicExpression],
+      what: String,
+      expected: (BigInt, BigInt),
+      computed: Option[(BigInt, BigInt)]
+  ): CompilerIO[Seq[RefinementTable.NodeInterval]] =
+    computed match {
+      case Some(result) if result =!= expected =>
+        compilerError(
+          node.as(
+            s"Refinement channel disagrees with the type at a $what: " +
+              s"channel computed [${result._1}, ${result._2}] but the type is [${expected._1}, ${expected._2}]."
+          ),
+          Seq(
+            "This is an internal shadow-mode invariant of the bounds-as-refinements migration; the compiler-pool " +
+              "Interval channel and the Int type formulas must agree on every program."
+          )
+        ).as(Seq.empty[RefinementTable.NodeInterval])
+      case _                                   =>
+        Seq.empty[RefinementTable.NodeInterval].pure[CompilerIO]
+    }
+
+  /** The pre-coercion interval of one arm body (its pattern-binding lambdas already peeled): off the `nativeWiden`
+    * operand when the arm was widened to the merged range, else the body's own type. `None` when the body is not an
+    * extractable `Int`.
+    */
+  private def armBodyInterval(body: Sourced[MonomorphicExpression]): Option[(BigInt, BigInt)] =
+    body.value.expression match {
+      case MonomorphicExpression.FunctionApplication(target, operand) if isNativeWiden(target) =>
+        intIntervalOf(operand.value.expressionType)
+      case _                                                                                   =>
+        intIntervalOf(body.value.expressionType)
+    }
+
+  private def isNativeWiden(node: Sourced[MonomorphicExpression]): Boolean =
+    node.value.expression match {
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, _) => vfqn.value == nativeWidenFqn
+      case _                                                        => false
+    }
+
+  private def peelLambdas(node: Sourced[MonomorphicExpression]): Sourced[MonomorphicExpression] =
+    node.value.expression match {
+      case MonomorphicExpression.FunctionLiteral(_, _, body) => peelLambdas(body)
+      case _                                                 => node
+    }
+
   private def runTransfer(
       leaf: ValueFQN,
       operandA: (BigInt, BigInt),
       operandB: (BigInt, BigInt)
-  ): CompilerIO[Option[(BigInt, BigInt)]] = {
-    val abilityMethodFqn = arithmeticAbilityMethod(leaf)
-    val intervalValueA   = intervalValue(operandA._1, operandA._2)
-    val intervalValueB   = intervalValue(operandB._1, operandB._2)
+  ): CompilerIO[Option[(BigInt, BigInt)]] =
+    applyIntervalInstance(
+      arithmeticAbilityMethod(leaf),
+      Seq(intervalType, intervalType),
+      Seq(intervalValue(operandA), intervalValue(operandB))
+    )
+
+  /** Fold a list of arm intervals pairwise through `Meta.join`. `None` if any step does not compute. */
+  private def runJoinAll(intervals: Seq[(BigInt, BigInt)]): CompilerIO[Option[(BigInt, BigInt)]] =
+    intervals.toList match {
+      case Nil          => none[(BigInt, BigInt)].pure[CompilerIO]
+      case head :: tail =>
+        tail.foldLeftM(Option(head)) {
+          case (Some(acc), next) => runJoin(acc, next)
+          case (None, _)         => none[(BigInt, BigInt)].pure[CompilerIO]
+        }
+    }
+
+  private def runJoin(a: (BigInt, BigInt), b: (BigInt, BigInt)): CompilerIO[Option[(BigInt, BigInt)]] =
+    applyIntervalInstance(metaJoinFqn, Seq(intervalType), Seq(intervalValue(a), intervalValue(b)))
+
+  /** Resolve a compiler-pool ability instance for the `Interval` domain and evaluate its reduced body applied to the
+    * given interval values through the one NbE evaluator — the `RefinementSolver.combinePair` pattern, re-pointed at
+    * the `Interval` transfer / `Meta.join`. `None` when the instance does not resolve (channel cannot compute — silent
+    * in shadow mode) or the result does not read back to an interval.
+    *
+    * @param abilityMethodFqn the ability *method* to resolve (`Arithmetic::add`/…, or `Meta::join`)
+    * @param abilityTypeArgs  the ability's type arguments (`[Interval, Interval]` for `Arithmetic`, `[Interval]` for `Meta`)
+    * @param intervalValues   the value arguments to apply (each an `Interval(lo, hi)` ground value)
+    */
+  private def applyIntervalInstance(
+      abilityMethodFqn: ValueFQN,
+      abilityTypeArgs: Seq[GroundValue],
+      intervalValues: Seq[GroundValue]
+  ): CompilerIO[Option[(BigInt, BigInt)]] =
     for {
-      resolved <- getFactIfProduced(
-                    AbilityImplementation.Key(abilityMethodFqn, Seq(intervalType, intervalType), Platform.Compiler)
-                  ).map(_.flatMap(_.resolution.resolved))
+      resolved <- getFactIfProduced(AbilityImplementation.Key(abilityMethodFqn, abilityTypeArgs, Platform.Compiler))
+                    .map(_.flatMap(_.resolution.resolved))
       result   <- resolved match {
                     case None                          => none[(BigInt, BigInt)].pure[CompilerIO]
                     case Some((implFqn, implTypeArgs)) =>
                       ReducedBindingClosure.reduceInstance(implFqn, implTypeArgs).map {
                         case None       => None
                         case Some(body) =>
-                          val applied = Evaluator.applyValue(
-                            Evaluator.applyValue(body, Evaluator.groundToSem(intervalValueA)),
-                            Evaluator.groundToSem(intervalValueB)
-                          )
+                          val applied = intervalValues.foldLeft(body) { (f, iv) =>
+                            Evaluator.applyValue(f, Evaluator.groundToSem(iv))
+                          }
                           val forced  = Evaluator.force(applied, MetaStore.empty)
                           Quoter.quote(0, forced, MetaStore.empty).toOption.flatMap(twoBigIntArgs)
                       }
                   }
     } yield result
-  }
 }
 
 object RefinementChannelProcessor {
@@ -200,6 +292,15 @@ object RefinementChannelProcessor {
   private[channel] val nativeAddFqn: ValueFQN      = ValueFQN(intModule, QualifiedName("nativeAdd", Qualifier.Default))
   private[channel] val nativeSubtractFqn: ValueFQN = ValueFQN(intModule, QualifiedName("nativeSubtract", Qualifier.Default))
   private[channel] val nativeMultiplyFqn: ValueFQN = ValueFQN(intModule, QualifiedName("nativeMultiply", Qualifier.Default))
+
+  /** The range-widening coercion the type-level join inserts on a `match` arm; the channel reads the arm's pre-join
+    * interval off its operand.
+    */
+  private[channel] val nativeWidenFqn: ValueFQN = ValueFQN(intModule, QualifiedName("nativeWiden", Qualifier.Default))
+
+  /** `Meta.join` — the branch-merge combinator resolved on the `Interval` domain (§4.4). */
+  private[channel] val metaJoinFqn: ValueFQN =
+    ValueFQN(ModuleName(ModuleName.compilerPackage, "Meta"), QualifiedName("join", Qualifier.Ability("Meta")))
 
   private[channel] def isArithmeticLeaf(vfqn: ValueFQN): Boolean =
     vfqn == nativeAddFqn || vfqn == nativeSubtractFqn || vfqn == nativeMultiplyFqn
@@ -230,11 +331,11 @@ object RefinementChannelProcessor {
 
   private val intervalCtorFqn: ValueFQN = ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Default))
 
-  /** The interval *value* `Interval(lo, hi)` fed to the transfer. */
-  private def intervalValue(lo: BigInt, hi: BigInt): GroundValue =
+  /** The interval *value* `Interval(lo, hi)` fed to an instance. */
+  private def intervalValue(bounds: (BigInt, BigInt)): GroundValue =
     GroundValue.Structure(
       intervalCtorFqn,
-      Seq(GroundValue.Direct(lo, bigIntType), GroundValue.Direct(hi, bigIntType)),
+      Seq(GroundValue.Direct(bounds._1, bigIntType), GroundValue.Direct(bounds._2, bigIntType)),
       intervalType
     )
 

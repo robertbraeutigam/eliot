@@ -1,0 +1,23 @@
+/**
+ * The lattice a refinement **domain** `D` must provide for the compiler to track it as meta-information about values
+ * (`docs/bounds-as-refinements.md` §4.4). A domain is an abstract-interpretation value — the range of an `Int` is an
+ * `Interval[BigInteger, BigInteger]`, a future length is another `Interval`, and so on — and this ability is the small
+ * interface the channel needs from it, expressed in ordinary Eliot so that enforcement is ordinary instance resolution
+ * and coherence.
+ *
+ * There is exactly one instance per domain (not per tracked type): a single `Meta[Interval[BigInteger, BigInteger]]`
+ * serves an `Int`'s value range and, later, a `List`'s size. Domain values exist only at compile time, so the ability
+ * and its instances live in the `eliot.compiler` platform pool.
+ *
+ * Only `join` exists today — the branch-merge combinator the shadow-mode channel exercises at every `match`/`if` whose
+ * arms carry different refinements (Step 2b). The `contains` (⊑, the containment check that will replace `Coerce`'s
+ * bounds guard) and `top` (the "know nothing" fail-safe) members of the full protocol land with their consumers.
+ */
+ability Meta[D] {
+   /**
+    * The least domain value covering both `a` and `b` — the lattice join. Used to merge the refinements of two branches
+    * that meet at one runtime-chosen result: the merged value is only known to be one branch *or* the other, so the
+    * channel joins their refinements. For an interval this is `[min of the starts, max of the ends]`.
+    */
+   def join(a: D, b: D): D
+}

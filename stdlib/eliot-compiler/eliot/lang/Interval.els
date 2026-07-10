@@ -1,5 +1,6 @@
 import eliot.lang.Arithmetic
 import eliot.lang.Compare
+import eliot.compiler.Meta
 
 /**
  * The compile-time `Interval`: the compiler platform's self-sufficient copy of the representation and the instance
@@ -9,6 +10,19 @@ import eliot.lang.Compare
  * layer being present.
  */
 data Interval[S, E](start: S, end: E)
+
+/**
+ * A same-endpoint `Interval[T, T]` (e.g. `Interval[BigInteger, BigInteger]`, an `Int`'s value range) is a refinement
+ * **domain** — the value a range is tracked as by the bounds-as-refinements channel
+ * (`docs/bounds-as-refinements.md`). Its lattice `join` covers two ranges: the least interval containing both is
+ * `[min of the starts, max of the ends]`, delegating to the endpoints' own `Compare` — the value-level twin of the
+ * type-level `Combine[Int, Int]` join the channel is migrating off. A compiler-pool-only instance, exercised in shadow
+ * mode at `match`/`if` branch merges.
+ */
+implement[T ~ Compare[T]] Meta[Interval[T, T]] {
+   def join(a: Interval[T, T], b: Interval[T, T]): Interval[T, T] =
+      Interval(min(start(a), start(b)), max(end(a), end(b)))
+}
 
 // The compiler half of the base's split `Arithmetic[Interval, Interval]` instance — same `(ability, pattern)` as the
 // base's abstract half, merged in the compiler pool (this overlay supersedes the borrowed runtime copy for these

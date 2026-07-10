@@ -58,4 +58,12 @@ class RefinementChannelProcessorTest extends AnyFlatSpec with Matchers {
   it should "resolve the method in the eliot.lang.Arithmetic module" in {
     arithmeticAbilityMethod(nativeAddFqn).moduleName shouldBe ModuleName(ModuleName.defaultSystemPackage, "Arithmetic")
   }
+
+  "metaJoinFqn" should "name the Meta ability's join in the compiler package" in {
+    metaJoinFqn shouldBe ValueFQN(ModuleName(ModuleName.compilerPackage, "Meta"), QualifiedName("join", Qualifier.Ability("Meta")))
+  }
+
+  "nativeWidenFqn" should "name the Int range-widening coercion leaf" in {
+    nativeWidenFqn shouldBe ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Int"), QualifiedName("nativeWiden", Qualifier.Default))
+  }
 }

@@ -46,6 +46,24 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "7")
   }
 
+  it should "join divergent Int ranges across match arms (refinement channel Step 2b)" in {
+    // `First -> 5` (Int[5, 5]) and `Second -> 15` (Int[15, 15]) meet at the runtime-chosen join Int[5, 15], widened
+    // to the declared Int[0, 20]. Beyond the runtime result, this exercises the shadow-mode agreement harness at a
+    // branch merge: the refinement channel recomputes the merge with `Meta.join` and hard-errors if it disagrees with
+    // the type-level `Combine` join, so a passing compile is also a passing join check.
+    compileAndRun(
+      """import eliot.effect.Console
+        |data Choice = First | Second
+        |
+        |def choose(c: Choice): Int[0, 20] = c match {
+        |  case First  -> 5
+        |  case Second -> 15
+        |}
+        |
+        |def main: IO[Unit] = printLine(intToString(choose(Second)))""".stripMargin
+    ).asserting(_ shouldBe "15")
+  }
+
   // W2 follow-up: type-level matching over an auto-bounded record. `Counter`'s bare `Int` field grows the type to
   // `Counter[lo, hi]`, so the `typeMatch` matcher's handler must bind both synthesized bounds (`case Counter[lo, hi]`).
   it should "type-level match over an auto-bounded record (W2 follow-up)" in {

@@ -699,6 +699,37 @@ the existing `Arithmetic[Interval,Interval]`); the `Combine`-at-covariant-meta j
 materialised as `nativeWiden` coercions post-monomorphization, so only `match`/`if` joins remain to
 recompute there.
 
+**Step 2b — DONE (2026-07-10).** Branch-merge joins via `Meta.join`, same post-pass. Landed the
+durable protocol piece: **`ability Meta[D] { def join(a: D, b: D): D }`** in
+`lang/eliot/eliot/compiler/Meta.els` (borrowed into the compiler pool, beside `Coerce`/`Combine`) +
+**`implement[T ~ Compare[T]] Meta[Interval[T, T]]`** in the stdlib compiler overlay
+(`stdlib/eliot-compiler/.../Interval.els`) — generic over the endpoint type (min/max via the
+endpoints' own `Compare`, so it needs no `BigInteger` import, which had caused an import-shadow
+error), the value-level twin of `Combine[Int, Int]`. Only `join` exists (its one 2b consumer);
+`contains`/`top` land with theirs. The channel now recognises the pattern-match eliminator
+(`WellKnownTypes.isPatternMatchHandleCases`) and, for a `match` whose arms carry different `Int`
+ranges, recomputes the merge: `match` desugars to `handleCases(scrutinee, cases)` where `cases` is
+the **Scott encoding** `Lam($selector -> $selector(arm1)(arm2)…)`; the channel parses that structure
+(peel the selector lambda, flatten the `$selector` application, peel each arm lambda) and reads
+**every** arm's *pre-coercion* interval — off the `nativeWiden` operand where an arm was widened to
+the merged range, off its own type where it already is that range — then folds them through
+`Meta.join` (resolved on `Interval` exactly as the transfer resolves, `applyIntervalInstance` shared)
+and asserts the result equals the merge's type (the type-level `Combine` join = the `handleCases`
+result type). Reading *all* arms (not just widened ones) is load-bearing: a widest un-widened arm
+dropped would false-mismatch. Any non-matching `cases` shape or non-Int arm is silently skipped
+(fail-safe). Verified end-to-end on a divergent-range `match` (`First -> 5` ⊔ `Second -> 15` =
+`[5,15]`, agreeing) and by a forced-mismatch probe; covered in CI by an `ExamplesIntegrationTest4`
+case + the `MatchRanges` example. 871/871 green.
+
+**Key distinction the channel encodes (why *only* `match`/`if` merges are join-checked):** a
+`match`/`if` result is *runtime-chosen*, so the channel *must* join the arms (it cannot know which
+runs) and its join equals `Combine`'s — a valid agreement. A `pick[A](a: A, b: A): A` "join" is a
+different animal: at runtime the value is exactly `a`, so the endgame channel (tracking real flow) is
+*tighter* than the type's `Combine` join there; that case legitimately diverges and is deleted with
+`Combine` at Step 6, so it is **not** a join-check target (it manifests as `nativeWiden(pick(a,b))`,
+which the channel leaves alone). This is the sharpest way to see that the channel is not "verifying
+the type system" but a genuinely independent, more precise analysis.
+
 **Step 3: representation from the channel.** Add `Represent` + the jvm instance (the
 `fitsByte/…` fold logic as an Eliot body over the interval). `RepresentationLowering` computes
 the layout **both** ways — opaque-body unfold and `Represent.layout(channel interval)` — asserts
