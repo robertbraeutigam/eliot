@@ -1,9 +1,16 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN — open, no decision.** Written 2026-07-10, following the Interval/Arithmetic
-associated-types work (commit 3ad7ba38) and the design discussion it triggered. Extended the same
-day with the channel's semantics (§4: attachment modes, named meta slots referenced by
-projection, `where` preconditions, and the `Meta`/`Tracked`/`Represent` ability protocol).
+**Status: DESIGN — direction adopted (C); Steps 0–3 landed.** Written 2026-07-10, following the
+Interval/Arithmetic associated-types work (commit 3ad7ba38) and the design discussion it triggered.
+Extended the same day with the channel's semantics (§4), and again 2026-07-10 with the decisive
+simplification that reframes §3–§4: meta-information is carried by a **`^Meta` companion** in a new
+`Qualifier.Meta` namespace — a *fourth* output of `DataDefinitionDesugarer` beside the type and
+value constructors — so slots, transfers, and seeding reduce to ordinary constructor calls and
+companion functions the one NbE evaluator already runs, not new machinery. Two consequences of that
+turn: the `Tracked` ability **dissolves** into `^Meta` (the protocol is now just `Meta` + the landed
+`Represent`), and value-position contract annotations + refined aliases are **deferred** (Option B) —
+the only brace positions are the type *declaration* (the meta constructor) and the *return* type
+(the transfer), and every per-value demand is a `where` clause.
 
 ## 1. The problem
 
@@ -95,13 +102,12 @@ Refinements are **invisible to**:
 
 Refinements are **visible to**:
 
-- contract checks — a range annotation (`Int{0..255}` on a parameter, return, or `data` field —
-  strawman syntax, see below) is an *assertion*: `computed ⊆ declared`, verified at each manifest
-  use site;
-- the transfer rules themselves;
+- contract checks — a return-position transfer (`def add(…): Int {a + b}`, §4.2) on a *bodied* def
+  is an *assertion*: `computed ⊆ declared`, verified at each manifest use site;
+- the transfer rules themselves (the `^Meta` companions);
 - representation selection and codegen;
-- `where` preconditions on defs over slot projections (§4.3); (future) `implement` guards over
-  refinements, under the discipline below.
+- `where` demands on defs over slot projections (§4.3) — the sole per-value precondition surface
+  (Option B); (future) `implement` guards over refinements, under the discipline below.
 
 **Held invariant:** refinement information flows *into* checks and codegen, never back into type
 formation. A guard reading a refinement may reject the program or pick a machine representation;
@@ -162,32 +168,54 @@ codegen's business). Litmus: if two instantiations would never need different co
 different checks or layouts — it is channel information, not a parameter. Sized arrays split
 exactly along this line: element type = parameter (brackets), length = channel.
 
-**Strawman syntax** (to be validated against the grammar):
+**The syntax, as adopted** (reusing the constructor/companion machinery rather than a parallel
+grammar — §4.2/§4.4). A new `Qualifier.Meta` namespace joins `Type`/`Default`, and `{…}` is a
+**third constructor bracket** dual to `[…]` (type) and `(…)` (value). Only two positions carry a
+brace:
 
-- **Contract annotation**: a suffix brace on a type, dual to the effect row's prefix brace —
-  `def f(x: Int{0..255}): {Abort} Int{0..510}`. Slots are *named*
-  (`Int{range: 0..255}`, `Array[T]{size: 4}`); the bare form (`Int{0..255}`) is sugar for a
-  type's sole slot. The brace content is (sugar for) an expression evaluating to the domain
-  value: `Int{range: Interval(0, 255)}` is the explicit form, `lo..hi` the range-domain literal
-  sugar.
-- **Refined aliases**: `type Byte = Int{0..255}` — an alias for the *pair* (type, contract).
-- **Domain declaration**: the brace channel on the type declaration itself, as named slots —
-  `type Int {range: Interval[BigInteger]}` — each desugaring to a `Tracked` instance (§4.4).
-  Signatures never bind meta variables; they reference parameter metas by *projection*:
-  `def add(a: Int, b: Int): Int {range: a.range + b.range}` (§4.2). The lattice operations live
-  in a `Meta[D]` instance (§4.4).
-- **Preconditions**: the existing `where` clause, extended to defs, over slot projections —
-  `def pop[T](ls: List[T]): T where ls.size.start > 0` (§4.3).
-- **Contract points**: annotations in signatures and on `data` fields; native signatures declare
-  their outputs' refinements (`readByte : Int{0..255}`).
-- **Instance heads are refinement-blind**: `implement Foo[Byte]` is rejected (or lint-collapses
-  to `Foo[Int]`). Bare `Int` stays bare: as a parameter its refinement is a per-use fact from
-  flow (⊤ until known), as a return it is computed.
+- **Domain declaration** — the brace on a type *declaration*, stating its named meta **slots**:
+  `type Int {range: Interval[BigInteger]}`. This desugars to a **meta constructor** `Int^Meta` (a
+  fourth output of `DataDefinitionDesugarer`, beside the type and value constructors), plus a slot
+  *accessor* per slot. A `data` type's meta constructor is *auto-derived from its fields*; only a
+  field-less native type (`Int`) needs the explicit declaration. Multiple slots are just multiple
+  entries (`type Array[T] {size: Interval[BigInteger], align: Alignment}`).
+- **Transfer (return position)** — the brace on a *return* type, referencing parameters by name:
+  `def add(a: Int, b: Int): Int {a + b}`. This desugars to the function's **`^Meta` companion**
+  `add^Meta(a: Interval, b: Interval): Interval = a + b` — the transfer the channel evaluates.
+  Arguments pass **positionally** (`Int {sizeExpr, alignExpr}` for a two-slot domain); there is no
+  named-argument form, because Eliot has none. The bare `Int{0..255}` on a native return is
+  sole-slot sugar, and its content is an ordinary expression: `0..255` is **`infix ..` on
+  `Interval`** (a library operator — the tokenizer already lexes `..` as one operator token,
+  distinct from the subject-last `.`), not dedicated range grammar.
 
-Grammar caveats to check: suffix braces vs block/effect-row braces; whether `..` is free.
-Fallback punctuations: `@`-attachment (`Int @ 0..255`) or a keyword form (`Int is 0..255`).
-Migration is a mechanical rewrite of a few dozen sites; the language is young enough that honest
-syntax is cheaper than a compatibility shim that forever teaches the wrong model.
+Everything else uses no brace:
+
+- **Demands are `where` clauses** — a precondition on a def over slot projections, on the existing
+  ability-guard `where` machinery: `def pop[T](ls: List[T]): T where ls.size.start > 0` (§4.3).
+  Parameter types stay **bare**; there is no per-parameter contract brace. `where` is the single
+  place a per-value demand lives, so it is never spliced or threaded per-parameter.
+- **Native output refinements** are the return-brace of the native (`def readByte: Int{0..255}`),
+  i.e. `readByte^Meta = 0..255` — axiomatic, at the native's trust level.
+- **Instance heads are refinement-blind**: `implement Foo[Int]`, never `Foo[<refined Int>]`. Bare
+  `Int` stays bare: as a parameter its meta is a per-use fact from flow (⊤ until demanded), as a
+  return it is computed by `^Meta`.
+
+**Deferred (Option B, 2026-07-10).** Contract annotations in *value* positions (`Int{0..255}` on a
+parameter, `val`, or `data` field) and **refined aliases** (`type Byte = Int{0..255}`) are set
+aside. Both reintroduce a refinement that must ride a type *occurrence* through resolution and, in
+contravariant (parameter) position, either desugar to a spliced `where` — the plumbing this design
+wants to avoid — or reappear as a type wrapper (`RefinedType`, the suffix dual of the effect row);
+neither is needed for the Int migration. Under B, per-value demands are `where` clauses and a
+persistent field bound is a `where` on the constructor (§6 S4); an unannotated field is ⊤/bignum.
+The `RefinedType`-wrapper route is the sketched path if value-position contracts are wanted later,
+kept off the critical migration.
+
+Grammar: the two live brace positions are unambiguous — a *leading* brace is the effect row
+(`{Console} A`, prefix), a brace *adjacent to a type atom* is the meta constructor (`Int{…}`,
+suffix), exactly as `f(x)` vs `f (x)` already disambiguate by adjacency, and the meta bracket lives
+in the type-atom parser only (a `{` in a value position stays a block). Migration is a mechanical
+rewrite of a few dozen sites; the language is young enough that honest syntax is cheaper than a
+compatibility shim that forever teaches the wrong model.
 
 What disappears regardless of the chosen form: every construct that *binds bound variables* —
 `implement ... Arithmetic[Int[L1,H1], Int[L2,H2]]` patterns,
@@ -230,82 +258,113 @@ Two consequences worth recording:
 
 - The prefix/suffix brace duality of §3 is semantically real, not aesthetic: prefix brace =
   computation channel (`{Console} Int` — what evaluating does), suffix brace = value channel
-  (`Int{0..255}` — what the value is). `def f(x: Int{0..255}): {Abort} Int{0..510}` shows one
-  type carrying both, each in its own position.
+  (`Int{a + b}` — what the value is). Under Option B the value-channel suffix brace lives only in
+  the two producing positions (a type *declaration*'s slots, a *return*'s transfer);
+  `def add(a: Int, b: Int): {Abort} Int{a + b}` shows one return type carrying both channels.
 - Value-facts attach to **program-point knowledge**, not to runtime objects: the same value can
   be known as `[0,1000]` before a check and `[0,9]` inside the `if (x < 10)` branch. That is
   what makes path narrowing possible at all, and why the channel erases perfectly — it was never
-  a property of the object, only of the analysis. `data` fields are where a fact is deliberately
-  made persistent (the annotation re-establishes knowledge at every read site), which is why
-  fields are contract points.
+  a property of the object, only of the analysis. A `data` field carries its meta through the
+  type's auto-derived meta constructor (§4.2); a *persistent* bound — one demanded of every value
+  a field ever holds — is a `where` on the constructor (§6 S4), not a per-field brace.
 
 (A third value-attached domain has been running implicitly all along: **binding time** — the
 static/residual distinction the reduce-and-reify work watches via `VNeutral`-ness is a textbook
 abstract domain.)
 
-### 4.2 Declaring meta-information; referencing it by projection
+### 4.2 Declaring meta-information, and the `^Meta` companion
 
-The declaration form puts the brace channel on the type declaration itself, as **named slots**:
+The declaration form puts the brace on the type declaration as **named slots**, desugaring to a
+**meta constructor** in the new `Qualifier.Meta` namespace — the fourth output of
+`DataDefinitionDesugarer`, beside the type constructor (`^Type`), the value constructor
+(`^Default`), and the field accessors:
 
 ```
 type Int     {range: Interval[BigInteger]}
 type List[T] {size:  Interval[BigInteger]}
+
+-- Int {range: …} desugars to (one meta constructor; the slot name becomes an accessor) --
+Int^Meta(range: Interval[BigInteger])
 ```
 
-A brace in *declaration* position states the named meta slots a type carries and each slot's
-domain type (the single-parameter Interval of the post-C world); a brace in *use* position
-states or checks a **value of a slot** (`Int{range: 0..255}`, with `Int{0..255}` as sugar for a
-type's sole slot). Multi-slot types are first-class
-(`type Array[T] {size: Interval[BigInteger], align: Alignment}`). Since domain values exist only
-at compile time, declaration-position brace content resolves against the **compiler pool** — a
-new but natural use of the two-pool machinery.
+A `data` type's meta constructor is **auto-derived from its fields** — `data Pixel(v: Int)` yields
+`Pixel^Meta(v: Interval[BigInteger])`, an untracked field (`String`) contributing a `Unit` slot —
+so an explicit `{…}` declaration is only needed for a field-less native type. Multi-slot types are
+first-class (`type Array[T] {size: Interval[BigInteger], align: Alignment}`); arguments are
+positional (no named-argument form — Eliot has none). Since domain values exist only at compile
+time, declaration-position brace content resolves against the **compiler pool** — a natural use of
+the two-pool machinery.
 
-Signatures never *bind* meta variables; they **reference parameter metas by projection**:
+The transfer is the same idea one level up. Every named value already desugars to a value function
+(`^Default`) with a stacked type companion; the channel adds a **third companion, `^Meta`**, and a
+return brace is simply its body:
 
 ```
-def add(a: Int, b: Int): Int {range: a.range + b.range}
+def add(a: Int, b: Int): Int {a + b}
+
+-- desugars to the ordinary add^Default, plus --
+add^Meta(a: Interval[BigInteger], b: Interval[BigInteger]): Interval[BigInteger] = a + b
 ```
 
-The parameter list is completely undecorated — even the natives that define transfers have plain
-runtime signatures plus one return annotation. `a.range + b.range` is plain `+` on two
-`Interval` values — the `Numeric[Interval[BigInteger]]` instance *is* the transfer function,
-evaluated by the one NbE evaluator. This is the dependent-refinement-signature style of Liquid
-Haskell / F* (`val add: a:int -> b:int -> r:int{r = a + b}` — refinements reference *parameter
-names*), with the twist that fits Eliot: those systems predicate over the runtime value (hence
-they need SMT); here the projection denotes the **domain value** directly and computes with it
-(hence plain evaluation). The scoping comes free in a deep way: "parameters in scope in the
-return position" *is* Π-codomain dependency, and `VPi` is already the language's one primitive
-Π-former — the channel rides existing scoping machinery rather than adding a namespace.
+The parameter list is undecorated; the sole annotation is the one return brace, and its parameter
+references are the projections (`^Meta`'s parameters are the *same* parameters, retyped to their
+domains). `a + b` is plain `+` on two `Interval` values — the `Numeric[Interval[BigInteger]]`
+instance *is* the transfer, evaluated by the one NbE evaluator. This is the
+dependent-refinement-signature style of Liquid Haskell / F* (`val add: a:int -> b:int -> r:int{r =
+a + b}`), with the twist that fits Eliot: those systems predicate over the runtime value (hence
+SMT); here the projection denotes the **domain value** directly and computes with it (plain
+evaluation). The scoping comes free: "parameters in scope in the return position" *is* Π-codomain
+dependency, and `VPi` is already the one primitive Π-former.
 
-The discipline — how this stays consistent with generics and ordinary parameters:
+**`^Meta` is always produced** (Unit for untracked types), so a function *always* has a transfer to
+evaluate — `Meta[Unit]` is the trivial instance (`top = unit`, `join = unit`, `contains _ _ =
+true`) that makes untracked flow total and never-erroring. Which of three cases a function is in is
+decided solely by whether a brace and a body are present:
+
+1. **Native leaf + brace** → `^Meta` is axiomatic (as trusted as the native's type signature). The
+   channel *evaluates* it. This is what replaces the hand-written Scala transfer recognition of
+   Steps 2–3 (§8 Step 4).
+2. **Bodied def + brace** → `^Meta` is a *declared* transfer; the body-propagated meta is checked
+   ⊑ it, and callers use `^Meta` — the deliberate abstraction boundary.
+3. **Bodied def, no brace** → `^Meta` is *synthesized by meta-translating the body*: each call
+   `f(x)` becomes `f^Meta(x^Meta)`, each literal its α (below), each `match` a `Meta.join`. This is
+   the "a wrapper states nothing; the channel computes through it" case, now uniform — the
+   difference from today's `[L1, H1, L2, H2]` world where every wrapper re-bound and re-stated.
+
+Case 3's translation is trivial for first-order code (all of Int and the toy type) and deepens only
+at genuinely higher-order points, where `f^Meta` must receive the `^Meta`s of its *function-typed*
+arguments (the `fold`/cost example below) — the boundary §7 defers.
+
+The discipline — how this stays consistent with generics and values:
 
 - **Two binder namespaces, plus projections.** `[T]` binds a type parameter (upper-case;
   participates in identity and dispatch); `(a: …)` binds a value parameter. There is no third,
-  meta-binder namespace: meta expressions reference the metas of already-named things
-  (parameters, `val`s) through slot projections — `a.range`, `ls.size`. Braces mark the
-  *channel*; they do not bind.
-- **Slot accessors are channel-scoped, not runtime functions.** `range(a)` cannot exist as an
-  ordinary `Int -> Interval[BigInteger]`: a runtime Int carries no interval (perfect erasure),
-  and if `a.range` were allowed in a value position, *program behavior would depend on inference
-  precision* — a smarter compiler release would change what a program computes. This extends the
-  held invariant of §3 one notch: channel facts flow into checks and layout, never into type
-  formation, and never into **values** either. `a.range` is legal in meta positions (return
-  braces, `where` clauses, contract expressions) and a hard error in runtime bodies; name
-  collisions resolve by context, since slot names are not a namespace in runtime expressions.
-- **Parameter-position braces are contracts**: `Int{range: 0..255}` on a parameter checks the
-  incoming meta (⊑) — never a binding.
-- **Return-position braces are expressions**: on a body-less native they are **defining** —
-  axiomatic, exactly as trusted as the native's type signature is today; on a bodied def they are
-  a **checked contract** (computed ⊑ stated), which yields relational contracts on ordinary
-  functions for free.
-- **No infection**: annotations appear only at contract points (primitive leaves, deliberate
-  contracts). A wrapper calling `add` states nothing; the channel computes through it. This is
-  the difference from today's `[L1, H1, L2, H2]` world, where every wrapper re-bound and
-  re-stated.
+  meta-binder namespace: `^Meta` references the metas of already-named things through slot
+  projections — `a.range`, `ls.size`. Braces mark the *channel*; they do not bind.
+- **Slot accessors are channel-scoped.** `range` lives in `Qualifier.Meta`, so it is simply not in
+  scope in a runtime (`Default`) position — the namespace separation *is* the "hard error in
+  runtime bodies" the design wants; a slot accessor can never leak into a value, so program
+  behavior never depends on inference precision (extending §3's held invariant one notch: channel
+  facts flow into checks and layout, never into type formation, and never into **values**). For a
+  single-slot type the projection is elidable: inside `Int^Meta` the sole domain value is the
+  parameter itself (`a`, not `a.range`).
+- **Parameter demands are `where`, not braces.** A per-value precondition is a `where` clause
+  (§4.3), never a brace on the parameter (Option B). Parameter types stay bare; the demand lives
+  in one place instead of spliced per-parameter.
+- **Return-position braces**: on a body-less native, **defining** (axiomatic); on a bodied def, a
+  **checked contract** (computed ⊑ stated) — relational contracts on ordinary functions for free.
 - **One meta level**: domain expressions evaluate channel-free — `+` on Intervals is not itself
   tracked, and domain types are untracked. No meta-of-meta tower, and no bootstrapping cycle
   (checking `Interval`'s own code never demands Interval-as-domain; the compiler pool's
   single-owner DAG ordering does the rest).
+
+**α — literal seeding — is the value constructor's own `^Meta`.** For a constructed type it is
+`cons^Meta`/`nil^Meta` ("length as a singleton", an ordinary fold); for a native primitive it is
+the channel's literal base case (`5 ⤳ Interval(5, 5)`). It doubles as the **CTFE bridge** —
+whenever NbE fully reduces an expression to a concrete value (constantly, in a whole-program-
+evaluated language) the channel re-seeds exact meta via α, so compile-time-known values never
+suffer ⊤. This is exactly what the standalone `Tracked` ability was; it dissolves into `^Meta`
+(§4.4).
 
 Projections extend to the computation channel (§4.1): a carrier-typed parameter's grade is
 projected the same way (`step.cycles`), so a cost-transfer combinator needs no binders either —
@@ -315,26 +374,28 @@ def fold[T, A](ls: List[T], init: A, step: F[A]): {cycles: ls.size.end * step.cy
 ```
 
 — both channels composing in one signature (size × step-cost), everything referenced through
-names that already exist. Nested projections (`p.first.range` — a runtime field path, then a
-meta slot) are syntactically well-formed and deliberately meaningless until the containers
-question (§7) is answered; when it is, the surface is already waiting.
+names that already exist; this is precisely the higher-order `^Meta`-of-function-args boundary
+(`step.cycles`) that case 3 defers. Nested projections (`p.first.range`) are syntactically
+well-formed and deliberately meaningless until the containers question (§7) is answered.
 
 The layer split survives cleanly: the *base* states the instance method signatures **with**
-transfer braces — platform-independent semantics; today's `AddResult = Int[L1+L2, H1+H2]`
-formula, relocated into the honest channel — and platforms supply the native bodies.
+transfer braces (their `^Meta` bodies) — platform-independent semantics; today's
+`AddResult = Int[L1+L2, H1+H2]` formula, relocated into the honest channel — and platforms supply
+the native `^Default` bodies.
 
 Unstated meta is **demand-driven**, refining §3's fail-safe: ⊤ is always *sound* ("I know
 nothing" is true, just imprecise), so unstated, undemanded flow does not error. Errors fire where
-a demand meets ⊤ or fails: a violated contract, a `where` clause needing a bound, or the
-representation policy — which is where strictness scales with the target automatically. On the
-JVM, ⊤ lays out as bignum (sloppy code compiles, just fat); on an ATtiny the policy has no ⊤
-layout, so the same code errors at the exact value that could not be bounded, with the ⊤
-provenance in the message.
+a demand meets ⊤ or fails: a `where` clause needing a bound, or the representation policy — which
+is where strictness scales with the target automatically. On the JVM, ⊤ lays out as bignum (sloppy
+code compiles, just fat); on an ATtiny the policy has no ⊤ layout, so the same code errors at the
+exact value that could not be bounded, with the ⊤ provenance in the message.
 
-### 4.3 Preconditions: `where` on defs
+### 4.3 Preconditions: `where` on defs — the demand surface
 
 The existing `where` machinery (compile-time predicates on `implement` blocks) extends to defs,
-with slot projections available:
+with slot projections available. Under Option B (§3) this is the **sole** way a per-value demand on
+a parameter is stated — there is no parameter contract brace — so a demand is written once, over
+the parameters it relates, and never spliced or threaded per-parameter:
 
 ```
 def pop[T](ls: List[T]): T where ls.size.start > 0
@@ -358,84 +419,70 @@ different work: `ls.size` projects the slot (channel-scoped, §4.2), while `.sta
 ordinary accessor — past the projection, predicates are arbitrary Eliot over the domain value,
 not a fixed vocabulary.
 
-### 4.4 The ability protocol: `Meta`, `Tracked`, `Represent`
+### 4.4 The ability protocol: `Meta` and `Represent`
 
-Everything the channel needs from user space is expressed as abilities — the language's one
-mechanism for "this type must provide these functions" — so enforcement is ordinary instance
-resolution and coherence, and the **only new compiler machinery is the rider walk itself** (plus
-the brace grammar and the demand points). Three abilities, all in `eliot.compiler`, instances in
-the owning layer's `eliot-compiler/` overlay (checking-only instances — the `Effect`/`Throw`
-compiler-pool precedent):
+Everything the channel needs from user space is **two** abilities — so enforcement is ordinary
+instance resolution and coherence, and the **only new compiler machinery is the `^Meta` desugar
+plus the rider walk**. Both live in `eliot.compiler`, instances in the owning layer's
+`eliot-compiler/` overlay (checking-only — the `Effect`/`Throw` compiler-pool precedent):
 
 ```
 ability Meta[D] {
-   def contains(outer: D, inner: D): Bool   -- ⊑: every contract check (was Coerce's guard)
+   def contains(outer: D, inner: D): Bool   -- ⊑: every demand/contract check (was Coerce's guard)
    def join(a: D, b: D): D                  -- branch merges (was Combine)
    def top: D                               -- the "know nothing" fail-safe
 }
 ```
 
-plus later `meet` (path narrowing) and possibly a rendering method for error messages. A missing
-instance is the ordinary "No ability implementation found" error. One instance per **domain**,
-not per type-pattern: `Meta[Interval[BigInteger]]` serves Int's value range *and* List's size —
-today's per-pattern `Combine`/`Coerce` instances collapse into it.
+plus later `meet` (path narrowing) and a rendering method for errors. A missing instance is the
+ordinary "No ability implementation found" error. **One instance per domain**, not per type-pattern:
+`Meta[Interval[BigInteger]]` serves Int's value range *and* List's size — the per-pattern
+`Combine`/`Coerce` instances collapse into it — and `Meta[Unit]` is the trivial instance covering
+every untracked type.
 
-Each declared slot desugars to an instance (precedent: `data` desugars to constructor values via
+The old `Tracked` ability is **gone**: its `fromValue` (α) is the value constructor's `^Meta`
+(§4.2), and slot structure is the meta constructor the desugarer already emits. So the desugar, not
+an ability, carries the association (precedent: `data` desugars to constructor values via
 `DataDefinitionDesugarer`):
 
 ```
 type Int {range: Interval[BigInteger]}
 
--- desugars to (one instance per slot; the slot name enters the instance's identity) --
+-- DataDefinitionDesugarer emits, beside ^Type / ^Default / accessors --
+Int^Meta(range: Interval[BigInteger])          -- the meta constructor; `range` becomes an accessor
+```
 
-implement Tracked[Int, Interval[BigInteger]] {
-   def fromValue(value: Int): Interval[BigInteger] = ...   -- α: n ↦ Interval(n, n)
+Coherence gives the association the right unit: the meta constructor is **one per type** (like the
+value constructor), merged across layers by the existing constructor merge — two layers declaring
+the *same* slot with the same domain are split halves of one (the `(ability, pattern)` identity
+that shipped for the split `Arithmetic[Int]`); the *same* slot with a *different* domain is a
+conflict a whole-program scan catches. Multiple *slots* per type are simply multiple entries in the
+braces — the first-class form, not a future door.
+
+Representation policy is the second ability — unchanged since Step 3 (landed): what the `opaque`
+body did, as a platform-side instance keyed on the **domain** (not per tracked type — deferred to
+Step 8):
+
+```
+implement Represent[Interval[BigInteger]] {              -- jvm layer's compiler overlay
+   def layout(range: Interval[BigInteger]): Type = ...   -- the old fitsByte/fitsShort/… fold over the interval
 }
 ```
 
-`Tracked[T, D ~ Meta[D]]`'s one core method `fromValue` is **α, the abstraction function** of
-abstract interpretation: literal seeding is its special case (`5` ⤳ `Interval(5, 5)`), and it
-doubles as the **CTFE bridge** — whenever NbE fully reduces an expression to a concrete value
-(constantly, in a total whole-program-evaluated language), the channel re-seeds exact meta via α,
-so compile-time-known values never suffer ⊤. Each slot carries its own α: for
-`type List[T] {size: Interval[BigInteger]}` the instance is pattern-generic
-(`implement[T] Tracked[List[T], …]`) and α is "length as a singleton", an ordinary fold.
+— consulted by codegen (`layout` returns a `Type`, a representation-type value in λ*). "Representation
+derived in Eliot, not Scala" is preserved; the `opaque` track stays dead.
 
-Coherence does most of the association's enforcement, and named slots give it the right unit:
-identity and uniqueness are per **(type, slot)** — how the slot name enters the generated
-instance's identity (most likely a synthesized marker, like the qualifier system) is an
-implementation detail. Two layers declaring the *same* slot with the same domain merge as split
-halves of one instance (the `(ability, pattern)` identity that just shipped for the split
-`Arithmetic[Int]`); the same slot with *different* domains is a conflict — and since such
-instances are disjoint patterns the stock overlap check will not catch, per-(type, slot)
-uniqueness needs an exactly-one-survivor search keyed on type+slot (the shape guard resolution
-already uses at use sites) or a trivial whole-program scan. Multiple *slots* per type are simply
-multiple declarations in the braces — no longer a future door but the first-class form
-(`Array[T]{size: 4}` contracts against the `size` slot).
-
-Representation policy joins the same pattern: what the `opaque` body did becomes a platform-side
-instance —
-
-```
-implement Represent[Int] {                                  -- jvm layer's compiler overlay
-   def layout(d: Interval[BigInteger]): JvmLayout = ...     -- the old fitsByte/fitsShort/… fold
-}
-```
-
-— consulted by codegen. "Representation derived in Eliot, not Scala" is preserved; the `opaque`
-track stays dead.
-
-De-risking precedent: "the checker resolves and evaluates ability instances mid-check" is already
-running in production — `RefinementSolver.unifyOrCoerce` resolves the `Coerce` instance by name
-and evaluates its `coerce` body through the NbE evaluator today (`resolveAbility` is a
-constructor parameter of the solver). This design re-points that pattern from the ability being
-deleted to the two being introduced.
+De-risking precedent: "the checker resolves and evaluates ability instances mid-check" is already in
+production — `RefinementSolver.unifyOrCoerce` resolves `Coerce` by name and evaluates its body
+through NbE today, and Steps 2–3 already resolve+evaluate the compiler-pool `Interval` arithmetic,
+`Meta.join`, and `Represent.layout` instances the same way. This design re-points that pattern from
+the ability being deleted to the two being kept.
 
 What the compiler cannot check — the lattice laws (`join` associative/commutative/idempotent,
-`contains` reflexive/transitive, `top` absorbing) and, more importantly, **soundness of
-transfers** (the stated interval of `add` must contain every possible sum) — are the instance
-author's obligations, verified by tests, at the same trust level as a native's signature.
-Defining a domain is compiler-extension-grade work; the `eliot.compiler` import signposts it.
+`contains` reflexive/transitive, `top` absorbing) and, more importantly, **soundness of transfers**
+(the stated interval of `add` must contain every possible sum) — are the instance author's
+obligations, verified by tests, at a native's trust level. Defining a domain is
+compiler-extension-grade work; the `eliot.compiler` import signposts it.
 
 **The successor map** — every piece of today's apparatus has a named, ordinary successor:
 
@@ -443,10 +490,11 @@ Defining a domain is compiler-extension-grade work; the `eliot.compiler` import 
 |---|---|
 | `Coerce`'s `where`-guard containment check | `Meta.contains` |
 | `Combine` / `Combined` | `Meta.join` |
-| Associated-type result formulas (`AddResult = …`) | transfer braces on signatures (`Int {range: a.range + b.range}`) |
-| The `opaque type Int[…] = fold(fits…)` body | `Represent.layout` |
+| Associated-type result formulas (`AddResult = …`) | the function's `^Meta` companion (the return brace, `Int {a + b}`) |
+| `Tracked.fromValue` (α, literal seeding) | the value constructor's `^Meta` + the literal base case |
+| The `opaque type Int[…] = fold(fits…)` body | `Represent.layout` (Step 3, landed) |
 | Compile-time `Interval[BigInteger, BigInteger]` as "the bound of an Int" | the domain value itself (`Interval[BigInteger]`) |
-| Bound-generic binders (`[L1: BigInteger, …]`) | slot projections (`a.range`) in meta positions only |
+| Bound-generic binders (`[L1: BigInteger, …]`) | `^Meta` parameters (the same params, retyped to their domains) |
 
 ## 5. The deletion inventory
 
@@ -480,7 +528,7 @@ chain of 3ad7ba38 — existed to serve bound arithmetic, and that pressure is go
 | `ability Coerce[From, To]` + check-mode auto-insertion | `lang/eliot/eliot/compiler/Coerce.els` | kept | **retired from the bounds role** (widening = refinement weakening, a `Meta.contains` check in the channel (§4.4) — no expression is spliced, no conversion body runs at the type level). Whether `Coerce` survives as a general cross-type conversion point is an independent, low-stakes decision; bounds were its only client. |
 | `ability Combine[A, B] { type Combined }` | `lang/eliot/eliot/compiler/Combine.els` | kept | **fully retired** — the join survives as `Meta.join`, one instance per domain (§4.4). Its per-type instances go: `Combine[Int, Int]` (stdlib `Int.els:67`), `Combine[BigInteger, BigInteger]` (added only to feed Interval's `MulResult` formula). |
 | `Arithmetic[A, B]` heterogeneous two-param shape + 3 assoc members | `stdlib/eliot/eliot/lang/Arithmetic.els` | members deleted, shape kept | **both deleted**: operands of one range-tracked type are the *same type*, so the ability collapses to single-parameter `Numeric[T]` with plain `T -> T -> T` methods — the shape Robert originally wanted to write. (No mixed-type instance exists today, so nothing is lost.) |
-| `implement Arithmetic[Int[L1,H1], Int[L2,H2]]` with formula lines | `stdlib/eliot/eliot/lang/Int.els:41-49` | formulas move onto method signatures | replaced by `implement Numeric[Int]` — the formulas become the transfer braces on the method signatures (`def add(a: Int, b: Int): Int {range: a.range + b.range}`, §4.2), whose bound arithmetic is the existing compile-time `Interval` code |
+| `implement Arithmetic[Int[L1,H1], Int[L2,H2]]` with formula lines | `stdlib/eliot/eliot/lang/Int.els:41-49` | formulas move onto method signatures | replaced by `implement Numeric[Int]` — the formulas become the return-brace `^Meta` companions of the method signatures (`def add(a: Int, b: Int): Int {a + b}` ⤳ `add^Meta`, §4.2), whose bound arithmetic is the existing compile-time `Interval` code |
 | Interval's type-level half: four-way `Arithmetic` constraint, 3 formula lines incl. the quadruple `Combined` chain | `stdlib/eliot/eliot/lang/Interval.els:37-46` | deleted | deleted; instance becomes `implement[T ~ Numeric[T]] Numeric[Interval[T]]` with bodies only |
 | Corner-binder `MulResult[...]` annotations (the val-aliasing workaround) | jvm + compiler-overlay `Interval.els` | deleted | deleted |
 | Bound-generic signatures on plain functions (`intToString[Min, Max]`) | stdlib | kept | deleted (`intToString(value: Int)`) |
@@ -492,7 +540,7 @@ chain of 3ad7ba38 — existed to serve bound arithmetic, and that pressure is go
 | 27 width-specific bound-generic native leaves (`nativeAddByteToByte[M1,X1,M2,X2]…` × add/subtract/multiply × 9 width pairs), each with a dependent result signature | kept | **collapsed**: width selection moves to codegen, which reads the operands' and result's refinement intervals and picks the instruction; the Eliot surface needs ~3 leaves (`add`/`subtract`/`multiply` on `Int`) or none beyond the ability methods |
 | `ability IntArith` + 5 guarded instances (the width-dispatch family, ~55 lines) + the inner result-width `fold`s | kept | **deleted** — this was codegen policy expressed as ability dispatch because widths lived in types |
 | `nativeWiden` + the guarded `implement Coerce[Int[Smin,Smax], Int[Tmin,Tmax]] where …` instance | kept | **deleted** — widening is a representation change decided by codegen from refinements; no user-space conversion function exists |
-| `opaque type Int[auto MIN, auto MAX] = fold(fitsByte…)` representation-policy body | kept | the *policy* survives but changes home and input: the platform's `Represent[Int]` instance (§4.4), consulted by codegen (keeping "representation derived in Eliot, not Scala"); the `opaque`-marked type body goes, and with it the entire compiler-side `opaque` track (see the §5.1 row) |
+| `opaque type Int[auto MIN, auto MAX] = fold(fitsByte…)` representation-policy body | kept | the *policy* survives but changes home and input: the platform's `Represent[Interval[BigInteger]]` instance (§4.4, domain-keyed; landed Step 3), consulted by codegen (keeping "representation derived in Eliot, not Scala"); the `opaque`-marked type body goes, and with it the entire compiler-side `opaque` track (see the §5.1 row) |
 | `implement Compare[Int[L, H]]` bound-generic header | kept | `implement Compare[Int]` |
 
 ### 5.4 Known holes and gotchas that die with the machinery
@@ -527,11 +575,12 @@ discarded by C. **If C is credible, B should not be built.**
 
 ## 6. The six scenarios
 
-**S1 — an application function.** `def area(w: Int{0..100}, h: Int{0..100}): Int` (strawman
-contract syntax, §3). A: return must be spelled `MulResult[...]` or a widened bound checked via
-Coerce. B: `auto` or a widened contract. C: parameters carry contract refinements; the body's
-range `[0,10000]` is computed in the channel; the plain return type `Int` is complete and
-stable; an optional `: Int{0..20000}` return is a checked, Coerce-free assertion.
+**S1 — an application function.** `def area(w: Int, h: Int): Int` (Option B: bare parameters, §3).
+A: return must be spelled `MulResult[...]` or a widened bound checked via Coerce. B: `auto` or a
+widened contract. C: parameter types are plain `Int`; any per-value precondition is a `where`
+clause (`where w.range.end <= 100`); the body's range `[0,10000]` is computed in the channel from
+the callers' actual metas; the plain return type `Int` is complete and stable; an optional
+`: Int{0..20000}` return brace is a checked, Coerce-free assertion (the def's `^Meta`).
 
 **S2 — Interval.** A: today's three-file split with restated formulas (§1). B: bodies only, but
 still bound-generic headers and per-bound instantiations. C:
@@ -540,15 +589,17 @@ compile-time copy doubles as the Int domain implementation.
 
 **S3 — width dispatch.** A/B: the `IntArith` guarded family + 27 leaves at the ability level.
 C: codegen reads each site's refinement interval and picks the layout/instruction; the policy
-stays in Eliot as the platform's `Represent[Int]` instance (§4.4). Guards over refinements at the
-*ability* level are not needed for this — which conveniently defers the instance-guard
-discipline question (§7).
+stays in Eliot as the platform's `Represent[Interval[BigInteger]]` instance (§4.4, landed Step 3).
+Guards over refinements at the *ability* level are not needed for this — which conveniently defers
+the instance-guard discipline question (§7).
 
-**S4 — a `data` field.** `data Pixel(v: Int{0..255})`: the annotation is a contract — checked at
-every construction site, trusted at reads, and it fixes the field's representation. An
-*unannotated* field (`data P(v: Int)`) is ⊤: sound (bignum layout) but fat, and loud the moment a
-guard or contract demands better. Fields are boundaries; this matches the "annotate boundaries"
-idiom rather than whole-program-flow field typing (deferred as an optimization).
+**S4 — a `data` field.** `data Pixel(v: Int)`: the field's meta rides the auto-derived
+`Pixel^Meta(v: Interval[BigInteger])` — per construction site, whatever value flows in (§4.2), so
+layout follows the actual metas under whole-program monomorphization. A *persistent* bound demanded
+of every value the field ever holds is a `where` on the constructor (`data Pixel(v: Int) where v
+fits 0..255`, Option B), which turns an ⊤/over-wide value into a loud error rather than a silent
+bignum. An unannotated field is ⊤: sound (bignum layout) but fat. Fields are boundaries; this
+matches the "annotate boundaries" idiom rather than whole-program-flow field typing (deferred).
 
 **S5 — the fold accumulator.** The honest scenario: no model wins today. Summing an unknown
 number of `[0,255]` values has no finite range; A/B cannot type a pinned accumulator (the bound
@@ -571,19 +622,25 @@ array indices in range after an explicit check.
 
 ## 7. What C must prove (open questions)
 
-1. **Containers.** Where does `List[Int]`'s element range live? Starter position: refinements
-   attach to bindings and values; `data` fields carry refinements only when annotated (else ⊤).
-   Refinements-on-type-occurrences (full Liquid-style decorated types) is the richer, more
-   entangled alternative — explicitly deferred.
-2. **Guards over refinements on `implement`.** Def-level `where` preconditions are designed
-   (§4.3); the open half is *instance selection* depending on the channel
+1. **Containers.** Where does `List[Int]`'s element range live? Under the meta-constructor model a
+   `data` type's meta rides its auto-derived `^Meta` fields (§4.2), so the element range is the
+   `List^Meta`'s slot — but propagating it precisely through a heterogeneous container is the open
+   part. Refinements-on-type-*occurrences* (full Liquid-style decorated types — the deferred
+   `RefinedType`-wrapper / value-position-contract route, §3) is the richer, more entangled
+   alternative — explicitly deferred with Option B.
+2. **Guards over refinements on `implement`.** Def-level `where` demands are designed (§4.3); the
+   open half is *instance selection* depending on the channel
    (`implement … where <refinement predicate>`). That is coherent only if all guarded siblings
    agree on their type signatures (selection then changes *which body runs*, never a type) — the
    held invariant of §3. S3 shows the one former client (width dispatch) doesn't need it; defer
    until a client does.
-3. **Transfer through higher-order code.** Mostly falls out of the NbE walk (closures are
-   applied, not abstracted over), but the story at genuinely opaque points (effectful natives'
-   callbacks) needs writing down: their signatures' declared refinements are the boundary.
+3. **Transfer through higher-order code — the `^Meta`-of-function-args boundary.** First-order
+   `^Meta` synthesis (§4.2 case 3) is trivial; the deep part is that a higher-order function's
+   `^Meta` must receive the `^Meta`s of its *function-typed* arguments (`fold`'s `step.cycles`), so
+   `^Meta` companions themselves become higher-order. Mostly this falls out of the NbE walk
+   (closures are applied, not abstracted over), but the story at genuinely opaque points (effectful
+   natives' callbacks) needs writing down: their signatures' declared return braces are the
+   boundary. Not needed for the Int migration.
 4. **The `auto MIN/MAX` parameter behavior.** Today a bare-`Int` parameter *generalizes* over
    bounds. Under C a bare `Int` parameter is just `Int`, its meta a per-use fact from flow —
    demand-driven per §4.2 (⊤ is sound; only demands error). What must still be specified is the
@@ -619,9 +676,10 @@ Two safety mechanisms run through the plan:
   the *identical* interval at every Int-typed node, asserted as a hard error in the test
   configuration. The whole existing integration suite becomes an agreement harness (and a free
   performance benchmark for the rider walk).
-- **A toy tracked type** (step 4): the full protocol — slot declaration, `Tracked`/α, contracts,
-  transfer braces, projections — is exercised end-to-end on a test-only type *before* Int
-  migrates onto it, so Int's migration is mechanics, not discovery.
+- **A toy tracked type** (step 4): the full protocol — slot declaration + meta constructor, α (the
+  value constructor's `^Meta`), transfers (the return-brace `^Meta`), joins — is exercised
+  end-to-end on a test-only type *before* Int migrates onto it, so Int's migration is mechanics,
+  not discovery.
 
 ### The steps
 
@@ -759,18 +817,36 @@ in the overlay caused a *silent* double-import shadow (only surfaced because the
 swallowing channel, not the base compile) that aborted the file's `ModuleValue` merge — the fix is to import
 only `Bool` and `Interval`. 1261/1261 green.
 
-**Step 4: slots, contracts, projections — proven on a toy type.** The syntax and its semantics,
-landed per construct so nothing is ever parse-but-ignored (per the fail-safe rule):
-4a — declaration-position slots (`type X {name: D}`) with the `Tracked` desugar, the `Meta[D]`
-demand, and per-(type, slot) uniqueness; declare Int's `range` slot *alongside* its still-present
-type parameters (transitional; seeding stays "from type args"). 4b — use-position contracts on
-parameters, returns, `val`s, and `data` fields (`Int{range: 0..255}`, sole-slot sugar), checked
-against the channel via `Meta.contains`, ⊤ failing any demand; field contracts check at
-construction and seed at reads. 4c — return-brace transfer expressions with projections
-(`{range: a.range + b.range}`): defining on body-less natives, checked on bodied defs. Each
-sub-step is additive and green; the toy tracked type gets end-to-end tests (α, contracts,
-transfers, joins) without touching Int. Grammar risk (suffix brace vs block/effect-row braces)
-is confronted in 4a on the unambiguous declaration position first.
+**Step 4: the `^Meta` companion, replacing the shadow-mode Scala recognition — proven on a toy
+type.** Steps 2–3 compute transfers, joins, and layout by **recognizing native FQNs in Scala**
+inside `RefinementChannelProcessor`/`RefinementRepresentation` (matching `eliot.lang.Int::nativeAdd`
+&c., parsing the Scott-encoded `handleCases` arms). Step 4 replaces that scaffolding with the
+uniform `^Meta` mechanism (§4.2/§4.4); it is therefore **net-subtractive** in Scala. Landed per
+construct so nothing is ever parse-but-ignored (per the fail-safe rule):
+
+- 4a — **`Qualifier.Meta` + the meta constructor.** Add the namespace; extend
+  `DataDefinitionDesugarer` with a fourth generator emitting `X^Meta` (+ slot accessors) from a
+  `type X {slots}` declaration, and auto-derived from a `data`'s fields. Land `Meta[Unit]` (trivial)
+  and the always-produce rule. Declare Int's `range` slot *alongside* its still-present type
+  parameters (transitional; the slot is inert — seeding stays "from type args" until Step 6). The
+  toy type gets its meta constructor + accessors here, on the unambiguous declaration position —
+  where the grammar risk (suffix brace vs block/effect-row) is confronted first, with adjacency
+  separating the suffix meta bracket from the leading effect row and the meta bracket confined to
+  the type-atom parser (§3).
+- 4b — **`^Meta` transfers, retiring the Step-2a recognition.** Return braces desugar to `^Meta`
+  companions; give the arith natives their braces (`nativeAdd: Int {a + b}` ⤳ `nativeAdd^Meta`) and
+  switch the channel to **evaluate the callee's `^Meta`** instead of matching FQNs. The Step-2a
+  Scala transfer recognition is deleted. The shadow assertion (channel interval == type formula) is
+  *kept* — it now checks the `^Meta` result, still the safety net until Step 6.
+- 4c — **body meta-translation (View A) + α, retiring the Step-2b recognition.** Synthesize `^Meta`
+  for braceless bodied defs by meta-translating the body (calls ⤳ `^Meta` calls, literals ⤳ α,
+  `match` ⤳ `Meta.join`); α is the value constructor's `^Meta`. The Step-2b `handleCases`/`Combine`
+  recognition is deleted; joins now fall out of the translated `match`. First-order only — the
+  higher-order `^Meta`-of-function-args boundary (§7 Q3) stays deferred.
+
+Each sub-step is additive and green; the toy tracked type gets end-to-end tests (α, transfers,
+joins) without touching Int. `where`-on-defs and any value-position contract are **not** in Step 4
+(deferred — Option B / §8 Step 8).
 
 **Step 5: `Numeric` groundwork; the domain code comes off `Arithmetic`.** Land single-parameter
 `Numeric[T]` + `implement Numeric[BigInteger]` (plain `T -> T -> T` signatures), and rewrite the
@@ -781,19 +857,20 @@ heterogeneous typing), and the runtime `Interval[S, E]` instance stays on `Arith
 Green: channel agreement suite unchanged; `Arithmetic` now has no compile-time-critical client.
 
 **Step 6 — the flag day: `Int` loses its type parameters.** The one bounded atom; everything it
-needs was pre-landed. Contents: (a) stdlib `Int.els` → plain `type Int {range: …}`; aliases
-become refined aliases (`type Byte = Int{byteMin..byteMax}`); the `Arithmetic[Int,Int]` instance
-becomes `implement Numeric[Int]` whose natives carry transfer braces (step 4c syntax; step 1
-intrinsics as bodies); the `Combine[Int,Int]` instance and `Arithmetic.els` are deleted;
+needs was pre-landed. Contents: (a) stdlib `Int.els` → plain `type Int {range: …}`; aliases stay
+plain (`type Byte = Int` — refined aliases are deferred, Option B, so `Byte`'s byte bound comes
+from a `where`/representation demand, not the alias); the `Arithmetic[Int,Int]` instance becomes
+`implement Numeric[Int]` whose natives carry return-brace `^Meta` companions (step 4b; step 1
+intrinsics as `^Default` bodies); the `Combine[Int,Int]` instance and `Arithmetic.els` are deleted;
 `intToString(value: Int)`; `Compare[Int]` header simplified. (b) The operators switch to
 `[T ~ Numeric[T]]`. (c) The checker types literals as plain `Int` and the channel's seed source
-switches from type-args to self (α for literals, transfer braces at natives, contracts at
-boundaries); the shadow assertion is retired. (d) Test expectations update: out-of-range errors
-become contract violations at demand sites; where tests expect narrow layouts inside generic
-containers, `data` field contracts are added (unannotated fields are now soundly-⊤/bignum — the
-accepted S4 trade). What needs *no* code change: `Coerce` insertion, `Combine` accumulation, and
-per-bound instantiation simply stop being triggered — their deletion is step 7, separately
-green.
+switches from type-args to self (α for literals, `^Meta` transfers at natives, `where`/
+representation demands at boundaries); the shadow assertion is retired. (d) Test expectations
+update: out-of-range errors become `where`-demand or representation-policy violations at their use
+sites; where tests expect narrow layouts inside generic containers, a constructor `where` is added
+(unannotated fields are now soundly-⊤/bignum — the accepted S4 trade). What needs *no* code change:
+`Coerce` insertion, `Combine` accumulation, and per-bound instantiation simply stop being triggered
+— their deletion is step 7, separately green.
 
 **Step 7: deletions, each its own green commit** (all paths dead since step 6): 7a `Coerce`'s
 bounds role — the jvm guarded instance, `nativeWiden`, the `unifyOrCoerce` insertion/splicing
