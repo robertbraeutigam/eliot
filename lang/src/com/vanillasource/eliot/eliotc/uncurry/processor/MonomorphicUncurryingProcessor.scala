@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering.representationOf
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -31,12 +32,24 @@ class MonomorphicUncurryingProcessor
   ): CompilerIO[UncurriedMonomorphicValue] =
     for {
       _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} (${key.typeArguments.size} type args) to ${key.arity}")
-      // Run the refinement channel (shadow mode, Step 2a of docs/bounds-as-refinements.md) for this instance before
-      // lowering it: a demand triggers the shadow check (channel-computed interval == the type's interval at every
-      // arithmetic node), which fails the build on a divergence. Every value the backend generates is uncurried, so
-      // this is a natural once-per-generated-value gate on the critical path. The table itself is consumed by codegen
-      // from Step 3 onward; here we only need it produced so its assertion runs.
-      _                               <- getFactIfProduced(RefinementTable.Key(key.vfqn, key.typeArguments))
+      // Run the refinement channel (shadow mode, Step 2 of docs/bounds-as-refinements.md) for this instance before
+      // lowering it: producing the table triggers the shadow check (channel-computed interval == the type's interval at
+      // every arithmetic/join node), which fails the build on a divergence. Every value the backend generates is
+      // uncurried, so this is a natural once-per-generated-value gate on the critical path. The `intervals` payload is
+      // ALSO the source of each Int node's machine representation (Step-6 staging, "Staged R2"): a position-keyed map is
+      // threaded into `lowerUncurried` so `representationOf` derives an `Int`'s layout from the channel's per-node
+      // interval, keeping the `Int[min, max]` type only as the shadow cross-check (see `RepresentationLowering`). In
+      // shadow mode the two coincide; after the flag day the table is the only interval source.
+      refinementTable                 <- getFactIfProduced(RefinementTable.Key(key.vfqn, key.typeArguments))
+      // Position-keyed interval map, keeping only *unambiguous* positions. In shadow mode the checker splices a
+      // `nativeWiden(x)` coercion at the *same* source position as its operand `x`, so the channel records two distinct
+      // intervals there (the operand's own range and the widened range); such a position is dropped, and lowering falls
+      // back to the type (the source of truth in shadow mode). These coercion wrappers exist only while `Int` carries
+      // its bounds — they vanish at the flag day when `Coerce`/`nativeWiden` go — so no genuine post-flag-day node is
+      // ambiguous by position.
+      intervalByPosition               = refinementTable
+                                           .map(unambiguousIntervalsByPosition)
+                                           .getOrElse(Map.empty[PositionRange, (BigInt, BigInt)])
       (parameterTypes, returnType)    <- extractParameters(monomorphicValue.name, monomorphicValue.signature, key.arity)
       (parameterNames, convertedBody) <- monomorphicValue.runtime match {
                                            case Some(body) =>
@@ -55,7 +68,10 @@ class MonomorphicUncurryingProcessor
       loweredSignature                 <- representationOf(monomorphicValue.signature, monomorphicValue.name)
       loweredReturnType                <- representationOf(returnType, monomorphicValue.name)
       loweredParameterTypes            <- parameterTypes.traverse(representationOf(_, monomorphicValue.name))
-      loweredBody                      <- convertedBody.traverse(b => lowerUncurried(b.value, monomorphicValue.name).map(b.as))
+      loweredBody                      <- convertedBody.traverse(b =>
+                                            lowerUncurried(b.value, monomorphicValue.name, intervalByPosition.get(b.range), intervalByPosition)
+                                              .map(b.as)
+                                          )
     } yield UncurriedMonomorphicValue(
       vfqn = key.vfqn,
       typeArguments = key.typeArguments,
@@ -67,36 +83,60 @@ class MonomorphicUncurryingProcessor
       body = loweredBody.map(_.map(_.expression))
     )
 
+  /** Collapse the channel's per-node intervals to a position-keyed map, keeping a position only when every entry at it
+    * agrees on one interval. A position carrying two or more distinct intervals is a shadow-mode `nativeWiden`
+    * collision (the coercion wrapper shares its operand's source position) — omitted so lowering falls back to the type.
+    */
+  private def unambiguousIntervalsByPosition(
+      table: RefinementTable
+  ): Map[PositionRange, (BigInt, BigInt)] =
+    table.intervals
+      .groupBy(_.position)
+      .collect {
+        case (position, entries) if entries.map(ni => (ni.min, ni.max)).distinct.sizeIs == 1 =>
+          position -> (entries.head.min, entries.head.max)
+      }
+
   /** Lower every nested `expressionType` (and `FunctionLiteral` parameter type) of an uncurried expression to its
     * machine representation (Phase 3). The `MonomorphicValueReference` type arguments are deliberately left untouched:
     * they are the instance-lookup key into [[UncurriedMonomorphicValue]] and (for `integerLiteral[V]`) carry the literal
     * constant, neither of which is a descriptor.
+    *
+    * `nodeInterval` is the refinement channel's interval for *this* node (looked up by the caller from `intervals` at the
+    * node's source position); it sources the layout of an `Int`-typed node (Step-6 staging). `intervals` is the whole
+    * per-node map, threaded on so child nodes — which the caller holds as `Sourced`, hence with their own positions —
+    * can be looked up during the recursion.
     */
   private def lowerUncurried(
       expr: UncurriedMonomorphicExpression,
-      context: Sourced[?]
+      context: Sourced[?],
+      nodeInterval: Option[(BigInt, BigInt)],
+      intervals: Map[PositionRange, (BigInt, BigInt)]
   ): CompilerIO[UncurriedMonomorphicExpression] =
     for {
-      loweredType       <- representationOf(expr.expressionType, context)
-      loweredExpression <- lowerExpression(expr.expression, context)
+      loweredType       <- representationOf(expr.expressionType, context, nodeInterval)
+      loweredExpression <- lowerExpression(expr.expression, context, intervals)
     } yield UncurriedMonomorphicExpression(loweredType, loweredExpression)
 
   private def lowerExpression(
       expression: UncurriedMonomorphicExpression.Expression,
-      context: Sourced[?]
+      context: Sourced[?],
+      intervals: Map[PositionRange, (BigInt, BigInt)]
   ): CompilerIO[UncurriedMonomorphicExpression.Expression] =
     expression match {
       case FunctionApplication(target, arguments) =>
         for {
-          loweredTarget    <- lowerUncurried(target.value, context).map(target.as)
-          loweredArguments <- arguments.traverse(a => lowerUncurried(a.value, context).map(a.as))
+          loweredTarget    <- lowerUncurried(target.value, context, intervals.get(target.range), intervals).map(target.as)
+          loweredArguments <- arguments.traverse(a =>
+                                lowerUncurried(a.value, context, intervals.get(a.range), intervals).map(a.as)
+                              )
         } yield FunctionApplication(loweredTarget, loweredArguments)
       case FunctionLiteral(parameters, body)      =>
         for {
           loweredParameters <- parameters.traverse(p =>
                                  representationOf(p.parameterType, context).map(MonomorphicParameterDefinition(p.name, _))
                                )
-          loweredBody       <- lowerUncurried(body.value, context).map(body.as)
+          loweredBody       <- lowerUncurried(body.value, context, intervals.get(body.range), intervals).map(body.as)
         } yield FunctionLiteral(loweredParameters, loweredBody)
       case other                                  =>
         // IntegerLiteral / StringLiteral / ParameterReference / MonomorphicValueReference carry no nested expression

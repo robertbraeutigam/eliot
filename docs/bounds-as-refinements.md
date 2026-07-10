@@ -1,7 +1,8 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
 **Status: DESIGN — direction adopted (C); Steps 0–3 + 5 landed, Step 4 nearly done (4c transfer half landed;
-only the Step-6-gated join generalization remains).** Steps 0–3 done; Step 4's `^Meta` **desugar machinery**
+only the Step-6-gated join generalization remains); Step 6 adopted "Staged R2" and its first sub-step (6-i:
+representation sourced from the per-node channel table, shadow-verified) has landed — see §8 Step 6.** Steps 0–3 done; Step 4's `^Meta` **desugar machinery**
 landed (4a meta structure + 4b-i transfer-companion desugar + Int's slot), **Step 5** landed (single-parameter
 `Numeric[T]` + `implement Numeric[BigInteger]`), and **Step 4c's transfer half** landed (2026-07-10): the
 channel now evaluates the leaf's `^Meta` transfer companion (`rangeAdd^Meta`/…) instead of Scala-resolving the
@@ -956,6 +957,48 @@ sites; where tests expect narrow layouts inside generic containers, a constructo
 (unannotated fields are now soundly-⊤/bignum — the accepted S4 trade). What needs *no* code change:
 `Coerce` insertion, `Combine` accumulation, and per-bound instantiation simply stop being triggered
 — their deletion is step 7, separately green.
+
+**Step 6 is staged ("Staged R2", decided 2026-07-10).** The flag day is *not* one big-bang: a
+mapping pass established that the checker's equality core (Coerce/Combine/assoc-reduction) degrades to
+clean no-ops when `Int == Int` (no rewrites, no zero-arg crashes) and that literal typing is one
+stdlib alias line (`IntegerLiteralType[V] = Int[V, V]` → `= Int`), but that the entire risk
+concentrates in the **representation-layout pipeline**: `RepresentationLowering.representInt`,
+`RefinementRepresentation.channelLayout`/`intIntervalOf`, and the jvm `opaque type Int =
+fold(fitsByte[MIN,MAX]…)` body all read `Int`'s *two type arguments* for the interval, and none of
+them survive `Int` going nullary. So representation must be re-pointed at the **per-node channel
+table** *in lockstep* with dropping the params. To de-risk that (the "one place it's hard"), Step 6 is
+split so the representation-plumbing lands first, shadow-verified, while `Int` still carries its
+bounds; only then does the atomic flip follow.
+
+- **6-i — representation sourced from the per-node channel table. — DONE (2026-07-10).** The `Int`'s
+  machine layout now comes from the channel's per-node interval (`RefinementTable`, keyed by source
+  position), not from the `Int[min, max]` type — the type is kept only as the **shadow cross-check**.
+  `RepresentationLowering.representationOf`/`representInt` gained a `nodeInterval: Option[(BigInt,
+  BigInt)]`, preferred over the type interval (`RefinementRepresentation.channelLayout(gv,
+  nodeInterval)` + a new interval-keyed `channelLayoutForInterval`); `RefinementRepresentation`'s
+  `representInt` asserts the table-derived layout equals the `opaque`-unfold (type-derived) one, so a
+  divergence is still a hard error. `MonomorphicUncurryingProcessor` — which already *demanded* the
+  table (formerly discarded) and already holds each body node's `Sourced` position one hop up — builds
+  a position→interval map and threads it into `lowerUncurried`. **Load-bearing proven by
+  forced-mismatch** (perturb the table interval → the representation assertion fires: "channel chose
+  JvmLong but the opaque body chose JvmByte"), so the layout genuinely reads the table rather than
+  silently falling back to the type. **Key gotcha surfaced and handled** (exactly the position-based
+  node-identity risk this staging exists to flush out): the checker splices a `nativeWiden(x)`
+  coercion at the *same* source position as its operand `x`, so the channel records two distinct
+  intervals at one position (the operand's own vs. the widened range); an *ambiguous* position is
+  dropped from the map and lowering falls back to the type. These `nativeWiden` wrappers exist only in
+  shadow mode (they die at the flag day with `Coerce`), so post-flag-day no genuine node is ambiguous
+  by position — the fallback is a shadow-mode-only concession, correct for the end state. Byte-for-byte
+  identical output on the whole suite (green); the three `RefinementReconciliationIntegrationTest`
+  `pick`/join cases were the ones that first exposed the collision. No cache-version bump (no fact
+  structure changed; shadow-mode behavior is identical to the type-driven path).
+- **6-ii — the atomic flip (NEXT).** `Int` nullary; `IntegerLiteralType[V] = Int`; delete
+  `Arithmetic.els` + `Combine[Int]`; operators → `Numeric`; `implement Numeric[Int]`; jvm `Int.els`
+  loses the `opaque`-body `MIN/MAX` reads, `nativeWiden`/`Coerce[Int]`, and the dependent result
+  signatures; the channel's seed source switches from type-args to flow (α for literals, `^Meta`
+  transfers, joins, cross-value propagation; ⊤ at parameter/return boundaries → bignum on JVM); the
+  shadow assertion retires; large test-expectation churn (~318 `Int[` across 19 files; ~15 out-of-range
+  tests change meaning — bound *enforcement* has no JVM replacement until `where`-on-defs, Step 8).
 
 **Step 7: deletions, each its own green commit** (all paths dead since step 6): 7a `Coerce`'s
 bounds role — the jvm guarded instance, `nativeWiden`, the `unifyOrCoerce` insertion/splicing

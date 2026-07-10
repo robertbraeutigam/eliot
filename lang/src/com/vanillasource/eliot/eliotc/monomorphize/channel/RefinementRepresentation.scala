@@ -44,36 +44,53 @@ object RefinementRepresentation {
     * or [[None]] when the type is not an extractable `Int`, no `Represent` instance is on the compiler path, or the
     * instance body does not reduce to a representation type.
     *
+    * The `nodeInterval` is the per-node interval the refinement channel recorded for *this* node (from
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable]], keyed by source position). It is
+    * *preferred* over the interval read off the type — this is the Step-6 staging move (`docs/bounds-as-refinements.md`,
+    * "Staged R2"): representation is sourced from the channel table, with the `Int[min, max]` type kept only as the
+    * shadow cross-check ([[com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering.representInt]]
+    * asserts the two layouts agree). In shadow mode the table interval is seeded from the same type, so the two coincide;
+    * after the flag day (when `Int` loses its type parameters) the table is the *only* interval source and the type
+    * fallback yields nothing. [[None]] `nodeInterval` falls back to the type interval.
+    *
     * The returned [[GroundValue]] is the raw quoted layout (a representation type such as `JvmByte`); the caller lowers
     * it structurally the same way the `opaque` unfold path does before comparing the two.
     */
-  def channelLayout(intGroundType: GroundValue): CompilerIO[Option[GroundValue]] =
-    RefinementChannelProcessor.intIntervalOf(intGroundType) match {
+  def channelLayout(intGroundType: GroundValue, nodeInterval: Option[(BigInt, BigInt)]): CompilerIO[Option[GroundValue]] =
+    nodeInterval.orElse(RefinementChannelProcessor.intIntervalOf(intGroundType)) match {
       case None         => none[GroundValue].pure[CompilerIO]
-      case Some(bounds) =>
-        for {
-          resolved <- getFactIfProduced(
-                        AbilityImplementation.Key(
-                          representLayoutFqn,
-                          Seq(RefinementChannelProcessor.intervalType),
-                          Platform.Compiler
-                        )
-                      ).map(_.flatMap(_.resolution.resolved))
-          result   <- resolved match {
-                        case None                          => none[GroundValue].pure[CompilerIO]
-                        case Some((implFqn, implTypeArgs)) =>
-                          ReducedBindingClosure.reduceInstance(implFqn, implTypeArgs).map {
-                            case None       => None
-                            case Some(body) =>
-                              val applied =
-                                Evaluator.applyValue(
-                                  body,
-                                  Evaluator.groundToSem(RefinementChannelProcessor.intervalValue(bounds))
-                                )
-                              val forced  = Evaluator.force(applied, MetaStore.empty)
-                              Quoter.quote(0, forced, MetaStore.empty).toOption
-                          }
-                      }
-        } yield result
+      case Some(bounds) => channelLayoutForInterval(bounds)
     }
+
+  /** Compute the machine layout for a concrete `[min, max]` interval value directly — resolve the platform's
+    * `Represent[Interval[…]]` instance and evaluate its `layout` body on `Interval(min, max)` through the one NbE
+    * evaluator. [[None]] when no `Represent` instance is on the compiler path or the body does not reduce to a
+    * representation type. This is the interval-keyed core of [[channelLayout]], usable when the interval is already in
+    * hand (from the channel table) rather than embedded in an `Int[min, max]` type.
+    */
+  def channelLayoutForInterval(bounds: (BigInt, BigInt)): CompilerIO[Option[GroundValue]] =
+    for {
+      resolved <- getFactIfProduced(
+                    AbilityImplementation.Key(
+                      representLayoutFqn,
+                      Seq(RefinementChannelProcessor.intervalType),
+                      Platform.Compiler
+                    )
+                  ).map(_.flatMap(_.resolution.resolved))
+      result   <- resolved match {
+                    case None                          => none[GroundValue].pure[CompilerIO]
+                    case Some((implFqn, implTypeArgs)) =>
+                      ReducedBindingClosure.reduceInstance(implFqn, implTypeArgs).map {
+                        case None       => None
+                        case Some(body) =>
+                          val applied =
+                            Evaluator.applyValue(
+                              body,
+                              Evaluator.groundToSem(RefinementChannelProcessor.intervalValue(bounds))
+                            )
+                          val forced  = Evaluator.force(applied, MetaStore.empty)
+                          Quoter.quote(0, forced, MetaStore.empty).toOption
+                      }
+                  }
+    } yield result
 }

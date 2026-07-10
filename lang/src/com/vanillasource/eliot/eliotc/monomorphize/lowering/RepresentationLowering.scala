@@ -32,8 +32,20 @@ object RepresentationLowering {
 
   /** Rewrite a ground value to its machine representation, recursing structurally. The `context` carries a source
     * position used only to report a (should-not-happen) failure to reduce an opaque body.
+    *
+    * `nodeInterval` is the refinement channel's per-node interval for *this* node (from the position-keyed
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable]]), supplied by the uncurry caller for a body
+    * node whose own type is a tracked `Int`. It is used only when `gv` is directly that tracked `Int` — any structural
+    * recursion into children resets it to [[None]] (a nested `Int` is a different node with its own, type-derived,
+    * interval). This is the Step-6 staging move (`docs/bounds-as-refinements.md`, "Staged R2"): the `Int`'s layout is
+    * sourced from the channel table, with the `Int[min, max]` type kept only as the shadow cross-check (see
+    * [[representInt]]).
     */
-  def representationOf(gv: GroundValue, context: Sourced[?]): CompilerIO[GroundValue] =
+  def representationOf(
+      gv: GroundValue,
+      context: Sourced[?],
+      nodeInterval: Option[(BigInt, BigInt)] = None
+  ): CompilerIO[GroundValue] =
     gv match {
       case GroundValue.Type              =>
         (GroundValue.Type: GroundValue).pure[CompilerIO]
@@ -45,7 +57,7 @@ object RepresentationLowering {
         else
           getFactIfProduced(OperatorResolvedValue.Key(s.typeName)).flatMap {
             case Some(orv) if orv.runtime.isDefined =>
-              if (RefinementRepresentation.isTrackedIntType(s)) representInt(s, context)
+              if (RefinementRepresentation.isTrackedIntType(s)) representInt(s, context, nodeInterval)
               else unfold(s, context)
             case _                                  => lowerLeaf(s, context)
           }
@@ -57,10 +69,14 @@ object RepresentationLowering {
     * When the channel cannot compute the layout — no platform `Represent` instance on the path — fall back to the
     * `opaque` unfold; the representation is still correct, only the cross-check is skipped.
     */
-  private def representInt(s: GroundValue.Structure, context: Sourced[?]): CompilerIO[GroundValue] =
+  private def representInt(
+      s: GroundValue.Structure,
+      context: Sourced[?],
+      nodeInterval: Option[(BigInt, BigInt)]
+  ): CompilerIO[GroundValue] =
     for {
       opaqueRepr <- unfold(s, context)
-      channelRaw <- RefinementRepresentation.channelLayout(s)
+      channelRaw <- RefinementRepresentation.channelLayout(s, nodeInterval)
       result     <- channelRaw match {
                       case None      => opaqueRepr.pure[CompilerIO]
                       case Some(raw) =>
