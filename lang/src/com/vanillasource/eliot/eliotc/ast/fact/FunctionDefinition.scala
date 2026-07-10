@@ -41,7 +41,13 @@ case class FunctionDefinition(
     // name+domain, so an `ArgumentDefinition` is the right shape. Populated only by `TypeAliasDefinition`; empty for
     // every ordinary `def`/alias. Consumed at the core boundary by `MetaConstructorDesugarer`, which emits the type's
     // `^Meta` constructor from it, then dropped (never part of `NamedValue`/`signatureEquality`).
-    metaSlots: Seq[ArgumentDefinition] = Seq.empty
+    metaSlots: Seq[ArgumentDefinition] = Seq.empty,
+    // The return-position **transfer brace** of a def (bounds-as-refinements §4.2), e.g. the `{a.range + b.range}` in
+    // `def add(a: Int, b: Int): Int {a.range + b.range}` — the slot-value expression(s) (one per slot, comma-separated)
+    // that build the result's meta value. Populated only when a def carries a return brace; empty otherwise. Consumed
+    // at the core boundary by `MetaTransferDesugarer`, which emits the def's `^Meta` transfer companion from it, then
+    // dropped (never part of `NamedValue`/`signatureEquality`).
+    returnMeta: Seq[Sourced[Expression]] = Seq.empty
 )
 
 object FunctionDefinition {
@@ -129,6 +135,10 @@ object FunctionDefinition {
       args                          <- optionalArgumentListOf(component[ArgumentDefinition])
       _                             <- symbol(":")
       typeExpression                <- sourced(Expression.typeRunParser)
+      // The return-position transfer brace `: T {expr, …}` (bounds-as-refinements §4.2). `typeRunParser`'s type-atom
+      // run stops at `{` (a `{` is not a type-atom start — that leading-brace position is the effect-set sugar), so the
+      // brace sits unconsumed here, between the return type and the optional `= body`. Absent for an ordinary def.
+      returnMeta                    <- optionalBracketedCommaSeparatedItems("{", sourced(component[Expression]), "}")
       functionBody                  <- functionBody
     } yield FunctionDefinition(
       name.map(m => QualifiedName(m.content, Qualifier.Default)),
@@ -139,7 +149,8 @@ object FunctionDefinition {
       fixity,
       prec,
       vis,
-      isOpaque
+      isOpaque,
+      returnMeta = returnMeta
     )
   }
 }

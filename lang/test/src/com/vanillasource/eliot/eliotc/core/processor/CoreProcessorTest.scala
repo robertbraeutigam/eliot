@@ -489,6 +489,30 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  "transfer brace (bounds Step 4b)" should "generate a ^Meta transfer companion in the Meta namespace" in {
+    namedValues("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("f", Qualifier.Meta))
+    }
+  }
+
+  it should "type the transfer companion over the meta structures (T -> T$Meta), with no lookup" in {
+    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function", T), Ref("Foo$Meta", T)), Ref("Foo$Meta", T))
+    }
+  }
+
+  it should "build the result via the meta value constructor" in {
+    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("Foo$Meta"), Ref("a"))))
+    }
+  }
+
+  it should "not generate a transfer companion for a def without a brace" in {
+    namedValues("def f(a: Foo): Foo").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should not contain QualifiedName("f", Qualifier.Meta)
+    }
+  }
+
   "bracket-aware qualifiers" should "make uppercase-only-brackets a type application" in {
     namedValue("data Box[A]\ndef f: R = Box[A]").asserting { nv =>
       nv.runtimeStructure shouldBe Some(App(Ref("Box", T), Ref("A", T)))

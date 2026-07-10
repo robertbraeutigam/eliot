@@ -39,8 +39,13 @@ class CoreProcessor
     // (bounds-as-refinements §4.2, Step 4a). Type aliases are `FunctionDefinition`s, so this runs over them.
     val desugaredMetaConstructors: Seq[(FunctionDefinition, RoleHint)] =
       sourceAstData.functionDefinitions.flatMap(MetaConstructorDesugarer.desugar)
+    // Return-position transfer brace on a def (`def add(…): Int {a.range + b.range}`) → the def's `^Meta` transfer
+    // companion (bounds-as-refinements §4.2, Step 4b).
+    val desugaredMetaTransfers: Seq[(FunctionDefinition, RoleHint)] =
+      sourceAstData.functionDefinitions.flatMap(MetaTransferDesugarer.desugar)
     val allFunctions  =
-      sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++ desugaredFromData ++ desugaredMetaConstructors
+      sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++
+        desugaredFromData ++ desugaredMetaConstructors ++ desugaredMetaTransfers
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so
