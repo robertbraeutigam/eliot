@@ -537,7 +537,9 @@ class MonomorphicTypeCheckTest
   // F1, `applyValue` silently returned the argument — the program "type-checked" but with a nonsense `BigInteger[String]`
   // body type (a masked miscompile). F1 makes that a loud stuck form, so the use now surfaces `Cannot resolve type.` at
   // the use site rather than accepting a wrong typing. (An analogous `data`-carrier case — `?F := Box`, a rigid
-  // `VTopDef` — *does* decompose and type-check; see the single-arg HKT cases above.)
+  // `VTopDef` — *does* decompose and type-check; see the single-arg HKT cases above.) The postponed `?F[..] ~ Function[..]`
+  // constraints do *not* reach the `flushPostponed` mismatch backstop: once `?F` defaults to `VType`, `?F[..]` reads back
+  // as a `$bad-apply` head, which that flush triages as benign (this precise `Cannot resolve type.` owns the case).
   it should "surface (not silently miscompile) a two-arg HKT carrier over the Function type" in {
     runForErrors(
       "def id[F[_, _]](x: F[BigInteger, String]): F[BigInteger, String] = x\ndef someFunc: Function[BigInteger, String]\ndef f: Function[BigInteger, String] = id(someFunc)"

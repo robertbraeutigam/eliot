@@ -410,6 +410,57 @@ case class Unifier(
     }
   }
 
+  /** Flush the postponement queue at the very end of the check (after the finalizer defaulted every unsolved meta):
+    * convert every constraint still postponed into a hard mismatch error with its recorded context — unless a triage
+    * classifies it benign.
+    *
+    * A leading triage re-[[drain]] runs first — with the metas now defaulted (e.g. a `Plain`/`Instantiation` meta
+    * solved to [[SemValue.VType]]), a constraint that was only waiting on those metas trivially re-verifies and is
+    * discharged. Whatever remains postponed after that is, in general, an equality obligation the check could never
+    * discharge; per the fail-safe rule it must surface as an error rather than be silently carried along and forgotten
+    * (the hole that let pre-fix applied-associated-type garbage compile — see TODO.md).
+    *
+    * Two shapes are exempt because a *more precise* fail-safe already owns them (see [[isBenignPostponement]]): an
+    * applied abstract associated type — postponed here by design for the associated-type reducer — and a `$bad-apply`
+    * head, the read-back artifact of a phantom meta defaulted to a non-applicable value. Flushing those would reject
+    * currently-correct programs (the guard/effectful-signature discharge and `Interval`'s `MulResult` corners) whose
+    * types are settled through those other channels, never through this postponed constraint. The genuine class this
+    * flush is the sole backstop for — a postponed application whose meta *did* solve to a concrete head that then
+    * mismatches the other side — is caught.
+    *
+    * The recorded context (source position and message — typically "Type mismatch.") is reused verbatim, and the
+    * stored `(actual, expected)` pair drives the same `Expected/Actual` hint as any other mismatch.
+    */
+  def flushPostponed(): Unifier = {
+    val triaged = drain()
+    val genuine = triaged.postponed.filterNot { case (l, r, _) => triaged.isBenignPostponement(l, r) }
+    genuine.foldLeft(triaged.copy(postponed = Nil)) { case (u, (l, r, ctx)) =>
+      u.addMismatch(l, r, ctx)
+    }
+  }
+
+  /** Whether a still-postponed constraint is benign — owned by a more precise fail-safe than the [[flushPostponed]]
+    * backstop — and so must not be converted into a mismatch error. True when *either* forced side is headed by:
+    *
+    *   - an **unsolved abstract associated-type placeholder** ([[MetaRole.AbstractAssoc]], the only meta the finalizer
+    *     leaves unsolved). The unifier postpones an applied assoc type *by design* (see [[solveMeta]]) for the
+    *     associated-type reducer to resolve through its instance; a genuinely-unreduced one is rejected precisely by
+    *     the assoc-reduction loud-fail / strict quoter, never silently. Not the unifier's obligation to prove here.
+    *   - the **`$bad-apply` reserved head** ([[SemValue.NeutralHead.Marker.BadApply]]) — produced when a phantom meta,
+    *     defaulted to a non-applicable [[SemValue.VType]]/[[SemValue.VConst]], is applied to a spine. Either an
+    *     ill-typed program already recorded a diagnostic (so the build fails regardless) or the application is a
+    *     vacuous phantom; skipping never hides a genuine, otherwise-undiagnosed mismatch.
+    */
+  private def isBenignPostponement(l: SemValue, r: SemValue): Boolean =
+    hasBenignHead(l) || hasBenignHead(r)
+
+  private def hasBenignHead(v: SemValue): Boolean =
+    Evaluator.force(v, metaStore) match {
+      case VMeta(id, _)                                                   => abstractAssocMetaIds.contains(id.value)
+      case VNeutral(NeutralHead.Reserved(NeutralHead.Marker.BadApply), _) => true
+      case _                                                              => false
+    }
+
   /** Drain the postponement queue, re-attempting postponed unifications. Repeats until stable. */
   def drain(): Unifier = {
     @scala.annotation.tailrec

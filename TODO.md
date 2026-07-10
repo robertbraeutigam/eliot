@@ -92,17 +92,22 @@ notes.
   conservatively as representation, so it is not collapse-erased; refining that is a size win, not
   correctness.
 
-- **Fail-safe hole: leftover postponed unification constraints are silently dropped.** The unifier's
-  `postponed` queue (`monomorphize/unify/Unifier.scala`) re-attempts constraints on every `drain()`,
-  but a constraint that never discharges is simply carried along and forgotten at the end of the
-  check — nothing converts survivors into errors, so an unproven equality can pass silently. This is
-  what let the pre-fix applied-associated-type garbage through unnoticed (2026-07-09, see the
-  associated-type application work): the body-vs-declared unification postponed forever and the value
-  compiled anyway. Fix direction: after the post-drain pipeline's finalizer, treat every remaining
-  postponed constraint as a hard "Type mismatch" (with its recorded context) — with a triage pass
-  first, since some postponements may currently be benign-by-accident (e.g. constraints whose metas
-  get defaulted to `Type` and would then trivially re-verify). Per the fail-safe rule, an unproven
-  obligation must be an error, never a silent drop.
+- **DONE (2026-07-10, bounds-as-refinements Step 0): Fail-safe hole — leftover postponed unification
+  constraints are silently dropped.** The unifier's `postponed` queue
+  (`monomorphize/unify/Unifier.scala`) re-attempts constraints on every `drain()`, but a constraint
+  that never discharged used to be carried along and forgotten at the end of the check — nothing
+  converted survivors into errors, so an unproven equality could pass silently (what let the pre-fix
+  applied-associated-type garbage compile — the body-vs-declared unification postponed forever).
+  **Fixed:** `Unifier.flushPostponed()` runs as the last step of `TypeStackLoop.runPostDrainPipeline`
+  (after `defaultUnsolvedMetas`): a triage re-`drain()` first discharges any constraint the defaulting
+  just made verifiable, then every survivor becomes a hard "Type mismatch." with its recorded context.
+  Two shapes are triaged benign because a *more precise* fail-safe already owns them (`isBenignPostponement`):
+  an applied **abstract associated type** (unsolved `MetaRole.AbstractAssoc` head — postponed by design
+  for the assoc reducer; a genuinely-unreduced one is caught by the assoc-reduction loud-fail / strict
+  quoter) and a **`$bad-apply` head** (a phantom meta defaulted to `VType`/`VConst` then applied —
+  either already diagnosed or a vacuous phantom). The genuine class the flush is the sole backstop for
+  — a postponed application whose meta *did* solve to a concrete head that then mismatches — is caught.
+  Covered by `PostponedFlushTest`.
 
 - Separate the cache graph from the values, so not everything has to be deserialized.
 - **Incremental cache corrupted by concurrent/out-of-date compilers.** A stale `.eliot-cache`

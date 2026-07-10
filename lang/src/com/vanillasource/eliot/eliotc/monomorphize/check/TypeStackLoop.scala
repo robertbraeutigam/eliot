@@ -359,6 +359,11 @@ class TypeStackLoop(
       // resolves instead of its metas defaulting to `Type`.
       _ <- modify(s => s.withUnifier(s.unifier.drain()))
       _ <- defaultUnsolvedMetas
+      // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality obligation the check
+      // never discharged. Flush the queue to hard mismatch errors (triaging benign, now-defaulted constraints away
+      // first) rather than silently carrying and forgetting them — the hole that let pre-fix applied-associated-type
+      // garbage compile. Runs before the meta-postcondition assertion, which the defaulting already satisfies.
+      _ <- modify(s => s.withUnifier(s.unifier.flushPostponed()))
       _ <- assertEveryMetaResolvedOrAbstract(ctx)
     } yield ()
   }

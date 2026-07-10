@@ -625,10 +625,17 @@ Two safety mechanisms run through the plan:
 
 ### The steps
 
-**Step 0 (parallel, recommended): close the postponed-constraint hole.** Convert leftover
-postponed unification constraints to hard errors (TODO.md item, with its triage pass). Not a
+**Step 0 (parallel, recommended) — DONE (2026-07-10): close the postponed-constraint hole.** Convert
+leftover postponed unification constraints to hard errors (TODO.md item, with its triage pass). Not a
 dependency, but the migration wants loud failures, not silent drops, while the checker is under
-surgery.
+surgery. *Landed:* `Unifier.flushPostponed()` is the final step of `TypeStackLoop.runPostDrainPipeline`
+— it re-`drain()`s (triaging away constraints the meta-defaulting just made verifiable), then turns
+each survivor into a hard "Type mismatch." with its recorded context. The triage keeps two shapes
+benign because a more precise fail-safe already owns them: an applied abstract associated type
+(`MetaRole.AbstractAssoc` head — the assoc reducer's obligation, its loud-fail / the strict quoter
+covers a real leak) and a `$bad-apply` head (a phantom meta defaulted to `VType`/`VConst` then applied
+— already-diagnosed or vacuous). The class the flush is the sole backstop for is a postponed
+application whose meta *solved to a concrete head* that then mismatches. See `PostponedFlushTest`.
 
 **Step 1: collapse the jvm width machinery into width-reading intrinsics.** Replace the 27
 width-pair leaves + the `IntArith` 5-instance guard family + the inner result-width `fold`s with
