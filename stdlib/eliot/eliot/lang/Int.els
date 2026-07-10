@@ -1,6 +1,7 @@
 import eliot.compiler.Combine
 import eliot.lang.Compare
 import eliot.lang.Arithmetic
+import eliot.lang.Interval
 
 /**
  * The type of all integers, carrying its inclusive value bounds `[MIN, MAX]`.
@@ -13,7 +14,7 @@ import eliot.lang.Arithmetic
  * Both bounds are `auto` (omittable): a bare `Int` leaves them to the compiler — generalized in a parameter
  * position, calculated in a return position.
  */
-type Int[auto MIN: BigInteger, auto MAX: BigInteger]
+type Int[auto MIN: BigInteger, auto MAX: BigInteger] {range: Interval[BigInteger, BigInteger]}
 
 // Some common aliases. The signed widths are built from the single-source boundary constants in `BigInteger`
 // (`byteMin`…`longMax`), which the platform representation dispatch shares; the unsigned ranges are `[0, 2^n - 1]`.
