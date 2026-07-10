@@ -12,10 +12,38 @@ notes.
   `lang/eliot/eliot/compiler/Coerce.els`.
 - Add generics to function literals.
 - Introduce arrays (records / multi-field `data` are already done).
-- WCET (worst-case execution time) and other real-time properties as type parameters, or as
-  effects with type parameters, e.g. `something().strictlyEvery(10 millis)`.
+- **Flow grades: quantitative computation tracking (cycles/WCET, stack, peak memory) on the
+  effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion; depends on
+  the refinement channel (`docs/bounds-as-refinements.md`) landing first — the dependency ladder
+  is ranges → sizes → grades (fold cost needs sizes, frame sizes need ranges). Core idea: the
+  effect row generalizes from "set of abilities" to "abilities + **named grades**" —
+  `def onTick(s: State): {Timer, cycles: ≤800} Unit` — where a grade is *not* an ability
+  (nothing is performed, nothing resolved or discharged) but a quantity with an algebra,
+  registered per platform (`flow cycles {Interval[BigInteger]}` +
+  `implement Grade[D] { seq (+), branch (interval hull → BCET..WCET), zero, within (≤) }`);
+  the existing effect row is the powerset special case (seq = branch = union, within = ⊆).
+  The §4.2 projection discipline transfers wholesale: a parameter's grade is referenced by slot
+  projection (`step.cycles`), never bound; return-position entries are expressions (axiomatic on
+  natives, checked contracts on bodied defs) — showcase, with cross-channel composition:
+  `def fold[T, A](ls: List[T], init: A, step: F[A]): {cycles: ls.size.end * step.cycles + 7} F[A]`.
+  Grade-only rows on pure functions do not force a carrier (precedent: negatives-only discharge
+  rows are pure pass-throughs). Leaf grades are stated on native signatures by the platform
+  layer (AVR datasheet cycle counts); width-dependent leaf costs are either expressions over the
+  operands' value-metas or accounted post-lowering where `Represent`'s layout is known (same as
+  stack frames). Accounting = generalize the effect walk (`EffectUsageCollector` + discharge-
+  summary DAG) from the union lattice to arbitrary `Grade`s, run over the *residual* program
+  (CTFE'd-away code costs zero). Covers: cycles (exact on cache-less simple cores — totality +
+  monomorphization deleted the hard WCET subproblems: loop bounds come from sizes, no recursion,
+  no indirect calls), max stack depth (sum frames / branch max over the whole-program DAG,
+  post-lowering), and peak memory (composes as a monoid on `(net, peak)` pairs); an `Inf`
+  super-loop's *step* carries the deadline budget — the real-time contract. Out of scope for the
+  mechanism: in-place reuse (linearity is a type discipline, not meta-information) and hardware
+  fidelity beyond simple cores. This supersedes the older idea of "WCET as type parameters /
+  effects with type parameters" — quantities stay out of the type channel per the
+  differentiation rule (doc §3).
 - **Important:** after compilation the program should be guaranteed to fit all resources —
-  memory, stack, etc.
+  memory, stack, etc. (Mechanism: the flow-grade system above, plus `Represent`-driven layout
+  from the refinement channel.)
 
 ## Effects & I/O
 
