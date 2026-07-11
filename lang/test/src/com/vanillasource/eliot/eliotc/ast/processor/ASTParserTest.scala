@@ -495,6 +495,18 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "carry a def's where precondition as its where clause, stopping cleanly before the body" in {
+    // `where` is a hard keyword, so the return-type run ends at it and the predicate run ends at `=`; both the
+    // precondition and the body parse (bounds-as-refinements §4.3, `where`-on-defs).
+    runEngineForFunctionWhereClauses("def useByte(x: Int): Int where within(range(x)) = x").asserting(
+      _ shouldBe Seq("useByte" -> Some("within(range(x))"))
+    )
+  }
+
+  it should "leave a def without a where clause unconstrained" in {
+    runEngineForFunctionWhereClauses("def id(x: Int): Int = x").asserting(_ shouldBe Seq("id" -> None))
+  }
+
   it should "qualify implement type declarations with AbilityImplementation qualifier" in {
     runEngineForFunctions("implement Show[A] { type Element = String }").asserting(
       _.head shouldBe
@@ -739,6 +751,18 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
           functions.map(f => (f.name.value.name, f.name.value.qualifier))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionWhereClauses(source: String): IO[Seq[(String, Option[String])]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.whereClause.map(_.value.show)))
         }
         .toSeq
         .flatten

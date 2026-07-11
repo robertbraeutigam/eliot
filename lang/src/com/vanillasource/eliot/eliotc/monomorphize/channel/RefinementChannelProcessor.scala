@@ -2,9 +2,10 @@ package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
+import com.vanillasource.eliot.eliotc.core.processor.MetaWhereDesugarer
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.monomorphize.domain.{MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.monomorphize.processor.ReducedBindingClosure
@@ -91,18 +92,29 @@ class RefinementChannelProcessor
           case MonomorphicExpression.MonomorphicValueReference(vfqn, _)
               if vfqn.value == boolFoldFqn && args.sizeIs == 3 =>
             walkBranch(node, args(0), args(1), args(2))
+          case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
+            // An ordinary call (or constructor): the result is a ⊤ boundary, but descend into the arguments so a
+            // literal/arithmetic argument still narrows and is reconciled to the callee's parameter representation at
+            // the call — and, if the callee declares a `where` precondition, demand it here over the arguments' ranges
+            // (bounds-as-refinements §4.3). A lambda argument's body is skipped by the `FunctionLiteral` case below.
+            for {
+              argResults <- args.traverse(walkFlow)
+              _          <- checkWhere(node, vfqn.value, typeArgs, args.size, argResults.map(_._1))
+            } yield (none[(BigInt, BigInt)], argResults.flatMap(_._2))
           case _ =>
-            // Any other application (an ordinary call, a constructor, a `match`, a `typeMatch`, an applied lambda): the
-            // result is a ⊤ boundary, but descend into the arguments so a literal/arithmetic argument still narrows and
-            // is reconciled to the callee's parameter representation at the call. A lambda argument's body is skipped by
-            // the FunctionLiteral case below.
+            // Any other application (a `match`, a `typeMatch`, an applied lambda): the result is a ⊤ boundary; descend
+            // into the arguments as above.
             args.flatTraverse(walkFlow(_).map(_._2)).map(records => (none[(BigInt, BigInt)], records))
         }
 
-      case MonomorphicExpression.FunctionLiteral(_, _, _) =>
-        // Do not descend into a lambda body: its `apply` bridge would `CHECKCAST` a narrowed result back to the ⊤/bignum
-        // representation the caller expects, so a lambda body stays a bignum boundary (Step 6-iii).
-        (none[(BigInt, BigInt)], Seq.empty[RefinementTable.NodeInterval]).pure[CompilerIO]
+      case MonomorphicExpression.FunctionLiteral(_, _, body) =>
+        // A lambda body must not *record* narrow intervals: its `apply` bridge would `CHECKCAST` a narrowed result back
+        // to the ⊤/bignum representation the caller expects, so it stays a bignum boundary for representation (Step
+        // 6-iii). But it must still be *walked*, so a `where` precondition on a call inside it is demanded (a def's own
+        // parameters make its body a leading lambda, so without this every call in a parametered def would escape the
+        // check — the §4.3 use-site verification must not have that hole). The records are discarded; only `checkWhere`'s
+        // effects during the walk remain.
+        walkFlow(body).as((none[(BigInt, BigInt)], Seq.empty[RefinementTable.NodeInterval]))
 
       case _ =>
         // A parameter/value reference or a string literal: ⊤ (no known integer range at this node).
@@ -152,6 +164,85 @@ class RefinementChannelProcessor
       interval: Option[(BigInt, BigInt)]
   ): Seq[RefinementTable.NodeInterval] =
     interval.map { case (lo, hi) => RefinementTable.NodeInterval(node.range, lo, hi) }.toSeq
+
+  /** Demand a callee's `where` precondition (bounds-as-refinements §4.3) at this call site, when it declares one. A def
+    * `def f(x: Int): T where within(0, 255, range(x))` desugars to a `^Where` companion `f$Where(x: Int$Meta): Bool =
+    * within(0, 255, range(x))` ([[MetaWhereDesugarer]]); at a *full* call to `f` that companion is reduced on the
+    * compiler track and evaluated over the arguments' channel intervals. The demand is discharged only when every
+    * argument's range is known and the predicate reduces to `true`; an unknown (⊤) argument range or a `false` result is
+    * a hard error at the call — the use-site verification the cornerstone prescribes. A partial application is not yet a
+    * call (left for the full application); a callee that declares no companion has no `where`. The presence of a
+    * companion is a cheap per-module [[UnifiedModuleNames]] membership test, so an ordinary call to a `where`-free callee
+    * costs one cached lookup and never demands a non-existent companion fact.
+    */
+  private def checkWhere(
+      callNode: Sourced[MonomorphicExpression],
+      callee: ValueFQN,
+      calleeTypeArgs: Seq[GroundValue],
+      appliedArgs: Int,
+      argIntervals: Seq[Option[(BigInt, BigInt)]]
+  ): CompilerIO[Unit] =
+    getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { namesOpt =>
+      if (!namesOpt.exists(_.names.contains(whereCompanionName(callee)))) ().pure[CompilerIO]
+      else
+        (
+          ReducedBindingClosure.reduceInstance(whereCompanionFqn(callee), Seq.empty),
+          getFactIfProduced(MonomorphicValue.Key(callee, calleeTypeArgs))
+        ).tupled.flatMap {
+          case (Some(companion), Some(mv)) =>
+            mv.naturalArity match {
+              case Some(arity) if arity > 0 && appliedArgs >= arity =>
+                demandPrecondition(callNode, callee, companion, argIntervals.take(arity))
+              case _                                                => ().pure[CompilerIO]
+            }
+          case _                           => ().pure[CompilerIO]
+        }
+    }
+
+  /** Evaluate a resolved `^Where` companion over the call's argument intervals and turn the verdict into a use-site
+    * error or a pass. Every argument range must be known (⊤ cannot discharge a demand — the fail-safe of §4.3); the
+    * predicate then reduces (through the one NbE evaluator, over the arguments wrapped as `Int$Meta(Interval(lo,hi))`)
+    * to a `Bool`: `true` passes, `false` is a violation, and a non-`Bool` result (an unsupported predicate shape) fails
+    * loudly rather than silently accepting.
+    */
+  private def demandPrecondition(
+      callNode: Sourced[MonomorphicExpression],
+      callee: ValueFQN,
+      companion: SemValue,
+      argIntervals: Seq[Option[(BigInt, BigInt)]]
+  ): CompilerIO[Unit] =
+    argIntervals.sequence match {
+      case None            =>
+        Sourced.compilerError(
+          callNode.as(s"Cannot prove the precondition of '${callee.show}': an argument's value range is not known here."),
+          Seq("A `where` precondition demands a provable range — pass a value whose range the compiler can determine.")
+        )
+      case Some(intervals) =>
+        val applied = intervals.foldLeft(companion) { (f, iv) =>
+          Evaluator.applyValue(f, Evaluator.groundToSem(intMetaValue(iv)))
+        }
+        Quoter.quote(0, Evaluator.force(applied, MetaStore.empty), MetaStore.empty).toOption match {
+          case Some(gv) if isBoolTrue(gv)  => ().pure[CompilerIO]
+          case Some(gv) if isBoolFalse(gv) =>
+            Sourced.compilerError(
+              callNode.as(s"The precondition of '${callee.show}' is not satisfied by the argument's value range.")
+            )
+          case _                           =>
+            Sourced.compilerError(callNode.as(s"Cannot evaluate the `where` precondition of '${callee.show}'."))
+        }
+    }
+
+  private def isBoolTrue(gv: GroundValue): Boolean = gv match {
+    case GroundValue.Direct(true, _)      => true
+    case GroundValue.Structure(fqn, _, _) => fqn == WellKnownTypes.boolTrueFQN
+    case _                                => false
+  }
+
+  private def isBoolFalse(gv: GroundValue): Boolean = gv match {
+    case GroundValue.Direct(false, _)     => true
+    case GroundValue.Structure(fqn, _, _) => fqn == WellKnownTypes.boolFalseFQN
+    case _                                => false
+  }
 
   /** Flatten a curried application into its ultimate head and its arguments in source order. */
   private def flatten(
@@ -268,6 +359,16 @@ object RefinementChannelProcessor {
 
   private[channel] def isArithmeticLeaf(vfqn: ValueFQN): Boolean =
     vfqn == nativeAddFqn || vfqn == nativeSubtractFqn || vfqn == nativeMultiplyFqn
+
+  /** The name / FQN of a def's `^Where` companion (bounds-as-refinements §4.3): the def's own name suffixed with
+    * [[MetaWhereDesugarer.whereSuffix]], in the [[Qualifier.Meta]] namespace and the def's own module — exactly what
+    * [[MetaWhereDesugarer]] emits, so the channel finds the precondition companion `MetaWhereDesugarer` generated.
+    */
+  private[channel] def whereCompanionName(callee: ValueFQN): QualifiedName =
+    QualifiedName(callee.name.name + MetaWhereDesugarer.whereSuffix, Qualifier.Meta)
+
+  private[channel] def whereCompanionFqn(callee: ValueFQN): ValueFQN =
+    ValueFQN(callee.moduleName, whereCompanionName(callee))
 
   /** The `^Meta` transfer companion that computes the transfer for a leaf — `rangeAdd`/`rangeSubtract`/`rangeMultiply`,
     * in the [[Qualifier.Meta]] namespace (`docs/bounds-as-refinements.md` Step 4c). These are the base-layer vessels'

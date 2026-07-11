@@ -42,7 +42,14 @@ case class FunctionDefinition(
     // that build the result's meta value. Populated only when a def carries a return brace; empty otherwise. Consumed
     // at the core boundary by `MetaTransferDesugarer`, which emits the def's `^Meta` transfer companion from it, then
     // dropped (never part of `NamedValue`/`signatureEquality`).
-    returnMeta: Seq[Sourced[Expression]] = Seq.empty
+    returnMeta: Seq[Sourced[Expression]] = Seq.empty,
+    // The `where <predicate>` **refinement precondition** of a def (bounds-as-refinements §4.3), e.g.
+    // `def useByte(x: Int): Int where within(0, 255, range(x))` — a `Bool` predicate over the parameters' *meta* values
+    // (each parameter `p: T` is seen as its meta `p: T$Meta`, so `range(p)` projects the tracked range). Populated only
+    // when a def carries a `where`; empty otherwise. Consumed at the core boundary by `MetaWhereDesugarer`, which emits
+    // the def's `^Where` companion (a `T$Meta… -> Bool` function in `Qualifier.Meta`) the refinement channel evaluates
+    // at each call site to demand the precondition; then dropped (never part of `NamedValue`/`signatureEquality`).
+    whereClause: Option[Sourced[Expression]] = None
 )
 
 object FunctionDefinition {
@@ -133,6 +140,10 @@ object FunctionDefinition {
       // run stops at `{` (a `{` is not a type-atom start — that leading-brace position is the effect-set sugar), so the
       // brace sits unconsumed here, between the return type and the optional `= body`. Absent for an ordinary def.
       returnMeta          <- optionalBracketedCommaSeparatedItems("{", sourced(component[Expression]), "}")
+      // The `where <predicate>` refinement precondition (bounds-as-refinements §4.3). `where` is a hard keyword, so the
+      // return-type run above stops cleanly at it (as it does at `infix`/`def`); the predicate is a `typeRunParser` run
+      // exactly like an `implement` guard, stopping at the `= body` (or the next definition). Absent for an ordinary def.
+      whereClause         <- (keyword("where") *> sourced(Expression.typeRunParser)).optional()
       functionBody        <- functionBody
     } yield FunctionDefinition(
       name.map(m => QualifiedName(m.content, Qualifier.Default)),
@@ -143,7 +154,8 @@ object FunctionDefinition {
       fixity,
       prec,
       vis,
-      returnMeta = returnMeta
+      returnMeta = returnMeta,
+      whereClause = whereClause
     )
   }
 }

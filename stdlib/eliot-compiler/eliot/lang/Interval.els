@@ -1,5 +1,6 @@
 import eliot.lang.Numeric
 import eliot.lang.Compare
+import eliot.lang.Bool
 import eliot.compiler.Meta
 
 /**
@@ -43,6 +44,24 @@ implement[T ~ Compare[T]] Meta[Interval[T]] {
  * leaves. The bare `add`/`subtract`/`multiply` resolve unambiguously here (this overlay imports only `Numeric`, not
  * `Arithmetic`).
  */
+/**
+ * True iff the whole interval `i` lies within `[lo, hi]` — the general refinement-channel containment predicate a
+ * `where` precondition evaluates over an `Int`'s tracked range (`docs/bounds-as-refinements.md` §4.3). Compiler-pool-only
+ * (the channel evaluates it), like the interval arithmetic below.
+ */
+def within(lo: BigInteger, hi: BigInteger, i: Interval[BigInteger]): Bool = fitsIn(lo, hi, start(i), end(i))
+
+/**
+ * True iff the interval `i` fits a signed byte / short / medium / long — the width-named `where` precondition predicates
+ * for an `Int`'s tracked range: `def useByte(x: Int): Int where withinByte(range(x))` demands, at each call, that the
+ * caller's computed range for `x` fits a signed byte, reducing to a `Bool` over the argument's concrete interval. They
+ * bake the width bounds (from `BigInteger`'s `fitsByte`/…), so a `where` needs no `BigInteger` literals.
+ */
+def withinByte(i: Interval[BigInteger]): Bool   = fitsByte(start(i), end(i))
+def withinShort(i: Interval[BigInteger]): Bool  = fitsShort(start(i), end(i))
+def withinMedium(i: Interval[BigInteger]): Bool = fitsMedium(start(i), end(i))
+def withinLong(i: Interval[BigInteger]): Bool   = fitsLong(start(i), end(i))
+
 def intervalAdd[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =
    Interval(add(start(a), start(b)), add(end(a), end(b)))
 def intervalSubtract[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =

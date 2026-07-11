@@ -25,12 +25,13 @@ object ImplementBlock {
           genericParameters   <- component[Seq[GenericParameter]]
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           pattern             <- bracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
-          // Optional `where <guard>` clause (ability-guards Stage 1). `where` is a soft keyword (a lowercase
-          // identifier in a unique position — no tokenizer change). The guard is parsed with `typeRunParser` — the
-          // same parser as a return type — so an infix guard like `E1 != E2` reads without parentheses and the run
-          // stops cleanly at the body's `{` (`{` is not a type-atom start), giving the parse boundary of §2.1 for
-          // free. It rides the marker's return-type slot below.
-          guard               <- (identifierWith("where") *> sourced(Expression.typeRunParser)).optional()
+          // Optional `where <guard>` clause (ability-guards Stage 1). `where` is a hard keyword (so a `def`'s
+          // greedily-parsed return-type run stops cleanly at it, just as it stops at `infix`/`def` — the same reason
+          // `where`-on-defs needs it hard). The guard is parsed with `typeRunParser` — the same parser as a return
+          // type — so an infix guard like `E1 != E2` reads without parentheses and the run stops cleanly at the body's
+          // `{` (`{` is not a type-atom start), giving the parse boundary of §2.1 for free. It rides the marker's
+          // return-type slot below.
+          guard               <- (keyword("where") *> sourced(Expression.typeRunParser)).optional()
           (errors, functions) <-
             (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
               .recoveringAtLeastOnce(t => isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t)))
