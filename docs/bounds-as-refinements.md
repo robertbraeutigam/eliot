@@ -1,16 +1,17 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) is COMPLETE (6-i/6-ii/6-iii); Step 7's
-deletable half LANDED (7b Combine + 7a Coerce/RefinementSolver); Step 8's GATING CORE LANDED — `Interval[S,E]`
+**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) is COMPLETE (6-i/6-ii/6-iii); **Step 7 is
+COMPLETE** (7b Combine + 7a Coerce/RefinementSolver + 7c assoc lane + 7d opaque track + 7e the resolver vestige);
+Step 8's GATING CORE LANDED — `Interval[S,E]`
 collapsed to `Interval[T]`, `Numeric` replaced/absorbed `Arithmetic` (operators `+`/`-`/`*` now on `Numeric`), and
-`Arithmetic`/`Combine` are DELETED; then **7c (assoc lane) and 7d (opaque track) DELETED** — the checker's whole
+`Arithmetic`/`Combine` are DELETED; **7c (assoc lane) and 7d (opaque track) DELETED** — the checker's whole
 associated-types machinery and the entire `opaque`/`checkingRuntime`/`TransparentBinding` track are gone (jvm `Int` is
 now a body-less `type Int`; representation comes solely from the channel's `Represent[Interval]`, ⊤ → bignum). 7c removed
 associated types **outright** (general type-level ones too, not just the bounds-serving application — the `§5.1`
-"removed" option); bare associated *returns* still work via the calculated-return path. Remaining:
-**7e (vestiges** — `ValueResolver`'s `applied`-flag/searchAbilities attachment, `CodegenProjection` width-collapse
-comments) and the additive Step-8 follow-ons (`where`-on-defs, LSP hover from the meta fact, second domain =
-List/Array size).** `Int` no longer has type parameters: it is a single type whose value range is
+"removed" option); bare associated *returns* still work via the calculated-return path. **7e** cleared the last
+resolver vestige (`ValueResolver`'s impl-scope auto-apply + the `applied` flag), keeping the load-bearing explicit-
+type-arg attachment. Remaining: only the additive Step-8 follow-ons (`where`-on-defs, LSP hover from the meta fact,
+second domain = List/Array size).** `Int` no longer has type parameters: it is a single type whose value range is
 meta-information in the refinement channel. Post-6-iii the channel *computes* each node's range by flow and narrow
 layouts return for the nodes it can pin (literals, arithmetic-leaf transfers, `if` joins, outside lambda bodies),
 reconciled to a bignum at boundaries; a value it cannot pin stays a sound `java.math.BigInteger` (⊤). Landed and
@@ -1149,18 +1150,21 @@ bounds; only then does the atomic flip follow.
   the opaque-alias definitional-equality tests + the bounded-`Int` representation-version-collapse tests (S2/S3, a
   pre-flag-day scenario — nullary `Int` is one instantiation) retired; the transparent-alias tests kept. Full suite
   1229/0; all examples build + run; narrow layouts still fire (javap: literals → `Byte`, ⊤ → `BigInteger`).
-- **7e — vestiges. — NOT DONE (deferred as a focused follow-up).** The remaining leftover is `ValueResolver`'s `applied`
-  flag + `searchImplementationScope`/`resolveImplementationScopedName` (the bare-associated-type auto-apply into impl
-  scope). **Care:** only the `searchImplementationScope` path + the `applied` flag *that gates it* are safely deletable
-  (dead with no associated types); the sibling **explicit-type-arg attachment** in the same ability-resolution arm is
-  *load-bearing for non-assoc* explicit ability type arguments (e.g. `keep[42]`) and must stay — so this is a surgical
-  general-resolver edit, not a bulk delete, deliberately deferred rather than risked at the tail of the deletion sweep.
-  `CodegenProjection`'s width-collapse and `BinderRoles` carry no removable field (comment-only opaque/bound mentions);
-  the per-bound monomorphic-instantiation identity was already gone at 6-ii.
+- **7e — vestiges. — DONE (2026-07-11, committed c542e549).** Removed `ValueResolver`'s
+  `resolveImplementationScopedName` + the `searchImplementationScope` scope helper (the bare-associated-type
+  auto-apply into impl scope, dead with no associated types), the `applied` flag threaded through `resolveExpression`
+  / the `FunctionApplication` case (its sole job was gating that search), and the two fields it left write-only:
+  the scope's `currentQualifier` and the `getParameters` helper. **Kept load-bearing** (as flagged): the sibling
+  **explicit-type-arg attachment** in the same ability-resolution arm (`head :: Nil` → resolve+keep `typeArgExprs`),
+  which serves non-assoc explicit ability type arguments (`keep[42]`) and never depended on the impl-scope path — a
+  surgical edit, not a bulk delete. `CodegenProjection`'s width-collapse and `BinderRoles` carry no removable field
+  (comment-only opaque/bound mentions); the per-bound monomorphic-instantiation identity was already gone at 6-ii.
+  Full suite 871/871; `ArithmeticAbility` builds + runs (92).
 
-**Status: 7a/7b/7c/7d all landed; 7e (the small `ValueResolver` vestige) remains.** The 6-ii scope-minimizing decision
+**Status: 7a/7b/7c/7d/7e all landed — Step 7 is COMPLETE.** The 6-ii scope-minimizing decision
 (keep `Arithmetic`/`Combine`/`opaque` with trivial `Int` instances) held them load-bearing until Step 8's Interval/Numeric
-collapse removed `Arithmetic`, at which point 7c/7d became the dead-code deletions above.
+collapse removed `Arithmetic`, at which point 7c/7d became the dead-code deletions above; 7e cleared the last resolver
+vestige. All remaining work is the additive Step 8 follow-ons.
 
 **Step 8: cleanups and follow-ons.**
 
