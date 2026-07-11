@@ -6,19 +6,21 @@ import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 /** The per-node refinement table of one monomorphic instance — the value channel of
-  * `docs/bounds-as-refinements.md`, running in **shadow mode** (Step 2a).
+  * `docs/bounds-as-refinements.md`, now a **productive flow analysis** (post-flag-day, Step 6-iii).
   *
-  * While `Int` still carries its bounds in the type, this table is a rider on the already-computed
-  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]]: for every Int-typed node of the value's body
-  * it records the interval the channel knows for that node. At an arithmetic transfer node the interval is *computed*
-  * independently — by running the compiler-pool `Interval` arithmetic instance through the one NbE evaluator — and
-  * asserted equal to the interval the type-parameter formulas produced (the shadow assertion, owned by
-  * [[RefinementChannelProcessor]]). Everywhere else the interval is seeded from the node's own type argument, which in
-  * shadow mode is the truth.
+  * `Int` no longer carries its bounds in the type, so this table is the *only* interval source: a rider on the
+  * already-computed [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] that *computes* each Int-typed
+  * node's interval by flow, recording an entry only for the nodes it can pin. The propagation rules
+  * ([[RefinementChannelProcessor]]): a literal seeds its singleton `[n, n]` (α); an arithmetic leaf
+  * (`nativeAdd`/`nativeSubtract`/`nativeMultiply`) evaluates the leaf's `^Meta` transfer companion on the operand
+  * intervals; an `if`/fold branch joins its arms via `Meta.join`; everything else — a parameter, a value reference, an
+  * ordinary call/constructor result, a lambda body — is ⊤ (no entry, laid out as a bignum). Codegen reads these
+  * intervals for representation selection ([[RefinementRepresentation]]), and the LSP hover reads them for value-range
+  * hints.
   *
-  * The table is a first-order, serializable fact so it participates in the incremental cache and so codegen can read it
-  * (exercised at Step 3 — representation selection from the channel). It carries no [[GroundValue.Type]]-only or
-  * closure data, only interval endpoints ([[BigInt]] pairs) keyed by source position.
+  * The table is a first-order, serializable fact so it participates in the incremental cache and so codegen can read it.
+  * It carries no [[GroundValue.Type]]-only or closure data, only interval endpoints ([[BigInt]] pairs) keyed by source
+  * position.
   *
   * @param vfqn
   *   The value this table belongs to (the same instance identity as its [[MonomorphicValue]]).
