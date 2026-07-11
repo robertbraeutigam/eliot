@@ -119,13 +119,7 @@ object AbilityMatcher {
       vfqn: ValueFQN,
       acc: Map[ValueFQN, Binding]
   ): CompilerIO[Map[ValueFQN, Binding]] =
-    // An implementation's own associated-type member is the *definition* of that type for its instance, not part of
-    // the method contract being compared — the abstract side's slot is a free member meta that accepts whatever the
-    // impl defines. Keep it an opaque stuck head instead of unfolding its body: a formula that dispatches the same
-    // ability at other types (Interval's endpoint-wise `AddResult[S1, S2]`) would otherwise evaluate to a value
-    // containing the ability member's own stable meta, spuriously tripping the occurs-check.
-    if (isImplementationAssociatedType(vfqn)) (acc + (vfqn -> Binding.Constructor)).pure[CompilerIO]
-    else getFactIfProduced(OperatorResolvedValue.Key(vfqn)).flatMap {
+    getFactIfProduced(OperatorResolvedValue.Key(vfqn)).flatMap {
       case Some(fact) =>
         // Use `checkingRuntime`, not `runtime`: an `opaque` value (e.g. the jvm `Int`) must stay a stuck head here so
         // that ability-pattern matching compares by type constructor (`Coerce[Int, Int]`) instead of unfolding the
@@ -154,15 +148,6 @@ object AbilityMatcher {
     vfqn.name.qualifier match {
       case _: Qualifier.Ability | _: Qualifier.AbilityImplementation => Binding.AbstractAbility
       case _                                                         => Binding.Constructor
-    }
-
-  /** Whether the FQN is an implementation's associated-type member (`AbilityImplementation`-qualified, upper-case
-    * name) — the impl-side twin of [[ValueFQN.isAbstractAbilityType]].
-    */
-  private def isImplementationAssociatedType(vfqn: ValueFQN): Boolean =
-    vfqn.name.qualifier match {
-      case _: Qualifier.AbilityImplementation => vfqn.name.name.headOption.exists(_.isUpper)
-      case _                                  => false
     }
 
   // ---- Phase 2: build a pure Evaluator over the classifications ----

@@ -81,11 +81,7 @@ class SaturatedValueProcessor
       (newParams, binders) <- saturateParams(view.parameters, pos)
       // The return position is left untouched by the parameter rewrite, so detect on the original signature: a bare
       // under-applied omittable return is *calculated* (W3), filled from the body rather than the source type stack.
-      isAbilityMember       = value.name.value.qualifier match {
-                                case _: ResolveQualifier.Ability | _: ResolveQualifier.AbilityImplementation => true
-                                case _                                                                        => false
-                              }
-      calculatedReturn     <- detectCalculatedReturn(signature, isAbilityMember)
+      calculatedReturn     <- detectCalculatedReturn(signature)
       // A bare under-applied omittable return (e.g. `Int`, kind `BigInteger → … → Type`) is kind-ill-formed in the
       // codomain of `Function`, which the type-stack kind-check requires to be `Type`. Replace it with the kind-correct
       // `Type` placeholder; the monomorphize checker swaps that placeholder for a fresh metavariable the callee's body
@@ -128,24 +124,12 @@ class SaturatedValueProcessor
     * [[OperatorResolvedExpression.ParameterReference]]) is not.
     */
   private def detectCalculatedReturn(
-      signature: Sourced[OperatorResolvedExpression],
-      isAbilityMember: Boolean
+      signature: Sourced[OperatorResolvedExpression]
   )(using Platform): CompilerIO[Boolean] = {
     val (head, args) = spine(SignatureView.of(signature).returnType.value)
     head match {
       case _: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
-        // A *bare* abstract associated-type return (e.g. `AddResult` of `Arithmetic[X, Y]`) from a plain generic
-        // function (`def twice[X, Y ~ Arithmetic[X, Y]]: AddResult`) is calculated: its concrete type is the associated
-        // type the constraint projects at each call's type arguments, read from the monomorphized callee
-        // ([[com.vanillasource.eliot.eliotc.monomorphize.check.CalculatedReturnResolver]]). An *applied* one
-        // (`AddResult[Int[0, 1], Int[2, 3]]`) is a declared, computable type — marking it calculated would silently
-        // replace the declaration with whatever the body infers; it is reduced through the instance by the checker's
-        // associated-type application reducer instead. Ability members are excluded (`isAbilityMember`) — a method's
-        // own associated-type return resolves through per-reference ability resolution
-        // ([[com.vanillasource.eliot.eliotc.monomorphize.check.AbilityResolver]] `injectForImpl`), not this back-edge.
-        if (ValueFQN.isAbstractAbilityType(headFqn(head)))
-          (!isAbilityMember && args.isEmpty).pure[CompilerIO]
-        else inferableInfo(headFqn(head)).map(_.exists { case (arity, _) => args.length < arity })
+        inferableInfo(headFqn(head)).map(_.exists { case (arity, _) => args.length < arity })
       case _                                                                          => false.pure[CompilerIO]
     }
   }

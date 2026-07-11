@@ -62,9 +62,7 @@ case class CheckState(
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
     sawGuardReturn: Boolean = false,
     ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
-    liftCounter: Int = 0,
-    refAssocMetas: Map[Sourced[ValueFQN], Set[Int]] = Map.empty,
-    assocReductionCache: Map[(ValueFQN, Seq[GroundValue]), SemValue] = Map.empty
+    liftCounter: Int = 0
 ) {
 
   /** Record that the kind check accepted a guard-carrier return (effectful-signatures W2b). See [[sawGuardReturn]]. */
@@ -115,40 +113,11 @@ case class CheckState(
   def cacheBinding(vfqn: ValueFQN, value: Option[SemValue]): CheckState =
     copy(bindingCache = bindingCache + (vfqn -> value))
 
-  def recordAbstractTypeMeta(vfqn: ValueFQN, metaId: MetaId): CheckState =
-    withUnifier(unifier.recordAbstractAssoc(metaId, vfqn))
-
-  /** Cache one resolved associated-type *application*: the member `fqn` applied to the ground ability arguments
-    * reduces (through the matching implementation's binding) to `reduced`. Filled by the associated-type application
-    * reducer ([[AbilityResolver.reduceAssocApplications]]); read back by its pure post-drain substitution so the same
-    * application inside a binder (a `VPi` codomain the IO reducer cannot rewrite) still reads back concrete.
-    */
-  def cacheAssocReduction(fqn: ValueFQN, args: Seq[GroundValue], reduced: SemValue): CheckState =
-    copy(assocReductionCache = assocReductionCache + ((fqn, args) -> reduced))
-
   def recordAbilityResolution(
       ref: Sourced[ValueFQN],
       impl: (ValueFQN, Seq[GroundValue])
   ): CheckState =
     copy(abilityResolutions = abilityResolutions + (ref -> impl))
-
-  /** Record the abstract-associated-type metas freshly created for one ability-method *reference* (keyed by the
-    * reference's [[Sourced]] identity). Ability resolution then solves only *this* reference's associated types, so
-    * distinct references to the same ability method — e.g. the nested `add(x, add(y, z))` — never share one
-    * associated-type meta (which would make the outer call inherit the inner call's result bounds). */
-  def recordRefAssocMetas(ref: Sourced[ValueFQN], metas: Set[Int]): CheckState =
-    copy(refAssocMetas = refAssocMetas + (ref -> metas))
-
-  /** Evict this ability's abstract associated-type bindings from [[bindingCache]] so the next signature evaluation
-    * re-creates them as *fresh* metas — one per reference. The ability is identified by the method reference's module +
-    * `Ability` qualifier; only its upper-case abstract-type members (`AddResult`, …) are dropped (via
-    * [[ValueFQN.isAbstractAbilityType]]), never the lower-case method leaves. */
-  def evictAbilityAssocs(methodVfqn: ValueFQN): CheckState =
-    copy(bindingCache = bindingCache.filterNot { case (k, _) =>
-      k.moduleName == methodVfqn.moduleName &&
-        k.name.qualifier == methodVfqn.name.qualifier &&
-        ValueFQN.isAbstractAbilityType(k)
-    })
 
   /** Build an [[Evaluator]] from this state. Pure — only reads `bindingCache`. */
   def makeEvaluator: Evaluator =

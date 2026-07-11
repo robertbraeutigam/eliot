@@ -21,25 +21,17 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   * This is *pure definitional (value) equality* with metavariable solving on top: it forces both sides through the
   * evaluator (= normalises) and compares. There is no notion of "assignability" or directional widening here.
-  * Directional coercion (e.g. an `Int[0,5]` used where an `Int[0,10]` is expected) is a separate concern handled
-  * outside the unifier by a user-defined `Coerce` ability that the checker inserts in check mode.
+  * Unification is pure definitional equality — first-candidate-wins on a mismatch. Since the refinement channel's flag
+  * day made `Int == Int`, the former directional-widening (`Coerce`) and covariant branch-join (`Combine`) machinery is
+  * gone (`docs/bounds-as-refinements.md` Steps 7a/7b); nothing intercepts a mismatch to accumulate candidates.
   *
-  * Per-metavariable metadata lives in [[metaRoles]] — one [[MetaRole]] per meta id (D2), the single map that
-  * subsumes the former scattered side-sets. The combinable/candidates machinery supporting the Phase 4 `Combine`
-  * ability is carried there: a metavariable in a covariant position (a `match` result, a result-position type
-  * parameter) is marked [[MetaRole.Instantiation]] with `combinable = true`; when a *second, definitionally-unequal*
-  * type is unified against such a meta, instead of failing the unification (first-candidate-wins) we accumulate it as
-  * a candidate constraint and leave the meta solved to its first candidate. The checker later resolves these
-  * candidates to their `Combine` join at drain time
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveCombines]]). A meta is tainted (`combinable`
-  * cleared) the moment it appears in a [[VPi]] domain — a contravariant position where joining would be unsound. When
-  * no `Combine` instance applies (or the meta was tainted), the checker re-unifies the candidates strictly, surfacing
-  * the ordinary mismatch — so unification stays first-candidate-wins for everything that has no `Combine` instance.
+  * Per-metavariable metadata lives in [[metaRoles]] — one [[MetaRole]] per meta id (D2), the single map that subsumes
+  * the former scattered side-sets. Today it carries only the [[MetaRole.Instantiation]] carrier aspects (carrier kind,
+  * effect-carrier flag), read by the checker's effect lift.
   *
   * @param metaRoles
-  *   Per-meta-id role. Absence ⇒ [[MetaRole.Plain]]. The unifier reads/writes the [[MetaRole.Instantiation]] aspects
-  *   during unification (combinable, candidates); the checker writes the carrier-kind / abstract-assoc / upper-bound /
-  *   combine-resolved aspects through the role-transition methods below.
+  *   Per-meta-id role. Absence ⇒ [[MetaRole.Plain]]. The checker writes the [[MetaRole.Instantiation]] carrier-kind /
+  *   effect-carrier aspects through the role-transition methods below.
   */
 case class Unifier(
     metaStore: MetaStore,
@@ -80,11 +72,6 @@ case class Unifier(
     case _                         => false
   }
 
-  /** The raw ids of all abstract associated-ability-type placeholder metas. These are the metas the post-check
-    * finalizer protects from defaulting to `VType`, so a constraint-covered reference can stay abstract.
-    */
-  def abstractAssocMetaIds: Set[Int] = metaRoles.collect { case (id, _: MetaRole.AbstractAssoc) => id }.toSet
-
   /** Record a higher-kinded instantiation meta's expected kind (`[F[_]]` carrier). */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): Unifier = updateRole(
     id.value,
@@ -104,9 +91,6 @@ case class Unifier(
       case _                         => MetaRole.Instantiation(effectCarrier = true)
     }
   )
-
-  /** Record an abstract associated-ability-type standing placeholder. */
-  def recordAbstractAssoc(id: MetaId, fqn: ValueFQN): Unifier = setRole(id.value, MetaRole.AbstractAssoc(fqn))
 
   /** Unify two semantic values, reporting errors with the given context message and source position — pure
     * definitional equality (the `Combine` combinable-contribution interception this once wrapped was removed with the
@@ -236,18 +220,9 @@ case class Unifier(
               if (occursIn(id, rhs)) addOccursError(context)
               else copy(metaStore = metaStore.solve(id, rhs))
             } else {
-              roleOf(id.value) match {
-                case _: MetaRole.AbstractAssoc =>
-                  // An applied abstract associated type is a *type-function application* — non-injective, exactly like
-                  // a stuck native (`?AddResult[Int[0,1], Int[2,3]] ~ Int[a, b]` must not solve `?AddResult := Int` and
-                  // decompose the arguments). Postpone; the associated-type application reducer resolves it through the
-                  // matching instance once the arguments ground.
-                  copy(postponed = (VMeta(id, spine), rhs, context) :: postponed)
-                case _                         =>
-                  // Non-empty spine — try injectivity decomposition first, otherwise postpone.
-                  tryDecomposeApplied(id, spineList, rhs, context)
-                    .getOrElse(copy(postponed = (VMeta(id, spine), rhs, context) :: postponed))
-              }
+              // Non-empty spine — try injectivity decomposition first, otherwise postpone.
+              tryDecomposeApplied(id, spineList, rhs, context)
+                .getOrElse(copy(postponed = (VMeta(id, spine), rhs, context) :: postponed))
             }
         }
     }
@@ -348,23 +323,17 @@ case class Unifier(
   }
 
   /** Whether a still-postponed constraint is benign — owned by a more precise fail-safe than the [[flushPostponed]]
-    * backstop — and so must not be converted into a mismatch error. True when *either* forced side is headed by:
-    *
-    *   - an **unsolved abstract associated-type placeholder** ([[MetaRole.AbstractAssoc]], the only meta the finalizer
-    *     leaves unsolved). The unifier postpones an applied assoc type *by design* (see [[solveMeta]]) for the
-    *     associated-type reducer to resolve through its instance; a genuinely-unreduced one is rejected precisely by
-    *     the assoc-reduction loud-fail / strict quoter, never silently. Not the unifier's obligation to prove here.
-    *   - the **`$bad-apply` reserved head** ([[SemValue.NeutralHead.Marker.BadApply]]) — produced when a phantom meta,
-    *     defaulted to a non-applicable [[SemValue.VType]]/[[SemValue.VConst]], is applied to a spine. Either an
-    *     ill-typed program already recorded a diagnostic (so the build fails regardless) or the application is a
-    *     vacuous phantom; skipping never hides a genuine, otherwise-undiagnosed mismatch.
+    * backstop — and so must not be converted into a mismatch error. True when *either* forced side is headed by the
+    * **`$bad-apply` reserved head** ([[SemValue.NeutralHead.Marker.BadApply]]) — produced when a phantom meta,
+    * defaulted to a non-applicable [[SemValue.VType]]/[[SemValue.VConst]], is applied to a spine. Either an ill-typed
+    * program already recorded a diagnostic (so the build fails regardless) or the application is a vacuous phantom;
+    * skipping never hides a genuine, otherwise-undiagnosed mismatch.
     */
   private def isBenignPostponement(l: SemValue, r: SemValue): Boolean =
     hasBenignHead(l) || hasBenignHead(r)
 
   private def hasBenignHead(v: SemValue): Boolean =
     Evaluator.force(v, metaStore) match {
-      case VMeta(id, _)                                                   => abstractAssocMetaIds.contains(id.value)
       case VNeutral(NeutralHead.Reserved(NeutralHead.Marker.BadApply), _) => true
       case _                                                              => false
     }

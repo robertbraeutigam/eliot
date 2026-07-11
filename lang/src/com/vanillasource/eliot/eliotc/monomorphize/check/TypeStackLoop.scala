@@ -154,14 +154,7 @@ class TypeStackLoop(
       // concrete `Bool`). Gated on a body-less guarded signature, so ordinary and W2b (bodied) signatures are untouched.
       guardMarker    = sawGuard && resolvedValue.checkingRuntime.isEmpty
       guardBindings <- if (guardMarker) reduceGuardSubValues(levelExprs) else pure(Map.empty[ValueFQN, SemValue])
-      guardedSig    <- if (guardBindings.nonEmpty) reevaluateGuardReturn(resolvedValue, guardBindings) else pure(checkSig)
-
-      // Resolve associated-type *applications* left in the published signature: top-level (and `VPi`-domain) forms via
-      // the IO reducer, codomain-buried ones (the impl method's own return formula) via the pure cache-driven
-      // substitution — the body check already reduced the same applications, so the cache carries them. An application
-      // that slips both is rejected loudly by the strict quoter, never published abstract.
-      reducedSig    <- checker.abilityResolver.reduceAssocApplications(guardedSig, resolvedValue.name)
-      finalSig      <- checker.abilityResolver.substituteAssocReductions(reducedSig)
+      finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(resolvedValue, guardBindings) else pure(checkSig)
       quoterState   <- get
 
       // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
@@ -173,8 +166,7 @@ class TypeStackLoop(
                      monoEnv,
                      fqn =>
                        implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(quoterState.bindingCache.getOrElse(fqn, None)),
-                     track.platform,
-                     checker.abilityResolver.assocSubstitution(quoterState)
+                     track.platform
                    )
       groundSig <- liftF(quoter.quoteSem(finalSig, resolvedValue.typeStack))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
@@ -294,11 +286,10 @@ class TypeStackLoop(
 
   /** Finalize every still-unsolved meta by a **total match on its [[MetaRole]]** (D2) — the structural F2 cure. Runs
     * after the drain-and-resolve loop has reached its fixed point, so any meta unification could have determined is
-    * already solved. The match has no catch-all: an [[MetaRole.AbstractAssoc]] stays unsolved (so a constraint-covered
-    * ref can quote as abstract), and a [[MetaRole.Plain]] or [[MetaRole.Instantiation]] defaults to [[VType]]. Because
-    * the match is exhaustive over the sealed `MetaRole`, a future role added to the ADT forces an explicit decision
-    * here rather than silently inheriting the old "default everything to `Type`" behaviour — which is exactly the
-    * silent-miscompile path D2 removes.
+    * already solved. Every still-unsolved meta ([[MetaRole.Plain]] or [[MetaRole.Instantiation]]) defaults to [[VType]].
+    * Because the match is exhaustive over the sealed `MetaRole`, a future role added to the ADT forces an explicit
+    * decision here rather than silently inheriting the old "default everything to `Type`" behaviour — which is exactly
+    * the silent-miscompile path D2 removes.
     */
   private def defaultUnsolvedMetas: CheckIO[Unit] =
     modify { s =>
@@ -309,7 +300,6 @@ class TypeStackLoop(
           case Some(_) => acc // already solved by unification
           case None    =>
             unifier.roleOf(rawId) match {
-              case _: MetaRole.AbstractAssoc => acc // stays abstract through quoting
               case MetaRole.Plain            => acc.solve(SemValue.MetaId(rawId), VType)
               case _: MetaRole.Instantiation => acc.solve(SemValue.MetaId(rawId), VType)
             }
@@ -322,7 +312,7 @@ class TypeStackLoop(
     *
     * Two registered tiers, plus two fixed structural steps the runner appends:
     *
-    *   - SATURATION (fixed-point loop): drain-interleaved ability + `Combine` resolution.
+    *   - SATURATION (fixed-point loop): drain-interleaved ability resolution.
     *   - FINALIZATION (linear, once): upper-bounds discharge, carrier-kind verification, calculated-return fail-safe.
     *   - the FINALIZER ([[defaultUnsolvedMetas]]) and the POSTCONDITION assertion are appended by [[runPostDrainPipeline]],
     *     not listed here — the finalizer is "the step nothing runs after" and is the seam D2 replaces.
@@ -384,19 +374,16 @@ class TypeStackLoop(
     loop
   }
 
-  /** Postcondition of the post-drain pipeline (D1): every metavariable is either solved or a protected
-    * [[MetaRole.AbstractAssoc]] placeholder. The finalizer ([[defaultUnsolvedMetas]]) makes this hold by construction,
-    * so it never fires in normal operation; it is the *compiler-bug* backstop for D2's per-role finalization — were a
-    * future role added to [[MetaRole]] and forgotten in `defaultUnsolvedMetas`'s total match, a meta could survive
-    * unsolved, and this assertion catches it. It [[compilerAbort]]s rather than reporting a user diagnostic because a
-    * surviving unsolved meta is an internal invariant violation, not a type error of the user's making.
+  /** Postcondition of the post-drain pipeline (D1): every metavariable is solved. The finalizer
+    * ([[defaultUnsolvedMetas]]) makes this hold by construction, so it never fires in normal operation; it is the
+    * *compiler-bug* backstop for D2's per-role finalization — were a future role added to [[MetaRole]] and forgotten in
+    * `defaultUnsolvedMetas`'s total match, a meta could survive unsolved, and this assertion catches it. It
+    * [[compilerAbort]]s rather than reporting a user diagnostic because a surviving unsolved meta is an internal
+    * invariant violation, not a type error of the user's making.
     */
   private def assertEveryMetaResolvedOrAbstract(ctx: PassContext): CheckIO[Unit] =
     inspect { s =>
-      val protectedRawIds = s.unifier.abstractAssocMetaIds
-      s.unifier.metaStore.entries.collect {
-        case (rawId, None) if !protectedRawIds.contains(rawId) => rawId
-      }.toList
+      s.unifier.metaStore.entries.collect { case (rawId, None) => rawId }.toList
     }.flatMap {
       case Nil      => pure(())
       case unsolved =>

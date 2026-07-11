@@ -45,12 +45,6 @@ object Quoter {
       case VNative(_, _) =>
         Left("Cannot quote partially applied native")
 
-      case VTopDef(fqn, None, spine) if ValueFQN.isAbstractAbilityType(fqn) && spine.toList.nonEmpty =>
-        // An *applied* abstract associated type (`AddResult[Int[0, 1], Int[2, 3]]`) that was never reduced through its
-        // ability implementation. Reading it back as a ground `Structure` would publish a nonsense abstract type where
-        // a concrete one was computable; fail loudly instead (the reducer should have resolved it, or reported why not).
-        Left(s"Cannot resolve associated type application '${fqn.show}'")
-
       case VTopDef(fqn, None, spine) =>
         // An unevaluated constructor-like application (cached body is absent, e.g. for data value constructors).
         for {

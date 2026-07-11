@@ -1,23 +1,20 @@
 package com.vanillasource.eliot.eliotc.monomorphize.domain
 
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The role a metavariable plays in the checker. One role per metavariable id, keyed in a single
   * `Map[Int, MetaRole]` on the [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier]] (D2). This consolidates
-  * what used to be six parallel side-tables spread across the unifier and `CheckState`: `combinable` / `candidates`
-  * (unifier) and `combineResolved` / `pendingUpperBounds` / `carrierKinds` / `abstractTypeMetas` (`CheckState`).
+  * what used to be several parallel side-tables spread across the unifier and `CheckState`.
   *
   * The payoff is that the post-check finalizer
   * ([[com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop.defaultUnsolvedMetas]]) becomes a **total match
-  * on roles** with no catch-all: an unsolved [[AbstractAssoc]] stays unsolved, everything else defaults to `VType`.
-  * A future role added here forces a decision at that match (non-exhaustiveness is reported) rather than silently
-  * inheriting the old "default everything to `Type`" behaviour — the structural cure for the F2 fragility (a side-car
-  * that forgets to resolve its meta would otherwise produce a silently mistyped value).
+  * on roles** with no catch-all: every unsolved meta defaults to `VType`. A future role added here forces a decision at
+  * that match (non-exhaustiveness is reported) rather than silently inheriting the old "default everything to `Type`"
+  * behaviour — the structural cure for the F2 fragility (a side-car that forgets to resolve its meta would otherwise
+  * produce a silently mistyped value).
   *
   * A metavariable absent from the role map is [[Plain]] — every fresh meta starts there, and only the checker's
-  * deliberate classifications ([[Instantiation]] on polytype peeling, [[AbstractAssoc]] on an abstract-ability-type
-  * reference) move it off `Plain`.
+  * deliberate classification ([[Instantiation]] on polytype peeling) moves it off `Plain`.
   */
 sealed trait MetaRole
 
@@ -52,15 +49,4 @@ object MetaRole {
       carrierKind: Option[(SemValue, Sourced[String])] = None,
       effectCarrier: Boolean = false
   ) extends MetaRole
-
-  /** A standing placeholder for an abstract associated-ability-type (`type X` inside `ability ...`, no body). Solved
-    * post-drain by unifying against the concrete impl's associated-type value once the ability resolves; if it never
-    * resolves it must remain *unsolved* through quoting (so a constraint-covered reference stays abstract), which is
-    * why it is the one role the finalizer protects from defaulting to `Type`.
-    *
-    * @param fqn
-    *   The abstract type's fully-qualified name; its `Ability(...)` qualifier drives associated-type injection on
-    *   ability resolution.
-    */
-  case class AbstractAssoc(fqn: ValueFQN) extends MetaRole
 }

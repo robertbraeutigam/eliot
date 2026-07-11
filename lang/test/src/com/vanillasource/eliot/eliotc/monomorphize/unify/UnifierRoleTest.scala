@@ -59,13 +59,4 @@ class UnifierRoleTest extends AnyFlatSpec with Matchers {
     val (ids, u) = withMetas(1)
     u.recordCarrierKind(ids.head, VType, ctx).isEffectCarrier(ids.head.value) shouldBe false
   }
-
-  "the finalizer's protected set" should "be exactly the AbstractAssoc metas, not the Plain/carrier ones" in {
-    val (ids, u)                            = withMetas(3)
-    val Vector(plain, carrier, assoc) = ids
-    val classified                          = u
-      .recordCarrierKind(carrier, VType, ctx)
-      .recordAbstractAssoc(assoc, fqn("X", Qualifier.Ability("Ability")))
-    classified.abstractAssocMetaIds shouldBe Set(assoc.value)
-  }
 }

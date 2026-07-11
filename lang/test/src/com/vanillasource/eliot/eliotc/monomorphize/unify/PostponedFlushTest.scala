@@ -77,13 +77,6 @@ class PostponedFlushTest extends AnyFlatSpec with Matchers {
     appliedMeta._2.flushPostponed().errors shouldBe empty
   }
 
-  "an applied abstract associated type left unsolved" should "be triaged benign (owned by the assoc reducer)" in {
-    val (idF, u)   = appliedMeta
-    // Mark `?F` an abstract-assoc placeholder before postponing, as `ensureBinding` does for an ability's `type X`.
-    val markedU    = u.recordAbstractAssoc(idF, fqn("AddResult"))
-    markedU.unify(applied(idF), konst, ctx).flushPostponed().errors shouldBe empty
-  }
-
   "a phantom meta defaulted to VType, applied to a spine" should "be triaged benign ($bad-apply head)" in {
     val (idF, u) = postponed
     // Mimic `defaultUnsolvedMetas`: solve the leftover meta to `VType`. `?F[A]` then reads back as `$bad-apply(A)`.

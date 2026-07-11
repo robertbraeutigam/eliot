@@ -1105,12 +1105,24 @@ bounds; only then does the atomic flip follow.
   (the `convertRepresentation`/unbox/rebox helpers stay — they are Step-6-iii's boundary reconciler now);
   `lang/eliot/eliot/compiler/Coerce.els`, `WellKnownTypes.coerceFQN`, `SemValue.NeutralHead.Marker.Coerce`. The stub
   widening tests retired.
-- **7c — the associated-types lane. — BLOCKED until Step 8.** `reduceAssocApplications` + hooks,
-  `assocReductionCache`/`assocSubstitution`, `MetaRole.AbstractAssoc`, the unifier postponement arm, the
-  saturate/resolve/`AbilityMatcher` arms **cannot** be deleted yet: the §5.1 note assumed Step 6 moved the operators
-  to `Numeric`, but 6-ii deviated and *kept* `Arithmetic` with its associated types (`AddResult`/`SubResult`/`MulResult`),
-  which the operators `+`/`-`/`*` return and the runtime `Interval[S, E]` instance still spells its result formulas
-  through. The assoc lane dies only once Step 8 removes `Arithmetic` (operators → `Numeric`, `Interval` collapse).
+- **7c — the associated-types lane. — DONE (2026-07-11), after Step 8's gating core.** With `Arithmetic`/`Combine`
+  deleted, no real code carries associated types, so the whole special-handling lane went (its branches were already
+  no-ops for assoc-free code — a compiler-driven dead-code deletion). Removed: `AbilityResolver`'s `reduceAssocApplications`/
+  `reduceAssoc`/`reduceAssocApplication`/`resolveAndProject`/`substituteAssocReductions`/`assocSubstitution`/`injectForImpl`
+  (+ the `fetchBinding` ctor param); `MetaRole.AbstractAssoc`; `CheckState.refAssocMetas`/`assocReductionCache` +
+  `recordAbstractTypeMeta`/`cacheAssocReduction`/`recordRefAssocMetas`/`evictAbilityAssocs`; the `Checker` assoc
+  rewrite in `ensureBinding`, the per-reference assoc-meta freshening in `inferValueReference`, the `reduceAssocApplications`
+  check hooks, and the `inferSpine` assoc-headed special case; `Unifier.abstractAssocMetaIds`/`recordAbstractAssoc` +
+  the `solveMeta` postponement arm + the `hasBenignHead` assoc case; `TypeStackLoop`'s reduce/substitute chain, the
+  finalizer's `AbstractAssoc` case (now a two-role total match), and the postcondition's protected-set filter;
+  `PostDrainQuoter`'s `substituteAssocReductions` param; `Quoter`'s applied-abstract-assoc loud-fail arm;
+  `SaturatedValueProcessor.detectCalculatedReturn`'s bare-vs-applied distinction (+ the dead `isAbilityMember` param);
+  `AbilityMatcher.isImplementationAssociatedType`; and `ValueFQN.isAbstractAbilityType` (now dead). **Bare** associated
+  returns keep working through the surviving *calculated-return* path (`inferableInfo` sees the ability-prepended arity),
+  so the bounded-`Int` stub unit tests still pass unchanged; only the applied-assoc-as-type-function tests
+  (`AddResult[Int, Int]`) retired (6 tests deleted). `ValueResolver`'s `applied` flag / explicit-type-arg attachment is
+  left for 7e (partly shared with non-assoc explicit ability type args; harmless dead-ish path). Full suite 1240/0;
+  all examples build + run.
 - **7d — the `opaque` track. — BLOCKED until Step 8.** jvm `Int.els` is still `opaque type Int = JvmBigInteger[]`,
   keeping `Int` nominally distinct from its bignum representation during checking (`RefinementRepresentation.isTrackedIntType`,
   layout lowering). Removing `opaque` needs `Int` to no longer need that hiding — coupled to the same Step-8 rework.

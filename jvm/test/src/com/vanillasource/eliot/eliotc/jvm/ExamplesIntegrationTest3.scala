@@ -138,27 +138,6 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
     ).asserting(_ shouldBe "Hello World!")
   }
 
-  "ability associated type" should "handle associated types in abilities" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |ability AssociatedType[T] {
-        |   type MagicType
-        |
-        |   def handle(value: T, param: MagicType): String
-        |}
-        |
-        |data Name(name: String)
-        |
-        |implement AssociatedType[Name] {
-        |   type MagicType = String
-        |
-        |   def handle(value: Name, param: MagicType): String = "Hello"
-        |}
-        |
-        |def main: IO[Unit] = printLine(handle(Name("Johnny"), "Ni"))""".stripMargin
-    ).asserting(_ shouldBe "Hello")
-  }
-
   "generic types" should "support type-level integer parameters" in {
     compileAndRun(
       """import eliot.effect.Console
