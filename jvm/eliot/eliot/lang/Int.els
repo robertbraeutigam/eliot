@@ -1,15 +1,13 @@
 import eliot.lang.Bool
 import eliot.lang.Compare
 import eliot.lang.Arithmetic
-import eliot.compiler.Coerce
 
 /**
- * The fixed set of machine layouts an `Int[MIN, MAX]` can lower to on the JVM, smallest first: `JvmByte`,
- * `JvmShort`, `JvmInt`, `JvmLong`, `JvmBigInteger`.
+ * The fixed set of machine layouts an `Int` can lower to on the JVM, smallest first: `JvmByte`, `JvmShort`, `JvmInt`,
+ * `JvmLong`, `JvmBigInteger`.
  *
- * Each carries no bounds and no value constructor, and is not meant to be written in user code: the `Int`
- * body picks one from a range's bounds, and a later pass rewrites each `Int[MIN, MAX]` to its chosen layout.
- * A different backend supplies its own representation vocabulary.
+ * Each carries no value constructor and is not meant to be written in user code: a later pass rewrites each `Int` to
+ * its chosen layout. A different backend supplies its own representation vocabulary.
  */
 type JvmByte
 
@@ -21,88 +19,46 @@ type JvmLong
 
 type JvmBigInteger
 
-// The JVM's representation policy for `Int`: the smallest machine layout whose range contains `[MIN, MAX]`, falling
-// back to a bignum. Marked `opaque` so the type checker keeps distinct ranges distinct (`Int[0, 255]` is not the same
-// type as `Int[0, 1000]`); a later, post-checking pass unfolds it to reach the chosen representation.
-opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
-  fold(fitsByte[MIN, MAX], JvmByte[],
-  fold(fitsShort[MIN, MAX], JvmShort[],
-  fold(fitsMedium[MIN, MAX], JvmInt[],
-  fold(fitsLong[MIN, MAX], JvmLong[],
-       JvmBigInteger[]))))
+// The JVM's representation for `Int`. With the value range moved out of the type (`docs/bounds-as-refinements.md`), `Int`
+// is a single type and every integer currently lowers to a `JvmBigInteger` (bignum) — sound on every value, uniform, so
+// no per-node reconciliation is needed. Narrow layouts (`JvmByte`/…) return once the refinement channel's flow analysis
+// drives representation from a value's tracked range. Marked `opaque` so the type checker keeps `Int` distinct from the
+// raw `JvmBigInteger` representation type; a later, post-checking pass unfolds it.
+opaque type Int = JvmBigInteger[]
 
 // The JVM half of the base's split `Arithmetic[Int, Int]` instance: same `(ability, pattern)`, so it merges with the
-// base's abstract half into one implementation. The base fixes the result-bound *types* (its concrete `AddResult`/…
-// aliases, left abstract here); this layer supplies the method *bodies*, each a single call to the matching
-// width-agnostic arithmetic leaf. The leaf's dependent result signature reproduces the result bound exactly, so no
-// operand widening or result narrowing happens here — codegen reads the operand/result representations to pick the
-// working machine type and instruction.
-implement[L1: BigInteger, H1: BigInteger, L2: BigInteger, H2: BigInteger] Arithmetic[Int[L1, H1], Int[L2, H2]] {
+// base's abstract half. The base fixes the (now trivial) result types; this layer supplies the method bodies, each a
+// single call to the matching arithmetic leaf.
+implement Arithmetic[Int, Int] {
    type AddResult
    type SubResult
    type MulResult
 
-   def add(a: Int[L1, H1], b: Int[L2, H2]): AddResult = nativeAdd(a, b)
-   def subtract(a: Int[L1, H1], b: Int[L2, H2]): SubResult = nativeSubtract(a, b)
-   def multiply(a: Int[L1, H1], b: Int[L2, H2]): MulResult = nativeMultiply(a, b)
+   def add(a: Int, b: Int): AddResult = nativeAdd(a, b)
+   def subtract(a: Int, b: Int): SubResult = nativeSubtract(a, b)
+   def multiply(a: Int, b: Int): MulResult = nativeMultiply(a, b)
 }
 
 /**
- * Reinterpret an integer at a different declared range, keeping the same logical value.
- *
- * The bound relationship is not checked here — callers guarantee the value fits the target range (the `Coerce`
- * instance gates it on a bounds check; the arithmetic dispatch only ever widens a value that provably fits).
- * A backend native.
+ * The three integer arithmetic leaves — one per operator. Each is a backend native the JVM emits inline: the emission
+ * reads the operands' and result's machine *representations* to pick the working machine type and instruction —
+ * primitive `long` (`LADD`/`LSUB`/`LMUL`) when everything fits `Long`, `java.math.BigInteger` otherwise. A
+ * microcontroller backend would select width-specific instructions from the same lowered representations.
  */
-def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
+def nativeAdd(a: Int, b: Int): Int
+def nativeSubtract(a: Int, b: Int): Int
+def nativeMultiply(a: Int, b: Int): Int
 
 /**
- * Range widening as a user-space `Coerce` instance: an `Int[Smin, Smax]` coerces to `Int[Tmin, Tmax]` exactly when
- * `[Smin, Smax]` is contained in `[Tmin, Tmax]`. That containment is the instance's `where` guard, so the instance
- * *applies* precisely when the widening is valid — the checker's check-mode `Coerce` insertion resolves it by name,
- * evaluates the total `coerce` body through the one NbE evaluator, and splices the `nativeWiden` conversion at the use
- * site; a range that does not fit finds no applicable instance, which surfaces as the ordinary "Type mismatch." there.
- *
- * This instance lives in the platform layer (not `stdlib`) because its body performs a real, representation-changing
- * runtime conversion (`nativeWiden`): a JavaScript backend, with one numeric type, would supply an identity `Coerce`
- * here instead. The guard `lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax)` depends only on type-level data,
- * so it is discharged at compile time.
+ * Value ordering of two integers. A backend leaf, width-agnostic like the arithmetic leaves: the emission picks its
+ * working representation (primitive `long` comparison, or `BigInteger.compareTo`) from the operands' lowered
+ * representations. Its result is a `Bool`.
  */
-implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]]
-      where lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax) {
-   def coerce(value: Int[Smin, Smax]): Int[Tmin, Tmax] = nativeWiden(value)
-}
+private def intLessThanOrEqual(a: Int, b: Int): Bool
 
 /**
- * The three integer arithmetic leaves — one per operator, each width-agnostic. Each is a backend native the JVM emits
- * inline: the emission reads the operands' and result's machine *representations* (the layouts the range bounds lowered
- * to) to pick the working machine type and instruction — primitive `long` (`LADD`/`LSUB`/`LMUL`) when everything fits
- * `Long`, `java.math.BigInteger` otherwise — exactly as the `intLessThanOrEqual` ordering leaf does; one leaf covers
- * every width. A microcontroller backend would instead select width-specific instructions from the same lowered
- * representations.
- *
- * The result *bounds* are the dependent result signature — the sum / difference / corner-product of the operand bounds
- * — so the result is laid out at exactly its true range: the operands are not first widened to a common representation,
- * and the result is not narrowed afterward. Operands may arrive at different representations; the emission unboxes each
- * from its own.
+ * Runtime value ordering for `Int`, delegating to the one width-agnostic leaf.
  */
-def nativeAdd[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeSubtract[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeMultiply[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-
-/**
- * Value ordering of two integers at a common range. A backend leaf, width-agnostic like the arithmetic leaves: the
- * emission picks its working representation (primitive `long` comparison, or `BigInteger.compareTo`) from the operands'
- * lowered representations. Simpler than the arithmetic leaves in that its result is a `Bool` — there is no result-width
- * to lay out.
- */
-private def intLessThanOrEqual[L: BigInteger, H: BigInteger](a: Int[L, H], b: Int[L, H]): Bool
-
-/**
- * Runtime value ordering for `Int`: `Compare` over any single range, delegating to the one width-agnostic leaf.
- * Bounds do not affect the ordering, so the operands share one range here (contrast the arithmetic leaves, whose
- * result bounds grow past the operands').
- */
-implement[L: BigInteger, H: BigInteger] Compare[Int[L, H]] {
-   def lessThanOrEqual(a: Int[L, H], b: Int[L, H]): Bool = intLessThanOrEqual(a, b)
+implement Compare[Int] {
+   def lessThanOrEqual(a: Int, b: Int): Bool = intLessThanOrEqual(a, b)
 }

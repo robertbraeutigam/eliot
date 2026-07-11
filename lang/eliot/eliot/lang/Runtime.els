@@ -6,6 +6,8 @@
 def integerLiteral[V: BigInteger]: IntegerLiteralType[V]
 
 /**
- * The type of an integer literal `V`: the singleton range `Int[V, V]` that a `BigInteger` literal is converted into.
+ * The type an integer literal `V` is converted into. A platform layer defines it concretely (the stdlib maps it to
+ * `Int`); the literal's `BigInteger` value `V` rides the reference so the refinement channel can seed the value's range,
+ * even though the type itself is just `Int`.
  */
 type IntegerLiteralType[V: BigInteger]

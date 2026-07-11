@@ -1,9 +1,8 @@
 import eliot.effect.Console
 import eliot.lang.Arithmetic
 /**
- * Inferred calculated return bounds. The bare `Int` return of `double` is calculated from its body: `x + x` at
- * `Int[21, 21]` has type `Int[42, 42]`, so the return bounds are recovered from the body rather than spelled
- * out. The call `double(21)` is therefore typed `Int[42, 42]`. Prints `42`.
+ * An `Int` return. `Int` is a single type (a value's range is meta-information in the refinement channel, not a type
+ * parameter), so `double(x) = x + x` simply returns an `Int`. The call `double(21)` prints `42`.
  */
 def double(x: Int): Int = x + x
 

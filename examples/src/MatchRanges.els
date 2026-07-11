@@ -3,11 +3,10 @@ import eliot.lang.Arithmetic
 
 data Choice = First | Second
 
-// A `match` whose arms carry *different* integer ranges. `First -> 5` has type `Int[5, 5]` and `Second -> 15` has type
-// `Int[15, 15]`; because which arm runs is only known at run time, the result range is their join `Int[5, 15]`, which
-// then widens into the declared `Int[0, 20]`. The refinement channel recomputes that merge with `Meta.join` and checks
-// it against the type (docs/bounds-as-refinements.md, Step 2b). Prints `5`.
-def choose(c: Choice): Int[0, 20] = c match {
+// A `match` whose arms return different integer literals. Which arm runs is only known at run time, so the result is a
+// plain `Int` (the arms' value ranges are meta-information in the refinement channel, no longer distinct types that must
+// be joined). Prints `5`.
+def choose(c: Choice): Int = c match {
   case First  -> 5
   case Second -> 15
 }

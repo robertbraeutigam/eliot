@@ -12,10 +12,10 @@ class GuardLiteralReductionTest extends FullIntegrationTest {
         |import eliot.lang.Bool
         |def myLo: BigInteger = 0
         |def myHi: BigInteger = 100
-        |ability InRange[Mn: BigInteger, Mx: BigInteger] { def keep(x: Int[Mn, Mx]): Int[Mn, Mx] }
-        |implement[Mn: BigInteger, Mx: BigInteger] InRange[Mn, Mx] where fitsIn[myLo, myHi, Mn, Mx] { def keep(x: Int[Mn, Mx]): Int[Mn, Mx] = x }
-        |def use(x: Int[10, 50]): Int[10, 50] = keep(x)
-        |def main: IO[Unit] = printLine(intToString(use(42)))""".stripMargin
-    ).asserting(_ shouldBe "42")
+        |ability InRange[N: BigInteger] { def keep(x: Int): Int }
+        |implement[N: BigInteger] InRange[N] where fitsIn[myLo, myHi, N, N] { def keep(x: Int): Int = x }
+        |def use: Int = keep[42](7)
+        |def main: IO[Unit] = printLine(intToString(use))""".stripMargin
+    ).asserting(_ shouldBe "7")
   }
 }

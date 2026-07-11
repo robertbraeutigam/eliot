@@ -1,17 +1,19 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN adopted (C); migration UNDERWAY — Step 6 (the flag day) in progress as "Staged R2".** Landed
-and green on the full suite: **Steps 0–3**, **Step 5** (single-parameter `Numeric[T]` + `implement
-Numeric[BigInteger]`), and **Step 4's `^Meta` desugar machinery** (4a meta structure + 4b-i transfer-companion
-desugar + Int's `range` slot + **4c's transfer half** — the channel now evaluates the leaf's `^Meta` transfer
-companion `rangeAdd^Meta`/… instead of Scala-resolving the domain instance; the transfer is spelled as **plain**
-`intervalAdd`/… functions bottoming at `Numeric[BigInteger]` natives, *not* a `Numeric[Interval]` ability
-instance, because a transitively-reached Eliot-body instance never dispatches under the channel's NbE — see §8
-Step 4c). **Step 6 is split** (§8 Step 6): sub-step **6-i** — an `Int`'s machine representation is now sourced
-from the per-node channel table (`RefinementTable`, keyed by source position), shadow-verified byte-for-byte
-against the `Int[min, max]` type — **has landed**; sub-step **6-ii**, the atomic flip where `Int` loses its type
-parameters, is **next**. The one remaining Step-4 piece — retiring 2b's `handleCases` join recognition via
-general body-meta-translation — needs flow-derived metas and is therefore folded into 6-ii (**Step-6-gated**).
+**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) has LANDED; narrow representations (6-iii)
+and the deletions (Step 7) remain.** `Int` no longer has type parameters: it is a single type whose value range is
+meta-information in the refinement channel, and every integer currently lays out as a `java.math.BigInteger`
+("uniform bignum" — sound, with narrow layouts returning at 6-iii from the channel's flow analysis). Landed and
+green on the full suite: **Steps 0–3**, **Step 5** (single-parameter `Numeric[T]` + `implement
+Numeric[BigInteger]`), **Step 4's `^Meta` desugar machinery** (4a meta structure + 4b-i transfer-companion desugar
++ Int's `range` slot + **4c's transfer half** — the channel evaluates the leaf's `^Meta` transfer companion
+`rangeAdd^Meta`/… spelled as **plain** `intervalAdd`/… functions bottoming at `Numeric[BigInteger]` natives, since
+a transitively-reached Eliot-body instance never dispatches under the channel's NbE — see §8 Step 4c), and
+**Step 6** (the flag day, done as "Staged R2": **6-i** sourced representation from the per-node channel table
+shadow-verified byte-for-byte, then **6-ii** flipped `Int` to nullary with uniform-bignum layout). What remains:
+**6-iii** (narrow layouts from a flow-computed channel — also subsumes retiring 2b's `handleCases` join
+recognition via body-meta-translation, which needs flow-derived metas), then **Step 7** (delete the now-unused
+`Coerce`/`Combine`/assoc/`opaque` machinery), **Step 8** (`Interval[S,E]`→`Interval[T]` + `Numeric`, `where`-on-defs).
 See §8 for the per-step state. Written 2026-07-10, following the
 Interval/Arithmetic associated-types work (commit 3ad7ba38) and the design discussion it triggered.
 Extended the same day with the channel's semantics (§4), and again 2026-07-10 with the decisive
@@ -994,13 +996,51 @@ bounds; only then does the atomic flip follow.
   identical output on the whole suite (green); the three `RefinementReconciliationIntegrationTest`
   `pick`/join cases were the ones that first exposed the collision. No cache-version bump (no fact
   structure changed; shadow-mode behavior is identical to the type-driven path).
-- **6-ii — the atomic flip (NEXT).** `Int` nullary; `IntegerLiteralType[V] = Int`; delete
-  `Arithmetic.els` + `Combine[Int]`; operators → `Numeric`; `implement Numeric[Int]`; jvm `Int.els`
-  loses the `opaque`-body `MIN/MAX` reads, `nativeWiden`/`Coerce[Int]`, and the dependent result
-  signatures; the channel's seed source switches from type-args to flow (α for literals, `^Meta`
-  transfers, joins, cross-value propagation; ⊤ at parameter/return boundaries → bignum on JVM); the
-  shadow assertion retires; large test-expectation churn (~318 `Int[` across 19 files; ~15 out-of-range
-  tests change meaning — bound *enforcement* has no JVM replacement until `where`-on-defs, Step 8).
+- **6-ii — the atomic flip: `Int` loses its type parameters. — DONE (2026-07-11), "uniform bignum".**
+  Robert chose (over preserving narrow reps through the flip) to land the semantic milestone with every
+  `Int` lowering to `java.math.BigInteger` — uniform, so nothing needs reconciling where values of
+  different reps meet (deleting `Coerce`/`nativeWiden` removes the only reconciler; `RefinementReconciliationIntegrationTest`
+  exists because a missing `nativeWiden` = `VerifyError`). Narrow layouts return in a later step from the
+  channel's flow analysis.
+  - **Types.** `type Int {range: Interval[BigInteger, BigInteger]}` (nullary, keeps the `range` slot);
+    aliases (`Byte`…`UnsignedLong`) → plain `= Int`; `IntegerLiteralType[V] = Int` (stdlib
+    `Runtime.els` — the *only* place the literal→`Int[n,n]` singleton was built, per the mapping, so this
+    one line is "literals as plain `Int`"). The `^Meta` transfer vessels stay (dormant until flow lands).
+  - **Abilities kept, not moved to `Numeric` (scope-minimizing deviation from the plan's 6a/6b).**
+    `Arithmetic`/`Combine` survive with **trivial homogeneous `Int` instances**
+    (`implement Arithmetic[Int, Int] { AddResult = SubResult = MulResult = Int }`, `implement Combine[Int,
+    Int] { Combined = Int }`) — because the runtime `Interval[S, E]` instance still spells its result
+    formulas through `Arithmetic`/`Combine` and cannot collapse to `Numeric` until `Interval` itself
+    collapses (Step 8). So the operators stay on `Arithmetic` and nothing needed re-homing. `Numeric[Int]`
+    is *not* added; the `Numeric`→`Arithmetic`-deletion→`Interval`-collapse cleanup is deferred to Step 8.
+  - **jvm.** `opaque type Int = JvmBigInteger[]` (nullary, no `MIN/MAX` fold); `Arithmetic[Int, Int]`
+    bodies are single calls to `nativeAdd`/`nativeSubtract`/`nativeMultiply`, now `(Int, Int): Int` (no
+    dependent result signatures); `nativeWiden` + the guarded `Coerce[Int]` **deleted**; `intToString`
+    codegen gained a `BigInteger.toString` branch (the common path now).
+  - **Representation.** `RepresentationLowering.representInt` drops the Step-3 channel-vs-opaque shadow
+    assertion: it uses the channel's per-node interval when known (none, until flow lands), else the
+    platform's `opaque type Int` body (= `JvmBigInteger`). So every integer lays out as a bignum:
+    uniform, sound, no reconciliation. The channel keeps running (empty tables now — node types are bare
+    `Int` with no interval), its transfer/join shadow checks auto-disabling.
+  - **Checker.** No Scala change — `Int == Int` makes `Coerce` insertion / `Combine` accumulation /
+    per-bound instantiation identity / assoc reduction all unreachable no-ops (the mapping confirmed the
+    degradation is clean, no zero-arg crashes).
+  - **Test churn was small, not ~318.** The lang unit tests use self-contained *bounded-`Int` stubs*
+    (`type Int[auto MIN, MAX]` + `Coerce`/`Combine`/operators in per-file preludes), which still exercise
+    the still-present checker machinery — left untouched; they retire with that machinery at Step 7. Only
+    the jvm integration programs (real stdlib) needed edits: `ExamplesIntegrationTest4` (range annotations
+    → bare `Int`; the three bound-*enforcement* `compileForErrors` cases converted to compile-and-run
+    documenting the intentional gap — enforcement has no JVM replacement until `where`-on-defs, Step 8;
+    the `Widen` coverage-gap case removed; type-level `Counter[]` needs the empty brackets to force the
+    Type namespace), `RefinementReconciliationIntegrationTest` (one annotation), `GuardLiteralReductionTest`
+    (rewritten to feed its `where fitsIn` guard via an explicit ability type arg instead of `Int[Mn, Mx]`),
+    and the eight `examples/src` programs. Full suite green; `ArithmeticAbility`/`Ranges`/`MatchRanges`/
+    `Intervals` build and run (values incl. `> Long.MAX` via bignum). No cache-version bump.
+- **6-iii — narrow representations from the channel's flow analysis (FUTURE).** Make the channel compute
+  each node's interval by flow (α for literals off `IntegerLiteral(v)`, `^Meta` transfers, `Meta.join` at
+  branches, cross-value propagation through references; ⊤ at parameter/return boundaries), feed it into
+  `representInt` (6-i's plumbing is already wired), and resolve boundary rep-consistency (§7 Q4). Then
+  `representInt` returns narrow layouts again instead of always-bignum. This is the deferred R2 payoff.
 
 **Step 7: deletions, each its own green commit** (all paths dead since step 6): 7a `Coerce`'s
 bounds role — the jvm guarded instance, `nativeWiden`, the `unifyOrCoerce` insertion/splicing

@@ -1,8 +1,7 @@
 import eliot.effect.Console
 /**
- * Inferred generic inputs. The bare `Int` parameter of `describe` is generalized: its omitted bounds become
- * inferred generic parameters, so `describe` accepts any integer width and recovers the bounds from each call's
- * argument. `describe(42)` instantiates it at `Int[42, 42]`. Prints `42`.
+ * An `Int` parameter. `Int` is a single type (a value's range is meta-information in the refinement channel, not a type
+ * parameter), so `describe` simply takes an `Int` and renders it. `describe(42)` prints `42`.
  */
 def describe(x: Int): String = intToString(x)
 

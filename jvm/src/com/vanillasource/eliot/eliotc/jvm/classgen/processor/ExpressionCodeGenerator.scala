@@ -281,8 +281,15 @@ object ExpressionCodeGenerator {
       for {
         classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)
         _       <- methodGenerator.runNative[CompilationTypesIO] { mv =>
-                     unboxToLong(operandRep)(mv)
-                     mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "toString", "(J)Ljava/lang/String;", false)
+                     // A `BigInteger` operand renders at full precision via `BigInteger.toString`; any narrower wrapper
+                     // is unboxed to `long` and rendered via `Long.toString`. Since the bounds-as-refinements flip
+                     // (uniform bignum) most integers arrive as `BigInteger`, so this branch is the common path.
+                     if (operandRep === bigIntegerInternalName)
+                       mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, bigIntegerInternalName, "toString", "()Ljava/lang/String;", false)
+                     else {
+                       unboxToLong(operandRep)(mv)
+                       mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "toString", "(J)Ljava/lang/String;", false)
+                     }
                    }
       } yield classes
     } else if (calledVfqn === Intrinsics.nativeWidenFQN) {

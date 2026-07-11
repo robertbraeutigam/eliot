@@ -1,13 +1,12 @@
 import eliot.effect.Console
 import eliot.lang.Arithmetic
 /**
- * Dependent integer ranges. `Int[MIN, MAX]` carries its bounds in the type, and a value of a narrower range is
- * widened into a wider one automatically by the `Coerce[Int, Int]` instance. Here the literal `7` (`Int[7, 7]`)
- * widens into `UnsignedByte` (`Int[0, 255]`); `count + count + count` is typed `Int[0, 765]`, which in turn
- * widens into the declared `Int[0, 1000]`. Prints `21`.
+ * Integer arithmetic. `Int` is a single type — an integer's value range is meta-information tracked in the compiler's
+ * refinement channel, not a type parameter — so `count`, its alias `UnsignedByte` (now a plain alias for `Int`), and the
+ * sum are all just `Int`. `count + count + count` computes `21`. Prints `21`.
  */
 def count: UnsignedByte = 7
 
-def total: Int[0, 1000] = count + count + count
+def total: Int = count + count + count
 
 def main: IO[Unit] = printLine(intToString(total))

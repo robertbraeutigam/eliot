@@ -19,13 +19,13 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "3")
   }
 
-  "a deferred upper bound wider than the join" should "run with the join widened to the declared range" in {
+  "a picked second argument" should "run and return that argument" in {
     compileAndRun(
       """import eliot.effect.Console
         |
         |def pick[A](a: A, b: A): A = b
         |
-        |def wide: Int[0, 100000] = pick(3, 700)
+        |def wide: Int = pick(3, 700)
         |
         |def main: IO[Unit] = printLine(intToString(wide))""".stripMargin
     ).asserting(_ shouldBe "700")

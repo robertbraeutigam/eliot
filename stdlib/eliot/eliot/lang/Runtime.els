@@ -1,1 +1,1 @@
-type IntegerLiteralType[V: BigInteger] = Int[V, V]
+type IntegerLiteralType[V: BigInteger] = Int

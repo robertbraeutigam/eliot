@@ -1,81 +1,68 @@
 import eliot.compiler.Combine
-import eliot.lang.Compare
 import eliot.lang.Arithmetic
 import eliot.lang.Interval
 
 /**
- * The type of all integers, carrying its inclusive value bounds `[MIN, MAX]`.
- *
- * The bounds are an `Int`'s identity: `Int[0, 255]` and `Int[0, 1000]` are distinct types, and an integer
- * literal `n` has the singleton type `Int[n, n]`. A value of a narrower range widens into a wider one
- * automatically (via the `Coerce[Int, Int]` instance). How a range is laid out in memory is chosen per
- * platform from these bounds.
- *
- * Both bounds are `auto` (omittable): a bare `Int` leaves them to the compiler — generalized in a parameter
- * position, calculated in a return position.
+ * The type of all integers. `Int` is a single type — there are no distinct `Int[MIN, MAX]` per range: an integer's
+ * value range is *meta-information* tracked in the compiler's refinement channel (`docs/bounds-as-refinements.md`),
+ * carried in the `range` slot below (an `Interval[BigInteger, BigInteger]`), not in a type parameter. So `Int` behaves
+ * like any ordinary type — one instantiation, one set of abilities — and how a value is laid out in memory is chosen by
+ * the platform from its tracked range (currently a bignum everywhere, until narrow layouts return with the channel's
+ * flow analysis).
  */
-type Int[auto MIN: BigInteger, auto MAX: BigInteger] {range: Interval[BigInteger, BigInteger]}
+type Int {range: Interval[BigInteger, BigInteger]}
 
-// Some common aliases. The signed widths are built from the single-source boundary constants in `BigInteger`
-// (`byteMin`…`longMax`), which the platform representation dispatch shares; the unsigned ranges are `[0, 2^n - 1]`.
-type Byte            = Int[byteMin, byteMax]
-type UnsignedByte    = Int[0, 255]
-type Short           = Int[shortMin, shortMax]
-type UnsignedShort   = Int[0, 65535]
-type Medium          = Int[mediumMin, mediumMax]
-type UnsignedMedium  = Int[0, 4294967295]
-type Long            = Int[longMin, longMax]
-type UnsignedLong    = Int[0, 18446744073709551615]
+// Common signed/unsigned aliases. Their historical bounds now live as refinement demands, not in the type, so each is a
+// plain alias for `Int`; a narrow layout for e.g. `Byte` will come from a `where`/representation demand once value-range
+// contracts land (Option B, `docs/bounds-as-refinements.md`).
+type Byte            = Int
+type UnsignedByte    = Int
+type Short           = Int
+type UnsignedShort   = Int
+type Medium          = Int
+type UnsignedMedium  = Int
+type Long            = Int
+type UnsignedLong    = Int
 
 /**
- * `Int` implements `Arithmetic` for every pair of operand ranges. This instance is *split across layers*: the base owns
- * *what* an integer sum's type is — the platform-independent result-bound formulas (`AddResult`/`SubResult`/`MulResult`,
- * the sum/difference/corner-product of the operand bounds) plus the abstract method signatures — while a platform layer
- * redefines the same instance to supply *how* the operation is computed (the method bodies). The two halves merge into
- * one implementation because an `implement` block's identity is its `(ability, pattern)` — here
- * `Arithmetic[Int[L1, H1], Int[L2, H2]]` — independent of which layer or file it appears in.
- *
- * Because the two operand ranges are independent parameters, `Int[0, 100]` and `Int[0, 50]` add to the precise
- * `Int[0, 150]`, never a widened over-approximation. The generic `+`/`-`/`*` operators (in `Arithmetic`) project these
- * result types at each use site.
+ * `Int` implements `Arithmetic` homogeneously: with the value range moved out of the type, `Int + Int` is again an
+ * `Int`, so the three result types are just `Int` (no per-operand bound formula). The instance is *split across layers*:
+ * the base owns the result-type equations (trivial now) and the abstract method signatures; a platform layer redefines
+ * the same instance to supply the method bodies. The two halves merge because an `implement` block's identity is its
+ * `(ability, pattern)` — here `Arithmetic[Int, Int]`.
  */
-implement[L1: BigInteger, H1: BigInteger, L2: BigInteger, H2: BigInteger] Arithmetic[Int[L1, H1], Int[L2, H2]] {
-   type AddResult = Int[L1 + L2, H1 + H2]
-   type SubResult = Int[L1 - H2, H1 - L2]
-   type MulResult = Int[multiplyMin(L1, H1, L2, H2), multiplyMax(L1, H1, L2, H2)]
+implement Arithmetic[Int, Int] {
+   type AddResult = Int
+   type SubResult = Int
+   type MulResult = Int
 
-   def add(a: Int[L1, H1], b: Int[L2, H2]): AddResult
-   def subtract(a: Int[L1, H1], b: Int[L2, H2]): SubResult
-   def multiply(a: Int[L1, H1], b: Int[L2, H2]): MulResult
+   def add(a: Int, b: Int): AddResult
+   def subtract(a: Int, b: Int): SubResult
+   def multiply(a: Int, b: Int): MulResult
 }
 
 /**
- * Render an integer as its decimal `String`. The bounds do not affect the output.
+ * Combining two integers yields an integer. With the range out of the type, `Combine`'s join is trivial (`Combined =
+ * Int`); it survives only because the runtime `Interval[S, E]` multiply still spells its corner-product endpoint type
+ * through `Combine` (retired once `Interval` collapses to a single endpoint type — bounds-as-refinements Step 8).
  */
-def intToString[Min: BigInteger, Max: BigInteger](value: Int[Min, Max]): String
+implement Combine[Int, Int] { type Combined = Int }
 
 /**
- * Combining two integer ranges yields the range that covers both: the lower bound is the minimum of the two minima and
- * the upper bound is the maximum of the two maxima. This is the join used to type a `match` whose branches return
- * different integer ranges (or `f[A](a: A, b: A): A` called with different ranges): the checker solves the covariant
- * result metavariable to this `Combined` type, then the `Coerce` instance (supplied by the platform layer) widens each
- * contributor into it (which always exists, since the joined range contains both by construction).
- *
- * `Combine` is purely type-level — `Combined` is computed from `min`/`max` on the bounds, with no runtime payload and
- * no machine representation — so it is platform-independent and belongs here, unlike the value-converting `Coerce`
- * instance.
+ * Render an integer as its decimal `String`.
  */
-implement[Amin: BigInteger, Amax: BigInteger, Bmin: BigInteger, Bmax: BigInteger] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }
+def intToString(value: Int): String
 
-// The refinement channel's `^Meta` transfer vessels for integer arithmetic (`docs/bounds-as-refinements.md` §4.2,
-// Step 4c). Each carries only a return brace — the range transfer — and no runtime body: `MetaTransferDesugarer`
-// turns `def rangeAdd(a: Int, b: Int): Int {expr}` into the companion
-// `rangeAdd^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(expr)` (in the `Qualifier.Meta` namespace), which the
-// channel evaluates to propagate an `Int`'s value range through an `add`/`subtract`/`multiply`. The brace computes the
-// result range from the operand ranges (`range(a)`, `range(b)`, the `Int$Meta` slot) through the plain
-// `intervalAdd`/`intervalSubtract`/`intervalMultiply` functions (the compile-time `Interval` domain arithmetic, resolved
-// per the compiler pool). These vessels are co-located with the `range` slot so `Int$Meta` and its accessor resolve
-// per-file; they are compiler-pool-only carriers (never called at runtime).
+// The refinement channel's `^Meta` transfer vessels for integer arithmetic (`docs/bounds-as-refinements.md` §4.2).
+// Each carries only a return brace — the range transfer — and no runtime body: `MetaTransferDesugarer` turns
+// `def rangeAdd(a: Int, b: Int): Int {expr}` into the companion `rangeAdd^Meta(a: Int$Meta, b: Int$Meta): Int$Meta =
+// Int$Meta(expr)` (in the `Qualifier.Meta` namespace), which the channel evaluates to propagate an `Int`'s value range
+// through an `add`/`subtract`/`multiply`. The brace computes the result range from the operand ranges (`range(a)`,
+// `range(b)`, the `Int$Meta` slot) through the plain `intervalAdd`/`intervalSubtract`/`intervalMultiply` functions (the
+// compile-time `Interval` domain arithmetic, resolved per the compiler pool). These vessels are co-located with the
+// `range` slot so `Int$Meta` and its accessor resolve per-file; they are compiler-pool-only carriers (never called at
+// runtime). They are dormant while representation is uniform bignum, and drive narrow layouts once the channel's flow
+// analysis lands.
 def rangeAdd(a: Int, b: Int): Int {intervalAdd(range(a), range(b))}
 def rangeSubtract(a: Int, b: Int): Int {intervalSubtract(range(a), range(b))}
 def rangeMultiply(a: Int, b: Int): Int {intervalMultiply(range(a), range(b))}
