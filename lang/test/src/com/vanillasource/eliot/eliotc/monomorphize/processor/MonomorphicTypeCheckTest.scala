@@ -67,19 +67,14 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Combine: covariant multi-candidate metavariable ---
+  // --- Two distinct contributions to a covariant result type parameter ---
+  //
+  // The `Combine` branch-join that once joined divergent contributions into their least-upper-bound was removed with
+  // the refinement channel's flag day (`docs/bounds-as-refinements.md` Step 7b): `Int == Int` makes the join a no-op,
+  // so a second, definitionally-unequal contribution is now an ordinary first-candidate-wins mismatch. What survives
+  // is exactly that mismatch behaviour.
 
-  "Combine[Int, Int] instance" should "join two ranges via a covariant result type parameter" in {
-    runCombine("def pick[A](first: A, second: A): A\ndef test: Int[3, 7] = pick(integerLiteral[3], integerLiteral[7])")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "join then widen the result to an even broader expected range" in {
-    runCombine("def pick[A](first: A, second: A): A\ndef test: Int[0, 20] = pick(integerLiteral[3], integerLiteral[7])")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "need no combine when both candidates are the same range" in {
+  "a covariant result type parameter" should "need no combine when both candidates are the same range" in {
     runCombine("def pick[A](first: A, second: A): A\ndef test: Int[5, 5] = pick(integerLiteral[5], integerLiteral[5])")
       .asserting(_ shouldBe Seq.empty)
   }
@@ -93,33 +88,6 @@ class MonomorphicTypeCheckTest
   it should "fall back to a mismatch when no Combine instance applies" in {
     runCombine("def pick[A](first: A, second: A): A\ndef test: String = pick(\"hello\", integerLiteral[3])")
       .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[3]"))
-  }
-
-  it should "reject when the join overflows a narrower declared result type" in {
-    // The join Int[3,7] does not fit the declared Int[3,5]; the result-against-declared-type check is deferred to drain
-    // (after the join is known), so the join — not the first candidate Int[3,3] — is checked against Int[3,5].
-    runCombine("def pick[A](first: A, second: A): A\ndef test: Int[3, 5] = pick(integerLiteral[3], integerLiteral[7])")
-      .asserting(_ shouldBe Seq("Type mismatch." at "pick(integerLiteral[3], integerLiteral[7])"))
-  }
-
-  // --- Refinement reconciliation: the deferred resolutions' coercions are spliced, not just verified ---
-
-  "refinement reconciliation" should "splice the widening conversion around each Combine contributor" in {
-    // A join solved post-drain verified each contributor coerces — the runtime `nativeWiden` payload must also be in
-    // the read-back tree (one per contributor), or the value reaches the backend at its own narrower representation.
-    runWidenings("def pick[A](first: A, second: A): A\ndef test: Int[3, 7] = pick(integerLiteral[3], integerLiteral[7])")
-      .asserting(_ shouldBe 2)
-  }
-
-  it should "additionally splice at a deferred upper bound wider than the join" in {
-    // Two contributor splices into the join Int[3,7], plus the join widening into the declared Int[0,20].
-    runWidenings("def pick[A](first: A, second: A): A\ndef test: Int[0, 20] = pick(integerLiteral[3], integerLiteral[7])")
-      .asserting(_ shouldBe 3)
-  }
-
-  it should "splice nothing when the candidates already agree" in {
-    runWidenings("def pick[A](first: A, second: A): A\ndef test: Int[5, 5] = pick(integerLiteral[5], integerLiteral[5])")
-      .asserting(_ shouldBe 0)
   }
 
   // --- Arithmetic: dependent-bounds `+` ---
@@ -963,19 +931,6 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  it should "report a calculated return over a Combine-joined argument it cannot ground" in {
-    // Limit 3 / deferred W3 item 2: `pick`'s result is a `Combine` join resolved only at drain, so `double`'s
-    // instantiation bounds are not ground when its calculated return is read. Report a specific, actionable error
-    // rather than leaking the `Type` placeholder into a confusing `Coerce` mismatch.
-    runInt(
-      "def double(x: Int): Int = x + x\ndef pick[A](first: A, second: A): A\ndef test: Int[6, 14] = double(pick(integerLiteral[3], integerLiteral[7]))"
-    ).asserting(
-      _.map(_.message) shouldBe Seq(
-        "Cannot calculate the return type of 'double' here: its argument bounds are not determined at this call site."
-      )
-    )
-  }
-
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
@@ -1101,29 +1056,6 @@ class MonomorphicTypeCheckTest
   private def runCoerce(source: String, name: String = "test"): IO[Seq[TestError]]  = runInt(source, name)
   private def runCombine(source: String, name: String = "test"): IO[Seq[TestError]] = runInt(source, name)
 
-  /** The number of `nativeWiden` conversion references in the monomorphized runtime body of `test` — the splices the
-    * refinement reconciliation adds where a deferred resolution (a `Combine` join, an upper bound) verified a coercion.
-    */
-  private def runWidenings(source: String): IO[Int] =
-    runGenerator(
-      intPrelude + source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default("test")), Seq.empty),
-      intImports
-    ).map { case (_, facts) =>
-      facts.values
-        .collectFirst { case mv: MonomorphicValue if mv.vfqn.name == default("test") => mv }
-        .flatMap(_.runtime)
-        .map(r => countWidenings(r.value))
-        .getOrElse(0)
-    }
-
-  private def countWidenings(expr: MonomorphicExpression.Expression): Int = expr match {
-    case MonomorphicExpression.MonomorphicValueReference(vfqn, _)  => if (vfqn.value.name.name == "nativeWiden") 1 else 0
-    case MonomorphicExpression.FunctionApplication(target, arg)    =>
-      countWidenings(target.value.expression) + countWidenings(arg.value.expression)
-    case MonomorphicExpression.FunctionLiteral(_, _, body)         => countWidenings(body.value.expression)
-    case _                                                         => 0
-  }
   private def runAdd(source: String, name: String = "test"): IO[Seq[TestError]]     = runInt(source, name)
 
   // --- Effectful signatures: compile-time `Throw[String]` guard discharge (W2b) ---

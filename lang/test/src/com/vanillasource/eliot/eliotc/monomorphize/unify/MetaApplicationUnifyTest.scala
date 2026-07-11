@@ -48,12 +48,6 @@ class MetaApplicationUnifyTest extends AnyFlatSpec with Matchers {
     u.unify(applied(idF, topDef("A")), VMeta(idB, Spine.SNil), ctx).postponed shouldBe empty
   }
 
-  it should "solve candidate-free (the application is an alias, not a Combine contributor)" in {
-    val (idF, idB, u) = twoMetas
-    val solved        = u.markCombinable(idB).unify(applied(idF, topDef("A")), VMeta(idB, Spine.SNil), ctx)
-    solved.candidatesOf(idB.value) shouldBe empty
-  }
-
   "the mirror orientation (bare meta on the left)" should "still solve the bare meta directly" in {
     val (idF, idB, u) = twoMetas
     val solved        = u.unify(VMeta(idB, Spine.SNil), applied(idF, topDef("A")), ctx)

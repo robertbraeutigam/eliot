@@ -58,12 +58,6 @@ case class Unifier(
   /** Transform a metavariable's role in place (reading its current value, defaulting to [[MetaRole.Plain]]). */
   def updateRole(id: Int, f: MetaRole => MetaRole): Unifier = setRole(id, f(roleOf(id)))
 
-  /** Whether a metavariable is currently combinable (an un-tainted [[MetaRole.Instantiation]]). */
-  def isCombinable(id: Int): Boolean = roleOf(id) match {
-    case i: MetaRole.Instantiation => i.combinable
-    case _                         => false
-  }
-
   /** Whether `id` occurs in `value` (following solutions through the meta store) — the public probe the effect lift's
     * Phase-B deferred-slot decision uses to tell a *transparent* callee (the domain meta flows into the call's result,
     * so an adopted carrier rides up) from a *non-transparent* one (the domain meta is absent from the result, so an
@@ -72,30 +66,11 @@ case class Unifier(
     */
   def occursInValue(id: MetaId, value: SemValue): Boolean = occursIn(id, value)
 
-  /** A metavariable's accumulated `Combine` candidates (empty unless it is an [[MetaRole.Instantiation]]). */
-  def candidatesOf(id: Int): List[(SemValue, Sourced[String])] = roleOf(id) match {
-    case i: MetaRole.Instantiation => i.candidates
-    case _                         => Nil
-  }
-
-  /** Every [[MetaRole.Instantiation]] meta with accumulated candidates that combine resolution has not yet consumed,
-    * as `(id, candidates)`. Drives the checker's combine-resolution loop.
-    */
-  def unresolvedCandidateMetas: List[(Int, List[(SemValue, Sourced[String])])] =
-    metaRoles.toList.collect {
-      case (id, i: MetaRole.Instantiation) if i.candidates.nonEmpty && !i.combineResolved => (id, i.candidates)
-    }
-
-  /** All deferred upper-bound obligations across every instantiation meta, as `(id, expected, context)`. */
-  def pendingUpperBounds: List[(MetaId, SemValue, Sourced[String])] =
-    metaRoles.toList.collect { case (id, i: MetaRole.Instantiation) => i.upperBounds.map((MetaId(id), _)) }.flatten
-      .map { case (id, (expected, context)) => (id, expected, context) }
-
   /** Every higher-kinded carrier meta (an [[MetaRole.Instantiation]] with a recorded `carrierKind`), as
     * `(id, (expectedKind, context))`. Drives post-drain carrier-kind verification.
     */
   def carrierMetas: List[(Int, (SemValue, Sourced[String]))] =
-    metaRoles.toList.collect { case (id, MetaRole.Instantiation(_, _, _, _, Some(carrier), _)) => (id, carrier) }
+    metaRoles.toList.collect { case (id, MetaRole.Instantiation(Some(carrier), _)) => (id, carrier) }
 
   /** Whether a metavariable stands for an *effect* carrier (an ability-constrained higher-kinded instantiation meta —
     * see [[MetaRole.Instantiation.effectCarrier]]).
@@ -109,18 +84,6 @@ case class Unifier(
     * finalizer protects from defaulting to `VType`, so a constraint-covered reference can stay abstract.
     */
   def abstractAssocMetaIds: Set[Int] = metaRoles.collect { case (id, _: MetaRole.AbstractAssoc) => id }.toSet
-
-  /** Register a metavariable as combinable (covariant). Called by the checker when it allocates an implicit
-    * type-parameter instantiation meta (see [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.peelLams]]).
-    * Promotes a [[MetaRole.Plain]] meta to a combinable [[MetaRole.Instantiation]], preserving any fields already set.
-    */
-  def markCombinable(id: MetaId): Unifier = updateRole(
-    id.value,
-    {
-      case i: MetaRole.Instantiation => i.copy(combinable = true)
-      case _                         => MetaRole.Instantiation(combinable = true)
-    }
-  )
 
   /** Record a higher-kinded instantiation meta's expected kind (`[F[_]]` carrier). */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): Unifier = updateRole(
@@ -145,59 +108,20 @@ case class Unifier(
   /** Record an abstract associated-ability-type standing placeholder. */
   def recordAbstractAssoc(id: MetaId, fqn: ValueFQN): Unifier = setRole(id.value, MetaRole.AbstractAssoc(fqn))
 
-  /** Defer a "result fits expected" obligation on an instantiation meta (discharged after combine resolution). */
-  def recordUpperBound(id: MetaId, expected: SemValue, context: Sourced[String]): Unifier = updateRole(
-    id.value,
-    {
-      case i: MetaRole.Instantiation => i.copy(upperBounds = i.upperBounds :+ (expected, context))
-      case other                     => other
-    }
-  )
-
-  /** Mark an instantiation meta's candidates as consumed by combine resolution (resolves at most once). */
-  def recordCombineResolved(id: MetaId): Unifier = updateRole(
-    id.value,
-    {
-      case i: MetaRole.Instantiation => i.copy(combineResolved = true)
-      case other                     => other
-    }
-  )
-
-  /** Unify two semantic values, reporting errors with the given context message and source position.
-    *
-    * Before forcing, intercept a *contribution to an already-solved combinable metavariable* — a concrete type unified
-    * against a combinable meta (always the expected/right side, since contributions arrive via `check(arg, ?A)`) that is
-    * already solved to a different first candidate. Rather than the ordinary first-candidate-wins mismatch, the new
-    * candidate is accumulated for `Combine` resolution at drain time and the unification succeeds. (The first candidate
-    * is recorded when the meta is solved in [[solveMeta]].) Everything else — including the result-against-expected
-    * direction `?A ~ E`, which stays first-candidate-wins so the checker's check-mode `Coerce` handles it — falls
-    * through to [[unifyForced]], keeping `unify` pure definitional equality.
+  /** Unify two semantic values, reporting errors with the given context message and source position — pure
+    * definitional equality (the `Combine` combinable-contribution interception this once wrapped was removed with the
+    * refinement channel's flag day, `docs/bounds-as-refinements.md` Step 7b: `Int == Int` makes the branch-join a
+    * no-op, so a second contribution is now an ordinary mismatch).
     */
-  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = r match {
-    case VMeta(id, Spine.SNil) if isCombinable(id.value) && metaStore.lookup(id).nonEmpty =>
-      tryUnifyForced(l, metaStore.lookup(id).get, context) match {
-        case UnifyResult.Unified(u)       => u
-        case UnifyResult.Contradiction(_) => recordCandidate(id, l, context)
-      }
-    case _                                                                                =>
-      unifyForced(l, r, context)
-  }
+  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier =
+    unifyForced(l, r, context)
 
   /** Solve a bare, unsolved metavariable to a value *by adoption* — the effect-lift's Phase-B pass-through, where a
     * deferred flex slot takes on its carrier-headed argument type. Equality-wise identical to unifying the bare meta
-    * against the value (including the occurs-check), except the solution is *not* recorded as a `Combine` candidate:
-    * adoption is not an argument contribution, and recording one would reroute the enclosing result through the
-    * upper-bounds deferral — after the saturation tier, starving ability resolution of the grounding it needs. (An
-    * unsolved meta has no candidates, so clearing them removes exactly the one this solve would have recorded.)
+    * against the value (including the occurs-check).
     */
   def solveAdopting(id: MetaId, value: SemValue, context: Sourced[String]): Unifier =
-    unify(VMeta(id, Spine.SNil), value, context).updateRole(
-      id.value,
-      {
-        case i: MetaRole.Instantiation => i.copy(candidates = Nil)
-        case other                     => other
-      }
-    )
+    unify(VMeta(id, Spine.SNil), value, context)
 
   /** Speculatively unify `l` against `r` without committing a mismatch (D5), returning an explicit [[UnifyResult]]
     * rather than forcing callers to diff [[errors]] before and after a [[unify]] call. A [[UnifyResult.Unified]]
@@ -207,12 +131,6 @@ case class Unifier(
     */
   def tryUnify(l: SemValue, r: SemValue, context: Sourced[String]): UnifyResult =
     speculate(unify(l, r, context))
-
-  /** Like [[tryUnify]] but over [[unifyForced]], bypassing the combinable-contribution interception in [[unify]] — used
-    * by that interception itself to probe a contribution against a solved combinable meta's first candidate.
-    */
-  private def tryUnifyForced(l: SemValue, r: SemValue, context: Sourced[String]): UnifyResult =
-    speculate(unifyForced(l, r, context))
 
   /** Classify a unification result `after` (produced from `this`) as [[UnifyResult.Unified]] or
     * [[UnifyResult.Contradiction]] by whether it added any error, stripping the new errors in the latter case so a
@@ -235,13 +153,8 @@ case class Unifier(
         else this
 
       case (VPi(d1, c1), VPi(d2, c2)) =>
-        // Domains are contravariant: any combinable meta appearing in a domain is tainted (removed from `combinable`),
-        // so a meta that flows into a parameter-input position is never joined. This is the soundness gate for Phase 4
-        // (see the `useTwice[A](f: A -> Unit, x: A, y: A)` counterexample).
         val (fresh, u1) = freshVar()
-        u1.taintMetasIn(d1)
-          .taintMetasIn(d2)
-          .unify(d1, d2, context)
+        u1.unify(d1, d2, context)
           .unify(c1(fresh), c2(fresh), context)
 
       case (VLam(_, c1), VLam(_, c2)) =>
@@ -321,12 +234,7 @@ case class Unifier(
               // `rhs` would build an infinite type (the `x x` / Y-combinator route) and loop `Evaluator.force` once the
               // cyclic meta is in the store. This is precondition #2 of the termination model — reject it instead.
               if (occursIn(id, rhs)) addOccursError(context)
-              else {
-                // For a combinable meta also record the first candidate, so the checker's combine resolution sees the
-                // full candidate set.
-                val solvedU = copy(metaStore = metaStore.solve(id, rhs))
-                if (isCombinable(id.value)) solvedU.recordCandidate(id, rhs, context) else solvedU
-              }
+              else copy(metaStore = metaStore.solve(id, rhs))
             } else {
               roleOf(id.value) match {
                 case _: MetaRole.AbstractAssoc =>
@@ -493,68 +401,10 @@ case class Unifier(
     else addMismatch(l, r, context)
   }
 
-  /** Append a candidate type (with its source context) to a combinable meta's accumulated constraints. Only an
-    * [[MetaRole.Instantiation]] meta accumulates candidates; any other role is left unchanged (callers guard on
-    * [[isCombinable]], so this is defensive).
-    */
-  private def recordCandidate(id: MetaId, rhs: SemValue, context: Sourced[String]): Unifier = updateRole(
-    id.value,
-    {
-      case i: MetaRole.Instantiation => i.copy(candidates = i.candidates :+ (rhs, context))
-      case other                     => other
-    }
-  )
-
-  /** Taint every metavariable occurring in `sv`: clear `combinable` on each one's [[MetaRole.Instantiation]] (its
-    * candidates and other fields are preserved, so a tainted meta still falls to strict re-unification). Used on
-    * [[VPi]] domains.
-    */
-  private def taintMetasIn(sv: SemValue): Unifier =
-    metasOf(sv).foldLeft(this) { (u, id) =>
-      u.updateRole(
-        id,
-        {
-          case i: MetaRole.Instantiation => i.copy(combinable = false)
-          case other                     => other
-        }
-      )
-    }
-
-  /** Collect the ids of all metavariables occurring anywhere in `sv` — including inside spines and under binders.
-    * Binders are entered by applying a fresh rigid variable, mirroring [[unify]]'s treatment.
-    *
-    * Crucially this does **not** follow a metavariable's *solution*: a combinable meta that has already been solved to
-    * its first candidate is still recorded by id. This is what lets a contravariant use taint a combinable meta even
-    * when an earlier (covariant-looking) argument already pinned it — e.g. `useTwice[A](x: A, y: A, f: A -> Unit)`,
-    * where `f`'s domain reaches the meta only after `x`/`y` have solved it. Other shapes are forced so type aliases and
-    * cached definitions are seen through.
-    */
-  private def metasOf(sv: SemValue): Set[Int] = sv match {
-    case VMeta(id, spine) => spine.toList.flatMap(metasOf).toSet + id.value
-    case _                =>
-      Evaluator.force(sv, metaStore) match {
-        case VMeta(id, spine)                  => spine.toList.flatMap(metasOf).toSet + id.value
-        case VTopDef(_, _, spine)              => spine.toList.flatMap(metasOf).toSet
-        case VStuckNative(_, spine)            => spine.toList.flatMap(metasOf).toSet
-        case VNeutral(_, spine)                => spine.toList.flatMap(metasOf).toSet
-        case VPi(domain, codomain)             =>
-          val (fresh, _) = freshVar()
-          metasOf(domain) ++ metasOf(codomain(fresh))
-        case VLam(_, closure)                  =>
-          val (fresh, _) = freshVar()
-          metasOf(closure(fresh))
-        case VConst(_) | VType | VNative(_, _) => Set.empty
-      }
-  }
-
   /** Occurs-check: does the metavariable `id` appear anywhere in `value` (under spines and binders)? Forces through
     * already-solved metas, so an *indirect* cycle — `?id := … ?other …` where `?other` is itself solved to something
     * mentioning `?id` — is also caught. This is the soundness gate of precondition #2 (no inferred infinite type): the
     * caller refuses to solve `?id := value` when this holds, so `Evaluator.force` can never enter a cyclic meta.
-    *
-    * Distinct from [[metasOf]], which deliberately does *not* follow solutions (it taints by id, on purpose). Forcing
-    * here is safe because `id` is unsolved at every call site, and the store holds no cycle (this very check maintains
-    * that invariant).
     */
   private def occursIn(id: MetaId, value: SemValue): Boolean =
     Evaluator.force(value, metaStore) match {

@@ -82,12 +82,6 @@ case class CheckState(
   def recordAmbientCarriers(heads: Set[CheckState.CarrierHead]): CheckState =
     copy(ambientCarriers = ambientCarriers ++ heads)
 
-  def recordCombineResolved(id: MetaId): CheckState =
-    withUnifier(unifier.recordCombineResolved(id))
-
-  def recordUpperBound(id: MetaId, expected: SemValue, context: Sourced[String]): CheckState =
-    withUnifier(unifier.recordUpperBound(id, expected, context))
-
   /** The neutral a runtime value parameter binds to in ρ: a fresh rigid variable at the current ρ level, standing for
     * the parameter's not-yet-known runtime value. Read *before* [[bindValueParam]] so the checker can substitute it into
     * a dependent codomain (`codomain(neutral)`, genuine dependent Π).

@@ -32,24 +32,11 @@ object MetaRole {
 
   /** An implicit type-parameter *instantiation* metavariable — one peeled from a polytype's leading binders with a
     * fresh meta ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.peelLams]]). Subsumes the architecture
-    * review's separate `Combinable` and `Carrier` roles, because they are not disjoint: a carrier *is* a combinable
-    * instantiation meta (every peeled meta is marked combinable; the higher-kinded ones are additionally tagged with a
-    * carrier kind), so the two are one role with the carrier kind an optional attribute.
+    * review's separate `Combinable` and `Carrier` roles: a carrier is an instantiation meta, so the two are one role
+    * with the carrier kind an optional attribute. (The `Combine`-based multi-candidate branch-join fields this role
+    * once carried were removed with the refinement channel's flag day — `Int == Int` makes the join a no-op; see
+    * `docs/bounds-as-refinements.md` Step 7b.)
     *
-    * @param combinable
-    *   Eligible for `Combine`-based multi-candidate resolution (covariant position). Set when the meta is peeled;
-    *   cleared (tainted) the moment the meta occurs in a [[SemValue.VPi]] domain (contravariant), where joining would
-    *   be unsound.
-    * @param candidates
-    *   The distinct types unified against this meta (with their source contexts), in arrival order. Accumulated instead
-    *   of failing on a second, definitionally-unequal contribution; resolved to a `Combine` join post-drain.
-    * @param combineResolved
-    *   Whether combine resolution has already consumed this meta's candidates (bounds the resolution loop — each meta
-    *   resolves at most once).
-    * @param upperBounds
-    *   Deferred "result fits expected" obligations: recorded when this meta is a bare combinable result checked against
-    *   a concrete expected type, whose final solution (possibly a `Combine` join) is not known until drain. Discharged
-    *   after combine resolution (the final solution must coerce into each expected type).
     * @param carrierKind
     *   When this meta stands for a *higher-kinded* type parameter (a `[F[_]]` carrier, kind `Type -> Type` etc.), its
     *   expected kind plus a call-site context for an error. Verified post-drain: a carrier solved to a value of the
@@ -62,10 +49,6 @@ object MetaRole {
     *   `C[T']`-headed argument may be bind-lifted.
     */
   case class Instantiation(
-      combinable: Boolean = true,
-      candidates: List[(SemValue, Sourced[String])] = Nil,
-      combineResolved: Boolean = false,
-      upperBounds: List[(SemValue, Sourced[String])] = Nil,
       carrierKind: Option[(SemValue, Sourced[String])] = None,
       effectCarrier: Boolean = false
   ) extends MetaRole

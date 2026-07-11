@@ -124,10 +124,11 @@ class TypeStackLoop(
       // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
       _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
 
-      // Refinement reconciliation: the post-drain resolutions (a `Combine` join, a deferred upper bound) verified
-      // their coercions against *types* only — the conversion payloads (`nativeWiden`) are spliced here, at the
-      // expression boundaries whose settled types diverge, before read-back. Runtime track only.
-      reconciled <- runtime.traverse(body => track.reconcileBody(checker.solver, checkSig, body))
+      // Refinement reconciliation retired with the flag day (`docs/bounds-as-refinements.md` Step 7b): `Int == Int`
+      // means the checker never inserts a `Combine`-join or deferred-upper-bound coercion, so there is no conversion
+      // payload to splice before read-back. Narrow-representation reconciliation now happens in the backend
+      // (`ExpressionCodeGenerator`) off the refinement channel, not here.
+      reconciled  = runtime
 
       // Compiler backend (CP-C step b): the compiler track reduces its body to a normal form, folding each
       // drain-resolved ability impl's *body* in via NbE — so it needs those impl bindings reachable by the evaluator.
@@ -334,8 +335,6 @@ class TypeStackLoop(
       "resolve-abilities",
       ctx => checker.abilityResolver.resolveAbilities(ctx.abilityRefs, ctx.paramConstraints)
     ),
-    PostDrainPass.Saturation("resolve-combines", _ => checker.solver.resolveCombines),
-    PostDrainPass.Finalization("upper-bounds", _ => checker.solver.resolveUpperBounds),
     PostDrainPass.Finalization("carrier-kinds", _ => checker.carriers.verifyCarrierKinds),
     PostDrainPass.Finalization(
       "calc-return",

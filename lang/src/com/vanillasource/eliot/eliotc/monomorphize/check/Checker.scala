@@ -301,81 +301,52 @@ class Checker(
       allowBindLift: Boolean
   ): CheckIO[SlotOutcome] =
     for {
-      // Defer only when checking, against a *concrete* expected type, a combinable-meta result that actually
-      // accumulated argument contributions (so it could be a `Combine` join). Two guards matter: (1) if `expected` is
-      // itself a (flowing) meta this is an intermediate contribution — e.g. `id(i)` as an argument — and must unify now
-      // to propagate through the chain; (2) a result meta with *no* candidates (e.g. an ability method's `B` in
-      // `convert(x): B`, or any fresh result) has no join to wait for and must unify now so the value/ability
-      // resolution that depends on its solution can proceed.
-      combinableMeta <- (inferred, forcedExpected) match {
-                          case (VMeta(id, Spine.SNil), exp) if !exp.isInstanceOf[VMeta] =>
-                            inspect(s =>
-                              Option.when(
-                                s.unifier.isCombinable(id.value) &&
-                                  s.unifier.candidatesOf(id.value).nonEmpty
-                              )(id)
-                            )
-                          case _                                                        => pure(None)
-                        }
-      outcome        <- combinableMeta match {
-                          // The term's type is a bare combinable meta — the result of a polymorphic call whose result
-                          // type is a type parameter. Its final solution (possibly a `Combine` join) is unknown until
-                          // drain, so defer the check against `expected` rather than committing it against the meta's
-                          // first candidate (which would unsoundly accept a join that overflows a narrower `expected`).
-                          // See resolveUpperBounds.
-                          case Some(id) =>
-                            modify(_.recordUpperBound(id, expected, tm.as("Type mismatch.")))
-                              .as(SlotOutcome.Resolved(expr): SlotOutcome)
-                          case None     =>
-                            for {
-                              (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
-                              // Pre-arms: the shapes definitional equality can only *postpone*, never solve — a
-                              // carrier-meta application against an under-applied rigid head, and its pure-wrap dual.
-                              // Waiting for a unification failure would mask the lift behind the doomed postponement
-                              // (surfacing only as the post-drain carrier-kind error); see
-                              // [[EffectLifter.mustLiftBeforeUnify]]. The bind-lift arm is argument-position only
-                              // (`allowBindLift`); at a return boundary the doomed shape commits the eager mismatch.
-                              preBind                     <- if (allowBindLift)
-                                                               lifter
-                                                                 .mustLiftBeforeUnify(instantiated, expected)
-                                                                 .flatMap(
-                                                                   if (_) lifter.tryBindLift(tm, updatedExpr, instantiated, expected)
-                                                                   else pure(Option.empty[(SemExpression, EffectLifter.Bind)])
-                                                                 )
-                                                             else pure(Option.empty[(SemExpression, EffectLifter.Bind)])
-                              prePure                     <- preBind match {
-                                                               case Some(_) => pure(Option.empty[SemExpression])
-                                                               case None    =>
-                                                                 lifter
-                                                                   .mustPureWrapBeforeUnify(instantiated, expected)
-                                                                   .flatMap(
-                                                                     if (_) lifter.tryPureWrap(tm, updatedExpr, instantiated, expected)
-                                                                     else pure(Option.empty[SemExpression])
-                                                                   )
-                                                             }
-                              // At a return boundary (`!allowBindLift`) a carrier-meta application against an
-                              // under-applied rigid head has no injective solution — unification could only postpone it
-                              // into an opaque post-drain carrier-kind error — and the bind-lift arm never fires there
-                              // (stripping would drop the effect), so commit the exact mismatch immediately.
-                              doomed                      <- if (allowBindLift) pure(false)
-                                                             else
-                                                               prePure match {
-                                                                 case Some(_) => pure(false)
-                                                                 case None    => lifter.mustLiftBeforeUnify(instantiated, expected)
-                                                               }
-                              out                         <- (preBind, prePure, doomed) match {
-                                                               case (Some((slotRef, bind)), _, _) =>
-                                                                 pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
-                                                               case (_, Some(wrapped), _)         =>
-                                                                 pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-                                                               case (_, _, true)                  =>
-                                                                 commitMismatch(instantiated, expected, tm, updatedExpr)
-                                                               case (_, _, false)                 =>
-                                                                 resolveFailureLadder(tm, updatedExpr, instantiated, expected, allowBindLift)
-                                                             }
-                            } yield out
-                        }
-    } yield outcome
+      (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
+      // Pre-arms: the shapes definitional equality can only *postpone*, never solve — a
+      // carrier-meta application against an under-applied rigid head, and its pure-wrap dual.
+      // Waiting for a unification failure would mask the lift behind the doomed postponement
+      // (surfacing only as the post-drain carrier-kind error); see
+      // [[EffectLifter.mustLiftBeforeUnify]]. The bind-lift arm is argument-position only
+      // (`allowBindLift`); at a return boundary the doomed shape commits the eager mismatch.
+      preBind                     <- if (allowBindLift)
+                                       lifter
+                                         .mustLiftBeforeUnify(instantiated, expected)
+                                         .flatMap(
+                                           if (_) lifter.tryBindLift(tm, updatedExpr, instantiated, expected)
+                                           else pure(Option.empty[(SemExpression, EffectLifter.Bind)])
+                                         )
+                                     else pure(Option.empty[(SemExpression, EffectLifter.Bind)])
+      prePure                     <- preBind match {
+                                       case Some(_) => pure(Option.empty[SemExpression])
+                                       case None    =>
+                                         lifter
+                                           .mustPureWrapBeforeUnify(instantiated, expected)
+                                           .flatMap(
+                                             if (_) lifter.tryPureWrap(tm, updatedExpr, instantiated, expected)
+                                             else pure(Option.empty[SemExpression])
+                                           )
+                                     }
+      // At a return boundary (`!allowBindLift`) a carrier-meta application against an
+      // under-applied rigid head has no injective solution — unification could only postpone it
+      // into an opaque post-drain carrier-kind error — and the bind-lift arm never fires there
+      // (stripping would drop the effect), so commit the exact mismatch immediately.
+      doomed                      <- if (allowBindLift) pure(false)
+                                     else
+                                       prePure match {
+                                         case Some(_) => pure(false)
+                                         case None    => lifter.mustLiftBeforeUnify(instantiated, expected)
+                                       }
+      out                         <- (preBind, prePure, doomed) match {
+                                       case (Some((slotRef, bind)), _, _) =>
+                                         pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
+                                       case (_, Some(wrapped), _)         =>
+                                         pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+                                       case (_, _, true)                  =>
+                                         commitMismatch(instantiated, expected, tm, updatedExpr)
+                                       case (_, _, false)                 =>
+                                         resolveFailureLadder(tm, updatedExpr, instantiated, expected, allowBindLift)
+                                     }
+    } yield out
 
   /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: the lift arms are
     * tried BEFORE the `Coerce` probe (whose ability-fact side effects would fail the build on a shape a lift arm
@@ -439,10 +410,6 @@ class Checker(
                     case VLam(name, closure) =>
                       for {
                         meta <- freshMeta
-                        // Implicit type-parameter instantiation metas sit in covariant positions (a match result, a
-                        // result-position type param), so they are eligible for `Combine`-based multi-candidate
-                        // resolution. The unifier taints any that later flow into a contravariant (VPi domain) position.
-                        _    <- modify(s => s.withUnifier(s.unifier.markCombinable(meta.id)))
                         _    <- if (bindInEnv) modify(_.bindTypeParam(name, meta)) else pure(())
                         rest <- loop(closure(meta), acc :+ meta)
                       } yield rest
