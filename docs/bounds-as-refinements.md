@@ -5,7 +5,9 @@ deletable half LANDED (7b Combine + 7a Coerce/RefinementSolver); Step 8's GATING
 collapsed to `Interval[T]`, `Numeric` replaced/absorbed `Arithmetic` (operators `+`/`-`/`*` now on `Numeric`), and
 `Arithmetic`/`Combine` are DELETED; then **7c (assoc lane) and 7d (opaque track) DELETED** — the checker's whole
 associated-types machinery and the entire `opaque`/`checkingRuntime`/`TransparentBinding` track are gone (jvm `Int` is
-now a body-less `type Int`; representation comes solely from the channel's `Represent[Interval]`, ⊤ → bignum). Remaining:
+now a body-less `type Int`; representation comes solely from the channel's `Represent[Interval]`, ⊤ → bignum). 7c removed
+associated types **outright** (general type-level ones too, not just the bounds-serving application — the `§5.1`
+"removed" option); bare associated *returns* still work via the calculated-return path. Remaining:
 **7e (vestiges** — `ValueResolver`'s `applied`-flag/searchAbilities attachment, `CodegenProjection` width-collapse
 comments) and the additive Step-8 follow-ons (`where`-on-defs, LSP hover from the meta fact, second domain =
 List/Array size).** `Int` no longer has type parameters: it is a single type whose value range is
@@ -1122,10 +1124,15 @@ bounds; only then does the atomic flip follow.
   `SaturatedValueProcessor.detectCalculatedReturn`'s bare-vs-applied distinction (+ the dead `isAbilityMember` param);
   `AbilityMatcher.isImplementationAssociatedType`; and `ValueFQN.isAbstractAbilityType` (now dead). **Bare** associated
   returns keep working through the surviving *calculated-return* path (`inferableInfo` sees the ability-prepended arity),
-  so the bounded-`Int` stub unit tests still pass unchanged; only the applied-assoc-as-type-function tests
-  (`AddResult[Int, Int]`) retired (6 tests deleted). `ValueResolver`'s `applied` flag / explicit-type-arg attachment is
-  left for 7e (partly shared with non-assoc explicit ability type args; harmless dead-ish path). Full suite 1240/0;
-  all examples build + run.
+  so the bounded-`Int` stub unit tests still pass unchanged. **Consequence — associated types are removed *outright*, not
+  just the bounds-serving application.** Deleting `injectForImpl` also drops support for a *parameter-position* associated
+  type (`ability Foo[T] { type X; def m(t: T, x: X) }` — the impl's `X = String` no longer injects into the abstract `X`
+  reference at the use site). This was the doc's §5.1 "removed outright" option, taken because associated types existed
+  only to serve `Int` bounds (now in the channel). The applied-assoc tests (`AddResult[Int, Int]`) and the general
+  associated-type tests retired (6 tests + later the `AbilityAssociatedType.els` example, whose `param: MagicType` needed
+  the injection — commit 09875382). If general associated types are wanted back as type-level programming, it means
+  restoring a lighter `injectForImpl`. `ValueResolver`'s `applied` flag / explicit-type-arg attachment is left for 7e.
+  Full suite 1240/0 (then 1229/0 after 7d); all examples build + run.
 - **7d — the `opaque` track. — DONE (2026-07-11), after Step 8's gating core.** The whole track went: the `opaque`
   keyword (`TokenParser`, `FunctionDefinition.modifierPrefix` — now a 3-tuple), the `opaque` flag threaded through
   `FunctionDefinition`/`NamedValue`/`ResolvedValue`/`BlockDesugaredValue`/`MatchDesugaredValue`/`OperatorResolvedValue`
@@ -1142,10 +1149,18 @@ bounds; only then does the atomic flip follow.
   the opaque-alias definitional-equality tests + the bounded-`Int` representation-version-collapse tests (S2/S3, a
   pre-flag-day scenario — nullary `Int` is one instantiation) retired; the transparent-alias tests kept. Full suite
   1229/0; all examples build + run; narrow layouts still fire (javap: literals → `Byte`, ⊤ → `BigInteger`).
-- **7e — vestiges** (`CodegenProjection`'s width-collapse, per-bound identity leftovers, `BinderRoles`): follow 7c/7d.
+- **7e — vestiges. — NOT DONE (deferred as a focused follow-up).** The remaining leftover is `ValueResolver`'s `applied`
+  flag + `searchImplementationScope`/`resolveImplementationScopedName` (the bare-associated-type auto-apply into impl
+  scope). **Care:** only the `searchImplementationScope` path + the `applied` flag *that gates it* are safely deletable
+  (dead with no associated types); the sibling **explicit-type-arg attachment** in the same ability-resolution arm is
+  *load-bearing for non-assoc* explicit ability type arguments (e.g. `keep[42]`) and must stay — so this is a surgical
+  general-resolver edit, not a bulk delete, deliberately deferred rather than risked at the tail of the deletion sweep.
+  `CodegenProjection`'s width-collapse and `BinderRoles` carry no removable field (comment-only opaque/bound mentions);
+  the per-bound monomorphic-instantiation identity was already gone at 6-ii.
 
-So 7b + 7a landed now; **7c/7d/7e are re-sequenced *after* Step 8** because the 6-ii scope-minimizing decision (keep
-`Arithmetic`/`Combine`/`opaque`) made them load-bearing until the Interval/Numeric collapse.
+**Status: 7a/7b/7c/7d all landed; 7e (the small `ValueResolver` vestige) remains.** The 6-ii scope-minimizing decision
+(keep `Arithmetic`/`Combine`/`opaque` with trivial `Int` instances) held them load-bearing until Step 8's Interval/Numeric
+collapse removed `Arithmetic`, at which point 7c/7d became the dead-code deletions above.
 
 **Step 8: cleanups and follow-ons.**
 
