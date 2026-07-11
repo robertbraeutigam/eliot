@@ -42,12 +42,6 @@ object Intrinsics {
   /** `intToString(value): String` — realised as `Long.toString`. */
   val intToStringFQN: ValueFQN = langInt("intToString")
 
-  /** `nativeWiden(value): Int[…]` — value-preserving representation conversion (unbox the source wrapper, rebox at the
-    * target wrapper). Used by the `Coerce[Int, Int]` instance and by the `+`/`-`/`*` width dispatch to equalize operand
-    * representations and to narrow an over-wide leaf result back to the declared bound.
-    */
-  val nativeWidenFQN: ValueFQN = langInt("nativeWiden")
-
   /** `intLessThanOrEqual(a, b): Bool` — the ordering leaf behind the runtime `Compare[Int]` instance. One leaf covers
     * every width: the result is a `Bool` (no result-width growth to dispatch on), and the emission picks its working
     * representation (primitive `long` via `LCMP`, or `BigInteger.compareTo`) from the operands' lowered
@@ -71,7 +65,6 @@ object Intrinsics {
   val all: Set[ValueFQN] =
     Set(
       intToStringFQN,
-      nativeWidenFQN,
       intLessThanOrEqualFQN,
       nativeAddFQN,
       nativeSubtractFQN,

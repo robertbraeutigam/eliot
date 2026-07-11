@@ -84,8 +84,7 @@ object SemValue {
     }
 
     /** A reserved, binder-less marker with no scope: the fail-safe bad-apply head, the effectful-guard signature probe,
-      * the `Coerce` argument marker, the stuck-match placeholder. Identity is the [[Marker]] — recognised by
-      * constructor, not by a magic name string.
+      * the stuck-match placeholder. Identity is the [[Marker]] — recognised by constructor, not by a magic name string.
       */
     case class Reserved(marker: Marker) extends NeutralHead {
       override def name: String = marker.tag
@@ -101,7 +100,6 @@ object SemValue {
     enum Marker(val tag: String) {
       case BadApply   extends Marker("$bad-apply")
       case GuardProbe extends Marker("$guard-probe")
-      case Coerce     extends Marker("$coerceArg")
       case Match      extends Marker("match")
     }
   }

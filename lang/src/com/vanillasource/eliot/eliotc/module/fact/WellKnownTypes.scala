@@ -106,19 +106,6 @@ object WellKnownTypes {
     */
   val someFQN: ValueFQN = ValueFQN(optionModule, QualifiedName("some", Qualifier.Default))
 
-  /** The `coerce` method of the `Coerce` ability — the by-name protocol the checker resolves (in check mode) to insert
-    * an implicit, possibly representation-changing widening when an inferred type is used where a different expected
-    * type built from the same constructor is wanted (e.g. `Int[0,5]` where `Int[0,10]` is expected). The widening
-    * insertion itself is deferred (it lands with the `Int[MIN,MAX]` frontier); this FQN is the durable design
-    * commitment. Lives in the compiler-coordinated [[ModuleName.compilerPackage]] (`eliot.compiler`), not the
-    * `eliot.lang` prelude.
-    */
-  val coerceFQN: ValueFQN =
-    ValueFQN(
-      ModuleName(ModuleName.compilerPackage, "Coerce"),
-      QualifiedName("coerce", Qualifier.Ability("Coerce"))
-    )
-
   /** `integerLiteral[V]: IntegerLiteralType[V]` — the platform-independent literal protocol. `CoreExpressionConverter`
     * desugars a value-position integer literal `n` into `integerLiteral[n]` so that the checker assigns it the
     * platform-chosen singleton type `IntegerLiteralType[n]` (= `Int[n, n]` on every concrete layer) without the

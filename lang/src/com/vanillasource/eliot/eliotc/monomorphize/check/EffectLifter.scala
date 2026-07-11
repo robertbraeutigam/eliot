@@ -13,11 +13,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** The type-directed effect auto-lift (the fifth checker collaborator — docs/effect-lift-in-checker.md): the check-mode
   * elaboration that decides, per argument slot, whether an effectful term (type `C[T']` for an effect carrier `C`)
   * flowing into a pure position must be *bound* (sequenced with `Effect.flatMap`/`map`) or a pure term flowing into a
-  * carrier-typed position *lifted* (`Effect.pure`). This is the same species of check-mode elaboration as the `Coerce`
-  * widening ([[com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver]]); the resolution ladder runs
-  * unify → bind-lift (argument positions only) → pure-wrap → `Coerce` → mismatch — the lift arms come *before* the
-  * `Coerce` probe, whose ability-fact generation fails the build as a side effect on a shape a lift arm resolves (the
-  * arms' guards are disjoint from every coercible shape, so widening behaviour is untouched).
+  * carrier-typed position *lifted* (`Effect.pure`). The resolution ladder runs unify → bind-lift (argument positions
+  * only) → pure-wrap → mismatch. (It once ended in a `Coerce` widening probe before the mismatch; that probe was
+  * removed at Step 7a — `docs/bounds-as-refinements.md` — once `Int == Int` made widening unnecessary.)
   *
   * None of this is definitional equality: `unify` never lifts — the arms fire only after speculative unification
   * failed (or, for the two shapes unification can only *postpone*, the [[mustLiftBeforeUnify]] /
@@ -36,7 +34,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   * A bare unconstrained HKT head (`Box[String]`, `C[_, _]`) matches neither and is never lifted.
   *
-  * Node assembly splices [[SemExpression]]s directly (the `buildCoercedExpr` precedent — no ORE is ever rewritten):
+  * Node assembly splices [[SemExpression]]s directly (no ORE is ever rewritten):
   * the combinator reference is `ValueReference(fqn, [C, T', R])` (ability binder first, matching the
   * `[abilityParams ++ methodParams]` order ability resolution slices), the continuation a
   * `FunctionLiteral($eff$N, T', core)` under `VPi(T', _ => coreType)`, applied to the action. Because insertion

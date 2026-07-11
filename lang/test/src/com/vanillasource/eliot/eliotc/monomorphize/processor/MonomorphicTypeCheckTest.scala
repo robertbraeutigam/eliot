@@ -35,12 +35,10 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  "check-mode Coerce insertion" should "implicitly widen Int[3, 3] to Int[0, 10]" in {
-    runCoerce("def test: Int[0, 10] = integerLiteral[3]")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "reject widening Int[5, 5] to the non-containing Int[0, 3]" in {
+  // The check-mode `Coerce` widening the checker once inserted here was removed at Step 7a
+  // (`docs/bounds-as-refinements.md`): `Int == Int` means no widening is needed or possible. What survives is plain
+  // definitional equality — a non-containing range is now an ordinary mismatch, an equal range passes.
+  "definitional equality on Int ranges (no Coerce)" should "reject Int[5, 5] against the non-containing Int[0, 3]" in {
     runCoerce("def test: Int[0, 3] = integerLiteral[5]")
       .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[5]"))
   }
@@ -97,11 +95,6 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  it should "widen the summed result to a broader expected range" in {
-    runAdd("def test: Int[0, 100] = integerLiteral[3] + integerLiteral[4]")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
   it should "reject when the summed result overflows a narrower declared type" in {
     runAdd("def test: Int[6, 6] = integerLiteral[3] + integerLiteral[4]")
       .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[3] + integerLiteral[4]"))
@@ -132,26 +125,16 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Bare-literal widening: Phase-6 desugar + Phase-3 Coerce, end to end ---
+  // --- Bare-literal typing: the Phase-6 `n` ⤳ `integerLiteral[n] : Int[n, n]` desugar. The Phase-3 `Coerce` widening
+  //     that once broadened a bare literal into a declared range was removed at Step 7a, so a non-equal declared range
+  //     now mismatches. ---
 
-  "bare literal widening" should "widen a bare value-position literal into a broader declared range" in {
-    // `7` desugars to `integerLiteral[7] : Int[7, 7]` (Phase 6), then the `Coerce[Int, Int]` instance widens it
-    // into `Int[0, 1000]` (Phase 3) — no explicit `integerLiteral` in the source.
-    runCoerce("def test: Int[0, 1000] = 7")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "reject a bare literal that does not fit the declared range" in {
+  "a bare value-position literal" should "reject a declared range it does not fit" in {
     runCoerce("def test: Int[0, 3] = 5")
       .asserting(_ shouldBe Seq("Type mismatch." at "5"))
   }
 
-  it should "widen a bare literal into a width alias (Byte)" in {
-    runCoerce("def test: Byte = 5")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "reject a bare literal that overflows a width alias (Byte)" in {
+  it should "reject overflowing a width alias (Byte)" in {
     runCoerce("def test: Byte = 5000")
       .asserting(_ shouldBe Seq("Type mismatch." at "5000"))
   }
@@ -835,13 +818,6 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  it should "widen a bare calculated return into a broader declared type via Coerce" in {
-    // Bare return = the tightest calculated type (`Int[0, 510]`); the explicit caller annotation `Int[0, 1000]` is a
-    // wider published contract, reached by the existing check-mode `Coerce`.
-    runInt("def double(x: Int): Int = x + x\ndef test(b: Int[0, 255]): Int[0, 1000] = double(b)")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
   it should "leave an explicit return (not calculated) widened from the body, unchanged" in {
     // An explicit `Int[0, 1000]` return is *not* calculated: the body `x + x` (`Int[0, 510]`) is widened to it via
     // `Coerce` in the callee, and the caller reads `Int[0, 1000]` directly.
@@ -1300,11 +1276,6 @@ class MonomorphicTypeCheckTest
     liftedErrors(
       "import eliot.effect.Console\ndef twice(f: Function[String, String]): String = f(f(\"x\"))\ndef echo: {Console} String = twice(s -> printLine(s))"
     ).asserting(_ should contain("Type mismatch." at "printLine(s)"))
-  }
-
-  "coercion under a carrier-polymorphic callee" should "still widen an Int argument (no lift interference)" in {
-    runCoerce("def hold[C[_]](x: Int[0, 10]): Int[0, 10] = x\ndef test: Int[0, 10] = hold(integerLiteral[3])")
-      .asserting(_ shouldBe Seq.empty)
   }
 
   private val ioFQN            =

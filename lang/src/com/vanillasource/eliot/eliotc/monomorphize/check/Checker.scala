@@ -7,7 +7,6 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{BodyValueReferences, GroundValue}
-import com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver
 import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -33,14 +32,6 @@ class Checker(
 
   /** The track's platform — fact keys read it off the [[track]] rather than threading a bare [[Platform]]. */
   private val platform: Platform = track.platform
-
-  /** The refinement-bounds solver (D4): the directional `Coerce` widening, the `Combine` join, and the deferred
-    * upper-bound obligations — the type system's *refinement lattice*, kept out of this checker's *definitional
-    * equality* concern. Constructed with the five checker primitives it needs; see [[RefinementSolver]]. Accessible to
-    * [[TypeStackLoop]], which routes the post-drain `resolve-combines` / `upper-bounds` passes through it.
-    */
-  private[check] val solver: RefinementSolver =
-    new RefinementSolver(resolveAbility, (tm, env) => evalExpr(tm, env), force, freshMeta, doUnify, platform)
 
   /** The higher-kinded-carrier kind checker (D8): seeds each `[F[_]]` carrier instantiation meta with its expected kind
     * and verifies the solution post-drain. A non-equality *kind system*, kept out of this checker's definitional
@@ -369,11 +360,7 @@ class Checker(
           case None                  =>
             lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
               case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-              case None          =>
-                solver.tryCoerce(tm, updatedExpr, instantiated, expected).flatMap {
-                  case Some(coerced) => pure(SlotOutcome.Resolved(coerced): SlotOutcome)
-                  case None          => commitMismatch(instantiated, expected, tm, updatedExpr)
-                }
+              case None          => commitMismatch(instantiated, expected, tm, updatedExpr)
             }
         }
     }
@@ -889,8 +876,18 @@ class Checker(
                                     bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
                                     (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
                                     resolved                   <- expected match {
+                                                                    // Plain definitional equality (the `Coerce` widening
+                                                                    // fallback retired at Step 7a): on a contradiction
+                                                                    // commit a single Expected/Actual mismatch rather
+                                                                    // than the unifier's per-type-argument spine errors.
                                                                     case Some(exp) =>
-                                                                      solver.unifyOrCoerce(body, wrappedExpr, wrappedType, exp).map((_, exp))
+                                                                      tryUnifyCommitting(wrappedType, exp, body.as("Type mismatch.")).flatMap {
+                                                                        case true  => pure((wrappedExpr, exp))
+                                                                        case false =>
+                                                                          modify(st =>
+                                                                            st.withUnifier(st.unifier.addMismatch(wrappedType, exp, body.as("Type mismatch.")))
+                                                                          ).as((wrappedExpr, exp))
+                                                                      }
                                                                     case None      => pure((wrappedExpr, wrappedType))
                                                                   }
                                   } yield resolved

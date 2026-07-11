@@ -296,13 +296,6 @@ object ExpressionCodeGenerator {
                      }
                    }
       } yield classes
-    } else if (calledVfqn === Intrinsics.nativeWidenFQN) {
-      val sourceRep = representationInternalName(arguments.head.expressionType)
-      val targetRep = representationInternalName(expectedResultType)
-      for {
-        classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)
-        _       <- methodGenerator.runNative[CompilationTypesIO](convertRepresentation(sourceRep, targetRep))
-      } yield classes
     } else if (Intrinsics.boolOps.contains(calledVfqn)) {
       generateBoolIntrinsic(
         moduleName,
