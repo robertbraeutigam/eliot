@@ -34,6 +34,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
 }
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
+import com.vanillasource.eliot.eliotc.reconcile.processor.ReconcileProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
@@ -107,6 +108,7 @@ object LangProcessors {
     RefinementChannelProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),
-    MonomorphicUncurryingProcessor()
+    MonomorphicUncurryingProcessor(),
+    ReconcileProcessor()
   )
 }
