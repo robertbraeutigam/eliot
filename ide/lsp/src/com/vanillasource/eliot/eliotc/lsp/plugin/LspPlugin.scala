@@ -13,6 +13,7 @@ import com.vanillasource.eliot.eliotc.lsp.virtual.{
   VirtualFileSystem
 }
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
@@ -142,8 +143,25 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
       names: UnifiedModuleNames
   ): IO[Unit] = {
     val mainName = QualifiedName("main", Qualifier.Default)
-    compilation.getFact(UsedNames.Key(ValueFQN(moduleName, mainName))).void.whenA(names.names.contains(mainName))
+    compilation
+      .getFact(UsedNames.Key(ValueFQN(moduleName, mainName)))
+      .flatMap(_.traverse_(demandRefinementTables(compilation, _)))
+      .whenA(names.names.contains(mainName))
   }
+
+  /** After the reachable monomorphic graph is forced, additionally demand each instance's
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable]] — the refinement channel's per-node value
+    * ranges — so hover can show the computed range of an `Int`-typed node. The tables are keyed identically to the
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]]s (`(vfqn, typeArguments)`), and [[UsedNames]]
+    * already records exactly those instantiations. A table that fails to produce simply yields no fact, so a hint
+    * degrades to no range rather than a wrong one.
+    */
+  private def demandRefinementTables(compilation: CompilationProcess, used: UsedNames): IO[Unit] =
+    used.usedNames.toList.traverse_ { case (vfqn, stats) =>
+      stats.monomorphicTypeParameters.distinct.traverse_(typeArgs =>
+        compilation.getFact(RefinementTable.Key(vfqn, typeArgs)).void
+      )
+    }
 
   /** Walk the filesystem source roots for `.els` files and derive each one's module name from its path relative to the
     * root it was found under. Classpath resources (the bundled stdlib) are intentionally excluded — the editor

@@ -107,20 +107,21 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     val reference = service.positionIndex.referenceAt(uri, position)
     val tile      = reference.flatMap(occurrence => service.docIndex.tileFor(occurrence.value).map(occurrence -> _))
     val typeHint  = service.typeHintIndex.typeHintsAt(uri, position)
+    val interval  = typeHint.flatMap { case (range, _) => service.typeHintIndex.intervalAt(uri, range) }
     val hover     = tile match {
       case Some((occurrence, entry)) =>
         val definition    = entry.signature
           .orElse(service.positionIndex.definitionOf(occurrence.value).map(EliotTextDocumentService.signatureOf))
           .getOrElse(occurrence.value.name.name)
         val concreteTypes = typeHint.fold(Seq.empty[String])(_._2.map(GroundValueRenderer.render))
-        Some(EliotTextDocumentService.renderHover(occurrence.range, Some(definition), concreteTypes, entry.doc))
+        Some(EliotTextDocumentService.renderHover(occurrence.range, Some(definition), concreteTypes, interval, entry.doc))
       case None                      =>
         typeHint match {
           case Some((range, types)) =>
-            Some(EliotTextDocumentService.renderHover(range, None, types.map(GroundValueRenderer.render), None))
+            Some(EliotTextDocumentService.renderHover(range, None, types.map(GroundValueRenderer.render), interval, None))
           case None                 =>
             service.positionIndex.hoverAt(uri, position).map { (occurrence, value) =>
-              EliotTextDocumentService.renderHover(occurrence.range, Some(EliotTextDocumentService.signatureOf(value)), Seq.empty, None)
+              EliotTextDocumentService.renderHover(occurrence.range, Some(EliotTextDocumentService.signatureOf(value)), Seq.empty, None, None)
             }
         }
     }
@@ -151,26 +152,33 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
 
 object EliotTextDocumentService {
 
-  /** Render a hover as Markdown from up to three parts, omitting any that is absent (never an empty block).
+  /** Render a hover as Markdown from up to four parts, omitting any that is absent (never an empty block).
     *
     * With a `definition`, it leads the fenced `eliot` block; the `concreteTypes` (the type(s) the expression was checked
-    * at here) then follow as a labelled inline line, and the `doc` below. Without a definition — the fallback path — the
-    * concrete type(s) become the primary fenced block instead. Rendered as [[MarkupKind.MARKDOWN]] so signatures are
-    * syntax-highlighted and the doc's own formatting shows, matching the apidoc site.
+    * at here) then follow as a labelled inline line, then — when the refinement channel pinned one — the value's range
+    * `[min, max]` at this node, and the `doc` below. Without a definition — the fallback path — the concrete type(s)
+    * become the primary fenced block instead. Rendered as [[MarkupKind.MARKDOWN]] so signatures are syntax-highlighted
+    * and the doc's own formatting shows, matching the apidoc site.
     */
   private def renderHover(
       range: PositionRange,
       definition: Option[String],
       concreteTypes: Seq[String],
+      interval: Option[(BigInt, BigInt)],
       doc: Option[String]
   ): Hover = {
-    val sections = definition match {
+    val rangeLine = interval.map { case (min, max) => s"_value range:_ `[$min, $max]`" }
+    val sections  = definition match {
       case Some(value) =>
         val typeLine =
           Option.when(concreteTypes.nonEmpty)(s"_at this use:_ ${concreteTypes.map(tpe => s"`$tpe`").mkString(", ")}")
-        Seq(Some(s"```eliot\n$value\n```"), typeLine, doc.filter(_.nonEmpty))
+        Seq(Some(s"```eliot\n$value\n```"), typeLine, rangeLine, doc.filter(_.nonEmpty))
       case None        =>
-        Seq(Option.when(concreteTypes.nonEmpty)(s"```eliot\n${concreteTypes.mkString("\n")}\n```"), doc.filter(_.nonEmpty))
+        Seq(
+          Option.when(concreteTypes.nonEmpty)(s"```eliot\n${concreteTypes.mkString("\n")}\n```"),
+          rangeLine,
+          doc.filter(_.nonEmpty)
+        )
     }
     new Hover(new MarkupContent(MarkupKind.MARKDOWN, sections.flatten.mkString("\n\n")), LspPositions.toRange(range))
   }

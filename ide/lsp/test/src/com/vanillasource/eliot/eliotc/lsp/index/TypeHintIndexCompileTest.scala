@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.compiler.{CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
+import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.pos.Position
@@ -83,7 +84,8 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
         facts   <- result.generator.currentFacts()
       } yield {
         val monomorphic = facts.values.collect { case value: MonomorphicValue => value }.toSeq
-        body(file.toUri, TypeHintIndex.build(monomorphic))
+        val refinements = facts.values.collect { case value: RefinementTable => value }.toSeq
+        body(file.toUri, TypeHintIndex.build(monomorphic, refinements))
       }
     }
 

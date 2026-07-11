@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, DocIndex, Main
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.{VfsUris, VirtualFileSystem}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
+import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
@@ -184,11 +185,12 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
       val resolved     = facts.values.collect { case value: ResolvedValue => value }.toSeq
       val moduleValues = facts.values.collect { case value: ModuleValue => value }.toSeq
       val monomorphic  = facts.values.collect { case value: MonomorphicValue => value }.toSeq
+      val refinements  = facts.values.collect { case value: RefinementTable => value }.toSeq
       val valueDocs    = facts.values.collect { case value: ValueDoc => value }.toSeq
       IO {
         indexRef.set(PositionIndex.build(resolved))
         completionRef.set(CompletionIndex.build(moduleValues, resolved))
-        typeHintRef.set(TypeHintIndex.build(monomorphic))
+        typeHintRef.set(TypeHintIndex.build(monomorphic, refinements))
         mainRef.set(MainIndex.build(resolved))
         docRef.set(DocIndex.build(valueDocs))
       }
