@@ -1184,11 +1184,30 @@ their own `Arithmetic` and retire with the assoc lane at 7c. `FactCache.CACHE_VE
 correct output; narrow layouts still fire (`2 + 3 * 4` literals → `Byte`, reconciled to `BigInteger` at the
 operator-call boundary, verified by `javap`). **This unblocks 7c/7d/7e** (below), the next work.
 
-**Step 8 follow-ons (additive, not yet done).** Add `where` preconditions on defs (§4.3) — additive, kept off the
-critical path deliberately; this is where narrow *storage/return* genuinely returns (`where`-pinned boundaries). Enrich
-LSP hover from the per-node meta fact (step 2d) so `Int` hovers show the computed range. Then the **second domain** —
-`List`/`Array` `size` — which is the real test of "user-defined tracking" and the prerequisite for flow grades
-(TODO.md).
+**Step 8 follow-ons.**
+
+- **LSP hover from the per-node meta fact (step 2d). — DONE (2026-07-11, committed ad7ff97c).** Hover now shows the
+  refinement channel's computed value range for an `Int`-typed node (post-flag-day `Int` renders bare, so the range comes
+  from the `RefinementTable` fact, not the type). Wiring, all on the shared `PositionRange` key: `LspPlugin.monomorphizeMain`
+  additionally demands `RefinementTable` per reachable instance (keyed identically to `MonomorphicValue`; `UsedNames` records
+  exactly those instantiations — a table that fails to produce yields no range, never wrong); `EliotCompilationService.rebuildIndices`
+  collects the tables; `TypeHintIndex.build(monomorphic, refinements)` joins them by `(vfqn, typeArgs)`, folds an optional
+  `[min,max]` into each `Hint` (de-duping ambiguous positions as `MonomorphicUncurryingProcessor` does), and exposes
+  `intervalAt(uri, range)` (union across instantiations that pinned different ranges); the hover renders a `value range: [min, max]`
+  line when pinned. `TypeHintRangeCompileTest` proves it end-to-end (literal `42` → `[42,42]`; a function reference → no range,
+  the §6-iii intra-procedural fail-safe). Full suite 871/871; LSP 383/383.
+
+- **`where` preconditions on defs (§4.3). — NOT DONE.** Additive, kept off the critical path deliberately; this is where
+  narrow *storage/return* genuinely returns (`where`-pinned boundaries) and closes the Step-6 enforcement gap (out-of-range
+  errors currently have no JVM replacement). The existing `where` machinery is for `implement` markers (guard rides the
+  marker's *return slot*, discharged at the use site by `AbilityImplementationProcessor` through the checker's NbE). A
+  refinement `where x.range.end <= 255` is a *different* integration: its predicate reads the **channel's** per-node interval
+  (a post-pass, `RefinementChannelProcessor`, downstream of monomorphize), not a type-level value in the checker. So it cannot
+  simply reuse the ability-guard discharge; the demand must be checked in the channel post-pass where per-node intervals exist.
+  `def` today has no `where` parse point (`FunctionDefinition.scala:125-147` parses only `: type {returnMeta}`).
+
+- **Second domain — `List`/`Array` `size`. — NOT DONE.** The real test of "user-defined tracking" and the prerequisite for
+  flow grades (TODO.md); largest of the three and blocked on the open container-propagation question (§7 Q1).
 
 ### Risks to watch
 
