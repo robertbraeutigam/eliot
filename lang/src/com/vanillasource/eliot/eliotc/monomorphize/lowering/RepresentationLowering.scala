@@ -56,7 +56,7 @@ object RepresentationLowering {
       context: Sourced[?],
       nodeInterval: Option[(BigInt, BigInt)]
   ): CompilerIO[GroundValue] =
-    RefinementRepresentation.channelLayout(s, nodeInterval).flatMap {
+    RefinementRepresentation.channelLayout(nodeInterval).flatMap {
       case Some(raw) => representationOf(raw, context)
       case None      =>
         RefinementRepresentation.topLayout.flatMap {

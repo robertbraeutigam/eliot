@@ -425,14 +425,8 @@ object RefinementChannelProcessor {
       intervalType
     )
 
-  /** The `[min, max]` of an `Int[min, max]` ground type, or `None` for any other type. */
-  private[channel] def intIntervalOf(gv: GroundValue): Option[(BigInt, BigInt)] = gv match {
-    case structure @ GroundValue.Structure(fqn, _, _) if fqn == intTypeFqn => twoBigIntArgs(structure)
-    case _                                                                 => None
-  }
-
-  /** Extract two `Direct` big-integer arguments from a structure — used for both an `Int[min, max]` type and an
-    * `Interval(lo, hi)` value (both carry exactly two integer endpoints).
+  /** Extract two `Direct` big-integer arguments from a structure — an `Interval(lo, hi)` value or an `Int$Meta`'s
+    * unwrapped range (both carry exactly two integer endpoints).
     */
   private def twoBigIntArgs(gv: GroundValue): Option[(BigInt, BigInt)] = gv match {
     case GroundValue.Structure(_, Seq(a, b), _) =>

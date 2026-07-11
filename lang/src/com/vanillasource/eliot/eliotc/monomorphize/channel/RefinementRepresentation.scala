@@ -49,8 +49,8 @@ object RefinementRepresentation {
     * The returned [[GroundValue]] is the raw quoted layout (a representation type such as `JvmByte`); the caller lowers
     * it structurally.
     */
-  def channelLayout(intGroundType: GroundValue, nodeInterval: Option[(BigInt, BigInt)]): CompilerIO[Option[GroundValue]] =
-    nodeInterval.orElse(RefinementChannelProcessor.intIntervalOf(intGroundType)) match {
+  def channelLayout(nodeInterval: Option[(BigInt, BigInt)]): CompilerIO[Option[GroundValue]] =
+    nodeInterval match {
       case None         => none[GroundValue].pure[CompilerIO]
       case Some(bounds) => channelLayoutForInterval(bounds)
     }

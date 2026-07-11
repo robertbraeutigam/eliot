@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The per-track strategy for the two monomorphization tracks (runtime / compiler). It carries the track's [[Platform]]
-  * (so fact keys read the platform off the track rather than a bare threaded value) plus the five places the checking
+  * (so fact keys read the platform off the track rather than a bare threaded value) plus the four places the checking
   * core genuinely differs between the two tracks, each extracted 1:1 from a former `platform match` conditional in
   * [[TypeStackLoop]]:
   *
@@ -22,9 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - [[implBindings]] — the compiler track's resolved-impl binding fetch, folded into the read-back evaluator's lookup
   *     (empty on the runtime track, whose body stays structural for codegen);
   *   - [[readBackBody]] — reduce the compile-time body ([[PostDrainQuoter.reduceSourced]]) on the compiler track, or
-  *     keep it structural ([[PostDrainQuoter.quoteSourced]]) on the runtime track;
-  *   - [[reconcileBody]] — splice the deferred-resolution coercion payloads before read-back (runtime only; the
-  *     compile-time body has no machine representation to reconcile).
+  *     keep it structural ([[PostDrainQuoter.quoteSourced]]) on the runtime track.
   *
   * Everything else in the checking core is track-agnostic. A hook receives exactly the collaborators / primitives it
   * needs (the [[Checker]] for the two that call checker methods, `fetchBinding` / the [[PostDrainQuoter]] for the read

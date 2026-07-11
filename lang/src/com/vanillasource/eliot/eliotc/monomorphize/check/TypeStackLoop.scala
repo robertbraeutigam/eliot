@@ -123,12 +123,6 @@ class TypeStackLoop(
       // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
       _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
 
-      // Refinement reconciliation retired with the flag day (`docs/bounds-as-refinements.md` Step 7b): `Int == Int`
-      // means the checker never inserts a `Combine`-join or deferred-upper-bound coercion, so there is no conversion
-      // payload to splice before read-back. Narrow-representation reconciliation now happens in the backend
-      // (`ExpressionCodeGenerator`) off the refinement channel, not here.
-      reconciled  = runtime
-
       // Compiler backend (CP-C step b): the compiler track reduces its body to a normal form, folding each
       // drain-resolved ability impl's *body* in via NbE — so it needs those impl bindings reachable by the evaluator.
       // `track.implBindings` fetches them once from the track's pool (empty on the runtime track, whose body stays
@@ -169,7 +163,10 @@ class TypeStackLoop(
                    )
       groundSig <- liftF(quoter.quoteSem(finalSig, resolvedValue.typeStack))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
-      monoBody  <- reconciled.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
+      // (Refinement reconciliation retired with the flag day, `docs/bounds-as-refinements.md` Step 7b: `Int == Int`
+      // leaves no coercion payload to splice; narrow-representation reconciliation now happens in the backend's
+      // `ExpressionCodeGenerator` off the refinement channel, so the body is read back directly.)
+      monoBody  <- runtime.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
     } yield TypeStackLoop.Result(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))

@@ -88,24 +88,6 @@ object WellKnownTypes {
     */
   val rightFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Right", Qualifier.Default))
 
-  private val optionModule: ModuleName = ModuleName(defaultSystemPackage, "Option")
-
-  /** The abstract `Option` type constructor — the result type of `Coerce.coerce`. The checker builds `Option[expected]`
-    * with this FQN to solve the coercion instance's target bounds by unification.
-    */
-  val optionFQN: ValueFQN = ValueFQN(optionModule, QualifiedName("Option", Qualifier.Type))
-
-  /** The `some` constructor of the abstract `Option`. It is an ordinary body-less def (the NbE evaluator represents an
-    * applied constructor as a stuck `VTopDef`); the checker's check-mode `Coerce` insertion recognizes this FQN to
-    * discriminate a coercion result — `some payload` ⟹ accept (splice `payload`), anything else ⟹ reject. It is
-    * lower-case because `Option` is an abstract `type` (not `data`), so its constructors are body-less `def`s.
-    *
-    * Note there is no `noneFQN`: a rejected coercion is detected as "the result head is not `some`", so the compiler
-    * never names the failure constructor. `none` is therefore an ordinary library constructor declared in the stdlib
-    * layer (`stdlib/.../Option.els`), not here.
-    */
-  val someFQN: ValueFQN = ValueFQN(optionModule, QualifiedName("some", Qualifier.Default))
-
   /** `integerLiteral[V]: IntegerLiteralType[V]` — the platform-independent literal protocol. `CoreExpressionConverter`
     * desugars a value-position integer literal `n` into `integerLiteral[n]` so that the checker assigns it the
     * platform-chosen singleton type `IntegerLiteralType[n]` (= `Int[n, n]` on every concrete layer) without the

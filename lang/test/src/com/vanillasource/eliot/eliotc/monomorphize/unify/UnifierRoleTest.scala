@@ -10,13 +10,13 @@ import org.scalatest.matchers.should.Matchers
 
 import java.net.URI
 
-/** D2: the single `metaRoles` map replaces the former six side-sets. These tests pin the role lifecycle and the
-  * finalization-relevant queries the post-check pipeline reads — in particular that the protected set is *exactly* the
-  * [[MetaRole.AbstractAssoc]] metas, which is what makes `defaultUnsolvedMetas`'s total role match default everything
-  * else to `Type` while leaving only abstract-associated types abstract (the F2 catch-all is gone).
+/** D2: the single `metaRoles` map replaces the former six side-sets. These tests pin the role lifecycle (a fresh meta is
+  * [[MetaRole.Plain]]) and the carrier-kind / effect-carrier queries the post-check pipeline reads.
   *
-  * (The `Combine`-branch-join roles this once also exercised — `combinable`/`candidates`/`combineResolved`/upper-bounds
-  * — were removed with the refinement channel's flag day; see `docs/bounds-as-refinements.md` Step 7b.)
+  * (The protected-set / abstract-associated-type machinery this doc once described — and the `Combine`-branch-join roles
+  * `combinable`/`candidates`/`combineResolved`/upper-bounds it once exercised — were removed with the associated-types
+  * lane and the refinement channel's flag day; see `docs/bounds-as-refinements.md` Steps 7b/7c. `defaultUnsolvedMetas`
+  * now defaults every unsolved meta to `Type`, both roles alike.)
   */
 class UnifierRoleTest extends AnyFlatSpec with Matchers {
   private val ctx: Sourced[String] = Sourced(URI.create("Test.els"), PositionRange.zero, "ctx")
