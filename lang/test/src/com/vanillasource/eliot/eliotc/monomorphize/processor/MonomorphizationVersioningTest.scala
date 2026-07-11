@@ -57,33 +57,9 @@ class MonomorphizationVersioningTest
   }
 
   // --- S2: two call sites Int[0,100] & Int[0,50] (Cat 2 representation, same width) -------------------------------
-  // A single generic `id` is instantiated at two distinct bounds that share a machine representation (both fit a byte).
-  // `id`'s `A` is representation-class (CollapseToRepresentation), so the codegen projection (B2/B3) keys it on the
-  // head-preserving representation: `Int[0, 100]` and `Int[0, 50]` both lower to `JvmByte`, collapsing to one version.
-  // This needs a representation-bearing `Int` (`reprIntImports`) — with the abstract stub `representationOf` is the
-  // identity and the bounds would never collapse.
-  "S2 (representation, same width)" should "collapse to one version per representation (was 2, now 1)" in {
-    runVersioning(
-      "def a: Int[0, 100]\ndef b: Int[0, 50]\ndef id[A](x: A): A = x\ndef use[A, B](x: A, y: B): A = x\ndef main: Int[0, 100] = use(id(a), id(b))",
-      imports = reprIntImports
-    ).asserting { case (errors, counts) =>
-      (errors, countOf(counts, "id")) shouldBe (Seq.empty, 1)
-    }
-  }
-
-  // --- S3: Int[0,100] & Int[0,100000] (Cat 2 representation, different width) -------------------------------------
-  // Same shape as S2 but the second bound needs a wider representation than a byte (`JvmByte` vs `JvmInt`), so the two
-  // instances are genuinely different code. The projection keys them on distinct representations, so they STAY two —
-  // a must-not-over-merge guard for the rep-collapse projection. (Also uses `reprIntImports`: with the abstract stub
-  // they would stay 2 only by accident of differing bounds, not differing representations.)
-  "S3 (representation, different width)" should "keep one version per distinct representation (stays 2)" in {
-    runVersioning(
-      "def a: Int[0, 100]\ndef b: Int[0, 100000]\ndef id[A](x: A): A = x\ndef use[A, B](x: A, y: B): A = x\ndef main: Int[0, 100] = use(id(a), id(b))",
-      imports = reprIntImports
-    ).asserting { case (errors, counts) =>
-      (errors, countOf(counts, "id")) shouldBe (Seq.empty, 2)
-    }
-  }
+  // (S2/S3 — representation-based version collapse for bounded `Int[0,100]`/`Int[0,50]` — retired with the bounds-as-
+  // refinements flag day: `Int` is now nullary, so distinct-range call sites share one instantiation and there is no
+  // per-range version to collapse. Narrow-representation selection is exercised by the jvm integration suite instead.)
 
   // --- S4: reified value at K finite call sites (Cat 3, recursion-invariant) --------------------------------------
   // `tag[N]: BigInteger = N` materialises its erased `N` into a runtime constant (reification). At K=3 distinct call
@@ -191,40 +167,6 @@ class MonomorphizationVersioningTest
     SystemImport("Coerce", "ability Coerce[From, To] { def coerce(value: From): To }", ProcessorTest.compilerPackage),
     SystemImport("Combine", "ability Combine[A, B] { type Combined }", ProcessorTest.compilerPackage)
   )
-
-  /** Like [[intImports]] but with a *representation-bearing* `Int`: the `opaque type Int[MIN, MAX]` body that folds a
-    * range down to the narrowest `Jvm*` width (mirroring the real jvm-layer `Int.els`), plus the `JvmByte`/… repr types
-    * and the `fitsIn` predicate the body folds on. This is what makes the representation-collapse projection (S2/S3)
-    * observable: with the abstract `Int` stub `RepresentationLowering.representationOf` is the identity, so the
-    * codegen projection could never tell a same-width pair (`Int[0, 100]`/`Int[0, 50]`, S2 -> 1) from a different-width
-    * pair (`Int[0, 100]`/`Int[0, 100000]`, S3 -> 2).
-    */
-  private val reprIntImports: Seq[SystemImport] = intImports.map {
-    case imp @ SystemImport("BigInteger", content, _) =>
-      imp.copy(content =
-        content +
-          "\ndef fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool = lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)"
-      )
-    case imp @ SystemImport("Int", content, _)        =>
-      imp.copy(content =
-        content.replace(
-          "type Int[auto MIN: BigInteger, auto MAX: BigInteger]\n",
-          """type JvmByte
-            |type JvmShort
-            |type JvmInt
-            |type JvmLong
-            |type JvmBigInteger
-            |opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
-            |  fold(fitsIn[-128, 127, MIN, MAX], JvmByte[],
-            |  fold(fitsIn[-32768, 32767, MIN, MAX], JvmShort[],
-            |  fold(fitsIn[-2147483648, 2147483647, MIN, MAX], JvmInt[],
-            |  fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
-            |       JvmBigInteger[]))))
-            |""".stripMargin
-        )
-      )
-    case other                               => other
-  }
 
   /** Drive the `used` traversal from a concrete `main` and return both the compilation errors and the per-`vfqn`
     * version counts of every materialised monomorphic specialization.

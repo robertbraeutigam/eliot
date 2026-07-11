@@ -16,7 +16,6 @@ case class MatchDesugaredValue(
     paramConstraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
-    opaque: Boolean = false,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
     platform: Platform = Platform.Runtime,

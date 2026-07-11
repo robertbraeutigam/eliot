@@ -116,10 +116,8 @@ object BinderRoles {
     *   - [[Role.dispatched]] from [[OperatorResolvedValue.paramConstraints]];
     *   - [[Role.representation]] from references in the signature's value-parameter domains and return position.
     *
-    * The full `runtime` body is used (not `checkingRuntime`): for a non-`opaque` value they are identical, and for an
-    * `opaque` value the checker's binding has no body to wrap, so the wrap never consults this; using `runtime` keeps
-    * the same analysis correct for the transparent (representation-lowering) binding too. The whole computation reads
-    * only the value's own fields — no fact lookups — so it stays pure and local.
+    * The `runtime` body is used: a body-less value has no body to wrap, so the wrap never consults this. The whole
+    * computation reads only the value's own fields — no fact lookups — so it stays pure and local.
     */
   def of(value: OperatorResolvedValue): BinderRoles = {
     val signature = value.typeStack.as(value.typeStack.value.signature)

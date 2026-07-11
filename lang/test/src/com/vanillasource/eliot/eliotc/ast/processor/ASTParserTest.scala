@@ -662,29 +662,8 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("type myInt = Int").asserting(_.size should be > 0)
   }
 
-  "opaque modifier" should "be accepted on a type alias with a body" in {
-    runEngineForErrors("opaque type Box[A] = A").asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "be accepted on a function definition" in {
-    runEngineForErrors("opaque def f: A = b").asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "mark an opaque type alias as opaque" in {
-    runEngineForFunctionOpaqueness("opaque type Box[A] = A").asserting(_ shouldBe Seq(("Box", true)))
-  }
-
-  it should "leave a plain type alias non-opaque" in {
-    runEngineForFunctionOpaqueness("type Box[A] = A").asserting(_ shouldBe Seq(("Box", false)))
-  }
-
-  it should "mark an opaque function as opaque while a following plain def stays non-opaque" in {
-    runEngineForFunctionOpaqueness("opaque def f: A = b\ndef g: A = c")
-      .asserting(_ shouldBe Seq(("f", true), ("g", false)))
-  }
-
-  it should "parse an opaque type alias followed by an infix def, keeping the def's fixity" in {
-    runEngineForFunctionFixities("opaque type Box[A] = A\ninfix def +(a: A, b: A): A = a").asserting(
+  "a type alias followed by an infix def" should "keep the def's fixity" in {
+    runEngineForFunctionFixities("type Box[A] = A\ninfix def +(a: A, b: A): A = a").asserting(
       _ should contain theSameElementsAs Seq(("Box", Fixity.Application), ("+", Fixity.Infix(Fixity.Associativity.Left)))
     )
   }
@@ -796,18 +775,6 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
           functions.map(f => (f.name.value.name, f.args.size))
-        }
-        .toSeq
-        .flatten
-    }
-
-  private def runEngineForFunctionOpaqueness(source: String): IO[Seq[(String, Boolean)]] =
-    for {
-      results <- runEngine(source)
-    } yield {
-      results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
-          functions.map(f => (f.name.value.name, f.opaque))
         }
         .toSeq
         .flatten

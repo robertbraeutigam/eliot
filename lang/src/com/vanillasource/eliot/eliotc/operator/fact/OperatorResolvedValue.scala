@@ -14,7 +14,6 @@ case class OperatorResolvedValue(
     runtime: Option[Sourced[OperatorResolvedExpression]],
     typeStack: Sourced[TypeStack[OperatorResolvedExpression]],
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
-    opaque: Boolean = false,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
     // True when the return position is a bare under-applied omittable (`auto`) reference (e.g. a bare `Int` or a
@@ -30,14 +29,6 @@ case class OperatorResolvedValue(
     dischargedEffects: Seq[AbilityFQN] = Seq.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn, platform)
-
-  /** The body as seen during type checking: an `opaque` definition presents as body-less (stuck), so checker-phase
-    * evaluators never unfold it (keeping e.g. `Int[0,255]` distinct from `Int[0,1000]`). The body stays in [[runtime]]
-    * for post-checking phases (representation lowering) to unfold. Mirrors the guard in `UserValueNativesProcessor`;
-    * every checker-phase reader that builds an evaluator from a value's own body must use this, not [[runtime]].
-    */
-  def checkingRuntime: Option[Sourced[OperatorResolvedExpression]] =
-    if (opaque) None else runtime
 }
 
 object OperatorResolvedValue {

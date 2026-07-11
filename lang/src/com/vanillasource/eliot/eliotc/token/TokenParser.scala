@@ -24,7 +24,7 @@ class TokenParser(sourced: Sourced[?]) {
       ),
       SymbolDesc(
         hardKeywords =
-          Set("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val", "private", "opaque"),
+          Set("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val", "private"),
         hardOperators = Set("(", ")", "[", "]", "->", "_", "::", ":"),
         caseSensitive = true
       ),
@@ -57,7 +57,7 @@ class TokenParser(sourced: Sourced[?]) {
 
   private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
     character
-      .strings("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val", "private", "opaque")
+      .strings("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val", "private")
       .map(Token.Keyword.apply)
   ).label("keyword")
 

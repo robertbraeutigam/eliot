@@ -13,12 +13,10 @@ import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Turns a [[SaturatedValue]] into a binding (a `VTopDef` carrying a lazy body thunk) for the NbE evaluator, closing the
-  * body over the [[NativeBinding]]s of its dependencies. The two callers differ in exactly one decision — which body the
-  * value contributes — passed as `selfBody`:
-  *   - the [[BindingMergerProcessor]], for a [[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Body]]
-  *     contribution, uses [[OperatorResolvedValue.checkingRuntime]] (`opaque` bodies stay stuck);
-  *   - the [[TransparentBindingProcessor]] uses [[OperatorResolvedValue.runtime]] (`opaque` bodies unfold for
-  *     representation lowering).
+  * body over the [[NativeBinding]]s of its dependencies. The caller decides which body the value contributes, passed as
+  * `selfBody`: the [[BindingMergerProcessor]], for a
+  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Body]] contribution, uses
+  * [[OperatorResolvedValue.runtime]].
   *
   * Reads the [[SaturatedValue]] (the same fact the monomorphize checker reads), not the raw [[OperatorResolvedValue]],
   * for two reasons: the saturated signature carries the binder roles ([[SaturatedValue.binderRoles]]) the wrap
@@ -34,9 +32,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 object BindingClosure {
 
   /** Build the NbE binding for `saturated`, taking the value's own body via `selfBody`. A value whose `selfBody` is
-    * empty — a body-less native, or an `opaque` definition under [[OperatorResolvedValue.checkingRuntime]] — yields a
-    * stuck `VTopDef(vfqn, None, SNil)`; a body-ful value yields a `VTopDef` carrying a lazy thunk that evaluates the
-    * body on demand against its dependencies' [[NativeBinding]]s.
+    * empty — a body-less native or abstract declaration — yields a stuck `VTopDef(vfqn, None, SNil)`; a body-ful value
+    * yields a `VTopDef` carrying a lazy thunk that evaluates the body on demand against its dependencies'
+    * [[NativeBinding]]s.
     */
   def buildBinding(
       saturated: SaturatedValue,

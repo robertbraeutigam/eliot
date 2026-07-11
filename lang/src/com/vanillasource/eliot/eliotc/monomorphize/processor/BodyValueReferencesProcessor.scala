@@ -22,7 +22,7 @@ class BodyValueReferencesProcessor
       key: BodyValueReferences.Key,
       fact: SaturatedValue
   ): CompilerIO[BodyValueReferences] =
-    fact.value.checkingRuntime
+    fact.value.runtime
       .fold(Set.empty[ValueFQN].pure[CompilerIO])(body =>
         OperatorResolvedExpression.foldValueReferences[CompilerIO, Set[ValueFQN]](body.value, Set.empty)((acc, ref) =>
           (acc + ref.value).pure[CompilerIO]

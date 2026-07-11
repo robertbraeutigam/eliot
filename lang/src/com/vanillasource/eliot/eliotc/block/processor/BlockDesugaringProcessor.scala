@@ -45,7 +45,6 @@ class BlockDesugaringProcessor
       resolvedValue.paramConstraints,
       resolvedValue.fixity,
       resolvedValue.precedence,
-      resolvedValue.opaque,
       resolvedValue.inferableArity,
       resolvedValue.roleHint,
       resolvedValue.platform,

@@ -20,11 +20,6 @@ case class FunctionDefinition(
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     visibility: Visibility = Visibility.Public,
-    // When true, the type checker treats this definition as a stuck, identity-based reference and does NOT unfold its
-    // body during checking (later phases, e.g. backend representation lowering, may still unfold it). Lets a type with
-    // a body — like a platform `opaque type Int[MIN, MAX] = <repr>` — stay distinct per type argument so range
-    // assignability stays sound, instead of collapsing to its body.
-    opaque: Boolean = false,
     // The `/** ... */` documentation comment preceding this definition, if any. Attached by source-position adjacency
     // in `ASTParser` and consumed only by the apidoc tooling; never read by the compiler proper, never part of
     // `signatureEquality` (layers may document the same name differently), and dropped at the core boundary.
@@ -32,9 +27,9 @@ case class FunctionDefinition(
     // The effect abilities this definition *discharges* — the negative `{…, -E}` members of its effect set
     // (docs/effect-discharge-accounting.md). Populated by `EffectSugarDesugarer` from the signature's `EffectfulType`
     // negatives (as bare ability names, resolved to `AbilityFQN` in the resolve phase); empty for every ordinary
-    // definition. Rides the same fact chain as `opaque`, ending on `OperatorResolvedValue`, where the effect
-    // accounting subtracts it from a caller's used-effect set. Included in `signatureEquality` so a layer may not
-    // silently disagree with the abstract declaration about what it discharges.
+    // definition. Rides the fact chain to `OperatorResolvedValue`, where the effect accounting subtracts it from a
+    // caller's used-effect set. Included in `signatureEquality` so a layer may not silently disagree with the abstract
+    // declaration about what it discharges.
     dischargedEffects: Seq[Sourced[String]] = Seq.empty,
     // The named meta *slots* of a type declared with a `{slots}` brace (bounds-as-refinements §4.2), e.g.
     // `type Int {range: Interval[BigInteger, BigInteger]}` carries one slot `range: Interval[…]`. Each slot is
@@ -98,14 +93,14 @@ object FunctionDefinition {
       keyword("postfix").as(Fixity.Postfix: Fixity)
 
   /** Parses the modifier prefix shared by `def` and `type` definitions:
-    * `[opaque] [visibility] [fixity precedence*] <definitionKeyword>`, returning `(isOpaque, visibility, fixity,
-    * precedence)`. Atomic, so it backtracks cleanly when `definitionKeyword` does not follow the modifiers (letting the
-    * top-level `xor` dispatch try the next alternative). Called with `"def"` for value definitions and `"type"` for type
-    * aliases — so a type alias can carry a fixity exactly like a `def`, e.g. `infix right type =>[A, B] = Function[A, B]`.
+    * `[visibility] [fixity precedence*] <definitionKeyword>`, returning `(visibility, fixity, precedence)`. Atomic, so it
+    * backtracks cleanly when `definitionKeyword` does not follow the modifiers (letting the top-level `xor` dispatch try
+    * the next alternative). Called with `"def"` for value definitions and `"type"` for type aliases — so a type alias can
+    * carry a fixity exactly like a `def`, e.g. `infix right type =>[A, B] = Function[A, B]`.
     */
   def modifierPrefix(
       definitionKeyword: String
-  ): Parser[Sourced[Token], (Boolean, Visibility, Fixity, Seq[PrecedenceDeclaration])] = {
+  ): Parser[Sourced[Token], (Visibility, Fixity, Seq[PrecedenceDeclaration])] = {
     val withFixity =
       (for {
         fixity <- fixityDecl
@@ -115,10 +110,9 @@ object FunctionDefinition {
     val plain      =
       keyword(definitionKeyword).map(_ => (Fixity.Application: Fixity, Seq.empty: Seq[PrecedenceDeclaration]))
     (for {
-      isOpaque       <- keyword("opaque").as(true).optional().map(_.getOrElse(false))
       vis            <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
       (fixity, prec) <- withFixity or plain
-    } yield (isOpaque, vis, fixity, prec)).atomic()
+    } yield (vis, fixity, prec)).atomic()
   }
 
   given ASTComponent[FunctionDefinition] = new ASTComponent[FunctionDefinition] {
@@ -129,17 +123,17 @@ object FunctionDefinition {
       acceptIfAll(isIdentifier, isLowerCase)("function name") or acceptIf(isUserOperator, "function name")
 
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
-      (isOpaque, vis, fixity, prec) <- modifierPrefix("def")
-      name                          <- functionName
-      genericParameters             <- component[Seq[GenericParameter]]
-      args                          <- optionalArgumentListOf(component[ArgumentDefinition])
-      _                             <- symbol(":")
-      typeExpression                <- sourced(Expression.typeRunParser)
+      (vis, fixity, prec) <- modifierPrefix("def")
+      name                <- functionName
+      genericParameters   <- component[Seq[GenericParameter]]
+      args                <- optionalArgumentListOf(component[ArgumentDefinition])
+      _                   <- symbol(":")
+      typeExpression      <- sourced(Expression.typeRunParser)
       // The return-position transfer brace `: T {expr, …}` (bounds-as-refinements §4.2). `typeRunParser`'s type-atom
       // run stops at `{` (a `{` is not a type-atom start — that leading-brace position is the effect-set sugar), so the
       // brace sits unconsumed here, between the return type and the optional `= body`. Absent for an ordinary def.
-      returnMeta                    <- optionalBracketedCommaSeparatedItems("{", sourced(component[Expression]), "}")
-      functionBody                  <- functionBody
+      returnMeta          <- optionalBracketedCommaSeparatedItems("{", sourced(component[Expression]), "}")
+      functionBody        <- functionBody
     } yield FunctionDefinition(
       name.map(m => QualifiedName(m.content, Qualifier.Default)),
       genericParameters,
@@ -149,7 +143,6 @@ object FunctionDefinition {
       fixity,
       prec,
       vis,
-      isOpaque,
       returnMeta = returnMeta
     )
   }

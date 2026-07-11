@@ -88,7 +88,7 @@ object SignatureRenderer {
   }
 
   private def typeDefinition(fn: FunctionDefinition): String = {
-    val prefix = visibilityPrefix(fn.visibility) + (if (fn.opaque) "opaque " else "")
+    val prefix = visibilityPrefix(fn.visibility)
     // For a `type`, the parameters live in `args` (TypeAliasDefinition moves them there) and are bracketed with `[]`.
     val params = if (fn.args.isEmpty) "" else fn.args.map(typeParameter).mkString("[", ", ", "]")
     val body   = fn.body.map(b => s" = ${b.value.show}").getOrElse("")

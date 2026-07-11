@@ -11,7 +11,7 @@ package com.vanillasource.eliot.eliotc.apidoc.render
 object EliotHighlighter {
   private val keywords = Set(
     "import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val",
-    "private", "opaque", "auto", "left", "right", "none", "at", "above", "below"
+    "private", "auto", "left", "right", "none", "at", "above", "below"
   )
 
   private def isOperatorChar(c: Char): Boolean = "!#$%&*+./<=>?@\\^|-~;:".contains(c)

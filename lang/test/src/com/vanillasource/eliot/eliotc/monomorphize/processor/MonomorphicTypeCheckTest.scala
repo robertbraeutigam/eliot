@@ -638,37 +638,17 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Opaque modifier ---
+  // --- Transparent type aliases ---
 
-  "opaque modifier" should "keep a plain (transparent) alias definitionally equal to its body" in {
+  "a transparent alias" should "be definitionally equal to its body" in {
     runForErrors("type Id[A] = A\ndef s: String\ndef f: Id[String] = s")
       .asserting(_ shouldBe Seq.empty)
   }
 
-  it should "make an opaque alias NOT definitionally equal to its body" in {
-    // With the body hidden, `Box[String]` stays a stuck reference and does not unfold to `String`, so a `String` is no
-    // longer assignable to it.
-    runForErrors("opaque type Box[A] = A\ndef s: String\ndef f: Box[String] = s")
-      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
-  }
-
-  it should "keep an opaque alias definitionally equal to itself" in {
-    runForErrors("opaque type Box[A] = A\ndef s: Box[String]\ndef f: Box[String] = s")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "merge distinct type arguments of a transparent alias that ignores them" in {
-    // `W[1]` and `W[2]` both unfold to `String`, so `W[1]` is accepted where `W[2]` is expected — the unsound collapse
-    // an opaque barrier must prevent for representation-bearing types.
+  it should "merge distinct type arguments of an alias that ignores them" in {
+    // `W[1]` and `W[2]` both unfold to `String`, so `W[1]` is accepted where `W[2]` is expected.
     runForErrors("type W[N: BigInteger] = String\ndef f(x: W[1]): W[2] = x")
       .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "keep distinct type arguments of an opaque alias distinct" in {
-    // The opaque barrier keeps `W[1]` and `W[2]` separate even though both bodies are `String` — the soundness property
-    // that lets a platform `opaque type Int[MIN, MAX] = <repr>` map ranges to representations without conflating them.
-    runForErrors("opaque type W[N: BigInteger] = String\ndef f(x: W[1]): W[2] = x")
-      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
   // --- Recursion (termination M1: rejected, not unrolled) ---

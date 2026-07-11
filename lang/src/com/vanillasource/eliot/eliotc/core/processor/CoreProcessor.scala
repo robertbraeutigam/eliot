@@ -124,7 +124,6 @@ class CoreProcessor
       function.precedence.map(convertPrecedenceDeclaration),
       function.visibility,
       roleHint,
-      function.opaque,
       inferableArity,
       function.dischargedEffects
     )

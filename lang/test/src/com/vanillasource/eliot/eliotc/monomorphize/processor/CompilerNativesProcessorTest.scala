@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.VTopDef
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, NativeBinding, TransparentBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -69,10 +69,6 @@ class CompilerNativesProcessorTest extends ProcessorTest(LangProcessors(systemMo
 
   it should "reduce a name during checking off its compiler-platform body (native wins over the runtime user body)" in {
     fact(NativeBinding.Key(fqn("foo"))).asserting(_._1.map(b => reducesTo(b.semValue)) shouldBe Some(Some("b")))
-  }
-
-  it should "use the runtime body for codegen (TransparentBinding)" in {
-    fact(TransparentBinding.Key(fqn("foo"))).asserting(_._1.map(b => reducesTo(b.semValue)) shouldBe Some(Some("c")))
   }
 
   it should "contribute None for a name absent from the compiler pool" in {

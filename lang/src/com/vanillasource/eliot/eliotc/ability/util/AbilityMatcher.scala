@@ -121,10 +121,10 @@ object AbilityMatcher {
   ): CompilerIO[Map[ValueFQN, Binding]] =
     getFactIfProduced(OperatorResolvedValue.Key(vfqn)).flatMap {
       case Some(fact) =>
-        // Use `checkingRuntime`, not `runtime`: an `opaque` value (e.g. the jvm `Int`) must stay a stuck head here so
-        // that ability-pattern matching compares by type constructor (`Coerce[Int, Int]`) instead of unfolding the
-        // body into its representation and failing to match.
-        fact.checkingRuntime match {
+        // A body-less value (e.g. the abstract `Int`, whose machine representation is not a type body) stays a stuck
+        // head here, so ability-pattern matching compares by type constructor (`Numeric[Int]`) instead of unfolding a
+        // body into some representation and failing to match.
+        fact.runtime match {
           case Some(body) =>
             // Recurse into the fetched body to discover further references; the already-in-map check in
             // `collectBindings` guards against cycles because we add the Body entry before recursing.

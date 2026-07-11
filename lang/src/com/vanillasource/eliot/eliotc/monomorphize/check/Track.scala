@@ -101,7 +101,7 @@ object Track {
         checker.calcReturns.dischargeGuardedSignature(
           instantiated,
           sawGuard,
-          resolvedValue.checkingRuntime.isDefined,
+          resolvedValue.runtime.isDefined,
           resolvedValue.name
         )
 

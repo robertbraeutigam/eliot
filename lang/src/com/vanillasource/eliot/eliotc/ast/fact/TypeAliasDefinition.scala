@@ -19,9 +19,9 @@ object TypeAliasDefinition {
       acceptIfAll(isIdentifier, isUpperCase)("type name") or acceptIf(isUserOperator, "type name")
 
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
-      (isOpaque, vis, fixity, prec) <- FunctionDefinition.modifierPrefix("type")
-      name                          <- typeName
-      genericParameters             <- component[Seq[GenericParameter]]
+      (vis, fixity, prec) <- FunctionDefinition.modifierPrefix("type")
+      name                <- typeName
+      genericParameters   <- component[Seq[GenericParameter]]
       // The meta-slot brace (bounds-as-refinements §4.2): `type Int {range: Interval[BigInteger, BigInteger]}` declares
       // the named meta slots the type carries, each `name: Domain` (an `ArgumentDefinition`). Parsed here — after the
       // generic params `[…]`, before the optional `= body` — because `component[Seq[GenericParameter]]` sees `{` (not
@@ -51,7 +51,6 @@ object TypeAliasDefinition {
         fixity = fixity,
         precedence = prec,
         visibility = vis,
-        opaque = isOpaque,
         metaSlots = metaSlots
       )
     }

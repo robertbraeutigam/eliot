@@ -106,7 +106,7 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * operator-resolved body — the signal that its raw reduction would stall on an unresolved ability call.
     */
   private def performsAbility(value: OperatorResolvedValue): Boolean =
-    value.checkingRuntime.exists { body =>
+    value.runtime.exists { body =>
       OperatorResolvedExpression.foldValueReferences[Id, Boolean](body.value, false) { (acc, ref) =>
         acc || (ref.value.name.qualifier match {
           case _: Qualifier.Ability => true

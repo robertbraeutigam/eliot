@@ -68,7 +68,6 @@ class ValueResolver
       resolvedConstraints,
       namedValue.fixity,
       resolvedPrecedence,
-      namedValue.opaque,
       namedValue.inferableArity,
       namedValue.roleHint,
       key.platform,

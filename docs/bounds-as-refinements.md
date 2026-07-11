@@ -3,9 +3,12 @@
 **Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) is COMPLETE (6-i/6-ii/6-iii); Step 7's
 deletable half LANDED (7b Combine + 7a Coerce/RefinementSolver); Step 8's GATING CORE LANDED — `Interval[S,E]`
 collapsed to `Interval[T]`, `Numeric` replaced/absorbed `Arithmetic` (operators `+`/`-`/`*` now on `Numeric`), and
-`Arithmetic`/`Combine` are DELETED — which unblocks 7c (assoc lane) / 7d (opaque) / 7e (vestiges), now the next work.
-Remaining Step-8 follow-ons (additive, non-gating): `where`-on-defs, LSP hover from the meta fact, and the second
-domain (List/Array size).** `Int` no longer has type parameters: it is a single type whose value range is
+`Arithmetic`/`Combine` are DELETED; then **7c (assoc lane) and 7d (opaque track) DELETED** — the checker's whole
+associated-types machinery and the entire `opaque`/`checkingRuntime`/`TransparentBinding` track are gone (jvm `Int` is
+now a body-less `type Int`; representation comes solely from the channel's `Represent[Interval]`, ⊤ → bignum). Remaining:
+**7e (vestiges** — `ValueResolver`'s `applied`-flag/searchAbilities attachment, `CodegenProjection` width-collapse
+comments) and the additive Step-8 follow-ons (`where`-on-defs, LSP hover from the meta fact, second domain =
+List/Array size).** `Int` no longer has type parameters: it is a single type whose value range is
 meta-information in the refinement channel. Post-6-iii the channel *computes* each node's range by flow and narrow
 layouts return for the nodes it can pin (literals, arithmetic-leaf transfers, `if` joins, outside lambda bodies),
 reconciled to a bignum at boundaries; a value it cannot pin stays a sound `java.math.BigInteger` (⊤). Landed and
@@ -1123,9 +1126,22 @@ bounds; only then does the atomic flip follow.
   (`AddResult[Int, Int]`) retired (6 tests deleted). `ValueResolver`'s `applied` flag / explicit-type-arg attachment is
   left for 7e (partly shared with non-assoc explicit ability type args; harmless dead-ish path). Full suite 1240/0;
   all examples build + run.
-- **7d — the `opaque` track. — BLOCKED until Step 8.** jvm `Int.els` is still `opaque type Int = JvmBigInteger[]`,
-  keeping `Int` nominally distinct from its bignum representation during checking (`RefinementRepresentation.isTrackedIntType`,
-  layout lowering). Removing `opaque` needs `Int` to no longer need that hiding — coupled to the same Step-8 rework.
+- **7d — the `opaque` track. — DONE (2026-07-11), after Step 8's gating core.** The whole track went: the `opaque`
+  keyword (`TokenParser`, `FunctionDefinition.modifierPrefix` — now a 3-tuple), the `opaque` flag threaded through
+  `FunctionDefinition`/`NamedValue`/`ResolvedValue`/`BlockDesugaredValue`/`MatchDesugaredValue`/`OperatorResolvedValue`
+  and every producer, `OperatorResolvedValue.checkingRuntime` (collapsed into `runtime` at all ~8 readers — behaviorally
+  a no-op since nothing is opaque), the `TransparentBinding` fact + processor (its only production reader was the deleted
+  unfold), and `RepresentationLowering.unfold`. jvm `Int` went from `opaque type Int = JvmBigInteger[]` to a **body-less
+  `type Int`** (re-declared per-file since it merges with the base's body-less `type Int`) — abstract, so the checker
+  keeps it distinct from any representation type honestly (no hiding needed), `isTrackedIntType` keeps firing, and ability
+  dispatch on `Int` keeps working (the two things `opaque` protected). Representation is now sourced **solely** from the
+  channel: `RepresentationLowering.representInt` uses the channel's per-node interval when known, else the platform's
+  `Represent[Interval]` policy on a ⊤ interval (`RefinementRepresentation.topLayout`, → a bignum) — so the ⊤ layout stays
+  platform-supplied in Eliot rather than hardcoding `JvmBigInteger` in `lang`. Corrections to §5.1: `opaque` was *not* in
+  any `signatureEquality`, and `BinderRoles`/`CodegenProjection` carried no `opaque` flag (comments only). Test churn:
+  the opaque-alias definitional-equality tests + the bounded-`Int` representation-version-collapse tests (S2/S3, a
+  pre-flag-day scenario — nullary `Int` is one instantiation) retired; the transparent-alias tests kept. Full suite
+  1229/0; all examples build + run; narrow layouts still fire (javap: literals → `Byte`, ⊤ → `BigInteger`).
 - **7e — vestiges** (`CodegenProjection`'s width-collapse, per-bound identity leftovers, `BinderRoles`): follow 7c/7d.
 
 So 7b + 7a landed now; **7c/7d/7e are re-sequenced *after* Step 8** because the 6-ii scope-minimizing decision (keep

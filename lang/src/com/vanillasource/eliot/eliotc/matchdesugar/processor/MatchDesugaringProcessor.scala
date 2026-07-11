@@ -36,7 +36,6 @@ class MatchDesugaringProcessor
       convertParamConstraints(blockDesugaredValue.paramConstraints),
       blockDesugaredValue.fixity,
       blockDesugaredValue.precedence,
-      blockDesugaredValue.opaque,
       blockDesugaredValue.inferableArity,
       blockDesugaredValue.roleHint,
       blockDesugaredValue.platform,

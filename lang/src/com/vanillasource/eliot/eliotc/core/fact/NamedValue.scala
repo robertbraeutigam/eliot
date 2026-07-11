@@ -38,7 +38,6 @@ case class NamedValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     visibility: Visibility = Visibility.Public,
     roleHint: RoleHint = RoleHint.NoHint,
-    opaque: Boolean = false,
     inferableArity: Int = 0,
     // The effect ability names this value discharges (the negative `{…, -E}` members). Still unresolved names here;
     // the resolve phase turns them into `AbilityFQN`s. See [[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition.dischargedEffects]].

@@ -65,7 +65,7 @@ class BindingMergerProcessor(nativeLabels: Seq[String], userLabels: Seq[String])
       semValue <- selected match {
                     case Some(BindingContribution.Leaf(value))     => value.pure[CompilerIO]
                     case Some(BindingContribution.Body(saturated)) =>
-                      BindingClosure.buildBinding(saturated, _.checkingRuntime, key.platform)
+                      BindingClosure.buildBinding(saturated, _.runtime, key.platform)
                     case None                                      => abort[SemValue]
                   }
     } yield NativeBinding(key.vfqn, semValue, key.platform)

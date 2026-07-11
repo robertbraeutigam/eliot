@@ -90,7 +90,7 @@ class TypeStackLoop(
       //     undischarged carrier signature `Either[String, Type]` for a consumer to evaluate — a compiler-track guard
       //     discharge would replace the return with a metavariable, starving the body's `pure`/`raise` of its concrete
       //     carrier and blocking the reduction).
-      calcReturn              = resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isDefined
+      calcReturn              = resolvedValue.calculatedReturn && resolvedValue.runtime.isDefined
       checkResult            <- track.settleReturnPosition(checker, instantiated, calcReturn, sawGuard, resolvedValue)
       (checkSig, returnMeta)  = checkResult
 
@@ -100,10 +100,9 @@ class TypeStackLoop(
       // `PostDrainQuoter`; no post-hoc `VConst → groundToSem` rewrite is needed.
       monoEnv <- inspect(_.rho)
 
-      // Check runtime body if present — produces SemExpression with SemValue slots. An `opaque` value presents as
-      // body-less here (`checkingRuntime`), so its body is neither checked nor emitted during checking; post-checking
-      // representation lowering unfolds it separately.
-      runtime      <- resolvedValue.checkingRuntime.traverse { body =>
+      // Check runtime body if present — produces SemExpression with SemValue slots. A body-less value (an abstract
+      // declaration) has nothing to check or emit here.
+      runtime      <- resolvedValue.runtime.traverse { body =>
                         checker.check(body, checkSig).map(expr => body.as(expr))
                       }
 
@@ -152,7 +151,7 @@ class TypeStackLoop(
       // per-instantiation on the compiler track — yielding a `!=[Type]` body with `equals` already resolved — then
       // re-evaluate the guard return against that (so `!=` inlines the reduced form and the guard collapses to a
       // concrete `Bool`). Gated on a body-less guarded signature, so ordinary and W2b (bodied) signatures are untouched.
-      guardMarker    = sawGuard && resolvedValue.checkingRuntime.isEmpty
+      guardMarker    = sawGuard && resolvedValue.runtime.isEmpty
       guardBindings <- if (guardMarker) reduceGuardSubValues(levelExprs) else pure(Map.empty[ValueFQN, SemValue])
       finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(resolvedValue, guardBindings) else pure(checkSig)
       quoterState   <- get
@@ -233,27 +232,21 @@ class TypeStackLoop(
 
   /** W4 (Limit 5): a calculated return is *calculated from the body*; a value with no body the checker can see cannot
     * calculate it, and an output position must not quantify it instead, so the bare return must be stated explicitly.
-    * Two body-less cases: a truly abstract declaration (`runtime` is `None` — e.g. a platform-layer signature awaiting
-    * an implementation) and an `opaque` value (whose body is deliberately hidden from the checker, `checkingRuntime` is
-    * `None`). Either way [[CalculatedReturnResolver.installReturnMeta]] would not run, leaving the `Type` placeholder
-    * in the signature, so this
-    * is reported at the definition rather than letting that placeholder escape.
+    * A body-less value here is a truly abstract declaration (`runtime` is `None` — e.g. a platform-layer signature
+    * awaiting an implementation): [[CalculatedReturnResolver.installReturnMeta]] would not run, leaving the `Type`
+    * placeholder in the signature, so this is reported at the definition rather than letting that placeholder escape.
     */
   private def failOnAbstractCalculatedReturn(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
-    if (resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isEmpty) {
-      val name            = resolvedValue.vfqn.name.name
-      val (message, hint) =
-        if (resolvedValue.runtime.isEmpty)
-          (
-            s"Abstract declaration '$name' must state its return type explicitly; there is no body to calculate it from.",
-            "Add an explicit return type, or provide a concrete implementation."
-          )
-        else
-          (
-            s"Opaque value '$name' must state its return type explicitly; its body is hidden from the type checker.",
-            "Add an explicit return type."
-          )
-      liftF(compilerError(resolvedValue.name.as(message), Seq(hint)) >> abort[Unit])
+    if (resolvedValue.calculatedReturn && resolvedValue.runtime.isEmpty) {
+      val name = resolvedValue.vfqn.name.name
+      liftF(
+        compilerError(
+          resolvedValue.name.as(
+            s"Abstract declaration '$name' must state its return type explicitly; there is no body to calculate it from."
+          ),
+          Seq("Add an explicit return type, or provide a concrete implementation.")
+        ) >> abort[Unit]
+      )
     } else pure(())
 
   /** Fail-safe for a calculated return (W3) the body did not pin down (Limit 2). After the drain-and-resolve loop the

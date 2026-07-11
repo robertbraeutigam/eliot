@@ -31,7 +31,6 @@ class OperatorResolverProcessor
       resolvedRuntime,
       resolvedTypeStack,
       resolvedConstraints,
-      desugaredValue.opaque,
       desugaredValue.inferableArity,
       desugaredValue.roleHint,
       platform = desugaredValue.platform,

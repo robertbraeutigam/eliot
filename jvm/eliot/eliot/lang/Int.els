@@ -19,12 +19,14 @@ type JvmLong
 
 type JvmBigInteger
 
-// The JVM's representation for `Int`. With the value range moved out of the type (`docs/bounds-as-refinements.md`), `Int`
-// is a single type and every integer currently lowers to a `JvmBigInteger` (bignum) — sound on every value, uniform, so
-// no per-node reconciliation is needed. Narrow layouts (`JvmByte`/…) return once the refinement channel's flow analysis
-// drives representation from a value's tracked range. Marked `opaque` so the type checker keeps `Int` distinct from the
-// raw `JvmBigInteger` representation type; a later, post-checking pass unfolds it.
-opaque type Int = JvmBigInteger[]
+// `Int` is body-less (abstract), like the base's `type Int` it merges with — re-declared here because name resolution is
+// per-file (a sibling file's declaration of the same module is not visible, so this file must spell it out). Its JVM
+// representation is *not* a type body: keeping `Int` body-less is what keeps the checker treating it distinctly from any
+// representation type. The machine layout is derived from `Int`'s value-range refinement by the `Represent[Interval]`
+// instance in this layer's `eliot-compiler/` overlay (`docs/bounds-as-refinements.md`) — a narrow `JvmByte`/…/`JvmLong`
+// when the channel pins the range, else a `JvmBigInteger` (the ⊤ layout); `RepresentationLowering` rewrites every `Int`
+// node to that layout before codegen.
+type Int
 
 // The JVM half of the base's split `Numeric[Int]` instance: same `(ability, pattern)`, so it merges with the base's
 // abstract half. The base fixes the method signatures; this layer supplies the method bodies, each a single call to the

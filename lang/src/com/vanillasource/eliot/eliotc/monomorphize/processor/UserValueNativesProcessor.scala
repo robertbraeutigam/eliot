@@ -12,14 +12,6 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
   * runtime-only function, the evaluator's stuck `VNeutral` fallback — never an empty user binding that would shadow a
   * reducing native, the `add` bug).
   *
-  * An `opaque` definition is body-ful here, so it contributes a `Body`; its checking body is empty
-  * ([[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.checkingRuntime]]), so the merger builds a
-  * stuck `VTopDef(fqn, None, ...)` from it — exactly like a body-less native/type constructor. The evaluator therefore
-  * never unfolds it, keeping a platform type with a body — like `opaque type Int[MIN, MAX] = <repr>` — distinct per type
-  * argument so range assignability stays sound. The body remains in
-  * [[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.runtime]] for representation lowering (via
-  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.TransparentBinding]]) to unfold.
-  *
   * Selected by the [[BindingMergerProcessor]] only when no native supplies the name; native+user coexistence (e.g.
   * `add`'s compile-time native and its runtime body) is benign, the native winning by category precedence.
   */

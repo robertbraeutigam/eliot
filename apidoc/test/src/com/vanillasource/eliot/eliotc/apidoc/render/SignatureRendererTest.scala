@@ -36,10 +36,9 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
       body: Option[Expression] = None,
       fixity: Fixity = Fixity.Application,
       precedence: Seq[PrecedenceDeclaration] = Seq.empty,
-      visibility: Visibility = Visibility.Public,
-      opaque: Boolean = false
+      visibility: Visibility = Visibility.Public
   ): FunctionDefinition =
-    FunctionDefinition(s(QualifiedName(name, qualifier)), generics, args, s(ret), body.map(s), fixity, precedence, visibility, opaque)
+    FunctionDefinition(s(QualifiedName(name, qualifier)), generics, args, s(ret), body.map(s), fixity, precedence, visibility)
 
   "signature renderer" should "render a nullary value with no parentheses" in {
     SignatureRenderer.function(fn("main", ret = ty("IO", ty("Unit")))) shouldBe "def main: IO[Unit]"

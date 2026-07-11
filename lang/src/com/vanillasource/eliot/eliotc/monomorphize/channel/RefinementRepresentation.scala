@@ -10,20 +10,20 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.ReducedBindingClosu
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
-/** The representation half of the refinement channel — Step 3 of `docs/bounds-as-refinements.md`: derive an `Int`'s
-  * machine layout from its value-range refinement instead of from the hidden `opaque type Int` body.
+/** The representation half of the refinement channel (`docs/bounds-as-refinements.md`): derive an `Int`'s machine
+  * layout from its value-range refinement. This is the sole source of an `Int`'s representation now — the `opaque type
+  * Int` body it succeeded was deleted with the whole opaque track (Step 7d).
   *
-  * Given a ground `Int[min, max]` type it computes the layout by resolving the compiler-pool `Represent[Interval[…]]`
-  * instance (the platform's representation policy, written in Eliot as the same `fitsByte/…` fold the `opaque` body
-  * performs) and evaluating its `layout` body on the interval **value** `Interval(min, max)` through the one NbE
-  * evaluator — the `RefinementChannelProcessor` transfer/join pattern re-pointed at `Represent.layout`. The result is a
-  * representation type (`JvmByte`/…), exactly what the `opaque` unfold produces.
+  * Given an interval it computes the layout by resolving the compiler-pool `Represent[Interval[…]]` instance (the
+  * platform's representation policy, written in Eliot as a `fitsByte/…` fold) and evaluating its `layout` body on the
+  * interval **value** `Interval(min, max)` through the one NbE evaluator — the `RefinementChannelProcessor` transfer/join
+  * pattern re-pointed at `Represent.layout`. The result is a representation type (`JvmByte`/…).
   *
-  * [[com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering]] drives the Step-3 agreement check:
-  * it computes the layout this way *and* by unfolding the `opaque` body, asserts they agree, and consumes this
-  * channel-derived one. When no platform `Represent` instance is on the path (e.g. a bare representation-bearing `Int`
-  * stub in a unit test with no `eliot-compiler/` overlay) [[channelLayout]] returns [[None]] and the lowering falls back
-  * to the `opaque` unfold — reduced coverage, never a false accept.
+  * [[com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering]] uses the channel's per-node interval
+  * when one is known and [[topLayout]] (the `Represent` policy on the ⊤ interval, → a bignum) otherwise. When no
+  * platform `Represent` instance is on the path (a bare `Int` stub in a unit test with no `eliot-compiler/` overlay,
+  * which does no codegen) [[channelLayout]]/[[topLayout]] return [[None]] and the `Int` is kept verbatim — reduced
+  * coverage, never a false layout.
   */
 object RefinementRepresentation {
 
@@ -31,30 +31,23 @@ object RefinementRepresentation {
   private[channel] val representLayoutFqn: ValueFQN =
     ValueFQN(ModuleName(ModuleName.compilerPackage, "Represent"), QualifiedName("layout", Qualifier.Ability("Represent")))
 
-  /** Whether `gv` is the tracked `Int` type constructor — the one type the channel derives a representation for. Its
-    * bounds need not be extractable here; [[channelLayout]] returns [[None]] (falling back to the `opaque` unfold) if
-    * they are not.
-    */
+  /** Whether `gv` is the tracked `Int` type constructor — the one type the channel derives a representation for. */
   def isTrackedIntType(gv: GroundValue): Boolean = gv match {
     case GroundValue.Structure(fqn, _, _) => fqn == RefinementChannelProcessor.intTypeFqn
     case _                                => false
   }
 
-  /** Compute the machine layout of a ground `Int[min, max]` type via the platform's `Represent[Interval[…]]` instance,
-    * or [[None]] when the type is not an extractable `Int`, no `Represent` instance is on the compiler path, or the
-    * instance body does not reduce to a representation type.
+  /** Compute the machine layout for an `Int` node from `nodeInterval` via the platform's `Represent[Interval[…]]`
+    * instance, or [[None]] when there is no interval, no `Represent` instance is on the compiler path, or the instance
+    * body does not reduce to a representation type.
     *
     * The `nodeInterval` is the per-node interval the refinement channel recorded for *this* node (from
-    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable]], keyed by source position). It is
-    * *preferred* over the interval read off the type — this is the Step-6 staging move (`docs/bounds-as-refinements.md`,
-    * "Staged R2"): representation is sourced from the channel table, with the `Int[min, max]` type kept only as the
-    * shadow cross-check ([[com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering.representInt]]
-    * asserts the two layouts agree). In shadow mode the table interval is seeded from the same type, so the two coincide;
-    * after the flag day (when `Int` loses its type parameters) the table is the *only* interval source and the type
-    * fallback yields nothing. [[None]] `nodeInterval` falls back to the type interval.
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable]], keyed by source position) — the sole
+    * interval source, since post-flag-day `Int` is nullary and carries no range in its type. [[None]] `nodeInterval`
+    * (a ⊤/unknown range) yields [[None]] here; the caller then uses [[topLayout]].
     *
     * The returned [[GroundValue]] is the raw quoted layout (a representation type such as `JvmByte`); the caller lowers
-    * it structurally the same way the `opaque` unfold path does before comparing the two.
+    * it structurally.
     */
   def channelLayout(intGroundType: GroundValue, nodeInterval: Option[(BigInt, BigInt)]): CompilerIO[Option[GroundValue]] =
     nodeInterval.orElse(RefinementChannelProcessor.intIntervalOf(intGroundType)) match {
@@ -68,6 +61,22 @@ object RefinementRepresentation {
     * representation type. This is the interval-keyed core of [[channelLayout]], usable when the interval is already in
     * hand (from the channel table) rather than embedded in an `Int[min, max]` type.
     */
+  /** The ⊤ ("know nothing") interval: a range too wide for any narrow machine width, so the platform's
+    * `Represent[Interval]` policy maps it to its widest layout (a bignum). Used as the fallback when the channel has no
+    * per-node interval for an `Int` (every `Int` whose range flow analysis cannot pin), keeping the ⊤ representation
+    * *policy* in the platform's Eliot `Represent` instance rather than hardcoding a machine type in `lang`.
+    */
+  private[channel] val topInterval: (BigInt, BigInt) = {
+    val bound = BigInt(2).pow(80)
+    (-bound, bound)
+  }
+
+  /** Compute the ⊤/unknown-range layout — the platform's `Represent[Interval]` policy on the [[topInterval]] (→ a
+    * bignum). [[None]] only when no `Represent` instance is on the compiler path (an overlay-less unit-test stub that
+    * does no codegen).
+    */
+  def topLayout: CompilerIO[Option[GroundValue]] = channelLayoutForInterval(topInterval)
+
   def channelLayoutForInterval(bounds: (BigInt, BigInt)): CompilerIO[Option[GroundValue]] =
     for {
       resolved <- getFactIfProduced(

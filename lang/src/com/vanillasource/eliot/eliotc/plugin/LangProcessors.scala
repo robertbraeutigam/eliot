@@ -30,7 +30,6 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
   SystemNativesProcessor,
-  TransparentBindingProcessor,
   UserValueNativesProcessor
 }
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
@@ -107,7 +106,6 @@ object LangProcessors {
     CompilerMonomorphicTypeCheckProcessor(),
     RefinementChannelProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
-    TransparentBindingProcessor(),
     BodyValueReferencesProcessor(),
     MonomorphicUncurryingProcessor()
   )
