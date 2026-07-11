@@ -10,8 +10,10 @@ now a body-less `type Int`; representation comes solely from the channel's `Repr
 associated types **outright** (general type-level ones too, not just the bounds-serving application — the `§5.1`
 "removed" option); bare associated *returns* still work via the calculated-return path. **7e** cleared the last
 resolver vestige (`ValueResolver`'s impl-scope auto-apply + the `applied` flag), keeping the load-bearing explicit-
-type-arg attachment. Remaining: only the additive Step-8 follow-ons (`where`-on-defs, LSP hover from the meta fact,
-second domain = List/Array size).** `Int` no longer has type parameters: it is a single type whose value range is
+type-arg attachment. The additive Step-8 follow-ons **LSP hover** (Int hovers show the channel's computed range) and
+**`where`-on-defs** (`def useByte(x: Int): Int where withinByte(range(x))` — use-site precondition enforcement, closing
+the Step-6 out-of-range gap) are **DONE**; the one remaining follow-on is the second domain (List/Array size).** `Int`
+no longer has type parameters: it is a single type whose value range is
 meta-information in the refinement channel. Post-6-iii the channel *computes* each node's range by flow and narrow
 layouts return for the nodes it can pin (literals, arithmetic-leaf transfers, `if` joins, outside lambda bodies),
 reconciled to a bignum at boundaries; a value it cannot pin stays a sound `java.math.BigInteger` (⊤). Landed and
@@ -1197,14 +1199,30 @@ operator-call boundary, verified by `javap`). **This unblocks 7c/7d/7e** (below)
   line when pinned. `TypeHintRangeCompileTest` proves it end-to-end (literal `42` → `[42,42]`; a function reference → no range,
   the §6-iii intra-procedural fail-safe). Full suite 871/871; LSP 383/383.
 
-- **`where` preconditions on defs (§4.3). — NOT DONE.** Additive, kept off the critical path deliberately; this is where
-  narrow *storage/return* genuinely returns (`where`-pinned boundaries) and closes the Step-6 enforcement gap (out-of-range
-  errors currently have no JVM replacement). The existing `where` machinery is for `implement` markers (guard rides the
-  marker's *return slot*, discharged at the use site by `AbilityImplementationProcessor` through the checker's NbE). A
-  refinement `where x.range.end <= 255` is a *different* integration: its predicate reads the **channel's** per-node interval
-  (a post-pass, `RefinementChannelProcessor`, downstream of monomorphize), not a type-level value in the checker. So it cannot
-  simply reuse the ability-guard discharge; the demand must be checked in the channel post-pass where per-node intervals exist.
-  `def` today has no `where` parse point (`FunctionDefinition.scala:125-147` parses only `: type {returnMeta}`).
+- **`where` preconditions on defs (§4.3). — DONE (2026-07-11, committed 28a3c302).** Closes the Step-6 enforcement gap:
+  out-of-range `Int` values had no JVM-backed rejection after `Int` lost its type-parameter bounds. `def useByte(x: Int):
+  Int where withinByte(range(x)) = x` is verified at each **use site** by the refinement channel (not the checker's NbE, as
+  ability guards are — a refinement `where` reads the channel's per-node interval, a post-pass downstream of monomorphize).
+  The integration mirrors the `^Meta` transfer companion (no new fact threading): (1) **parse** — `where` becomes a *hard*
+  keyword so a def's greedily-parsed return-type run stops cleanly at it (as at `infix`/`def`); `ImplementBlock`'s guard
+  switches to `keyword("where")`; `FunctionDefinition` gains a `whereClause` field. (2) **desugar** — `MetaWhereDesugarer`
+  emits a `f$Where(x: Int$Meta, …): Bool = <predicate>` companion in `Qualifier.Meta` (params retyped `T → T$Meta` so
+  `range(x)` projects the tracked range; `Bool` return written module-qualified; `$Where` name suffix so it never collides
+  with a `^Meta` transfer). Compiler-pool-only, demanded only by the channel. (3) **enforce** — `RefinementChannelProcessor`,
+  at a *full* call whose callee declares a `where` (a cheap cached `UnifiedModuleNames` membership test, so an ordinary call
+  costs one lookup and never demands a non-existent companion), reduces the companion over the arguments' channel intervals:
+  a `false` result or an **unknown (⊤) argument range** is a hard error at the call with provenance (the §4.3 fail-safe — a
+  caller must *prove* the range), `true` passes. The channel walk now **descends into lambda bodies** for this check (a def's
+  own parameters make its body a leading lambda, so without this every call in a parametered def would escape the check) while
+  still **not recording** narrow intervals there, so representation is unchanged. The stdlib compiler overlay adds
+  `within`/`withinByte`/`withinShort`/`withinMedium`/`withinLong` predicates over an `Interval` (width-baked, so a `where`
+  needs no `BigInteger` literals — the Int/BigInteger literal friction, no `Coerce`, is thereby sidestepped). `CACHE_VERSION`
+  10→11. Tests: `WhereOnDefIntegrationTest` (in-range pass, in-range-inside-a-lambda pass, out-of-range reject, ⊤-argument
+  reject) + `ASTParserTest` parse cases + `examples/WherePrecondition.els`. Full suite 871/871.
+  **v1 limitations (documented):** the predicate ranges over `Int` parameters (the sole tracked domain — a non-`Int` param's
+  `T$Meta` does not resolve); a `where` on a body-less native, or a partial application, is not checked (a partial application
+  is not yet a call; the full application is checked). Narrow *storage/return* — pinning a parameter's representation from its
+  `where` — is a further step (this lands the *demand*; the representation-narrowing follow-on can read the same companion).
 
 - **Second domain — `List`/`Array` `size`. — NOT DONE.** The real test of "user-defined tracking" and the prerequisite for
   flow grades (TODO.md); largest of the three and blocked on the open container-propagation question (§7 Q1).
