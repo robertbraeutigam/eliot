@@ -1,19 +1,21 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) has LANDED; narrow representations (6-iii)
-and the deletions (Step 7) remain.** `Int` no longer has type parameters: it is a single type whose value range is
-meta-information in the refinement channel, and every integer currently lays out as a `java.math.BigInteger`
-("uniform bignum" — sound, with narrow layouts returning at 6-iii from the channel's flow analysis). Landed and
+**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) has LANDED in full (6-i/6-ii/6-iii); the
+deletions (Step 7) remain.** `Int` no longer has type parameters: it is a single type whose value range is
+meta-information in the refinement channel. Post-6-iii the channel *computes* each node's range by flow and narrow
+layouts return for the nodes it can pin (literals, arithmetic-leaf transfers, `if` joins, outside lambda bodies),
+reconciled to a bignum at boundaries; a value it cannot pin stays a sound `java.math.BigInteger` (⊤). Landed and
 green on the full suite: **Steps 0–3**, **Step 5** (single-parameter `Numeric[T]` + `implement
 Numeric[BigInteger]`), **Step 4's `^Meta` desugar machinery** (4a meta structure + 4b-i transfer-companion desugar
 + Int's `range` slot + **4c's transfer half** — the channel evaluates the leaf's `^Meta` transfer companion
 `rangeAdd^Meta`/… spelled as **plain** `intervalAdd`/… functions bottoming at `Numeric[BigInteger]` natives, since
 a transitively-reached Eliot-body instance never dispatches under the channel's NbE — see §8 Step 4c), and
-**Step 6** (the flag day, done as "Staged R2": **6-i** sourced representation from the per-node channel table
-shadow-verified byte-for-byte, then **6-ii** flipped `Int` to nullary with uniform-bignum layout). What remains:
-**6-iii** (narrow layouts from a flow-computed channel — also subsumes retiring 2b's `handleCases` join
-recognition via body-meta-translation, which needs flow-derived metas), then **Step 7** (delete the now-unused
-`Coerce`/`Combine`/assoc/`opaque` machinery), **Step 8** (`Interval[S,E]`→`Interval[T]` + `Numeric`, `where`-on-defs).
+**Step 6** (the flag day, "Staged R2": **6-i** sourced representation from the per-node channel table
+shadow-verified byte-for-byte, **6-ii** flipped `Int` to nullary with uniform-bignum layout, **6-iii** turned the
+channel into a productive flow analysis — narrow layouts + boundary reconciliation, the shadow assertions retired).
+What remains: **Step 7** (delete the now-unused `Coerce`/`Combine`/assoc/`opaque` machinery), **Step 8**
+(`Interval[S,E]`→`Interval[T]` + `Numeric`, `where`-on-defs — which is where narrow *storage/return* genuinely
+returns, plus bodied-def `^Meta` synthesis to narrow operator-call results and cross into lambda bodies).
 See §8 for the per-step state. Written 2026-07-10, following the
 Interval/Arithmetic associated-types work (commit 3ad7ba38) and the design discussion it triggered.
 Extended the same day with the channel's semantics (§4), and again 2026-07-10 with the decisive
@@ -1036,11 +1038,47 @@ bounds; only then does the atomic flip follow.
     (rewritten to feed its `where fitsIn` guard via an explicit ability type arg instead of `Int[Mn, Mx]`),
     and the eight `examples/src` programs. Full suite green; `ArithmeticAbility`/`Ranges`/`MatchRanges`/
     `Intervals` build and run (values incl. `> Long.MAX` via bignum). No cache-version bump.
-- **6-iii — narrow representations from the channel's flow analysis (FUTURE).** Make the channel compute
-  each node's interval by flow (α for literals off `IntegerLiteral(v)`, `^Meta` transfers, `Meta.join` at
-  branches, cross-value propagation through references; ⊤ at parameter/return boundaries), feed it into
-  `representInt` (6-i's plumbing is already wired), and resolve boundary rep-consistency (§7 Q4). Then
-  `representInt` returns narrow layouts again instead of always-bignum. This is the deferred R2 payoff.
+- **6-iii — narrow representations from the channel's flow analysis. — DONE (2026-07-11).** The channel now
+  *computes* each node's interval by flow (it no longer reads the type, which is a bare `Int` post-6-ii) and
+  records it into the `RefinementTable`; `representInt` (6-i's plumbing) reads it, so `Int` nodes lay out at a
+  narrow wrapper again instead of always-bignum. The value-channel propagation rules (`RefinementChannelProcessor`,
+  rewritten from the shadow-mode walk):
+  - **α (literals):** an `IntegerLiteral(n)` seeds `[n, n]`.
+  - **Transfers:** an `Int` `nativeAdd`/`nativeSubtract`/`nativeMultiply` leaf evaluates the leaf's `^Meta`
+    companion (`rangeAdd^Meta`/…, the Step-4c machinery, now *productive* rather than a shadow assertion) on the
+    two operand intervals; ⊤ if either operand is ⊤.
+  - **Joins (`Meta.join` at branches):** a `Bool::fold` (the `if` eliminator) whose two arms are known joins them;
+    the arms keep their own narrower intervals and codegen reconciles them to the merge representation at the
+    branch. (`match`/`handleCases` arms are Scott-encoded *lambdas*, so they fall under the lambda rule below and
+    stay ⊤ — deferred.)
+  - **⊤ everywhere else** — a parameter, a value reference, an ordinary call/constructor result, a lambda body.
+    These are the boundaries of §7 Q4, resolved here as **⊤ = bignum**: the analysis is intra-procedural. The walk
+    still descends into ordinary-call *arguments* (so a literal/arithmetic argument narrows), but never into a
+    **lambda body** — a narrow value returned through a lambda's `apply` bridge would fail its `CHECKCAST`
+    (`LambdaGenerator` types the `fn$` return as the body's own representation, while the caller casts the applied
+    `Object` result to the ⊤/bignum representation it expects). So only a def's non-lambda-nested spine narrows.
+
+  **Boundary rep-consistency (§7 Q4), resolved as ⊤ = bignum and reconciled in codegen** (`ExpressionCodeGenerator`):
+  post-6-ii the JVM backend assumed producer-rep == consumer-rep everywhere and emitted no conversion, so a narrowed
+  value crossing a boundary must be reconciled. A narrowed integer argument is **widened back to a bignum** at every
+  call/constructor/`typeMatch`/function-value boundary (`widenIntArgToBigInteger` — widening to ⊤ rather than the
+  callee's declared descriptor is what a *generic* slot needs: a type-parameter-typed parameter erases to `Object`
+  but its value is later read at a concrete `Int`/bignum, so a narrow box on the heap would fail the reader's cast);
+  `fold` arms are converted to the merge representation at the branch; the arithmetic `viaBigInteger` path reboxes to
+  a narrower result. Every conversion is a no-op while a value is already a bignum, so the whole change is
+  representation-transparent (the full suite passes on runtime output, which no test pins to a representation).
+
+  **What this delivers, and its limits.** The flow-analysis *engine* + boundary-reconciliation *mechanism* — the
+  hard, durable part — are in place and proven end-to-end (a literal narrows to `Byte`/`Short`; `Byte.longValue →
+  BigInteger.valueOf` reconciles it at a boundary; a divergent-range `if` joins its arms). Because pre-Step-8 every
+  parameter/return/field is ⊤/bignum and every user-level `+`/`-`/`*` is an *operator call* (a bignum boundary, not a
+  bare leaf — the leaves live inside the operator bodies over ⊤ parameters), narrowing manifests mostly as
+  literal-narrow-then-widen and rarely produces a narrow *stored/returned* value yet; that is the accepted state.
+  Genuine narrow **storage/return** returns with **Step 8** (`where`-pinned narrow boundaries) and with bodied-def
+  `^Meta` synthesis (case 3 of §4.2), which would let an *operator-call* result narrow (its `^Meta` computed through
+  the body) and let narrowing cross into lambda bodies. `FactCache.CACHE_VERSION` 8→9 (the table's contents changed
+  semantics). The shadow-assertion machinery (2a/2b `handleCases` recognition, the disagreement error) is retired,
+  its `nativeWiden`/`operatorName` FQNs removed.
 
 **Step 7: deletions, each its own green commit** (all paths dead since step 6): 7a `Coerce`'s
 bounds role — the jvm guarded instance, `nativeWiden`, the `unifyOrCoerce` insertion/splicing

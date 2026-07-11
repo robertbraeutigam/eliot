@@ -63,7 +63,7 @@ class RefinementChannelProcessorTest extends AnyFlatSpec with Matchers {
     metaJoinFqn shouldBe ValueFQN(ModuleName(ModuleName.compilerPackage, "Meta"), QualifiedName("join", Qualifier.Ability("Meta")))
   }
 
-  "nativeWidenFqn" should "name the Int range-widening coercion leaf" in {
-    nativeWidenFqn shouldBe ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Int"), QualifiedName("nativeWiden", Qualifier.Default))
+  "boolFoldFqn" should "name the Bool fold branch eliminator" in {
+    boolFoldFqn shouldBe ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))
   }
 }

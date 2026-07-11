@@ -199,6 +199,10 @@ object ExpressionCodeGenerator {
       classes <- arguments.zipWithIndex.flatTraverse { (expression, idx) =>
                    for {
                      cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                     // The lambda's `apply` bridge casts each argument back to its declared (⊤/bignum) parameter
+                     // representation, so a channel-narrowed integer argument is widened to a bignum first (Step 6-iii);
+                     // a no-op while every Int is already a bignum.
+                     _  <- methodGenerator.runNative[CompilationTypesIO](widenIntArgToBigInteger(expression.expressionType))
                      _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
                      _  <- methodGenerator
                              .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
@@ -362,8 +366,14 @@ object ExpressionCodeGenerator {
                       if (viaBigInteger) pushAsBigInteger(rightRep) else unboxToLong(rightRep)
                     )
         _        <- methodGenerator.runNative[CompilationTypesIO] { mv =>
-                      if (viaBigInteger) bigIntegerOp(calledVfqn)(mv)
-                      else {
+                      if (viaBigInteger) {
+                        bigIntegerOp(calledVfqn)(mv)
+                        // `bigIntegerOp` leaves a `BigInteger`; if the refinement channel narrowed the *result* below a
+                        // bignum (reachable when an operand is a bignum but the result interval fits a narrower wrapper —
+                        // e.g. `hugeLiteral * 0`), rebox it to the result representation. A no-op when the result is a
+                        // bignum, which it always is until the channel's flow analysis narrows results (Step 6-iii).
+                        convertRepresentation(bigIntegerInternalName, resultRep)(mv)
+                      } else {
                         mv.visitInsn(longOpcode(calledVfqn))
                         boxFromLong(resultRep)(mv)
                       }
@@ -423,11 +433,18 @@ object ExpressionCodeGenerator {
                         }
         trueClasses  <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          // Each arm is produced at the representation the channel derived for *that arm*; both must leave
+                          // the merge representation (the `fold` node's own, joined, interval) so the two branch frames
+                          // agree and the trailing cast is exact (Step 6-iii). A no-op while arms and merge are all bignum.
+                          convertIntegerRepresentation(arguments(1).expressionType, expectedResultType)(mv)
                           mv.visitJumpInsn(Opcodes.GOTO, endLabel)
                           mv.visitLabel(elseLabel)
                         }
         falseClasses <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(2))
-        _            <- methodGenerator.runNative[CompilationTypesIO](_.visitLabel(endLabel))
+        _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          convertIntegerRepresentation(arguments(2).expressionType, expectedResultType)(mv)
+                          mv.visitLabel(endLabel)
+                        }
         _            <- methodGenerator.addCastTo[CompilationTypesIO](valueType(expectedResultType))
       } yield condClasses ++ trueClasses ++ falseClasses
     }
@@ -490,6 +507,47 @@ object ExpressionCodeGenerator {
       unboxToLong(sourceRep)(mv)
       boxFromLong(targetRep)(mv)
     }
+
+  /** The five machine representations an `Int` node can carry — the boxed integer wrappers, narrowest to widest. A value
+    * whose lowered type is one of these is *reconcilable* across a boundary by [[convertRepresentation]] (it preserves the
+    * logical integer); a value of any other type (a `String`, a `data` value, an erased `Object` field) is not an integer
+    * and must never be routed through the numeric converter.
+    */
+  private val integerRepInternalNames: Set[String] =
+    Set("java/lang/Byte", "java/lang/Short", "java/lang/Integer", "java/lang/Long", bigIntegerInternalName)
+
+  private def isIntegerRep(internalName: String): Boolean = integerRepInternalNames.contains(internalName)
+
+  /** Bounds-as-refinements Step 6-iii (`docs/bounds-as-refinements.md`, "boundary narrowing"): a value produced at the
+    * machine representation the refinement channel derived for *its* node may reach a consuming boundary (a call
+    * argument, a `data` field, a branch merge) whose expected representation differs. Convert it, but only when *both*
+    * sides are integer representations (so it is a genuine width reconciliation) and they actually differ — otherwise
+    * leave the stack untouched, which is the byte-for-byte identity path while every `Int` still lays out as a bignum
+    * (Step 6-ii). A non-integer value (`String`/`data`/erased `Object`) is left to the existing reference `CHECKCAST`.
+    */
+  private def convertIntegerRepresentation(sourceType: GroundValue, targetType: GroundValue)(mv: MethodVisitor): Unit =
+    convertIntegerRepresentationTo(sourceType, NativeType.javaInternalName(valueType(targetType)))(mv)
+
+  /** As [[convertIntegerRepresentation]], but with the target representation already resolved to its internal class name
+    * (a callee parameter/field descriptor is a [[ValueFQN]] in hand, not a [[GroundValue]]).
+    */
+  private def convertIntegerRepresentationTo(sourceType: GroundValue, targetRep: String)(mv: MethodVisitor): Unit = {
+    val sourceRep = representationInternalName(sourceType)
+    if (sourceRep =!= targetRep && isIntegerRep(sourceRep) && isIntegerRep(targetRep))
+      convertRepresentation(sourceRep, targetRep)(mv)
+  }
+
+  /** Widen a narrow integer argument to `BigInteger` before it crosses a function-*value* application boundary. The
+    * `apply` bridge erases to `(Object)Object` and `CHECKCAST`s the argument back to the lambda's declared parameter
+    * representation, which is always the ⊤ boundary representation (a lambda parameter carries no refinement, so it lays
+    * out as a bignum). A narrower box would fail that cast (`ClassCastException`), so widen it here; a non-integer or
+    * already-bignum argument is left untouched.
+    */
+  private def widenIntArgToBigInteger(sourceType: GroundValue)(mv: MethodVisitor): Unit = {
+    val sourceRep = representationInternalName(sourceType)
+    if (isIntegerRep(sourceRep) && sourceRep =!= bigIntegerInternalName)
+      convertRepresentation(sourceRep, bigIntegerInternalName)(mv)
+  }
 
   /** Leave a `java.math.BigInteger` on the stack from a boxed value of the given representation: a `BigInteger` is
     * already in the right form; any narrower wrapper is unboxed to `long` and lifted via `BigInteger.valueOf`.
@@ -582,10 +640,21 @@ object ExpressionCodeGenerator {
                                     .map(DataClassGenerator.erasePolymorphicFields(_, uncurriedValue.parameters))
                                 else uncurriedValue.parameters.pure[CompilationTypesIO]
                               parameterTypes = parameters.map(p => valueType(p.parameterType))
+                              // Each direct argument crosses a parameter boundary, which the refinement channel treats as
+                              // ⊤ — a bignum (`docs/bounds-as-refinements.md` §7 Q4, "⊤ at parameter/return boundaries").
+                              // So a channel-narrowed integer argument is widened back to a bignum before the call
+                              // (Step 6-iii). Widening to the ⊤/bignum boundary (rather than the callee's declared
+                              // parameter descriptor) is what a generic slot needs: a type-parameter-typed parameter
+                              // erases to `Object`, but the value is eventually read at a concrete `Int` (bignum), so it
+                              // must be a bignum on the heap — a narrow box would fail the reader's `CHECKCAST`. While
+                              // every Int already lays out as a bignum (Step 6-ii) this is a no-op.
                               classes       <-
-                                directArgs.flatTraverse(expression =>
-                                  createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                )
+                                directArgs.flatTraverse { expression =>
+                                  for {
+                                    cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                    _  <- methodGenerator.runNative[CompilationTypesIO](widenIntArgToBigInteger(expression.expressionType))
+                                  } yield cs
+                                }
                               _             <- methodGenerator.addCallTo[CompilationTypesIO](
                                                  calledVfqn,
                                                  parameterTypes,
@@ -642,9 +711,14 @@ object ExpressionCodeGenerator {
                              val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
                              val returnType     = valueType(uncurriedValue.returnType)
                              for {
-                               classes <- arguments.flatTraverse(expression =>
-                                            createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                          )
+                               // Each argument crosses a parameter boundary — ⊤/bignum (Step 6-iii); widen a narrowed
+                               // integer back to a bignum (a no-op while every Int is already a bignum).
+                               classes <- arguments.flatTraverse { expression =>
+                                            for {
+                                              cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                              _  <- methodGenerator.runNative[CompilationTypesIO](widenIntArgToBigInteger(expression.expressionType))
+                                            } yield cs
+                                          }
                                _       <- methodGenerator.addCallTo[CompilationTypesIO](
                                             calledVfqn,
                                             parameterTypes,
