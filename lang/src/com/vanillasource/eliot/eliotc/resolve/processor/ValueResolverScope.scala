@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier.Ability
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -14,7 +14,6 @@ case class ValueResolverScope(
     dictionary: Map[QualifiedName, ValueFQN],
     privateNames: Map[QualifiedName, ValueFQN],
     parameters: Set[String],
-    currentQualifier: Qualifier = Qualifier.Default,
     platform: Platform = Platform.Runtime
 )
 
@@ -31,29 +30,11 @@ object ValueResolverScope {
   def isParameter(name: String): ScopedIO[Boolean] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.parameters.contains(name))
 
-  def getParameters: ScopedIO[Set[String]] =
-    StateT.get[CompilerIO, ValueResolverScope].map(_.parameters)
-
   def getValue(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.dictionary.get(name))
 
   def getPrivateName(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.privateNames.get(name))
-
-  def searchImplementationScope(searchingValueName: String): ScopedIO[Option[ValueFQN]] =
-    StateT
-      .get[CompilerIO, ValueResolverScope]
-      .map { scope =>
-        scope.currentQualifier match {
-          case Qualifier.AbilityImplementation(_, _) =>
-            scope.dictionary.values.collectFirst {
-              case vfqn @ ValueFQN(_, QualifiedName(valueName, q: Qualifier.AbilityImplementation))
-                  if valueName === searchingValueName && q == scope.currentQualifier =>
-                vfqn
-            }
-          case _                                     => None
-        }
-      }
 
   def searchAbilities(searchingValueName: String): ScopedIO[Seq[ValueFQN]] =
     StateT

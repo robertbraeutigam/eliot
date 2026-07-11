@@ -44,7 +44,6 @@ class ValueResolver
         unifiedValue.dictionary,
         unifiedValue.privateNames,
         genericParams.toSet,
-        namedValue.qualifiedName.value.qualifier,
         key.platform
       )
 
@@ -136,28 +135,6 @@ class ValueResolver
       case _                                         => Seq.empty
     }
 
-  /** Resolve a bare reference to a member of the *current* ability implementation (found via the implementation scope).
-    * An associated type's declaration carries the implementation's generic parameters — they are prepended to every
-    * member — so a *bare* reference names the unapplied bound function. Apply it to those generics, which are all in
-    * scope right here, so it resolves to the concrete associated type: inside
-    * `implement Arithmetic[Int[L1, H1], Int[L2, H2]]`, a method's `AddResult` return resolves to
-    * `Int[add(L1, L2), add(H1, H2)]`, not to the λ over the four bounds. Only *bare* references reach this path: an
-    * explicitly-applied member reference (`AddResult[S1, S2]`) is a *dispatch* through the ability at the given type
-    * arguments — resolved on the ability path in [[resolveExpression]] — never this implementation's own member.
-    */
-  private def resolveImplementationScopedName(
-      implVfqn: ValueFQN,
-      nameSrc: Sourced[CoreQualifiedName]
-  ): ScopedIO[Expression] =
-      for {
-        platform    <- getPlatform
-        implValue   <- getFactIfProduced(UnifiedModuleValue.Key(implVfqn, platform)).liftToScoped
-        params      <- getParameters
-        implGenerics =
-          implValue.map(v => collectGenericParams(v.namedValue.typeStack)).getOrElse(Seq.empty).takeWhile(params.contains)
-        argRefs      = implGenerics.map(g => nameSrc.as(Expression.ParameterReference(nameSrc.as(g)): Expression))
-      } yield Expression.ValueReference(nameSrc.as(implVfqn), argRefs)
-
   /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
     * on below levels, but go out of scope outside the type stack.
     *
@@ -179,15 +156,9 @@ class ValueResolver
         .map(es => stack.as(TypeStack(es.reverse)))
     }
 
-  /** @param applied
-    *   Whether this expression is the *target* of an application (the head of an application chain). An upper-case
-    *   type application `AddResult[S1, S2]` reaches resolution as a curried application chain over a *bare* head, so
-    *   the head's explicit-argument nature is only visible through this flag.
-    */
   private def resolveExpression(
       expression: CoreExpression,
-      runtime: Boolean,
-      applied: Boolean = false
+      runtime: Boolean
   ): ScopedIO[Expression] =
     expression match {
       case NamedValueReference(nameSrc, None, typeArgExprs)          =>
@@ -207,39 +178,29 @@ class ValueResolver
                   .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
                   .map(resolvedTypeArgs => Expression.ValueReference(nameSrc.as(vfqn), resolvedTypeArgs))
               case None       =>
-                // In type context, a *bare, unapplied* name prefers the implementation scope (an associated type
-                // auto-applied to the impl's generics). An explicitly-applied name (`AddResult[S1, S2]` — explicit
-                // bracket args on the reference, or an application chain over the head) is a *dispatch* through the
-                // ability at those arguments — the member is an ordinary named value whose leading parameters are the
-                // ability's — so it always resolves on the ability path, even inside an implementation.
-                val implSearch =
-                  if (!runtime && typeArgExprs.isEmpty && !applied) searchImplementationScope(nameSrc.value.name)
-                  else None.pure[ScopedIO]
-                implSearch.flatMap {
-                  case Some(implVfqn) => resolveImplementationScopedName(implVfqn, nameSrc)
-                  case None           =>
-                    // Not in implementation scope, it might be coming from an ability
-                    searchAbilities(nameSrc.value.name).flatMap {
-                      case Nil         =>
-                        // Check if the name exists as a private import
-                        getPrivateName(nameSrc.value).flatMap {
-                          case Some(_) => compilerAbort(nameSrc.as("Name is private.")).liftToScoped
-                          case None    => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
-                        }
-                      case head :: Nil =>
-                        // Explicit type arguments are the ability-level dispatch arguments — resolve and keep them
-                        // (they were formerly dropped here, leaving the reference unconstrained).
-                        typeArgExprs
-                          .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
-                          .map(resolved => Expression.ValueReference(nameSrc.as(head), resolved))
-                      case as          =>
-                        compilerAbort(
-                          nameSrc.as("Name defined in multiple abilities."),
-                          Seq(
-                            s"Abilities: ${as.map(_.name.qualifier.asInstanceOf[CoreQualifier.Ability].name).mkString(", ")}"
-                          )
-                        ).liftToScoped
+                // Not a locally-defined value; it might be coming from an ability. An explicitly-applied name
+                // (`keep[42]` — explicit bracket args) is a dispatch through the ability at those arguments: the
+                // member is an ordinary named value whose leading parameters are the ability's.
+                searchAbilities(nameSrc.value.name).flatMap {
+                  case Nil         =>
+                    // Check if the name exists as a private import
+                    getPrivateName(nameSrc.value).flatMap {
+                      case Some(_) => compilerAbort(nameSrc.as("Name is private.")).liftToScoped
+                      case None    => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
                     }
+                  case head :: Nil =>
+                    // Explicit type arguments are the ability-level dispatch arguments — resolve and keep them
+                    // (they were formerly dropped here, leaving the reference unconstrained).
+                    typeArgExprs
+                      .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
+                      .map(resolved => Expression.ValueReference(nameSrc.as(head), resolved))
+                  case as          =>
+                    compilerAbort(
+                      nameSrc.as("Name defined in multiple abilities."),
+                      Seq(
+                        s"Abilities: ${as.map(_.name.qualifier.asInstanceOf[CoreQualifier.Ability].name).mkString(", ")}"
+                      )
+                    ).liftToScoped
                 }
             }
           }
@@ -264,7 +225,7 @@ class ValueResolver
         }
       case FunctionApplication(target, arg)                          =>
         for {
-          resolvedTarget <- resolveExpression(target.value, runtime, applied = true).map(target.as)
+          resolvedTarget <- resolveExpression(target.value, runtime).map(target.as)
           resolvedArg    <- resolveExpression(arg.value, runtime).map(arg.as)
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body)               =>
