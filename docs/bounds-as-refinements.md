@@ -1,7 +1,8 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) has LANDED in full (6-i/6-ii/6-iii); the
-deletions (Step 7) remain.** `Int` no longer has type parameters: it is a single type whose value range is
+**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) is COMPLETE (6-i/6-ii/6-iii); the deletable
+half of Step 7 has LANDED (7b Combine + 7a Coerce/RefinementSolver, both green); 7c (assoc lane) / 7d (opaque) are
+re-sequenced after Step 8 because the 6-ii deviations kept Arithmetic/opaque load-bearing.** `Int` no longer has type parameters: it is a single type whose value range is
 meta-information in the refinement channel. Post-6-iii the channel *computes* each node's range by flow and narrow
 layouts return for the nodes it can pin (literals, arithmetic-leaf transfers, `if` joins, outside lambda bodies),
 reconciled to a bignum at boundaries; a value it cannot pin stays a sound `java.math.BigInteger` (⊤). Landed and
@@ -1080,16 +1081,40 @@ bounds; only then does the atomic flip follow.
   semantics). The shadow-assertion machinery (2a/2b `handleCases` recognition, the disagreement error) is retired,
   its `nativeWiden`/`operatorName` FQNs removed.
 
-**Step 7: deletions, each its own green commit** (all paths dead since step 6): 7a `Coerce`'s
-bounds role — the jvm guarded instance, `nativeWiden`, the `unifyOrCoerce` insertion/splicing
-path. 7b `Combine` + the combinable/candidate/taint `MetaRole` data, `resolveCombines`,
-`pendingUpperBounds`, the unification-time interception. 7c the associated-types lane
-(`reduceAssocApplications` + hooks, `assocReductionCache`/`assocSubstitution`,
-`MetaRole.AbstractAssoc`, the unifier postponement arm, the saturate/resolve/`AbilityMatcher`
-arms) — no client remains, per the §5.1 note. 7d the `opaque` track (keyword, fact-chain flag,
-`NativeBinding`/`TransparentBinding` dual split, the unfold path — delete the step-3 shadow
-check first). 7e vestiges: `CodegenProjection`'s width-collapse, per-bound identity leftovers,
-`BinderRoles` simplification.
+**Step 7: deletions, each its own green commit** (all paths dead since step 6):
+
+- **7b — `Combine` branch-join checker interception. — DONE (2026-07-11, committed 5974be3c).** `Int == Int`
+  makes the checker's covariant multi-candidate join a no-op, so a second definitionally-unequal contribution is
+  now an ordinary first-candidate-wins mismatch. Removed: `RefinementSolver.resolveCombines`/`resolveUpperBounds`/
+  `reconcileRefinements` + helpers; the `Unifier` combinable-contribution interception (the `unify` arm, VPi-domain
+  taint, `solveMeta` first-candidate recording, `isCombinable`/`candidatesOf`/`unresolvedCandidateMetas`/
+  `pendingUpperBounds`/`markCombinable`/`recordUpperBound`/`recordCombineResolved`/`recordCandidate`/`taintMetasIn`/
+  `metasOf`/`tryUnifyForced`); the four `MetaRole.Instantiation` Combine fields (`combinable`/`candidates`/
+  `combineResolved`/`upperBounds`); `CheckState.recordCombineResolved`/`recordUpperBound`; the `Checker`
+  upper-bound deferral + `markCombinable`; the `TypeStackLoop` resolve-combines/upper-bounds passes + reconcile
+  driver; `Track.reconcileBody`; `WellKnownTypes.combinedFQN`. The runtime `Combine`/`Meta` abilities + the Interval
+  corner-join survive untouched (they use `Meta::join`, not this path). The bounded-`Int` stub tests that exercised
+  the branch-join retired with it.
+- **7a — `Coerce` widening + `RefinementSolver`. — DONE (2026-07-11, committed d9ca86e0).** After 7b the only thing
+  left in the solver was the check-mode `Coerce` insertion, itself unreachable under `Int == Int`. Deleted
+  `RefinementSolver.scala` wholesale + the `solver` field; the two `Checker` call sites became plain definitional
+  equality (single Expected/Actual mismatch on failure); jvm `nativeWiden` dispatch branch + `Intrinsics.nativeWidenFQN`
+  (the `convertRepresentation`/unbox/rebox helpers stay — they are Step-6-iii's boundary reconciler now);
+  `lang/eliot/eliot/compiler/Coerce.els`, `WellKnownTypes.coerceFQN`, `SemValue.NeutralHead.Marker.Coerce`. The stub
+  widening tests retired.
+- **7c — the associated-types lane. — BLOCKED until Step 8.** `reduceAssocApplications` + hooks,
+  `assocReductionCache`/`assocSubstitution`, `MetaRole.AbstractAssoc`, the unifier postponement arm, the
+  saturate/resolve/`AbilityMatcher` arms **cannot** be deleted yet: the §5.1 note assumed Step 6 moved the operators
+  to `Numeric`, but 6-ii deviated and *kept* `Arithmetic` with its associated types (`AddResult`/`SubResult`/`MulResult`),
+  which the operators `+`/`-`/`*` return and the runtime `Interval[S, E]` instance still spells its result formulas
+  through. The assoc lane dies only once Step 8 removes `Arithmetic` (operators → `Numeric`, `Interval` collapse).
+- **7d — the `opaque` track. — BLOCKED until Step 8.** jvm `Int.els` is still `opaque type Int = JvmBigInteger[]`,
+  keeping `Int` nominally distinct from its bignum representation during checking (`RefinementRepresentation.isTrackedIntType`,
+  layout lowering). Removing `opaque` needs `Int` to no longer need that hiding — coupled to the same Step-8 rework.
+- **7e — vestiges** (`CodegenProjection`'s width-collapse, per-bound identity leftovers, `BinderRoles`): follow 7c/7d.
+
+So 7b + 7a landed now; **7c/7d/7e are re-sequenced *after* Step 8** because the 6-ii scope-minimizing decision (keep
+`Arithmetic`/`Combine`/`opaque`) made them load-bearing until the Interval/Numeric collapse.
 
 **Step 8: cleanups and follow-ons.** Collapse `Interval[S, E]` → `Interval[T]` with
 `implement[T ~ Numeric[T]] Numeric[Interval[T]]`, bodies only (deleting its formula half and the
