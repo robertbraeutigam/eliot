@@ -1,16 +1,14 @@
-import eliot.compiler.Combine
-import eliot.lang.Arithmetic
+import eliot.lang.Numeric
 import eliot.lang.Interval
 
 /**
  * The type of all integers. `Int` is a single type — there are no distinct `Int[MIN, MAX]` per range: an integer's
  * value range is *meta-information* tracked in the compiler's refinement channel (`docs/bounds-as-refinements.md`),
- * carried in the `range` slot below (an `Interval[BigInteger, BigInteger]`), not in a type parameter. So `Int` behaves
- * like any ordinary type — one instantiation, one set of abilities — and how a value is laid out in memory is chosen by
- * the platform from its tracked range (currently a bignum everywhere, until narrow layouts return with the channel's
- * flow analysis).
+ * carried in the `range` slot below (an `Interval[BigInteger]`), not in a type parameter. So `Int` behaves like any
+ * ordinary type — one instantiation, one set of abilities — and how a value is laid out in memory is chosen by the
+ * platform from its tracked range.
  */
-type Int {range: Interval[BigInteger, BigInteger]}
+type Int {range: Interval[BigInteger]}
 
 // Common signed/unsigned aliases. Their historical bounds now live as refinement demands, not in the type, so each is a
 // plain alias for `Int`; a narrow layout for e.g. `Byte` will come from a `where`/representation demand once value-range
@@ -25,28 +23,16 @@ type Long            = Int
 type UnsignedLong    = Int
 
 /**
- * `Int` implements `Arithmetic` homogeneously: with the value range moved out of the type, `Int + Int` is again an
- * `Int`, so the three result types are just `Int` (no per-operand bound formula). The instance is *split across layers*:
- * the base owns the result-type equations (trivial now) and the abstract method signatures; a platform layer redefines
- * the same instance to supply the method bodies. The two halves merge because an `implement` block's identity is its
- * `(ability, pattern)` — here `Arithmetic[Int, Int]`.
+ * `Int` implements `Numeric` homogeneously: with the value range moved out of the type, `Int + Int` is again an `Int`.
+ * The instance is *split across layers*: the base owns the abstract method signatures; a platform layer redefines the
+ * same instance to supply the method bodies. The two halves merge because an `implement` block's identity is its
+ * `(ability, pattern)` — here `Numeric[Int]`.
  */
-implement Arithmetic[Int, Int] {
-   type AddResult = Int
-   type SubResult = Int
-   type MulResult = Int
-
-   def add(a: Int, b: Int): AddResult
-   def subtract(a: Int, b: Int): SubResult
-   def multiply(a: Int, b: Int): MulResult
+implement Numeric[Int] {
+   def add(a: Int, b: Int): Int
+   def subtract(a: Int, b: Int): Int
+   def multiply(a: Int, b: Int): Int
 }
-
-/**
- * Combining two integers yields an integer. With the range out of the type, `Combine`'s join is trivial (`Combined =
- * Int`); it survives only because the runtime `Interval[S, E]` multiply still spells its corner-product endpoint type
- * through `Combine` (retired once `Interval` collapses to a single endpoint type — bounds-as-refinements Step 8).
- */
-implement Combine[Int, Int] { type Combined = Int }
 
 /**
  * Render an integer as its decimal `String`.
@@ -61,8 +47,7 @@ def intToString(value: Int): String
 // `range(b)`, the `Int$Meta` slot) through the plain `intervalAdd`/`intervalSubtract`/`intervalMultiply` functions (the
 // compile-time `Interval` domain arithmetic, resolved per the compiler pool). These vessels are co-located with the
 // `range` slot so `Int$Meta` and its accessor resolve per-file; they are compiler-pool-only carriers (never called at
-// runtime). They are dormant while representation is uniform bignum, and drive narrow layouts once the channel's flow
-// analysis lands.
+// runtime). They drive narrow layouts through the channel's flow analysis.
 def rangeAdd(a: Int, b: Int): Int {intervalAdd(range(a), range(b))}
 def rangeSubtract(a: Int, b: Int): Int {intervalSubtract(range(a), range(b))}
 def rangeMultiply(a: Int, b: Int): Int {intervalMultiply(range(a), range(b))}

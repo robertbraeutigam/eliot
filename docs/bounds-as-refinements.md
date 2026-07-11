@@ -1,8 +1,11 @@
 # Bounds as Refinements: Moving Meta-Information Out of the Type System
 
-**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) is COMPLETE (6-i/6-ii/6-iii); the deletable
-half of Step 7 has LANDED (7b Combine + 7a Coerce/RefinementSolver, both green); 7c (assoc lane) / 7d (opaque) are
-re-sequenced after Step 8 because the 6-ii deviations kept Arithmetic/opaque load-bearing.** `Int` no longer has type parameters: it is a single type whose value range is
+**Status: DESIGN adopted (C); migration UNDERWAY — the flag day (Step 6) is COMPLETE (6-i/6-ii/6-iii); Step 7's
+deletable half LANDED (7b Combine + 7a Coerce/RefinementSolver); Step 8's GATING CORE LANDED — `Interval[S,E]`
+collapsed to `Interval[T]`, `Numeric` replaced/absorbed `Arithmetic` (operators `+`/`-`/`*` now on `Numeric`), and
+`Arithmetic`/`Combine` are DELETED — which unblocks 7c (assoc lane) / 7d (opaque) / 7e (vestiges), now the next work.
+Remaining Step-8 follow-ons (additive, non-gating): `where`-on-defs, LSP hover from the meta fact, and the second
+domain (List/Array size).** `Int` no longer has type parameters: it is a single type whose value range is
 meta-information in the refinement channel. Post-6-iii the channel *computes* each node's range by flow and narrow
 layouts return for the nodes it can pin (literals, arithmetic-leaf transfers, `if` joins, outside lambda bodies),
 reconciled to a bignum at boundaries; a value it cannot pin stays a sound `java.math.BigInteger` (⊤). Landed and
@@ -1116,12 +1119,28 @@ bounds; only then does the atomic flip follow.
 So 7b + 7a landed now; **7c/7d/7e are re-sequenced *after* Step 8** because the 6-ii scope-minimizing decision (keep
 `Arithmetic`/`Combine`/`opaque`) made them load-bearing until the Interval/Numeric collapse.
 
-**Step 8: cleanups and follow-ons.** Collapse `Interval[S, E]` → `Interval[T]` with
-`implement[T ~ Numeric[T]] Numeric[Interval[T]]`, bodies only (deleting its formula half and the
-corner annotations — the S2 payoff). Add `where` preconditions on defs (§4.3) — additive, kept
-off the critical path deliberately. Enrich LSP hover from the per-node meta fact (step 2d)
-so `Int` hovers show the computed range. Then the **second domain** — `List`/`Array` `size` —
-which is the real test of "user-defined tracking" and the prerequisite for flow grades
+**Step 8: cleanups and follow-ons.**
+
+**Step 8 gating core — DONE (2026-07-11).** Collapsed `Interval[S, E]` → `Interval[T]` (single parameter) across the
+base (abstract), jvm (`data` + bodies), and compiler overlay, and replaced the heterogeneous `Arithmetic[A, B]` +
+associated-type machinery with the single-parameter `Numeric`: the runtime `Arithmetic[Interval, Interval]` instance
+became `implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]]` bodies only (deleting the `AddResult`/`SubResult`/
+`MulResult` formula half and the corner-binder `MulResult[...]` annotations — the S2 payoff); `Arithmetic[Int, Int]`
+became `implement Numeric[Int]`; the `+`/`-`/`*` operators moved from `Arithmetic.els` onto `Numeric` (`[T ~ Numeric[T]]
+(left: T, right: T): T`). **Deleted:** `stdlib/.../Arithmetic.els`, `lang/.../compiler/Combine.els`, the `Combine[Int]`/
+`Combine[BigInteger]`/`Arithmetic[BigInteger]` instances. The compiler overlay keeps its plain `intervalAdd`/… transfer
+functions (single-parameter now) and `Meta[Interval[T]]` join; the channel's `intervalType` dropped to one type
+argument (`Interval[BigInteger]`; the value constructor `Interval(start, end)` is unchanged). `StdlibNativesProcessor`
+keeps the `Arithmetic[BigInteger]` natives **only** for the lang-unit bounded-`Int` stub tests, which still declare
+their own `Arithmetic` and retire with the assoc lane at 7c. `FactCache.CACHE_VERSION` 9→10. Green: full suite
+(1246/0); `ArithmeticAbility`/`Intervals`/`Arithmetic`/`Ranges`/`MatchRanges`/`ImplicitIntReturn` build + run with
+correct output; narrow layouts still fire (`2 + 3 * 4` literals → `Byte`, reconciled to `BigInteger` at the
+operator-call boundary, verified by `javap`). **This unblocks 7c/7d/7e** (below), the next work.
+
+**Step 8 follow-ons (additive, not yet done).** Add `where` preconditions on defs (§4.3) — additive, kept off the
+critical path deliberately; this is where narrow *storage/return* genuinely returns (`where`-pinned boundaries). Enrich
+LSP hover from the per-node meta fact (step 2d) so `Int` hovers show the computed range. Then the **second domain** —
+`List`/`Array` `size` — which is the real test of "user-defined tracking" and the prerequisite for flow grades
 (TODO.md).
 
 ### Risks to watch

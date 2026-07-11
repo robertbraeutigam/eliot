@@ -7,15 +7,36 @@
  *
  * This is the ability the refinement channel's domain code runs: the compile-time `Interval` closes under arithmetic
  * through its endpoints' `Numeric` (a single-parameter instance, no associated result types), which is what lets the
- * `^Meta` transfer companions dispatch on ground types. `Numeric` deliberately declares no `+`/`-`/`*` operators — those
- * stay on `Arithmetic` until the flag day, so `Numeric` is reached only by name (`add`/`subtract`/`multiply`) or through
- * an instance's own body.
+ * `^Meta` transfer companions dispatch on ground types. `Numeric` also carries the `+`/`-`/`*` operators (below), so a
+ * type gains them purely by implementing `Numeric`.
  */
 ability Numeric[A] {
    def add(a: A, b: A): A
    def subtract(a: A, b: A): A
    def multiply(a: A, b: A): A
 }
+
+/**
+ * Infix `+` — addition over any type with a `Numeric[T]` implementation. It delegates to `add`, so its result is again a
+ * `T`: for `Int`, `Int + Int : Int` (the summand's value range is tracked in the refinement channel, not the type). This
+ * is the one type-generic operator every numeric type shares — a type gains `+` purely by implementing `Numeric`, with no
+ * operator of its own.
+ */
+infix left
+def +[T ~ Numeric[T]](left: T, right: T): T = add(left, right)
+
+/**
+ * Infix `-` — subtraction over any `Numeric[T]`, delegating to `subtract`; the result is again a `T`.
+ */
+infix left at +
+def -[T ~ Numeric[T]](left: T, right: T): T = subtract(left, right)
+
+/**
+ * Infix `*` — multiplication over any `Numeric[T]`, delegating to `multiply`; the result is again a `T`. Binds tighter
+ * than `+`/`-`.
+ */
+infix left above +
+def *[T ~ Numeric[T]](left: T, right: T): T = multiply(left, right)
 
 /**
  * `BigInteger` supplies `Numeric` natively. Like `Compare[BigInteger]` and `Arithmetic[BigInteger, BigInteger]`, the

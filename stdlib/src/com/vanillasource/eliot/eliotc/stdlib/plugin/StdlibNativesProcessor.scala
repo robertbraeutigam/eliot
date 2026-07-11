@@ -13,37 +13,37 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** The `stdlib` native contributor: emits the total [[ContributedBinding]] under [[StdlibNativesProcessor.stdlibLabel]]
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
-  * reason about — the compile-time arithmetic behind `Int`'s dependent bounds ([[BigInteger]]'s `Arithmetic` ability
-  * `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`), string equality (`stringEquals`,
+  * reason about — the compile-time arithmetic the refinement channel's `Interval` domain runs ([[BigInteger]]'s `Numeric`
+  * ability `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`), string equality (`stringEquals`,
   * backing `Eq[String]`), and the [[BigInteger]] ordering comparison behind `Compare[BigInteger]` — and `None` for every
-  * other name. (The `*` corner-product bounds `multiplyMin`/`multiplyMax` are ordinary Eliot bodies over
-  * `Arithmetic.multiply` + `Compare.min`/`max`, not natives — they reduce through these leaves.)
+  * other name.
   *
   * These are ordinary library functions; the compiler only seeds the NbE evaluator with a native reduction rule so that,
   * e.g., `add(2, 3)` reduces to `5` during type checking. Each native reduces only when its arguments are concrete,
-  * otherwise it stays stuck (a [[SemValue.VStuckNative]]) so the unifier falls back to ordinary unification on the
-  * still-abstract bounds and `Evaluator.renormalize` re-fires it once they concretise. The runtime computation (e.g.
-  * the `LADD` for `Int` addition) is supplied separately by the backend as a runtime body — the
-  * [[BindingMergerProcessor]] reads this native for checking and that body for codegen, with no conflict (native
-  * precedence).
+  * otherwise it stays stuck (a [[SemValue.VStuckNative]]) so the unifier falls back to ordinary unification and
+  * `Evaluator.renormalize` re-fires it once the arguments concretise. The runtime computation (e.g. the `LADD` for `Int`
+  * addition) is supplied separately by the backend as a runtime body — the [[BindingMergerProcessor]] reads this native
+  * for checking and that body for codegen, with no conflict (native precedence).
   *
-  * '''`Compare`, `Arithmetic` and `Numeric` — abilities reduced two ways.''' `BigInteger`'s comparison (`lessThanOrEqual`,
-  * the `Compare` ability's method) and its arithmetic (`add`/`subtract`/`multiply`, on *both* the heterogeneous
-  * `Arithmetic` ability — backing `Int`'s dependent bound formulas — and the single-parameter `Numeric` ability — backing
-  * the refinement channel's compile-time `Interval` domain instance) are all implemented with *body-less* methods
-  * (`implement Compare[BigInteger]` / `implement Arithmetic[BigInteger, BigInteger]` / `implement Numeric[BigInteger]`),
-  * so each is a compiler leaf. Every such native is registered under two FQNs: (1) the *ability-method* FQN
-  * (`Compare.lessThanOrEqual`, `Arithmetic.add`, …) — the load-bearing binding, because `Int`'s bound calculus reaches
-  * these during type-level reduction
-  * (`add`/`subtract` directly in the `+`/`-` result types; `lessThanOrEqual` transitively through `fitsIn`/`min`/`max`),
-  * where ability *dispatch* never fires, so on the compiler track the ability method itself must reduce (a compiler
-  * intrinsic, like `Bool.fold`); and (2) the *implementation-method* FQN via [[abilityImplNativeFor]] — the "native
-  * attached directly to the implementation" wiring, which a *value-level* instance (dispatched at a surfaced use site)
-  * would use, but which `BigInteger`'s purely type-level use does not exercise. `min`/`max` are derived `Compare`
-  * combinators (a `fold` over `lessThanOrEqual`), and `multiplyMin`/`multiplyMax` derive further over `multiply` +
-  * `min`/`max`; all reduce through these leaf natives even when reached only transitively from a result type, because the
+  * '''`Compare` and `Numeric` — abilities reduced two ways.''' `BigInteger`'s comparison (`lessThanOrEqual`, the
+  * `Compare` ability's method) and its arithmetic (`add`/`subtract`/`multiply`, the single-parameter `Numeric` ability —
+  * backing the refinement channel's compile-time `Interval` domain instance and the `+`/`-`/`*` operators) are all
+  * implemented with *body-less* methods (`implement Compare[BigInteger]` / `implement Numeric[BigInteger]`), so each is a
+  * compiler leaf. Every such native is registered under two FQNs: (1) the *ability-method* FQN
+  * (`Compare.lessThanOrEqual`, `Numeric.add`, …) — the load-bearing binding, because the channel's `Interval` transfer
+  * reaches these during type-level reduction (`add`/`subtract`/`multiply` on the endpoints; `lessThanOrEqual` transitively
+  * through `fitsIn`/`min`/`max`), where ability *dispatch* never fires, so on the compiler track the ability method itself
+  * must reduce (a compiler intrinsic, like `Bool.fold`); and (2) the *implementation-method* FQN via
+  * [[abilityImplNativeFor]] — the "native attached directly to the implementation" wiring, exercised when a `Numeric[Int]`
+  * operation dispatches to `BigInteger` at the compile-time domain. `min`/`max` are derived `Compare` combinators (a
+  * `fold` over `lessThanOrEqual`); all reduce through these leaf natives even when reached only transitively, because the
   * checker prefetches bindings transitively (`Checker.prefetchBindings`) so `renormalize` can re-fire the nested stuck
-  * natives once the bound metavariables solve.
+  * natives once the arguments solve.
+  *
+  * The same `add`/`subtract`/`multiply` are *also* bound under the deprecated heterogeneous `Arithmetic` ability FQNs.
+  * `Arithmetic` is gone from the real stdlib (Step 8), but the lang-unit bounded-`Int` stub tests still declare their own
+  * `Arithmetic[BigInteger]` and reach these to reduce their bound formulas; those stubs and these `Arithmetic` bindings
+  * retire together with the associated-type lane at Step 7c.
   *
   * This is a platform/library native supplier disjoint from the lang layer's `SystemNativesProcessor` (which owns the
   * compiler-intrinsic `Function`/`Type`/`Bool` primitives): each owns its own names, so the merger never has to choose
@@ -91,9 +91,9 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   private val bindings: Map[ValueFQN, SemValue] = Map(
     incFQN                    -> incNative,
-    arithmeticAddFQN          -> addNative,
-    arithmeticSubtractFQN     -> subtractNative,
-    arithmeticMultiplyFQN     -> multiplyNative,
+    arithmeticAddFQN          -> arithmeticAddNative,
+    arithmeticSubtractFQN     -> arithmeticSubtractNative,
+    arithmeticMultiplyFQN     -> arithmeticMultiplyNative,
     numericAddFQN             -> numericAddNative,
     numericSubtractFQN        -> numericSubtractNative,
     numericMultiplyFQN        -> numericMultiplyNative,
@@ -104,18 +104,19 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     compareLessThanOrEqualFQN -> lessThanOrEqualNative
   )
 
-  /** `BigInteger`'s `Arithmetic` operations, each reducing to a concrete `BigInteger` when both operands are concrete
-    * (otherwise stuck on the still-abstract `Int` bounds). Shared by the load-bearing ability-method [[bindings]] and the
-    * value-level [[abilityImplNatives]] wiring.
+  /** `BigInteger`'s `Arithmetic` operations. The heterogeneous `Arithmetic` ability is gone from the real stdlib (its
+    * role passed to `Numeric` — `docs/bounds-as-refinements.md` Step 8), but the lang-unit bounded-`Int` stub tests still
+    * declare their own `Arithmetic[BigInteger]` stub and reach these to reduce their bound formulas; those stubs (and
+    * these bindings) retire together with the associated-type lane at Step 7c.
     */
-  private def addNative: SemValue      = bigIntBinaryNative(arithmeticAddFQN)((a, b) => a + b)
-  private def subtractNative: SemValue = bigIntBinaryNative(arithmeticSubtractFQN)((a, b) => a - b)
-  private def multiplyNative: SemValue = bigIntBinaryNative(arithmeticMultiplyFQN)((a, b) => a * b)
+  private def arithmeticAddNative: SemValue      = bigIntBinaryNative(arithmeticAddFQN)((a, b) => a + b)
+  private def arithmeticSubtractNative: SemValue = bigIntBinaryNative(arithmeticSubtractFQN)((a, b) => a - b)
+  private def arithmeticMultiplyNative: SemValue = bigIntBinaryNative(arithmeticMultiplyFQN)((a, b) => a * b)
 
-  /** `BigInteger`'s `Numeric` operations — the same arithmetic under the single-parameter `Numeric` ability the
-    * refinement channel's compile-time `Interval` domain instance delegates to. Registered under the `Numeric` FQNs (so
-    * the stuck form carries the right name) alongside their `Arithmetic` twins; `Arithmetic` still backs `Int`'s bound
-    * formulas until the flag day (`docs/bounds-as-refinements.md` Step 6).
+  /** `BigInteger`'s `Numeric` operations, each reducing to a concrete `BigInteger` when both operands are concrete
+    * (otherwise stuck). This is the single-parameter arithmetic the refinement channel's compile-time `Interval` domain
+    * instance delegates to, and the arithmetic behind `+`/`-`/`*`. Shared by the load-bearing ability-method [[bindings]]
+    * and the value-level [[abilityImplNatives]] wiring.
     */
   private def numericAddNative: SemValue      = bigIntBinaryNative(numericAddFQN)((a, b) => a + b)
   private def numericSubtractNative: SemValue = bigIntBinaryNative(numericSubtractFQN)((a, b) => a - b)
@@ -150,9 +151,9 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     */
   private def abilityImplNatives: Seq[(String, String, String, SemValue)] = Seq(
     ("Compare", "lessThanOrEqual", "BigInteger", lessThanOrEqualNative),
-    ("Arithmetic", "add", "BigInteger", addNative),
-    ("Arithmetic", "subtract", "BigInteger", subtractNative),
-    ("Arithmetic", "multiply", "BigInteger", multiplyNative),
+    ("Arithmetic", "add", "BigInteger", arithmeticAddNative),
+    ("Arithmetic", "subtract", "BigInteger", arithmeticSubtractNative),
+    ("Arithmetic", "multiply", "BigInteger", arithmeticMultiplyNative),
     ("Numeric", "add", "BigInteger", numericAddNative),
     ("Numeric", "subtract", "BigInteger", numericSubtractNative),
     ("Numeric", "multiply", "BigInteger", numericMultiplyNative)

@@ -1,5 +1,4 @@
 import eliot.effect.Console
-import eliot.lang.Arithmetic
 
 data Choice = First | Second
 

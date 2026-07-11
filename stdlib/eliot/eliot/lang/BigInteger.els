@@ -1,50 +1,12 @@
 import eliot.lang.Bool
 import eliot.lang.Compare
-import eliot.lang.Arithmetic
-import eliot.compiler.Combine
 
 type BigInteger
-
-/**
- * `BigInteger` supplies `Arithmetic` natively. Every result is again a `BigInteger`, so the three result types are all
- * `BigInteger` and the methods are deliberately body-less: arbitrary-precision arithmetic is a compiler/backend leaf
- * (`BigInteger` has no in-language representation), so each reduction is attached directly to its implementation method.
- * These back `Int`'s dependent bounds during type checking.
- */
-implement Arithmetic[BigInteger, BigInteger] {
-   type AddResult = BigInteger
-   type SubResult = BigInteger
-   type MulResult = BigInteger
-
-   def add(a: BigInteger, b: BigInteger): AddResult
-   def subtract(a: BigInteger, b: BigInteger): SubResult
-   def multiply(a: BigInteger, b: BigInteger): MulResult
-}
-
-/**
- * Combining `BigInteger` with itself is `BigInteger` — the unbounded type is its own join. Purely type-level and
- * platform-independent (like `Combine[Int, Int]`), used e.g. by `Interval`'s multiplication result formula, whose
- * corner-product types meet in a `Combined`.
- */
-implement Combine[BigInteger, BigInteger] { type Combined = BigInteger }
 
 /**
  * The successor of `bi` (`bi + 1`).
  */
 def inc(bi: BigInteger): BigInteger
-
-/**
- * The minimum of the four corner products of the ranges `[a, b]` and `[c, d]` — the lower result bound of
- * integer `*`. A single corner is not enough, since either range may straddle zero.
- */
-def multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger =
-  min(min(multiply(a, c), multiply(a, d)), min(multiply(b, c), multiply(b, d)))
-
-/**
- * The maximum of the four corner products of the ranges `[a, b]` and `[c, d]` — the upper result bound of integer `*`.
- */
-def multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger =
-  max(max(multiply(a, c), multiply(a, d)), max(multiply(b, c), multiply(b, d)))
 
 /**
  * True iff the range `[min, max]` is fully contained in `[lo, hi]`.

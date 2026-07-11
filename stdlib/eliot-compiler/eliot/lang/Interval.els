@@ -8,36 +8,32 @@ import eliot.compiler.Meta
  * same Eliot code runs under the compiler's NbE evaluator). Self-sufficiency is the point: a compile-time interval
  * (e.g. as an `Int` bound object) must not depend on a sibling *runtime* target's layer being present.
  *
- * Only the refinement-domain pieces live here (`Meta[Interval[T, T]]` for joins; the plain `intervalAdd`/`intervalSubtract`/
+ * Only the refinement-domain pieces live here (`Meta[Interval[T]]` for joins; the plain `intervalAdd`/`intervalSubtract`/
  * `intervalMultiply` transfer functions the `Int` `^Meta` vessels reach) — the ones the bounds-as-refinements channel
- * evaluates. The runtime `Arithmetic[Interval, Interval]` instance (with its associated-type result formulas) stays
- * split across the base + jvm layers; the compiler track no longer needs it, so it is not copied into this overlay
- * (`docs/bounds-as-refinements.md` Step 5).
+ * evaluates. The runtime `Numeric[Interval[T]]` instance stays split across the base + jvm layers; the compiler track
+ * reaches the transfer through the plain functions below (a transitively-reached ability *instance* does not dispatch
+ * under the channel's NbE evaluation), so the instance is not copied into this overlay.
  */
-data Interval[S, E](start: S, end: E)
+data Interval[T](start: T, end: T)
 
 /**
- * A same-endpoint `Interval[T, T]` (e.g. `Interval[BigInteger, BigInteger]`, an `Int`'s value range) is a refinement
- * **domain** — the value a range is tracked as by the bounds-as-refinements channel
- * (`docs/bounds-as-refinements.md`). Its lattice `join` covers two ranges: the least interval containing both is
- * `[min of the starts, max of the ends]`, delegating to the endpoints' own `Compare` — the value-level twin of the
- * type-level `Combine[Int, Int]` join the channel is migrating off. A compiler-pool-only instance, exercised in shadow
- * mode at `match`/`if` branch merges.
+ * An `Interval[T]` (e.g. `Interval[BigInteger]`, an `Int`'s value range) is a refinement **domain** — the value a range
+ * is tracked as by the bounds-as-refinements channel (`docs/bounds-as-refinements.md`). Its lattice `join` covers two
+ * ranges: the least interval containing both is `[min of the starts, max of the ends]`, delegating to the endpoints' own
+ * `Compare`. A compiler-pool-only instance, exercised at `match`/`if` branch merges.
  */
-implement[T ~ Compare[T]] Meta[Interval[T, T]] {
-   def join(a: Interval[T, T], b: Interval[T, T]): Interval[T, T] =
+implement[T ~ Compare[T]] Meta[Interval[T]] {
+   def join(a: Interval[T], b: Interval[T]): Interval[T] =
       Interval(min(start(a), start(b)), max(end(a), end(b)))
 }
 
 /**
- * A same-endpoint `Interval[T, T]` closes under arithmetic — the single-parameter, non-associated-type transfer the
- * refinement channel evaluates (`docs/bounds-as-refinements.md` Step 4c). These are **plain functions**, not a
- * `Numeric[Interval]` ability instance: an `Int`'s `^Meta` transfer companion reaches them *transitively* (through the
- * vessel's return brace), and a transitively-reached Eliot-body ability *instance* does not dispatch under the channel's
- * NbE evaluation — only natives re-fire transitively — so the interval arithmetic must bottom out directly at the
- * endpoints' `Numeric` **natives** (and, for multiplication's corner selection, `Compare`). Because both endpoints share
- * one type `T`, every result endpoint is again a `T`, so each is a plain `Interval[T, T] -> Interval[T, T] ->
- * Interval[T, T]` with no `AddResult`/`SubResult`/`MulResult` formulas or corner annotations.
+ * An `Interval[T]` closes under arithmetic — the non-associated-type transfer the refinement channel evaluates
+ * (`docs/bounds-as-refinements.md` Step 4c). These are **plain functions**, not a `Numeric[Interval]` ability instance:
+ * an `Int`'s `^Meta` transfer companion reaches them *transitively* (through the vessel's return brace), and a
+ * transitively-reached Eliot-body ability *instance* does not dispatch under the channel's NbE evaluation — only natives
+ * re-fire transitively — so the interval arithmetic must bottom out directly at the endpoints' `Numeric` **natives** (and,
+ * for multiplication's corner selection, `Compare`).
  *
  *   - `[a, b] + [c, d] = [a + c, b + d]`
  *   - `[a, b] - [c, d] = [a - d, b - c]`   (subtraction pairs a start with the other end)
@@ -47,11 +43,11 @@ implement[T ~ Compare[T]] Meta[Interval[T, T]] {
  * leaves. The bare `add`/`subtract`/`multiply` resolve unambiguously here (this overlay imports only `Numeric`, not
  * `Arithmetic`).
  */
-def intervalAdd[T ~ Numeric](a: Interval[T, T], b: Interval[T, T]): Interval[T, T] =
+def intervalAdd[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =
    Interval(add(start(a), start(b)), add(end(a), end(b)))
-def intervalSubtract[T ~ Numeric](a: Interval[T, T], b: Interval[T, T]): Interval[T, T] =
+def intervalSubtract[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =
    Interval(subtract(start(a), end(b)), subtract(end(a), start(b)))
-def intervalMultiply[T ~ Numeric & Compare](a: Interval[T, T], b: Interval[T, T]): Interval[T, T] = {
+def intervalMultiply[T ~ Numeric & Compare](a: Interval[T], b: Interval[T]): Interval[T] = {
    val c11 = multiply(start(a), start(b))
    val c12 = multiply(start(a), end(b))
    val c21 = multiply(end(a), start(b))

@@ -1,5 +1,5 @@
 import eliot.effect.Console
-import eliot.lang.Arithmetic
+import eliot.lang.Numeric
 
 def sum(x: Int, y: Int): Int = add(x, y)
 def diff(x: Int, y: Int): Int = subtract(x, y)

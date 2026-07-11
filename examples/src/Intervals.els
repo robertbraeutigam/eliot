@@ -1,15 +1,15 @@
 import eliot.effect.Console
-import eliot.lang.Arithmetic
+import eliot.lang.Numeric
 import eliot.lang.Interval
 
-def a: Interval[Int, Int] = Interval(0, 1)
-def b: Interval[Int, Int] = Interval(1, 2)
+def a: Interval[Int] = Interval(0, 1)
+def b: Interval[Int] = Interval(1, 2)
 
-// `Interval` closes under arithmetic endpoint-wise (via the endpoints' own `Arithmetic`/`Compare`), computed at
+// `Interval` closes under arithmetic endpoint-wise (via the endpoints' own `Numeric`/`Compare`), computed at
 // runtime: [0,1] + [1,2] = [1,3], [0,1] - [1,2] = [-2,0], [0,1] * [1,2] = [0,2] (min/max of the corner products).
-def sum: Interval[Int, Int] = a + b
-def diff: Interval[Int, Int] = a - b
-def prod: Interval[Int, Int] = a * b
+def sum: Interval[Int] = a + b
+def diff: Interval[Int] = a - b
+def prod: Interval[Int] = a * b
 
 def main: IO[Unit] = {
   printLine(intToString(sum.start))

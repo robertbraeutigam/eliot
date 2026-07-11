@@ -1,46 +1,37 @@
-import eliot.lang.Arithmetic
-import eliot.compiler.Combine
+import eliot.lang.Numeric
+import eliot.lang.Compare
 
 /**
- * A closed interval `[start, end]` whose endpoints are independently typed: a `start` of type `S` and an `end` of
- * type `E`. The two type parameters are kept apart because arithmetic crosses them — subtracting one interval from
- * another pairs a start with the other's end.
+ * A closed interval `[start, end]` of values of a single numeric type `T`: a `start` and an `end`, both `T`. With `Int`'s
+ * value range moved out of its type into the refinement channel (`docs/bounds-as-refinements.md`), both endpoints of a
+ * range share one type, so `Interval` needs only one type parameter.
  *
- * An `Interval` is the general form of a numeric range: `Interval[BigInteger, BigInteger]` is the compile-time bound
- * of an `Int`, while `Interval[Int[..], Int[..]]` is an ordinary runtime interval of machine integers. It closes
- * under `+`/`-`/`*` (see the `Arithmetic[Interval, Interval]` instance) purely by delegating to the `Arithmetic` and
- * `Compare` of its endpoints — this is exactly why those abilities exist, so no interval arithmetic is written twice.
+ * An `Interval` is the general form of a numeric range: `Interval[BigInteger]` is the compile-time bound of an `Int`,
+ * while `Interval[Int]` is an ordinary runtime interval of machine integers. It closes under `+`/`-`/`*` (see the
+ * `Numeric[Interval[T]]` instance) purely by delegating to the `Numeric` and `Compare` of its endpoints — this is exactly
+ * why those abilities exist, so no interval arithmetic is written twice.
  *
  * The type is abstract in the base (`data` is a chosen representation, which the base avoids); each platform layer
- * supplies the concrete `data Interval[S, E](start, end)` and the method bodies. Like `Int`, the `Arithmetic` instance
- * is *split across layers*: the base owns the platform-independent result-type formulas below, and the platform layers
- * supply the endpoint-wise bodies.
+ * supplies the concrete `data Interval[T](start, end)` and the method bodies. Like `Int`, the `Numeric` instance is
+ * *split across layers*: the base owns the platform-independent method signatures, and the platform layers supply the
+ * endpoint-wise bodies.
  */
-type Interval[S, E]
+type Interval[T]
 
 /**
- * `Interval` closes under arithmetic by lifting the operation onto each endpoint through the endpoints' own
- * `Arithmetic`. The result-endpoint types are the endpoints' own result types, written as direct applications of the
- * ability's associated types (`AddResult[S1, S2]` is `AddResult` of the `Arithmetic[S1, S2]` instance):
+ * `Interval` closes under arithmetic by lifting the operation onto each endpoint through the endpoints' own `Numeric`.
+ * Because both endpoints share one type `T`, every result endpoint is again a `T`, so each method is a plain
+ * `Interval[T] -> Interval[T] -> Interval[T]` — no associated result types, no corner-product join formula:
  *
  *   - `[a, b] + [c, d] = [a + c, b + d]`
  *   - `[a, b] - [c, d] = [a - d, b - c]`   (subtraction pairs a start with the other end)
  *   - `[a, b] * [c, d] = [min of the four corner products, max of them]`
  *
- * Multiplication's corners have four different types (`MulResult` of each start/end pairing), so both result
- * endpoints live in the corners' join, spelled with `Combine`'s `Combined` in the same association the body's
- * `min`/`max` chain produces.
- *
- * On `Interval[BigInteger, BigInteger]` (an `Int` bound) `[0, 1] + [1, 2] : Interval[1, 3]`; on
- * `Interval[Int[..], Int[..]]` the same instance computes the value at runtime with exact endpoint bounds.
+ * On `Interval[BigInteger]` (an `Int` bound) `[0, 1] + [1, 2] : Interval[BigInteger]` computing `[1, 3]`; on
+ * `Interval[Int]` the same instance computes the value at runtime.
  */
-implement[S1, E1, S2, E2 ~ Arithmetic[S1, S2] & Arithmetic[E1, E2] & Arithmetic[S1, E2] & Arithmetic[E1, S2]]
-      Arithmetic[Interval[S1, E1], Interval[S2, E2]] {
-   type AddResult = Interval[AddResult[S1, S2], AddResult[E1, E2]]
-   type SubResult = Interval[SubResult[S1, E2], SubResult[E1, S2]]
-   type MulResult = Interval[Combined[Combined[Combined[MulResult[S1, S2], MulResult[S1, E2]], MulResult[E1, S2]], MulResult[E1, E2]], Combined[Combined[Combined[MulResult[S1, S2], MulResult[S1, E2]], MulResult[E1, S2]], MulResult[E1, E2]]]
-
-   def add(a: Interval[S1, E1], b: Interval[S2, E2]): AddResult
-   def subtract(a: Interval[S1, E1], b: Interval[S2, E2]): SubResult
-   def multiply(a: Interval[S1, E1], b: Interval[S2, E2]): MulResult
+implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
+   def add(a: Interval[T], b: Interval[T]): Interval[T]
+   def subtract(a: Interval[T], b: Interval[T]): Interval[T]
+   def multiply(a: Interval[T], b: Interval[T]): Interval[T]
 }

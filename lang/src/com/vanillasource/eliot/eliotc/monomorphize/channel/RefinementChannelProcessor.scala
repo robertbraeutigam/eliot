@@ -305,10 +305,12 @@ object RefinementChannelProcessor {
     case _                                          => None
   }
 
-  /** `Interval[BigInteger, BigInteger]` — the domain type the channel carries for an `Int`'s value range. */
+  /** `Interval[BigInteger]` — the domain type the channel carries for an `Int`'s value range. Its value constructor
+    * `Interval(start, end)` still takes two endpoint fields; only the type constructor is single-parameter now.
+    */
   private[channel] val intervalType: GroundValue = GroundValue.Structure(
     ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Type)),
-    Seq(bigIntType, bigIntType),
+    Seq(bigIntType),
     GroundValue.Type
   )
 

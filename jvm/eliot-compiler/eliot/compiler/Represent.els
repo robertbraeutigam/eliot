@@ -26,8 +26,8 @@ ability Represent[D] {
  * both this way and by unfolding the `opaque` body, asserts they agree, and lets the backend consume this
  * channel-derived one — the `opaque` path demoted to a shadow check on the way to its deletion (Step 7d).
  */
-implement Represent[Interval[BigInteger, BigInteger]] {
-   def layout(range: Interval[BigInteger, BigInteger]): Type =
+implement Represent[Interval[BigInteger]] {
+   def layout(range: Interval[BigInteger]): Type =
       fold(fitsByte(start(range), end(range)), JvmByte[],
       fold(fitsShort(start(range), end(range)), JvmShort[],
       fold(fitsMedium(start(range), end(range)), JvmInt[],

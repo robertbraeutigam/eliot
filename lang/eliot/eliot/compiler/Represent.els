@@ -1,6 +1,6 @@
 /**
  * The platform's **representation policy** for a refinement domain `D`: given the domain value the channel tracks for
- * a value — an `Int`'s value range is an `Interval[BigInteger, BigInteger]` — pick the machine layout a value in that
+ * a value — an `Int`'s value range is an `Interval[BigInteger]` — pick the machine layout a value in that
  * domain should occupy (`docs/bounds-as-refinements.md` §4.4).
  *
  * This is the successor to the `opaque type Int` representation body: the layout is *derived in Eliot from the

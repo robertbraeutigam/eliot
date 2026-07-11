@@ -1,6 +1,6 @@
 import eliot.lang.Bool
 import eliot.lang.Compare
-import eliot.lang.Arithmetic
+import eliot.lang.Numeric
 
 /**
  * The fixed set of machine layouts an `Int` can lower to on the JVM, smallest first: `JvmByte`, `JvmShort`, `JvmInt`,
@@ -26,17 +26,13 @@ type JvmBigInteger
 // raw `JvmBigInteger` representation type; a later, post-checking pass unfolds it.
 opaque type Int = JvmBigInteger[]
 
-// The JVM half of the base's split `Arithmetic[Int, Int]` instance: same `(ability, pattern)`, so it merges with the
-// base's abstract half. The base fixes the (now trivial) result types; this layer supplies the method bodies, each a
-// single call to the matching arithmetic leaf.
-implement Arithmetic[Int, Int] {
-   type AddResult
-   type SubResult
-   type MulResult
-
-   def add(a: Int, b: Int): AddResult = nativeAdd(a, b)
-   def subtract(a: Int, b: Int): SubResult = nativeSubtract(a, b)
-   def multiply(a: Int, b: Int): MulResult = nativeMultiply(a, b)
+// The JVM half of the base's split `Numeric[Int]` instance: same `(ability, pattern)`, so it merges with the base's
+// abstract half. The base fixes the method signatures; this layer supplies the method bodies, each a single call to the
+// matching arithmetic leaf.
+implement Numeric[Int] {
+   def add(a: Int, b: Int): Int = nativeAdd(a, b)
+   def subtract(a: Int, b: Int): Int = nativeSubtract(a, b)
+   def multiply(a: Int, b: Int): Int = nativeMultiply(a, b)
 }
 
 /**

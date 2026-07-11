@@ -87,7 +87,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "run an arithmetic result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |def total: Int = 3 + 4
         |
         |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
@@ -98,7 +98,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "run a bare Int return computed from the body (W3)" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |def double(x: Int): Int = x + x
         |
         |def main: IO[Unit] = printLine(intToString(double(21)))""".stripMargin
@@ -132,7 +132,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "compute a product that overflows 16 bits" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |def product: Int = 1000 * 1000
         |
         |def main: IO[Unit] = printLine(intToString(product))""".stripMargin
@@ -143,7 +143,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "compute the right result across magnitudes in one program" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |def byteSum: Int = 100 + 100
         |def shortDiff: Int = 500 - 300
         |def intProduct: Int = 1000 * 1000
@@ -172,7 +172,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   "generic instantiation" should "run a generic Int function at two call sites" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |def id(x: Int): Int = x
         |def a: Int = 3
         |def b: Int = 5
@@ -184,7 +184,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "run a generic Int function at two very different magnitudes" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |def id(x: Int): Int = x
         |def a: Int = 3
         |def big: Int = 5000000000
@@ -256,7 +256,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "match out two integer fields and sum them" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |data IntPair(small: Int, large: Int)
         |
         |def sum(p: IntPair): Int = p match {
@@ -330,13 +330,13 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "wrapped")
   }
 
-  // --- Arithmetic ability on `Int`: homogeneous add/subtract/multiply (the result type is again `Int`). ---
+  // --- Numeric ability on `Int`: homogeneous add/subtract/multiply (the result type is again `Int`). ---
 
   // Nested calls to the same ability method resolve independently: `add(a, add(b, c))`.
-  "the Arithmetic ability" should "add ints across nested calls" in {
+  "the Numeric ability" should "add ints across nested calls" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -354,7 +354,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "no longer reject a result that would exceed a former range bound" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -365,15 +365,14 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "50")
   }
 
-  // Constraint-based associated-type projection: a plain generic function whose return is the bare associated type
-  // `AddResult` of its `~ Arithmetic[X, Y]` constraint, projected at the call from the monomorphized callee. For `Int`
-  // the result is again `Int`.
-  it should "project the associated result type of a generic function's constraint" in {
+  // A plain generic function over `Numeric[T]` whose return is the same `T`, projected at the call from the
+  // monomorphized callee. For `Int` the result is again `Int`.
+  it should "run a generic function over a Numeric constraint" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |
-        |def plus[X, Y ~ Arithmetic[X, Y]](x: X, y: Y): AddResult = add(x, y)
+        |def plus[T ~ Numeric[T]](x: T, y: T): T = add(x, y)
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -384,14 +383,14 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "50")
   }
 
-  // Generic arithmetic composed over all three result types, with a generic call feeding another.
-  it should "compose generic arithmetic over all three result types" in {
+  // Generic arithmetic composed, with a generic call feeding another.
+  it should "compose generic Numeric functions" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |
-        |def plus[X, Y ~ Arithmetic[X, Y]](x: X, y: Y): AddResult = add(x, y)
-        |def times[X, Y ~ Arithmetic[X, Y]](x: X, y: Y): MulResult = multiply(x, y)
+        |def plus[T ~ Numeric[T]](x: T, y: T): T = add(x, y)
+        |def times[T ~ Numeric[T]](x: T, y: T): T = multiply(x, y)
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -400,34 +399,19 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "630")
   }
 
-  // --- Associated types as first-class type functions: `AddResult[X, Y]` applied directly in a signature. ---
-
-  // A direct application of an ability's associated type to ground arguments reduces through the matching instance:
-  // `AddResult[Int, Int]` IS `Int`, so the literal compiles and runs.
-  "associated type application" should "reduce a directly applied associated type in a signature" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
-        |
-        |def four: AddResult[Int, Int] = 4
-        |
-        |def main: IO[Unit] = printLine(intToString(four))""".stripMargin
-    ).asserting(_ shouldBe "4")
-  }
-
-  // --- Interval: endpoint-wise interval arithmetic over `Int` endpoints (runtime `Arithmetic[Interval, Interval]`). ---
+  // --- Interval: endpoint-wise interval arithmetic over `Int` endpoints (runtime `Numeric[Interval[Int]]`). ---
 
   // Interval addition is endpoint-wise: `[0, 1] + [1, 2] = [1, 3]`.
   "the Interval type" should "add intervals endpoint-wise" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |import eliot.lang.Interval
         |
-        |def a: Interval[Int, Int] = Interval(0, 1)
-        |def b: Interval[Int, Int] = Interval(1, 2)
+        |def a: Interval[Int] = Interval(0, 1)
+        |def b: Interval[Int] = Interval(1, 2)
         |
-        |def sum: Interval[Int, Int] = a + b
+        |def sum: Interval[Int] = a + b
         |
         |def main: IO[Unit] = {
         |  printLine(intToString(sum.start))
@@ -441,14 +425,14 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "subtract and multiply intervals endpoint-wise" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Arithmetic
+        |import eliot.lang.Numeric
         |import eliot.lang.Interval
         |
-        |def a: Interval[Int, Int] = Interval(0, 1)
-        |def b: Interval[Int, Int] = Interval(1, 2)
+        |def a: Interval[Int] = Interval(0, 1)
+        |def b: Interval[Int] = Interval(1, 2)
         |
-        |def diff: Interval[Int, Int] = a - b
-        |def prod: Interval[Int, Int] = a * b
+        |def diff: Interval[Int] = a - b
+        |def prod: Interval[Int] = a * b
         |
         |def main: IO[Unit] = {
         |  printLine(intToString(diff.start))
