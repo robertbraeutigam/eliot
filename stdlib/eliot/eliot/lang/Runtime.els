@@ -1,0 +1,18 @@
+import eliot.lang.Interval
+
+/**
+ * Convert a `BigInteger` literal into the platform's concrete integer value.
+ *
+ * Inserted by the compiler wherever an integer literal appears; not called directly from user code. The literal's
+ * `BigInteger` value `V` rides the reference so the refinement channel can seed the value's range: the return brace
+ * `{Interval(V, V)}` is that seed — the singleton range — which the desugarer turns into the `integerLiteral^Meta`
+ * companion the channel reduces to originate a literal's meta (`Int$Meta(Interval(V, V))`). This is the one place a
+ * value's meta originates (the α rule of `docs/generic-refinement-merges.md`).
+ *
+ * It lives here in `stdlib`, not in the base `lang` layer: the seed names `Int` and `Interval`, both follow-up-layer
+ * types that `lang` (which sits *below* `stdlib`) must not reference. `lang` owns only the literal *mechanism* — the
+ * `integerLiteral` FQN, its compile-time native (`integerLiteral[V]` reduces to `V`), the desugar of a source literal
+ * into `integerLiteral[n]`, and the quote-time rewrite back to a plain `IntegerLiteral` node — none of which names
+ * `Int`. So the base language stays representation-free; the layer that knows the integer type also owns the literal.
+ */
+def integerLiteral[V: BigInteger]: Int {Interval(V, V)}
