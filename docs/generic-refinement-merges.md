@@ -23,13 +23,18 @@ collides ("Has multiple implementations") — a single channel-side rule avoids 
 The `metaOf`/`Bool[]`-namespace mentions in the historical Step-2/§Current-state notes below are retained for
 provenance but describe deleted mechanism.
 
-**One scope decision (Step 5's second half, deliberately NOT taken).** Step 5 as originally written also drops
-`widthTransparentLeaves` (so arithmetic operands reconcile to ⊤/bignum). That is a **precision regression** with no
-upside until native *parameter*-meta declarations exist to recover the narrow width generically — and those do not
-exist yet. Naming an arithmetic *leaf* is **sanctioned** (§3 Step 3: the invariant forbids naming a *branch
-construct*, and `nativeAdd` is not one), so keeping `widthTransparentLeaves` does not violate the invariant. It is
-kept until parameter-metas land, rather than shipping the regression. This is the one open follow-on; it is
-orthogonal to the `Bool::fold` removal this plan was about.
+**Step 5's second half — RESOLVED by moving all width policy to the backend (2026-07-12, commit `253b7285`).** The
+original plan fretted that dropping `widthTransparentLeaves` would regress arithmetic to ⊤/bignum unless natives could
+declare *parameter*-metas. That framing was wrong: it assumed the reconcile pass owns conversion *placement*. It does
+not need to. The JVM backend already *recovers* each `Int`'s width from its range (`IntRepresentation`); it can equally
+*derive* every re-encode from the ranges + descriptors — a call argument widened to its ⊤/bignum parameter boundary, a
+`fold` arm re-encoded to the fold node's merged width, the method body widened to the return boundary. So conversion
+placement moved into the backend, and the reconcile pass became a **pure meta-stamper**: no `Reconcile` nodes, no
+`widthTransparentLeaves`, no join-input edges (the whole structural-companion read of Steps 4–5 is deleted — the
+backend, which already emits `Bool::fold` inline, re-encodes the arms from the fold node's recorded merge interval).
+Arithmetic's narrow fast path survives with **no** exemption list, because `generateIntrinsic` reads each operand's own
+meta directly — with no pass widening operands, there is nothing to exempt. No regression, and `~300` fewer lines.
+`CACHE_VERSION` 14 → 15. This closes the last open follow-on; parameter-meta declarations are no longer needed for it.
 
 **The one design correction discovered while landing Step 3 (2026-07-12).** The plan (below, and its §4½) assumed
 `reduceInstance(fold^Meta, [Int])` would *stall at a stuck `Meta::join`*, from which the channel would read the two
