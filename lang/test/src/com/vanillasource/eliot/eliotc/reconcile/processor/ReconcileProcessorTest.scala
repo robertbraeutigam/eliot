@@ -62,7 +62,7 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
       .asserting(appArgs(_).map(isReconcile) shouldBe Seq(false, false))
   }
 
-  "branch merge (Bool::fold)" should "reconcile each arm to the fold node's joined meta" in {
+  "branch merge (channel join-input edges)" should "reconcile each arm to its recorded merge meta" in {
     reconciledTop(foldBody, foldTable)
       .asserting(top => appArgs(reconcileSource(top)).drop(1).map(isReconcile) shouldBe Seq(true, true))
   }
@@ -101,22 +101,17 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
   }
 
   "metaByPosition" should "drop a position carrying two distinct intervals (ambiguous)" in {
-    ReconcileProcessor.metaByPosition(table(iv(1, 0, 5), iv(1, 0, 9))).get(pos(1)) shouldBe None
+    ReconcileProcessor.metaByPosition(Seq(iv(1, 0, 5), iv(1, 0, 9))).get(pos(1)) shouldBe None
   }
 
   it should "keep a position whose entries all agree" in {
-    ReconcileProcessor.metaByPosition(table(iv(1, 0, 5), iv(1, 0, 5))).get(pos(1)) shouldBe
+    ReconcileProcessor.metaByPosition(Seq(iv(1, 0, 5), iv(1, 0, 5))).get(pos(1)) shouldBe
       Some(ReconcileProcessor.intervalMeta(0, 5))
   }
 
   "widthTransparentLeaves" should "be exactly the arithmetic/ordering/toString leaves" in {
     ReconcileProcessor.widthTransparentLeaves shouldBe
       Set("nativeAdd", "nativeSubtract", "nativeMultiply", "intLessThanOrEqual", "intToString").map(langInt)
-  }
-
-  "boolFoldFqn" should "name the Bool fold eliminator" in {
-    ReconcileProcessor.boolFoldFqn shouldBe
-      ValueFQN(ModuleName(defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))
   }
 
   // ---- fixtures -----------------------------------------------------------------------------------------------------
@@ -160,6 +155,11 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
     RefinementTable.NodeInterval(pos(p), BigInt(min), BigInt(max))
   private def table(intervals: RefinementTable.NodeInterval*): RefinementTable =
     RefinementTable(mainFqn, Seq.empty, intervals)
+  private def tableWithJoins(
+      intervals: Seq[RefinementTable.NodeInterval],
+      joinInputs: Seq[RefinementTable.NodeInterval]
+  ): RefinementTable =
+    RefinementTable(mainFqn, Seq.empty, intervals, joinInputs)
 
   private def umv(body: Sourced[UncurriedMonomorphicExpression], returnType: GroundValue): UncurriedMonomorphicValue =
     UncurriedMonomorphicValue(
@@ -200,9 +200,15 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
     uApp(1, intType, uRef(2, langInt("nativeAdd")), uInt(3, 1), uInt(4, 300))
   private val addTable: RefinementTable = table(iv(1, 301, 301), iv(3, 1, 1), iv(4, 300, 300))
 
+  // A `fold(c, 1, 300)` body. The reconcile pass no longer special-cases fold; instead the channel's
+  // `joinInputs` edges (positions 4 and 5 → the merge interval [1, 300]) drive the arm re-encode. The condition
+  // (position 3) carries no join-input edge, so it is not reconciled.
+  private val boolFoldFqn: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))
   private val foldBody: Sourced[UncurriedMonomorphicExpression] =
-    uApp(1, intType, uRef(2, ReconcileProcessor.boolFoldFqn), uParam(3, "c", boolType), uInt(4, 1), uInt(5, 300))
-  private val foldTable: RefinementTable = table(iv(1, 1, 300), iv(4, 1, 1), iv(5, 300, 300))
+    uApp(1, intType, uRef(2, boolFoldFqn), uParam(3, "c", boolType), uInt(4, 1), uInt(5, 300))
+  private val foldTable: RefinementTable =
+    tableWithJoins(Seq(iv(1, 1, 300), iv(4, 1, 1), iv(5, 300, 300)), Seq(iv(4, 1, 300), iv(5, 1, 300)))
 
   private val callBody: Sourced[UncurriedMonomorphicExpression] =
     uApp(

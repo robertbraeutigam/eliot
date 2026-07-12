@@ -26,8 +26,11 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.{UncurriedMonomorphicExpressi
   *   2. **Inserts [[ReconciledMonomorphicExpression.Reconcile]] nodes at meta-change edges.** Wherever a value flows into
   *      a context that fixes a *different* expected meta than the value's own, the value is wrapped so the backend emits
   *      a representation re-encode. The edges (see the class note in `docs/bounds-as-refinements.md` §4):
-  *        - a **branch-arm merge** — each arm of a `Bool::fold` is reconciled to the fold node's own (joined) meta;
-  *        - an **argument boundary** — each argument of an *ordinary* call/constructor is reconciled to the callee's
+  *        - a **branch-arm merge** — each argument the channel marked as a **join input** (in
+  *          [[RefinementTable.joinInputs]], e.g. a `fold` arm) is reconciled to its recorded merge interval. The channel
+  *          supplies these generically from the callee's `^Meta` merge companion, so this pass names **no** branch
+  *          construct (`docs/generic-refinement-merges.md` Steps 4–5) — the former `Bool::fold` special-case is gone;
+  *        - an **argument boundary** — every *other* argument of a call/constructor is reconciled to the callee's
   *          declared parameter meta (⊤/bignum today, since `Int` parameters carry no declared range yet);
   *        - the **return boundary** — the whole body is reconciled to the declared return meta (⊤/bignum today).
   *
@@ -35,7 +38,8 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.{UncurriedMonomorphicExpressi
   * `nativeMultiply`), the ordering leaf (`intLessThanOrEqual`) and `intToString` consume their operands at whatever
   * width their meta gives (the backend unboxes each per-operand), so their operands are *not* reconciled — that would
   * pre-widen away the narrow representation. Their result meta is the channel's own entry for the call node (the
-  * arithmetic transfer). `Bool::fold` is handled specially (arm merge above).
+  * arithmetic transfer). Naming an arithmetic *leaf* is sanctioned; the invariant only forbids naming a *branch
+  * construct*, which this pass no longer does.
   *
   * A reconcile is inserted only when the value's own meta differs from the imposed expected meta (`Option[GroundValue]`
   * structural inequality). Because the channel only ever records intervals for `Int` nodes, a non-`Int` value has meta
@@ -55,13 +59,17 @@ class ReconcileProcessor
   ): CompilerIO[ReconciledMonomorphicValue] =
     for {
       refinementTable <- getFactIfProduced(RefinementTable.Key(key.vfqn, key.typeArguments))
-      metas            = refinementTable.map(metaByPosition).getOrElse(Map.empty[PositionRange, GroundValue])
+      metas            = refinementTable.map(t => metaByPosition(t.intervals)).getOrElse(Map.empty[PositionRange, GroundValue])
+      // The branch-arm join-input edges: a position → the merge interval it must reconcile to. The channel provides
+      // these generically (from a `^Meta` merge companion, never a branch construct — docs/generic-refinement-merges.md
+      // Steps 4–5), replacing this pass's former `Bool::fold` special-case.
+      joinInputs       = refinementTable.map(t => metaByPosition(t.joinInputs)).getOrElse(Map.empty[PositionRange, GroundValue])
       reconciledBody   = umv.body.map { b =>
                            val topNode = b.as(UncurriedMonomorphicExpression(umv.returnType, b.value))
                            // The whole body reconciles to the declared return meta (⊤/None today — `Int` returns carry
                            // no declared range yet), so a body computing a narrow value re-encodes to the bignum
                            // descriptor at the return.
-                           reconcileTo(walk(topNode, metas), None)
+                           reconcileTo(walk(topNode, metas, joinInputs), None)
                          }
     } yield ReconciledMonomorphicValue(
       vfqn = key.vfqn,
@@ -79,7 +87,8 @@ class ReconcileProcessor
     */
   private def walk(
       node: Sourced[UncurriedMonomorphicExpression],
-      metas: Map[PositionRange, GroundValue]
+      metas: Map[PositionRange, GroundValue],
+      joinInputs: Map[PositionRange, GroundValue]
   ): Sourced[ReconciledMonomorphicExpression] = {
     val own          = metas.get(node.range)
     val expressionType = node.value.expressionType
@@ -95,28 +104,19 @@ class ReconcileProcessor
       case UncurriedMonomorphicExpression.FunctionLiteral(params, body)  =>
         // A lambda body is a ⊤ boundary (the channel records no interval inside it), so nothing narrow flows out; walk
         // it for structure only, no reconcile needed.
-        FunctionLiteral(params, walk(body, metas))
+        FunctionLiteral(params, walk(body, metas, joinInputs))
       case UncurriedMonomorphicExpression.FunctionApplication(t, args)   =>
-        val walkedTarget = walk(t, metas)
+        val walkedTarget = walk(t, metas, joinInputs)
         calleeOf(t) match {
-          case Some(fqn) if widthTransparentLeaves.contains(fqn)      =>
+          case Some(fqn) if widthTransparentLeaves.contains(fqn) =>
             // Arithmetic / ordering / toString: operands consumed at their own width by the leaf — do not reconcile.
-            FunctionApplication(walkedTarget, args.map(walk(_, metas)))
-          case Some(fqn) if fqn === boolFoldFqn && args.sizeIs == 3   =>
-            // Branch merge: reconcile each arm to the fold node's own (joined) meta. The condition is a `Bool`, ⊤.
-            val armExpected = own
-            FunctionApplication(
-              walkedTarget,
-              Seq(
-                walk(args(0), metas),
-                reconcileTo(walk(args(1), metas), armExpected),
-                reconcileTo(walk(args(2), metas), armExpected)
-              )
-            )
-          case _                                                     =>
-            // Ordinary call / constructor: every argument crosses a boundary to the callee's declared parameter meta
-            // (⊤/None today), so reconcile each to None.
-            FunctionApplication(walkedTarget, args.map(a => reconcileTo(walk(a, metas), None)))
+            FunctionApplication(walkedTarget, args.map(walk(_, metas, joinInputs)))
+          case _                                                 =>
+            // Ordinary call / constructor: each argument crosses a boundary. A **join-input** argument (a branch arm the
+            // channel marked) reconciles to its recorded merge interval; every other argument reconciles to the callee's
+            // declared parameter meta (⊤/None today). This is the generic replacement for the former `Bool::fold`
+            // special-case — the branch-arm merge and the ordinary boundary are one rule, driven by the channel's edges.
+            FunctionApplication(walkedTarget, args.map(a => reconcileTo(walk(a, metas, joinInputs), joinInputs.get(a.range))))
         }
     }
     node.as(ReconciledMonomorphicExpression(own, expressionType, reconciled))
@@ -147,10 +147,6 @@ object ReconcileProcessor {
 
   private def langInt(name: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName(name, Qualifier.Default))
-
-  /** `Bool::fold` — the `if` eliminator; the pass reconciles its two arms to the fold node's joined meta. */
-  private[reconcile] val boolFoldFqn: ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))
 
   /** The leaves whose codegen consumes operands at their own (per-operand) representation, so the pass must NOT
     * pre-reconcile their operands: the three arithmetic leaves, the ordering leaf, and `intToString`.
@@ -191,15 +187,16 @@ object ReconcileProcessor {
       intervalType
     )
 
-  /** Collapse the channel table to a position-keyed meta map, keeping a position only when every entry at it agrees on
-    * one interval (a position with two distinct intervals is dropped, so the node stays ⊤ — matching the lowering
+  /** Collapse a channel interval sequence (the per-node [[RefinementTable.intervals]] or the branch-arm
+    * [[RefinementTable.joinInputs]]) to a position-keyed meta map, keeping a position only when every entry at it agrees
+    * on one interval (a position with two distinct intervals is dropped, so the node stays ⊤ — matching the lowering
     * pass's `unambiguousIntervalsByPosition`).
     */
-  private[reconcile] def metaByPosition(table: RefinementTable): Map[PositionRange, GroundValue] =
-    table.intervals
+  private[reconcile] def metaByPosition(entries: Seq[RefinementTable.NodeInterval]): Map[PositionRange, GroundValue] =
+    entries
       .groupBy(_.position)
       .collect {
-        case (position, entries) if entries.map(ni => (ni.min, ni.max)).distinct.sizeIs == 1 =>
-          position -> intervalMeta(entries.head.min, entries.head.max)
+        case (position, es) if es.map(ni => (ni.min, ni.max)).distinct.sizeIs == 1 =>
+          position -> intervalMeta(es.head.min, es.head.max)
       }
 }

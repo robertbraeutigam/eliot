@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.{MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.monomorphize.processor.ReducedBindingClosure
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -60,10 +61,19 @@ class RefinementChannelProcessor
 
   import RefinementChannelProcessor.*
 
-  /** The result of walking one node: the interval the channel knows for the node's *own* value (⊤ = [[None]]), and every
-    * per-node interval recorded in the subtree (this node's plus its descendants').
+  /** The result of walking one node: the interval the channel knows for the node's *own* value (⊤ = [[None]]); every
+    * per-node interval recorded in the subtree (this node's plus its descendants'); and every branch-arm **join-input**
+    * edge recorded in the subtree (an arm's position → the merge interval it reconciles to).
     */
-  private type FlowResult = (Option[(BigInt, BigInt)], Seq[RefinementTable.NodeInterval])
+  private case class Flow(
+      own: Option[(BigInt, BigInt)],
+      records: Seq[RefinementTable.NodeInterval],
+      joinInputs: Seq[RefinementTable.NodeInterval]
+  )
+
+  private object Flow {
+    val topBoundary: Flow = Flow(None, Seq.empty, Seq.empty)
+  }
 
   override protected def generateFromKeyAndFact(
       key: RefinementTable.Key,
@@ -72,20 +82,21 @@ class RefinementChannelProcessor
     for {
       result <- mv.runtime match {
                   case Some(body) => walkFlow(body.as(MonomorphicExpression(mv.signature, body.value)))
-                  case None       => (none[(BigInt, BigInt)], Seq.empty[RefinementTable.NodeInterval]).pure[CompilerIO]
+                  case None       => Flow.topBoundary.pure[CompilerIO]
                 }
-    } yield RefinementTable(key.vfqn, key.typeArguments, result._2)
+    } yield RefinementTable(key.vfqn, key.typeArguments, result.records, result.joinInputs)
 
   /** Compute one node's flow interval and record it (when known), descending per the propagation rules in the class
     * note. Bottom-up: a node's interval is derived from its children's, and a known interval is recorded at the node's
     * source position for representation lowering to read.
     */
-  private def walkFlow(node: Sourced[MonomorphicExpression]): CompilerIO[FlowResult] =
+  private def walkFlow(node: Sourced[MonomorphicExpression]): CompilerIO[Flow] =
     node.value.expression match {
       case MonomorphicExpression.IntegerLiteral(value)  =>
         // α: an integer literal seeds its singleton interval.
         val interval = (value.value, value.value)
-        (Option(interval), Seq(RefinementTable.NodeInterval(node.range, interval._1, interval._2))).pure[CompilerIO]
+        Flow(Option(interval), Seq(RefinementTable.NodeInterval(node.range, interval._1, interval._2)), Seq.empty)
+          .pure[CompilerIO]
 
       case _: MonomorphicExpression.FunctionApplication =>
         val (head, args) = flatten(node)
@@ -103,13 +114,27 @@ class RefinementChannelProcessor
             // future selector merge for free. A lambda argument's body is skipped by the `FunctionLiteral` case below.
             for {
               argResults <- args.traverse(walkFlow)
-              _          <- checkWhere(node, vfqn.value, typeArgs, args.size, argResults.map(_._1))
-              merge      <- mergeViaCompanion(vfqn.value, typeArgs, argResults.map(_._1))
-            } yield (merge, argResults.flatMap(_._2) ++ recordAt(node, merge))
+              _          <- checkWhere(node, vfqn.value, typeArgs, args.size, argResults.map(_.own))
+              merge      <- mergeViaCompanion(vfqn.value, typeArgs, argResults.map(_.own))
+              // The join-input arm positions (only meaningful for a merge — a non-merge call has no `^Meta` companion,
+              // so this stays empty and costs no extra fact read). Each arm reconciles to the merge interval.
+              armIdxs    <- merge.fold(Set.empty[Int].pure[CompilerIO])(_ => joinInputParamIndices(vfqn.value, args.size))
+            } yield {
+              val armEdges = merge.toSeq.flatMap { case (lo, hi) =>
+                armIdxs.toSeq.flatMap(i => args.lift(i).map(a => RefinementTable.NodeInterval(a.range, lo, hi)))
+              }
+              Flow(
+                merge,
+                argResults.flatMap(_.records) ++ recordAt(node, merge),
+                argResults.flatMap(_.joinInputs) ++ armEdges
+              )
+            }
           case _ =>
             // Any other application (a `match`, a `typeMatch`, an applied lambda): the result is a ⊤ boundary; descend
             // into the arguments as above.
-            args.flatTraverse(walkFlow(_).map(_._2)).map(records => (none[(BigInt, BigInt)], records))
+            args.traverse(walkFlow).map { rs =>
+              Flow(None, rs.flatMap(_.records), rs.flatMap(_.joinInputs))
+            }
         }
 
       case MonomorphicExpression.FunctionLiteral(_, _, body) =>
@@ -119,11 +144,11 @@ class RefinementChannelProcessor
         // parameters make its body a leading lambda, so without this every call in a parametered def would escape the
         // check — the §4.3 use-site verification must not have that hole). The records are discarded; only `checkWhere`'s
         // effects during the walk remain.
-        walkFlow(body).as((none[(BigInt, BigInt)], Seq.empty[RefinementTable.NodeInterval]))
+        walkFlow(body).as(Flow.topBoundary)
 
       case _ =>
         // A parameter/value reference or a string literal: ⊤ (no known integer range at this node).
-        (none[(BigInt, BigInt)], Seq.empty[RefinementTable.NodeInterval]).pure[CompilerIO]
+        Flow.topBoundary.pure[CompilerIO]
     }
 
   /** An arithmetic leaf node: recurse into the two operands, then compute the result interval via the leaf's `^Meta`
@@ -134,15 +159,15 @@ class RefinementChannelProcessor
       leaf: ValueFQN,
       operandA: Sourced[MonomorphicExpression],
       operandB: Sourced[MonomorphicExpression]
-  ): CompilerIO[FlowResult] =
+  ): CompilerIO[Flow] =
     for {
-      (aInterval, aRecords) <- walkFlow(operandA)
-      (bInterval, bRecords) <- walkFlow(operandB)
-      result                <- (aInterval, bInterval) match {
-                                 case (Some(a), Some(b)) => runTransfer(leaf, a, b)
-                                 case _                  => none[(BigInt, BigInt)].pure[CompilerIO]
-                               }
-    } yield (result, aRecords ++ bRecords ++ recordAt(node, result))
+      a      <- walkFlow(operandA)
+      b      <- walkFlow(operandB)
+      result <- (a.own, b.own) match {
+                  case (Some(x), Some(y)) => runTransfer(leaf, x, y)
+                  case _                  => none[(BigInt, BigInt)].pure[CompilerIO]
+                }
+    } yield Flow(result, a.records ++ b.records ++ recordAt(node, result), a.joinInputs ++ b.joinInputs)
 
   /** The refinement **merge** of a call, when its callee declares one: a `^Meta` companion (in [[Qualifier.Meta]]) that
     * merges its arguments' metas via the domain's `Meta.join`. This is how a *runtime-chosen* result — `fold`'s selected
@@ -282,6 +307,21 @@ class RefinementChannelProcessor
       case _                                                           => (node, Seq.empty)
     }
 
+  /** The **value-argument positions** of `callee`'s `^Meta` **merge** companion that flow directly into the domain's
+    * `Meta.join` — the branch-arm positions the reconcile pass must re-encode to the merge representation. Found by a
+    * structural read of the *generic* companion body (where `Meta::join` is still the abstract, un-dispatched ability
+    * method, before monomorphization dispatches it): peel the companion's leading parameter lambdas, then, for every
+    * `Meta::join(x, y)` application, take the parameter each argument is (a bare parameter, or a single projection of one
+    * — the Step-3 restriction; any other shape has no clean position preimage and is skipped, fail-safe). Positions are
+    * value-argument positions: the leading `valueArgCount` parameters counted from the *end* (type/generic parameters
+    * lambda-bind first, so the last `valueArgCount` lambdas are the value parameters, matching the call's value args).
+    * `Set.empty` when the companion is absent, unreadable, or names no `Meta.join`.
+    */
+  private def joinInputParamIndices(callee: ValueFQN, valueArgCount: Int): CompilerIO[Set[Int]] =
+    getFactIfProduced(OperatorResolvedValue.Key(metaCompanionFqn(callee), Platform.Compiler)).map { orvOpt =>
+      orvOpt.flatMap(_.runtime).map(body => joinInputIndicesOf(body.value, valueArgCount)).getOrElse(Set.empty)
+    }
+
   /** Recompute an arithmetic transfer by evaluating the leaf's `^Meta` transfer companion (`docs/bounds-as-refinements.md`
     * Step 4c). `nativeAdd`/… maps to `rangeAdd^Meta`/… (the base-layer vessels' companions); the companion is applied to
     * the two operand ranges wrapped as `Int$Meta(Interval(lo,hi))` and its result `Int$Meta`'s `range` slot is read
@@ -324,6 +364,84 @@ object RefinementChannelProcessor {
   private val intModule: ModuleName      = ModuleName(ModuleName.defaultSystemPackage, "Int")
   private val intervalModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Interval")
   private val bigIntModule: ModuleName   = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
+
+  /** `Meta.join` — the one refinement primitive the join-input detection recognises in a merge companion's *generic*
+    * body (the abstract ability method, before monomorphization dispatches it). No branch construct (`Bool::fold`,
+    * `handleCases`) is ever named by the refinement machinery (`docs/generic-refinement-merges.md`).
+    */
+  private[channel] val metaJoinFqn: ValueFQN =
+    ValueFQN(ModuleName(ModuleName.compilerPackage, "Meta"), QualifiedName("join", Qualifier.Ability("Meta")))
+
+  /** The value-argument positions fed to `Meta.join` in a companion body — the join inputs, mapped to the call's value
+    * args (see [[RefinementChannelProcessor.joinInputParamIndices]]). The last `valueArgCount` peeled lambdas are the
+    * value parameters (type/generic parameters bind first).
+    */
+  private[channel] def joinInputIndicesOf(companionBody: OperatorResolvedExpression, valueArgCount: Int): Set[Int] = {
+    val (paramNames, inner) = peelLambdas(companionBody)
+    val offset              = paramNames.size - valueArgCount
+    if (offset < 0) Set.empty
+    else
+      metaJoinArgParams(inner).flatMap { name =>
+        paramNames.indexOf(name) match {
+          case i if i >= offset => Some(i - offset)
+          case _                => None
+        }
+      }
+  }
+
+  /** Peel `expr`'s leading parameter lambdas into their names (in order) and the inner body. */
+  private def peelLambdas(expr: OperatorResolvedExpression): (Seq[String], OperatorResolvedExpression) = expr match {
+    case OperatorResolvedExpression.FunctionLiteral(name, _, body) =>
+      val (rest, inner) = peelLambdas(body.value)
+      (name.value +: rest, inner)
+    case other                                                     => (Seq.empty, other)
+  }
+
+  /** Every parameter name that appears as a bare (or single-projected) argument of a `Meta.join` application anywhere in
+    * `expr` — the clean-preimage restriction of Step 3 (a non-trivial pre-join computation is skipped, so its position
+    * is not treated as a join input: ⊤, fail-safe).
+    */
+  private def metaJoinArgParams(expr: OperatorResolvedExpression): Set[String] = expr match {
+    case app: OperatorResolvedExpression.FunctionApplication =>
+      val (head, args) = flattenResolved(app)
+      val here         = head match {
+        case OperatorResolvedExpression.ValueReference(vfqn, _) if vfqn.value == metaJoinFqn =>
+          args.flatMap(paramPreimage).toSet
+        case _                                                                               => Set.empty[String]
+      }
+      here ++ args.flatMap(metaJoinArgParams).toSet
+    case OperatorResolvedExpression.FunctionLiteral(_, _, body) => metaJoinArgParams(body.value)
+    case _                                                      => Set.empty
+  }
+
+  /** The parameter a `Meta.join` argument projects from: the name of a bare `ParameterReference`, or the name inside a
+    * single value-application projection (`range(whenTrue)` → `whenTrue`). `None` for any other shape (no clean
+    * preimage).
+    */
+  private def paramPreimage(arg: OperatorResolvedExpression): Option[String] = arg match {
+    case OperatorResolvedExpression.ParameterReference(name)                             => Some(name.value)
+    case OperatorResolvedExpression.FunctionApplication(_, OperatorResolvedExpr(inner))  =>
+      inner match {
+        case OperatorResolvedExpression.ParameterReference(name) => Some(name.value)
+        case _                                                   => None
+      }
+    case _                                                                               => None
+  }
+
+  /** Flatten a curried resolved application into its head and arguments in source order. */
+  private def flattenResolved(
+      expr: OperatorResolvedExpression
+  ): (OperatorResolvedExpression, Seq[OperatorResolvedExpression]) = expr match {
+    case OperatorResolvedExpression.FunctionApplication(target, argument) =>
+      val (head, args) = flattenResolved(target.value)
+      (head, args :+ argument.value)
+    case other                                                           => (other, Seq.empty)
+  }
+
+  /** Extractor: the value of a `Sourced[OperatorResolvedExpression]`, for pattern-matching a projection's argument. */
+  private object OperatorResolvedExpr {
+    def unapply(sourced: Sourced[OperatorResolvedExpression]): Some[OperatorResolvedExpression] = Some(sourced.value)
+  }
 
   private val bigIntType: GroundValue = GroundValue.Structure(
     ValueFQN(bigIntModule, QualifiedName("BigInteger", Qualifier.Type)),
