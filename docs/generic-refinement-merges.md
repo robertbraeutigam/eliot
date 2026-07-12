@@ -1,12 +1,21 @@
 # Generic Refinement Merges — Removing the `Bool::fold` Dependency
 
-**Status: NEARLY DONE.** Steps 1, 2, 3, 6, 7 are **landed and green**. The whole `Represent` track is deleted, the
-JVM backend decodes each `Int`'s width from the refinement-channel meta, and — as of 2026-07-12 — the **channel
-names no branch construct**: `fold`'s merge is computed generically by reducing its `^Meta` companion, so the
-`Bool::fold` special-case (`boolFoldFqn`/`walkBranch`) is gone from `RefinementChannelProcessor`. What **remains**
-is Steps 4–5: the reconcile pass still names `boolFoldFqn` to reconcile branch arms — the last refinement-machinery
-reference to a branch construct. Continues the bounds-as-refinements work (`docs/bounds-as-refinements.md`, Step 8
-— backend width selection).
+**Status: DONE.** All steps landed and green (2026-07-12). The **whole refinement/meta machinery names no branch
+construct** — the durable invariant (§4) is fully met. `fold`'s merge is computed generically by reducing its
+`^Meta` companion (channel, Steps 2–3), and the reconcile pass re-encodes branch arms from channel-provided
+**join-input edges** it finds by a structural read of the generic companion (Steps 4–5) — `boolFoldFqn` is gone
+from both `RefinementChannelProcessor` and `ReconcileProcessor`. The only remaining `Bool::fold` references are the
+sanctioned **realization/reduction** sites (`SystemNativesProcessor` reduce, `PostDrainQuoter` branch-select,
+`Intrinsics`/`ExpressionCodeGenerator` inline emit), exactly as §1 allows. Continues the bounds-as-refinements work
+(`docs/bounds-as-refinements.md`, Step 8 — backend width selection).
+
+**One scope decision (Step 5's second half, deliberately NOT taken).** Step 5 as originally written also drops
+`widthTransparentLeaves` (so arithmetic operands reconcile to ⊤/bignum). That is a **precision regression** with no
+upside until native *parameter*-meta declarations exist to recover the narrow width generically — and those do not
+exist yet. Naming an arithmetic *leaf* is **sanctioned** (§3 Step 3: the invariant forbids naming a *branch
+construct*, and `nativeAdd` is not one), so keeping `widthTransparentLeaves` does not violate the invariant. It is
+kept until parameter-metas land, rather than shipping the regression. This is the one open follow-on; it is
+orthogonal to the `Bool::fold` removal this plan was about.
 
 **The one design correction discovered while landing Step 3 (2026-07-12).** The plan (below, and its §4½) assumed
 `reduceInstance(fold^Meta, [Int])` would *stall at a stuck `Meta::join`*, from which the channel would read the two
@@ -349,21 +358,19 @@ so it needs the structural read described below.
    like a transfer. `mergeViaCompanion` therefore just reduces-and-reads-back (no stuck-native detection). The
    channel now names no branch construct. Verified: `FoldJoinProbe` (divergent-range fold) builds/runs;
    `ExamplesIntegrationTest` + lang/jvm/LSP green.
-3. **Table join-edges + generic reconcile** (Steps 4–5) — **REMAINING.** Carry the join-input edges in
-   `RefinementTable` and drop `boolFoldFqn` from `ReconcileProcessor` (the last branch-construct name in the
-   refinement machinery). **The join-input source is a structural read, not the reduction** (item 2's correction):
-   the reduction dissolves `Meta.join`, so read the *generic* `fold^Meta` companion body (where `Meta::join` is
-   still the abstract, un-dispatched ability method), recognise `Meta::join(paramI, paramJ)`, and map bare-parameter
-   (or single-projection) arguments back to caller arg positions — the Step-3 "restriction the detection must
-   state" (a non-trivial pre-join computation has no clean preimage → ⊤, fail-safe). Record those positions with a
-   reconcile-target = the merge result meta; reconcile consumes the recorded target and names nothing.
-   **Scope note:** `widthTransparentLeaves` (arithmetic operands, `intLessThanOrEqual`, `intToString`) is *not* a
-   branch construct — naming an arithmetic leaf is explicitly sanctioned (§3 Step 3). Dropping it (Step 5's second
-   half) is a **separate precision regression** (operands → ⊤/bignum) gated on native *parameter*-meta declarations,
-   which do not exist yet; keep it until then rather than shipping the regression silently.
+3. **Table join-edges + generic reconcile** (Steps 4–5) — **DONE** (`a9670e7f`). `RefinementTable` gained
+   `joinInputs` (per branch-arm position → the merge interval it reconciles to). The channel builds these by a
+   **structural read** of the *generic* `fold^Meta` companion body (where `Meta::join` is still the abstract,
+   un-dispatched ability method — the reduction dissolves it, so it is *not* the source): peel the leading parameter
+   lambdas (`RefinementChannelProcessor.joinInputIndicesOf`/`metaJoinArgParams`/`paramPreimage`), recognise
+   `Meta::join(x, y)`, map each bare-parameter (or single-projection) argument back to a value-arg position. Type
+   params bind first, so the last `valueArgCount` lambdas are the value params — the offset that maps `fold^Meta[A]`'s
+   `{whenTrue, whenFalse}` to arg positions `{1, 2}`, excluding the condition. A non-clean preimage is skipped (⊤,
+   fail-safe). `ReconcileProcessor` drops `boolFoldFqn`: every argument reconciles to its join-input target if the
+   channel marked it an arm, else to ⊤ — one rule. `widthTransparentLeaves` kept (see the header scope decision).
+   `FactCache.CACHE_VERSION` 12 → 13.
 
-The invariant (§4) is met by the channel; it is met by the *whole* refinement machinery once item 3 removes
-reconcile's `boolFoldFqn`.
+The invariant (§4) is fully met: nothing in the channel or reconcile names a branch construct.
 
 ## 5. Validation
 
