@@ -17,8 +17,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** The refinement channel's **flow analysis** — Step 6-iii of `docs/bounds-as-refinements.md` ("narrow representations
   * from the channel's flow analysis"). Post-flag-day (Step 6-ii) `Int` has lost its type parameters, so a node's value
   * range is no longer in its type; the channel *computes* it by flow and records it into a [[RefinementTable]], keyed by
-  * source position, which [[com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering]] then reads to
-  * pick each `Int`'s machine layout (a narrow wrapper instead of the ⊤/bignum fallback).
+  * source position. The reconcile pass ([[com.vanillasource.eliot.eliotc.reconcile.processor.ReconcileProcessor]]) then
+  * stamps those intervals onto the body as per-node metas, and the JVM backend decodes each `Int`'s machine layout from
+  * its meta (a narrow wrapper instead of the ⊤/bignum fallback).
   *
   * A post-pass over each [[MonomorphicValue]] (runtime track): it walks the fully-ground body bottom-up and, for every
   * node whose value range it can pin, records that interval. The propagation rules (the value channel of §4):
@@ -332,11 +333,6 @@ object RefinementChannelProcessor {
   private val intModule: ModuleName      = ModuleName(ModuleName.defaultSystemPackage, "Int")
   private val intervalModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Interval")
   private val bigIntModule: ModuleName   = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
-
-  /** The `Int` type constructor FQN — `eliot.lang.Int::Int` (type namespace). The compiler otherwise never names
-    * `Int`; the channel is a deliberate, downstream-of-types exception (representation is its business).
-    */
-  private[channel] val intTypeFqn: ValueFQN = ValueFQN(intModule, QualifiedName("Int", Qualifier.Type))
 
   private val bigIntType: GroundValue = GroundValue.Structure(
     ValueFQN(bigIntModule, QualifiedName("BigInteger", Qualifier.Type)),

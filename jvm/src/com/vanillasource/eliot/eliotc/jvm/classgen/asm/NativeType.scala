@@ -46,10 +46,12 @@ object NativeType {
       (jvmRepresentationType("JvmShort"), eliot_lang_JvmShort),
       (jvmRepresentationType("JvmInt"), eliot_lang_JvmInt),
       (jvmRepresentationType("JvmLong"), eliot_lang_JvmLong),
-      (jvmRepresentationType("JvmBigInteger"), eliot_lang_JvmBigInteger)
-      // `Int` itself is NOT mapped: Phase 3's representation-lowering pass (`RepresentationLowering`) rewrites every
-      // `Int[MIN, MAX]` through its opaque body to one of the `Jvm*` representation types above before any descriptor is
-      // computed, so a bare `Int` FQN never reaches this map.
+      (jvmRepresentationType("JvmBigInteger"), eliot_lang_JvmBigInteger),
+      // A bare `Int` type (a method parameter/return descriptor, or any ⊤ boundary) maps to `java.math.BigInteger` — the
+      // widest layout, the sound ⊤ representation. `Int` is no longer lowered to a `Jvm*` type: an `Int` *body node*'s
+      // narrow width is decoded from its refinement-channel meta by `IntRepresentation` at codegen, but the descriptor of
+      // a boundary (where no range is tracked) is always the bignum (`docs/generic-refinement-merges.md` Step 6).
+      (jvmRepresentationType("Int"), eliot_lang_JvmBigInteger)
     )
   )
 

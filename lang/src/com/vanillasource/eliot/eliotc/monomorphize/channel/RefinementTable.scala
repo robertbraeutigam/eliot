@@ -14,9 +14,10 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * ([[RefinementChannelProcessor]]): a literal seeds its singleton `[n, n]` (α); an arithmetic leaf
   * (`nativeAdd`/`nativeSubtract`/`nativeMultiply`) evaluates the leaf's `^Meta` transfer companion on the operand
   * intervals; an `if`/fold branch joins its arms via `Meta.join`; everything else — a parameter, a value reference, an
-  * ordinary call/constructor result, a lambda body — is ⊤ (no entry, laid out as a bignum). Codegen reads these
-  * intervals for representation selection ([[RefinementRepresentation]]), and the LSP hover reads them for value-range
-  * hints.
+  * ordinary call/constructor result, a lambda body — is ⊤ (no entry, laid out as a bignum). The reconcile pass
+  * ([[com.vanillasource.eliot.eliotc.reconcile.processor.ReconcileProcessor]]) stamps these intervals onto the body as
+  * per-node metas, from which the JVM backend selects each `Int`'s machine width; the LSP hover reads them for
+  * value-range hints.
   *
   * The table is a first-order, serializable fact so it participates in the incremental cache and so codegen can read it.
   * It carries no [[GroundValue.Type]]-only or closure data, only interval endpoints ([[BigInt]] pairs) keyed by source

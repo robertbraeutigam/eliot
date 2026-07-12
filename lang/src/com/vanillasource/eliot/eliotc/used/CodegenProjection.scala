@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.used
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
-import com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering.representationOf
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -45,7 +44,7 @@ object CodegenProjection {
               case Some(BinderRoles.Disposition.CollapseErase)            =>
                 Seq.empty[GroundValue].pure[CompilerIO]
               case Some(BinderRoles.Disposition.CollapseToRepresentation) =>
-                representationOf(arg, sourcedVfqn).map(rep => Seq(headPreservingRepresentation(arg, rep)))
+                Seq(erasedCarrier(arg)).pure[CompilerIO]
               case _                                                      =>
                 // Specialize, or a position past the classified binders.
                 Seq(arg).pure[CompilerIO]
@@ -53,12 +52,13 @@ object CodegenProjection {
           }
       }
 
-  /** A dedup-key element that is equal iff both the nominal head ([[GroundValue.carrierFQN]] — what the backend mangles
-    * the method name with) and the machine representation ([[RepresentationLowering.representationOf]] — what becomes
-    * the JVM descriptor) match. Keying on the representation alone would unsoundly merge two distinct opaque types that
-    * share a representation; keying on the bound alone would forgo the width collapse. This synthetic structure is used
-    * only as a `visited`-set identity, never to fetch a fact.
+  /** A dedup-key element keyed on the nominal head ([[GroundValue.carrierFQN]] — what the backend mangles the method name
+    * with), erased of type arguments. A representation-determining binder no longer carries its machine width in the type
+    * argument (post-flag-day an `Int` is nullary and its width is refinement-channel meta, decoded by the backend, not a
+    * type parameter), so two instances that differ only in that erased detail generate identical code and merge; two
+    * distinct heads sharing a representation stay distinct (they mangle to different method names). Used only as a
+    * `visited`-set identity, never to fetch a fact.
     */
-  private def headPreservingRepresentation(arg: GroundValue, representation: GroundValue): GroundValue =
-    GroundValue.Structure(arg.carrierFQN, Seq(representation), GroundValue.Type)
+  private def erasedCarrier(arg: GroundValue): GroundValue =
+    GroundValue.Structure(arg.carrierFQN, Seq.empty, GroundValue.Type)
 }

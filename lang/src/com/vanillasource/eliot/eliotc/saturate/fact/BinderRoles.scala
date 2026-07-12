@@ -22,8 +22,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     key of `paramConstraints`) or appears in a constraint's type arguments. Dispatch must never be merged
   *     (soundness), so it forces [[BinderRoles.Disposition.Specialize]].
   *   - '''representation''' (R3) — appears in a value-parameter type or the return type, so it shapes the machine
-  *     representation of runtime data (`id[A](x: A): A` ⟹ `A` is what `RepresentationLowering.representationOf`
-  *     consumes). Maximally conservative: *any* appearance in a runtime-data type counts, even a size index that does
+  *     representation of runtime data (`id[A](x: A): A` ⟹ `A` is the type that becomes a JVM descriptor). Maximally
+  *     conservative: *any* appearance in a runtime-data type counts, even a size index that does
   *     not really reach representation (`List[A, N]`'s `N`) — refining that into a true phantom is a later tightening.
   *
   * Disposition (the per-binder codegen-key decision; see the plan's table). Precedence is soundness-ordered — dispatch
@@ -72,8 +72,9 @@ object BinderRoles {
     /** Phantom: appears in no scanned position. Dropped from the codegen key, with no runtime form. */
     case CollapseErase
 
-    /** Representation-determining: key on `RepresentationLowering.representationOf` (the width class), so
-      * width-equivalent bounds fold to one specialization while the nominal head is preserved for dispatch.
+    /** Representation-determining: key on the erased nominal head (`CodegenProjection.erasedCarrier`), so instances that
+      * differ only in a detail no longer carried by the type (an `Int`'s width is refinement-channel meta now, not a type
+      * parameter) fold to one specialization while the nominal head is preserved for dispatch.
       */
     case CollapseToRepresentation
 
