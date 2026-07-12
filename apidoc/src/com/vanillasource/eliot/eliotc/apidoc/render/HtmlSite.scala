@@ -28,6 +28,12 @@ object HtmlSite {
 
   private def escape(text: String): String = EliotHighlighter.escape(text)
 
+  /** The Eliot website homepage. The sidebar wordmark links here so the logo returns to the main site (the usual
+    * "logo = home" affordance), while the "apidoc" tag still links to this doc set's own index. Absolute, so the link
+    * is correct whether the docs are published under eliotlang.github.io/apidoc/ or a local build is opened on its own.
+    */
+  private val homeUrl = "https://eliotlang.github.io/"
+
   private def page(title: String, sidebar: String, content: String): String =
     s"""<!doctype html>
        |<html lang="en">
@@ -110,7 +116,7 @@ object HtmlSite {
   private def renderSidebar(modules: Seq[DocModule], active: Option[String]): String = {
     val tree = buildForest(modules.map(m => ((m.name.packages :+ m.name.name).toList, m)), "")
     s"""<nav class="sidebar">
-       |<a class="brand" href="index.html">eliot<span class="eliot-cursor"></span><span class="tag">apidoc</span></a>
+       |<div class="brandbar"><a class="brand" href="$homeUrl">eliot<span class="eliot-cursor"></span></a><a class="tag" href="index.html">apidoc</a></div>
        |<input class="search" type="search" placeholder="Filter modules…" oninput="filterModules(this.value)" aria-label="Filter modules">
        |<ul class="tree" id="tree">
        |${renderForest(tree, active)}
@@ -251,10 +257,12 @@ object HtmlSite {
       |.sidebar::-webkit-scrollbar{width:9px}
       |.sidebar::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:var(--radius-sm);border:2px solid var(--bg)}
       |.sidebar::-webkit-scrollbar-track{background:transparent}
-      |.brand{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-display);font-weight:var(--weight-medium);font-size:1.2rem;color:var(--text);margin:2px 4px 20px;letter-spacing:var(--tracking-tight)}
+      |.brandbar{display:inline-flex;align-items:center;gap:6px;margin:2px 4px 20px}
+      |.brand{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-display);font-weight:var(--weight-medium);font-size:1.2rem;color:var(--text);letter-spacing:var(--tracking-tight)}
       |.brand:hover{text-decoration:none}
       |.brand .eliot-cursor{vertical-align:baseline}
-      |.brand .tag{color:var(--text-muted);font-weight:var(--weight-regular);font-size:.62rem;letter-spacing:var(--tracking-label);text-transform:uppercase;margin-left:2px}
+      |.tag{color:var(--text-muted);font-weight:var(--weight-regular);font-size:.62rem;letter-spacing:var(--tracking-label);text-transform:uppercase}
+      |.tag:hover{color:var(--text);text-decoration:none}
       |.search{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:var(--text-sm);font-family:var(--font-body);margin-bottom:16px;background:var(--surface);color:var(--text);transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
       |.search::placeholder{color:var(--text-faint)}
       |.search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
