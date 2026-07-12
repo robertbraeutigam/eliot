@@ -15,47 +15,36 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpressio
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicValue
 
 /** Pins the representation-reconcile pass, now a pure **meta-stamper**: given a hand-built uncurried body and a channel
-  * [[RefinementTable]], it stamps each node with the channel's interval (or [[None]] for a ⊤ node) and preserves the
-  * structure verbatim — it inserts no conversion nodes and names no construct. The backend derives every width and
-  * re-encode from these stamped metas (`docs/generic-refinement-merges.md`).
+  * [[RefinementTable]], it stamps each node with the channel's opaque meta [[GroundValue]] (or [[None]] for a ⊤ node)
+  * and preserves the structure verbatim — it inserts no conversion nodes, names no construct, and neither builds nor
+  * inspects the meta value. The backend/hover (which own the domain) decode it (`docs/generic-refinement-merges.md`).
   *
   * Only [[ReconcileProcessor]] runs (both inputs are injected as facts), so these tests exercise the stamping in
-  * isolation — no stdlib, no channel, no codegen.
+  * isolation — no stdlib, no channel, no codegen. The injected metas are opaque stand-ins (the pass copies them through).
   */
 class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
 
-  "meta stamping" should "stamp a node's channel interval as its meta" in {
-    reconciledTop(uInt(1, 300), table(iv(1, 300, 300)))
-      .asserting(_.value.meta shouldBe Some(ReconcileProcessor.intervalMeta(300, 300)))
+  "meta stamping" should "stamp a node's channel meta value verbatim" in {
+    reconciledTop(uInt(1, 300), table(nm(1, metaVal(300)))).asserting(_.value.meta shouldBe Some(metaVal(300)))
   }
 
-  it should "stamp None for a ⊤ node (no channel interval)" in {
+  it should "stamp None for a ⊤ node (no channel meta)" in {
     reconciledTop(uParam(1, "x", intType), table()).asserting(_.value.meta shouldBe None)
   }
 
-  it should "stamp the transfer result meta on an arithmetic application node" in {
-    reconciledTop(addBody, addTable).asserting(_.value.meta shouldBe Some(ReconcileProcessor.intervalMeta(301, 301)))
+  it should "stamp the result meta on an application node and each operand's own meta (structure preserved)" in {
+    reconciledTop(addBody, addTable).asserting { top =>
+      (top.value.meta, appArgs(top).map(_.value.meta)) shouldBe
+        (Some(metaVal(301)), Seq(Some(metaVal(1)), Some(metaVal(300))))
+    }
   }
 
-  it should "keep each arithmetic operand's own narrow meta (fast path preserved)" in {
-    reconciledTop(addBody, addTable)
-      .asserting(top =>
-        appArgs(top).map(_.value.meta) shouldBe
-          Seq(Some(ReconcileProcessor.intervalMeta(1, 1)), Some(ReconcileProcessor.intervalMeta(300, 300)))
-      )
-  }
-
-  it should "preserve application structure verbatim (no wrapping)" in {
-    reconciledTop(addBody, addTable).asserting(appArgs(_).size shouldBe 2)
-  }
-
-  "metaByPosition" should "drop a position carrying two distinct intervals (ambiguous)" in {
-    ReconcileProcessor.metaByPosition(Seq(iv(1, 0, 5), iv(1, 0, 9))).get(pos(1)) shouldBe None
+  "metaByPosition" should "drop a position carrying two distinct metas (ambiguous)" in {
+    ReconcileProcessor.metaByPosition(Seq(nm(1, metaVal(5)), nm(1, metaVal(9)))).get(pos(1)) shouldBe None
   }
 
   it should "keep a position whose entries all agree" in {
-    ReconcileProcessor.metaByPosition(Seq(iv(1, 0, 5), iv(1, 0, 5))).get(pos(1)) shouldBe
-      Some(ReconcileProcessor.intervalMeta(0, 5))
+    ReconcileProcessor.metaByPosition(Seq(nm(1, metaVal(5)), nm(1, metaVal(5)))).get(pos(1)) shouldBe Some(metaVal(5))
   }
 
   // ---- fixtures -----------------------------------------------------------------------------------------------------
@@ -77,6 +66,9 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
   private def pos(n: Int): PositionRange      = PositionRange(Position(1, n), Position(1, n + 1))
   private def at[T](n: Int, v: T): Sourced[T] = Sourced(file, pos(n), v)
 
+  /** An opaque per-node meta stand-in: a distinct ground value the pass copies through without inspection. */
+  private def metaVal(n: Int): GroundValue = GroundValue.Direct(BigInt(n), GroundValue.Type)
+
   private def uInt(n: Int, v: Int): Sourced[UncurriedMonomorphicExpression] =
     at(n, U(intType, U.IntegerLiteral(at(n, BigInt(v)))))
   private def uRef(n: Int, fqn: ValueFQN): Sourced[UncurriedMonomorphicExpression] =
@@ -91,10 +83,8 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
   ): Sourced[UncurriedMonomorphicExpression] =
     at(n, U(tpe, U.FunctionApplication(target, args)))
 
-  private def iv(p: Int, min: Int, max: Int): RefinementTable.NodeInterval =
-    RefinementTable.NodeInterval(pos(p), BigInt(min), BigInt(max))
-  private def table(intervals: RefinementTable.NodeInterval*): RefinementTable =
-    RefinementTable(mainFqn, Seq.empty, intervals)
+  private def nm(p: Int, meta: GroundValue): RefinementTable.NodeMeta = RefinementTable.NodeMeta(pos(p), meta)
+  private def table(metas: RefinementTable.NodeMeta*): RefinementTable = RefinementTable(mainFqn, Seq.empty, metas)
 
   private def umv(body: Sourced[UncurriedMonomorphicExpression], returnType: GroundValue): UncurriedMonomorphicValue =
     UncurriedMonomorphicValue(
@@ -124,5 +114,5 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
 
   private val addBody: Sourced[UncurriedMonomorphicExpression] =
     uApp(1, intType, uRef(2, langInt("nativeAdd")), uInt(3, 1), uInt(4, 300))
-  private val addTable: RefinementTable = table(iv(1, 301, 301), iv(3, 1, 1), iv(4, 300, 300))
+  private val addTable: RefinementTable = table(nm(1, metaVal(301)), nm(3, metaVal(1)), nm(4, metaVal(300)))
 }

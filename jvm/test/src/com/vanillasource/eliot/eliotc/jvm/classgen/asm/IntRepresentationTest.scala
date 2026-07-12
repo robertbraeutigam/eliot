@@ -18,10 +18,19 @@ class IntRepresentationTest extends AnyFlatSpec with Matchers {
       GroundValue.Type
     )
 
+  /** The meta the channel produces for an `Int` node: `Int$Meta(Interval(min, max))` — the `$Meta` wrapper the backend
+    * unwraps. (`intervalBounds`/`representationFor` decode this whole shape, not a bare `Interval`.)
+    */
   private def interval(min: BigInt, max: BigInt): GroundValue =
     GroundValue.Structure(
-      ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Default)),
-      Seq(GroundValue.Direct(min, bigIntType), GroundValue.Direct(max, bigIntType)),
+      ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName("Int$Meta", Qualifier.Default)),
+      Seq(
+        GroundValue.Structure(
+          ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Default)),
+          Seq(GroundValue.Direct(min, bigIntType), GroundValue.Direct(max, bigIntType)),
+          GroundValue.Type
+        )
+      ),
       GroundValue.Type
     )
 

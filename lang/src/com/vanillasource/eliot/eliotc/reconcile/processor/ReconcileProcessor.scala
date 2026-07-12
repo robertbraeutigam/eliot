@@ -41,7 +41,7 @@ class ReconcileProcessor
   ): CompilerIO[ReconciledMonomorphicValue] =
     for {
       refinementTable <- getFactIfProduced(RefinementTable.Key(key.vfqn, key.typeArguments))
-      metas            = refinementTable.map(t => metaByPosition(t.intervals)).getOrElse(Map.empty[PositionRange, GroundValue])
+      metas            = refinementTable.map(t => metaByPosition(t.metas)).getOrElse(Map.empty[PositionRange, GroundValue])
       reconciledBody   = umv.body.map(b => walk(b.as(UncurriedMonomorphicExpression(umv.returnType, b.value)), metas))
     } yield ReconciledMonomorphicValue(
       vfqn = key.vfqn,
@@ -78,41 +78,14 @@ class ReconcileProcessor
 
 object ReconcileProcessor {
 
-  private val bigIntType: GroundValue =
-    GroundValue.Structure(
-      ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type)),
-      Seq.empty,
-      GroundValue.Type
-    )
-
-  private val intervalType: GroundValue =
-    GroundValue.Structure(
-      ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Type)),
-      Seq(bigIntType),
-      GroundValue.Type
-    )
-
-  private val intervalCtorFqn: ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Default))
-
-  /** The channel's per-node interval as the domain value `Interval(lo, hi)` — the generic meta the reconciled fact
-    * carries and the backend decodes for width selection.
+  /** Collapse the channel's per-node meta values to a position-keyed map, keeping a position only when every entry at it
+    * agrees on one meta (a position carrying two distinct metas is dropped, so the node stays ⊤). The meta is an opaque
+    * domain [[GroundValue]] the pass carries verbatim — it neither builds nor inspects it.
     */
-  private[reconcile] def intervalMeta(min: BigInt, max: BigInt): GroundValue =
-    GroundValue.Structure(
-      intervalCtorFqn,
-      Seq(GroundValue.Direct(min, bigIntType), GroundValue.Direct(max, bigIntType)),
-      intervalType
-    )
-
-  /** Collapse the channel's per-node intervals to a position-keyed meta map, keeping a position only when every entry at
-    * it agrees on one interval (a position with two distinct intervals is dropped, so the node stays ⊤).
-    */
-  private[reconcile] def metaByPosition(entries: Seq[RefinementTable.NodeInterval]): Map[PositionRange, GroundValue] =
+  private[reconcile] def metaByPosition(entries: Seq[RefinementTable.NodeMeta]): Map[PositionRange, GroundValue] =
     entries
       .groupBy(_.position)
       .collect {
-        case (position, es) if es.map(ni => (ni.min, ni.max)).distinct.sizeIs == 1 =>
-          position -> intervalMeta(es.head.min, es.head.max)
+        case (position, es) if es.map(_.meta).distinct.sizeIs == 1 => position -> es.head.meta
       }
 }

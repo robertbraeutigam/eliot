@@ -72,17 +72,34 @@ object TypeHintIndex {
     )
   }
 
-  /** Collapse a table's per-node intervals to a position-keyed map, keeping a position only when every entry at it
-    * agrees on one interval (mirroring `MonomorphicUncurryingProcessor.unambiguousIntervalsByPosition`): a position
-    * carrying two or more distinct intervals is dropped rather than displayed ambiguously.
+  /** Collapse a table's per-node metas to a position-keyed `[min, max]` map, keeping a position only when every entry at
+    * it agrees on one meta: a position carrying two or more distinct metas is dropped rather than displayed ambiguously.
+    * The channel carries an opaque domain meta; the hover (which shows `Int` value ranges) decodes the `Int$Meta(Interval
+    * [min, max])` shape with [[boundsOf]], exactly as the JVM backend does for width selection.
     */
   private def unambiguousIntervals(table: RefinementTable): Map[PositionRange, (BigInt, BigInt)] =
-    table.intervals
+    table.metas
       .groupBy(_.position)
-      .collect {
-        case (position, entries) if entries.map(ni => (ni.min, ni.max)).distinct.sizeIs == 1 =>
-          position -> (entries.head.min, entries.head.max)
-      }
+      .collect { case (position, entries) if entries.map(_.meta).distinct.sizeIs == 1 => position -> entries.head.meta }
+      .flatMap { case (position, meta) => boundsOf(meta).map(position -> _) }
+
+  /** Decode `[min, max]` from an `Int$Meta(Interval(min, max))` meta value — the value-range domain's shape. [[None]] for
+    * any other meta (a future domain), which is simply not shown as a range.
+    */
+  private def boundsOf(meta: GroundValue): Option[(BigInt, BigInt)] =
+    meta match {
+      case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _) =>
+        (directBigInt(lo), directBigInt(hi)).tupled
+      case _                                                                          => None
+    }
+
+  private def directBigInt(gv: GroundValue): Option[BigInt] = gv match {
+    case GroundValue.Direct(v: BigInt, _)               => Some(v)
+    case GroundValue.Direct(v: java.math.BigInteger, _) => Some(BigInt(v))
+    case GroundValue.Direct(v: Int, _)                  => Some(BigInt(v))
+    case GroundValue.Direct(v: Long, _)                 => Some(BigInt(v))
+    case _                                              => None
+  }
 
   /** Every typed node of one monomorphized value. Compound bodies (an application or a function literal) are fully
     * described by their child nodes, which carry their own precise types and ranges; annotating the whole-body range

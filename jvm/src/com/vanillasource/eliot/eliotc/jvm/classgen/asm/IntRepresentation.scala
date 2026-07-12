@@ -62,23 +62,26 @@ object IntRepresentation {
   }
 
   /** The representation for a channel meta: decode its interval when present, else the ⊤/unknown layout (`JvmBigInteger`)
-    * — a value the channel could not pin is soundly a bignum. A non-`Interval` meta (a future domain) also yields the ⊤
-    * layout here: this backend only knows how to lay out the value-range domain.
+    * — a value the channel could not pin is soundly a bignum. Anything not of the value-range domain's `Int$Meta(Interval
+    * [min, max])` shape (a future domain, a malformed meta) also yields the ⊤ layout here: this backend only knows how to
+    * lay out the value-range domain.
     */
   def representationFor(meta: Option[GroundValue]): ValueFQN =
     meta.flatMap(intervalBounds).map { case (min, max) => widthOf(min, max) }.getOrElse(jvmBigInteger)
 
-  /** Extract `[min, max]` from an `Interval(min, max)` meta value — a two-field [[GroundValue.Structure]] whose fields are
-    * `Direct` big integers. [[None]] for any other shape (a non-interval domain, a malformed meta), which the caller
-    * treats as ⊤.
+  /** Decode `[min, max]` from an `Int$Meta(Interval(min, max))` meta value — the opaque domain [[GroundValue]] the
+    * channel carries (an `Int$Meta` wrapper around the two-endpoint `Interval`, both `Direct` big integers). The backend
+    * owns the `Int` domain, so it unwraps the `$Meta` structure here; the channel and reconcile pass never inspect it.
+    * [[None]] for any other shape (a non-value-range meta, a malformed one), which the caller treats as ⊤.
     */
   def intervalBounds(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
-      case GroundValue.Structure(_, Seq(lo, hi), _) => (directBigInt(lo), directBigInt(hi)) match {
+      case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _) =>
+        (directBigInt(lo), directBigInt(hi)) match {
           case (Some(a), Some(b)) => Some((a, b))
           case _                  => None
         }
-      case _                                        => None
+      case _                                                                          => None
     }
 
   private def directBigInt(gv: GroundValue): Option[BigInt] = gv match {

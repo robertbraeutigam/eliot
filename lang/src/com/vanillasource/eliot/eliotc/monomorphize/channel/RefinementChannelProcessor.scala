@@ -60,12 +60,12 @@ class RefinementChannelProcessor
 
   import RefinementChannelProcessor.*
 
-  /** The result of walking one node: the interval the channel knows for the node's *own* value (⊤ = [[None]]) and every
-    * per-node interval recorded in the subtree (this node's plus its descendants').
+  /** The result of walking one node: the opaque meta [[GroundValue]] the channel knows for the node's *own* value
+    * (⊤ = [[None]]) and every per-node meta recorded in the subtree (this node's plus its descendants').
     */
   private case class Flow(
-      own: Option[(BigInt, BigInt)],
-      records: Seq[RefinementTable.NodeInterval]
+      own: Option[GroundValue],
+      records: Seq[RefinementTable.NodeMeta]
   )
 
   private object Flow {
@@ -90,9 +90,9 @@ class RefinementChannelProcessor
   private def walkFlow(node: Sourced[MonomorphicExpression]): CompilerIO[Flow] =
     node.value.expression match {
       case MonomorphicExpression.IntegerLiteral(value)  =>
-        // α: an integer literal seeds its singleton interval.
-        val interval = (value.value, value.value)
-        Flow(Option(interval), Seq(RefinementTable.NodeInterval(node.range, interval._1, interval._2))).pure[CompilerIO]
+        // α (the one domain-origin point): an integer literal seeds its singleton meta `Int$Meta(Interval[n, n])`.
+        val meta = seedLiteralMeta(value.value)
+        Flow(Option(meta), Seq(RefinementTable.NodeMeta(node.range, meta))).pure[CompilerIO]
 
       case _: MonomorphicExpression.FunctionApplication =>
         val (head, args) = flatten(node)
@@ -151,23 +151,25 @@ class RefinementChannelProcessor
   private def metaViaCompanion(
       callee: ValueFQN,
       calleeTypeArgs: Seq[GroundValue],
-      argIntervals: Seq[Option[(BigInt, BigInt)]]
-  ): CompilerIO[Option[(BigInt, BigInt)]] =
+      argMetas: Seq[Option[GroundValue]]
+  ): CompilerIO[Option[GroundValue]] =
     getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { namesOpt =>
       if (!namesOpt.exists(_.names.contains(QualifiedName(callee.name.name, Qualifier.Meta))))
-        none[(BigInt, BigInt)].pure[CompilerIO]
+        none[GroundValue].pure[CompilerIO]
       else
         for {
-          metaArgs <- calleeTypeArgs.traverse(metaTypeOf)
-          reduced  <- ReducedBindingClosure.reduceInstance(metaCompanionFqn(callee), metaArgs)
+          metaTypeArgs <- calleeTypeArgs.traverse(metaTypeOf)
+          reduced      <- ReducedBindingClosure.reduceInstance(metaCompanionFqn(callee), metaTypeArgs)
         } yield reduced.flatMap { body =>
-          val argMetas = argIntervals.map {
-            case Some(iv) => Evaluator.groundToSem(intMetaValue(iv))
-            case None     => SemValue.VType // ⊤ placeholder: an unknown/non-Int argument (e.g. `fold`'s condition)
+          val semArgs = argMetas.map {
+            case Some(gv) => Evaluator.groundToSem(gv) // the argument's own meta value, passed opaquely
+            case None     => SemValue.VType            // ⊤ placeholder: an unknown/untracked argument
           }
-          val applied = argMetas.foldLeft(body)((f, mv) => Evaluator.applyValue(f, mv))
+          val applied = semArgs.foldLeft(body)((f, mv) => Evaluator.applyValue(f, mv))
           val forced  = Evaluator.force(applied, MetaStore.empty)
-          Quoter.quote(0, forced, MetaStore.empty).toOption.flatMap(unwrapIntMeta).flatMap(twoBigIntArgs)
+          // The result meta is the reduced companion's output (an opaque domain structure — the type's `$Meta`); it is
+          // stored verbatim and never inspected here. A stuck/⊤ result does not quote to a structure and is dropped.
+          Quoter.quote(0, forced, MetaStore.empty).toOption.collect { case s: GroundValue.Structure => s }
         }
     }
 
@@ -191,9 +193,9 @@ class RefinementChannelProcessor
 
   private def recordAt(
       node: Sourced[MonomorphicExpression],
-      interval: Option[(BigInt, BigInt)]
-  ): Seq[RefinementTable.NodeInterval] =
-    interval.map { case (lo, hi) => RefinementTable.NodeInterval(node.range, lo, hi) }.toSeq
+      meta: Option[GroundValue]
+  ): Seq[RefinementTable.NodeMeta] =
+    meta.map(RefinementTable.NodeMeta(node.range, _)).toSeq
 
   /** Demand a callee's `where` precondition (bounds-as-refinements §4.3) at this call site, when it declares one. A def
     * `def f(x: Int): T where within(0, 255, range(x))` desugars to a `^Where` companion `f$Where(x: Int$Meta): Bool =
@@ -210,7 +212,7 @@ class RefinementChannelProcessor
       callee: ValueFQN,
       calleeTypeArgs: Seq[GroundValue],
       appliedArgs: Int,
-      argIntervals: Seq[Option[(BigInt, BigInt)]]
+      argMetas: Seq[Option[GroundValue]]
   ): CompilerIO[Unit] =
     getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { namesOpt =>
       if (!namesOpt.exists(_.names.contains(whereCompanionName(callee)))) ().pure[CompilerIO]
@@ -222,34 +224,33 @@ class RefinementChannelProcessor
           case (Some(companion), Some(mv)) =>
             mv.naturalArity match {
               case Some(arity) if arity > 0 && appliedArgs >= arity =>
-                demandPrecondition(callNode, callee, companion, argIntervals.take(arity))
+                demandPrecondition(callNode, callee, companion, argMetas.take(arity))
               case _                                                => ().pure[CompilerIO]
             }
           case _                           => ().pure[CompilerIO]
         }
     }
 
-  /** Evaluate a resolved `^Where` companion over the call's argument intervals and turn the verdict into a use-site
-    * error or a pass. Every argument range must be known (⊤ cannot discharge a demand — the fail-safe of §4.3); the
-    * predicate then reduces (through the one NbE evaluator, over the arguments wrapped as `Int$Meta(Interval(lo,hi))`)
-    * to a `Bool`: `true` passes, `false` is a violation, and a non-`Bool` result (an unsupported predicate shape) fails
-    * loudly rather than silently accepting.
+  /** Evaluate a resolved `^Where` companion over the call's argument metas and turn the verdict into a use-site error or
+    * a pass. Every argument's meta must be known (⊤ cannot discharge a demand — the fail-safe of §4.3); the predicate
+    * then reduces (through the one NbE evaluator, over the arguments' meta values) to a `Bool`: `true` passes, `false` is
+    * a violation, and a non-`Bool` result (an unsupported predicate shape) fails loudly rather than silently accepting.
     */
   private def demandPrecondition(
       callNode: Sourced[MonomorphicExpression],
       callee: ValueFQN,
       companion: SemValue,
-      argIntervals: Seq[Option[(BigInt, BigInt)]]
+      argMetas: Seq[Option[GroundValue]]
   ): CompilerIO[Unit] =
-    argIntervals.sequence match {
-      case None            =>
+    argMetas.sequence match {
+      case None        =>
         Sourced.compilerError(
           callNode.as(s"Cannot prove the precondition of '${callee.show}': an argument's value range is not known here."),
           Seq("A `where` precondition demands a provable range — pass a value whose range the compiler can determine.")
         )
-      case Some(intervals) =>
-        val applied = intervals.foldLeft(companion) { (f, iv) =>
-          Evaluator.applyValue(f, Evaluator.groundToSem(intMetaValue(iv)))
+      case Some(metas) =>
+        val applied = metas.foldLeft(companion) { (f, gv) =>
+          Evaluator.applyValue(f, Evaluator.groundToSem(gv))
         }
         Quoter.quote(0, Evaluator.force(applied, MetaStore.empty), MetaStore.empty).toOption match {
           case Some(gv) if isBoolTrue(gv)  => ().pure[CompilerIO]
@@ -324,65 +325,31 @@ object RefinementChannelProcessor {
   private[channel] def whereCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, whereCompanionName(callee))
 
-  /** `Int$Meta` — the meta structure `MetaConstructorDesugarer` emits for `type Int {range: …}` (the `$Meta` suffix is
-    * `MetaConstructorDesugarer.metaTypeSuffix`). Its value constructor takes the sole `range` slot (an `Interval`).
-    */
-  private val intMetaType: GroundValue = GroundValue.Structure(
-    ValueFQN(intModule, QualifiedName("Int$Meta", Qualifier.Type)),
-    Seq.empty,
-    GroundValue.Type
-  )
+  // --- The literal seed: the channel's one domain-specific construction (`Int$Meta(Interval[n, n])` for a literal `n`).
+  //     Everything else the channel carries is an opaque `GroundValue` meta produced by reducing a `^Meta` companion; a
+  //     value's meta only *originates* here (α), where the compiler must build the `$Meta` structure directly because it
+  //     cannot be written in Eliot source (`$` is not an identifier character). Every consumer of the resulting metas —
+  //     the backend width decode, the LSP hover — owns the `Int` domain and unwraps this shape itself.
+
+  private val intMetaType: GroundValue =
+    GroundValue.Structure(ValueFQN(intModule, QualifiedName("Int$Meta", Qualifier.Type)), Seq.empty, GroundValue.Type)
   private val intMetaCtorFqn: ValueFQN = ValueFQN(intModule, QualifiedName("Int$Meta", Qualifier.Default))
 
-  /** An operand's range wrapped as the `Int$Meta(Interval(lo, hi))` value the `^Meta` companion consumes. */
-  private[channel] def intMetaValue(bounds: (BigInt, BigInt)): GroundValue =
-    GroundValue.Structure(intMetaCtorFqn, Seq(intervalValue(bounds)), intMetaType)
-
-  /** Peel one `Int$Meta(interval)` structure level to its sole `range`-slot argument (the result `Interval`), so the
-    * endpoints can be read by [[twoBigIntArgs]]. `None` for any other shape.
-    */
-  private def unwrapIntMeta(gv: GroundValue): Option[GroundValue] = gv match {
-    case GroundValue.Structure(_, Seq(interval), _) => Some(interval)
-    case _                                          => None
-  }
-
-  /** `Interval[BigInteger]` — the domain type the channel carries for an `Int`'s value range. Its value constructor
-    * `Interval(start, end)` still takes two endpoint fields; only the type constructor is single-parameter now.
-    */
-  private[channel] val intervalType: GroundValue = GroundValue.Structure(
-    ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Type)),
-    Seq(bigIntType),
-    GroundValue.Type
-  )
-
+  private val intervalType: GroundValue =
+    GroundValue.Structure(ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Type)), Seq(bigIntType), GroundValue.Type)
   private val intervalCtorFqn: ValueFQN = ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Default))
 
-  /** The interval *value* `Interval(lo, hi)` fed to an instance. */
-  private[channel] def intervalValue(bounds: (BigInt, BigInt)): GroundValue =
+  /** The seed meta of an integer literal `n`: the singleton `Int$Meta(Interval[n, n])`. */
+  private[channel] def seedLiteralMeta(n: BigInt): GroundValue =
     GroundValue.Structure(
-      intervalCtorFqn,
-      Seq(GroundValue.Direct(bounds._1, bigIntType), GroundValue.Direct(bounds._2, bigIntType)),
-      intervalType
+      intMetaCtorFqn,
+      Seq(
+        GroundValue.Structure(
+          intervalCtorFqn,
+          Seq(GroundValue.Direct(n, bigIntType), GroundValue.Direct(n, bigIntType)),
+          intervalType
+        )
+      ),
+      intMetaType
     )
-
-  /** Extract two `Direct` big-integer arguments from a structure — an `Interval(lo, hi)` value or an `Int$Meta`'s
-    * unwrapped range (both carry exactly two integer endpoints).
-    */
-  private def twoBigIntArgs(gv: GroundValue): Option[(BigInt, BigInt)] = gv match {
-    case GroundValue.Structure(_, Seq(a, b), _) =>
-      (directBigInt(a), directBigInt(b)).tupled
-    case _                                      => None
-  }
-
-  private def directBigInt(gv: GroundValue): Option[BigInt] = gv match {
-    case GroundValue.Direct(value, _) =>
-      value match {
-        case b: BigInt               => Some(b)
-        case b: java.math.BigInteger => Some(BigInt(b))
-        case i: Int                  => Some(BigInt(i))
-        case l: Long                 => Some(BigInt(l))
-        case _                       => None
-      }
-    case _                            => None
-  }
 }
