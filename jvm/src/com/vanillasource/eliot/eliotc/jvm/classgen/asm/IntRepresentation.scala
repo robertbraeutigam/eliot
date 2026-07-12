@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 
 /** The JVM backend's `Int` width policy: decode a refinement-channel value-range meta (an `Interval[BigInteger]`
@@ -42,6 +43,23 @@ object IntRepresentation {
     else if (mediumMin <= min && max <= mediumMax) jvmInt
     else if (longMin <= min && max <= longMax) jvmLong
     else jvmBigInteger
+
+  /** The `eliot.lang.Int` module — home of both the tracked `Int` type and the `Jvm*` representation types. */
+  private val intModuleName: ModuleName = ModuleName(defaultSystemPackage, "Int")
+
+  private val integerTypeNames: Set[String] =
+    Set("Int", "JvmByte", "JvmShort", "JvmInt", "JvmLong", "JvmBigInteger")
+
+  /** Whether `gv` is an integer-carrying type — the tracked `Int` (post-flag-day, its width comes from the channel meta)
+    * or one of the lowered `Jvm*` representation types (pre-un-lowering). Both live in the `eliot.lang.Int` module; the
+    * qualifier is ignored (a type head may carry `Type` or the stripped `Default`). A node of such a type has its machine
+    * width decided by its refinement meta ([[representationFor]]); any other type is laid out by [[NativeType]] as usual.
+    */
+  def isIntegerType(gv: GroundValue): Boolean = gv match {
+    case GroundValue.Structure(fqn, _, _) =>
+      fqn.moduleName == intModuleName && integerTypeNames.contains(fqn.name.name)
+    case _                                => false
+  }
 
   /** The representation for a channel meta: decode its interval when present, else the ⊤/unknown layout (`JvmBigInteger`)
     * — a value the channel could not pin is soundly a bignum. A non-`Interval` meta (a future domain) also yields the ⊤
