@@ -20,7 +20,9 @@ type JvmLong
 type JvmBigInteger
 
 // `Int` is body-less (abstract), like the base's `type Int` it merges with — re-declared here because name resolution is
-// per-file (a sibling file's declaration of the same module is not visible, so this file must spell it out). Its JVM
+// per-file (a sibling file's declaration of the same module is not visible, so this file must spell it out). It carries
+// no `{range}` meta slot: the meta structure `Int$Meta` is generated once, from the base's slotted `type Int` (a
+// slotless re-declaration generates no meta structure — only the base's slotted declaration does). Its JVM
 // representation is *not* a type body: keeping `Int` body-less is what keeps the checker treating it distinctly from any
 // representation type. The machine layout is chosen by the JVM backend directly from an `Int` node's value-range
 // refinement meta (`IntRepresentation`, `docs/generic-refinement-merges.md`) — a narrow `JvmByte`/…/`JvmLong` when the

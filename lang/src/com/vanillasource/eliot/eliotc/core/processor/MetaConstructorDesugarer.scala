@@ -12,30 +12,35 @@ import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Desugars a type declaration's meta-slot brace into the type's **meta structure** — a real one-constructor `data`
-  * type carrying the slots as fields (bounds-as-refinements §4.2, Step 4a).
+/** Desugars a **slotted** type declaration into its **meta structure** — the type of the refinement meta a value of
+  * that type carries — and the matching auto-derived `Meta` instance. `Meta` is nonetheless *total*: a type with no
+  * slots simply has meta [[Unit]] (there is nothing to refine), which the refinement channel supplies uniformly
+  * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor.metaTypeOf]]) rather than a
+  * per-type synthetic — so nothing downstream special-cases "does this type have a meta?", yet no slotless type needs a
+  * generated `T$Meta` (which, being a *concrete* alias, would clash for a type declared in more than one layer).
   *
   * `type Int {range: Interval[BigInteger]}` desugars exactly as if the user had written
   * `data Int$Meta(range: Interval[BigInteger])` — a type constructor, a value constructor, a per-slot accessor, and a
-  * `PatternMatch` implementation the accessor reduces through. So the meta value of an `Int` is an `Int$Meta` structure
-  * whose `range` field is an `Interval`, and the meta-value machinery is the ordinary `data` machinery.
+  * `PatternMatch` implementation the accessor reduces through — **plus** the auto-derived `Meta[Int$Meta]` instance. So
+  * the meta of an `Int` is an `Int$Meta` structure whose `range` field is an `Interval`, joined field-wise, while the
+  * meta of a `Bool` or a `String` is the trivial `Unit` (its one `Meta[Unit]` instance, declared with `Unit`, is the
+  * do-nothing join).
   *
   * The `$Meta` suffix keeps the meta type's name distinct from the ordinary `Int^Type` without a new namespace: `$` is
   * not a valid identifier character (the lexer's `isLetter`/`isLetterOrDigit`), so `Int$Meta` can never collide with a
-  * user type. This is what makes the transfer companion (Step 4b) generatable with **no lookup** — a value of type `T`
-  * has meta type `T$Meta`, a pure name transform. The `^Meta` *transfer* companions themselves live in
-  * [[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Meta]]; the meta *structure* is an ordinary `data` type so
-  * every reference to it resolves by the normal `Type`/`Default` rules. These structures are compiler-pool-only (the
-  * channel evaluates them) — dead in the runtime pool, never code-generated.
+  * user type. This makes the transfer companion generatable with **no lookup** — a slotted value of type `T` has meta
+  * type `T$Meta`, a pure name transform. Meta structures are compiler-pool-only (the channel evaluates them) — dead in
+  * the runtime pool, never code-generated.
   *
   * Reuses [[DataDefinitionDesugarer]] verbatim (per "reuse, don't write parallel generators"), so multi-slot types are
   * multi-field structures for free. Type generic parameters are not yet threaded onto the meta structure — the only
-  * slotted types today have concrete-domain single slots.
+  * slotted type today has a concrete-domain single slot.
   */
 object MetaConstructorDesugarer {
 
   /** The `data`-style meta structure generated from `definition`'s meta-slot brace **plus** the auto-derived
-    * `Meta[<Name>$Meta]` instance, or empty when it declares no slots (every ordinary `def`/alias).
+    * `Meta[<Name>$Meta]` instance, or empty when it declares no slots (every ordinary `def`/alias/slotless type — whose
+    * meta is the trivial `Unit`, supplied by the channel, not a synthetic here).
     */
   def desugar(definition: FunctionDefinition): Seq[(FunctionDefinition, RoleHint)] =
     if (definition.metaSlots.isEmpty) Seq.empty
@@ -55,7 +60,8 @@ object MetaConstructorDesugarer {
   /** The auto-derived `Meta[<Name>$Meta]` **instance** — the lattice join over the type's meta structure (Step 1 of
     * `docs/generic-refinement-merges.md`). A *user* declares `Meta` only for their own domain (`Meta[Interval[T]]`); the
     * compiler derives the matching instance for the compound *meta structure* `Int$Meta` field-wise, so `fold`'s generic
-    * `^Meta` companion (`join(whenTrue, whenFalse)` over `metaOf(A)`) has a `Meta[Int$Meta]` to reduce through:
+    * `^Meta` companion (`join(whenTrue, whenFalse)`, reduced by the channel at the meta type args) has a `Meta[Int$Meta]`
+    * to reduce through:
     *
     * {{{
     *   implement Meta[Int$Meta] {

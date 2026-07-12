@@ -483,7 +483,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "not generate a meta structure for a slotless type" in {
+  it should "not generate a meta structure for a slotless type (its meta is Unit, supplied by the channel)" in {
     namedValues("type Foo").asserting { nvs =>
       nvs.map(_.qualifiedName.value.name) should not contain "Foo$Meta"
     }
@@ -495,11 +495,11 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "type the transfer companion over the meta types (metaOf(T)), with no lookup" in {
+  it should "type the transfer companion over the meta types (T$Meta suffix), with no lookup" in {
     namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
       nv.typeStack.signatureStructure shouldBe App(
-        App(Ref("Function", T), App(Ref("metaOf", Qualifier.Default), Ref("Foo", T))),
-        App(Ref("metaOf", Qualifier.Default), Ref("Foo", T))
+        App(Ref("Function", T), Ref("Foo$Meta", T)),
+        Ref("Foo$Meta", T)
       )
     }
   }

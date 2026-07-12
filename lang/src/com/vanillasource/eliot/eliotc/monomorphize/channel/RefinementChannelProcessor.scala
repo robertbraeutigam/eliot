@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.processor.MetaWhereDesugarer
+import com.vanillasource.eliot.eliotc.core.processor.{MetaConstructorDesugarer, MetaWhereDesugarer}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.{MetaStore, SemValue}
@@ -176,14 +176,17 @@ class RefinementChannelProcessor
     * callee has no companion, or a join input's range is unknown.
     *
     * Mechanically **identical to a transfer** ([[applyMetaCompanion]]): the companion is reduced on the arguments' metas
-    * and its result `Int$Meta`'s `range` slot is read back. `fold`'s companion `fold^Meta[A](condition, whenTrue,
-    * whenFalse): metaOf(A) = join(whenTrue, whenFalse)` reduces, via the compiler-derived `Meta[Int$Meta]` instance
-    * dispatching on the arm metas (both `Int$Meta` *values*, so the instance fires — unlike a type-position instance),
-    * to `Int$Meta(intervalJoin(range(whenTrue), range(whenFalse)))`; the quote fires `intervalJoin` and yields the join.
-    * An unknown/non-`Int` argument (⊤ — e.g. `fold`'s `condition: Bool`) is a `VType` placeholder the reduction ignores
-    * unless it feeds a slot projection, in which case the projection stalls and the result is ⊤ (sound). Generic
-    * companions (`fold[A]`) are reduced at `calleeTypeArgs`. The membership test (a cached [[UnifiedModuleNames]] lookup
-    * for the companion name) keeps an ordinary companion-free call to one cheap lookup.
+    * and its result `Int$Meta`'s `range` slot is read back. `fold`'s companion `fold^Meta[A](condition: Bool, whenTrue:
+    * A, whenFalse: A): A = join(whenTrue, whenFalse)` is reduced at the **meta** type arguments — the call's base type
+    * args mapped through [[metaTypeOf]] (`A := Int$Meta`), so the bare `A` params bind straight to the meta type (there
+    * is no `metaOf` intrinsic). Its `join` then dispatches, via the compiler-derived `Meta[Int$Meta]` instance on the arm
+    * metas (both `Int$Meta` *values*, so the instance fires — unlike a type-position instance), to
+    * `Int$Meta(intervalJoin(range(whenTrue), range(whenFalse)))`; the quote fires `intervalJoin` and yields the join. An
+    * unknown/non-`Int` argument (⊤ — e.g. `fold`'s `condition`) is a `VType` placeholder the reduction ignores unless it
+    * feeds a slot projection, in which case the projection stalls and the result is ⊤ (sound). A merge over untracked
+    * arms reduces at `A := Unit` (an untracked type's [[metaTypeOf]] is `Unit`) through the trivial `Meta[Unit]` and
+    * reads back no interval (⊤). The membership test (a cached [[UnifiedModuleNames]] lookup for the companion name)
+    * keeps an ordinary companion-free call to one cheap lookup.
     *
     * The merge-vs-transfer *distinction* (which arguments are join inputs, needed by the reconcile pass to re-encode a
     * branch arm to the merged representation) is not recovered here — the dispatched `Meta.join` leaves no trace in the
@@ -198,18 +201,37 @@ class RefinementChannelProcessor
       if (!namesOpt.exists(_.names.contains(QualifiedName(callee.name.name, Qualifier.Meta))))
         none[(BigInt, BigInt)].pure[CompilerIO]
       else
-        ReducedBindingClosure.reduceInstance(metaCompanionFqn(callee), calleeTypeArgs).map {
-          case None       => None
-          case Some(body) =>
-            val argMetas = argIntervals.map {
-              case Some(iv) => Evaluator.groundToSem(intMetaValue(iv))
-              case None     => SemValue.VType // ⊤ placeholder: an unknown/non-Int argument (e.g. `fold`'s condition)
-            }
-            val applied  = argMetas.foldLeft(body)((f, mv) => Evaluator.applyValue(f, mv))
-            val forced   = Evaluator.force(applied, MetaStore.empty)
-            Quoter.quote(0, forced, MetaStore.empty).toOption.flatMap(unwrapIntMeta).flatMap(twoBigIntArgs)
+        for {
+          metaArgs <- calleeTypeArgs.traverse(metaTypeOf)
+          reduced  <- ReducedBindingClosure.reduceInstance(metaCompanionFqn(callee), metaArgs)
+        } yield reduced.flatMap { body =>
+          val argMetas = argIntervals.map {
+            case Some(iv) => Evaluator.groundToSem(intMetaValue(iv))
+            case None     => SemValue.VType // ⊤ placeholder: an unknown/non-Int argument (e.g. `fold`'s condition)
+          }
+          val applied = argMetas.foldLeft(body)((f, mv) => Evaluator.applyValue(f, mv))
+          val forced  = Evaluator.force(applied, MetaStore.empty)
+          Quoter.quote(0, forced, MetaStore.empty).toOption.flatMap(unwrapIntMeta).flatMap(twoBigIntArgs)
         }
     }
+
+  /** The **meta type** of a base type — its `$Meta` meta structure if the type declares one (a slotted type like `Int`
+    * ⤳ `Int$Meta`), else the trivial [[unitType]] (any untracked type carries no refinement, so its meta is `Unit`).
+    * This is the total-meta rule the deleted `metaOf` intrinsic used to approximate: a generic `^Meta` companion is
+    * reduced at these, binding a bare type-parameter param straight to the meta type, and it *always* lands on a real
+    * `Meta` instance (`Meta[Int$Meta]` or `Meta[Unit]`) — never a stuck non-existent `T$Meta`. The membership test is a
+    * cached [[UnifiedModuleNames]] lookup in the base type's own module. A non-structure type argument is left unchanged.
+    */
+  private def metaTypeOf(baseType: GroundValue): CompilerIO[GroundValue] = baseType match {
+    case GroundValue.Structure(fqn, _, _) =>
+      val metaName = QualifiedName(fqn.name.name + MetaConstructorDesugarer.metaTypeSuffix, Qualifier.Type)
+      getFactIfProduced(UnifiedModuleNames.Key(fqn.moduleName, Platform.Compiler)).map { namesOpt =>
+        if (namesOpt.exists(_.names.contains(metaName)))
+          GroundValue.Structure(ValueFQN(fqn.moduleName, metaName), Seq.empty, GroundValue.Type)
+        else unitType
+      }
+    case other                            => other.pure[CompilerIO]
+  }
 
   private def recordAt(
       node: Sourced[MonomorphicExpression],
@@ -462,6 +484,14 @@ object RefinementChannelProcessor {
     */
   private[channel] def metaCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, QualifiedName(callee.name.name, Qualifier.Meta))
+
+  private val unitModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Unit")
+
+  /** `Unit` — the meta type of every untracked (slotless) type. Its trivial `Meta[Unit]` instance (declared with `Unit`)
+    * is the do-nothing join, so a merge over untracked arms reduces cleanly to no refinement (⊤).
+    */
+  private[channel] val unitType: GroundValue =
+    GroundValue.Structure(ValueFQN(unitModule, QualifiedName("Unit", Qualifier.Type)), Seq.empty, GroundValue.Type)
 
   /** The name / FQN of a def's `^Where` companion (bounds-as-refinements §4.3): the def's own name suffixed with
     * [[MetaWhereDesugarer.whereSuffix]], in the [[Qualifier.Meta]] namespace and the def's own module — exactly what

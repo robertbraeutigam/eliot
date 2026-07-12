@@ -22,7 +22,8 @@ prefix def !(a: Bool): Bool
  * (`docs/generic-refinement-merges.md`): `fold` selects one arm at runtime, so the meta of its result is only known to
  * be one arm *or* the other — the domain's `Meta.join` of the two arms' metas. This is how the compiler recognises a
  * *merge* (via `Meta.join`, the one refinement primitive) without ever naming `fold` as "the branch"; it is generic
- * over `A`'s domain (`join` is the compiler-derived `Meta[metaOf(A)]`). No runtime body — `fold` stays a native.
+ * over `A`'s domain (the channel reduces this companion at the arm's meta type, so `join` is the compiler-derived
+ * `Meta[A$Meta]`). No runtime body — `fold` stays a native.
  */
 def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A { join(whenTrue, whenFalse) }
 

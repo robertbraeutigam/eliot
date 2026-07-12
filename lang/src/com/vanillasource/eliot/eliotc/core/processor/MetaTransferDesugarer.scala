@@ -14,17 +14,22 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     ⟶  add^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(a.range + b.range)
   * }}}
   *
-  * The companion lives in the [[Qualifier.Meta]] namespace (so it never collides with `add`). Its parameter and return
-  * types are the meta structures of the originals — obtained by a pure **name transform** (`Int` ⤳ `Int$Meta`, the
-  * suffix [[MetaConstructorDesugarer.metaTypeSuffix]]), with **no cross-definition lookup**: a value of type `T` has
-  * meta type `T$Meta` by construction (the meta structure `MetaConstructorDesugarer` emits from `type T {slots}`). The
-  * body is the meta *value* constructor `T$Meta(...)` applied to the brace's slot expressions, so `a.range` resolves to
-  * the meta structure's slot accessor and `a.range + b.range` is ordinary `Interval` arithmetic.
+  * The companion lives in the [[Qualifier.Meta]] namespace (so it never collides with `add`). How its parameter and
+  * return types name their meta types is a pure **name transform** with **no cross-definition lookup**, split by whether
+  * the def is generic:
+  *   - a **monomorphic** vessel (`rangeAdd(a: Int, b: Int): Int {…}`) suffixes each concrete type to its meta structure
+  *     `T$Meta` (the suffix [[MetaConstructorDesugarer.metaTypeSuffix]]) — `Int` ⤳ `Int$Meta`, which resolves because
+  *     `Int` is slotted — and the channel reduces it at no type args.
+  *   - a **generic** companion (`fold[A](condition: Bool, whenTrue: A, whenFalse: A): A {…}`) keeps its **original
+  *     signature** verbatim: you cannot spell "the meta of `A`" (`A$Meta` is a different, undeclared name), so instead
+  *     the channel reduces the companion at the *meta* type argument (`A := Int$Meta`), binding a bare `A` param straight
+  *     to the meta type — the total-meta replacement for the deleted `metaOf` intrinsic. Its concrete params (`condition:
+  *     Bool`) are pass-throughs the brace never projects, so their meta type is irrelevant and they stay verbatim (no
+  *     `Bool$Meta` needed — a slotless type has meta `Unit`, which the channel supplies).
   *
-  * A def whose signature is not a simple type application at every relevant position (e.g. a bare generic, an untracked
-  * type with no meta structure) yields no companion — a documented limitation for now; the only defs carrying transfer
-  * braces are the arithmetic natives over `Int`. Companions are compiler-pool-only (the channel evaluates them), dead
-  * in the runtime pool, never code-generated.
+  * The body is the meta *value* constructor `T$Meta(...)` applied to the brace's slot expressions (monomorphic), or the
+  * single brace expression directly (generic — `fold`'s `join(whenTrue, whenFalse)`, whose `Meta.join` already returns
+  * the arm meta type). Companions are compiler-pool-only (the channel evaluates them), dead in the runtime pool.
   */
 object MetaTransferDesugarer {
 
@@ -37,42 +42,39 @@ object MetaTransferDesugarer {
 
   private def transferCompanion(f: FunctionDefinition): Option[FunctionDefinition] = {
     val generics = f.genericParameters.map(_.name.value).toSet
+    // A generic companion keeps its original signature (its type params are reduced at their meta types by the channel,
+    // its concrete params are unprojected pass-throughs); a monomorphic vessel suffixes each concrete type to `T$Meta`.
     for {
-      metaArgs   <- f.args.traverse(arg => metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t)))
-      metaReturn <- metaTypeRef(f.typeDefinition)
+      metaArgs   <- if (generics.nonEmpty) f.args.some
+                    else f.args.traverse(arg => metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t)))
+      metaReturn <- if (generics.nonEmpty) f.typeDefinition.some else metaTypeRef(f.typeDefinition)
       body       <- metaBody(f.typeDefinition, f.returnMeta, generics)
     } yield FunctionDefinition(
       f.name.map(qn => QualifiedName(qn.name, Qualifier.Meta)),
-      f.genericParameters, // generic parameters are KEPT: a generic transfer/merge companion (`fold^Meta[A]`) is
-      metaArgs,            // instantiated per concrete `A`, and its meta types (`metaOf(A)`) reduce only then.
+      f.genericParameters,
+      metaArgs,
       metaReturn,
       Some(body),
       visibility = f.visibility
     )
   }
 
-  /** The meta *type* reference for a value type expression: `metaOf(T)`, the type-level intrinsic
-    * ([[WellKnownTypes.metaOfFQN]]) that reduces to `T`'s `$Meta` structure once `T` is concrete. Used for every
-    * parameter/return type — concrete or a type parameter — because it always *resolves* (`metaOf` and `T` are declared),
-    * whereas the plain `T$Meta` name transform is an unresolved name for a type parameter `A` and for a concrete type
-    * with no meta structure (an untracked `Bool` — `fold`'s condition). `None` for a non-application head (unsupported).
+  /** The meta structure of a **concrete** value type expression: its application head `T` suffixed to `T$Meta` (the
+    * suffix [[MetaConstructorDesugarer.metaTypeSuffix]]). Used only on a monomorphic vessel's signature, so the head is
+    * always a slotted concrete type whose `T$Meta` resolves. `None` for a non-application head (unsupported).
     */
   private def metaTypeRef(typeExpr: Sourced[SourceExpression]): Option[Sourced[SourceExpression]] =
     typeExpr.value match {
-      case SourceExpression.FunctionApplication(module, fnName, genArgs, _) =>
-        // The argument is forced into the Type namespace with empty type-arg brackets (`Bool[]`) — a bare uppercase name
-        // in a value-argument position resolves as a *value*, which misses a `type` with no value constructor (see the
-        // "[] = type-namespace marker" gotcha). Then `metaOf(Bool[])` resolves for any type.
-        val typeArg = typeExpr.as(SourceExpression.FunctionApplication(module, fnName, Some(genArgs.getOrElse(Seq.empty)), Seq.empty))
-        Some(typeExpr.as(SourceExpression.FunctionApplication(None, fnName.as("metaOf"), None, Seq(typeArg))))
-      case _                                                               => None
+      case SourceExpression.FunctionApplication(module, fnName, _, _) =>
+        Some(typeExpr.as(SourceExpression.FunctionApplication(module, fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix), None, Seq.empty)))
+      case _                                                          => None
     }
 
   /** The companion's body. When the return type is **concrete**, the meta value is the meta *constructor* applied to the
     * brace's slot expressions (`<ReturnHead>$Meta(<slots>)`, slot-producing). When the return type is a bare **type
     * parameter** there is no concrete constructor to wrap in, so the (single) brace expression *is* the result meta
     * structure directly (structure-producing — e.g. `fold`'s `join(whenTrue, whenFalse)`, whose `Meta.join` already
-    * returns `metaOf(A)`).
+    * returns the arm meta type).
     */
   private def metaBody(
       returnType: Sourced[SourceExpression],

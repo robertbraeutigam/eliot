@@ -9,13 +9,11 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   boolTrueFQN,
   functionDataTypeFQN,
   integerLiteralFQN,
-  metaOfFQN,
   typeEqualsFQN,
   typeFQN
 }
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
-import com.vanillasource.eliot.eliotc.core.processor.MetaConstructorDesugarer
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -81,7 +79,6 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     else if (vfqn === boolFoldFQN) boolFoldNative.some
     else if (vfqn === typeEqualsFQN) typeEqualsNative.some
     else if (vfqn === integerLiteralFQN) integerLiteralNative.some
-    else if (vfqn === metaOfFQN) metaOfNative.some
     else none
 
   /** Function[A, B] is a curried native: first takes A (domain), then B (codomain), and produces VPi(A, _ => B). */
@@ -119,24 +116,6 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     */
   private def integerLiteralNative: SemValue =
     VNative(VTopDef(bigIntFQN, None, Spine.SNil), v => v)
-
-  /** `metaOf(a: Type): Type` — the meta-structure type of a concrete type: rename the head FQN, suffix `$Meta`, drop the
-    * type arguments (a meta structure is nullary — [[MetaConstructorDesugarer]] does not thread generic parameters).
-    * `metaOf(Int) ⤳ Int$Meta`. Stuck on a non-concrete type (a metavariable / neutral parameter) rather than answering
-    * wrongly — the generic `fold^Meta[A]` companion reduces `metaOf(A)` only after `A` is a concrete instantiation.
-    */
-  private def metaOfNative: SemValue =
-    VNative(VType, t => metaOfResult(t))
-
-  private def metaOfResult(t: SemValue): SemValue = t match {
-    case VTopDef(fqn, _, _) =>
-      VTopDef(
-        ValueFQN(fqn.moduleName, QualifiedName(fqn.name.name + MetaConstructorDesugarer.metaTypeSuffix, Qualifier.Type)),
-        None,
-        Spine.SNil
-      )
-    case _                  => stuck(metaOfFQN, t)
-  }
 
   /** `typeEquals(a: Type, b: Type): Bool` — the `Eq[Type]` leaf. Compares two types by their normal forms, which (since
     * everything is forced/normalised first) is exactly the compiler's one notion of definitional equality read back as a
