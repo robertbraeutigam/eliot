@@ -1,16 +1,40 @@
 # Generic Refinement Merges — Removing the `Bool::fold` Dependency
 
-**Status: PARTIALLY DONE.** Steps 1, 6, 7 are **landed and green** — the whole `Represent` track is deleted and
-the JVM backend now decodes each `Int`'s width from the refinement-channel meta (the confirmed-wanted half, and
-its crux-free). Step 2's **foundation is landed** (the `metaOf` intrinsic + the generic `^Meta` desugar; `fold`'s
-merge companion resolves); what **remains** is the one auto-derivation it blocks on (compound `Meta[Int$Meta]`)
-plus the channel/reconcile switch (Steps 3–5). Continues the bounds-as-refinements work
-(`docs/bounds-as-refinements.md`, Step 8 — backend width selection). The representation-reconcile pass existed in
-a first, *non-generic* form (`reconcile/processor/ReconcileProcessor`, "stage A") and is now **wired to the
-backend**; this plan makes it — and the channel and backend it sits between — domain- and construct-agnostic, and
-removes the compiler's dependence on `Bool::fold` as if it were "the branch."
+**Status: NEARLY DONE.** Steps 1, 2, 3, 6, 7 are **landed and green**. The whole `Represent` track is deleted, the
+JVM backend decodes each `Int`'s width from the refinement-channel meta, and — as of 2026-07-12 — the **channel
+names no branch construct**: `fold`'s merge is computed generically by reducing its `^Meta` companion, so the
+`Bool::fold` special-case (`boolFoldFqn`/`walkBranch`) is gone from `RefinementChannelProcessor`. What **remains**
+is Steps 4–5: the reconcile pass still names `boolFoldFqn` to reconcile branch arms — the last refinement-machinery
+reference to a branch construct. Continues the bounds-as-refinements work (`docs/bounds-as-refinements.md`, Step 8
+— backend width selection).
+
+**The one design correction discovered while landing Step 3 (2026-07-12).** The plan (below, and its §4½) assumed
+`reduceInstance(fold^Meta, [Int])` would *stall at a stuck `Meta::join`*, from which the channel would read the two
+join inputs and compute the join explicitly. **It does not.** Empirically the auto-derived `Meta[Int$Meta]`
+instance **dispatches** — its arguments are `Int$Meta` *values* (not a type-position `Interval`), so value-level
+ability dispatch fires (unlike the Step-4c `Numeric[Interval]` case, which was reached in a *type* position). So
+`fold^Meta` reduces all the way to `Int$Meta(intervalJoin(range(whenTrue), range(whenFalse)))` and the quote fires
+`intervalJoin` to yield the join — **mechanically identical to a transfer companion**. The consequence: the merge
+and transfer paths *unified* (the channel just reduces any `^Meta` companion and reads back the result interval;
+`mergeViaCompanion` == `applyMetaCompanion` modulo generic type args and the ⊤ condition slot), which is *simpler*
+and more cornerstone-aligned (one evaluator, name nothing) — **but** the dissolved `Meta.join` leaves no trace of
+*which* arguments were join inputs. That join-input information is exactly what Steps 4–5 need (to reconcile a
+branch arm to the merged representation), so it must be recovered by a **separate structural read** of the generic
+companion body (recognising the one primitive `Meta::join` there, before monomorphization dispatches it) — *not*
+from the reduction. This supersedes §4½ item 2's "stalls at the stuck `Meta::join`" mechanism.
 
 **Landed so far (2026-07-12):**
+- *Phase 2 (Steps 2, 3) — the merge goes generic.* **Step 2 auto-derivation:** `MetaConstructorDesugarer` now emits,
+  beside the `Int$Meta` meta structure, the field-wise `implement Meta[Int$Meta] { def join(a, b) =
+  Int$Meta(intervalJoin(range(a), range(b))) }` — the user declares `Meta` only for their own domain, the compiler
+  derives the compound meta-structure instance (each slot joined by its domain's plain join function, `Interval` ⤳
+  `intervalJoin`). Unblocked `reduceInstance(fold^Meta, [Int])`. **Step 3 channel switch:** deleted
+  `boolFoldFqn`/`walkBranch`/`runJoin`/`applyIntervalInstance`/`metaJoinFqn` from `RefinementChannelProcessor`; a merge
+  is now `mergeViaCompanion` (reduce the callee's `^Meta` companion on the arg metas, read back the result interval).
+  The `RefinementTable` is behaviour-preserving (a fold node still records the join of its arms), so the reconcile
+  pass (still `boolFoldFqn`) is unaffected. lang/jvm/LSP suites green. Commit `90101d3d`.
+
+**Earlier (2026-07-12):**
 - *Phase 1 (Steps 1, 6, 7).* The backend consumes `ReconciledMonomorphicValue` (stage B); `IntRepresentation`
   (jvm) decodes an `Interval` meta → machine width, replacing the Eliot `Represent[Interval]` fold; the backend
   reads Int widths from each node's channel meta and honours `Reconcile` nodes for boundary re-encodes (stage X);
@@ -304,32 +328,42 @@ still describe `Represent.layout` as the live representation path.
 
 ## 4½. Current state and the remaining path (2026-07-12)
 
-Phase 1 (Steps 1, 6, 7) is done. Phase 2's foundation is in (Step 2 above). Three pieces remain, in a **now
-unambiguous order** — each was validated by hitting its concrete blocker:
+Phase 1 (Steps 1, 6, 7) and Phase 2 (Steps 2, 3) are **done, committed, green** (see the header). Items 1 and 2
+below are landed; the mechanism note on item 2 records the correction (the instance dispatches — no stuck
+`Meta::join`). **Item 3 remains** — and its join-input source is *not* the reduction (which dissolves `Meta.join`),
+so it needs the structural read described below.
 
-1. **Auto-derive `Meta[Int$Meta]`** — the one blocker. `MetaConstructorDesugarer`, which already synthesizes the
-   `Int$Meta` structure from `type Int {range: Interval[BigInteger]}`, additionally emits the *instance*
-   `implement Meta[Int$Meta] { def join(a, b) = Int$Meta(intervalJoin(range(a), range(b))) }`. The synthesis is
-   mechanical and has a **precedent to copy verbatim**: `DataDefinitionDesugarer.createPatternMatchImpl` emits an
-   ability instance as `FunctionDefinition`s in `Qualifier.AbilityImplementation("Meta", implKey)` — a body-less
-   **marker** (arg of the pattern type `Int$Meta`, guard `trueReference`) plus the `join` **method**. `implKey` is
-   the pattern name (`"Int$Meta"`, matching the `(ability, pattern)` identity). Generically, the body joins **each
-   slot** via that slot's domain's *plain* join function (`intervalJoin` for an `Interval` slot — a plain function,
-   **not** the `Meta[Interval]` instance, because a transitively-reached instance does not dispatch under the
-   channel's NbE; the same Step-4c reason `intervalAdd` is a plain function). Derive the join-function name from the
-   slot's domain head (`Interval` → `intervalJoin`). `intervalJoin` already exists in the overlay. A field-less /
-   untracked type derives the trivial (`Unit`-shaped) pass-through.
-2. **Repoint the channel onto `fold^Meta`** — reapply the saved `mergeViaCompanion`
-   (`$CLAUDE_JOB_DIR/tmp/RefinementChannelProcessor.mergeViaCompanion.scala`, mechanism in §Step 3). With (1) in
-   place, `reduceInstance(fold^Meta, [Int])` monomorphizes cleanly; the reduction stalls at the stuck
-   `Meta::join`, which `mergeViaCompanion` recognizes. Verify with `javap` that a divergent-range `fold`'s arms
-   stay narrow (join recognized) and that `ExamplesIntegrationTest` runs.
-3. **Table join-edges + generic reconcile** (Steps 4–5) — carry the merge result per join-input in
-   `RefinementTable`; drop `boolFoldFqn`/`widthTransparentLeaves` from `ReconcileProcessor`. Note the Step-5
-   precision caveat (arithmetic operands → ⊤/bignum) already flagged there.
+1. **Auto-derive `Meta[Int$Meta]`** — **DONE** (`90101d3d`). `MetaConstructorDesugarer`, which already synthesizes
+   the `Int$Meta` structure from `type Int {range: Interval[BigInteger]}`, now also emits the *instance*
+   `implement Meta[Int$Meta] { def join(a, b) = Int$Meta(intervalJoin(range(a), range(b))) }`. Copied the
+   `DataDefinitionDesugarer.createPatternMatchImpl` shape: a body-less **marker** (arg of the pattern type
+   `Int$Meta`, guard `trueReference`) plus the `join` **method**, in `Qualifier.AbilityImplementation("Meta",
+   "Int$Meta")` (the meta structure is nullary, so its pattern key is just its name). The body joins **each slot**
+   via that slot's domain's *plain* join function (`intervalJoin`, derived as decapitalized domain head + `Join`);
+   `intervalJoin` already existed in the overlay. A slot whose domain head is not a simple type application yields
+   no instance (fail-safe).
+2. **Repoint the channel onto `fold^Meta`** — **DONE** (`90101d3d`), but *not* as the saved `mergeViaCompanion`
+   assumed. `reduceInstance(fold^Meta, [Int])` monomorphizes cleanly (thanks to item 1), but the reduction **does
+   not stall at a stuck `Meta::join`** — the `Meta[Int$Meta]` instance *dispatches* (its args are `Int$Meta`
+   values), so `fold^Meta` reduces to a concrete `Int$Meta(intervalJoin(…))` and the quote yields the join, exactly
+   like a transfer. `mergeViaCompanion` therefore just reduces-and-reads-back (no stuck-native detection). The
+   channel now names no branch construct. Verified: `FoldJoinProbe` (divergent-range fold) builds/runs;
+   `ExamplesIntegrationTest` + lang/jvm/LSP green.
+3. **Table join-edges + generic reconcile** (Steps 4–5) — **REMAINING.** Carry the join-input edges in
+   `RefinementTable` and drop `boolFoldFqn` from `ReconcileProcessor` (the last branch-construct name in the
+   refinement machinery). **The join-input source is a structural read, not the reduction** (item 2's correction):
+   the reduction dissolves `Meta.join`, so read the *generic* `fold^Meta` companion body (where `Meta::join` is
+   still the abstract, un-dispatched ability method), recognise `Meta::join(paramI, paramJ)`, and map bare-parameter
+   (or single-projection) arguments back to caller arg positions — the Step-3 "restriction the detection must
+   state" (a non-trivial pre-join computation has no clean preimage → ⊤, fail-safe). Record those positions with a
+   reconcile-target = the merge result meta; reconcile consumes the recorded target and names nothing.
+   **Scope note:** `widthTransparentLeaves` (arithmetic operands, `intLessThanOrEqual`, `intToString`) is *not* a
+   branch construct — naming an arithmetic leaf is explicitly sanctioned (§3 Step 3). Dropping it (Step 5's second
+   half) is a **separate precision regression** (operands → ⊤/bignum) gated on native *parameter*-meta declarations,
+   which do not exist yet; keep it until then rather than shipping the regression silently.
 
-Everything up to (1) is committed and green; the channel currently still uses the `boolFoldFqn` special-case, so
-behaviour is unchanged. The invariant (§4) is not yet met by the channel until (2) lands.
+The invariant (§4) is met by the channel; it is met by the *whole* refinement machinery once item 3 removes
+reconcile's `boolFoldFqn`.
 
 ## 5. Validation
 
