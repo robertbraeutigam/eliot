@@ -13,19 +13,20 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
-import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
+import com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicExpression
+import com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicExpression.*
 
 object LambdaGenerator {
 
   type ExpressionCodeFn =
-    (ModuleName, ClassGenerator, MethodGenerator, UncurriedMonomorphicExpression) => CompilationTypesIO[Seq[ClassFile]]
+    (ModuleName, ClassGenerator, MethodGenerator, ReconciledMonomorphicExpression) => CompilationTypesIO[Seq[ClassFile]]
 
   def generateLambda(
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       parameters: Seq[MonomorphicParameterDefinition],
-      body: Sourced[UncurriedMonomorphicExpression],
+      body: Sourced[ReconciledMonomorphicExpression],
       createExpressionCode: ExpressionCodeFn
   ): CompilationTypesIO[Seq[ClassFile]] =
     parameters match {
@@ -51,7 +52,8 @@ object LambdaGenerator {
             GroundValue.Type
           )
         }
-        val innerBody = body.as(UncurriedMonomorphicExpression(innerType, FunctionLiteral(rest, body)))
+        // A curried lambda frame carries no value-range meta of its own (a function value, not an Int), so ⊤/None.
+        val innerBody = body.as(ReconciledMonomorphicExpression(None, innerType, FunctionLiteral(rest, body)))
         generateLambda(moduleName, outerClassGenerator, methodGenerator, Seq(first), innerBody, createExpressionCode)
     }
 
@@ -60,7 +62,7 @@ object LambdaGenerator {
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       definition: MonomorphicParameterDefinition,
-      body: Sourced[UncurriedMonomorphicExpression],
+      body: Sourced[ReconciledMonomorphicExpression],
       createExpressionCode: ExpressionCodeFn
   ): CompilationTypesIO[Seq[ClassFile]] = {
     // `freeVariables` preserves every *occurrence* (it does not de-duplicate — see W4), so a body that references the

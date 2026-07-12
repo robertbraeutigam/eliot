@@ -31,6 +31,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
@@ -305,19 +306,26 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       uncurriedValue: UncurriedMonomorphicValue,
       typeArgs: Seq[GroundValue],
       initialLambdaCount: Int = 0
-  ): CompilerIO[(Seq[ClassFile], Int)] = {
-    uncurriedValue.body match {
-      case Some(body) =>
-        val methodName = mangledMethodName(uncurriedValue.vfqn, typeArgs)
-        classGenerator
-          .createMethod[CompilerIO](
-            JvmIdentifier.encode(methodName),
-            uncurriedValue.parameters.map(p => valueType(p.parameterType)),
-            valueType(uncurriedValue.returnType)
-          )
-          .use { methodGenerator =>
-            val bodyExpression = UncurriedMonomorphicExpression(uncurriedValue.returnType, body.value)
-            val program        = for {
+  ): CompilerIO[(Seq[ClassFile], Int)] =
+    // The body is generated from the *reconciled* form (per-node refinement meta + explicit `Reconcile` re-encode
+    // nodes, `docs/generic-refinement-merges.md`); the value-level structure (descriptors from `parameters`/
+    // `returnType`, the method name) stays from the uncurried value. Every uncurried value has a reconciled counterpart
+    // (the reconcile pass is a transformation over `UncurriedMonomorphicValue`), so this fact is always producible.
+    getFactOrAbort(
+      ReconciledMonomorphicValue.Key(uncurriedValue.vfqn, typeArgs, uncurriedValue.arity)
+    ).flatMap { reconciledValue =>
+      reconciledValue.body match {
+        case Some(body) =>
+          val methodName = mangledMethodName(uncurriedValue.vfqn, typeArgs)
+          classGenerator
+            .createMethod[CompilerIO](
+              JvmIdentifier.encode(methodName),
+              uncurriedValue.parameters.map(p => valueType(p.parameterType)),
+              valueType(uncurriedValue.returnType)
+            )
+            .use { methodGenerator =>
+              val bodyExpression = body.value
+              val program        = for {
               _       <- uncurriedValue.parameters.traverse_(addParameterDefinition)
               classes <-
                 createExpressionCode(

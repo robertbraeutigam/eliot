@@ -17,7 +17,8 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
-import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
+import com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicExpression
+import com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicExpression.*
 import org.objectweb.asm.{Label, MethodVisitor, Opcodes}
 
 object ExpressionCodeGenerator {
@@ -26,7 +27,7 @@ object ExpressionCodeGenerator {
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      uncurriedExpression: UncurriedMonomorphicExpression
+      uncurriedExpression: ReconciledMonomorphicExpression
   ): CompilationTypesIO[Seq[ClassFile]] =
     uncurriedExpression.expression match {
       case FunctionApplication(target, arguments)           =>
@@ -72,14 +73,20 @@ object ExpressionCodeGenerator {
           body,
           createExpressionCode
         )
+      case Reconcile(source)                                =>
+        // A representation reconcile point (`docs/generic-refinement-merges.md`): emit the source, then re-encode its
+        // value from the source's own meta to this node's expected meta. Transparent for now (Stage 2a — widths still
+        // come from the lowered types and the implicit boundary conversions still fire); the meta-driven re-encode lands
+        // when the backend reads widths from the channel meta.
+        createExpressionCode(moduleName, outerClassGenerator, methodGenerator, source.value)
     }
 
   private def generateFunctionApplication(
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      typedTarget: UncurriedMonomorphicExpression,
-      arguments: Seq[UncurriedMonomorphicExpression],
+      typedTarget: ReconciledMonomorphicExpression,
+      arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
@@ -182,6 +189,17 @@ object ExpressionCodeGenerator {
                              expectedResultType
                            )
         } yield targetClasses ++ argClasses
+      case Reconcile(source)                                      =>
+        // The reconcile pass never wraps an application *target* (only argument/arm/return boundaries), so this is
+        // totality only: apply the arguments to the reconcile's source.
+        generateFunctionApplication(
+          moduleName,
+          outerClassGenerator,
+          methodGenerator,
+          source.value,
+          arguments,
+          expectedResultType
+        )
     }
 
   /** Apply arguments one at a time to the function *value* on top of the stack (a `java.util.function.Function`), then
@@ -192,7 +210,7 @@ object ExpressionCodeGenerator {
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      arguments: Seq[UncurriedMonomorphicExpression],
+      arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
@@ -219,7 +237,7 @@ object ExpressionCodeGenerator {
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
       typeArgs: Seq[GroundValue],
-      arguments: Seq[UncurriedMonomorphicExpression],
+      arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
@@ -276,7 +294,7 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       typeArgs: Seq[GroundValue],
-      arguments: Seq[UncurriedMonomorphicExpression],
+      arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val calledVfqn = sourcedCalledVfqn.value
@@ -391,7 +409,7 @@ object ExpressionCodeGenerator {
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       calledVfqn: ValueFQN,
-      arguments: Seq[UncurriedMonomorphicExpression],
+      arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     if (calledVfqn === Intrinsics.boolTrueFQN || calledVfqn === Intrinsics.boolFalseFQN)
@@ -601,7 +619,7 @@ object ExpressionCodeGenerator {
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
       typeArgs: Seq[GroundValue],
-      arguments: Seq[UncurriedMonomorphicExpression],
+      arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
@@ -688,7 +706,7 @@ object ExpressionCodeGenerator {
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
       typeArgs: Seq[GroundValue],
-      arguments: Seq[UncurriedMonomorphicExpression],
+      arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
