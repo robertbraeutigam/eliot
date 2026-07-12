@@ -21,3 +21,15 @@ ability Meta[D] {
     */
    def join(a: D, b: D): D
 }
+
+/**
+ * The **meta structure** type of a type: `metaOf(Int)` is `Int$Meta`, the `$Meta`-suffixed structure the compiler emits
+ * from a `type T {slots}` declaration (`MetaConstructorDesugarer`). It is a compiler intrinsic (reduced by
+ * `SystemNativesProcessor`), needed so a *generic* `^Meta` companion can name the meta of a **type parameter**: a value
+ * of a concrete type `T` has meta type `T$Meta` by the plain name transform, but `A$Meta` for a type parameter `A` is
+ * not a real type — `metaOf(A)` is, and reduces to `A`'s meta structure once `A` is a concrete instantiation. So
+ * `fold[A](whenTrue: A, whenFalse: A): A { join(whenTrue, whenFalse) }` desugars to
+ * `fold^Meta[A](whenTrue: metaOf(A), whenFalse: metaOf(A)): metaOf(A) = join(whenTrue, whenFalse)`, its `join` the
+ * compiler-derived `Meta[metaOf(A)]` (`docs/generic-refinement-merges.md`).
+ */
+def metaOf(a: Type): Type

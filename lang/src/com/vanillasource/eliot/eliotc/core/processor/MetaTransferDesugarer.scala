@@ -35,38 +35,57 @@ object MetaTransferDesugarer {
     if (definition.returnMeta.isEmpty) Seq.empty
     else transferCompanion(definition).map(_ -> RoleHint.NoHint).toSeq
 
-  private def transferCompanion(f: FunctionDefinition): Option[FunctionDefinition] =
+  private def transferCompanion(f: FunctionDefinition): Option[FunctionDefinition] = {
+    val generics = f.genericParameters.map(_.name.value).toSet
     for {
-      metaArgs   <- f.args.traverse(arg => metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t)))
-      metaReturn <- metaTypeRef(f.typeDefinition)
-      body       <- metaConstructorCall(f.typeDefinition, f.returnMeta)
+      metaArgs   <- f.args.traverse(arg => metaTypeRef(arg.typeExpression, generics).map(t => arg.copy(typeExpression = t)))
+      metaReturn <- metaTypeRef(f.typeDefinition, generics)
+      body       <- metaBody(f.typeDefinition, f.returnMeta, generics)
     } yield FunctionDefinition(
       f.name.map(qn => QualifiedName(qn.name, Qualifier.Meta)),
-      Seq.empty,
-      metaArgs,
+      f.genericParameters, // generic parameters are KEPT: a generic transfer/merge companion (`fold^Meta[A]`) is
+      metaArgs,            // instantiated per concrete `A`, and its meta types (`metaOf(A)`) reduce only then.
       metaReturn,
       Some(body),
       visibility = f.visibility
     )
+  }
 
-  /** The meta *type* reference for a value type expression: the head type's name suffixed `$Meta`, bare (no args), since
-    * the meta structure is non-generic. `Int[M1, X1]` ⤳ `Int$Meta`. `None` for a non-application head (unsupported).
+  /** The meta *type* reference for a value type expression. A **concrete** head is the plain name transform — the head's
+    * name suffixed `$Meta`, bare (`Int[M1, X1]` ⤳ `Int$Meta`, since the meta structure is non-generic). A bare **type
+    * parameter** `A` has no such structure (`A$Meta` is not a real type); its meta type is `metaOf(A)`, the type-level
+    * intrinsic that reduces to `A`'s meta structure once `A` is concrete ([[WellKnownTypes.metaOfFQN]]). `None` for a
+    * non-application head (unsupported).
     */
-  private def metaTypeRef(typeExpr: Sourced[SourceExpression]): Option[Sourced[SourceExpression]] =
+  private def metaTypeRef(typeExpr: Sourced[SourceExpression], generics: Set[String]): Option[Sourced[SourceExpression]] =
     typeExpr.value match {
-      case SourceExpression.FunctionApplication(module, fnName, _, _) =>
+      case SourceExpression.FunctionApplication(None, fnName, _, args) if args.isEmpty && generics.contains(fnName.value) =>
+        // A type parameter A ⤳ metaOf(A): an unqualified `metaOf` (fold's source file imports `eliot.compiler.Meta`).
+        Some(typeExpr.as(SourceExpression.FunctionApplication(None, fnName.as("metaOf"), None, Seq(typeExpr))))
+      case SourceExpression.FunctionApplication(module, fnName, _, _)                                                     =>
         Some(typeExpr.as(SourceExpression.FunctionApplication(module, fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix), None, Seq.empty)))
-      case _                                                          => None
+      case _                                                                                                              => None
     }
 
-  /** The meta *value* constructor call that builds the result meta value: `<ReturnHead>$Meta(<slot exprs>)`. */
-  private def metaConstructorCall(
+  /** The companion's body. When the return type is **concrete**, the meta value is the meta *constructor* applied to the
+    * brace's slot expressions (`<ReturnHead>$Meta(<slots>)`, slot-producing). When the return type is a bare **type
+    * parameter** there is no concrete constructor to wrap in, so the (single) brace expression *is* the result meta
+    * structure directly (structure-producing — e.g. `fold`'s `join(whenTrue, whenFalse)`, whose `Meta.join` already
+    * returns `metaOf(A)`).
+    */
+  private def metaBody(
       returnType: Sourced[SourceExpression],
-      slotExprs: Seq[Sourced[SourceExpression]]
+      braceExprs: Seq[Sourced[SourceExpression]],
+      generics: Set[String]
   ): Option[Sourced[SourceExpression]] =
     returnType.value match {
-      case SourceExpression.FunctionApplication(_, fnName, _, _) =>
-        Some(returnType.as(SourceExpression.FunctionApplication(None, fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix), None, slotExprs)))
-      case _                                                     => None
+      case SourceExpression.FunctionApplication(None, fnName, _, args) if args.isEmpty && generics.contains(fnName.value) =>
+        braceExprs match {
+          case Seq(single) => Some(single)
+          case _           => None
+        }
+      case SourceExpression.FunctionApplication(_, fnName, _, _)                                                          =>
+        Some(returnType.as(SourceExpression.FunctionApplication(None, fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix), None, braceExprs)))
+      case _                                                                                                              => None
     }
 }

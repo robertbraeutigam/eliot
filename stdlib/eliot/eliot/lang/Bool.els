@@ -1,4 +1,5 @@
 import eliot.effect.Abort
+import eliot.compiler.Meta
 
 type Bool
 
@@ -16,8 +17,14 @@ prefix def !(a: Bool): Bool
  * over the opaque `Bool`, not *the* way to branch — value match and type match are the language's case-analysis
  * primitives, and other eliminators (`if`, a user's `foldEither`) are built on top of these. `fold` is a primitive
  * only because `Bool` is opaque; it is morally a match on a two-constructor `Bool`.
+ *
+ * The return brace `{join(whenTrue, whenFalse)}` is `fold`'s refinement-channel `^Meta` **merge** companion
+ * (`docs/generic-refinement-merges.md`): `fold` selects one arm at runtime, so the meta of its result is only known to
+ * be one arm *or* the other — the domain's `Meta.join` of the two arms' metas. This is how the compiler recognises a
+ * *merge* (via `Meta.join`, the one refinement primitive) without ever naming `fold` as "the branch"; it is generic
+ * over `A`'s domain (`join` is the compiler-derived `Meta[metaOf(A)]`). No runtime body — `fold` stays a native.
  */
-def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A
+def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A { join(whenTrue, whenFalse) }
 
 /**
  * Conditional execution — the `if` of `if..else`. Yields `value` when `condition` holds, otherwise short-circuits via

@@ -77,6 +77,15 @@ object WellKnownTypes {
   val typeEqualsFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Eq"), QualifiedName("typeEquals", Qualifier.Default))
 
+  /** The `metaOf(a: Type): Type` native leaf — the type-level function mapping a type to its **meta structure** type
+    * (`metaOf(Int) ⤳ Int$Meta`, the `$Meta`-suffixed structure `MetaConstructorDesugarer` emits). It lets a generic
+    * `^Meta` companion (`fold^Meta[A](t: metaOf(A), …)`) name the meta of a *type parameter* — the plain `T ⤳ T$Meta`
+    * name transform only works for a concrete type. Reduced by `SystemNativesProcessor` (rename the head FQN, suffix
+    * `$Meta`); stays stuck on a non-concrete type. Compiler-pool-only. Declared in `lang/eliot/eliot/compiler/Meta.els`.
+    */
+  val metaOfFQN: ValueFQN =
+    ValueFQN(ModuleName(compilerPackage, "Meta"), QualifiedName("metaOf", Qualifier.Default))
+
   private val eitherModule: ModuleName = ModuleName(defaultSystemPackage, "Either")
 
   /** The `Either[E, A]` type constructor — the discharge carrier of the `Throw[E]` effect (`runThrow` reflects a

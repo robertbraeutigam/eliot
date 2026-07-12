@@ -62,6 +62,17 @@ def withinShort(i: Interval[BigInteger]): Bool  = fitsShort(start(i), end(i))
 def withinMedium(i: Interval[BigInteger]): Bool = fitsMedium(start(i), end(i))
 def withinLong(i: Interval[BigInteger]): Bool   = fitsLong(start(i), end(i))
 
+/**
+ * The lattice join of two intervals — the least interval containing both, `[min of the starts, max of the ends]`. The
+ * **plain-function** form of the `Meta[Interval[T]]` instance's `join` (they compute the same thing): the compiler's
+ * auto-derived `Meta[T$Meta]` instances reach it *transitively* through their generated bodies, and a transitively-
+ * reached ability *instance* does not dispatch under the refinement channel's NbE evaluation — only natives re-fire — so
+ * a compound meta-structure's join must bottom out at this plain function (which itself bottoms at the endpoints'
+ * `Compare` natives), exactly as `intervalAdd`/… back the arithmetic transfer (`docs/generic-refinement-merges.md`).
+ */
+def intervalJoin[T ~ Compare](a: Interval[T], b: Interval[T]): Interval[T] =
+   Interval(min(start(a), start(b)), max(end(a), end(b)))
+
 def intervalAdd[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =
    Interval(add(start(a), start(b)), add(end(a), end(b)))
 def intervalSubtract[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =
