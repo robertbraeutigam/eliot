@@ -2,19 +2,30 @@
 
 **Status: PARTIALLY DONE.** Steps 1, 6, 7 are **landed and green** — the whole `Represent` track is deleted and
 the JVM backend now decodes each `Int`'s width from the refinement-channel meta (the confirmed-wanted half, and
-its crux-free). Steps 2–5 (removing the `Bool::fold` special-casing itself — `fold`'s `^Meta` companion, the
-channel's `Meta.join` recognition, the generic reconcile pass) **remain**. Continues the bounds-as-refinements
-work (`docs/bounds-as-refinements.md`, Step 8 — backend width selection). The representation-reconcile pass
-existed in a first, *non-generic* form (`reconcile/processor/ReconcileProcessor`, "stage A") and is now **wired
-to the backend**; this plan makes it — and the channel and backend it sits between — domain- and
-construct-agnostic, and removes the compiler's dependence on `Bool::fold` as if it were "the branch."
+its crux-free). Step 2's **foundation is landed** (the `metaOf` intrinsic + the generic `^Meta` desugar; `fold`'s
+merge companion resolves); what **remains** is the one auto-derivation it blocks on (compound `Meta[Int$Meta]`)
+plus the channel/reconcile switch (Steps 3–5). Continues the bounds-as-refinements work
+(`docs/bounds-as-refinements.md`, Step 8 — backend width selection). The representation-reconcile pass existed in
+a first, *non-generic* form (`reconcile/processor/ReconcileProcessor`, "stage A") and is now **wired to the
+backend**; this plan makes it — and the channel and backend it sits between — domain- and construct-agnostic, and
+removes the compiler's dependence on `Bool::fold` as if it were "the branch."
 
-**Landed so far (2026-07-12):** the backend consumes `ReconciledMonomorphicValue` (stage B); `IntRepresentation`
-(jvm) decodes an `Interval` meta → machine width, replacing the Eliot `Represent[Interval]` fold; the backend
-reads Int widths from each node's channel meta and honours `Reconcile` nodes for boundary re-encodes (stage X);
-and the Phase-3 `RepresentationLowering` pass + `RefinementRepresentation` + both `Represent.els` are **deleted**
-(`Int` is no longer lowered — a bare `Int` descriptor maps to `java.math.BigInteger`, narrow body nodes decode
-from the meta; stage Y). `FactCache.CACHE_VERSION` 11 → 12.
+**Landed so far (2026-07-12):**
+- *Phase 1 (Steps 1, 6, 7).* The backend consumes `ReconciledMonomorphicValue` (stage B); `IntRepresentation`
+  (jvm) decodes an `Interval` meta → machine width, replacing the Eliot `Represent[Interval]` fold; the backend
+  reads Int widths from each node's channel meta and honours `Reconcile` nodes for boundary re-encodes (stage X);
+  the Phase-3 `RepresentationLowering` pass + `RefinementRepresentation` + both `Represent.els` are **deleted**
+  (`Int` is no longer lowered — a bare `Int` descriptor maps to `java.math.BigInteger`, narrow body nodes decode
+  from the meta; stage Y). `FactCache.CACHE_VERSION` 11 → 12.
+- *Phase 2 foundation (Step 2).* The **`metaOf(a: Type): Type` intrinsic** (`WellKnownTypes.metaOfFQN` +
+  `SystemNativesProcessor`; declared in `eliot.compiler.Meta`), the **generalized `MetaTransferDesugarer`**
+  (generics kept, every companion param/return typed `metaOf(T)`, structure-producing body for a type-parameter
+  return), `fold`'s merge brace in `stdlib/eliot/eliot/lang/Bool.els`, and the plain `intervalJoin` overlay
+  function. `fold^Meta[A](t: metaOf(A), …): metaOf(A) = join(t, f)` now **resolves**; arithmetic and fold
+  programs build and run. The channel does **not** yet consume `fold^Meta` — it still uses the `boolFoldFqn`
+  special-case (kept green). Commits `91920a0a`, `007dfffc`.
+- *Remaining (this doc §Current state).* Auto-derive `Meta[Int$Meta]` → repoint the channel onto `fold^Meta`
+  (code written) → generic reconcile.
 
 ## 1. The premise this corrects
 
@@ -77,7 +88,7 @@ case-analysis primitives; user eliminators desugar to those), and that this FQN 
 `fold` a correct `/** */` in `stdlib/eliot/eliot/lang/Bool.els` while here. *Landed:* all three comments
 corrected; no behavior change.
 
-### Step 2 — Author `fold`'s `^Meta` companion
+### Step 2 — Author `fold`'s `^Meta` companion — FOUNDATION DONE (commits 91920a0a, 007dfffc)
 
 The native's owner (the stdlib author) declares `fold`'s merge behaviour beside `fold`, in Eliot:
 
@@ -123,7 +134,27 @@ trivial `Meta[Unit]`-shaped pass-through, so its arms are ⊤). `MetaTransferDes
 meta constructor the way a slot-producing arithmetic brace is). This is Phase 2's one genuinely new mechanism;
 the rest of Steps 3–5 is deletion of the `Bool::fold` special-casing.
 
-### Step 3 — Channel: uniform `^Meta`-driven meta + join-input detection
+**As built (2026-07-12) — and the two things the design under-specified.** The companion cannot be typed with a
+plain `A$Meta` name transform, for a reason the earlier prose glossed: `A$Meta` for a **type parameter** `A` is
+not a real type (nothing declares it), and even a **concrete untracked** type has none — `fold`'s `condition:
+Bool` has no `Bool$Meta` (only *tracked* types with a `{…}` brace get a `$Meta` structure). So the desugar was
+built on a new **`metaOf(a: Type): Type` intrinsic** (`SystemNativesProcessor`: rename the head FQN, suffix
+`$Meta`, drop type args; declared in `eliot.compiler.Meta`): *every* companion parameter/return type is
+`metaOf(T)`, which always **resolves** (`metaOf` and `T` are ordinary declared names) and **reduces** to `T`'s
+`$Meta` structure only when `T` is concrete. The slot-producing *body* still uses the plain `T$Meta` **value
+constructor** (e.g. `Int$Meta(intervalAdd(…))`), which exists for a tracked type. Two learnings worth keeping:
+
+- **Type-namespace gotcha.** `metaOf(Bool)` fails: a bare uppercase name in a *value-argument* position resolves
+  in the value namespace and misses a `type` with no value constructor. The fix is the "[] = type-namespace
+  marker" gotcha — emit `metaOf(Bool[])`, empty type-arg brackets forcing `Bool` into the Type namespace.
+  (Prelude `Int` happened to resolve without it; `Bool` — not a prelude, only a local `type` — did not.)
+- **The auto-derived `Meta[Int$Meta]` is *required*, not an optimisation.** The channel recognises the merge by
+  **reducing** `fold^Meta` (`ReducedBindingClosure.reduceInstance(fold^Meta, [Int])`, §3 as built), which
+  *monomorphizes* the companion — so its `join` demands a real `Meta[Int$Meta]` instance and hard-errors ("No
+  ability implementation found for `Meta[Int$Meta]`") without one. It cannot be side-stepped by reading the body
+  "statically". This auto-derivation is therefore the **one remaining blocker** for the channel switch (below).
+
+### Step 3 — Channel: uniform `^Meta`-driven meta + join-input detection — WRITTEN, blocked on the Step-2 auto-derivation
 
 Delete the fold special-case in `RefinementChannelProcessor` (`walkBranch`/`runJoin`, the `boolFoldFqn`
 constant). Every meta-affecting native computes its result meta by evaluating its `^Meta` companion — as
@@ -131,6 +162,27 @@ arithmetic already does — with no per-native branch. Detect **join-inputs** by
 companion: the argument positions the companion feeds to `Meta.join` are the join-inputs; record them together
 with the join result. This is a one-time static read of each native's (Eliot) `^Meta` body, recognizing the
 one domain FQN `Meta.join`, never a construct list.
+
+**As built (`mergeViaCompanion`, written and saved, not yet committed).** The mechanism is **reduce, then
+recognize a stuck `Meta.join`** — *not* a static AST read (a static read would be a second, redundant way to
+inspect a companion, and the reduction is already how transfers work). At an ordinary call the channel:
+(1) a cheap `UnifiedModuleNames` membership test for the callee's `^Meta` name (so a companion-free call costs one
+cached lookup); (2) `ReducedBindingClosure.reduceInstance(<callee>^Meta, calleeTypeArgs)` applied to the
+arguments' metas — a known `Int` range wrapped `Int$Meta(Interval(..))`, an unknown/non-`Int` argument a `VType`
+⊤ placeholder its `Meta.join` cannot fold; (3) `force`. A **merge** reduces to a stuck
+`SemValue.VStuckNative(Meta::join, [a, b])` — a *transitively*-reached instance does not dispatch under the
+channel's NbE (the Step-4c lesson), so `Meta.join` stalls exactly here — and its two spine arguments are the join
+inputs; the interval join is their `runJoin` (the domain's `Meta[Interval]`). A **transfer** reduces to a
+concrete meta (not stuck at `Meta.join`) and is not a merge. This drops `boolFoldFqn` and `walkBranch` from the
+channel entirely; `runJoin`/`Meta[Interval]` stay. The code is preserved at
+`$CLAUDE_JOB_DIR/tmp/RefinementChannelProcessor.mergeViaCompanion.scala`; it was reverted only because
+`reduceInstance(fold^Meta, [Int])` hard-errors until `Meta[Int$Meta]` exists.
+
+*Not fully uniform yet (a documented seam).* The **arithmetic** leaves keep their explicit
+`nativeAdd → rangeAdd^Meta` mapping (`isArithmeticLeaf`); only the *merge* path went generic. Naming an arithmetic
+*leaf* is fine — the invariant forbids naming a *branch construct*, and `nativeAdd` is not one. Re-homing the
+arithmetic transfer to a `<callee>^Meta` lookup (so the channel names no leaf either) is a clean follow-up, not
+required for the invariant.
 
 **Restriction the detection must state (fail-safe).** Mapping a `Meta.join` argument back to a *caller* arg
 position works only when that argument is a projection of the companion's own parameter (`join(range(whenTrue),
@@ -249,6 +301,35 @@ still describe `Represent.layout` as the live representation path.
 - Domain knowledge (what an `Interval` is, how ranges join) lives in the **domain** (`Meta`, the `^Meta`
   vessels) and its **consumers** (the backend's width decode, the LSP's range decode) — never in the generic
   reconcile pass.
+
+## 4½. Current state and the remaining path (2026-07-12)
+
+Phase 1 (Steps 1, 6, 7) is done. Phase 2's foundation is in (Step 2 above). Three pieces remain, in a **now
+unambiguous order** — each was validated by hitting its concrete blocker:
+
+1. **Auto-derive `Meta[Int$Meta]`** — the one blocker. `MetaConstructorDesugarer`, which already synthesizes the
+   `Int$Meta` structure from `type Int {range: Interval[BigInteger]}`, additionally emits the *instance*
+   `implement Meta[Int$Meta] { def join(a, b) = Int$Meta(intervalJoin(range(a), range(b))) }`. The synthesis is
+   mechanical and has a **precedent to copy verbatim**: `DataDefinitionDesugarer.createPatternMatchImpl` emits an
+   ability instance as `FunctionDefinition`s in `Qualifier.AbilityImplementation("Meta", implKey)` — a body-less
+   **marker** (arg of the pattern type `Int$Meta`, guard `trueReference`) plus the `join` **method**. `implKey` is
+   the pattern name (`"Int$Meta"`, matching the `(ability, pattern)` identity). Generically, the body joins **each
+   slot** via that slot's domain's *plain* join function (`intervalJoin` for an `Interval` slot — a plain function,
+   **not** the `Meta[Interval]` instance, because a transitively-reached instance does not dispatch under the
+   channel's NbE; the same Step-4c reason `intervalAdd` is a plain function). Derive the join-function name from the
+   slot's domain head (`Interval` → `intervalJoin`). `intervalJoin` already exists in the overlay. A field-less /
+   untracked type derives the trivial (`Unit`-shaped) pass-through.
+2. **Repoint the channel onto `fold^Meta`** — reapply the saved `mergeViaCompanion`
+   (`$CLAUDE_JOB_DIR/tmp/RefinementChannelProcessor.mergeViaCompanion.scala`, mechanism in §Step 3). With (1) in
+   place, `reduceInstance(fold^Meta, [Int])` monomorphizes cleanly; the reduction stalls at the stuck
+   `Meta::join`, which `mergeViaCompanion` recognizes. Verify with `javap` that a divergent-range `fold`'s arms
+   stay narrow (join recognized) and that `ExamplesIntegrationTest` runs.
+3. **Table join-edges + generic reconcile** (Steps 4–5) — carry the merge result per join-input in
+   `RefinementTable`; drop `boolFoldFqn`/`widthTransparentLeaves` from `ReconcileProcessor`. Note the Step-5
+   precision caveat (arithmetic operands → ⊤/bignum) already flagged there.
+
+Everything up to (1) is committed and green; the channel currently still uses the `boolFoldFqn` special-case, so
+behaviour is unchanged. The invariant (§4) is not yet met by the channel until (2) lands.
 
 ## 5. Validation
 
