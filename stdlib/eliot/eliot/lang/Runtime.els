@@ -1,1 +1,0 @@
-type IntegerLiteralType[V: BigInteger] = Int

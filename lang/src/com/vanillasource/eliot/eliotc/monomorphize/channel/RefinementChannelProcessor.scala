@@ -90,9 +90,17 @@ class RefinementChannelProcessor
   private def walkFlow(node: Sourced[MonomorphicExpression]): CompilerIO[Flow] =
     node.value.expression match {
       case MonomorphicExpression.IntegerLiteral(value)  =>
-        // α (the one domain-origin point): an integer literal seeds its singleton meta `Int$Meta(Interval[n, n])`.
-        val meta = seedLiteralMeta(value.value)
-        Flow(Option(meta), Seq(RefinementTable.NodeMeta(node.range, meta))).pure[CompilerIO]
+        // α (the one point a meta *originates*): a literal `n` seeds its singleton range by reducing the literal
+        // protocol's own `^Meta` companion on `n`. The seed's construction (`Int$Meta(Interval[n, n])`) lives in Eliot
+        // — `eliot.lang.Runtime::integerLiteral`'s return brace `{Interval(V, V)}`, which the desugarer turns into
+        // `integerLiteral^Meta` — and is reduced here through the *same* uniform `^Meta` path as every transfer/merge
+        // (`metaViaCompanion`). The channel builds no domain structure of its own; it only wraps `n` as its
+        // `BigInteger` value to reduce the companion at. So even the α origin is domain-agnostic.
+        metaViaCompanion(
+          WellKnownTypes.integerLiteralFQN,
+          Seq(GroundValue.Direct(value.value, bigIntType)),
+          Seq.empty
+        ).map(meta => Flow(meta, recordAt(node, meta)))
 
       case _: MonomorphicExpression.FunctionApplication =>
         val (head, args) = flatten(node)
@@ -289,10 +297,12 @@ class RefinementChannelProcessor
 }
 
 object RefinementChannelProcessor {
-  private val intModule: ModuleName      = ModuleName(ModuleName.defaultSystemPackage, "Int")
-  private val intervalModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Interval")
-  private val bigIntModule: ModuleName   = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
+  private val bigIntModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
 
+  /** The `BigInteger` type an integer literal's value carries — the only literal-domain constant the channel needs, to
+    * wrap a literal `n` as a [[GroundValue.Direct]] when reducing `integerLiteral^Meta` at it (the seed's *construction*
+    * lives in Eliot; the channel only supplies the raw value). At the literal-protocol level, not the tracking domain.
+    */
   private val bigIntType: GroundValue = GroundValue.Structure(
     ValueFQN(bigIntModule, QualifiedName("BigInteger", Qualifier.Type)),
     Seq.empty,
@@ -324,32 +334,4 @@ object RefinementChannelProcessor {
 
   private[channel] def whereCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, whereCompanionName(callee))
-
-  // --- The literal seed: the channel's one domain-specific construction (`Int$Meta(Interval[n, n])` for a literal `n`).
-  //     Everything else the channel carries is an opaque `GroundValue` meta produced by reducing a `^Meta` companion; a
-  //     value's meta only *originates* here (α), where the compiler must build the `$Meta` structure directly because it
-  //     cannot be written in Eliot source (`$` is not an identifier character). Every consumer of the resulting metas —
-  //     the backend width decode, the LSP hover — owns the `Int` domain and unwraps this shape itself.
-
-  private val intMetaType: GroundValue =
-    GroundValue.Structure(ValueFQN(intModule, QualifiedName("Int$Meta", Qualifier.Type)), Seq.empty, GroundValue.Type)
-  private val intMetaCtorFqn: ValueFQN = ValueFQN(intModule, QualifiedName("Int$Meta", Qualifier.Default))
-
-  private val intervalType: GroundValue =
-    GroundValue.Structure(ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Type)), Seq(bigIntType), GroundValue.Type)
-  private val intervalCtorFqn: ValueFQN = ValueFQN(intervalModule, QualifiedName("Interval", Qualifier.Default))
-
-  /** The seed meta of an integer literal `n`: the singleton `Int$Meta(Interval[n, n])`. */
-  private[channel] def seedLiteralMeta(n: BigInt): GroundValue =
-    GroundValue.Structure(
-      intMetaCtorFqn,
-      Seq(
-        GroundValue.Structure(
-          intervalCtorFqn,
-          Seq(GroundValue.Direct(n, bigIntType), GroundValue.Direct(n, bigIntType)),
-          intervalType
-        )
-      ),
-      intMetaType
-    )
 }

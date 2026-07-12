@@ -102,8 +102,8 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
   }
 
-  /** `integerLiteral[V]: IntegerLiteralType[V]` — the value-position literal protocol. A value-position literal `n` is
-    * desugared to `integerLiteral[n]` so the checker types it as the platform singleton `IntegerLiteralType[n]`
+  /** `integerLiteral[V]: Int` — the value-position literal protocol. A value-position literal `n` is desugared to
+    * `integerLiteral[n]` so the checker types it as plain `Int`
     * (`CoreExpressionConverter`; see [[WellKnownTypes.integerLiteralFQN]]). The backend reads it back by a *quote-time
     * rewrite* to a plain `IntegerLiteral` node ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]]) —
     * so a value body's literal is never evaluated and stays structural for codegen.

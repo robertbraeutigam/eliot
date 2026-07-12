@@ -47,7 +47,7 @@ object MetaTransferDesugarer {
     for {
       metaArgs   <- if (generics.nonEmpty) f.args.some
                     else f.args.traverse(arg => metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t)))
-      metaReturn <- if (generics.nonEmpty) f.typeDefinition.some else metaTypeRef(f.typeDefinition)
+      metaReturn <- metaReturnRef(f.typeDefinition, generics)
       body       <- metaBody(f.typeDefinition, f.returnMeta, generics)
     } yield FunctionDefinition(
       f.name.map(qn => QualifiedName(qn.name, Qualifier.Meta)),
@@ -68,6 +68,23 @@ object MetaTransferDesugarer {
       case SourceExpression.FunctionApplication(module, fnName, _, _) =>
         Some(typeExpr.as(SourceExpression.FunctionApplication(module, fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix), None, Seq.empty)))
       case _                                                          => None
+    }
+
+  /** The companion's **return** meta type, projected per-position (matching [[metaBody]]): a bare **type-parameter**
+    * return (`fold`'s `A`) is kept verbatim — the channel reduces the companion at its meta type argument, binding `A` to
+    * the meta type — while a **concrete** return (`integerLiteral[V]`'s `Int`) is suffixed to `T$Meta`, since the body is
+    * the meta *constructor* `T$Meta(...)` and its declared return must match. This is per-position rather than the
+    * per-def `metaArgs` rule (which keeps a generic def's args verbatim, so `fold`'s dead concrete `condition: Bool` need
+    * no non-existent `Bool$Meta`); a return is always projected, so a *value*-generic def like `integerLiteral` — generic
+    * in a `BigInteger` literal, concrete `Int` return — gets the `Int$Meta` return its seed body produces.
+    */
+  private def metaReturnRef(typeExpr: Sourced[SourceExpression], generics: Set[String]): Option[Sourced[SourceExpression]] =
+    typeExpr.value match {
+      case SourceExpression.FunctionApplication(None, fnName, _, args) if args.isEmpty && generics.contains(fnName.value) =>
+        Some(typeExpr)
+      case SourceExpression.FunctionApplication(_, _, _, _)                                                               =>
+        metaTypeRef(typeExpr)
+      case _                                                                                                              => None
     }
 
   /** The companion's body. When the return type is **concrete**, the meta value is the meta *constructor* applied to the

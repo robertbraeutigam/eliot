@@ -1,13 +1,13 @@
+import eliot.lang.Interval
+
 /**
  * Convert a `BigInteger` literal into the platform's concrete integer value.
  *
- * Inserted by the compiler wherever an integer literal appears; not called directly from user code.
+ * Inserted by the compiler wherever an integer literal appears; not called directly from user code. The literal's
+ * `BigInteger` value `V` rides the reference so the refinement channel can seed the value's range: the return brace
+ * `{Interval(V, V)}` is that seed — the singleton range — which the desugarer turns into the `integerLiteral^Meta`
+ * companion the channel reduces to originate a literal's meta (`Int$Meta(Interval(V, V))`). This is the one place a
+ * value's meta originates (the α rule of `docs/generic-refinement-merges.md`); it lives here, on the literal protocol,
+ * rather than being hardcoded in the channel.
  */
-def integerLiteral[V: BigInteger]: IntegerLiteralType[V]
-
-/**
- * The type an integer literal `V` is converted into. A platform layer defines it concretely (the stdlib maps it to
- * `Int`); the literal's `BigInteger` value `V` rides the reference so the refinement channel can seed the value's range,
- * even though the type itself is just `Int`.
- */
-type IntegerLiteralType[V: BigInteger]
+def integerLiteral[V: BigInteger]: Int {Interval(V, V)}

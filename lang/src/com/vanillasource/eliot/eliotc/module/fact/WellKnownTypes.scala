@@ -97,13 +97,15 @@ object WellKnownTypes {
     */
   val rightFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Right", Qualifier.Default))
 
-  /** `integerLiteral[V]: IntegerLiteralType[V]` — the platform-independent literal protocol. `CoreExpressionConverter`
-    * desugars a value-position integer literal `n` into `integerLiteral[n]` so that the checker assigns it the
-    * platform-chosen singleton type `IntegerLiteralType[n]` (= `Int[n, n]` on every concrete layer) without the
-    * compiler ever naming `Int`. The value itself is a compile-time constant carried as the erased type-argument `V`;
+  /** `integerLiteral[V]: Int` — the platform-independent literal protocol. `CoreExpressionConverter` desugars a
+    * value-position integer literal `n` into `integerLiteral[n]` so that the checker assigns it plain `Int` (post
+    * flag-day `Int` carries no bounds; the range lives in the refinement channel, not the type). The literal value
+    * itself is a compile-time constant carried as the erased type-argument `V`, read downstream two ways:
     * `PostDrainQuoter` recognizes this FQN at the `SemExpression → MonomorphicExpression` readback and rewrites the
-    * reference into a plain `IntegerLiteral(V)` node (typed at the node's already-computed `Int[n, n]` type), which
-    * every backend emits via its ordinary integer-literal path — so no backend needs an `integerLiteral` intrinsic.
+    * reference into a plain `IntegerLiteral(V)` node (which every backend emits via its ordinary integer-literal path —
+    * so no backend needs an `integerLiteral` intrinsic); and the refinement channel reduces the def's own
+    * `integerLiteral^Meta` companion (from its `{Interval(V, V)}` return brace) at `V` to *seed* the literal's value
+    * range — the one place a meta originates, kept in Eliot on this protocol (`docs/generic-refinement-merges.md`).
     */
   val integerLiteralFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Runtime"), QualifiedName("integerLiteral", Qualifier.Default))
