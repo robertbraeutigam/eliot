@@ -297,17 +297,14 @@ class RefinementChannelProcessor
 }
 
 object RefinementChannelProcessor {
-  private val bigIntModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
 
   /** The `BigInteger` type an integer literal's value carries — the only literal-domain constant the channel needs, to
     * wrap a literal `n` as a [[GroundValue.Direct]] when reducing `integerLiteral^Meta` at it (the seed's *construction*
-    * lives in Eliot; the channel only supplies the raw value). At the literal-protocol level, not the tracking domain.
+    * lives in Eliot; the channel only supplies the raw value). At the literal-protocol level, not the tracking domain —
+    * and the canonical [[WellKnownTypes.bigIntFQN]], not a re-spelled FQN.
     */
-  private val bigIntType: GroundValue = GroundValue.Structure(
-    ValueFQN(bigIntModule, QualifiedName("BigInteger", Qualifier.Type)),
-    Seq.empty,
-    GroundValue.Type
-  )
+  private val bigIntType: GroundValue =
+    GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
   /** A callee's `^Meta` companion FQN: its own name in the [[Qualifier.Meta]] namespace, same module — what
     * [[MetaTransferDesugarer]] emits from a return brace. `fold` ⤳ `fold^Meta` (merge), `nativeAdd` ⤳ `nativeAdd^Meta`
