@@ -1,5 +1,6 @@
 import eliot.lang.Numeric
 import eliot.lang.Interval
+import eliot.compiler.Meta
 
 /**
  * The type of all integers. `Int` is a single type — there are no distinct `Int[MIN, MAX]` per range: an integer's

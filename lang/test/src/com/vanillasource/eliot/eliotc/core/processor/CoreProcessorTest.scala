@@ -495,9 +495,12 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "type the transfer companion over the meta structures (T -> T$Meta), with no lookup" in {
+  it should "type the transfer companion over the meta types (metaOf(T)), with no lookup" in {
     namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function", T), Ref("Foo$Meta", T)), Ref("Foo$Meta", T))
+      nv.typeStack.signatureStructure shouldBe App(
+        App(Ref("Function", T), App(Ref("metaOf", Qualifier.Default), Ref("Foo", T))),
+        App(Ref("metaOf", Qualifier.Default), Ref("Foo", T))
+      )
     }
   }
 

@@ -38,8 +38,8 @@ object MetaTransferDesugarer {
   private def transferCompanion(f: FunctionDefinition): Option[FunctionDefinition] = {
     val generics = f.genericParameters.map(_.name.value).toSet
     for {
-      metaArgs   <- f.args.traverse(arg => metaTypeRef(arg.typeExpression, generics).map(t => arg.copy(typeExpression = t)))
-      metaReturn <- metaTypeRef(f.typeDefinition, generics)
+      metaArgs   <- f.args.traverse(arg => metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t)))
+      metaReturn <- metaTypeRef(f.typeDefinition)
       body       <- metaBody(f.typeDefinition, f.returnMeta, generics)
     } yield FunctionDefinition(
       f.name.map(qn => QualifiedName(qn.name, Qualifier.Meta)),
@@ -51,20 +51,21 @@ object MetaTransferDesugarer {
     )
   }
 
-  /** The meta *type* reference for a value type expression. A **concrete** head is the plain name transform — the head's
-    * name suffixed `$Meta`, bare (`Int[M1, X1]` ⤳ `Int$Meta`, since the meta structure is non-generic). A bare **type
-    * parameter** `A` has no such structure (`A$Meta` is not a real type); its meta type is `metaOf(A)`, the type-level
-    * intrinsic that reduces to `A`'s meta structure once `A` is concrete ([[WellKnownTypes.metaOfFQN]]). `None` for a
-    * non-application head (unsupported).
+  /** The meta *type* reference for a value type expression: `metaOf(T)`, the type-level intrinsic
+    * ([[WellKnownTypes.metaOfFQN]]) that reduces to `T`'s `$Meta` structure once `T` is concrete. Used for every
+    * parameter/return type — concrete or a type parameter — because it always *resolves* (`metaOf` and `T` are declared),
+    * whereas the plain `T$Meta` name transform is an unresolved name for a type parameter `A` and for a concrete type
+    * with no meta structure (an untracked `Bool` — `fold`'s condition). `None` for a non-application head (unsupported).
     */
-  private def metaTypeRef(typeExpr: Sourced[SourceExpression], generics: Set[String]): Option[Sourced[SourceExpression]] =
+  private def metaTypeRef(typeExpr: Sourced[SourceExpression]): Option[Sourced[SourceExpression]] =
     typeExpr.value match {
-      case SourceExpression.FunctionApplication(None, fnName, _, args) if args.isEmpty && generics.contains(fnName.value) =>
-        // A type parameter A ⤳ metaOf(A): an unqualified `metaOf` (fold's source file imports `eliot.compiler.Meta`).
-        Some(typeExpr.as(SourceExpression.FunctionApplication(None, fnName.as("metaOf"), None, Seq(typeExpr))))
-      case SourceExpression.FunctionApplication(module, fnName, _, _)                                                     =>
-        Some(typeExpr.as(SourceExpression.FunctionApplication(module, fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix), None, Seq.empty)))
-      case _                                                                                                              => None
+      case SourceExpression.FunctionApplication(module, fnName, genArgs, _) =>
+        // The argument is forced into the Type namespace with empty type-arg brackets (`Bool[]`) — a bare uppercase name
+        // in a value-argument position resolves as a *value*, which misses a `type` with no value constructor (see the
+        // "[] = type-namespace marker" gotcha). Then `metaOf(Bool[])` resolves for any type.
+        val typeArg = typeExpr.as(SourceExpression.FunctionApplication(module, fnName, Some(genArgs.getOrElse(Seq.empty)), Seq.empty))
+        Some(typeExpr.as(SourceExpression.FunctionApplication(None, fnName.as("metaOf"), None, Seq(typeArg))))
+      case _                                                               => None
     }
 
   /** The companion's body. When the return type is **concrete**, the meta value is the meta *constructor* applied to the
