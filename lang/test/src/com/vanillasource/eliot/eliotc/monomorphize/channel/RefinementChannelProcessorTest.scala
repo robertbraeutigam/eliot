@@ -33,11 +33,9 @@ class RefinementChannelProcessorTest extends AnyFlatSpec with Matchers {
     metaTransferCompanion(nativeAddFqn).moduleName shouldBe ModuleName(ModuleName.defaultSystemPackage, "Int")
   }
 
-  "metaJoinFqn" should "name the Meta ability's join in the compiler package" in {
-    metaJoinFqn shouldBe ValueFQN(ModuleName(ModuleName.compilerPackage, "Meta"), QualifiedName("join", Qualifier.Ability("Meta")))
-  }
-
-  "boolFoldFqn" should "name the Bool fold branch eliminator" in {
-    boolFoldFqn shouldBe ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))
+  "metaCompanionFqn" should "name a callee's ^Meta companion in its own module and the Meta namespace" in {
+    val fold = ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))
+    metaCompanionFqn(fold) shouldBe
+      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Meta))
   }
 }
