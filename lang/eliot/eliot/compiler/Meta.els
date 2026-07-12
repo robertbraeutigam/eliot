@@ -1,41 +1,36 @@
 /**
- * The interface a **refinement domain** must implement so the compiler can track it as extra
+ * The interface **meta-information** must implement so the compiler can track it as extra
  * compile-time knowledge about a value.
  *
- * A *refinement domain* `D` is a compile-time summary of what is known about a runtime value —
+ * A *meta-information* `D` is a compile-time summary of what is known about a runtime value —
  * more precise than its type alone. The built-in example is an `Int`'s value range, which the
  * compiler carries as an `Interval[BigInteger]`: the type says "an integer", the refinement says
- * "between `0` and `255`". Implementing `Meta[D]` registers `D` as such a domain, so the compiler
+ * "between `0` and `255`". Implementing `Meta[D]` registers `D` as such a meta-information, so the compiler
  * can follow a `D` through the program and combine two `D`s wherever control flow merges.
- *
- * To add a domain of your own, declare a type for it and give it exactly one `Meta` instance (one
- * per domain — an `Int`'s range and, say, a list's length are *different* domains, each with its
- * own instance).
  *
  * ```eliot
  * // A compile-time summary of a number's sign. Carried alongside a value, it lets the
  * // compiler know a value is (say) always positive without running the program.
  * data Sign = Negative | Zero | Positive | AnySign   // AnySign: sign not known
  *
- * // Signature-only helper: are two signs the same case?
- * def sameSign(a: Sign, b: Sign): Bool
+ * implement Eq[Sign] { ... }
  *
- * // Register Sign as a refinement domain by giving it a join.
+ * // Enable Sign to be used as Meta-information
  * implement Meta[Sign] {
  *    // Equal signs stay; any disagreement widens to AnySign — the least precise
  *    // sign that still covers both possibilities.
- *    def join(a: Sign, b: Sign): Sign = if(sameSign(a, b), a) else AnySign
+ *    def join(a: Sign, b: Sign): Sign = if(a == b) a else AnySign
  * }
  * ```
  */
 ability Meta[D] {
    /**
-    * Combine two domain values into the least one that covers both — the lattice *join*.
+    * Combine two meta-information values into the least one that covers both — the lattice *join*.
     *
     * Called wherever a value can come from more than one branch: an `if`/`match` chooses one arm
     * at runtime, so the compiler only knows the result is one branch *or* the other and must
     * describe it with a refinement that fits either. For an `Int`'s range that join is `[min of
-    * the two starts, max of the two ends]`; for the `Sign` domain above, two equal signs stay and
+    * the two starts, max of the two ends]`; for the `Sign` above, two equal signs stay and
     * a disagreement widens to `AnySign`.
     */
    def join(a: D, b: D): D
