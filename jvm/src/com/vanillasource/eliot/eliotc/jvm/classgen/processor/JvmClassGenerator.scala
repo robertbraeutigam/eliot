@@ -16,7 +16,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemAnyValue, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.DataClassGenerator.isConstructor
-import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGenerator.{createExpressionCode, patternMatchSingletonName}
+import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGenerator.{convertBodyToReturnBoundary, createExpressionCode, patternMatchSingletonName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
@@ -307,10 +307,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       typeArgs: Seq[GroundValue],
       initialLambdaCount: Int = 0
   ): CompilerIO[(Seq[ClassFile], Int)] =
-    // The body is generated from the *reconciled* form (per-node refinement meta + explicit `Reconcile` re-encode
-    // nodes, `docs/generic-refinement-merges.md`); the value-level structure (descriptors from `parameters`/
-    // `returnType`, the method name) stays from the uncurried value. Every uncurried value has a reconciled counterpart
-    // (the reconcile pass is a transformation over `UncurriedMonomorphicValue`), so this fact is always producible.
+    // The body is generated from the *reconciled* form (each node stamped with its refinement-channel meta,
+    // `docs/generic-refinement-merges.md`); the value-level structure (descriptors from `parameters`/`returnType`, the
+    // method name) stays from the uncurried value. The backend selects each `Int`'s width from the stamped metas and
+    // derives every re-encode (argument boundary, `fold` arm, method return) itself. Every uncurried value has a
+    // reconciled counterpart (the reconcile pass is a transformation over `UncurriedMonomorphicValue`), so producible.
     getFactOrAbort(
       ReconciledMonomorphicValue.Key(uncurriedValue.vfqn, typeArgs, uncurriedValue.arity)
     ).flatMap { reconciledValue =>
@@ -334,6 +335,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                   methodGenerator,
                   bodyExpression
                 )
+              // The body value on the stack is widened to the method's ⊤/bignum return boundary if the channel narrowed
+              // it below — derived from the ranges, replacing the reconcile pass's explicit return re-encode node.
+              _       <- convertBodyToReturnBoundary(methodGenerator, bodyExpression, uncurriedValue.returnType)
               _       <-
                 debug[CompilationTypesIO](
                   s"From function ${uncurriedValue.vfqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"

@@ -14,18 +14,12 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * ([[RefinementChannelProcessor]]): a literal seeds its singleton `[n, n]` (α); an arithmetic leaf
   * (`nativeAdd`/`nativeSubtract`/`nativeMultiply`) evaluates the leaf's `^Meta` transfer companion on the operand
   * intervals; a *merge* call (a callee with a `^Meta` **merge** companion, e.g. `fold`) reduces that companion to the
-  * join of its arms; everything else — a parameter, a value reference, an ordinary call/constructor result, a lambda
-  * body — is ⊤ (no entry, laid out as a bignum). The reconcile pass
+  * join of its arms and records that interval at the call node; everything else — a parameter, a value reference, an
+  * ordinary call/constructor result, a lambda body — is ⊤ (no entry, laid out as a bignum). The reconcile pass
   * ([[com.vanillasource.eliot.eliotc.reconcile.processor.ReconcileProcessor]]) stamps these intervals onto the body as
-  * per-node metas, from which the JVM backend selects each `Int`'s machine width; the LSP hover reads them for
-  * value-range hints.
-  *
-  * A merge also records **join-input edges** in [[joinInputs]]: the position of each argument the merge companion feeds
-  * to the domain's `Meta.join` (a branch arm), targeting the merge result interval. The reconcile pass reads these to
-  * re-encode each arm to the merged representation at the branch — the generic replacement for its old `Bool::fold`
-  * special-case (`docs/generic-refinement-merges.md` Steps 4–5). The channel finds the join-input positions by a
-  * structural read of the generic companion body (recognising the one primitive `Meta.join`), never by naming a branch
-  * construct.
+  * per-node metas, from which the JVM backend selects each `Int`'s machine width *and* derives any re-encode (a branch
+  * arm to the merged width, a call argument to its ⊤ parameter boundary, the method return); the LSP hover reads them
+  * for value-range hints.
   *
   * The table is a first-order, serializable fact so it participates in the incremental cache and so codegen can read it.
   * It carries no [[GroundValue.Type]]-only or closure data, only interval endpoints ([[BigInt]] pairs) keyed by source
@@ -37,15 +31,11 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   *   The concrete type arguments of the instance.
   * @param intervals
   *   One entry per Int-typed node of the runtime body, in walk order.
-  * @param joinInputs
-  *   One entry per branch-arm node: its source position and the merge result interval it must reconcile to (the reconcile
-  *   pass re-encodes each arm to this). Empty for a body with no merges.
   */
 case class RefinementTable(
     vfqn: ValueFQN,
     typeArguments: Seq[GroundValue],
-    intervals: Seq[RefinementTable.NodeInterval],
-    joinInputs: Seq[RefinementTable.NodeInterval] = Seq.empty
+    intervals: Seq[RefinementTable.NodeInterval]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[RefinementTable] =
     RefinementTable.Key(vfqn, typeArguments)

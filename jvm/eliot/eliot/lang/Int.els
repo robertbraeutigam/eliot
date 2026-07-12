@@ -2,31 +2,13 @@ import eliot.lang.Bool
 import eliot.lang.Compare
 import eliot.lang.Numeric
 
-/**
- * The fixed set of machine layouts an `Int` can lower to on the JVM, smallest first: `JvmByte`, `JvmShort`, `JvmInt`,
- * `JvmLong`, `JvmBigInteger`.
- *
- * Each carries no value constructor and is not meant to be written in user code: a later pass rewrites each `Int` to
- * its chosen layout. A different backend supplies its own representation vocabulary.
- */
-type JvmByte
-
-type JvmShort
-
-type JvmInt
-
-type JvmLong
-
-type JvmBigInteger
-
 // `Int` is body-less (abstract), like the base's `type Int` it merges with — re-declared here because name resolution is
 // per-file (a sibling file's declaration of the same module is not visible, so this file must spell it out). It carries
 // no `{range}` meta slot: the meta structure `Int$Meta` is generated once, from the base's slotted `type Int` (a
 // slotless re-declaration generates no meta structure — only the base's slotted declaration does). Its JVM
 // representation is *not* a type body: keeping `Int` body-less is what keeps the checker treating it distinctly from any
-// representation type. The machine layout is chosen by the JVM backend directly from an `Int` node's value-range
-// refinement meta (`IntRepresentation`, `docs/generic-refinement-merges.md`) — a narrow `JvmByte`/…/`JvmLong` when the
-// channel pins the range, else a `JvmBigInteger` (the ⊤ layout, also the descriptor of any `Int` boundary).
+// representation type. The machine layout (byte/short/int/long/bignum) is chosen entirely by the JVM backend from an
+// `Int` node's value-range refinement meta (`IntRepresentation`) — an internal backend vocabulary, not Eliot types.
 type Int
 
 // The JVM half of the base's split `Numeric[Int]` instance: same `(ability, pattern)`, so it merges with the base's

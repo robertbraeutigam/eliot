@@ -14,90 +14,39 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpressio
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression as U
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicValue
 
-/** Pins the representation-reconcile pass's placement policy (`docs/bounds-as-refinements.md`): given a hand-built
-  * uncurried body and a channel [[RefinementTable]], it must stamp the right node metas and insert
-  * [[ReconciledMonomorphicExpression.Reconcile]] nodes at exactly the meta-change edges — branch-arm merges and
-  * argument/return boundaries — while leaving the width-transparent arithmetic/ordering/`toString` operands alone.
+/** Pins the representation-reconcile pass, now a pure **meta-stamper**: given a hand-built uncurried body and a channel
+  * [[RefinementTable]], it stamps each node with the channel's interval (or [[None]] for a ⊤ node) and preserves the
+  * structure verbatim — it inserts no conversion nodes and names no construct. The backend derives every width and
+  * re-encode from these stamped metas (`docs/generic-refinement-merges.md`).
   *
-  * Only [[ReconcileProcessor]] runs (both inputs are injected as facts), so these tests exercise the placement logic in
-  * isolation — no stdlib, no channel, no codegen — which is the whole point of making the conversion an explicit,
-  * testable node rather than scattered backend bytecode.
+  * Only [[ReconcileProcessor]] runs (both inputs are injected as facts), so these tests exercise the stamping in
+  * isolation — no stdlib, no channel, no codegen.
   */
 class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
 
-  "return boundary" should "wrap a returned narrow literal in a reconcile to ⊤ (None)" in {
-    reconciledTop(uInt(1, 300), table(iv(1, 300, 300))).asserting(_.value.meta shouldBe None)
-  }
-
-  it should "keep the literal's own meta on the reconcile source" in {
+  "meta stamping" should "stamp a node's channel interval as its meta" in {
     reconciledTop(uInt(1, 300), table(iv(1, 300, 300)))
-      .asserting(reconcileSource(_).value.meta shouldBe Some(ReconcileProcessor.intervalMeta(300, 300)))
+      .asserting(_.value.meta shouldBe Some(ReconcileProcessor.intervalMeta(300, 300)))
   }
 
-  it should "not wrap a returned ⊤ value (no channel interval)" in {
-    reconciledTop(uParam(1, "x", intType), table()).asserting(isReconcile(_) shouldBe false)
+  it should "stamp None for a ⊤ node (no channel interval)" in {
+    reconciledTop(uParam(1, "x", intType), table()).asserting(_.value.meta shouldBe None)
   }
 
-  "arithmetic leaf" should "not reconcile its operands (width-transparent)" in {
-    reconciledTop(addBody, addTable)
-      .asserting(top => appArgs(reconcileSource(top)).map(isReconcile) shouldBe Seq(false, false))
+  it should "stamp the transfer result meta on an arithmetic application node" in {
+    reconciledTop(addBody, addTable).asserting(_.value.meta shouldBe Some(ReconcileProcessor.intervalMeta(301, 301)))
   }
 
-  it should "keep each operand's own narrow meta" in {
+  it should "keep each arithmetic operand's own narrow meta (fast path preserved)" in {
     reconciledTop(addBody, addTable)
       .asserting(top =>
-        appArgs(reconcileSource(top)).map(_.value.meta) shouldBe
+        appArgs(top).map(_.value.meta) shouldBe
           Seq(Some(ReconcileProcessor.intervalMeta(1, 1)), Some(ReconcileProcessor.intervalMeta(300, 300)))
       )
   }
 
-  it should "stamp the transfer result meta on the application node" in {
-    reconciledTop(addBody, addTable)
-      .asserting(reconcileSource(_).value.meta shouldBe Some(ReconcileProcessor.intervalMeta(301, 301)))
-  }
-
-  "ordering leaf intLessThanOrEqual" should "not reconcile its operands (width-transparent)" in {
-    val body = uApp(1, boolType, uRef(2, langInt("intLessThanOrEqual")), uInt(3, 1), uInt(4, 300))
-    reconciledTop(body, table(iv(3, 1, 1), iv(4, 300, 300)), returnType = boolType)
-      .asserting(appArgs(_).map(isReconcile) shouldBe Seq(false, false))
-  }
-
-  "branch merge (channel join-input edges)" should "reconcile each arm to its recorded merge meta" in {
-    reconciledTop(foldBody, foldTable)
-      .asserting(top => appArgs(reconcileSource(top)).drop(1).map(isReconcile) shouldBe Seq(true, true))
-  }
-
-  it should "target the arm reconciles at the join meta" in {
-    reconciledTop(foldBody, foldTable)
-      .asserting(top =>
-        appArgs(reconcileSource(top)).drop(1).map(_.value.meta) shouldBe
-          Seq(Some(ReconcileProcessor.intervalMeta(1, 300)), Some(ReconcileProcessor.intervalMeta(1, 300)))
-      )
-  }
-
-  it should "keep each arm's own narrow meta under its reconcile" in {
-    reconciledTop(foldBody, foldTable)
-      .asserting(top =>
-        appArgs(reconcileSource(top)).drop(1).map(a => reconcileSource(a).value.meta) shouldBe
-          Seq(Some(ReconcileProcessor.intervalMeta(1, 1)), Some(ReconcileProcessor.intervalMeta(300, 300)))
-      )
-  }
-
-  it should "not reconcile the condition" in {
-    reconciledTop(foldBody, foldTable).asserting(top => isReconcile(appArgs(reconcileSource(top)).head) shouldBe false)
-  }
-
-  "ordinary call boundary" should "reconcile a narrow Int argument to ⊤ (None)" in {
-    reconciledTop(callBody, callTable, returnType = stringType).asserting(top => appArgs(top).head.value.meta shouldBe None)
-  }
-
-  it should "keep the argument's own meta under the reconcile" in {
-    reconciledTop(callBody, callTable, returnType = stringType)
-      .asserting(top => reconcileSource(appArgs(top).head).value.meta shouldBe Some(ReconcileProcessor.intervalMeta(300, 300)))
-  }
-
-  it should "not reconcile a non-Int (String) argument" in {
-    reconciledTop(callBody, callTable, returnType = stringType).asserting(top => isReconcile(appArgs(top)(1)) shouldBe false)
+  it should "preserve application structure verbatim (no wrapping)" in {
+    reconciledTop(addBody, addTable).asserting(appArgs(_).size shouldBe 2)
   }
 
   "metaByPosition" should "drop a position carrying two distinct intervals (ambiguous)" in {
@@ -107,11 +56,6 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
   it should "keep a position whose entries all agree" in {
     ReconcileProcessor.metaByPosition(Seq(iv(1, 0, 5), iv(1, 0, 5))).get(pos(1)) shouldBe
       Some(ReconcileProcessor.intervalMeta(0, 5))
-  }
-
-  "widthTransparentLeaves" should "be exactly the arithmetic/ordering/toString leaves" in {
-    ReconcileProcessor.widthTransparentLeaves shouldBe
-      Set("nativeAdd", "nativeSubtract", "nativeMultiply", "intLessThanOrEqual", "intToString").map(langInt)
   }
 
   // ---- fixtures -----------------------------------------------------------------------------------------------------
@@ -126,19 +70,15 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
       GroundValue.Type
     )
 
-  private val intType: GroundValue    = structureType("Int", "Int")
-  private val stringType: GroundValue = structureType("String", "String")
-  private val boolType: GroundValue   = structureType("Bool", "Bool")
+  private val intType: GroundValue = structureType("Int", "Int")
 
   private val mainFqn: ValueFQN = ValueFQN(testModuleName, QualifiedName("main", Qualifier.Default))
 
-  private def pos(n: Int): PositionRange       = PositionRange(Position(1, n), Position(1, n + 1))
-  private def at[T](n: Int, v: T): Sourced[T]  = Sourced(file, pos(n), v)
+  private def pos(n: Int): PositionRange      = PositionRange(Position(1, n), Position(1, n + 1))
+  private def at[T](n: Int, v: T): Sourced[T] = Sourced(file, pos(n), v)
 
   private def uInt(n: Int, v: Int): Sourced[UncurriedMonomorphicExpression] =
     at(n, U(intType, U.IntegerLiteral(at(n, BigInt(v)))))
-  private def uStr(n: Int, s: String): Sourced[UncurriedMonomorphicExpression] =
-    at(n, U(stringType, U.StringLiteral(at(n, s))))
   private def uRef(n: Int, fqn: ValueFQN): Sourced[UncurriedMonomorphicExpression] =
     at(n, U(intType, U.MonomorphicValueReference(at(n, fqn), Seq.empty)))
   private def uParam(n: Int, name: String, tpe: GroundValue): Sourced[UncurriedMonomorphicExpression] =
@@ -155,11 +95,6 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
     RefinementTable.NodeInterval(pos(p), BigInt(min), BigInt(max))
   private def table(intervals: RefinementTable.NodeInterval*): RefinementTable =
     RefinementTable(mainFqn, Seq.empty, intervals)
-  private def tableWithJoins(
-      intervals: Seq[RefinementTable.NodeInterval],
-      joinInputs: Seq[RefinementTable.NodeInterval]
-  ): RefinementTable =
-    RefinementTable(mainFqn, Seq.empty, intervals, joinInputs)
 
   private def umv(body: Sourced[UncurriedMonomorphicExpression], returnType: GroundValue): UncurriedMonomorphicValue =
     UncurriedMonomorphicValue(
@@ -181,15 +116,6 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
     runGeneratorWithFacts(Seq(umv(body, returnType), tbl), ReconciledMonomorphicValue.Key(mainFqn, Seq.empty, 0))
       .map { case (opt, _) => opt.get.body.get }
 
-  private def isReconcile(n: Sourced[ReconciledMonomorphicExpression]): Boolean =
-    n.value.expression.isInstanceOf[ReconciledMonomorphicExpression.Reconcile]
-
-  private def reconcileSource(n: Sourced[ReconciledMonomorphicExpression]): Sourced[ReconciledMonomorphicExpression] =
-    n.value.expression match {
-      case ReconciledMonomorphicExpression.Reconcile(s) => s
-      case other                                        => fail(s"expected a Reconcile node, got: $other")
-    }
-
   private def appArgs(n: Sourced[ReconciledMonomorphicExpression]): Seq[Sourced[ReconciledMonomorphicExpression]] =
     n.value.expression match {
       case ReconciledMonomorphicExpression.FunctionApplication(_, args) => args
@@ -199,24 +125,4 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
   private val addBody: Sourced[UncurriedMonomorphicExpression] =
     uApp(1, intType, uRef(2, langInt("nativeAdd")), uInt(3, 1), uInt(4, 300))
   private val addTable: RefinementTable = table(iv(1, 301, 301), iv(3, 1, 1), iv(4, 300, 300))
-
-  // A `fold(c, 1, 300)` body. The reconcile pass no longer special-cases fold; instead the channel's
-  // `joinInputs` edges (positions 4 and 5 → the merge interval [1, 300]) drive the arm re-encode. The condition
-  // (position 3) carries no join-input edge, so it is not reconciled.
-  private val boolFoldFqn: ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))
-  private val foldBody: Sourced[UncurriedMonomorphicExpression] =
-    uApp(1, intType, uRef(2, boolFoldFqn), uParam(3, "c", boolType), uInt(4, 1), uInt(5, 300))
-  private val foldTable: RefinementTable =
-    tableWithJoins(Seq(iv(1, 1, 300), iv(4, 1, 1), iv(5, 300, 300)), Seq(iv(4, 1, 300), iv(5, 1, 300)))
-
-  private val callBody: Sourced[UncurriedMonomorphicExpression] =
-    uApp(
-      1,
-      stringType,
-      uRef(2, ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))),
-      uInt(3, 300),
-      uStr(4, "x")
-    )
-  private val callTable: RefinementTable = table(iv(3, 300, 300))
 }

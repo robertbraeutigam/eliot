@@ -41,9 +41,9 @@ object ExpressionCodeGenerator {
           uncurriedExpression.meta
         )
       case IntegerLiteral(integerLiteral)                   =>
-        // The push width comes from the node's channel *meta*, not its `expressionType`: the reconcile pass wraps the
-        // body top with the (⊤/bignum) return type, so a top-level literal's `expressionType` is the return type while
-        // its meta still pins the literal's own range. A trailing `Reconcile` re-encodes to the boundary width.
+        // The push width comes from the node's channel *meta*, not its `expressionType`: a literal is emitted at its own
+        // pinned range; the backend re-encodes it to the consumer's width (a ⊤ argument/return boundary, a branch merge)
+        // at the edge, derived from the ranges.
         methodGenerator
           .runNative[CompilationTypesIO](
             pushIntegerConstant(integerLiteral.value, repInternalNameOf(uncurriedExpression.expressionType, uncurriedExpression.meta))
@@ -78,20 +78,6 @@ object ExpressionCodeGenerator {
           body,
           createExpressionCode
         )
-      case Reconcile(source)                                =>
-        // A representation reconcile point (`docs/generic-refinement-merges.md`): emit the source, then re-encode its
-        // value from the source's own channel meta to this node's expected meta. This replaces the implicit boundary
-        // conversions the backend used to apply at call arguments and branch arms — the reconcile pass makes every
-        // meta-change edge explicit, so the backend only lowers. A no-op when both widths coincide; a reconcile is only
-        // inserted between differing integer metas, so the two reps are always integer wrappers.
-        val sourceRep = repInternalNameOf(source.value.expressionType, source.value.meta)
-        val targetRep = repInternalNameOf(uncurriedExpression.expressionType, uncurriedExpression.meta)
-        for {
-          cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, source.value)
-          _  <- methodGenerator.runNative[CompilationTypesIO] { mv =>
-                  if (isIntegerRep(sourceRep) && isIntegerRep(targetRep)) convertRepresentation(sourceRep, targetRep)(mv)
-                }
-        } yield cs
     }
 
   private def generateFunctionApplication(
@@ -204,19 +190,29 @@ object ExpressionCodeGenerator {
                              expectedResultType
                            )
         } yield targetClasses ++ argClasses
-      case Reconcile(source)                                      =>
-        // The reconcile pass never wraps an application *target* (only argument/arm/return boundaries), so this is
-        // totality only: apply the arguments to the reconcile's source.
-        generateFunctionApplication(
-          moduleName,
-          outerClassGenerator,
-          methodGenerator,
-          source.value,
-          arguments,
-          expectedResultType,
-          expectedResultMeta
-        )
     }
+
+  /** Emit `arg` and, if it is a channel-narrowed integer, widen it to the ⊤/bignum parameter boundary. Every ordinary
+    * call / constructor / apply-bridge parameter is a bignum — a concrete `Int` descriptor, or a generic slot erased to
+    * `Object` but read back at a concrete `Int` — so a narrow integer argument must be a bignum on the heap or the
+    * reader's `CHECKCAST` fails. The backend derives this from the argument's own rep; there is no explicit reconcile
+    * node. A no-op for a non-integer argument or one already at bignum (an intrinsic's operand never comes here — it is
+    * consumed at its own width by `generateIntrinsic`).
+    */
+  private def generateArgumentToBignum(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      arg: ReconciledMonomorphicExpression
+  ): CompilationTypesIO[Seq[ClassFile]] = {
+    val argRep = repInternalNameOf(arg.expressionType, arg.meta)
+    for {
+      cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arg)
+      _  <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+              if (isIntegerRep(argRep)) convertRepresentation(argRep, bigIntegerInternalName)(mv)
+            }
+    } yield cs
+  }
 
   /** Apply arguments one at a time to the function *value* on top of the stack (a `java.util.function.Function`), then
     * cast the final result to the expected type. `apply` returns `Object`, so every intermediate result is cast back to
@@ -232,10 +228,9 @@ object ExpressionCodeGenerator {
     for {
       classes <- arguments.zipWithIndex.flatTraverse { (expression, idx) =>
                    for {
-                     // Each argument carries a `Reconcile` node to the ⊤/bignum parameter boundary (the reconcile pass
-                     // inserts it), so generating it already leaves a bignum on the stack — the `apply` bridge's
-                     // `CHECKCAST` to the declared bignum parameter then succeeds. No implicit widen here.
-                     cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                     // The `apply` bridge takes `Object`, but the value is read back at a concrete `Int`, so a narrow
+                     // integer argument is widened to bignum here.
+                     cs <- generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
                      _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
                      _  <- methodGenerator
                              .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
@@ -270,7 +265,7 @@ object ExpressionCodeGenerator {
                                 "L" + singletonInternalName + ";"
                               )
       classes              <- arguments.flatTraverse(expression =>
-                                createExpressionCode(
+                                generateArgumentToBignum(
                                   moduleName,
                                   outerClassGenerator,
                                   methodGenerator,
@@ -454,22 +449,30 @@ object ExpressionCodeGenerator {
     } else { // boolFoldFQN
       val elseLabel = new Label()
       val endLabel  = new Label()
+      // `fold` selects one arm at runtime, so both branch frames must leave the *same* representation: the merged width
+      // the channel pinned on the `fold` node (`expectedResultMeta`). Each integer arm is re-encoded to it here, derived
+      // from the arm's own rep and the merge rep — a non-op for a non-integer arm (both leave their shared type). The
+      // channel provides no explicit arm edges; the backend owns the merge because it already emits `fold` inline.
+      val mergeRep  = repInternalNameOf(expectedResultType, expectedResultMeta)
+      val trueRep   = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)
+      val falseRep  = repInternalNameOf(arguments(2).expressionType, arguments(2).meta)
       for {
         condClasses  <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
                           unboxBool(mv)
                           mv.visitJumpInsn(Opcodes.IFEQ, elseLabel)
                         }
-        // Each arm carries a `Reconcile` node to the `fold`'s merged meta (the reconcile pass inserts it at the arm edge),
-        // so generating the arm already leaves the merge representation on the stack — both branch frames agree and the
-        // trailing cast is exact. No arm conversion is emitted here (the reconcile pass owns branch-arm merges now).
         trueClasses  <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          if (isIntegerRep(trueRep) && isIntegerRep(mergeRep)) convertRepresentation(trueRep, mergeRep)(mv)
                           mv.visitJumpInsn(Opcodes.GOTO, endLabel)
                           mv.visitLabel(elseLabel)
                         }
         falseClasses <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(2))
-        _            <- methodGenerator.runNative[CompilationTypesIO](mv => mv.visitLabel(endLabel))
+        _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          if (isIntegerRep(falseRep) && isIntegerRep(mergeRep)) convertRepresentation(falseRep, mergeRep)(mv)
+                          mv.visitLabel(endLabel)
+                        }
         _            <- methodGenerator.addCastTo[CompilationTypesIO](castTargetFqn(expectedResultType, expectedResultMeta))
       } yield condClasses ++ trueClasses ++ falseClasses
     }
@@ -514,6 +517,23 @@ object ExpressionCodeGenerator {
   }
 
   private val bigIntegerInternalName = "java/math/BigInteger"
+
+  /** Widen the just-emitted method body value on the stack to the method's return boundary — the ⊤/bignum descriptor
+    * for an integer return — when the channel narrowed the body below it. Called after emitting the body, before the
+    * method's `ARETURN`. Derived from the body's own rep and the declared return type; there is no reconcile node. A
+    * no-op for a non-integer (e.g. lambda-valued or `String`) body, or one already at the boundary width.
+    */
+  def convertBodyToReturnBoundary(
+      methodGenerator: MethodGenerator,
+      body: ReconciledMonomorphicExpression,
+      returnType: GroundValue
+  ): CompilationTypesIO[Unit] = {
+    val bodyRep   = repInternalNameOf(body.expressionType, body.meta)
+    val returnRep = repInternalNameOf(returnType, None)
+    methodGenerator.runNative[CompilationTypesIO] { mv =>
+      if (isIntegerRep(bodyRep) && isIntegerRep(returnRep)) convertRepresentation(bodyRep, returnRep)(mv)
+    }
+  }
 
   /** The machine-representation internal name of a *reconciled node* — the width the JVM backend lays the value out at.
     * For an integer-typed node (the tracked `Int`, or a lowered `Jvm*`) the width is decoded from the node's refinement
@@ -648,20 +668,15 @@ object ExpressionCodeGenerator {
                               parameterTypes = parameters.map(p => valueType(p.parameterType))
                               // Each direct argument crosses a parameter boundary, which the refinement channel treats as
                               // ⊤ — a bignum (`docs/bounds-as-refinements.md` §7 Q4, "⊤ at parameter/return boundaries").
-                              // So a channel-narrowed integer argument is widened back to a bignum before the call
-                              // (Step 6-iii). Widening to the ⊤/bignum boundary (rather than the callee's declared
-                              // parameter descriptor) is what a generic slot needs: a type-parameter-typed parameter
-                              // erases to `Object`, but the value is eventually read at a concrete `Int` (bignum), so it
-                              // must be a bignum on the heap — a narrow box would fail the reader's `CHECKCAST`. While
-                              // every Int already lays out as a bignum (Step 6-ii) this is a no-op.
-                              // Each direct argument carries a `Reconcile` node to the callee's ⊤/bignum parameter
-                              // boundary (the reconcile pass inserts it — a type-parameter-typed parameter erases to
-                              // `Object` but is read back at a concrete bignum, so a narrow box would fail the reader's
-                              // `CHECKCAST`), so generating the argument already leaves the right representation. No
-                              // implicit widen here.
+                              // So a channel-narrowed integer argument is widened back to a bignum before the call.
+                              // Widening to the ⊤/bignum boundary (rather than the callee's declared parameter descriptor)
+                              // is what a generic slot needs: a type-parameter-typed parameter erases to `Object`, but the
+                              // value is read at a concrete `Int` (bignum), so it must be a bignum on the heap — a narrow
+                              // box would fail the reader's `CHECKCAST`. Derived from the argument's own rep here (no
+                              // reconcile node).
                               classes       <-
                                 directArgs.flatTraverse { expression =>
-                                  createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                  generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
                                 }
                               _             <- methodGenerator.addCallTo[CompilationTypesIO](
                                                  calledVfqn,
@@ -719,10 +734,9 @@ object ExpressionCodeGenerator {
                              val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
                              val returnType     = valueType(uncurriedValue.returnType)
                              for {
-                               // Each argument carries a `Reconcile` node to the ⊤/bignum parameter boundary (inserted by
-                               // the reconcile pass), so generating it already leaves the right representation.
+                               // Each integer argument crosses a ⊤/bignum parameter boundary, so it is widened to bignum.
                                classes <- arguments.flatTraverse { expression =>
-                                            createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                            generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
                                           }
                                _       <- methodGenerator.addCallTo[CompilationTypesIO](
                                             calledVfqn,

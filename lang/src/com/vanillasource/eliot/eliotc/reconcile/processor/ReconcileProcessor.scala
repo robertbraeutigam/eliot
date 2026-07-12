@@ -15,35 +15,17 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.uncurry.fact.{UncurriedMonomorphicExpression, UncurriedMonomorphicValue}
 
 /** The representation-reconcile pass (`docs/bounds-as-refinements.md`): a platform-generic post-pass over
-  * [[UncurriedMonomorphicValue]] that enriches the body so the backend can lay out each `Int` from the refinement
-  * channel with no width policy of its own.
+  * [[UncurriedMonomorphicValue]] that **stamps** each body node with its refinement-channel meta, so the backend can
+  * lay out each `Int` from the range with no width policy of its own.
   *
-  * It does two things, both pure meta bookkeeping (no width / representation knowledge — that stays in the backend):
-  *
-  *   1. **Stamps each node's meta.** It reads the instance's [[RefinementTable]] and attaches the channel's per-node
-  *      interval (as an `Interval` [[GroundValue]]) onto every node whose value range the channel pinned. A ⊤/unknown
-  *      node gets [[None]] (the backend lays it out as a bignum).
-  *   2. **Inserts [[ReconciledMonomorphicExpression.Reconcile]] nodes at meta-change edges.** Wherever a value flows into
-  *      a context that fixes a *different* expected meta than the value's own, the value is wrapped so the backend emits
-  *      a representation re-encode. The edges (see the class note in `docs/bounds-as-refinements.md` §4):
-  *        - a **branch-arm merge** — each argument the channel marked as a **join input** (in
-  *          [[RefinementTable.joinInputs]], e.g. a `fold` arm) is reconciled to its recorded merge interval. The channel
-  *          supplies these generically from the callee's `^Meta` merge companion, so this pass names **no** branch
-  *          construct (`docs/generic-refinement-merges.md` Steps 4–5) — the former `Bool::fold` special-case is gone;
-  *        - an **argument boundary** — every *other* argument of a call/constructor is reconciled to the callee's
-  *          declared parameter meta (⊤/bignum today, since `Int` parameters carry no declared range yet);
-  *        - the **return boundary** — the whole body is reconciled to the declared return meta (⊤/bignum today).
-  *
-  * The **width-transparent intrinsics** are the exception: the arithmetic leaves (`nativeAdd`/`nativeSubtract`/
-  * `nativeMultiply`), the ordering leaf (`intLessThanOrEqual`) and `intToString` consume their operands at whatever
-  * width their meta gives (the backend unboxes each per-operand), so their operands are *not* reconciled — that would
-  * pre-widen away the narrow representation. Their result meta is the channel's own entry for the call node (the
-  * arithmetic transfer). Naming an arithmetic *leaf* is sanctioned; the invariant only forbids naming a *branch
-  * construct*, which this pass no longer does.
-  *
-  * A reconcile is inserted only when the value's own meta differs from the imposed expected meta (`Option[GroundValue]`
-  * structural inequality). Because the channel only ever records intervals for `Int` nodes, a non-`Int` value has meta
-  * [[None]] and is imposed [[None]], so it is never wrapped — the pass needs no type test.
+  * It does exactly one thing: read the instance's [[RefinementTable]] and attach the channel's per-node interval (as an
+  * `Interval` [[GroundValue]]) onto every node whose value range the channel pinned; a ⊤/unknown node gets [[None]]
+  * (the backend lays it out as a bignum). It inserts **no** conversion nodes and knows **no** width or representation:
+  * width selection *and* the re-encodes at meta-change edges (a call argument's ⊤ parameter boundary, a `fold` arm's
+  * merged width, the method return) are both derived by the backend from these per-node ranges + the descriptors — see
+  * `docs/generic-refinement-merges.md`. So this pass names no construct (not an arithmetic leaf, not a branch) and
+  * carries no `widthTransparentLeaves`: the backend keeps arithmetic operands at their own width simply by reading each
+  * operand's stamped meta.
   */
 class ReconcileProcessor
     extends TransformationProcessor[UncurriedMonomorphicValue.Key, ReconciledMonomorphicValue.Key](key =>
@@ -60,17 +42,7 @@ class ReconcileProcessor
     for {
       refinementTable <- getFactIfProduced(RefinementTable.Key(key.vfqn, key.typeArguments))
       metas            = refinementTable.map(t => metaByPosition(t.intervals)).getOrElse(Map.empty[PositionRange, GroundValue])
-      // The branch-arm join-input edges: a position → the merge interval it must reconcile to. The channel provides
-      // these generically (from a `^Meta` merge companion, never a branch construct — docs/generic-refinement-merges.md
-      // Steps 4–5), replacing this pass's former `Bool::fold` special-case.
-      joinInputs       = refinementTable.map(t => metaByPosition(t.joinInputs)).getOrElse(Map.empty[PositionRange, GroundValue])
-      reconciledBody   = umv.body.map { b =>
-                           val topNode = b.as(UncurriedMonomorphicExpression(umv.returnType, b.value))
-                           // The whole body reconciles to the declared return meta (⊤/None today — `Int` returns carry
-                           // no declared range yet), so a body computing a narrow value re-encodes to the bignum
-                           // descriptor at the return.
-                           reconcileTo(walk(topNode, metas, joinInputs), None)
-                         }
+      reconciledBody   = umv.body.map(b => walk(b.as(UncurriedMonomorphicExpression(umv.returnType, b.value)), metas))
     } yield ReconciledMonomorphicValue(
       vfqn = key.vfqn,
       typeArguments = key.typeArguments,
@@ -82,83 +54,29 @@ class ReconcileProcessor
       body = reconciledBody
     )
 
-  /** Walk one uncurried node into its reconciled form: stamp its channel meta and recurse, inserting reconciles at the
-    * edges below. Pure — no fact reads.
+  /** Walk one uncurried node into its reconciled form: stamp its channel meta and recurse structurally. Pure — no fact
+    * reads, no conversion nodes (the backend derives conversions from the stamped metas).
     */
   private def walk(
       node: Sourced[UncurriedMonomorphicExpression],
-      metas: Map[PositionRange, GroundValue],
-      joinInputs: Map[PositionRange, GroundValue]
+      metas: Map[PositionRange, GroundValue]
   ): Sourced[ReconciledMonomorphicExpression] = {
-    val own          = metas.get(node.range)
+    val own            = metas.get(node.range)
     val expressionType = node.value.expressionType
-    val reconciled   = node.value.expression match {
-      case UncurriedMonomorphicExpression.IntegerLiteral(value)          =>
-        IntegerLiteral(value)
-      case UncurriedMonomorphicExpression.StringLiteral(value)           =>
-        StringLiteral(value)
-      case UncurriedMonomorphicExpression.ParameterReference(name)       =>
-        ParameterReference(name)
-      case UncurriedMonomorphicExpression.MonomorphicValueReference(v, t) =>
-        MonomorphicValueReference(v, t)
-      case UncurriedMonomorphicExpression.FunctionLiteral(params, body)  =>
-        // A lambda body is a ⊤ boundary (the channel records no interval inside it), so nothing narrow flows out; walk
-        // it for structure only, no reconcile needed.
-        FunctionLiteral(params, walk(body, metas, joinInputs))
+    val reconciled     = node.value.expression match {
+      case UncurriedMonomorphicExpression.IntegerLiteral(value)          => IntegerLiteral(value)
+      case UncurriedMonomorphicExpression.StringLiteral(value)           => StringLiteral(value)
+      case UncurriedMonomorphicExpression.ParameterReference(name)       => ParameterReference(name)
+      case UncurriedMonomorphicExpression.MonomorphicValueReference(v, t) => MonomorphicValueReference(v, t)
+      case UncurriedMonomorphicExpression.FunctionLiteral(params, body)  => FunctionLiteral(params, walk(body, metas))
       case UncurriedMonomorphicExpression.FunctionApplication(t, args)   =>
-        val walkedTarget = walk(t, metas, joinInputs)
-        calleeOf(t) match {
-          case Some(fqn) if widthTransparentLeaves.contains(fqn) =>
-            // Arithmetic / ordering / toString: operands consumed at their own width by the leaf — do not reconcile.
-            FunctionApplication(walkedTarget, args.map(walk(_, metas, joinInputs)))
-          case _                                                 =>
-            // Ordinary call / constructor: each argument crosses a boundary. A **join-input** argument (a branch arm the
-            // channel marked) reconciles to its recorded merge interval; every other argument reconciles to the callee's
-            // declared parameter meta (⊤/None today). This is the generic replacement for the former `Bool::fold`
-            // special-case — the branch-arm merge and the ordinary boundary are one rule, driven by the channel's edges.
-            FunctionApplication(walkedTarget, args.map(a => reconcileTo(walk(a, metas, joinInputs), joinInputs.get(a.range))))
-        }
+        FunctionApplication(walk(t, metas), args.map(walk(_, metas)))
     }
     node.as(ReconciledMonomorphicExpression(own, expressionType, reconciled))
   }
-
-  /** Wrap `node` in a [[ReconciledMonomorphicExpression.Reconcile]] targeting `expected` iff the node's own meta differs
-    * from it; otherwise return it unchanged. The wrapper carries `expected` as its meta (the target), and its source is
-    * the node itself (whose meta is the re-encode source).
-    */
-  private def reconcileTo(
-      node: Sourced[ReconciledMonomorphicExpression],
-      expected: Option[GroundValue]
-  ): Sourced[ReconciledMonomorphicExpression] =
-    if (node.value.meta === expected) node
-    else node.as(ReconciledMonomorphicExpression(expected, node.value.expressionType, Reconcile(node)))
-
-  /** The callee FQN of an application target, when it is a direct monomorphic value reference (the flattened head an
-    * uncurried application always has for a named call/leaf).
-    */
-  private def calleeOf(target: Sourced[UncurriedMonomorphicExpression]): Option[ValueFQN] =
-    target.value.expression match {
-      case UncurriedMonomorphicExpression.MonomorphicValueReference(vfqn, _) => Some(vfqn.value)
-      case _                                                                 => None
-    }
 }
 
 object ReconcileProcessor {
-
-  private def langInt(name: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName(name, Qualifier.Default))
-
-  /** The leaves whose codegen consumes operands at their own (per-operand) representation, so the pass must NOT
-    * pre-reconcile their operands: the three arithmetic leaves, the ordering leaf, and `intToString`.
-    */
-  private[reconcile] val widthTransparentLeaves: Set[ValueFQN] =
-    Set(
-      langInt("nativeAdd"),
-      langInt("nativeSubtract"),
-      langInt("nativeMultiply"),
-      langInt("intLessThanOrEqual"),
-      langInt("intToString")
-    )
 
   private val bigIntType: GroundValue =
     GroundValue.Structure(
@@ -187,10 +105,8 @@ object ReconcileProcessor {
       intervalType
     )
 
-  /** Collapse a channel interval sequence (the per-node [[RefinementTable.intervals]] or the branch-arm
-    * [[RefinementTable.joinInputs]]) to a position-keyed meta map, keeping a position only when every entry at it agrees
-    * on one interval (a position with two distinct intervals is dropped, so the node stays ⊤ — matching the lowering
-    * pass's `unambiguousIntervalsByPosition`).
+  /** Collapse the channel's per-node intervals to a position-keyed meta map, keeping a position only when every entry at
+    * it agrees on one interval (a position with two distinct intervals is dropped, so the node stays ⊤).
     */
   private[reconcile] def metaByPosition(entries: Seq[RefinementTable.NodeInterval]): Map[PositionRange, GroundValue] =
     entries
