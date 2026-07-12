@@ -58,13 +58,14 @@ about the immediate edge, never the value's lineage.
 
 ## 3. Plan
 
-### Step 1 — Correct the false premise (apidoc)
+### Step 1 — Correct the false premise (apidoc) — DONE (commit 1da6bb75)
 
 Rewrite the two comments that assert `fold` is "the only way to branch": `WellKnownTypes.boolFoldFQN` and
 `SystemNativesProcessor`. State that `fold` is *an* eliminator over an opaque `Bool` (value/type match are the
 case-analysis primitives; user eliminators desugar to those), and that this FQN is used only to **reduce** and
 **emit** `fold`, never as a refinement-merge signal — merges are detected via `Meta.join` (this doc). Give
-`fold` a correct `/** */` in `stdlib/eliot/eliot/lang/Bool.els` while here.
+`fold` a correct `/** */` in `stdlib/eliot/eliot/lang/Bool.els` while here. *Landed:* all three comments
+corrected; no behavior change.
 
 ### Step 2 — Author `fold`'s `^Meta` companion
 
@@ -74,18 +75,43 @@ The native's owner (the stdlib author) declares `fold`'s merge behaviour beside 
 fold[A](condition: Bool, whenTrue: A, whenFalse: A): A { join(whenTrue, whenFalse) }
 ```
 
-It lives in the stdlib **compiler track** (`stdlib/eliot-compiler/eliot/lang/Bool.els`, next to a re-declared
-`fold`), because the vessel uses compiler-pool `Meta.join` and `^Meta` companions are compiler-pool-only — the
-same reason the compile-time `Either`/`Guard` bodies live under `eliot-compiler/`. The merge *contract* ("the
+It lives on the stdlib **runtime track**, co-located with `fold` in `stdlib/eliot/eliot/lang/Bool.els` — a
+return brace added to the existing `fold` declaration. `Bool` is an ordinary runtime library type; it is
+*borrowed* into the compiler pool (the pool scans the whole runtime track), never re-declared on a compiler
+track. The `^Meta` companion is compiler-pool-only **by virtue of the `Qualifier.Meta` namespace it desugars
+into** — not because of where its source lives; in the runtime pool the companion is dead (never demanded),
+exactly like every `rangeAdd^Meta`. This is the arithmetic precedent verbatim: `rangeAdd`/`rangeSubtract`/
+`rangeMultiply` sit on the runtime track in `stdlib/eliot/eliot/lang/Int.els`, and their braces already reach
+compiler-pool-only names (`intervalAdd`, the `range` slot) from there — a brace naming `Meta.join` needs no
+different home. Those names resolve because their *modules* (`eliot.compiler.Meta`, `eliot.lang.Interval`)
+exist in both pools and gain their overlay declarations in the compiler pool; the `fold` vessel imports them
+just as the overlay `Interval.els` imports `eliot.compiler.Meta` today. (The compile-time `Either`/`Guard`
+bodies live under `eliot-compiler/` for an unrelated reason — they are *self-sufficient compile-time
+redefinitions* with real `data`/bodies that must not depend on a sibling runtime target being present; an
+inert `^Meta` carrier is nothing like that, so the analogy does not apply here.) The merge *contract* ("the
 result's range is the join of the arms' ranges") is **platform-independent** — true on every target — even
-though `fold`'s *runtime* is realized per platform; so it belongs in the base once, exactly as `rangeAdd^Meta`
-is base stdlib while `nativeAdd`'s runtime is jvm-specific.
+though `fold`'s *runtime* is realized per platform; so it belongs in the base once, exactly as the `rangeAdd`
+brace is base stdlib while `nativeAdd`'s runtime is jvm-specific.
 
-**New design work — domain-polymorphic vessels.** The arithmetic vessels are Int-monomorphic
-(`rangeAdd(a: Int, b: Int): Int`); `fold` is `fold[A]`, so its `^Meta` joins over **A's domain** via
-`Meta.join`, which needs a `Meta[…]` instance for A. `A = Int` resolves `Meta[Interval]` and joins; an `A`
-with no domain (a `data` type) has ⊤ arms and the companion is a ⊤ pass-through. `MetaTransferDesugarer` (today
-transfer-shaped only) must learn to emit a join-shaped, domain-constrained companion.
+**Domain-polymorphic vessels — resolved: the compiler derives the compound `Meta`.** The arithmetic vessels
+are Int-monomorphic: `rangeAdd(a: Int, b: Int): Int`, whose brace projects the `range` slot and rewraps —
+`Int$Meta(intervalAdd(range(a), range(b)))`. `fold` is `fold[A]`, so one generic vessel must join over **A's
+meta without naming a slot**: `fold[A](whenTrue: A, whenFalse: A): A { join(whenTrue, whenFalse) }`, whose
+companion is `fold^Meta[A](whenTrue: A$Meta, whenFalse: A$Meta): A$Meta = join(whenTrue, whenFalse)` — `join`
+over the whole meta-structure `A$Meta`, not a slot. For that to be well-typed, `Meta` must be available on the
+**meta-structure** (`Meta[Int$Meta]`), whereas the *user* writes `Meta` only on the **domain** (`Meta[Interval]`).
+
+The resolution (decided 2026-07-12): **the user provides `Meta` for their own domain; the compiler
+auto-derives the `Meta` instance for a compound meta-structure field-wise** — `Meta[Int$Meta].join(a, b) =
+Int$Meta(join(range(a), range(b)))`, delegating each slot to its own domain's `Meta` (here `Meta[Interval]`).
+This is exactly parallel to how `MetaConstructorDesugarer` already auto-derives the meta *constructor* from a
+type's fields; the derivation adds the matching *instance*. So "one `Meta` instance per domain" is preserved
+for everything a **user** writes — the per-`T$Meta` instances are compiler-generated, not hand-written — and
+`fold`'s companion is genuinely generic across every tracked domain (an `A` with no tracked slots derives the
+trivial `Meta[Unit]`-shaped pass-through, so its arms are ⊤). `MetaTransferDesugarer` must learn to emit this
+**structure-producing** companion shape (the brace *is* the result `A$Meta`, so it is not re-wrapped in the
+meta constructor the way a slot-producing arithmetic brace is). This is Phase 2's one genuinely new mechanism;
+the rest of Steps 3–5 is deletion of the `Bool::fold` special-casing.
 
 ### Step 3 — Channel: uniform `^Meta`-driven meta + join-input detection
 
@@ -96,6 +122,14 @@ companion: the argument positions the companion feeds to `Meta.join` are the joi
 with the join result. This is a one-time static read of each native's (Eliot) `^Meta` body, recognizing the
 one domain FQN `Meta.join`, never a construct list.
 
+**Restriction the detection must state (fail-safe).** Mapping a `Meta.join` argument back to a *caller* arg
+position works only when that argument is a projection of the companion's own parameter (`join(range(whenTrue),
+range(whenFalse))` → `whenTrue`/`whenFalse`). A companion that computes something non-trivial before `join`
+(`join(transfer(a), b)`) has no clean position preimage. Such a companion is **not** a join-input source: it
+falls back to ⊤ for the un-mappable positions rather than guessing a mapping — a silent wrong preimage would
+violate the "gaps must be fail-safe" rule. `fold`'s companion is the clean case (bare parameters under one
+projection), so this restriction costs nothing today; it must be written down before a second join-native lands.
+
 ### Step 4 — `RefinementTable` carries generic metas
 
 Change `RefinementTable.NodeInterval(position, min, max)` to carry a **generic `GroundValue` meta** per node,
@@ -103,6 +137,14 @@ plus the **join-input edges** (arm position → the join result meta). The chann
 `GroundValue` (`Int$Meta`/`Interval`) internally before decoding to `(min, max)`; store the `GroundValue`.
 Adapt consumers: the LSP hover (`TypeHintIndex`) decodes the meta `GroundValue` back to a `[min,max]` for its
 value-range hint — the Int-specific decode lives in the consumer, which is the right home for domain knowledge.
+
+**Cache/serialization to confirm first.** The table is deliberately first-order today (`position, min, max`)
+*because facts must serialize for the incremental cache*, and equality across instantiations must be
+well-defined. A `GroundValue` is a quoted semantic value; before adopting it as the stored meta, verify it
+serializes and that structural equality on it is stable across instantiations (two `Interval(0, 5)` from
+different call contexts must compare equal). If a raw `GroundValue` does not round-trip, store a serializable
+normal form (e.g. the domain author's own encoding) and keep the decode in the consumer. Bump
+`FactCache.CACHE_VERSION`.
 
 ### Step 5 — Reconcile pass fully generic
 
@@ -117,6 +159,15 @@ The pass no longer distinguishes `fold` from any call, no longer excludes arithm
 to ⊤ like any consumed arg — the JVM `long` fast-path is given up on boxed values, recovered generically by
 any backend that declares narrow parameter metas), and never constructs or inspects a domain meta.
 
+**This is a deliberate, deferred precision loss — state it as such.** The "recovered generically by any backend
+that declares narrow parameter metas" path does **not** exist yet: no native declares narrow *parameter* metas
+today (only returns), so post-Step-5 arithmetic operands lay out at ⊤/bignum where the special-case previously
+kept a `long`. This is sound (⊤ is always representable) and matches the plan's "precision, never soundness"
+stance, but it is a real regression on hot integer code until parameter-meta declarations land. Acceptable
+because it trades a hardcoded fast-path for a uniform mechanism; not acceptable to ship silently — call it out
+in the Step-5 commit and gate it on `ExamplesIntegrationTest` still *running* correctly (representation-
+transparent, so runtime output is unchanged even as widths widen).
+
 ### Step 6 — Backend width selection ("the jvm pre-processor") not hardcoded
 
 `IntRepresentation` (jvm/asm): decode the generic meta (an `Interval` `GroundValue`) → machine width; the
@@ -127,15 +178,36 @@ The Int-specific meta decode lives here — the backend is Int/JVM-specific by n
 domain+platform knowledge. `generateBoolIntrinsic` **keeps** emitting `Bool::fold` inline (realization; see
 §1).
 
-### Step 7 — Deletions & de-duplication
+**Why the decode belongs in the backend (superseding bounds-as-refinements Step 3).** Bounds Step 3 put the
+`interval → machine width` decision in Eliot as `Represent.layout`, on the principle "representation derived in
+Eliot, not Scala." That principle is right about the *platform-independent* half and wrong about this half. The
+sharper line: what stays in Eliot is the domain and its **platform-independent** semantics — the `Meta` lattice,
+the `^Meta` transfer/join vessels, the fact that `add`'s range is `intervalAdd` of the operands' ranges (true on
+every target). Which *machine width* an `Interval` maps to is **not** platform-independent — `JvmByte`/`JvmShort`
+are JVM artifacts, and an ATtiny backend would decode the same interval to different widths. `Represent.layout`
+expressed that platform-specific choice *as an Eliot instance that already lived in a jvm compiler overlay*
+(`jvm/eliot-compiler/…/Represent.els`) returning a `Type` value — Eliot syntax around knowledge that was jvm's
+all along. Deleting it and decoding in `IntRepresentation` puts platform-specific policy in the platform's
+backend, where it belongs, while the platform-independent domain logic stays in Eliot. So this is a *correction*
+of the layering, not an abandonment of "derive from the range" — the width is still derived from the interval,
+just by the consumer that owns the target. **Follow-through:** update `docs/bounds-as-refinements.md` Step 3 and
+the `feedback_minimize_scala_decompose_in_eliot` memory to record that representation *policy* splits — domain
+semantics in Eliot, target width decode in the backend — rather than reading as an unqualified "representation in
+Eliot."
 
-Delete `Represent.els` ×2, `RefinementRepresentation`, `RepresentationLowering`, and the `representationOf`
-lowering in `MonomorphicUncurryingProcessor`; replace `CodegenProjection`'s `representationOf`-based
-width-collapse key with the erased carrier (post-flag-day `Int` type-args are nullary, so `Int` instances
-already collapse). Drop the duplicated `boolFoldFqn` constants (channel, reconcile). After this the *only*
-references to `Bool::fold` by name are: the compile-time reduction native (`SystemNativesProcessor`), the
-compile-time branch-select (`PostDrainQuoter`), and the backend inline emission
-(`ExpressionCodeGenerator`/`Intrinsics`) — all **realization or reduction**, none "branch detection."
+### Step 7 — Deletions (representation policy relocates to the backend)
+
+With the width decode moved into `IntRepresentation` (Step 6), the Eliot-side representation machinery is dead,
+not merely duplicated — this is the relocation argued in Step 6, not a cleanup. Delete `Represent.els` ×2 (the
+ability + the jvm overlay instance), `RefinementRepresentation`, `RepresentationLowering`, and the
+`representationOf` lowering in `MonomorphicUncurryingProcessor`; replace `CodegenProjection`'s
+`representationOf`-based width-collapse key with the erased carrier (post-flag-day `Int` type-args are nullary,
+so `Int` instances already collapse). Drop the duplicated `boolFoldFqn` constants (channel, reconcile). After
+this the *only* references to `Bool::fold` by name are: the compile-time reduction native
+(`SystemNativesProcessor`), the compile-time branch-select (`PostDrainQuoter`), and the backend inline emission
+(`ExpressionCodeGenerator`/`Intrinsics`) — all **realization or reduction**, none "branch detection." Update
+`docs/bounds-as-refinements.md` (Step 3's `Represent` rows and successor map) in the same commit so it does not
+still describe `Represent.layout` as the live representation path.
 
 ## 4. The durable invariant
 
