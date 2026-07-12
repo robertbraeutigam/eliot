@@ -40,15 +40,16 @@ implement Numeric[Int] {
  */
 def intToString(value: Int): String
 
-// The refinement channel's `^Meta` transfer vessels for integer arithmetic (`docs/bounds-as-refinements.md` §4.2).
-// Each carries only a return brace — the range transfer — and no runtime body: `MetaTransferDesugarer` turns
-// `def rangeAdd(a: Int, b: Int): Int {expr}` into the companion `rangeAdd^Meta(a: Int$Meta, b: Int$Meta): Int$Meta =
-// Int$Meta(expr)` (in the `Qualifier.Meta` namespace), which the channel evaluates to propagate an `Int`'s value range
-// through an `add`/`subtract`/`multiply`. The brace computes the result range from the operand ranges (`range(a)`,
+// The refinement channel's `^Meta` **transfer** companions for integer arithmetic (`docs/bounds-as-refinements.md`
+// §4.2), carried directly on the arithmetic leaves so the channel needs no leaf→vessel name map: it looks up
+// `<callee>^Meta` uniformly (the same path `fold^Meta` takes). Each declaration is body-less (its runtime is the jvm
+// native leaf it merges with — `jvm/.../Int.els`) and carries only a **return brace** — the range transfer.
+// `MetaTransferDesugarer` turns `def nativeAdd(a: Int, b: Int): Int {expr}` into `nativeAdd^Meta(a: Int$Meta, b:
+// Int$Meta): Int$Meta = Int$Meta(expr)` (in the `Qualifier.Meta` namespace), which the channel reduces to propagate an
+// `Int`'s value range through arithmetic. The brace computes the result range from the operand ranges (`range(a)`,
 // `range(b)`, the `Int$Meta` slot) through the plain `intervalAdd`/`intervalSubtract`/`intervalMultiply` functions (the
-// compile-time `Interval` domain arithmetic, resolved per the compiler pool). These vessels are co-located with the
-// `range` slot so `Int$Meta` and its accessor resolve per-file; they are compiler-pool-only carriers (never called at
-// runtime). They drive narrow layouts through the channel's flow analysis.
-def rangeAdd(a: Int, b: Int): Int {intervalAdd(range(a), range(b))}
-def rangeSubtract(a: Int, b: Int): Int {intervalSubtract(range(a), range(b))}
-def rangeMultiply(a: Int, b: Int): Int {intervalMultiply(range(a), range(b))}
+// compile-time `Interval` domain arithmetic, resolved per the compiler pool). The `^Meta` companion is compiler-pool-only
+// (dead at runtime); the merged `nativeAdd` itself is the jvm native.
+def nativeAdd(a: Int, b: Int): Int {intervalAdd(range(a), range(b))}
+def nativeSubtract(a: Int, b: Int): Int {intervalSubtract(range(a), range(b))}
+def nativeMultiply(a: Int, b: Int): Int {intervalMultiply(range(a), range(b))}

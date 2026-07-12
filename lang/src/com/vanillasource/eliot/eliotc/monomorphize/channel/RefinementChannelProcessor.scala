@@ -97,22 +97,19 @@ class RefinementChannelProcessor
       case _: MonomorphicExpression.FunctionApplication =>
         val (head, args) = flatten(node)
         head.value.expression match {
-          case MonomorphicExpression.MonomorphicValueReference(vfqn, _)
-              if isArithmeticLeaf(vfqn.value) && args.sizeIs == 2 =>
-            walkArithmetic(node, vfqn.value, args(0), args(1))
           case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
             // An ordinary call (or constructor). Descend into the arguments (so a literal/arithmetic argument narrows,
             // and a `where` precondition is demanded over their ranges, bounds-as-refinements §4.3). The result is a ⊤
-            // boundary **unless** the callee declares a refinement *merge*: a `^Meta` companion that reduces to
-            // `Meta.join` over the arguments — e.g. `fold`, whose result meta is the join of its two arms. Recognising a
-            // merge by the one domain primitive `Meta.join` (never by naming the branch construct —
-            // `docs/generic-refinement-merges.md`) is what lets any future selector merge for free. The backend derives
-            // the arm re-encodes from the recorded merge interval; the channel records no join-input edges. A lambda
-            // argument's body is skipped by the `FunctionLiteral` case below.
+            // boundary **unless** the callee declares a `^Meta` companion — a **transfer** (`nativeAdd`, whose result
+            // range is `intervalAdd` of the operand ranges) or a **merge** (`fold`, whose result range is `Meta.join`
+            // of its arms). Both are computed by the *same* uniform path: reduce `<callee>^Meta` on the argument metas
+            // (`metaViaCompanion`). The channel names no leaf and no branch construct — the `^Meta` companion is the one
+            // recognition point (`docs/generic-refinement-merges.md`). A lambda argument's body is skipped by the
+            // `FunctionLiteral` case below.
             for {
               argResults <- args.traverse(walkFlow)
               _          <- checkWhere(node, vfqn.value, typeArgs, args.size, argResults.map(_.own))
-              merge      <- mergeViaCompanion(vfqn.value, typeArgs, argResults.map(_.own))
+              merge      <- metaViaCompanion(vfqn.value, typeArgs, argResults.map(_.own))
             } yield Flow(merge, argResults.flatMap(_.records) ++ recordAt(node, merge))
           case _ =>
             // Any other application (a `match`, a `typeMatch`, an applied lambda): the result is a ⊤ boundary; descend
@@ -136,48 +133,22 @@ class RefinementChannelProcessor
         Flow.topBoundary.pure[CompilerIO]
     }
 
-  /** An arithmetic leaf node: recurse into the two operands, then compute the result interval via the leaf's `^Meta`
-    * transfer companion when both operands are known (else ⊤).
-    */
-  private def walkArithmetic(
-      node: Sourced[MonomorphicExpression],
-      leaf: ValueFQN,
-      operandA: Sourced[MonomorphicExpression],
-      operandB: Sourced[MonomorphicExpression]
-  ): CompilerIO[Flow] =
-    for {
-      a      <- walkFlow(operandA)
-      b      <- walkFlow(operandB)
-      result <- (a.own, b.own) match {
-                  case (Some(x), Some(y)) => runTransfer(leaf, x, y)
-                  case _                  => none[(BigInt, BigInt)].pure[CompilerIO]
-                }
-    } yield Flow(result, a.records ++ b.records ++ recordAt(node, result))
-
-  /** The refinement **merge** of a call, when its callee declares one: a `^Meta` companion (in [[Qualifier.Meta]]) that
-    * merges its arguments' metas via the domain's `Meta.join`. This is how a *runtime-chosen* result — `fold`'s selected
-    * arm, a future selector — gets the join of its inputs' metas, computed through the one NbE evaluator by reducing the
-    * companion, and never by naming the branch construct (`docs/generic-refinement-merges.md`). `None` (⊤) when the
-    * callee has no companion, or a join input's range is unknown.
+  /** The refinement result of a call, when its callee declares a `^Meta` companion — a **transfer** (`nativeAdd^Meta`,
+    * whose result range is `intervalAdd` of the operand ranges) or a **merge** (`fold^Meta`, whose result range is
+    * `Meta.join` of its arms). Both are computed uniformly: reduce `<callee>^Meta` on the arguments' metas and read its
+    * result `Int$Meta`'s `range` slot back. `None` (⊤) when the callee has no companion, or an input's range is unknown.
     *
-    * Mechanically **identical to a transfer** ([[applyMetaCompanion]]): the companion is reduced on the arguments' metas
-    * and its result `Int$Meta`'s `range` slot is read back. `fold`'s companion `fold^Meta[A](condition: Bool, whenTrue:
-    * A, whenFalse: A): A = join(whenTrue, whenFalse)` is reduced at the **meta** type arguments — the call's base type
-    * args mapped through [[metaTypeOf]] (`A := Int$Meta`), so the bare `A` params bind straight to the meta type (there
-    * is no `metaOf` intrinsic). Its `join` then dispatches, via the compiler-derived `Meta[Int$Meta]` instance on the arm
-    * metas (both `Int$Meta` *values*, so the instance fires — unlike a type-position instance), to
-    * `Int$Meta(intervalJoin(range(whenTrue), range(whenFalse)))`; the quote fires `intervalJoin` and yields the join. An
-    * unknown/non-`Int` argument (⊤ — e.g. `fold`'s `condition`) is a `VType` placeholder the reduction ignores unless it
-    * feeds a slot projection, in which case the projection stalls and the result is ⊤ (sound). A merge over untracked
-    * arms reduces at `A := Unit` (an untracked type's [[metaTypeOf]] is `Unit`) through the trivial `Meta[Unit]` and
-    * reads back no interval (⊤). The membership test (a cached [[UnifiedModuleNames]] lookup for the companion name)
-    * keeps an ordinary companion-free call to one cheap lookup.
-    *
-    * The merge-vs-transfer *distinction* (which arguments are join inputs, needed by the reconcile pass to re-encode a
-    * branch arm to the merged representation) is not recovered here — the dispatched `Meta.join` leaves no trace in the
-    * reduced result. It is a separate, structural read of the companion (`docs/generic-refinement-merges.md` Steps 4–5).
+    * The companion is reduced at the **meta** type arguments — the call's base type args mapped through [[metaTypeOf]].
+    * A *monomorphic* companion (`nativeAdd`, no type args) reduces at `[]` and its `Int$Meta` params take the operand
+    * metas directly. A *generic* companion (`fold[A]`) reduces at `A := metaTypeOf(Int) = Int$Meta`, so the bare `A`
+    * params bind to the meta type; its `join` then dispatches via the compiler-derived `Meta[Int$Meta]` to
+    * `Int$Meta(intervalJoin(range(whenTrue), range(whenFalse)))`. An unknown/non-`Int` argument (⊤ — e.g. `fold`'s
+    * `condition`) is a `VType` placeholder the reduction ignores unless it feeds a slot projection, in which case the
+    * projection stalls and the result is ⊤ (sound). A merge over untracked arms reduces at `A := Unit` (an untracked
+    * type's [[metaTypeOf]] is `Unit`) through the trivial `Meta[Unit]` and reads back no interval (⊤). The membership
+    * test (a cached [[UnifiedModuleNames]] lookup for the companion name) keeps a companion-free call to one cheap lookup.
     */
-  private def mergeViaCompanion(
+  private def metaViaCompanion(
       callee: ValueFQN,
       calleeTypeArgs: Seq[GroundValue],
       argIntervals: Seq[Option[(BigInt, BigInt)]]
@@ -314,42 +285,6 @@ class RefinementChannelProcessor
       case _                                                           => (node, Seq.empty)
     }
 
-  /** Recompute an arithmetic transfer by evaluating the leaf's `^Meta` transfer companion (`docs/bounds-as-refinements.md`
-    * Step 4c). `nativeAdd`/… maps to `rangeAdd^Meta`/… (the base-layer vessels' companions); the companion is applied to
-    * the two operand ranges wrapped as `Int$Meta(Interval(lo,hi))` and its result `Int$Meta`'s `range` slot is read
-    * back. This replaces Step 5's direct resolution of the `Numeric[Interval]` instance — the transfer now lives in the
-    * vessel's return brace (Eliot), evaluated via the uniform `^Meta` mechanism.
-    */
-  private def runTransfer(
-      leaf: ValueFQN,
-      operandA: (BigInt, BigInt),
-      operandB: (BigInt, BigInt)
-  ): CompilerIO[Option[(BigInt, BigInt)]] =
-    applyMetaCompanion(
-      metaTransferCompanion(leaf),
-      Seq(intMetaValue(operandA), intMetaValue(operandB))
-    )
-
-  /** Reduce a compiler-pool `^Meta` transfer companion (non-generic, so empty type args), apply it to the operand meta
-    * values through the one NbE evaluator, and read the result `Int$Meta`'s single `range` slot back as an interval —
-    * `ReducedBindingClosure.reduceInstance` + `Evaluator.applyValue`/`force` + `Quoter.quote`, the same pattern
-    * [[applyIntervalInstance]] uses for the join, re-pointed from an ability instance to the `^Meta` companion. `None`
-    * when the companion does not reduce (channel cannot compute — silent in shadow mode) or the result is not the
-    * expected `Int$Meta(Interval(...))` shape.
-    */
-  private def applyMetaCompanion(
-      companionFqn: ValueFQN,
-      metaValues: Seq[GroundValue]
-  ): CompilerIO[Option[(BigInt, BigInt)]] =
-    ReducedBindingClosure.reduceInstance(companionFqn, Seq.empty).map {
-      case None       => None
-      case Some(body) =>
-        val applied = metaValues.foldLeft(body) { (f, mv) =>
-          Evaluator.applyValue(f, Evaluator.groundToSem(mv))
-        }
-        val forced  = Evaluator.force(applied, MetaStore.empty)
-        Quoter.quote(0, forced, MetaStore.empty).toOption.flatMap(unwrapIntMeta).flatMap(twoBigIntArgs)
-    }
 }
 
 object RefinementChannelProcessor {
@@ -363,16 +298,10 @@ object RefinementChannelProcessor {
     GroundValue.Type
   )
 
-  /** The three platform arithmetic leaves the transfer is recognised at (JVM layer names — see the class note). */
-  private[channel] val nativeAddFqn: ValueFQN      = ValueFQN(intModule, QualifiedName("nativeAdd", Qualifier.Default))
-  private[channel] val nativeSubtractFqn: ValueFQN = ValueFQN(intModule, QualifiedName("nativeSubtract", Qualifier.Default))
-  private[channel] val nativeMultiplyFqn: ValueFQN = ValueFQN(intModule, QualifiedName("nativeMultiply", Qualifier.Default))
-
-  private[channel] def isArithmeticLeaf(vfqn: ValueFQN): Boolean =
-    vfqn == nativeAddFqn || vfqn == nativeSubtractFqn || vfqn == nativeMultiplyFqn
-
   /** A callee's `^Meta` companion FQN: its own name in the [[Qualifier.Meta]] namespace, same module — what
-    * [[MetaTransferDesugarer]] emits from a return brace. `fold` ⤳ `fold^Meta` (the merge companion).
+    * [[MetaTransferDesugarer]] emits from a return brace. `fold` ⤳ `fold^Meta` (merge), `nativeAdd` ⤳ `nativeAdd^Meta`
+    * (transfer). The channel recognises a refinement operation *only* by the presence of this companion — no leaf or
+    * branch construct is named.
     */
   private[channel] def metaCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, QualifiedName(callee.name.name, Qualifier.Meta))
@@ -394,20 +323,6 @@ object RefinementChannelProcessor {
 
   private[channel] def whereCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, whereCompanionName(callee))
-
-  /** The `^Meta` transfer companion that computes the transfer for a leaf — `rangeAdd`/`rangeSubtract`/`rangeMultiply`,
-    * in the [[Qualifier.Meta]] namespace (`docs/bounds-as-refinements.md` Step 4c). These are the base-layer vessels'
-    * companions (`stdlib/.../Int.els`), generated by `MetaTransferDesugarer` from each vessel's return brace, which the
-    * channel reduces and evaluates to propagate an `Int`'s range through arithmetic.
-    */
-  private[channel] def metaTransferCompanion(leaf: ValueFQN): ValueFQN =
-    if (leaf == nativeAddFqn) rangeAddMetaFqn
-    else if (leaf == nativeSubtractFqn) rangeSubtractMetaFqn
-    else rangeMultiplyMetaFqn
-
-  private[channel] val rangeAddMetaFqn: ValueFQN      = ValueFQN(intModule, QualifiedName("rangeAdd", Qualifier.Meta))
-  private[channel] val rangeSubtractMetaFqn: ValueFQN = ValueFQN(intModule, QualifiedName("rangeSubtract", Qualifier.Meta))
-  private[channel] val rangeMultiplyMetaFqn: ValueFQN = ValueFQN(intModule, QualifiedName("rangeMultiply", Qualifier.Meta))
 
   /** `Int$Meta` — the meta structure `MetaConstructorDesugarer` emits for `type Int {range: …}` (the `$Meta` suffix is
     * `MetaConstructorDesugarer.metaTypeSuffix`). Its value constructor takes the sole `range` slot (an `Interval`).
