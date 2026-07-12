@@ -32,9 +32,10 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * time by the Quoter).
   *
   * Bool is declared opaque in the language (`type Bool`); its compile-time representation is supplied here as
-  * `VConst(Direct(Boolean, …))` so type-level predicates reduce during checking, and `fold` (the only way to branch on
-  * an opaque `Bool`, which the checker collapses at compile time via `PostDrainQuoter`) selects a branch when its
-  * condition is concrete. Library Bool/BigInteger operations whose reduction the compiler merely supplies but does not
+  * `VConst(Direct(Boolean, …))` so type-level predicates reduce during checking, and `fold` (an eliminator over an
+  * opaque `Bool` — not *the* way to branch; value/type match are the case-analysis primitives, see
+  * `WellKnownTypes.boolFoldFQN` — which the checker collapses at compile time via `PostDrainQuoter`) selects a branch
+  * when its condition is concrete. Library Bool/BigInteger operations whose reduction the compiler merely supplies but does not
   * reason about (`&&`, `lessThanOrEqual`, the arithmetic natives backing `Int`'s dependent bounds) live in the stdlib
   * layer's `StdlibNativesProcessor`, not here.
   *

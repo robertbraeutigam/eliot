@@ -11,6 +11,12 @@ infix left at && def ||(a: Bool, b: Bool): Bool
 
 prefix def !(a: Bool): Bool
 
+/**
+ * The eliminator for `Bool`: yields `whenTrue` when `condition` holds, otherwise `whenFalse`. This is *an* eliminator
+ * over the opaque `Bool`, not *the* way to branch — value match and type match are the language's case-analysis
+ * primitives, and other eliminators (`if`, a user's `foldEither`) are built on top of these. `fold` is a primitive
+ * only because `Bool` is opaque; it is morally a match on a two-constructor `Bool`.
+ */
 def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A
 
 /**

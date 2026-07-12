@@ -55,8 +55,17 @@ object WellKnownTypes {
   val boolTrueFQN: ValueFQN  = ValueFQN(boolModule, QualifiedName("true", Qualifier.Default))
   val boolFalseFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("false", Qualifier.Default))
 
-  /** The `Bool` eliminator `fold(condition, whenTrue, whenFalse)` — the only way to branch on an opaque `Bool`. Backed
-    * by a compile-time native (see `SystemNativesProcessor`) that selects a branch when the condition is concrete.
+  /** The `Bool` eliminator `fold(condition, whenTrue, whenFalse)` — *an* eliminator over an opaque `Bool`, not *the*
+    * way to branch: the language's case-analysis primitives are value match (`handleCases`) and type match
+    * (`typeMatch`), and every user eliminator desugars to those; `fold` is a primitive intrinsic only because `Bool` is
+    * opaque (no base `data Bool`), so it is morally a value-match on a two-constructor `Bool`. Backed by a compile-time
+    * native (see `SystemNativesProcessor`) that selects a branch when the condition is concrete.
+    *
+    * This FQN is used only to **reduce** `fold` at compile time (`SystemNativesProcessor`, `PostDrainQuoter`) and to
+    * **emit** it as inline branch code (the jvm backend) — its realization/reduction, exactly like `nativeAdd` emitted
+    * as `LADD`. It is deliberately NOT a refinement-merge signal: a merge is wherever the domain's `Meta.join` combines
+    * alternative metas, detected via `^Meta` companions, never by naming this construct
+    * (`docs/generic-refinement-merges.md`).
     */
   val boolFoldFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
 
