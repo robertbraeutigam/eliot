@@ -9,6 +9,20 @@ sanctioned **realization/reduction** sites (`SystemNativesProcessor` reduce, `Po
 `Intrinsics`/`ExpressionCodeGenerator` inline emit), exactly as §1 allows. Continues the bounds-as-refinements work
 (`docs/bounds-as-refinements.md`, Step 8 — backend width selection).
 
+**Follow-on cleanup — the `metaOf` intrinsic is deleted, meta is total (2026-07-12, commit `64f5f1ee`).** The
+`metaOf(a: Type): Type` intrinsic (below, Step 2 "as built") was the only place a generic `^Meta` companion could
+name "the meta of a type parameter". It is gone, replaced by two moves: (1) the channel reduces a generic companion
+at the **meta** type arguments (`RefinementChannelProcessor.metaTypeOf` maps each base type arg to its meta type),
+so a bare `A` param binds straight to the meta type — no `metaOf(A)` in the signature; a *monomorphic* vessel still
+just suffixes its concrete params to `T$Meta`. (2) Meta is **total**: `metaTypeOf(T)` is `T$Meta` if `T` is slotted,
+else `Unit`, and `Unit` declares the trivial `Meta[Unit]`, so a merge over untracked arms lands on a real instance
+(⊤) instead of a stuck non-existent `T$Meta`. `fold`'s dead `condition: Bool` stays verbatim (unprojected, so no
+`Bool$Meta` needed). *Why the channel supplies `Unit` rather than a generated `type T$Meta = Unit` per slotless
+type:* that alias is **concrete**, and base types are declared in more than one layer, so per-layer generation
+collides ("Has multiple implementations") — a single channel-side rule avoids the clash. `CACHE_VERSION` 13 → 14.
+The `metaOf`/`Bool[]`-namespace mentions in the historical Step-2/§Current-state notes below are retained for
+provenance but describe deleted mechanism.
+
 **One scope decision (Step 5's second half, deliberately NOT taken).** Step 5 as originally written also drops
 `widthTransparentLeaves` (so arithmetic operands reconcile to ⊤/bignum). That is a **precision regression** with no
 upside until native *parameter*-meta declarations exist to recover the narrow width generically — and those do not
