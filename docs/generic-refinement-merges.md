@@ -1,10 +1,20 @@
 # Generic Refinement Merges — Removing the `Bool::fold` Dependency
 
-**Status: PLAN.** Continues the bounds-as-refinements work (`docs/bounds-as-refinements.md`, Step 8 —
-backend width selection). The representation-reconcile pass exists in a first, *non-generic* form
-(`reconcile/processor/ReconcileProcessor`, committed as "stage A"); this plan makes it — and the channel
-and backend it sits between — domain- and construct-agnostic, and removes the compiler's dependence on
-`Bool::fold` as if it were "the branch."
+**Status: PARTIALLY DONE.** Steps 1, 6, 7 are **landed and green** — the whole `Represent` track is deleted and
+the JVM backend now decodes each `Int`'s width from the refinement-channel meta (the confirmed-wanted half, and
+its crux-free). Steps 2–5 (removing the `Bool::fold` special-casing itself — `fold`'s `^Meta` companion, the
+channel's `Meta.join` recognition, the generic reconcile pass) **remain**. Continues the bounds-as-refinements
+work (`docs/bounds-as-refinements.md`, Step 8 — backend width selection). The representation-reconcile pass
+existed in a first, *non-generic* form (`reconcile/processor/ReconcileProcessor`, "stage A") and is now **wired
+to the backend**; this plan makes it — and the channel and backend it sits between — domain- and
+construct-agnostic, and removes the compiler's dependence on `Bool::fold` as if it were "the branch."
+
+**Landed so far (2026-07-12):** the backend consumes `ReconciledMonomorphicValue` (stage B); `IntRepresentation`
+(jvm) decodes an `Interval` meta → machine width, replacing the Eliot `Represent[Interval]` fold; the backend
+reads Int widths from each node's channel meta and honours `Reconcile` nodes for boundary re-encodes (stage X);
+and the Phase-3 `RepresentationLowering` pass + `RefinementRepresentation` + both `Represent.els` are **deleted**
+(`Int` is no longer lowered — a bare `Int` descriptor maps to `java.math.BigInteger`, narrow body nodes decode
+from the meta; stage Y). `FactCache.CACHE_VERSION` 11 → 12.
 
 ## 1. The premise this corrects
 
@@ -168,9 +178,19 @@ because it trades a hardcoded fast-path for a uniform mechanism; not acceptable 
 in the Step-5 commit and gate it on `ExamplesIntegrationTest` still *running* correctly (representation-
 transparent, so runtime output is unchanged even as widths widen).
 
-### Step 6 — Backend width selection ("the jvm pre-processor") not hardcoded
+### Step 6 — Backend width selection ("the jvm pre-processor") not hardcoded — DONE (2026-07-12)
 
-`IntRepresentation` (jvm/asm): decode the generic meta (an `Interval` `GroundValue`) → machine width; the
+*Landed* (commits: stage B backend-consumes-reconciled-body; stage X meta-driven widths + Reconcile; stage Y
+un-lower + delete). `IntRepresentation` (jvm/asm) decodes an `Interval` meta → `Jvm*` width; the backend reads
+every Int width from the node's channel meta (`repInternalNameOf`), threads `expectedResultMeta` for arithmetic/
+`fold` results, and emits the width re-encode at explicit `Reconcile` nodes (dropping the implicit
+`widenIntArgToBigInteger` / fold-arm conversions). `NativeType` maps a bare `Int` → `java.math.BigInteger` for
+boundary descriptors; the `Jvm*` types stay an internal backend vocabulary. Key subtlety found: the reconcile pass
+wraps the body top with the (bignum) return type, so a top-level literal's *width must come from its meta, not its
+`expressionType`* — a trailing `Reconcile` re-encodes to the boundary. `generateBoolIntrinsic` keeps emitting
+`Bool::fold` inline (realization). Verified by the JAR-running `ExamplesIntegrationTest`.
+
+Original design note: `IntRepresentation` (jvm/asm): decode the generic meta (an `Interval` `GroundValue`) → machine width; the
 `Jvm*` types become an **internal backend enum**, not Eliot types. `effectiveRepType(node)` drives stack
 widths from the node meta; add a `NativeType` `Int → java.math.BigInteger` entry for descriptors (since `Int`
 stops being lowered). Lower a `Reconcile` node as `convertRepresentation(rep(source.meta), rep(node.meta))`.
@@ -195,9 +215,19 @@ the `feedback_minimize_scala_decompose_in_eliot` memory to record that represent
 semantics in Eliot, target width decode in the backend — rather than reading as an unqualified "representation in
 Eliot."
 
-### Step 7 — Deletions (representation policy relocates to the backend)
+### Step 7 — Deletions (representation policy relocates to the backend) — DONE (2026-07-12)
 
-With the width decode moved into `IntRepresentation` (Step 6), the Eliot-side representation machinery is dead,
+*Landed* (stage Y). Deleted `RepresentationLowering`, `RefinementRepresentation` (+ its test), and both
+`Represent.els` (the empty `jvm/eliot-compiler/` root is gone); `MonomorphicUncurryingProcessor` no longer lowers
+(types stay concrete); `CodegenProjection`'s width-collapse key is now the erased carrier
+(`erasedCarrier`, since a post-flag-day `Int` is nullary — its width is channel meta, not a type argument);
+the dead `intTypeFqn` / `lowerUncurried` / `lowerExpression` / `unambiguousIntervalsByPosition` removed. The
+`Bool::fold` FQN still lives only in `SystemNativesProcessor` (reduce), `PostDrainQuoter` (branch-select), and
+`ExpressionCodeGenerator`/`Intrinsics` (inline emit) — realization/reduction only, no refinement-merge naming
+yet **except** the not-yet-removed channel/reconcile `boolFoldFqn` special-case (Steps 3/5). `CACHE_VERSION`
+11 → 12.
+
+Original design note: with the width decode moved into `IntRepresentation` (Step 6), the Eliot-side representation machinery is dead,
 not merely duplicated — this is the relocation argued in Step 6, not a cleanup. Delete `Represent.els` ×2 (the
 ability + the jvm overlay instance), `RefinementRepresentation`, `RepresentationLowering`, and the
 `representationOf` lowering in `MonomorphicUncurryingProcessor`; replace `CodegenProjection`'s
