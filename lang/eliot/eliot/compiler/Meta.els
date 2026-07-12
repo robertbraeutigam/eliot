@@ -25,7 +25,7 @@
  */
 ability Meta[D] {
    /**
-    * Combine two meta-information values into the least one that covers both — the lattice *join*.
+    * Combine two meta-information values into the least one that covers both.
     *
     * Called wherever a value can come from more than one branch: an `if`/`match` chooses one arm
     * at runtime, so the compiler only knows the result is one branch *or* the other and must
