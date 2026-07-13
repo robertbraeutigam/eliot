@@ -15,15 +15,15 @@ import java.net.URI
 import java.nio.file.Path
 
 /** Ability guards Stage 0: the `Eq` ability plus its `==`/`!=` operators resolve, through a first-order ability
-  * constraint (`[A ~ Eq]`), to the compiler-pool `Eq[Type]` instance and its `typeEquals` leaf.
+  * constraint (`[A ~ Eq]`), to the compiler-pool `Eq[Type]` instance and its body-less `equals` leaf.
   *
   * The leaf's *reduction* is pinned in [[EqTypeLeafTest]]; this suite pins the *resolution wiring* around it on the
-  * compiler track: monomorphizing `==` and `!=` at `A = Type` resolves the `Eq[Type]` instance and folds its `equals`
-  * body in, so the reduced body of `==[Type]` bottoms out in `typeEquals`. That is the whole chain a guard `where E1 !=
-  * E2` will lean on — operator ⇒ ability method ⇒ compiler-pool instance ⇒ native leaf — minus the concrete-argument
-  * firing (which needs a ground use site, i.e. a landed guard). The `Eq` machinery mirrors the shipped split
-  * (`stdlib/.../Eq.els` + `lang/.../Eq.els`) flattened into one compiler-pool file; `Function` is auto-imported as
-  * in a real build so the arrow-typed signatures resolve.
+  * compiler track: monomorphizing `==` and `!=` at `A = Type` resolves the `Eq[Type]` instance and inlines the operator
+  * to its `equals` impl method. That is the whole chain a guard `where E1 != E2` will lean on — operator ⇒ ability
+  * method ⇒ compiler-pool instance ⇒ native-on-impl leaf — minus the concrete-argument firing (which needs a ground use
+  * site, i.e. a landed guard). The `Eq` machinery mirrors the shipped split (`stdlib/.../Eq.els` + `lang/.../Eq.els`)
+  * flattened into one compiler-pool file; `Function` is auto-imported as in a real build so the arrow-typed signatures
+  * resolve.
   */
 class EqOperatorResolutionTest
     extends ProcessorTest(
@@ -49,8 +49,6 @@ class EqOperatorResolutionTest
       |   def equals(a: A, b: A): Bool
       |}
       |
-      |def typeEquals(a: Type, b: Type): Bool
-      |
       |infix left above &&
       |def ==[A ~ Eq](a: A, b: A): Bool = equals(a, b)
       |
@@ -58,7 +56,7 @@ class EqOperatorResolutionTest
       |def !=[A ~ Eq](a: A, b: A): Bool = fold(equals(a, b), false, true)
       |
       |implement Eq[Type] {
-      |   def equals(a: Type, b: Type): Bool = typeEquals(a, b)
+      |   def equals(a: Type, b: Type): Bool
       |}
       |""".stripMargin
 
@@ -100,10 +98,10 @@ class EqOperatorResolutionTest
   }
 
   it should "inline the operator to the resolved `equals` ability method" in {
-    // `==`'s body `equals(a, b)` folds in; `equals` resolves to the `Eq[Type]` instance's method (module `Eq`). Its own
-    // body (`typeEquals`) is not folded further only because `a`/`b` are still neutral parameters here — the same
+    // `==`'s body `equals(a, b)` folds in; `equals` resolves to the `Eq[Type]` instance's method (module `Eq`). Its
+    // native leaf is not folded further only because `a`/`b` are still neutral parameters here — the same
     // neutral-argument shape as `someFn` reducing to `Either::pure` in CompilerAbilityResolutionTest. The concrete-arg
-    // firing all the way to `typeEquals` is pinned separately in EqTypeLeafTest.
+    // firing all the way to the native is pinned separately in EqTypeLeafTest.
     resolveAt("==").asserting(_._2 shouldBe Seq(("Eq", "equals")))
   }
 

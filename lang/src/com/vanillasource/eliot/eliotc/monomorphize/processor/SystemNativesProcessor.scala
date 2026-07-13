@@ -7,12 +7,13 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   boolTrueFQN,
   functionDataTypeFQN,
   integerLiteralFQN,
-  typeEqualsFQN,
   typeFQN
 }
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -22,8 +23,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** The `system` native contributor: emits the total [[ContributedBinding]] under [[ContributedBinding.systemLabel]] for
   * the language-intrinsic system values the compiler itself reasons about — Function (type constructor), Type, the
-  * compile-time Bool constants `true`/`false`, the `Eq[Type]` structural-equality leaf `typeEquals`, and the
-  * value-position literal protocol `integerLiteral` — and `None` for every other name.
+  * compile-time Bool constants `true`/`false`, the `Eq[Type]` structural-equality leaf (bound to the `equals` impl
+  * method), and the value-position literal protocol `integerLiteral` — and `None` for every other name.
   *
   * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B): the Π-former is
   * the single primitive type former, so every function type is a VPi (read back to a Function structure only at quote
@@ -37,11 +38,16 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * merely supplies but does not reason about (`&&`, `lessThanOrEqual`, the arithmetic natives backing `Int`'s dependent
   * bounds) — it lives in the stdlib layer's `StdlibNativesProcessor`, not here.
   *
-  * `typeEquals` compares two type normal forms and reads the answer back as a `Bool` — definitional type equality made a
-  * first-class value, backing the `Eq[Type]` instance (`lang/.../Eq.els`). Unlike the ordinary `Bool`/arithmetic
-  * natives, it is genuine compiler machinery — structural normal-form comparison no Eliot body can express — that the
-  * checker reasons about (a guard `where E1 != E2` runs it during ability resolution), so it is owned here rather than
-  * in the library layer.
+  * The `Eq[Type]::equals` leaf compares two type normal forms and reads the answer back as a `Bool` — definitional type
+  * equality made a first-class value, backing the `Eq[Type]` instance (`lang/.../Eq.els`). Unlike the ordinary
+  * `Bool`/arithmetic natives it is genuine compiler machinery — structural normal-form comparison no Eliot body can
+  * express — that the checker reasons about (a guard `where E1 != E2` runs it during ability resolution), so it is owned
+  * here rather than in the library layer. The `implement Eq[Type]` method is body-less, so — unlike the other system
+  * names, keyed by an exact FQN — this native attaches *directly to the ability implementation*: it is recognised by
+  * `(ability=Eq, method=equals, dispatch type=Type)` through the impl marker
+  * ([[ImplementationMarkerUtils.isImplementationMethodFor]]), the same "native on an ability implementation" wiring
+  * `Compare[BigInteger]`/`Numeric[BigInteger]` use. Value-level dispatch resolves `equals` to this impl-method FQN
+  * before evaluation, so the native fires there; it stays scoped to the `Type` instance (never `Eq[String]`/`Eq[Int]`).
   *
   * The system names are disjoint from every other native supplier (the [[BindingMergerProcessor]] relies on native
   * disjointness): `Type` is owned here, not by `DataTypeNativesProcessor` (which excludes it).
@@ -65,17 +71,38 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     // a bundle without `UpToDateProcessor` (e.g. a minimal test) just loses incrementality here, never fails.
     else
       getFactIfProduced(UpToDate.Key()) >>
-        ContributedBinding(key.vfqn, key.label, systemReduction(key.vfqn).map(BindingContribution.Leaf(_))).pure[CompilerIO]
+        systemContribution(key.vfqn).map(sem => ContributedBinding(key.vfqn, key.label, sem.map(BindingContribution.Leaf(_))))
 
-  /** The host-runnable reduction for a system name, or `None` if `vfqn` is not a system name (totality). */
+  /** The host-runnable reduction for a system name, or `None` if `vfqn` is not a system name (totality). Most system
+    * names are keyed by an exact FQN; the `Eq[Type]::equals` leaf is instead recognised through the ability-impl marker
+    * (its impl-method FQN carries a per-module index, so it cannot be keyed statically), matching the "native on an
+    * ability implementation" wiring used by `Compare`/`Numeric`.
+    */
+  private def systemContribution(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
+    systemReduction(vfqn) match {
+      case some @ Some(_) => some.pure[CompilerIO]
+      case None           => eqTypeEqualsNativeFor(vfqn)
+    }
+
+  /** The exact-FQN system reductions. */
   private def systemReduction(vfqn: ValueFQN): Option[SemValue] =
     if (vfqn === functionDataTypeFQN) functionNative.some
     else if (vfqn === typeFQN) VType.some
     else if (vfqn === boolTrueFQN) Evaluator.trueValue.some
     else if (vfqn === boolFalseFQN) Evaluator.falseValue.some
-    else if (vfqn === typeEqualsFQN) typeEqualsNative.some
     else if (vfqn === integerLiteralFQN) integerLiteralNative.some
     else none
+
+  /** The structural type-equality native when `vfqn` is the `implement Eq[Type]` `equals` method, else `None`. The
+    * native stucks on the impl-method FQN itself (`vfqn`), so `Evaluator.renormalize` re-fires it via the same binding
+    * the checker fetched to reduce the reference. Recognition is index-free through the impl marker; the qualifier gate
+    * inside [[ImplementationMarkerUtils.isImplementationMethodFor]] makes this a cheap no-op for every non-impl name. The
+    * marker is consulted on the compiler track, where `Eq[Type]` lives (types are erased, so it has no runtime use).
+    */
+  private def eqTypeEqualsNativeFor(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
+    ImplementationMarkerUtils
+      .isImplementationMethodFor(vfqn, "Eq", "equals", "Type", Platform.Compiler)
+      .map(Option.when(_)(typeEqualsNative(vfqn)))
 
   /** Function[A, B] is a curried native: first takes A (domain), then B (codomain), and produces VPi(A, _ => B). */
   private def functionNative: SemValue =
@@ -99,22 +126,25 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private def integerLiteralNative: SemValue =
     VNative(VTopDef(bigIntFQN, None, Spine.SNil), v => v)
 
-  /** `typeEquals(a: Type, b: Type): Bool` — the `Eq[Type]` leaf. Compares two types by their normal forms, which (since
+  /** `equals(a: Type, b: Type): Bool` — the `Eq[Type]` leaf. Compares two types by their normal forms, which (since
     * everything is forced/normalised first) is exactly the compiler's one notion of definitional equality read back as a
     * `Bool`. Concrete-only, and fail-safe: it reduces to `true`/`false` only when both arguments are fully concrete
     * normal forms, and otherwise stays stuck (a [[VStuckNative]]) rather than answering wrongly — so a non-concrete
     * argument hard-errors at read-back instead of comparing a `Type`-collapsed placeholder equal. At a real use site
     * arguments are always ground (`AbilityResolver` quotes before resolving), so the stuck case does not arise there.
     *
+    * `implFqn` is the impl-method FQN this native is bound to; the stuck form carries it so `Evaluator.renormalize`
+    * re-fires the native through the binding the checker already fetched for that reference.
+    *
     * Pure structural comparison, mirroring `Unifier.groundEquals`; it never goes through the [[Unifier]], whose equality
     * solves metas as a side effect (an equality *test* must not mutate the meta store).
     */
-  private def typeEqualsNative: SemValue =
-    VNative(VType, a => VNative(VType, b => typeEqualsResult(a, b)))
+  private def typeEqualsNative(implFqn: ValueFQN): SemValue =
+    VNative(VType, a => VNative(VType, b => typeEqualsResult(implFqn, a, b)))
 
-  private def typeEqualsResult(a: SemValue, b: SemValue): SemValue =
+  private def typeEqualsResult(implFqn: ValueFQN, a: SemValue, b: SemValue): SemValue =
     if (isConcrete(a) && isConcrete(b)) (if (structurallyEqual(a, b)) Evaluator.trueValue else Evaluator.falseValue)
-    else stuck(typeEqualsFQN, a, b)
+    else stuck(implFqn, a, b)
 
   /** A fully concrete normal form: `Type`, a ground constant, or a body-less constructor applied to concrete arguments.
     * Anything else (a metavariable, a neutral parameter, a lambda/native, a function type) is not concrete.

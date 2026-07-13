@@ -176,7 +176,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     * The marker is monomorphized on the **queried `platform`'s track** — the platform where the implementation (and its
     * synthesized marker) is declared, which is the only pool the marker exists in. The guard is still a compile-time
     * `Bool` computation, but it reduces on either track: its `Eq[Type]` instance lives in the base layer (on both
-    * source paths) and its `typeEquals` leaf is a platform-agnostic native. So a runtime-layer guarded instance (the
+    * source paths) and its `equals` leaf is a platform-agnostic native attached to that instance. So a runtime-layer guarded instance (the
     * `Throw` self-lift, `where E1 != E2`) is discharged on the runtime track — where its marker lives — while a
     * compiler-pool guarded instance is discharged on the compiler track.
     *

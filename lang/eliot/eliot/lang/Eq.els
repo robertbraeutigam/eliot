@@ -1,27 +1,23 @@
 import eliot.lang.Bool
 
-// The `Eq[Type]` instance and its native leaf. The `Eq` ability itself is declared abstractly in the base layer
-// (`stdlib/.../Eq.els`); this file re-declares it because name resolution is per-file — an `implement Eq` must be
-// colocated with the ability, so the file that hosts the instance must carry its own copy of the declaration, and the
-// layer merge then verifies the copies agree. This file lives in the `lang` base layer, so the instance resolves on
-// *both* source paths — deliberately: an ability-implementation guard (`where E1 != E2`) is discharged on the queried
-// platform's track, so a runtime-layer guarded instance needs `Eq[Type]` resolvable under the runtime pool too. The
-// comparison still only ever *reduces* at compile time (`typeEquals` is a compiler-supplied native with no runtime
-// body; types are erased at runtime).
+// The `Eq[Type]` instance. The `Eq` ability itself is declared abstractly in the base layer (`stdlib/.../Eq.els`);
+// this file re-declares it because name resolution is per-file — an `implement Eq` must be colocated with the ability,
+// so the file that hosts the instance must carry its own copy of the declaration, and the layer merge then verifies
+// the copies agree. This file lives in the `lang` base layer, so the instance resolves on *both* source paths —
+// deliberately: an ability-implementation guard (`where E1 != E2`) is discharged on the queried platform's track, so a
+// runtime-layer guarded instance needs `Eq[Type]` resolvable under the runtime pool too.
+//
+// `equals` is body-less: it is a compiler-supplied native leaf attached directly to this implementation (recognised by
+// `SystemNativesProcessor` via the ability-impl marker, the same "native on an ability implementation" wiring as
+// `Compare[BigInteger]`). Comparing two types is comparing their normal forms — the compiler's one notion of
+// definitional equality read back as a `Bool`; walking a value of unknown depth is a loop user code cannot express, so
+// it bottoms out on a native (like `fold`/`add`). The comparison only ever *reduces* at compile time; types are erased
+// at runtime, so there is no runtime body.
 
 ability Eq[A] {
    def equals(a: A, b: A): Bool
 }
 
-/**
- * Structural equality on types: `true` when `a` and `b` are the same type.
- *
- * A native leaf. Comparing two types is comparing their normal forms, which is the compiler's one notion of
- * definitional equality read back as a `Bool`; walking a value of unknown depth is a loop, which user code cannot
- * express, so it bottoms out here (like `fold`/`add`). The reduction is supplied by `SystemNativesProcessor`.
- */
-private def typeEquals(a: Type, b: Type): Bool
-
 implement Eq[Type] {
-   def equals(a: Type, b: Type): Bool = typeEquals(a, b)
+   def equals(a: Type, b: Type): Bool
 }

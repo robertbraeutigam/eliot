@@ -30,8 +30,8 @@ object ReducedBindingClosure {
     * This is how an ability-dispatched guard's bodied sub-values are reduced *per instantiation* (ability-guards Stage
     * 4): a guard `where E1 != E2` reaches the `Eq` method `equals` only inside `!=`'s body, so `equals` never resolves
     * off the marker's own signature. Reducing `!=` here at its inferred `[Type]` yields a body with `equals` already
-    * resolved to `Eq[Type]::equals` (and its `typeEquals` leaf folded in), which the signature read-back inlines to
-    * fully reduce the guard. Always the compiler track: a guard is a compile-time computation.
+    * resolved to `Eq[Type]::equals` (whose body-less native leaf then reduces the concrete comparison), which the
+    * signature read-back inlines to fully reduce the guard. Always the compiler track: a guard is a compile-time computation.
     */
   def reduceInstance(vfqn: ValueFQN, typeArguments: Seq[GroundValue]): CompilerIO[Option[SemValue]] =
     getFactIfProduced(CompilerMonomorphicValue.Key(vfqn, typeArguments)).flatMap {

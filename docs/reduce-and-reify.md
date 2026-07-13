@@ -293,7 +293,7 @@ also constant-folds a pure sub-term.
 `map`/`filter` are driven by an eliminator (`fold` / the data destructor), which in Eliot is a **native** (no
 user recursion). For NbE to evaluate `map` over a *concrete* `Cons/Nil` spine, that eliminator needs a
 **compiler-track reduction over concrete constructors** — the same pattern as the existing `add` / `Bool`-fold
-/ `typeEquals` compiler natives (`SystemNativesProcessor` / `ContributedBinding` / `CompilerNativesProcessor`;
+/ `Eq[Type]::equals` compiler natives (`SystemNativesProcessor` / `ContributedBinding` / `CompilerNativesProcessor`;
 see [compiler-as-platform.md](./compiler-as-platform.md)). It is a terminating unfold over an already-finite
 value. Without such a rule the transformation stays stuck as a `VStuckNative` and nothing folds. **Concrete
 work item: give the collection eliminator(s) a compiler-track reduction.**
