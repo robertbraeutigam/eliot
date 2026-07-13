@@ -45,13 +45,21 @@ implement[T ~ Compare[T]] Meta[Interval[T]] {
  * `Arithmetic`).
  */
 /**
- * True iff the interval `i` fits a signed byte — the width-named `where` precondition predicate for an `Int`'s tracked
- * range: `def useByte(x: Int): Int where withinByte(range(x))` demands, at each call, that the caller's computed range
- * for `x` fits a signed byte, reducing to a `Bool` over the argument's concrete interval. It bakes the width bounds
- * (from `BigInteger`'s `fitsByte`), so a `where` needs no `BigInteger` literals. Compiler-pool-only (the channel
- * evaluates it), like the interval arithmetic above.
+ * The inclusive bounds of a signed 8-bit `byte`, as `BigInteger` values. Named `def`s rather than bare literals in
+ * `withinByte` because a value-position integer literal types as `Int`, not `BigInteger`, and `withinByte` compares
+ * against the interval's `BigInteger` endpoints — the declared `BigInteger` return type ascribes the literal.
  */
-def withinByte(i: Interval[BigInteger]): Bool = fitsByte(start(i), end(i))
+def byteMin: BigInteger = -128
+def byteMax: BigInteger = 127
+
+/**
+ * True iff the interval `i` fits a signed byte (`[byteMin, byteMax]`) — the width-named `where` precondition predicate
+ * for an `Int`'s tracked range: `def useByte(x: Int): Int where withinByte(range(x))` demands, at each call, that the
+ * caller's computed range for `x` fits a signed byte, reducing to a `Bool` over the argument's concrete interval.
+ * Compiler-pool-only (the channel evaluates it), like the interval arithmetic above.
+ */
+def withinByte(i: Interval[BigInteger]): Bool =
+   lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
 
 /**
  * The lattice join of two intervals — the least interval containing both, `[min of the starts, max of the ends]`. The

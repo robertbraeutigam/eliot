@@ -1,24 +1,6 @@
-import eliot.lang.Bool
-import eliot.lang.Compare
-
 type BigInteger
 
 /**
  * The successor of `bi` (`bi + 1`).
  */
 def inc(bi: BigInteger): BigInteger
-
-/**
- * The inclusive bounds of a signed 8-bit `byte`. The single definition of each boundary, referenced by `fitsByte`
- * rather than repeating the literals.
- */
-def byteMin: BigInteger = -128
-def byteMax: BigInteger = 127
-
-/**
- * Whether the range `[min, max]` fits in a signed byte — i.e. `[min, max]` is fully contained in `[byteMin, byteMax]`.
- * The width-containment predicate the `withinByte` `where` precondition dispatches on; reduces to a `Bool` once the
- * bounds are concrete.
- */
-def fitsByte(min: BigInteger, max: BigInteger): Bool =
-  lessThanOrEqual(byteMin, min) && lessThanOrEqual(max, byteMax)
