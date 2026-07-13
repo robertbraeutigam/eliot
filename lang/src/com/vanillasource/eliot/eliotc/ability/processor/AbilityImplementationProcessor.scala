@@ -26,7 +26,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
   /** How one candidate implementation fared at the queried type arguments: kept (pattern matched, guard admitted),
-    * declined (no structural match, or the guard reduced to `false`), or rejected (the guard `error(msg)`-ed —
+    * declined (no structural match, or the guard reduced to `false`), or rejected (the guard `raise(msg)`-ed —
     * ability-guards §3.1).
     */
   private enum Verdict {
@@ -170,7 +170,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     * slot (§2.3): an unguarded marker's slot is the literal `eliot.lang.Bool::true` reference, kept verbatim without
     * evaluation (and without paying to monomorphize the marker). Any other slot is a real guard, discharged at the
     * concrete match binding by monomorphizing the marker and reading its reduced return. Three verdicts (§3.1): `true`
-    * keeps, `false` declines (resolution falls through to another instance), `error(msg)` rejects with the author's
+    * keeps, `false` declines (resolution falls through to another instance), `raise(msg)` rejects with the author's
     * message — carried on the [[Resolution.Rejected]] outcome for the demanding use site to report.
     *
     * The marker is monomorphized on the **queried `platform`'s track** — the platform where the implementation (and its

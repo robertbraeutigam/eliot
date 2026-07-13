@@ -1,10 +1,11 @@
 package com.vanillasource.eliot.eliotc.jvm
 
 /** End-to-end coverage of effectful-signatures **G1**: a guarded return type written with the standard guard combinator
-  * vocabulary (`eliot.lang.Guard` — `error`/`when`/`orError`) over the carrier, compiled through the real pipeline with
-  * the shipped `compiler`-layer `Either`/`Option` carriers + combinator bodies.
+  * vocabulary (`eliot.lang.Guard` — `when`/`orError`, plus a bare `raise` for an unconditional rejection) over the
+  * carrier, compiled through the real pipeline with the shipped `compiler`-layer `Either`/`Option` carriers + combinator
+  * bodies.
   *
-  * The combinators carry the `{Throw[String]}` **effect sugar** signature (`error`/`orError` return `{Throw[String]} A`):
+  * The combinators carry the `{Throw[String]}` **effect sugar** signature (`orError` returns `{Throw[String]} A`):
   * their bodies express rejection as `raise` and acceptance as `pure`, which the compiler backend reduces to `Left(msg)`
   * / `Right(t)`. The guard is then an ordinary application the NbE checker reduces to `Right(t)` / `Left(msg)`, and the
   * discharge accepts the type or rejects with the author's message. So a satisfied guard compiles and runs as if the
@@ -43,12 +44,12 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("greeting unavailable"))
   }
 
-  "a bare `error(msg)` guard" should "fail the build with the author message" in {
+  "a bare `raise(msg)` guard" should "fail the build with the author message" in {
     compileForErrors(
       """import eliot.effect.Console
-        |import eliot.lang.Guard
+        |import eliot.effect.Throw
         |
-        |def unavailable: error("not available") = "x"
+        |def unavailable: raise("not available") = "x"
         |
         |def main: IO[Unit] = printLine(unavailable)""".stripMargin
     ).asserting(_ should include("not available"))

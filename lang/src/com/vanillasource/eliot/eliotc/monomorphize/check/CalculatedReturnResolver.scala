@@ -224,7 +224,7 @@ class CalculatedReturnResolver(
     * `true` here means "accept this as a guarded return", since the kind check would otherwise reject `Either[..]` /
     * `Bool` as ≠ `Type`. A *normal* `Bool` or `Either[..]` used as a *return type* infers kind `Type` (a fully-applied
     * type constructor `Either[String, Int]` is a type), so `inferred` is `VType` there and this is unaffected — only a
-    * `Bool`/`Either`-*typed value* sitting in a type position (a `true` / `E1 != E2` / `error("…")`) is a guard.
+    * `Bool`/`Either`-*typed value* sitting in a type position (a `true` / `E1 != E2` / `raise("…")`) is a guard.
     */
   def isGuardCarrier(inferred: SemValue): CheckIO[Boolean] =
     force(inferred).map {

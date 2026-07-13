@@ -12,10 +12,9 @@ import eliot.effect.Throw
  * def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "head requires a non-empty Seq"
  * ```
  * The combinators also work on ordinary `Option`/`Either` values, since in Eliot types are values.
+ *
+ * A guard that *always* rejects is just `raise msg` from `eliot.effect.Throw` — there is no separate combinator for it.
  */
-
-/** A guard that always rejects with message `msg`. */
-def error[A](msg: String): {Throw[String]} A
 
 /** Keep `a` when `cond` holds and drop it otherwise: `a when cond` is `some(a)` if `cond` is `true`, else `none`. */
 infix def when[A](a: A, cond: Bool): Option[A]

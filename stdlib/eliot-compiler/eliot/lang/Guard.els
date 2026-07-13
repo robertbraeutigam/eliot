@@ -11,13 +11,11 @@ import eliot.effect.Throw
 // `Effect[Either[String]]` instances (compiler/eliot/eliot/lang/Either.els) and reduced by the compiler backend into
 // the concrete `Left`/`Right`. The signature is the `{Throw[String]}` effect sugar (matching the abstract declaration
 // in eliot.lang.Guard); its carrier is pinned to the compile-time `Either[String]` on the compiler track. The `raise`
-// in `error` and the `error(msg)` branch of `orError` stay *branch values* rather than being sequenced, because
-// `foldOption`'s `ifNone: B` is a flex eliminator slot the checker's effect lift defers and then passes through
-// (the effectful result rides the eliminator's own return; see docs/effect-lift-in-checker.md).
-
-def error[A](msg: String): {Throw[String]} A = raise(msg)
+// in the reject branch of `orError` stays a *branch value* rather than being sequenced, because `foldOption`'s
+// `ifNone: B` is a flex eliminator slot the checker's effect lift defers and then passes through (the effectful result
+// rides the eliminator's own return; see docs/effect-lift-in-checker.md).
 
 infix def when[A](a: A, cond: Bool): Option[A] = fold(cond, Some(a), None)
 
 infix at when
-def orError[A](o: Option[A], msg: String): {Throw[String]} A = foldOption(o, error(msg), pure)
+def orError[A](o: Option[A], msg: String): {Throw[String]} A = foldOption(o, raise(msg), pure)

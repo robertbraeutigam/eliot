@@ -47,7 +47,7 @@ object AbilityImplementation {
       */
     case NoImplementation
 
-    /** A `where` guard rejected this instantiation outright (`error(msg)` on the compile-time `Throw[String]`
+    /** A `where` guard rejected this instantiation outright (`raise(msg)` on the compile-time `Throw[String]`
       * channel), carrying the instance authors' messages — a hard error at every demanding use site.
       */
     case Rejected(messages: Seq[String])

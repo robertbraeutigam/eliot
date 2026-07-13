@@ -1102,7 +1102,7 @@ class MonomorphicTypeCheckTest
   // designed `Option`-mediated `when`/`orError` additionally need a compile-time `Option` carrier (a CP4-style
   // promotion — its auto-generated `match` ability must reduce at check time), which is a separate G1 sub-task.
   private val combinators: String =
-    "def error[A](msg: String): Either[String, A] = Left(msg)\n" +
+    "def fail[A](msg: String): Either[String, A] = Left(msg)\n" +
       "def requireOr[A](cond: Bool, a: A, msg: String): Either[String, A] = fold(cond, Right(a), Left(msg))\n"
 
   // A guard in application form (no parser change): a satisfied (`COND`) `head` types as its element, an unsatisfied
@@ -1125,8 +1125,8 @@ class MonomorphicTypeCheckTest
     runCombinator(combinatorHead, name = "head", typeArgs = Seq(falseArg)).asserting(_ shouldBe Seq("empty" at "head"))
   }
 
-  it should "reject a bare `error(msg)` guard with the author message" in {
-    runCombinator(combinators + "def foo: error(\"boom\")", name = "foo", typeArgs = Seq.empty)
+  it should "reject a bare `fail(msg)` guard with the author message" in {
+    runCombinator(combinators + "def foo: fail(\"boom\")", name = "foo", typeArgs = Seq.empty)
       .asserting(_ shouldBe Seq("boom" at "foo"))
   }
 
