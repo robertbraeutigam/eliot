@@ -136,7 +136,7 @@ object Evaluator {
     * stuck native that would otherwise be dropped. `deep` is therefore used **only post-drain at quote time**
     * ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]]), where every metavariable is already
     * solved, so collapsing a binder's metas while descending is safe — unlike the shallow check-time use (e.g. the
-    * application-result renormalisation), which must not collapse a still-combinable result meta mid-checking.
+    * application-result renormalisation), where metas under a binder may still be open mid-checking.
     *
     * `lookupNative` is the checker's binding cache (`vfqn => bindingCache.getOrElse(vfqn, None)`), which already holds
     * every native reachable from the term (prefetched before evaluation).

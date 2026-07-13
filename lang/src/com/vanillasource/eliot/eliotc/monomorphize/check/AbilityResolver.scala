@@ -13,8 +13,8 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-/** The ability-resolution *saturation* concern (the fourth checker collaborator, symmetrical with `solver` / `carriers`
-  * / `calcReturns`): discovering every ability-qualified value reference and resolving each to its concrete impl,
+/** The ability-resolution *saturation* concern (a checker collaborator, symmetrical with `carriers` /
+  * `calcReturns`): discovering every ability-qualified value reference and resolving each to its concrete impl,
   * factored out of the [[TypeStackLoop]]'s post-drain fold. None of this is definitional equality: it re-enters
   * `getFact` to read an ability marker's arity, and it drives the `resolve-abilities` fixed-point pass.
   *

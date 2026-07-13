@@ -28,7 +28,7 @@ import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
   * `None` for a body-less one (a native leaf, whose checking implementation is a native — never an empty binding that
   * would shadow a reducing native, the `add` bug). So a pure platform body (jvm's `foldEither`, an `Effect[IO]` method)
   * becomes a compile-time `Body` and reduces if forced, whereas a body that bottoms out in a bytecode leaf
-  * (`nativeWiden`, `nativeAdd`) reduces only until it stalls on that leaf, surfacing a loud stuck term rather
+  * (`nativeAdd`) reduces only until it stalls on that leaf, surfacing a loud stuck term rather
   * than a silently wrong reduction, and a bare native leaf stays `None`.
   *
   * **Totality without spurious errors.** The [[BindingMergerProcessor]] consults this label for *every* name. A name is

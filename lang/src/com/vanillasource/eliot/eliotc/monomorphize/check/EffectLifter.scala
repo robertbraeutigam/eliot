@@ -10,12 +10,11 @@ import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** The type-directed effect auto-lift (the fifth checker collaborator — docs/effect-lift-in-checker.md): the check-mode
+/** The type-directed effect auto-lift (a checker collaborator — docs/effect-lift-in-checker.md): the check-mode
   * elaboration that decides, per argument slot, whether an effectful term (type `C[T']` for an effect carrier `C`)
   * flowing into a pure position must be *bound* (sequenced with `Effect.flatMap`/`map`) or a pure term flowing into a
   * carrier-typed position *lifted* (`Effect.pure`). The resolution ladder runs unify → bind-lift (argument positions
-  * only) → pure-wrap → mismatch. (It once ended in a `Coerce` widening probe before the mismatch; that probe was
-  * removed at Step 7a — `docs/bounds-as-refinements.md` — once `Int == Int` made widening unnecessary.)
+  * only) → pure-wrap → mismatch.
   *
   * None of this is definitional equality: `unify` never lifts — the arms fire only after speculative unification
   * failed (or, for the two shapes unification can only *postpone*, the [[mustLiftBeforeUnify]] /
@@ -103,8 +102,7 @@ class EffectLifter(
     * arguments — the shape `?F[T'] ~ H r..` with `arity(H) < arity(?F's spine)` (e.g. `?F[String] ~ String`), which
     * pattern unification can only *postpone*, never solve (no injective `F` exists — the same unsatisfiability shape
     * `CarrierKindChecker.verifyCarrierKinds` reports post-drain). Waiting for a unification failure would mask the
-    * lift behind that doomed postponement. A `Coerce` cannot fire on this shape either (the unsolved carrier meta
-    * cannot quote to ground), so consulting the lift arm first preserves the ladder's semantics exactly. A *concrete*
+    * lift behind that doomed postponement, so the lift arm is consulted first. A *concrete*
     * carrier head (`IO[String]` against `String`) mismatches properly, so it takes the ordinary failure path.
     */
   def mustLiftBeforeUnify(actual: SemValue, expected: SemValue): CheckIO[Boolean] =

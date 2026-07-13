@@ -163,9 +163,8 @@ class TypeStackLoop(
                    )
       groundSig <- liftF(quoter.quoteSem(finalSig, resolvedValue.typeStack))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
-      // (Refinement reconciliation retired with the flag day, `docs/bounds-as-refinements.md` Step 7b: `Int == Int`
-      // leaves no coercion payload to splice; narrow-representation reconciliation now happens in the backend's
-      // `ExpressionCodeGenerator` off the refinement channel, so the body is read back directly.)
+      // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
+      // channel, so the body is read back directly.
       monoBody  <- runtime.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
     } yield TypeStackLoop.Result(
       groundSig,

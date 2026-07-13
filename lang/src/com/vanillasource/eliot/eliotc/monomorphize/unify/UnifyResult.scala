@@ -6,7 +6,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.unify
   * at four call sites across three files.
   *
   * `tryUnify` runs the unification but never commits a mismatch; the *caller* decides what a contradiction means
-  * (pursue a `Coerce` insertion, accumulate a `Combine` candidate, re-postpone in [[Unifier.drain]], or finally
+  * (pursue a lift-arm elaboration, re-postpone in [[Unifier.drain]], or finally
   * report the mismatch). Both cases carry the resulting [[Unifier]] — every metavariable solved along the way is
   * preserved — so the only thing the result distinguishes is whether the unification reached a contradiction.
   */
@@ -27,7 +27,7 @@ object UnifyResult {
 
   /** The two sides are not definitionally equal. [[unifier]] carries whatever metavariables were solved before the
     * contradiction was reached, but with the new mismatch errors removed — the caller decides whether to report a
-    * mismatch, attempt a coercion, accumulate a `Combine` candidate, or re-postpone. A caller that wants a clean
+    * mismatch, attempt a lift-arm elaboration, or re-postpone. A caller that wants a clean
     * rollback simply discards it and keeps its own pre-unification state.
     */
   case class Contradiction(unifier: Unifier) extends UnifyResult

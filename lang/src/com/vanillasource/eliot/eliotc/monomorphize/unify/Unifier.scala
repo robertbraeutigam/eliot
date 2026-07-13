@@ -20,10 +20,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   Accumulated errors with source positions and (when available) the expected and actual semantic values.
   *
   * This is *pure definitional (value) equality* with metavariable solving on top: it forces both sides through the
-  * evaluator (= normalises) and compares. There is no notion of "assignability" or directional widening here.
-  * Unification is pure definitional equality — first-candidate-wins on a mismatch. Since the refinement channel's flag
-  * day made `Int == Int`, the former directional-widening (`Coerce`) and covariant branch-join (`Combine`) machinery is
-  * gone (`docs/bounds-as-refinements.md` Steps 7a/7b); nothing intercepts a mismatch to accumulate candidates.
+  * evaluator (= normalises) and compares. There is no notion of "assignability", directional widening, or branch
+  * joining here — a mismatch is a mismatch.
   *
   * Per-metavariable metadata lives in [[metaRoles]] — one [[MetaRole]] per meta id (D2), the single map that subsumes
   * the former scattered side-sets. Today it carries only the [[MetaRole.Instantiation]] carrier aspects (carrier kind,
@@ -111,7 +109,7 @@ case class Unifier(
     * rather than forcing callers to diff [[errors]] before and after a [[unify]] call. A [[UnifyResult.Unified]]
     * carries the unifier with every solution applied (safe to commit); a [[UnifyResult.Contradiction]] carries the same
     * partial solutions but with the new mismatch errors stripped, leaving the report-or-recover decision to the caller
-    * (a check-mode `Coerce` insertion, a `Combine` candidate, or a [[drain]] re-postpone).
+    * (a check-mode lift-arm elaboration, or a [[drain]] re-postpone).
     */
   def tryUnify(l: SemValue, r: SemValue, context: Sourced[String]): UnifyResult =
     speculate(unify(l, r, context))
@@ -180,9 +178,8 @@ case class Unifier(
       case (lhs, VMeta(id, spine))                                        =>
         solveMeta(id, spine, lhs, context)
 
-      // VTopDef equality by FQN: same constructor → unify spines pointwise (definitional equality). Differing bounds
-      // (e.g. Int[0,5] vs Int[0,10]) are genuinely unequal values and are rejected here; directional widening is the
-      // Coerce ability's job in check mode, not the unifier's.
+      // VTopDef equality by FQN: same constructor → unify spines pointwise (definitional equality). Constructors
+      // applied to differing arguments are genuinely unequal values and are rejected here.
       case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
         unifySpines(fl, fr, sp1, sp2, context)
 
@@ -203,8 +200,7 @@ case class Unifier(
   private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unifier =
     metaStore.lookup(id) match {
       case Some(solved) =>
-        // Already solved — unify the solution (with spine applied) against rhs. (A contribution to a solved combinable
-        // meta is intercepted earlier, in `unify`, before forcing; by here the meta has already been forced away.)
+        // Already solved — unify the solution (with spine applied) against rhs.
         val applied = spine.toList.foldLeft(solved)(Evaluator.applyValue)
         unify(applied, rhs, context)
       case None         =>
@@ -297,17 +293,16 @@ case class Unifier(
     * convert every constraint still postponed into a hard mismatch error with its recorded context — unless a triage
     * classifies it benign.
     *
-    * A leading triage re-[[drain]] runs first — with the metas now defaulted (e.g. a `Plain`/`Instantiation` meta
-    * solved to [[SemValue.VType]]), a constraint that was only waiting on those metas trivially re-verifies and is
+    * A leading triage re-[[drain]] runs first — with the metas now defaulted to [[SemValue.VType]], a constraint that
+    * was only waiting on those metas trivially re-verifies and is
     * discharged. Whatever remains postponed after that is, in general, an equality obligation the check could never
     * discharge; per the fail-safe rule it must surface as an error rather than be silently carried along and forgotten
     * (the hole that let pre-fix applied-associated-type garbage compile — see TODO.md).
     *
-    * Two shapes are exempt because a *more precise* fail-safe already owns them (see [[isBenignPostponement]]): an
-    * applied abstract associated type — postponed here by design for the associated-type reducer — and a `$bad-apply`
-    * head, the read-back artifact of a phantom meta defaulted to a non-applicable value. Flushing those would reject
-    * currently-correct programs (the guard/effectful-signature discharge and `Interval`'s `MulResult` corners) whose
-    * types are settled through those other channels, never through this postponed constraint. The genuine class this
+    * One shape is exempt because a *more precise* fail-safe already owns it (see [[isBenignPostponement]]): a
+    * `$bad-apply` head, the read-back artifact of a phantom meta defaulted to a non-applicable value. Flushing it
+    * would reject currently-correct programs whose types are settled through other channels (e.g. the
+    * guard/effectful-signature discharge), never through this postponed constraint. The genuine class this
     * flush is the sole backstop for — a postponed application whose meta *did* solve to a concrete head that then
     * mismatches the other side — is caught.
     *

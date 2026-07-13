@@ -58,8 +58,8 @@ class Checker(
   private[check] val abilityResolver: AbilityResolver =
     new AbilityResolver(resolveAbility, platform)
 
-  /** The type-directed effect auto-lift (the fifth collaborator — docs/effect-lift-in-checker.md): the check-mode
-    * elaboration arms 3–4 of the resolution ladder (bind-lift at argument positions, pure-wrap against an
+  /** The type-directed effect auto-lift (docs/effect-lift-in-checker.md): the check-mode elaboration arms of the
+    * resolution ladder (bind-lift at argument positions, pure-wrap against an
     * ambient-carrier-typed expectation) plus the `Effect.flatMap`/`map`/`pure` node assembly. A non-equality
     * *elaboration* concern, kept out of this checker's definitional-equality core. Consulted from the shared
     * resolution ladder ([[resolveLadder]], `allowBindLift` selecting the bind-lift arm at argument positions) and the
@@ -313,10 +313,8 @@ class Checker(
                                      }
     } yield out
 
-  /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: the lift arms are
-    * tried BEFORE the `Coerce` probe (whose ability-fact side effects would fail the build on a shape a lift arm
-    * resolves — the arms' guards are disjoint from every coercible shape, so widening behaviour is untouched). The
-    * bind-lift arm (arm 3) is consulted only at argument positions (`allowBindLift`).
+  /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: try the bind-lift
+    * arm (argument positions only, `allowBindLift`), then the pure-wrap arm, and finally commit the exact mismatch.
     */
   private def resolveFailureLadder(
       tm: Sourced[OperatorResolvedExpression],
@@ -436,9 +434,7 @@ class Checker(
   }
 
   /** Infer a value reference's type from its saturated signature, applying the given (already-evaluated) explicit type
-    * arguments. Shared by [[infer]]'s `ValueReference` case and the associated-type application spine head in
-    * [[inferSpine]] (an application spine headed by an abstract associated type IS its explicit instantiation — the
-    * member's parameters are the ability's binders).
+    * arguments.
     */
   private def inferValueReference(
       tm: Sourced[OperatorResolvedExpression],
@@ -703,12 +699,11 @@ class Checker(
                                    case SlotOutcome.Bound(_, bind) => inspect(_.paramNeutral(bind.name))
                                    case _                          => evalExpr(arg.value)
                                  }
-      // The codomain may embed a native applied to the target's instantiation metas — e.g. `+`'s result type
+      // The codomain may embed a native applied to the target's instantiation metas — e.g. a dependent result type
       // `Int[add(LMin,RMin), …]`. Those bounds are solved by the argument checks just above, so renormalise the
       // codomain now to re-fire the natives (`add(3,4) ⤳ 7`) before the type reaches unification or quoting. A *bare*
-      // metavariable result (a result-position type parameter, e.g. `pick[A](a,b): A`) is left untouched: forcing it to
-      // its provisional first candidate would destroy the combinable-meta signal the `check` fallback uses to defer the
-      // `Combine` join (see `check` / resolveUpperBounds).
+      // metavariable result (a result-position type parameter, e.g. `pick[A](a,b): A`) has nothing to re-fire and is
+      // left untouched; it resolves through the meta store wherever it is next forced.
       rawRetType               = vpi.codomain(argSem)
       retType                 <- rawRetType match {
                                    case _: VMeta => pure(rawRetType)
@@ -819,8 +814,7 @@ class Checker(
                                     bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
                                     (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
                                     resolved                   <- expected match {
-                                                                    // Plain definitional equality (the `Coerce` widening
-                                                                    // fallback retired at Step 7a): on a contradiction
+                                                                    // Plain definitional equality: on a contradiction
                                                                     // commit a single Expected/Actual mismatch rather
                                                                     // than the unifier's per-type-argument spine errors.
                                                                     case Some(exp) =>
