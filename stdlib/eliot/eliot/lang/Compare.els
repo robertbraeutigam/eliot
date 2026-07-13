@@ -30,13 +30,3 @@ def min[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), a, b)
  * The larger of `a` and `b` (`b` on a tie).
  */
 def max[A ~ Compare](a: A, b: A): A = fold(lessThanOrEqual(a, b), b, a)
-
-/**
- * `BigInteger` supplies `Compare` natively. The implementation is deliberately body-less: comparing two
- * arbitrary-precision integers is a compiler/backend leaf (`BigInteger` has no in-language representation), so the
- * native reduction is attached directly to this implementation method's namespace rather than through a separate
- * wrapper function.
- */
-implement Compare[BigInteger] {
-   def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
-}
