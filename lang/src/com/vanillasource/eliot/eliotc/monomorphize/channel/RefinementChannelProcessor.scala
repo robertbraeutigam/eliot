@@ -272,15 +272,13 @@ class RefinementChannelProcessor
     }
 
   private def isBoolTrue(gv: GroundValue): Boolean = gv match {
-    case GroundValue.Direct(true, _)      => true
-    case GroundValue.Structure(fqn, _, _) => fqn == WellKnownTypes.boolTrueFQN
-    case _                                => false
+    case GroundValue.Direct(true, _) => true
+    case _                           => false
   }
 
   private def isBoolFalse(gv: GroundValue): Boolean = gv match {
-    case GroundValue.Direct(false, _)     => true
-    case GroundValue.Structure(fqn, _, _) => fqn == WellKnownTypes.boolFalseFQN
-    case _                                => false
+    case GroundValue.Direct(false, _) => true
+    case _                            => false
   }
 
   /** Flatten a curried application into its ultimate head and its arguments in source order. */

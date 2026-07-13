@@ -129,79 +129,25 @@ class PostDrainQuoter(
   private def quoteSourcedIn(
       expr: Sourced[SemExpression],
       evalEnv: Env
-  ): CompilerIO[Sourced[MonomorphicExpression]] =
-    trySelectFold(expr, evalEnv).getOrElse {
-      val node       = expr.value.expression
-      val refs       = collectParamRefs(node)
-      val hasErased  = refs.exists(erasedParams.contains)
-      val hasRuntime = refs.exists(isRuntimeParam(_, evalEnv)) || containsLambda(node)
-      if (hasErased && !hasRuntime)
-        tryMaterialise(expr, evalEnv).flatMap {
-          case Some(mono) => mono.pure[CompilerIO]
-          case None       =>
-            node match {
-              case _: SemExpression.FunctionApplication => structuralQuote(expr, evalEnv)
-              case _                                    =>
-                compilerAbort(
-                  expr.as("Value depends on a compile-time parameter but does not reduce to a constant.")
-                )
-            }
-        }
-      else structuralQuote(expr, evalEnv)
-    }
-
-  /** Compile-time branch selection for the `Bool` eliminator `fold` (`WellKnownTypes.boolFoldFQN`) when its condition
-    * is a compile-time constant.
-    *
-    * The width dispatch (`Int`'s `+`/`-`/`*` bodies) is a tree of `fold(fitsIn[...], leafA, leafB)` whose
-    * '''condition''' is fully determined by erased type-stack bounds but whose '''branches''' carry runtime values
-    * (`left`/`right`). The whole-node reification gate cannot fire (the branches are not erased-determined), yet the
-    * fold must still collapse so the compile-time-only `fitsIn`/`fold` never reach the backend and only the one
-    * selected leaf native survives.
-    *
-    * So: evaluate '''only the condition'''. If it forces to a ground `true`/`false`, emit the structurally-quoted
-    * selected branch — keeping that branch's runtime content verbatim — and drop the other. A condition that stays
-    * abstract (a genuine runtime `Bool`, e.g. user `fold(isEven, …)`) yields [[None]], leaving an ordinary `fold`
-    * application for the normal read-back. This is exactly `fold`'s documented native semantics ("reduces when the
-    * condition is a concrete `true`/`false`"), lifted to the expression read-back so runtime branch content is
-    * preserved rather than evaluated to a constant.
-    */
-  private def trySelectFold(
-      expr: Sourced[SemExpression],
-      evalEnv: Env
-  ): Option[CompilerIO[Sourced[MonomorphicExpression]]] =
-    foldApplication(expr.value.expression).flatMap { case (cond, whenTrue, whenFalse) =>
-      Evaluator.force(semEvaluator.eval(evalEnv, cond.value), metaStore) match {
-        case SemValue.VConst(GroundValue.Direct(b: Boolean, _)) =>
-          Some(quoteSourcedIn(if (b) whenTrue else whenFalse, evalEnv))
-        case _                                                  => None
+  ): CompilerIO[Sourced[MonomorphicExpression]] = {
+    val node       = expr.value.expression
+    val refs       = collectParamRefs(node)
+    val hasErased  = refs.exists(erasedParams.contains)
+    val hasRuntime = refs.exists(isRuntimeParam(_, evalEnv)) || containsLambda(node)
+    if (hasErased && !hasRuntime)
+      tryMaterialise(expr, evalEnv).flatMap {
+        case Some(mono) => mono.pure[CompilerIO]
+        case None       =>
+          node match {
+            case _: SemExpression.FunctionApplication => structuralQuote(expr, evalEnv)
+            case _                                    =>
+              compilerAbort(
+                expr.as("Value depends on a compile-time parameter but does not reduce to a constant.")
+              )
+          }
       }
-    }
-
-  /** Match a three-argument application of the `Bool` eliminator `fold`, returning its `(condition, whenTrue,
-    * whenFalse)` argument expressions. `fold`'s leading `[A]` type argument rides on the head value reference, so the
-    * value spine is exactly the three arguments.
-    */
-  private def foldApplication(
-      node: SemExpression.Expression
-  ): Option[(Sourced[SemExpression], Sourced[SemExpression], Sourced[SemExpression])] =
-    node match {
-      case SemExpression.FunctionApplication(f2, whenFalse) =>
-        f2.value.expression match {
-          case SemExpression.FunctionApplication(f1, whenTrue) =>
-            f1.value.expression match {
-              case SemExpression.FunctionApplication(head, cond) =>
-                head.value.expression match {
-                  case SemExpression.ValueReference(vfqn, _) if vfqn.value === WellKnownTypes.boolFoldFQN =>
-                    Some((cond, whenTrue, whenFalse))
-                  case _                                                                                  => None
-                }
-              case _                                             => None
-            }
-          case _                                               => None
-        }
-      case _                                                => None
-    }
+    else structuralQuote(expr, evalEnv)
+  }
 
   /** The normal structural read-back: quote this node's type slot and recurse into its children (unchanged from the
     * pre-reification behaviour, except that `evalEnv` is threaded for the gate to use deeper).

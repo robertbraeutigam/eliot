@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   bigIntFQN,
   boolFQN,
   boolFalseFQN,
-  boolFoldFQN,
   boolTrueFQN,
   functionDataTypeFQN,
   integerLiteralFQN,
@@ -33,9 +32,10 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   *
   * Bool is declared opaque in the language (`type Bool`); its compile-time representation is supplied here as
   * `VConst(Direct(Boolean, …))` so type-level predicates reduce during checking, and `fold` (an eliminator over an
-  * opaque `Bool` — not *the* way to branch; value/type match are the case-analysis primitives, see
-  * `WellKnownTypes.boolFoldFQN` — which the checker collapses at compile time via `PostDrainQuoter`) selects a branch
-  * when its condition is concrete. Library Bool/BigInteger operations whose reduction the compiler merely supplies but does not
+  * opaque `Bool` — *an* eliminator, not *the* way to branch: value/type match are the case-analysis primitives, and a
+  * platform may define any number of other branching functions) reduces like any other native, selecting a branch when
+  * its condition is concrete and staying stuck otherwise; the compiler special-cases nothing about it. Library
+  * Bool/BigInteger operations whose reduction the compiler merely supplies but does not
   * reason about (`&&`, `lessThanOrEqual`, the arithmetic natives backing `Int`'s dependent bounds) live in the stdlib
   * layer's `StdlibNativesProcessor`, not here.
   *
@@ -50,6 +50,12 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] {
 
   private val boolType: SemValue = VTopDef(boolFQN, None, Spine.SNil)
+
+  /** `eliot.lang.Bool::fold` — the compile-time native this processor supplies a reduction for. Owned here (not in
+    * `WellKnownTypes`) because `fold` is not a well-known compiler construct: it is one ordinary `Bool` eliminator
+    * among however many a platform cares to define, reduced exactly like any other native — the compiler special-cases
+    * nothing about it. */
+  private val boolFoldFQN: ValueFQN = ValueFQN(boolFQN.moduleName, QualifiedName("fold", Qualifier.Default))
 
   /** The canonical stuck form of a native: a [[VStuckNative]] carrying the native's own FQN and the (not-yet-concrete)
     * arguments as its spine. Keeping the FQN is what lets distinct stuck natives stay definitionally distinct and lets
