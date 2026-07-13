@@ -33,9 +33,20 @@ object NativeImplementation {
       (systemEffectValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
       (systemEffectValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
       (systemEffectValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
-      (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit),
-      (systemLangValueFQN("Eq", "stringEquals"), eliot_lang_Eq_stringEquals)
+      (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit)
     )
+  )
+
+  /** Natives attached *directly* to an ability-implementation method, rather than to a plain `Default`-qualified leaf
+    * keyed in [[implementations]]. An impl method's FQN carries a per-module index assigned during resolution, so it
+    * cannot be keyed statically; it is recognised by `(ability, method, dispatch type)` through the impl marker
+    * ([[ImplementationMarkerUtils.isImplementationMethodFor]], done in [[JvmClassGenerator]]). Because the emitted method
+    * must carry the impl method's *mangled* name (not the native's own local name), each maker takes that name and
+    * produces the native for it — the value-level counterpart of `StdlibNativesProcessor`'s compile-time `Eq[String]`
+    * native. `Eq[String]::equals` is realised as `String.equals`; further runtime ability leaves are added here.
+    */
+  val abilityImplementations: Seq[(String, String, String, JvmIdentifier => NativeImplementation)] = Seq(
+    ("Eq", "equals", "String", eliot_lang_Eq_String_equals)
   )
 
   private def systemLangValueFQN(moduleName: String, valueName: String): ValueFQN =
@@ -87,16 +98,18 @@ object NativeImplementation {
         }
   }
 
-  /** `stringEquals(a: String, b: String): Bool` — the value-equality leaf behind the runtime `Eq[String]` instance
-    * (`jvm/.../Eq.els`). Realised as `Boolean.valueOf(a.equals(b))`, so the opaque `Bool` result is the boxed
-    * `java.lang.Boolean` the backend carries `Bool` as (see [[NativeType]]). Pure (`impure = false`), so it may stay a
-    * plain — here `private` — leaf. Its compile-time counterpart is `StdlibNativesProcessor.stringEquals`.
+  /** `Eq[String]::equals(a: String, b: String): Bool` — the value-equality leaf behind the runtime `Eq[String]`
+    * instance (`stdlib/.../String.els`, body-less). Realised as `Boolean.valueOf(a.equals(b))`, so the opaque `Bool`
+    * result is the boxed `java.lang.Boolean` the backend carries `Bool` as (see [[NativeType]]). Emitted under the impl
+    * method's mangled `methodName` (passed in) so call sites resolving `==`/`!=` on strings bind to it. Pure
+    * (`impure = false`), so it may be `public`. Its compile-time counterpart is `StdlibNativesProcessor`'s `Eq[String]`
+    * native.
     */
-  private def eliot_lang_Eq_stringEquals: NativeImplementation = new NativeImplementation {
+  private def eliot_lang_Eq_String_equals(methodName: JvmIdentifier): NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] =
       classGenerator
         .createMethod[CompilerIO](
-          JvmIdentifier("stringEquals"),
+          methodName,
           Seq(systemLangType("String"), systemLangType("String")),
           systemLangType("Bool")
         )

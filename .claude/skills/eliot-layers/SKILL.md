@@ -61,7 +61,8 @@ an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the releva
 | `ability X` | **stdlib** | re-declared (copied) in any layer file hosting an `implement X` — see duplication below |
 | `implement X[T]` with a runtime/value payload | with `T`'s `data` (jvm) or `X`'s module | body needs `T`'s ctor, which lives with the `data` |
 | pure **type-level** `implement` (no runtime payload) | **stdlib** | e.g. `Combine[Int,Int]` |
-| value-converting `implement` | **jvm** | e.g. `Coerce[Int,Int]` (does `nativeWiden`) |
+| **body-less** `implement X[T]` (methods are native leaves attached per-platform) | **stdlib** (base) | representation-free *declaration*, so it lives once and both pools borrow it; each platform attaches the leaf (jvm backend + `*NativesProcessor`). e.g. `Eq[String]` in `String.els`, `Compare[BigInteger]`/`Numeric[BigInteger]` — even though value-level |
+| value-converting `implement` **with an Eliot body** | **jvm** | e.g. `Coerce[Int,Int]` (its body does `nativeWiden`) |
 | something the compiler must evaluate at compile time, expressible in Eliot | **borrow** it if pure & already on the path; else the owning layer's **`eliot-compiler/`** (base names → `stdlib/eliot-compiler`) | not Scala `SemValue`s — the one NbE evaluator runs it |
 
 ### Ability module vs. type module — which of the two allowed homes

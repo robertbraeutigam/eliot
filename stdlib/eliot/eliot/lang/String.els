@@ -1,1 +1,15 @@
+import eliot.lang.Bool
+import eliot.lang.Eq
+
 type String
+
+/**
+ * `String` supplies `Eq` natively. Like `Compare[BigInteger]`/`Numeric[BigInteger]`, the implementation is
+ * deliberately body-less: comparing two strings is a platform leaf (a `String`'s stored representation is
+ * platform-dependent), so the equality reduction is attached directly to this implementation method rather than
+ * through a separate wrapper function — the compiler track folds two concrete literals (`StdlibNativesProcessor`), the
+ * JVM backend emits `String.equals` (`NativeImplementation`).
+ */
+implement Eq[String] {
+   def equals(a: String, b: String): Bool
+}

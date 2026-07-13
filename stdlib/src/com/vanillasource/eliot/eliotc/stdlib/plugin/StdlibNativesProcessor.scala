@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, GroundValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
@@ -15,7 +16,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
   * reason about — the compile-time arithmetic the refinement channel's `Interval` domain runs ([[BigInteger]]'s `Numeric`
   * ability `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`) and the `Bool` eliminator
-  * `fold`, string equality (`stringEquals`, backing `Eq[String]`), and the [[BigInteger]] ordering comparison behind
+  * `fold`, string equality (attached to the `Eq[String]::equals` impl method), and the [[BigInteger]] ordering comparison behind
   * `Compare[BigInteger]` — and `None` for every other name.
   *
   * These are ordinary library functions; the compiler only seeds the NbE evaluator with a native reduction rule so that,
@@ -56,7 +57,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   private val bigIntegerModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
   private val boolModule: ModuleName       = ModuleName(ModuleName.defaultSystemPackage, "Bool")
-  private val eqModule: ModuleName         = ModuleName(ModuleName.defaultSystemPackage, "Eq")
   private val compareModule: ModuleName    = ModuleName(ModuleName.defaultSystemPackage, "Compare")
   private val arithmeticModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Arithmetic")
   private val numericModule: ModuleName    = ModuleName(ModuleName.defaultSystemPackage, "Numeric")
@@ -85,7 +85,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private val boolOrFQN: ValueFQN          = ValueFQN(boolModule, QualifiedName("||", Qualifier.Default))
   private val boolNotFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("!", Qualifier.Default))
   private val boolFoldFQN: ValueFQN        = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
-  private val stringEqualsFQN: ValueFQN    = ValueFQN(eqModule, QualifiedName("stringEquals", Qualifier.Default))
 
   private val bigIntType: SemValue = VTopDef(bigIntFQN, None, Spine.SNil)
   private val boolType: SemValue   = VTopDef(boolFQN, None, Spine.SNil)
@@ -103,7 +102,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     boolOrFQN                 -> orNative,
     boolNotFQN                -> notNative,
     boolFoldFQN               -> boolFoldNative,
-    stringEqualsFQN           -> stringEqualsNative,
     compareLessThanOrEqualFQN -> lessThanOrEqualNative
   )
 
@@ -137,16 +135,30 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   /** The natives attached *directly* to an ability-implementation method rather than to a plain `Default`-qualified leaf.
     * An impl method's FQN carries a per-module `index` assigned during resolution, so it cannot be keyed statically in
     * [[bindings]]; instead it is recognised by `(ability, method, dispatch type)` through the impl marker
-    * ([[ImplementationMarkerUtils.isImplementationMethodFor]]), matched against [[abilityImplNatives]]: the
-    * `Compare[BigInteger].lessThanOrEqual` comparison and the `Arithmetic[BigInteger, BigInteger]` `add`/`subtract`/`multiply`
-    * arithmetic behind `Int`'s dependent ranges. Further ability-native leaves are added there.
+    * ([[ImplementationMarkerUtils.isImplementationMethodFor]]).
+    *
+    * `Eq[String]::equals` is the value-level, genuinely load-bearing case (like `lang`'s `Eq[Type]::equals`): a surfaced
+    * `==`/`!=` on strings dispatches to this impl-method FQN in the checked tree, so the native fires here and is checked
+    * on the compiler track (where the `stdlib` base `implement Eq[String]` is borrowed). Unlike the fixed
+    * [[abilityImplNatives]] table, it is built per call so it can *stuck on the impl-method FQN itself* (`vfqn`) — a
+    * runtime operand (a `readLine` result) leaves the comparison a residual call the backend emits, and that residual
+    * must name the impl method the JVM realises. It binds ONLY the impl-method FQN, never the ability-method FQN, since
+    * `Eq` is multi-instance (`Eq[Type]`/`Eq[String]`/…) and a global `Eq.equals` native would answer wrongly.
+    *
+    * [[abilityImplNatives]] holds the remaining, purely *type-level* leaves (`Compare[BigInteger]`, `Numeric[BigInteger]`),
+    * whose value-level path `BigInteger` does not exercise (it has no runtime values) but which keep the two wirings in
+    * lockstep.
     */
   private def abilityImplNativeFor(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    abilityImplNatives.toList
-      .traverse { case (ability, method, dispatchType, native) =>
-        ImplementationMarkerUtils.isImplementationMethodFor(vfqn, ability, method, dispatchType).map(Option.when(_)(native))
-      }
-      .map(_.flatten.headOption)
+    ImplementationMarkerUtils.isImplementationMethodFor(vfqn, "Eq", "equals", "String", Platform.Compiler).flatMap {
+      case true  => stringEqualsNative(vfqn).some.pure[CompilerIO]
+      case false =>
+        abilityImplNatives.toList
+          .traverse { case (ability, method, dispatchType, native) =>
+            ImplementationMarkerUtils.isImplementationMethodFor(vfqn, ability, method, dispatchType).map(Option.when(_)(native))
+          }
+          .map(_.flatten.headOption)
+    }
 
   /** The `(ability, method, dispatch type) -> native` table backing [[abilityImplNativeFor]]. Each native is the same
     * one bound under its ability-method FQN in [[bindings]]; this is the value-level dispatch path (a surfaced use site),
@@ -255,18 +267,19 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
   }
 
-  /** `stringEquals(a, b): Bool` — the compile-time counterpart of the jvm `stringEquals` leaf (backing `Eq[String]`).
-    * Reduces to a concrete Bool when both arguments are concrete strings, otherwise stays stuck (a runtime string,
-    * e.g. a `readLine` result, keeps the comparison as a residual call for the backend to emit).
+  /** The `Eq[String]::equals` leaf — the compile-time counterpart of the jvm `String.equals` native. Reduces to a
+    * concrete Bool when both arguments are concrete strings, otherwise stays stuck on the impl-method FQN `implFqn`
+    * (a runtime string, e.g. a `readLine` result, keeps the comparison a residual call to that method for the backend
+    * to emit, and re-fires through `implFqn`'s binding once operands concretise).
     */
-  private def stringEqualsNative: SemValue =
-    VNative(stringType, a => VNative(stringType, b => stringEqualsResult(a, b)))
+  private def stringEqualsNative(implFqn: ValueFQN): SemValue =
+    VNative(stringType, a => VNative(stringType, b => stringEqualsResult(implFqn, a, b)))
 
-  private def stringEqualsResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
+  private def stringEqualsResult(implFqn: ValueFQN, a: SemValue, b: SemValue): SemValue = (a, b) match {
     case (VConst(GroundValue.Direct(x: String, _)), VConst(GroundValue.Direct(y: String, _))) =>
       if (x === y) Evaluator.trueValue else Evaluator.falseValue
     case _                                                                                    =>
-      stuck(stringEqualsFQN, a, b)
+      stuck(implFqn, a, b)
   }
 }
 

@@ -250,12 +250,60 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       mainClassGenerator: ClassGenerator,
       vfqn: ValueFQN,
       stats: UsageStats
-  ): CompilerIO[Seq[ClassFile]] = {
+  ): CompilerIO[Seq[ClassFile]] =
     implementations.get(vfqn) match {
       case Some(nativeImplementation) =>
         verifyNativeVisibility(vfqn, nativeImplementation) >>
           nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
+        abilityImplNativeMaker(vfqn).flatMap {
+          case Some(makeNative) => generateAbilityImplNative(mainClassGenerator, vfqn, stats, makeNative)
+          case None             => createModuleMethodBody(mainClassGenerator, vfqn, stats)
+        }
+    }
+
+  /** The maker for a native attached directly to `vfqn` when it is a recognised ability-implementation method (e.g.
+    * `Eq[String]::equals`), else `None`. Recognised index-free through the impl marker
+    * ([[ImplementationMarkerUtils.isImplementationMethodFor]]) on the runtime track, where the `stdlib` `implement
+    * Eq[String]` is defined. The qualifier gate inside the marker check makes this a cheap no-op for every non-impl name.
+    */
+  private def abilityImplNativeMaker(vfqn: ValueFQN): CompilerIO[Option[JvmIdentifier => NativeImplementation]] =
+    NativeImplementation.abilityImplementations.toList
+      .traverse { case (ability, method, dispatchType, make) =>
+        ImplementationMarkerUtils.isImplementationMethodFor(vfqn, ability, method, dispatchType).map(Option.when(_)(make))
+      }
+      .map(_.flatten.headOption)
+
+  /** Emit an ability-impl native under each distinct instantiation's *mangled* method name — the name call sites resolve
+    * to (`equals$Eq$impl$…`), not the native's own local name. The bytecode is identical across instantiations, and the
+    * impl method has no generic params, so this is normally the single empty-type-argument name; deduped by name so two
+    * ranges lowering to one name generate the method once.
+    */
+  private def generateAbilityImplNative(
+      mainClassGenerator: ClassGenerator,
+      vfqn: ValueFQN,
+      stats: UsageStats,
+      makeNative: JvmIdentifier => NativeImplementation
+  ): CompilerIO[Seq[ClassFile]] = {
+    val typeArgsList = stats.monomorphicTypeParameters.distinct match {
+      case Seq() => Seq(Seq.empty[GroundValue])
+      case xs    => xs
+    }
+    typeArgsList
+      .map(typeArgs => mangledMethodName(vfqn, typeArgs))
+      .distinct
+      .traverse_ { name =>
+        val native = makeNative(JvmIdentifier.encode(name))
+        verifyNativeVisibility(vfqn, native) >> native.generateMethod(mainClassGenerator)
+      }
+      .as(Seq.empty)
+  }
+
+  private def createModuleMethodBody(
+      mainClassGenerator: ClassGenerator,
+      vfqn: ValueFQN,
+      stats: UsageStats
+  ): CompilerIO[Seq[ClassFile]] = {
         val distinctTypeArgs = stats.monomorphicTypeParameters.distinct
         val arities          = stats.directCallApplications.keys.toSeq.sorted
         for {
@@ -288,7 +336,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                )
           _                 <- createApplicationMain(vfqn, mainClassGenerator).whenA(isMain(highestUncurried))
         } yield classFiles
-    }
   }
 
   /** A stable key for a generated method's emitted signature: the mangled name plus the lowered parameter and return
