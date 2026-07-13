@@ -191,9 +191,7 @@ class Checker(
                           case _ =>
                             for {
                               (expr, inferred) <- infer(tm)
-                              // Re-force: inference may have solved metas in the expectation.
-                              forcedExp        <- force(expected)
-                              checkedResult    <- checkAgainst(tm, expr, inferred, forcedExp, expected)
+                              checkedResult    <- checkAgainst(tm, expr, inferred, expected)
                             } yield checkedResult
                         }
     } yield result
@@ -208,10 +206,9 @@ class Checker(
       tm: Sourced[OperatorResolvedExpression],
       expr: SemExpression,
       inferred: SemValue,
-      forcedExp: SemValue,
       expected: SemValue
   ): CheckIO[SemExpression] =
-    resolveGuardedLadder(tm, expr, inferred, forcedExp, expected, allowBindLift = false).map {
+    resolveGuardedLadder(tm, expr, inferred, expected, allowBindLift = false).map {
       case SlotOutcome.Resolved(e) => e
       case other                   =>
         throw new IllegalStateException(s"Return-boundary resolution produced a non-Resolved outcome: $other")
@@ -221,7 +218,8 @@ class Checker(
     * ([[checkArgumentSlot]]), fronted by the W2b guard-kind acceptance. A value whose type is on the compile-time
     * `Throw[String]` carrier types as `Either[..]`, not `Type`; where a `Type` kind is expected, accept it as a
     * *guarded type* (discharged to its payload — or rejected — by the signature/read-site discharge) rather than
-    * letting the unifier reject `Either[..]` ≠ `Type`. Otherwise runs the plain [[resolveLadder]].
+    * letting the unifier reject `Either[..]` ≠ `Type`. Otherwise runs the plain [[resolveLadder]]. The expectation is
+    * forced here (not at the callers): by the time the ladder runs, inference of the term may have solved metas in it.
     *
     * This is the single entry the two fresh-check sites share ([[check]]'s fallback via [[checkAgainst]], and
     * [[checkArgumentSlot]]); the deferred-slot re-entry ([[resolveDeferredSlot]]) calls [[resolveLadder]] directly,
@@ -231,37 +229,35 @@ class Checker(
       tm: Sourced[OperatorResolvedExpression],
       expr: SemExpression,
       inferred: SemValue,
-      forcedExpected: SemValue,
       expected: SemValue,
       allowBindLift: Boolean
   ): CheckIO[SlotOutcome] =
     for {
-      guardKind <- forcedExpected match {
-                     case VType => calcReturns.isGuardCarrier(inferred)
-                     case _     => pure(false)
-                   }
-      outcome   <- if (guardKind) modify(_.recordGuardReturn).as(SlotOutcome.Resolved(expr): SlotOutcome)
-                   else resolveLadder(tm, expr, inferred, forcedExpected, expected, allowBindLift)
+      forcedExpected <- force(expected)
+      guardKind      <- forcedExpected match {
+                          case VType => calcReturns.isGuardCarrier(inferred)
+                          case _     => pure(false)
+                        }
+      outcome        <- if (guardKind) modify(_.recordGuardReturn).as(SlotOutcome.Resolved(expr): SlotOutcome)
+                        else resolveLadder(tm, expr, inferred, expected, allowBindLift)
     } yield outcome
 
   /** The check-mode resolution ladder proper — the algorithm shared verbatim by return boundaries and argument slots
-    * (R3-1 dedup): the combinable-meta upper-bound deferral, then polytype instantiation, then the pre-arms for the
-    * doomed-postponement shapes, then the failure ladder ([[resolveFailureLadder]]: unify → …lift arms… → `Coerce` →
-    * committed mismatch). The single behavioural difference is *position*, carried by `allowBindLift`:
+    * (R3-1 dedup): polytype instantiation, then the pre-arms for the
+    * doomed-postponement shapes, then the failure ladder ([[resolveFailureLadder]]: unify → lift arms → committed
+    * mismatch). The single behavioural difference is *position*, carried by `allowBindLift`:
     *
-    *   - `true` (argument slot): the **bind-lift arm** (arm 3) is consulted — as a pre-arm and in the failure ladder —
+    *   - `true` (argument slot): the **bind-lift arm** is consulted — as a pre-arm and in the failure ladder —
     *     and can produce a [[SlotOutcome.Bound]].
     *   - `false` (return boundary): the bind-lift arm is omitted (stripping a carrier there would silently drop the
     *     effect); the doomed `mustLiftBeforeUnify` shape instead commits the exact mismatch eagerly.
     *
-    * The pure-wrap arm (arm 4) and the `Coerce` widening fire on both. `forcedExpected` is the forced form of
-    * `expected`, used only for the combinable-meta discrimination; every arm consults the unforced `expected`.
+    * The pure-wrap arm fires on both.
     */
   private def resolveLadder(
       tm: Sourced[OperatorResolvedExpression],
       expr: SemExpression,
       inferred: SemValue,
-      forcedExpected: SemValue,
       expected: SemValue,
       allowBindLift: Boolean
   ): CheckIO[SlotOutcome] =
@@ -604,12 +600,12 @@ class Checker(
                                                                ).as(SlotOutcome.Resolved(updated): SlotOutcome)
                                                            }
                             } yield outcome
-                          case rigid                 =>
+                          case _                     =>
                             // The bare [[resolveLadder]], not [[resolveGuardedLadder]]: the W2b guard-kind acceptance
                             // never applied on the deferred re-entry (a Deferred slot is always effect-carrier-headed,
                             // never a `Type`-kind guard carrier), so keeping it off here preserves the pre-dedup
                             // behaviour exactly.
-                            resolveLadder(record.arg, argExpr, argType, rigid, domain, allowBindLift = true)
+                            resolveLadder(record.arg, argExpr, argType, domain, allowBindLift = true)
                         }
       } yield record.copy(outcome = outcome)
     case _                                              => pure(record)
@@ -760,11 +756,11 @@ class Checker(
                                                                        case Some(_) =>
                                                                          pure(SlotOutcome.Deferred(updatedExpr, instantiated, domain))
                                                                        case None    =>
-                                                                         resolveGuardedLadder(arg, updatedExpr, instantiated, forcedDomain, domain, allowBindLift = true)
+                                                                         resolveGuardedLadder(arg, updatedExpr, instantiated, domain, allowBindLift = true)
                                                                      }
                                     } yield out
                                   case _                    =>
-                                    resolveGuardedLadder(arg, argExpr, argType, forcedDomain, domain, allowBindLift = true)
+                                    resolveGuardedLadder(arg, argExpr, argType, domain, allowBindLift = true)
                                 }
         } yield outcome
     }
