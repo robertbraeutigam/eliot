@@ -152,21 +152,20 @@ class CalculatedReturnResolver(
     } yield result
 
   /** W4 (Limit 3 / deferred W3 item 2): a calculated return is read off `MonomorphicValue(callee, args)`, so the
-    * callee's type arguments must be ground at the call. They are not when an argument's bounds come from a branch join
-    * (a `Combine`) that is resolved only later, in the drain loop — `double(pick(a, b))` instantiates `double`'s bounds
-    * from `pick`'s combinable result, which is deferred. Reading the return eagerly here would leave the bare `Type`
-    * placeholder, which then leaks into a confusing `Coerce` mismatch downstream. Report a specific, actionable error
-    * instead. (Resolving such a call by postponing the calculation past the join — making it *compile* — is a
-    * completeness improvement deferred to W5; it requires reordering against the combinable-meta machinery.)
+    * callee's type arguments must be ground at the call. An instantiation determined only by the *surrounding*
+    * context (rather than by the call's own arguments) may still be an unsolved metavariable when the return is read.
+    * Reading the return eagerly here would leave the bare `Type` placeholder, which then leaks into a confusing
+    * mismatch downstream. Report a specific, actionable error instead. (Postponing the calculation until the
+    * arguments ground — making such a call *compile* — is a completeness improvement deferred to W5.)
     */
   private def reportUngroundCalculatedReturn(fqn: Sourced[ValueFQN]): CheckIO[Option[SemValue]] =
     liftF(
       compilerError(
         fqn.as(
-          s"Cannot calculate the return type of '${fqn.value.name.name}' here: its argument bounds are not determined at this call site."
+          s"Cannot calculate the return type of '${fqn.value.name.name}' here: its type arguments are not determined at this call site."
         ),
         Seq(
-          "This happens when an argument's bounds come from a branch join (a `Combine`) not yet resolved when the call is checked.",
+          "The call's type arguments are not yet known when it is checked — they are only determined by the surrounding context.",
           "Annotate the argument's type, or give the value an explicit return type."
         )
       ) >> abort[Option[SemValue]]
