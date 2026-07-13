@@ -27,7 +27,7 @@ class TypeStackLoop(
     track: Track,
     reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO]
 ) {
-  import TypeStackLoop.{AbilityRef, PassContext, PostDrainPass}
+  import TypeStackLoop.AbilityRef
 
   private val checker = new Checker(fetchBinding, resolveAbility, track)
 
@@ -110,13 +110,10 @@ class TypeStackLoop(
       // drive the saturation tier of the post-drain pipeline below.
       abilityRefs   = (runtime.toSeq ++ levelExprs).flatMap(checker.abilityResolver.collectAbilityRefs)
 
-      // Post-drain resolution pipeline (D1): the named, tiered sequence that settles every metavariable —
-      // saturation fixed-point (drain + ability/Combine resolution), finalization (upper-bounds, carrier kinds,
-      // calculated-return fail-safe), the finalizer (default the rest to Type), and a postcondition assertion.
-      // See `runPostDrainPipeline`.
-      _ <- runPostDrainPipeline(
-             PassContext(resolvedValue, abilityRefs, resolvedValue.paramConstraints, returnMeta)
-           )
+      // Post-drain resolution (D1): the sequence that settles every metavariable — the ability-resolution fixed
+      // point, carrier-kind verification, the calculated-return fail-safe, the finalizer (default the rest to
+      // Type), the postponement flush, and a postcondition assertion. See `runPostDrainResolution`.
+      _ <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
       state <- get
       _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
 
@@ -287,44 +284,24 @@ class TypeStackLoop(
       s.withUnifier(s.unifier.copy(metaStore = solved))
     }
 
-  /** The named, ordered post-check resolution pipeline (D1).
+  /** The post-check resolution sequence (D1) that settles every metavariable, in order:
     *
-    * Two registered tiers, plus two fixed structural steps the runner appends:
-    *
-    *   - SATURATION (fixed-point loop): drain-interleaved ability resolution.
-    *   - FINALIZATION (linear, once): upper-bounds discharge, carrier-kind verification, calculated-return fail-safe.
-    *   - the FINALIZER ([[defaultUnsolvedMetas]]) and the POSTCONDITION assertion are appended by [[runPostDrainPipeline]],
-    *     not listed here — the finalizer is "the step nothing runs after" and is the seam D2 replaces.
-    *
-    * `drain` is the equality core settling between feature passes and is deliberately not a pass (see
-    * [[saturateToFixedPoint]]).
+    *   - SATURATION ([[resolveAbilitiesToFixedPoint]]): drain-interleaved ability resolution to a fixed point.
+    *   - FINALIZATION (once): carrier-kind verification, then the calculated-return fail-safe.
+    *   - a final drain: a finalization step can commit new solutions (carrier-kind verification unifies a solution's
+    *     kind against its expectation), so the equality core settles once more before defaulting — a constraint
+    *     postponed against a meta those solutions ground still resolves instead of its metas defaulting to `Type`.
+    *   - the FINALIZER ([[defaultUnsolvedMetas]]), the postponement flush, and the postcondition assertion.
     */
-  private val pipeline: List[PostDrainPass] = List(
-    PostDrainPass.Saturation(
-      "resolve-abilities",
-      ctx => checker.abilityResolver.resolveAbilities(ctx.abilityRefs, ctx.paramConstraints)
-    ),
-    PostDrainPass.Finalization("carrier-kinds", _ => checker.carriers.verifyCarrierKinds),
-    PostDrainPass.Finalization(
-      "calc-return",
-      ctx => ctx.returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, ctx.resolvedValue))
-    )
-  )
-
-  /** Run the post-check resolution pipeline to completion: saturate to a fixed point, run the finalization passes
-    * once in registration order, apply the finalizer, then assert the postcondition. No semantic change from the
-    * former inlined sequence — only the structure is named.
-    */
-  private def runPostDrainPipeline(ctx: PassContext): CheckIO[Unit] = {
-    val saturation   = pipeline.collect { case s: PostDrainPass.Saturation => s }
-    val finalization = pipeline.collect { case f: PostDrainPass.Finalization => f }
+  private def runPostDrainResolution(
+      resolvedValue: OperatorResolvedValue,
+      abilityRefs: Seq[AbilityRef],
+      returnMeta: Option[SemValue.VMeta]
+  ): CheckIO[Unit] =
     for {
-      _ <- saturateToFixedPoint(saturation, ctx)
-      _ <- finalization.traverse_(_.run(ctx))
-      // A finalization pass can commit new solutions (the upper-bounds discharge commits its definitional-equality
-      // successes), so the equality core settles once more before defaulting: a constraint postponed against a meta
-      // those solutions ground (e.g. an unapplied combinator's codomain against a deferred-then-discharged slot) still
-      // resolves instead of its metas defaulting to `Type`.
+      _ <- resolveAbilitiesToFixedPoint(abilityRefs, resolvedValue.paramConstraints)
+      _ <- checker.carriers.verifyCarrierKinds
+      _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
       _ <- modify(s => s.withUnifier(s.unifier.drain()))
       _ <- defaultUnsolvedMetas
       // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality obligation the check
@@ -332,23 +309,23 @@ class TypeStackLoop(
       // first) rather than silently carrying and forgetting them — the hole that let pre-fix applied-associated-type
       // garbage compile. Runs before the meta-postcondition assertion, which the defaulting already satisfies.
       _ <- modify(s => s.withUnifier(s.unifier.flushPostponed()))
-      _ <- assertEveryMetaResolved(ctx)
+      _ <- assertEveryMetaResolved(resolvedValue)
     } yield ()
-  }
 
-  /** Tier 1: run the saturation passes to a fixed point. Each round drains the unifier *before* each pass — so a pass
-    * sees every solution the previous pass injected — and loops while any pass reports progress. This reproduces the
-    * former `drainAndResolveLoop`'s `drain → abilities → drain → combines` round exactly. Bounded because each ability
-    * (and each combinable meta) resolves at most once, so progress is monotone.
+  /** Saturation: drain the unifier — so the resolver sees every solution the previous round injected — then try to
+    * resolve the still-unresolved ability references, looping while any reference newly resolves (a resolution records
+    * an impl whose solutions the next round's drain propagates). Bounded because each ability resolves at most once,
+    * so progress is monotone.
     */
-  private def saturateToFixedPoint(passes: List[PostDrainPass.Saturation], ctx: PassContext): CheckIO[Unit] = {
+  private def resolveAbilitiesToFixedPoint(
+      abilityRefs: Seq[AbilityRef],
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
+  ): CheckIO[Unit] = {
     def round: CheckIO[Boolean] =
-      passes.foldLeftM(false) { (acc, p) =>
-        for {
-          _          <- modify(s => s.withUnifier(s.unifier.drain()))
-          progressed <- p.run(ctx)
-        } yield acc || progressed
-      }
+      for {
+        _          <- modify(s => s.withUnifier(s.unifier.drain()))
+        progressed <- checker.abilityResolver.resolveAbilities(abilityRefs, paramConstraints)
+      } yield progressed
     def loop: CheckIO[Unit] = round.flatMap(if (_) loop else pure(()))
     loop
   }
@@ -360,7 +337,7 @@ class TypeStackLoop(
     * [[compilerAbort]]s rather than reporting a user diagnostic because a surviving unsolved meta is an internal
     * invariant violation, not a type error of the user's making.
     */
-  private def assertEveryMetaResolved(ctx: PassContext): CheckIO[Unit] =
+  private def assertEveryMetaResolved(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
     inspect { s =>
       s.unifier.metaStore.entries.collect { case (rawId, None) => rawId }.toList
     }.flatMap {
@@ -368,8 +345,8 @@ class TypeStackLoop(
       case unsolved =>
         liftF(
           compilerAbort[Unit](
-            ctx.resolvedValue.name.as(
-              s"Internal: post-drain pipeline left metavariables unresolved: ${unsolved.mkString(", ")}."
+            resolvedValue.name.as(
+              s"Internal: post-drain resolution left metavariables unresolved: ${unsolved.mkString(", ")}."
             )
           )
         )
@@ -514,36 +491,4 @@ object TypeStackLoop {
     new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance).process(typeArguments, resolvedValue)
 
   private type AbilityRef = AbilityResolver.AbilityRef
-
-  /** One named step of the post-check resolution pipeline (D1). The pipeline is tiered, not flat: the unifier `drain`
-    * is interleaved by the runner as the equality core settling — it is not a pass — and the finalizer plus the
-    * postcondition assertion are fixed structural steps of `TypeStackLoop.runPostDrainPipeline`, not entries in the pass
-    * list.
-    */
-  private sealed trait PostDrainPass {
-    def name: String
-  }
-
-  private object PostDrainPass {
-
-    /** Solves metavariables iteratively; `run` returns whether it made progress this round. Re-run inside the
-      * saturation fixed-point loop (drain-interleaved) until no `Saturation` pass progresses.
-      */
-    case class Saturation(name: String, run: PassContext => CheckIO[Boolean]) extends PostDrainPass
-
-    /** Runs once, after saturation reaches its fixed point. May report errors or record solutions. Order within the
-      * tier is registration order.
-      */
-    case class Finalization(name: String, run: PassContext => CheckIO[Unit]) extends PostDrainPass
-  }
-
-  /** Everything a post-drain pass closes over from the current check — the pass slot's closed input interface. That
-    * every pass needs *only* this (nothing from `processIO`'s locals) is the evidence the slot boundary is real.
-    */
-  private case class PassContext(
-      resolvedValue: OperatorResolvedValue,
-      abilityRefs: Seq[AbilityRef],
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
-      returnMeta: Option[SemValue.VMeta]
-  )
 }
