@@ -90,21 +90,6 @@ case class Unifier(
     }
   )
 
-  /** Unify two semantic values, reporting errors with the given context message and source position — pure
-    * definitional equality (the `Combine` combinable-contribution interception this once wrapped was removed with the
-    * refinement channel's flag day, `docs/bounds-as-refinements.md` Step 7b: `Int == Int` makes the branch-join a
-    * no-op, so a second contribution is now an ordinary mismatch).
-    */
-  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier =
-    unifyForced(l, r, context)
-
-  /** Solve a bare, unsolved metavariable to a value *by adoption* — the effect-lift's Phase-B pass-through, where a
-    * deferred flex slot takes on its carrier-headed argument type. Equality-wise identical to unifying the bare meta
-    * against the value (including the occurs-check).
-    */
-  def solveAdopting(id: MetaId, value: SemValue, context: Sourced[String]): Unifier =
-    unify(VMeta(id, Spine.SNil), value, context)
-
   /** Speculatively unify `l` against `r` without committing a mismatch (D5), returning an explicit [[UnifyResult]]
     * rather than forcing callers to diff [[errors]] before and after a [[unify]] call. A [[UnifyResult.Unified]]
     * carries the unifier with every solution applied (safe to commit); a [[UnifyResult.Contradiction]] carries the same
@@ -124,7 +109,10 @@ case class Unifier(
     if (after.errors.size == errors.size) UnifyResult.Unified(after)
     else UnifyResult.Contradiction(after.copy(errors = errors))
 
-  private def unifyForced(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
+  /** Unify two semantic values, reporting errors with the given context message and source position — pure
+    * definitional equality.
+    */
+  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
     val fl = Evaluator.force(l, metaStore)
     val fr = Evaluator.force(r, metaStore)
     (fl, fr) match {
@@ -161,11 +149,6 @@ case class Unifier(
       // next case). Without this, a carrier application produced through a polymorphic combinator — the `.` operator's
       // result `?B := ?carrier[payload]` — stays hidden behind `?B`, so a downstream effect-lift never sees the
       // argument as carrier-headed and mis-solves `?B` to the pure payload type.
-      //
-      // The solve is *candidate-free* (like [[solveAdopting]]): `?B` merely *aliases* the callee's result, it is not a
-      // `Combine` join contributor. Recording `?carrier[payload]` as a candidate would flag `?B` combinable-with-
-      // candidates, rerouting it through the post-saturation upper-bounds deferral (`?B ~ E` ⤳ `?carrier[payload] ~ E`)
-      // instead of the effect-lift — the same starvation `solveAdopting` documents.
       case (VMeta(idA, spineA), VMeta(idB, Spine.SNil))
           if spineA.toList.nonEmpty && idA.value != idB.value && metaStore.lookup(idB).isEmpty =>
         if (occursIn(idB, fl)) addOccursError(context)

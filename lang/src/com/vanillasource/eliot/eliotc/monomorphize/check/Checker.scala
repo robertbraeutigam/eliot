@@ -566,14 +566,13 @@ class Checker(
                           case VMeta(id, Spine.SNil) =>
                             for {
                               (updated, instantiated) <- instantiatePolymorphic(argExpr, argType)
-                              // Pass-through *adoption* ([[Unifier.solveAdopting]]) lets the effect-carrier-headed
-                              // argument ride up as a first-class value — sound ONLY for a *transparent* callee whose
-                              // result flows from this domain meta (`identity`, `const`, a data ctor over the slot): the
-                              // meta occurs in the node's result, so after `?id := C[T']` the result is carrier-headed
-                              // and the enclosing slot decides. Adopting solves the bare meta directly (the reversed
-                              // orientation would only postpone — a meta application against a bare meta is not a
-                              // pattern) and without recording a `Combine` candidate (a candidate would defer the ridden-
-                              // up result to the post-saturation upper-bounds check, starving ability resolution).
+                              // Pass-through *adoption*: solve the bare domain meta to the carrier-headed argument
+                              // type, letting the effect ride up as a first-class value — sound ONLY for a
+                              // *transparent* callee whose result flows from this domain meta (`identity`, `const`, a
+                              // data ctor over the slot): the meta occurs in the node's result, so after `?id := C[T']`
+                              // the result is carrier-headed and the enclosing slot decides. The bare meta is solved
+                              // directly (the reversed orientation would only postpone — a meta application against a
+                              // bare meta is not a pattern).
                               //
                               // For a *non-transparent* callee whose result carrier is independent of the domain
                               // (`putState[S, F](s: S): F[Unit]` — `S` absent from `F[Unit]`), adoption would strand the
@@ -582,22 +581,15 @@ class Checker(
                               // bind-lift the argument and pass its payload, exactly as a rigid domain would.
                               ridesUp                 <- inspect(_.unifier.occursInValue(id, record.retType))
                               outcome                 <- if (ridesUp)
-                                                           modify(s =>
-                                                             s.withUnifier(
-                                                               s.unifier.solveAdopting(id, instantiated, record.arg.as("Type mismatch."))
-                                                             )
-                                                           ).as(SlotOutcome.Resolved(updated): SlotOutcome)
+                                                           doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
+                                                             .as(SlotOutcome.Resolved(updated): SlotOutcome)
                                                          else
                                                            lifter.tryBindLift(record.arg, updated, instantiated, domain).flatMap {
                                                              case Some((slotRef, bind)) =>
                                                                pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
                                                              case None                  =>
-                                                               modify(s =>
-                                                                 s.withUnifier(
-                                                                   s.unifier
-                                                                     .solveAdopting(id, instantiated, record.arg.as("Type mismatch."))
-                                                                 )
-                                                               ).as(SlotOutcome.Resolved(updated): SlotOutcome)
+                                                               doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
+                                                                 .as(SlotOutcome.Resolved(updated): SlotOutcome)
                                                            }
                             } yield outcome
                           case _                     =>
