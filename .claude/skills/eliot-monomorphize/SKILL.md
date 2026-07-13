@@ -14,8 +14,7 @@ monomorphize/
 ├── domain/
 │   ├── SemValue.scala          (VType, VConst, VLam, VPi, VNative, VTopDef, VStuckNative, VMeta, VNeutral, Spine)
 │   ├── Env.scala               (Vector[SemValue] + names; lookup by name, last-bound-wins; `level` mints neutrals)
-│   ├── MetaStore.scala         (IntMap[Option[SemValue]]; fresh/solve/lookup)
-│   └── MetaRole.scala          (D2: one role per meta id — Plain / Instantiation / AbstractAssoc)
+│   └── MetaStore.scala         (IntMap[Option[SemValue]]; fresh/solve/lookup)
 ├── eval/
 │   ├── NbeEvaluator.scala      (the ONE shared pure traversal; abstract `decompose`)
 │   ├── Evaluator.scala         (NbeEvaluator over ORE; hosts applyValue/force/renormalize/groundToSem + object helpers)
@@ -23,28 +22,31 @@ monomorphize/
 │   ├── MonomorphicEvaluator.scala    (NbeEvaluator over reduced MonomorphicExpression; DROPS erased type args)
 │   └── Quoter.scala            (strict SemValue → GroundValue read-back; fails loudly on stuck forms)
 ├── check/
-│   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 5 collaborators;
+│   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 4 collaborators;
 │   │                            inferSpine = whole-spine argument resolution with Phase-A/B flex-slot deferral)
 │   ├── CheckIO.scala           (StateT[CompilerIO, CheckState, *])
 │   ├── CheckState.scala        (gamma Γ + rho ρ, unifier, bindingCache, abilityResolutions, sawGuardReturn,
 │   │                            ambientCarriers + liftCounter for the effect lift)
 │   ├── SemExpression.scala     (checker output ADT; type slots are SemValue, not GroundValue)
-│   ├── TypeStackLoop.scala     (uniform top-down fold + the D1 post-drain pipeline + defaults + postcondition)
-│   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; fold selection; reduceSourced)
+│   ├── TypeStackLoop.scala     (uniform top-down fold + the post-drain resolution sequence + defaults + postcondition)
+│   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; integerLiteral rewrite;
+│   │                            reduceSourced)
 │   ├── CalculatedReturnResolver.scala (D7 back-edge + W2b guard discharge)
+│   ├── MarkerGuardSignature.scala (ability-impl marker detection + the parameter-stripped guard view)
+│   ├── GuardChannel.scala      (the Left/Right guard read-back protocol shared with the ability processor)
 │   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification; flags every HKT instantiation meta effectCarrier)
 │   ├── EffectLifter.scala      (the effect auto-lift: bind-lift/pure-wrap arms + Effect.flatMap/map/pure splices)
 │   ├── AbilityResolver.scala   (ability-ref collection + resolve-abilities saturation pass)
 │   └── Track.scala             (Runtime/Compiler strategy: platform + 4 per-track hooks, no platform match in the core)
-├── refine/
-│   └── RefinementSolver.scala  (D4 refinement lattice: Coerce widening + Combine join + upper-bounds)
+├── channel/
+│   ├── RefinementChannelProcessor.scala (post-pass flow analysis over MonomorphicValue: ^Meta transfers/merges,
+│   │                                     ^Where precondition demands)
+│   └── RefinementTable.scala   (per-node meta values keyed by source position; read by reconcile/backend/LSP)
 ├── unify/
-│   ├── Unifier.scala           (pattern unification; pure definitional equality; MetaRole map)
+│   ├── Unifier.scala           (pattern unification; pure definitional equality; carrierRoles map; flushPostponed)
 │   ├── UnifyResult.scala       (Unified / Contradiction)
 │   ├── UnifyError.scala        (context + optional expected/actual)
 │   └── SemValuePrinter.scala   (human-readable SemValue rendering for error messages)
-├── lowering/
-│   └── RepresentationLowering.scala (Phase 3: unfold opaque types to machine representation via TransparentBinding)
 ├── fact/
 │   ├── GroundValue.scala       (output: Direct, Structure, Type)
 │   ├── MonomorphicValue.scala  (runtime output fact: signature + runtime, keyed by (vfqn, typeArgs))
@@ -53,21 +55,22 @@ monomorphize/
 │   ├── NativeBinding.scala     (Platform-keyed: vfqn → SemValue for the evaluator)
 │   ├── ContributedBinding.scala (Key(vfqn, label); NOT platform-keyed — one contribution serves both tracks)
 │   ├── BindingContribution.scala (Leaf(SemValue) | Body(SaturatedValue))
-│   └── TransparentBinding.scala (like NativeBinding but WITHOUT the opaque guard, for lowering)
+│   └── BodyValueReferences.scala (memoized per-value body reference set for transitive binding prefetch)
 └── processor/
     ├── MonomorphicTypeCheckProcessor.scala   (runtime entry point → TypeStackLoop, Track.Runtime)
     ├── CompilerMonomorphicTypeCheckProcessor.scala (compiler entry point → TypeStackLoop, Track.Compiler; native-leaf boundary)
-    ├── SystemNativesProcessor.scala          (Function → VNative→VPi, Type → VType, Bool true/false/fold)
+    ├── SystemNativesProcessor.scala          (Function → VNative→VPi, Type → VType, Bool true/false constants,
+    │                                          integerLiteral, the Eq[Type] equals leaf)
     ├── DataTypeNativesProcessor.scala        (body-less Type-qualified names → inert VTopDef; pool-guarded)
     ├── MatchNativesProcessor.scala           (handleCases/typeMatch impls → VNative; pool-guarded)
     ├── DeclaringPool.scala                   (quiet two-pool membership probe used by the two leaf contributors above)
     ├── UserValueNativesProcessor.scala       (thin BodyContributorProcessor over the runtime user pool)
     ├── CompilerNativesProcessor.scala        (compiler-pool body supplier; ability-using values → reduced Leaf)
     ├── BodyContributorProcessor.scala        (shared base for the two user-category body suppliers)
+    ├── BodyValueReferencesProcessor.scala    (emits BodyValueReferences off the SaturatedValue body walk)
     ├── BindingMergerProcessor.scala          (SINGLE owner of NativeBinding; category precedence + dependency closure)
     ├── BindingClosure.scala                  (closes a selected Body over its deps; reifyingWrap via binderRoles)
-    ├── ReducedBindingClosure.scala           (BindingClosure's twin over a reduced MonomorphicExpression)
-    └── TransparentBindingProcessor.scala     (emits TransparentBinding via BindingClosure with runtime bodies)
+    └── ReducedBindingClosure.scala           (BindingClosure's twin over a reduced MonomorphicExpression)
 ```
 
 and its sibling tests under `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/`.
@@ -90,11 +93,11 @@ set, no worklist. All read-back to `GroundValue` is deferred to a single post-dr
 | `VConst(ground)` | Non-function ground values: literals (`42`, `"hi"`), compile-time `Bool` (`Direct(true/false)`), the unit placeholder | Evaluator (literals), Bool natives, MatchNativesProcessor |
 | `VLam(name, closure)` | Runtime lambda closure | Evaluator (always, for `FunctionLiteral`) |
 | `VPi(domain, codomain)` | Function type (dependent or non-dependent) | Checker (checking a `FunctionLiteral` against `VType`), the `Function` native |
-| `VNative(paramType, fire)` | Primitive awaiting a concrete argument; `fire` yields its own stuck form when the arg is not concrete | SystemNativesProcessor (Function, Bool ops), MatchNativesProcessor (handleCases/typeMatch), StdlibNativesProcessor (arithmetic) |
+| `VNative(paramType, fire)` | Primitive awaiting a concrete argument; `fire` yields its own stuck form when the arg is not concrete | SystemNativesProcessor (Function, integerLiteral, the Eq[Type] equals leaf), MatchNativesProcessor (handleCases/typeMatch), StdlibNativesProcessor (arithmetic, Bool `fold`/`&&`/comparisons) |
 | `VTopDef(fqn, cached, spine)` | Lazy top-level definition (cached=Some) **and** applied type/value constructor (cached=None) | BindingClosure (cached body), DataTypeNativesProcessor (body-less), the FQN-preserving missing-binding fallback |
-| `VStuckNative(fqn, spine)` | A **non-injective** native application (`add(x,y)`, `min`, `&&`, `fold`, `inc`) stuck on not-yet-concrete args | a `VNative`'s `fire` when an argument is abstract |
+| `VStuckNative(fqn, spine)` | A **non-injective** native application (`add(x,y)`, `min`, `&&`, `fold`) stuck on not-yet-concrete args | a `VNative`'s `fire` when an argument is abstract |
 | `VMeta(id, spine)` | Unsolved metavariable (there is **no** `expected` field) | Checker (`MetaStore.fresh`) |
-| `VNeutral(head, spine)` | Stuck application on a rigid head. `NeutralHead` is **structural** (identity by constructor): `Param(level, name)` (bound vars), `Fresh(Origin.Unify/Quote, depth)` (binder-descending probes), `Reserved(Marker.BadApply/GuardProbe/Coerce/Match)` (scope-less markers) | Evaluator (unresolved `ParameterReference` → `Param`), the `$bad-apply` fail-safe (`Reserved(BadApply)`) |
+| `VNeutral(head, spine)` | Stuck application on a rigid head. `NeutralHead` is **structural** (identity by constructor): `Param(level, name)` (bound vars), `Fresh(Origin.Unify/Quote, depth)` (binder-descending probes), `Reserved(Marker.BadApply/GuardProbe/Match)` (scope-less markers) | Evaluator (unresolved `ParameterReference` → `Param`), the `$bad-apply` fail-safe (`Reserved(BadApply)`) |
 
 `VStuckNative` is deliberately **distinct from `VTopDef`** (D3): a native application is *not injective* (`add(1,3)` =
 `add(2,2)`), so the unifier must never injectivity-decompose it and the quoter must fail loudly if one survives read-back.
@@ -115,8 +118,8 @@ wrong value. (Do not reintroduce the identity fallback — see anti-patterns.)
 ### Type/value constructors are body-less `VTopDef`s
 
 `DataTypeNativesProcessor` binds every body-less `Type`-qualified name (an abstract `type`, or a `data` type's
-constructor) to `VTopDef(fqn, None, SNil)`. Applying type args just grows its spine. So `Int[2,5]` is
-`VTopDef(IntFQN, None, [VConst(2), VConst(5)])` — **not** a `VConst(Structure)`. `Structure(...)` only appears after
+constructor) to `VTopDef(fqn, None, SNil)`. Applying type args just grows its spine. So `Box[Int]` is
+`VTopDef(BoxFQN, None, [VTopDef(IntFQN, …)])` — **not** a `VConst(Structure)`. `Structure(...)` only appears after
 read-back. This is load-bearing: `typeMatch`/`handleCases` dispatch on the `VTopDef(head, None, spine)` shape, and the
 unifier's same-FQN case operates on these `VTopDef`s.
 
@@ -166,14 +169,16 @@ node projects onto `NbeEvaluator.Term`):
   reference (applying them would mis-bind a value parameter to an erased type arg).
 
 Missing-binding fallback for a **value reference** is an FQN-preserving stuck `VTopDef(vfqn, None, SNil)` — **not** a
-`VNeutral` (which would drop the FQN and corrupt read-back/codegen/`Coerce`-constructor recognition). A missing
-**parameter** reference falls back to `VNeutral`.
+`VNeutral` (which would drop the FQN and corrupt read-back/codegen). A missing **parameter** reference falls back to
+`VNeutral`.
 
 ### How computation runs
 
 `force(v, metaStore)` walks solved metas and unfolds `VTopDef` when the cached body is present.
 `renormalize(v, metaStore, lookupNative, deep)` additionally re-fires `VStuckNative`s whose args have concretised (and,
 with `deep=true`, descends under `VPi` binders — used **only** post-drain at quote time, where every meta is solved).
+`Checker.ensureBinding` prefetches transitively through the memoized `BodyValueReferences` fact (walked once per value),
+so a native reached only through a bodied helper is already in the flat `bindingCache` the re-fire lookup consults.
 
 ## Pipeline
 
@@ -183,6 +188,10 @@ with `deep=true`, descends under `VPi` binders — used **only** post-drain at q
 - `CompilerMonomorphicTypeCheckProcessor` → the **same** `TypeStackLoop.process(..., track = Track.Compiler)` →
   `CompilerMonomorphicValue` (a *distinct* fact type, so the compiler track cannot even name `MonomorphicValue.Key`;
   the `compiler-mono → runtime-mono` edge is impossible by construction — acyclic).
+
+Both entry points first strip an ability-implementation *marker*'s pattern arguments
+(`MarkerGuardSignature.strippedForGuard`) — a marker is monomorphized only to discharge its `where` guard, and its
+pattern arguments are not real value parameters (they need not be of kind `Type`).
 
 `NativeBinding`, `SaturatedValue`, `OperatorResolvedValue`, `UnifiedModuleNames`, `ModuleConstructors`, etc. are all
 `Platform`-keyed (Runtime / Compiler). Each track unifies base + user program + its own layer independently.
@@ -196,15 +205,19 @@ with `deep=true`, descends under `VPi` binders — used **only** post-drain at q
    a reduction for `vfqn`, else `None` (never declines). `ContributedBinding.Key(vfqn, label)` is **not** platform-keyed:
    one contribution serves both track merges. Labels:
    - **native category** (`langNativeLabels` = `system` / `datatype` / `match` / `compiler`, plus any `extraNativeLabelsKey`
-     labels added by layers, e.g. stdlib's arithmetic natives):
+     labels added by layers, e.g. stdlib's arithmetic/Bool natives):
      - `SystemNativesProcessor` (`system`) — `Function` → `VNative`→`VPi`; `Type` → `VType`; the compile-time `Bool`
-       primitives `true`/`false` (`VConst(Direct(Boolean))`) and `fold` (selects a branch on a concrete `Bool`, else stuck).
+       constants `true`/`false` (`VConst(Direct(Boolean))`); the value-position literal protocol `integerLiteral[V]`
+       (reduces to `V`, so a literal feeding a compile-time computation — e.g. a `^Where` bound — evaluates); and the
+       `Eq[Type]::equals` structural-equality leaf, bound to the impl-method FQN through the ability-impl marker. The
+       `Bool` eliminator `fold` and the arithmetic natives are *stdlib*-owned (`StdlibNativesProcessor`) — the compiler
+       special-cases nothing about them.
      - `DataTypeNativesProcessor` (`datatype`) — body-less `Type`-qualified constructors → `VTopDef(fqn, None, SNil)`,
        excluding the system-owned `Function`/`Type`. **Pool-guarded** (see `DeclaringPool`).
      - `MatchNativesProcessor` (`match`) — the `PatternMatch.handleCases` / `TypeMatch.typeMatch` impl FQNs → `VNative`s
        that reduce a concrete `VTopDef(ctor, None, spine)` scrutinee during checking. **Pool-guarded**.
      - `CompilerNativesProcessor` (`compiler`) — the compiler platform's Eliot-bodied reductions (the `add` pattern:
-       ranked as a native so its reduction wins for *checking* while the runtime body is still used for codegen). A
+       ranked as a native so its reduction wins for *checking* while the runtime body is still what codegen reads). A
        compiler-only value whose checking body performs ability dispatch is contributed as the **reduced**
        `CompilerMonomorphicValue` body wrapped by `ReducedBindingClosure` (a `Leaf`), because its raw body would stall on
        the abstract ability method.
@@ -219,9 +232,6 @@ with `deep=true`, descends under `VPi` binders — used **only** post-drain at q
    `NativeBinding` recursion); suppliers never read back the fact they feed. The mutual-recursion guard is the runtime's
    active fact-request chain (`activeFactKeys`), not mutable state. Reified type-stack binders are wrapped as leading
    lambdas via `BindingClosure.reifyingWrap`, driven by the precomputed `SaturatedValue.binderRoles` (D6).
-
-`TransparentBindingProcessor` emits `TransparentBinding` (like `NativeBinding` but *without* the opaque guard, so
-`opaque type Int = <repr>` unfolds) via the same `BindingClosure`, for `RepresentationLowering`.
 
 ### TypeStackLoop — the uniform fold
 
@@ -240,16 +250,17 @@ is **no `platform match` anywhere in the checking core**, only `track.<hook>` di
    `paramConstraints`, each looked up in ρ and recorded by forced head) into `CheckState.ambientCarriers` for the lift.
 5. `track.pinCarriers` (compiler track only) — a `{Throw[E]}` carrier is fixed to the compile-time carrier `Either[E]`.
 6. `track.settleReturnPosition` (mutually exclusive): a *calculated* return (`installReturnMeta`, W3 — track-independent),
-   an *effectful guard* return (`dischargeGuardedSignature`, W2b — **runtime track only**; the compiler track is the
-   guard's *producer* and leaves the carrier signature as-is), or an ordinary explicit return.
+   an *effectful guard* return (`dischargeGuardedSignature`, W2b — **runtime track only**, and never for an ability-impl
+   marker: the marker's guard verdict must survive undischarged for the ability processor to interpret per candidate),
+   or an ordinary explicit return.
 7. `check` the runtime body against the signature.
-8. `runPostDrainPipeline` (D1, below), report unifier errors, abort before quoting if any error exists.
-9. `track.reconcileBody` (runtime track only) — `RefinementSolver.reconcileRefinements`: splice the conversion payloads
-   the deferred resolutions (Combine joins, upper bounds) verified but could not materialise (they see types, not
-   expressions), at every boundary whose settled ground types diverge same-head.
-10. `track.implBindings` (compiler-only impl-body fetch) then read back via `PostDrainQuoter` through `track.readBackBody`
-   — the compiler track **reduces** the body (`reduceSourced`), the runtime track structurally quotes it
-   (`quoteSourced`).
+8. `runPostDrainResolution` (D1, below), report unifier errors, abort before quoting if any error exists.
+9. Fetch `track.implBindings` (compiler-only impl-body fetch); for a body-less *guarded marker*, reduce the guard's
+   bodied sub-values per instantiation (`reduceGuardSubValues` via `ReducedBindingClosure.reduceInstance`) and
+   re-evaluate the guard return against them (ability-guards Stage 4 — so a guard reaching its ability *through* an
+   operator, `where E1 != E2` via `!=`, still collapses to a concrete verdict). Then read back via `PostDrainQuoter`
+   through `track.readBackBody` — the compiler track **reduces** the body (`reduceSourced`), the runtime track
+   structurally quotes it (`quoteSourced`).
 
 ### Track — the per-track strategy (no `platform match` in the core)
 
@@ -259,34 +270,34 @@ Platform` plus the **four** places the two tracks genuinely differ — every for
 
 | Hook | Runtime | Compiler |
 |---|---|---|
-| `settleReturnPosition` (shared calc-return branch is `final`; `settleGuardedReturn` is the abstract hook) | `dischargeGuardedSignature` (W2b use-site discharge) | pass-through (producer leaves the undischarged carrier signature) |
+| `settleReturnPosition` (shared calc-return branch is `final`; `settleGuardedReturn` is the abstract hook) | `dischargeGuardedSignature` (W2b use-site discharge; skipped for ability-impl markers — `MarkerGuardSignature.isMarker`) | pass-through (producer leaves the undischarged carrier signature) |
 | `pinCarriers` (+ `throwCarrierErrorType` / `pinCarrierToEither` / `throwAbilityFQN` live here) | no-op | pin `{Throw[E]}` carrier meta to `Either[E]` |
 | `implBindings` | empty | fetch each drain-resolved ability impl's `NativeBinding` body |
 | `readBackBody` | `quoter.quoteSourced` | `quoter.reduceSourced` |
-| `reconcileBody` | `solver.reconcileRefinements` (splice deferred-resolution coercion payloads pre-read-back) | pass-through (no machine representation at compile time; the conversion native has no compiler binding) |
 
 `TypeStackLoop` / `Checker` take the `Track`; **fact keys read `track.platform`** (`Checker` keeps a private `val
-platform = track.platform`, so the four collaborators are still constructed with a bare `Platform`). The two entry
+platform = track.platform`, so the collaborators are still constructed with a bare `Platform`). The two entry
 processors pass `Track.Runtime` / `Track.Compiler`. The `resolveAbility` seam is **two-arg** `(ValueFQN,
-Seq[GroundValue]) => …` — the former hardcoded/ignored third `Platform` param is gone (a properly-typed `Position` is
-future work, gated on a real position-routed client). `reduceSourced` still physically lives in `PostDrainQuoter` (a
-read-back variant sharing its machinery; `readBackBody` dispatches to it).
+Seq[GroundValue]) => …`. `reduceSourced` physically lives in `PostDrainQuoter` (a read-back variant sharing its
+machinery; `readBackBody` dispatches to it).
 
-### Post-drain pipeline (D1)
+### Post-drain resolution (D1)
 
-A tiered structure (there is no external design doc — it is described here and in `TypeStackLoop`'s doc comments):
+A fixed sequence, `TypeStackLoop.runPostDrainResolution` (no external design doc — it is described here and in its doc
+comments):
 
-- **Saturation tier** (fixed-point loop, drain interleaved as the equality core settles): resolve-abilities and
-  resolve-`Combine`s, re-draining after each until stable.
-- **Finalization tier** (linear, once): upper-bounds discharge (`RefinementSolver.resolveUpperBounds` — which *commits*
-  its definitional-equality successes, since a deferred upper bound may be the only constraint grounding the solution's
-  residual metas), carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`), and the calculated-return
-  fail-safe. After the tier, the runner drains once more, so constraints postponed against finalization-committed
-  solutions still resolve before defaulting.
-- **Finalizer** (`defaultUnsolvedMetas`): a **total match on `MetaRole`** with no catch-all — `AbstractAssoc` stays
-  unsolved (quotes as abstract), `Plain` and `Instantiation` default to `VType`. A future role added to the ADT forces an
-  explicit decision here.
-- **Postcondition** (`assertEveryMetaResolvedOrAbstract`): every meta is solved or an `AbstractAssoc` placeholder.
+- **Saturation** (`resolveAbilitiesToFixedPoint`): drain the unifier — so the resolver sees every solution the previous
+  round injected — then try to resolve the still-unresolved ability references; loop while any reference newly resolves.
+- **Finalization** (once): carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`) and the
+  calculated-return fail-safe. A finalization step can commit new solutions (the kind check unifies a solution's kind
+  against its expectation), so the runner drains once more before defaulting.
+- **Finalizer** (`defaultUnsolvedMetas`): every still-unsolved meta defaults to `VType` — what remains unsolved after
+  the fixed point is an unconstrained (phantom) instantiation.
+- **Postponement flush** (`Unifier.flushPostponed`): any constraint still postponed after the finalizer is an equality
+  obligation the check never discharged — flushed to a hard mismatch error (after a triage re-drain; the one exemption
+  is a `$bad-apply`-headed constraint, owned by a more precise fail-safe).
+- **Postcondition** (`assertEveryMetaResolved`): every meta is solved — the compiler-bug backstop, `compilerAbort`ing
+  on an internal invariant violation.
 
 ### Bidirectional checker & its collaborators
 
@@ -297,42 +308,40 @@ the root and its argument slots resolved in two phases — **Phase A** (left to 
 slot, *deferring* a slot whose domain is a bare flex meta receiving an effect-carrier-headed argument; **Phase B**
 re-forces each deferred domain — rigidified ⟹ full ladder (the `readLine.f` bind); still flex ⟹ the
 **transparent/non-transparent split** on `occursIn(domainMeta, slotResultType)`: **occurs** (a *transparent* callee
-whose result flows from the domain meta — `identity`, `const`, a data ctor) ⟹ pass-through *adoption*
-(`Unifier.solveAdopting` — solve the slot directly to the carrier type, no `Combine` candidate), letting the parent's
-slot decide; **absent** (a *non-transparent* callee whose result carrier is independent of the domain —
-`putState[S, F](s: S): F[Unit]`, `S` not in `F[Unit]`) ⟹ **bind-lift at this slot**, since adoption would strand the
-argument's carrier inside the type parameter (never grounded → "contains unresolved variable"). This is what lets a
-direct-style `putState(f(state))` / `updateState(f) = putState(f(state))` type-check. The check-mode **resolution ladder** per slot is: unify → bind-lift → pure-wrap → `Coerce` → mismatch (the
-effect arms come *before* the `Coerce` probe, whose ability-fact generation fails builds as a side effect on hopeless
-pairs; the arms' guards are disjoint from every coercible shape, so widening is untouched), with *pre-arms* for the one
-shape unification can only postpone, never fail (`?F[T'] ~ rigid-under-applied` and its pure-wrap dual). Five
-non-equality concerns live in collaborator modules, each constructed at the top of `Checker` with **exactly the checker
-primitives it needs** (that narrow surface is the module boundary), and invoked from named hook points:
+whose result flows from the domain meta — `identity`, `const`, a data ctor) ⟹ pass-through *adoption* (solve the bare
+domain meta to the carrier type via ordinary `doUnify`), letting the parent's slot decide; **absent** (a
+*non-transparent* callee whose result carrier is independent of the domain — `putState[S, F](s: S): F[Unit]`, `S` not
+in `F[Unit]`) ⟹ **bind-lift at this slot**, since adoption would strand the argument's carrier inside the type
+parameter (never grounded → "contains unresolved variable"). This is what lets a direct-style `putState(f(state))` /
+`updateState(f) = putState(f(state))` type-check. The check-mode **resolution ladder** per slot is: unify → bind-lift →
+pure-wrap → mismatch, with *pre-arms* for the one shape unification can only postpone, never fail
+(`?F[T'] ~ rigid-under-applied` and its pure-wrap dual). Four non-equality concerns live in collaborator modules, each
+constructed at the top of `Checker` with **exactly the checker primitives it needs** (that narrow surface is the module
+boundary), and invoked from named hook points:
 
 | Collaborator — field | Concern | Hook points |
 |---|---|---|
-| `refine/RefinementSolver` — `checker.solver` (D4) | refinement lattice: `Coerce` widening + `Combine` join + upper-bounds + the pre-read-back **refinement reconciliation** (`reconcileRefinements`: the deferred resolutions verify coercions against *types* only — this walk re-visits every expression boundary whose settled ground types diverge same-head and splices the verified conversion payload (`nativeWiden`) there; without it a Combine contributor / upper-bounded result reaches the backend at its own representation — a JVM `VerifyError`) | `Checker.resolveFailureLadder` → `tryCoerce` (the shared ladder's `Coerce` arm, reached from both return boundaries and argument slots); `TypeStackLoop` post-drain `resolve-combines` / `upper-bounds`; `TypeStackLoop` pre-read-back → `track.reconcileBody` (runtime track only) |
 | `check/CalculatedReturnResolver` — `checker.calcReturns` (D7 + W2b) | non-local inference (fill a bare return from the callee's mono body) **and** effectful-guard discharge | `Checker.infer`/`applyInferred`; `TypeStackLoop` `installReturnMeta` / `dischargeGuardedSignature` |
-| `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` `carrier-kinds` pass → `verifyCarrierKinds` |
-| `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl; inject associated types) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain `resolve-abilities` pass → `resolveAbilities` |
-| `check/EffectLifter` — `checker.lifter` | the effect auto-lift (docs/effect-lift-in-checker.md): the bind-lift / pure-wrap ladder arms + their doomed-postponement pre-arms, `effectCarrierSplit` (role-flagged metas + re-forced `ambientCarriers` heads), and the `Effect.flatMap`/`map`/`pure` `SemExpression` splices (`[C, T', R]` type args; `$eff$N` binders off `CheckState.liftCounter`; `bindWrap` unifies the bind's carrier with the core's) | the one shared `Checker.resolveLadder`/`resolveFailureLadder`, with the bind-lift arm (arm 3) gated by `allowBindLift` (`true` only at argument slots — a return boundary never strips a carrier, so it passes `false` and the doomed shape commits the eager mismatch) and pure-wrap (arm 4) on both; `typeImmediateLambda` (the let-bind rule: effectful bound value ⟹ sequence, with the continuation *inferred*, never checked against the carrier expectation), `inferSpine` → `wrapBinds` |
+| `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` post-drain → `verifyCarrierKinds` |
+| `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain → `resolveAbilities` |
+| `check/EffectLifter` — `checker.lifter` | the effect auto-lift (docs/effect-lift-in-checker.md): the bind-lift / pure-wrap ladder arms + their doomed-postponement pre-arms, `effectCarrierSplit` (flagged metas + re-forced `ambientCarriers` heads), and the `Effect.flatMap`/`map`/`pure` `SemExpression` splices (`[C, T', R]` type args; `$eff$N` binders off `CheckState.liftCounter`; `bindWrap` unifies the bind's carrier with the core's) | the one shared `Checker.resolveLadder`/`resolveFailureLadder`, with the bind-lift arm gated by `allowBindLift` (`true` only at argument slots — a return boundary never strips a carrier, so it passes `false` and the doomed shape commits the eager mismatch) and pure-wrap on both; `typeImmediateLambda` (the let-bind rule: effectful bound value ⟹ sequence, with the continuation *inferred*, never checked against the carrier expectation); `inferSpine` → `wrapBinds` |
 
-Per-meta data (combinable / candidates / carrier-kind / upper-bounds / abstract-assoc) all lives in the **single**
-`MetaRole` map on the `Unifier` (D2); the collaborators own the *algorithm*, not a private store.
+Per-meta carrier data (carrier kind / effect-carrier flag) lives in the **single** `CarrierRole` map on the `Unifier`;
+the collaborators own the *algorithm*, not a private store.
 
-### MetaRole (D2)
+### Carrier bookkeeping (`Unifier.CarrierRole`)
 
-One `Map[Int, MetaRole]` on the `Unifier` replaces the former six scattered side-tables. Absence ⇒ `Plain`.
+One `Map[Int, CarrierRole]` on the `Unifier` holds all per-metavariable bookkeeping. Only *higher-kinded*
+instantiation metas (`[F[_]]` carriers) get an entry, seeded by `CarrierKindChecker.recordCarrierMetas`:
 
-- `Plain` — solved by ordinary unification, else defaulted to `VType`. The default for any unclassified meta.
-- `Instantiation(combinable, candidates, combineResolved, upperBounds, carrierKind, effectCarrier)` — an implicit
-  type-parameter meta peeled from a polytype's leading binders. Combinable (covariant) unless tainted by a `VPi` domain;
-  a higher-kinded one additionally carries a `carrierKind` verified post-drain and is flagged `effectCarrier` — the
-  effect lift's *callee-side* carrier notion, deliberately **unfiltered** (an effectful result rides *any* of the
-  callee's own HKT binders, including `runStateToPair`'s unconstrained `G[_]`; the ability-constraint filter applies only to
-  a value's own *ambient* carriers in `CheckState.ambientCarriers`).
-- `AbstractAssoc(fqn)` — a placeholder for an abstract associated ability type (`type X` inside `ability …`); the one role
-  the finalizer protects from defaulting to `Type`, so a constraint-covered reference can stay abstract through quoting.
+- `carrierKind` — the binder's expected kind plus a call-site context; verified post-drain (a carrier solved to a
+  value of the wrong kind is rejected rather than silently accepted).
+- `effectCarrier` — the effect lift's *callee-side* carrier notion, deliberately **unfiltered** (an effectful result
+  rides *any* of the callee's own HKT binders, including `runStateToPair`'s unconstrained `G[_]`; the
+  ability-constraint filter applies only to a value's own *ambient* carriers in `CheckState.ambientCarriers`).
+
+Every meta without an entry is plain: solved by ordinary unification, else defaulted to `VType` by
+`defaultUnsolvedMetas`.
 
 ### Guard discharge (W2b) — `CalculatedReturnResolver`
 
@@ -340,11 +349,28 @@ Sits beside the calc-return back-edge because both are "run a compile-time compu
 return-type expression may be a `{Throw[String]}` computation on the compile-time `Either[String, _]` carrier (the
 compiler is the handler). Three hook points recognise the carrier's `Right`/`Left` **by FQN**
 (`WellKnownTypes.eitherFQN` / `rightFQN` / `leftFQN`) and reduce `fold`/`foldEither` via the merged `NativeBinding`:
-`isGuardCarrier` (the *kind* position — accept an `Either[..]`-valued return where a bare `Type` is expected),
-`dischargeGuardedSignature` (the *callee* side — `Right(t)` ⤳ the published type `t`, `Left(msg)` ⤳ a diagnostic, an
-abstract-bounds guard deferred to the body via a return meta), and `dischargeGuardedReturn` (the *applied / by-name read*
-sides). The compiler track skips discharge (it is the *producer*: `pure(A)` ⤳ `Right(A)`, publishing the undischarged
-carrier signature for a consumer to discharge).
+`isGuardCarrier` (the *kind* position — accept an `Either[..]`- or `Bool`-valued return where a bare `Type` is
+expected), `dischargeGuardedSignature` (the *callee* side — `Right(t)` ⤳ the published type `t`, `Left(msg)` ⤳ a
+diagnostic, an abstract-bounds guard deferred to the body via a return meta), and `dischargeGuardedReturn` (the
+*applied / by-name read* sides). The `Left`/`Right` payload convention and the fallback rejection message live in
+`GuardChannel`, shared with the ability processor's `where`-verdict interpreter so the two cannot drift. The compiler
+track skips discharge (it is the *producer*: `pure(A)` ⤳ `Right(A)`, publishing the undischarged carrier signature for
+a consumer to discharge); the runtime track also skips it for an ability-impl *marker* (`MarkerGuardSignature`), whose
+verdict the ability processor interprets per candidate.
+
+### The refinement channel (`channel/`) — downstream of typing
+
+`RefinementChannelProcessor` is a **post-pass** over each runtime `MonomorphicValue` (producing the `RefinementTable`
+fact), not part of checking: it walks the fully-ground body bottom-up and computes each node's **meta value** (an
+opaque domain `GroundValue`, e.g. `Int$Meta(Interval(lo, hi))`) by flow. A literal seeds via the `integerLiteral^Meta`
+companion; a call whose callee declares a `^Meta` companion computes a **transfer** (`nativeAdd^Meta`) or a **merge**
+(`fold^Meta`, `Meta.join` over the arms) by reducing that companion through the one NbE evaluator — no leaf and no
+branch construct is named, the companion is the sole recognition point. A def's `where` precondition (its `^Where`
+companion) is demanded at every full call over the arguments' metas — an unknown (⊤) range or a `false` verdict is a
+hard use-site error. Everything else is ⊤ (no entry; bignum layout — sound, wide, never wrong); lambda bodies are
+walked (so nested `where` demands fire) but never record. Consumers: the reconcile pass stamps the table onto the body,
+the JVM backend decodes machine widths from it, the LSP hover shows value ranges. Refinements flow strictly
+**downstream** of type formation — they never feed back into the checker or unifier.
 
 ### PostDrainQuoter — the sole SemValue→GroundValue transition
 
@@ -357,8 +383,10 @@ carrier signature for a consumer to discharge).
   `VTopDef(fqn, None, spine)` (→ `Structure`). It **fails loudly** on `VNeutral`, `VMeta`, `VLam`, `VNative`,
   `VStuckNative`, and an unapplied cached `VTopDef`.
 - `PostDrainQuoter` also hosts the **compile→runtime reification gate** (materialising erased-parameter-determined
-  sub-terms into literal/constructor trees), the `Bool` `fold` **branch selection** (`trySelectFold`), and the compiler
-  track's `reduceSourced` (evaluate + read back the reduced compile-time body, folding resolved ability impls in).
+  sub-terms into literal/constructor trees), the **`integerLiteral[V]` quote-time rewrite** (a value-position literal
+  reads back as a plain `IntegerLiteral` node, so no `integerLiteral` reference survives into the monomorphic tree),
+  and the compiler track's `reduceSourced` (evaluate + read back the reduced compile-time body, folding resolved
+  ability impls in).
 
 ### Unifier — pure definitional equality
 
@@ -367,8 +395,8 @@ Pattern unification on `SemValue`s with a `postponed` queue (`drain()` retries u
 1. Force both sides. `VType`~`VType` ✓. `VConst`~`VConst` → structural `GroundValue` equality.
 2. `VPi`/`VLam` → extend with a fresh rigid var, unify under the binder. Eta: `VLam` vs other → unify `c(fresh)` against
    `apply(other, fresh)`.
-3. `VNeutral`~`VNeutral` same head → zip spines. `VTopDef`~`VTopDef` same FQN → zip spines (definitional equality; e.g.
-   `Int[0,5]` ≠ `Int[0,10]` and are *rejected* — directional widening is `Coerce`'s job in check mode, never here).
+3. `VNeutral`~`VNeutral` same head → zip spines. `VTopDef`~`VTopDef` same FQN → zip spines (definitional equality: a
+   constructor applied to differing arguments is rejected).
 4. `VStuckNative`~`VStuckNative` same FQN → zip spines; it is **never** injectivity-decomposed against a meta (non-injective).
 5. `VMeta` → pattern rule: empty spine → solve directly (with an **occurs-check**); non-empty spine → `tryDecomposeApplied`
    (injectivity decomposition against a *rigid* `VTopDef(None)` / `VNeutral` head, equal-arity or partial-application),
@@ -376,19 +404,20 @@ Pattern unification on `SemValue`s with a `postponed` queue (`drain()` retries u
    decomposed** — `CarrierKindChecker` documents this as higher-order unification the pattern unifier cannot solve
    (see the diagnosing note on the two-arg HKT-over-Function limitation). **Flex-flex `?F[a..] ~ ?B`** (applied meta vs a
    *bare, unsolved* meta) solves the bare meta **in either orientation** — `?B := ?F[a..]` — rather than postponing when
-   the applied side is on the left; this solve is **candidate-free** (an alias, not a `Combine` contributor — same
-   rationale as `solveAdopting`). Without it, a carrier application aliased through a polymorphic combinator (the `.`
+   the applied side is on the left. Without it, a carrier application aliased through a polymorphic combinator (the `.`
    operator's result `?B := ?carrier[payload]`) stays hidden behind `?B`, so the effect-lift never sees the argument as
    carrier-headed — the bug that broke dot-chained effect discharge (`x.provide(a).provide(b)` fully discharged to a pure
    result). Pinned by `unify/MetaApplicationUnifyTest`.
 
-There is **no** assignability / widening / `refinements` map in `unify`. Coercion is the `Coerce` ability inserted in the
-checker's check mode (`RefinementSolver`), recognised by protocol name (`WellKnownTypes.coerceFQN`), never by type. The
-one deliberate side-door is `solveAdopting` (the effect lift's Phase-B pass-through, taken only for a *transparent*
-callee — one whose domain meta occurs in the call's result; a non-transparent callee bind-lifts at the slot instead):
-equality-wise an ordinary bare-meta solve (occurs-check included), but the solution is not recorded as a `Combine`
-candidate — adoption is not a contribution, and a candidate would reroute the enclosing result through the
-post-saturation upper-bounds deferral, starving ability resolution.
+There is **no** assignability / widening / `refinements` map in `unify` — and no directional coercion anywhere in the
+checker since the refinement channel's flag day (`Int` is nullary; value ranges ride the `channel/` post-pass, strictly
+downstream of typing). The one deliberate side-door is the Phase-B pass-through *adoption*
+(`Checker.resolveDeferredSlot`): solving a bare domain meta to the carrier-headed argument type via ordinary `doUnify`,
+taken only for a *transparent* callee — one whose domain meta occurs in the call's result; a non-transparent callee
+bind-lifts at the slot instead.
+
+`flushPostponed` runs after the finalizer: still-postponed constraints become hard mismatch errors (fail-safe — see the
+post-drain sequence above). Pinned by `unify/PostponedFlushTest`.
 
 ### Two-pool membership guards (leaf contributors)
 
@@ -416,15 +445,16 @@ quiet-probe pattern.
 3. **No ORE rewriting.** ORE is read once into `SemValue` and forgotten. All substitution is closure application.
 4. **No constraint set.** Unification is immediate and local; the only deferral is the unifier's `postponed` queue.
 5. **NativeBinding pre-fetching.** The evaluator is synchronous and pure. All bindings are prefetched into
-   `CheckState.bindingCache` (via `prefetchBindings`/`BindingClosure.collectBindings`) before evaluation.
+   `CheckState.bindingCache` (via `prefetchBindings`/`ensureBodyBindings`/`BindingClosure.collectBindings`) before
+   evaluation.
 6. **State via `CheckIO`.** State is threaded through `StateT[CompilerIO, CheckState, *]` — `get`/`modify`/`inspect`,
    not in-place mutation. Bind a parameter with `state.bindValueParam(name, type)` (runtime param: Γ=type, ρ=neutral),
    `state.bindTypeStackParam(name, type, value)` (erased type-stack param: Γ=type, ρ=value), or
    `state.bindTypeParam(name, meta)` (peeled type param: Γ=ρ=meta). Never overload one env for type and value — Γ
    (`gamma`) and ρ (`rho`) are separate.
 7. **No silent read-back fallback.** `applyValue` on a non-applicable head yields a loud `$bad-apply` stuck neutral; the
-   quoter fails loudly on every stuck form; `defaultUnsolvedMetas` is a total match on `MetaRole`. Nowhere does a stuck
-   value silently become `Type`.
+   quoter fails loudly on every stuck form; still-postponed constraints are flushed to hard errors (`flushPostponed`).
+   Nowhere does a stuck value silently become `Type`.
 8. **Two acyclic tracks.** The compiler track produces `CompilerMonomorphicValue` and cannot name `MonomorphicValue.Key`.
    Its `fetchBinding` enforces the native-leaf boundary: a runtime-concrete + compiler-absent name is a hard error
    ("Cannot use runtime-only value … at compile time"), never a fall-through to the runtime body.
@@ -452,6 +482,9 @@ quiet-probe pattern.
   it only unfolds when the cached body is `Some`. The unifier's occurs-check prevents cyclic meta solutions.
 - **`data` type declared only in the compiler pool has no constructor/match native.** Check `DeclaringPool.of` finds the
   compiler pool (name must be in the compiler `UnifiedModuleNames`).
+- **A `where` precondition silently not demanded.** The demand fires only at a *full* call (`MonomorphicValue.
+  naturalArity`) of a callee whose module declares the `^Where` companion; check `MetaWhereDesugarer` emitted it and the
+  compiler pool sees the module.
 
 ## Anti-patterns (reject in review)
 
@@ -465,8 +498,9 @@ quiet-probe pattern.
   `FunctionApplication` / `instantiatePolymorphic` / `instantiateRemaining`.
 - **Using `Map[String, SemValue]` for the environment hot path.** Env is `Vector[SemValue]`; the evaluator resolves
   parameters by name via `Env.lookupByName`.
-- **Re-introducing assignability / widening / a `refinements` map into `unify`.** `unify` is pure definitional equality;
-  directional coercion is the `Coerce` ability's job in check mode (`RefinementSolver`).
+- **Re-introducing assignability / widening / a `refinements` map into `unify`.** `unify` is pure definitional equality.
+  Value-range refinements live in the `channel/` post-pass, strictly *downstream* of typing — never in the unifier or
+  the checker.
 - **Making bind/`pure` decisions from declared signatures outside the checker.** Whether an effectful term in a slot is
   sequenced (`Effect.flatMap`/`map`) or passed through is undecidable from a callee's declaration (the same generic slot
   needs opposite answers at different instantiations — the `readLine.f` probe pair); it is `EffectLifter`'s check-mode
@@ -476,13 +510,13 @@ quiet-probe pattern.
 - **Re-inlining a non-equality side-car into `Checker`.** A new lattice relation / inference back-edge / kind rule gets
   its *own* collaborator constructed with injected primitives — never grown into `Checker`, never folded into `unify`.
 - **Special-casing a concrete type (e.g. `Int`) in the checker/unifier.** Recognise the *ability protocol* by name
-  (`coerceFQN`, `eitherFQN`, `PatternMatch`/`TypeMatch`), never the type.
+  (`eitherFQN`, `PatternMatch`/`TypeMatch`, the `^Meta`/`^Where` companion namespaces), never the type.
 - **Returning `false` (not a `VStuckNative`) from a native on non-concrete args.** `&&`/`fold`/arithmetic must stay stuck
   so the unifier still solves metavariables; `false` would wrongly reject generic/open comparisons.
 - **Injectivity-decomposing a `VStuckNative` against a meta.** A native application is non-injective; it must postpone.
 - **Re-introducing a silent fallback in `applyValue` or any read-back path.** Applying an argument to a non-applicable
-  head must yield the loud `$bad-apply` stuck form; stuck values must fail the quoter loudly; unsolved metas must default
-  by role, never silently become `Type`.
+  head must yield the loud `$bad-apply` stuck form; stuck values must fail the quoter loudly; unsolved metas default to
+  `VType` only through the finalizer, with the postponement flush as the equality backstop.
 - **Reading a runtime-pool fact in a leaf contributor without a membership probe.** A `ContributedBinding` is not
   platform-keyed; probe `DeclaringPool` / `UnifiedModuleNames` before requesting a platform-keyed value, or a
   compiler-pool-only name pollutes the build with a spurious "Could not find" error.
@@ -494,21 +528,28 @@ quiet-probe pattern.
 Tests live under `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/`:
 
 - `processor/MonomorphicTypeCheckTest.scala` — the main end-to-end checker cases (inference, HKT decomposition, carrier
-  kinds, `Coerce`/`Combine`, calculated returns W3/W4, guard signatures). **Extend these named end-to-end cases** rather
+  kinds, dependent bounds, calculated returns W3/W4, guard signatures). **Extend these named end-to-end cases** rather
   than mock-unit-testing a collaborator (the collaborators were pure moves; their behaviour is pinned here).
 - `processor/MonomorphicTypeCheckProcessorTest.scala` — processor-level cases.
 - `processor/MatchNativesProcessorTest.scala` — `match` reduction via `handleCases`/`typeMatch` natives.
 - `processor/MonomorphizationVersioningTest.scala` — per-instantiation keying.
 - `processor/ReificationTest.scala` — the compile→runtime reification gate.
 - `processor/ComputedTypeArgumentReadbackTest.scala` — computed type-argument read-back.
+- `processor/EqOperatorResolutionTest.scala`, `processor/EqTypeLeafTest.scala` — the `Eq[Type]` structural-equality leaf
+  and its resolution through `==`/`!=`.
 - `processor/CompilerMonomorphicTypeCheckProcessorTest.scala`, `processor/CompilerNativesProcessorTest.scala`,
   `processor/CompilerNativeLeafBoundaryTest.scala`, `processor/CompilerEitherCarrierTest.scala`,
   `processor/CompilerAbilityResolutionTest.scala` — the compiler-as-platform track (register a `Platform.Compiler`
   `PathScan` for the compiler pool; see `CompilerNativesProcessorTest`'s `twoPoolFacts` template).
 - `processor/CompilerOnlyDataNativesTest.scala` — the `DeclaringPool` compiler-pool fallback for the datatype native.
+- `check/CarrierBookkeepingTest.scala` — ambient-carrier heads + effect-carrier meta flagging, via the
+  `TypeStackLoop.processWithState` test seam.
+- `check/EffectLifterTest.scala` — the effect auto-lift end-to-end cases (bind/pure arms, deferral, let-bind rule).
+- `channel/RefinementChannelProcessorTest.scala` — the refinement channel's flow analysis and `^Where` demands.
 - `eval/EvaluatorApplyValueTest.scala` — the F1 loud `$bad-apply` fallback shape + quoter failure.
 - `unify/UnifyResultTest.scala`, `unify/OccursCheckTest.scala`, `unify/StuckNativeUnifyTest.scala`,
-  `unify/UnifierRoleTest.scala` — pure unifier unit tests (construct `SemValue`s directly; `AnyFlatSpec`).
+  `unify/MetaApplicationUnifyTest.scala`, `unify/PostponedFlushTest.scala`, `unify/CarrierRoleTest.scala` — pure unifier
+  unit tests (construct `SemValue`s directly; `AnyFlatSpec`).
 
 Most processor tests run the whole pipeline via `ProcessorTest(LangProcessors()*)` and construct source text inline.
 Follow the project testing conventions: single-line asserts, assert the `Seq` itself, prefer `.asserting(_ ...)`.
@@ -524,7 +565,10 @@ Follow the project testing conventions: single-line asserts, assert the `Seq` it
 - `MonomorphicValue` fields: `vfqn`, `typeArguments`, `name`, `signature: GroundValue`, `runtime:
   Option[Sourced[MonomorphicExpression.Expression]]`. `CompilerMonomorphicValue` mirrors it with `reduced` instead of
   `runtime` (the reduced compile-time body plugged in as a native, not codegen input).
-- `NativeBinding.Key(vfqn, platform)` — value FQN → evaluator `SemValue`, per platform. `TransparentBinding.Key(vfqn)` —
-  the opaque-unfolding twin (runtime only), for representation lowering.
+- `NativeBinding.Key(vfqn, platform)` — value FQN → evaluator `SemValue`, per platform.
 - `ContributedBinding.Key(vfqn, label)` — **not** platform-keyed; one supplier's total answer per label.
+- `BodyValueReferences.Key(vfqn, platform)` — the memoized reference set of a value's checking body (transitive
+  binding prefetch).
+- `RefinementTable.Key(vfqn, typeArguments)` — keyed exactly like `MonomorphicValue.Key`; the per-node meta values of
+  one monomorphic instance (the refinement channel's output).
 - `MonomorphicExpression.expressionType: GroundValue` — always fully ground; no free variables or unsolved metas.

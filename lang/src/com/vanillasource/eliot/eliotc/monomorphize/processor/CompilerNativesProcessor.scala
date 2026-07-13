@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
   * platform's own definition (e.g. jvm's `foldEither`): the compiler *borrows* a platform body when it is
   * compiler-runnable, which is how compile-time code reaches a function a platform codebase defines. It is registered as
   * a **native** label, so its reduction is preferred for checking while the runtime layer's body is still what
-  * `TransparentBinding`/codegen reads (the `add` pattern — one name, two platform implementations, kept apart by the
+  * codegen reads (the `add` pattern — one name, two platform implementations, kept apart by the
   * marker).
   *
   * **Body vs. native — borrow is fail-safe.** [[BodyContributorProcessor]] contributes a `Body` for a body-ful value and
