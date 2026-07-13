@@ -18,24 +18,14 @@ def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bo
   lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)
 
 /**
- * The inclusive bounds of the standard signed machine-integer widths — 8-bit `byte`, 16-bit `short`, 32-bit `medium`,
- * 64-bit `long`. These are the single definition of each boundary: the `Byte`/`Short`/`Medium`/`Long` aliases in `Int`
- * and every platform's representation dispatch reference them rather than repeating the literals.
+ * The inclusive bounds of a signed 8-bit `byte`. The single definition of each boundary, referenced by `fitsByte`
+ * rather than repeating the literals.
  */
-def byteMin: BigInteger   = -128
-def byteMax: BigInteger   = 127
-def shortMin: BigInteger  = -32768
-def shortMax: BigInteger  = 32767
-def mediumMin: BigInteger = -2147483648
-def mediumMax: BigInteger = 2147483647
-def longMin: BigInteger   = -9223372036854775808
-def longMax: BigInteger   = 9223372036854775807
+def byteMin: BigInteger = -128
+def byteMax: BigInteger = 127
 
 /**
- * Whether the range `[min, max]` fits in a signed byte / short / medium / long — the named width-containment predicates a
- * platform's `Int` representation policy dispatches on (`fitsIn` specialised to each standard width).
+ * Whether the range `[min, max]` fits in a signed byte — the width-containment predicate the `withinByte` `where`
+ * precondition dispatches on (`fitsIn` specialised to the byte width).
  */
-def fitsByte(min: BigInteger, max: BigInteger): Bool   = fitsIn[byteMin, byteMax, min, max]
-def fitsShort(min: BigInteger, max: BigInteger): Bool  = fitsIn[shortMin, shortMax, min, max]
-def fitsMedium(min: BigInteger, max: BigInteger): Bool = fitsIn[mediumMin, mediumMax, min, max]
-def fitsLong(min: BigInteger, max: BigInteger): Bool   = fitsIn[longMin, longMax, min, max]
+def fitsByte(min: BigInteger, max: BigInteger): Bool = fitsIn[byteMin, byteMax, min, max]

@@ -10,8 +10,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * §4.3) — the `Bool` function the refinement channel evaluates at each call site to demand the precondition.
   *
   * {{{
-  *   def useByte(x: Int): Int where within(0, 255, range(x))
-  *     ⟶  useByte$Where(x: Int$Meta): Bool = within(0, 255, range(x))
+  *   def useByte(x: Int): Int where withinByte(range(x))
+  *     ⟶  useByte$Where(x: Int$Meta): Bool = withinByte(range(x))
   * }}}
   *
   * Like the `^Meta` transfer companion ([[MetaTransferDesugarer]]) it lives in the [[Qualifier.Meta]] namespace and its

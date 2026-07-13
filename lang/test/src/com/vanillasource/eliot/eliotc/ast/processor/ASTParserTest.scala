@@ -498,8 +498,8 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   it should "carry a def's where precondition as its where clause, stopping cleanly before the body" in {
     // `where` is a hard keyword, so the return-type run ends at it and the predicate run ends at `=`; both the
     // precondition and the body parse (bounds-as-refinements §4.3, `where`-on-defs).
-    runEngineForFunctionWhereClauses("def useByte(x: Int): Int where within(range(x)) = x").asserting(
-      _ shouldBe Seq("useByte" -> Some("within(range(x))"))
+    runEngineForFunctionWhereClauses("def useByte(x: Int): Int where withinByte(range(x)) = x").asserting(
+      _ shouldBe Seq("useByte" -> Some("withinByte(range(x))"))
     )
   }
 

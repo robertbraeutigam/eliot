@@ -8,12 +8,10 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
   * [[GroundValue]], the `[min, max]` the channel pinned for a node) into the machine layout that carries it — the
   * smallest signed wrapper whose width contains the interval, falling back to a bignum.
   *
-  * This is the Scala successor of the Eliot `Represent[Interval]` instance (`jvm/eliot-compiler/.../Represent.els`): the
-  * `interval → width` decision is JVM-specific codegen knowledge (an ATtiny backend would map the same interval to
+  * The `interval → width` decision is JVM-specific codegen knowledge (an ATtiny backend would map the same interval to
   * different widths), so it belongs in the backend, not in an Eliot ability the checker evaluates. The thresholds are the
-  * standard signed machine-integer bounds — the exact `fitsByte/fitsShort/fitsMedium/fitsLong` fold `Represent.els`
-  * performed (`stdlib/.../BigInteger.els`), kept byte-for-identical so the move is behaviour-preserving. See
-  * `docs/generic-refinement-merges.md` (Step 6) and `docs/bounds-as-refinements.md`.
+  * standard signed machine-integer bounds (byte/short/32-bit/64-bit, else bignum). See `docs/generic-refinement-merges.md`
+  * (Step 6) and `docs/bounds-as-refinements.md`.
   *
   * The output is a `Jvm*` representation-type [[ValueFQN]] the rest of the backend already understands
   * ([[NativeType.jvmRepresentationType]] → [[NativeType.types]]); the `Jvm*` names stay an internal backend vocabulary.
@@ -34,8 +32,8 @@ object IntRepresentation {
   private val jvmLong       = NativeType.jvmRepresentationType("JvmLong")
   private val jvmBigInteger = NativeType.jvmRepresentationType("JvmBigInteger")
 
-  /** The machine layout carrying every value in `[min, max]`: the narrowest signed wrapper that contains it, else a
-    * bignum. Matches `Represent.els`'s `fitsByte → JvmByte`, …, `fitsLong → JvmLong`, else `JvmBigInteger` fold exactly.
+  /** The machine layout carrying every value in `[min, max]`: the narrowest signed wrapper that contains it
+    * (`JvmByte`/`JvmShort`/`JvmInt`/`JvmLong`), else `JvmBigInteger`.
     */
   def widthOf(min: BigInt, max: BigInt): ValueFQN =
     if (byteMin <= min && max <= byteMax) jvmByte

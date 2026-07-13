@@ -206,8 +206,8 @@ class RefinementChannelProcessor
     meta.map(RefinementTable.NodeMeta(node.range, _)).toSeq
 
   /** Demand a callee's `where` precondition (bounds-as-refinements §4.3) at this call site, when it declares one. A def
-    * `def f(x: Int): T where within(0, 255, range(x))` desugars to a `^Where` companion `f$Where(x: Int$Meta): Bool =
-    * within(0, 255, range(x))` ([[MetaWhereDesugarer]]); at a *full* call to `f` that companion is reduced on the
+    * `def f(x: Int): T where withinByte(range(x))` desugars to a `^Where` companion `f$Where(x: Int$Meta): Bool =
+    * withinByte(range(x))` ([[MetaWhereDesugarer]]); at a *full* call to `f` that companion is reduced on the
     * compiler track and evaluated over the arguments' channel intervals. The demand is discharged only when every
     * argument's range is known and the predicate reduces to `true`; an unknown (⊤) argument range or a `false` result is
     * a hard error at the call — the use-site verification the cornerstone prescribes. A partial application is not yet a

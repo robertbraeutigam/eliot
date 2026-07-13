@@ -44,7 +44,7 @@ case class FunctionDefinition(
     // dropped (never part of `NamedValue`/`signatureEquality`).
     returnMeta: Seq[Sourced[Expression]] = Seq.empty,
     // The `where <predicate>` **refinement precondition** of a def (bounds-as-refinements §4.3), e.g.
-    // `def useByte(x: Int): Int where within(0, 255, range(x))` — a `Bool` predicate over the parameters' *meta* values
+    // `def useByte(x: Int): Int where withinByte(range(x))` — a `Bool` predicate over the parameters' *meta* values
     // (each parameter `p: T` is seen as its meta `p: T$Meta`, so `range(p)` projects the tracked range). Populated only
     // when a def carries a `where`; empty otherwise. Consumed at the core boundary by `MetaWhereDesugarer`, which emits
     // the def's `^Where` companion (a `T$Meta… -> Bool` function in `Qualifier.Meta`) the refinement channel evaluates
