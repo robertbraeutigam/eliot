@@ -25,12 +25,6 @@ infix left at && def ||(a: Bool, b: Bool): Bool
  */
 prefix def !(a: Bool): Bool
 
-// Compiler note: the return brace `{join(whenTrue, whenFalse)}` is `fold`'s refinement-channel `^Meta` merge
-// companion (docs/generic-refinement-merges.md). The compiler recognises a merge only via `Meta.join` — the one
-// refinement primitive — never by naming `fold` as "the branch"; the companion is generic over `A`'s domain (the
-// channel reduces it at the arm's meta type, so `join` is the compiler-derived `Meta[A$Meta]`). `fold` is a
-// primitive only because `Bool` is opaque — morally it is a match on a two-constructor `Bool` — and it has no
-// runtime body: it stays a native.
 /**
  * The two-armed eliminator for `Bool`: yields `whenTrue` when `condition` holds, otherwise `whenFalse`.
  *
