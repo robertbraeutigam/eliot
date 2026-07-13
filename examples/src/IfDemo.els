@@ -33,14 +33,36 @@ def demo(flag: Bool): {Console} Unit = {
    } else printLine("6. plain else")
 }
 
-def main: IO[Unit] = {
-   // Called with a compile-time constant: `demo(true)` may be reduced by the compiler. No `else` is needed — `demo`
-   // performs only `{Console}`, so it drops straight into the `IO` of `main`.
-   printLine("========== demo(true) ==========")
-   demo(true)
+// `fold` is the raw two-armed eliminator that `if` is built on: `if(cond, v)` is exactly `fold(cond, v, abort)`, and
+// `else` discharges that abort. The differences: `fold` takes BOTH arms explicitly and both must already be the SAME
+// type (a bare `A` slot does not auto-lift a pure arm the way `if`'s carrier-typed arm does), and `fold` adds no
+// `{Abort}` to the effect row — its result type is just the arms' type.
+def foldForms(flag: Bool): {Console} Unit = {
+   // 1. Two pure arms of one type: `fold` selects a value and adds nothing to the effect row (result is `String`).
+   printLine(fold(flag, "1. fold pure: then", "1. fold pure: else"))
 
-   // Called with a runtime value: `readLine == "yes"` is only known at run time, so the ifs are genuinely executed
-   // by the generated JVM bytecode. Feed "yes" on stdin for the true branches, anything else for the false branches.
-   printLine("========== demo(readLine == yes) ==========")
-   demo(readLine == "yes")
+   // 2. Two effectful arms: `A` unifies to `{Console} Unit`, and only the chosen branch's `printLine` runs.
+   fold(flag, printLine("2. fold effectful: then"), printLine("2. fold effectful: else"))
+
+   // 3. Both arms must agree in type: `fold(flag, printLine("x"), "y")` would NOT compile, because a pure arm is not
+   //    auto-lifted to match an effectful one. Relaxing exactly that — a carrier-typed arm a pure value can lift
+   //    into — is what `if` adds on top of `fold`.
+   printLine(fold(flag, "3. fold same-type arms: A", "3. fold same-type arms: B"))
+}
+
+def main: IO[Unit] = {
+   // With a compile-time constant: `demo(true)` / `foldForms(true)` may be reduced by the compiler. No `else` is
+   // needed — both perform only `{Console}`, so they drop straight into the `IO` of `main`.
+   printLine("========== constant: true ==========")
+   demo(true)
+   foldForms(true)
+
+   // With a runtime value. An effectful condition — `readLine == "yes"` : IO[Bool] — is direct-style lifted (run)
+   // in the rigid `Bool` slot of BOTH `if` and `fold`, exactly like `printLine(readLine)`. We sequence it once into
+   // `flag` (the jvm `readLine` reads a fresh line per call, so we bind it a single time and reuse the pure `Bool`),
+   // then drive both demos. Feed "yes" on stdin for the true branches, anything else for the false branches.
+   val flag = readLine == "yes"
+   printLine("========== runtime: readLine == yes ==========")
+   demo(flag)
+   foldForms(flag)
 }
