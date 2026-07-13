@@ -27,7 +27,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     postponement is reported rather than silently dropped.
   *
   * The recorded kind itself lives in the [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier]]'s
-  * [[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole]] map (D2) — this module only *seeds* and *reads* it.
+  * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole]] map — this module only *seeds* and *reads*
+  * it.
   * Operates over [[CheckIO]], reading and writing the shared [[CheckState]] through `get`/`modify`/`inspect`. It
   * depends on exactly three checker primitives, passed at construction — that narrow surface is the module boundary.
   *
@@ -52,7 +53,7 @@ class CarrierKindChecker(
     * applied. An ordinary `[A]` binder (kind `Type`) is left untagged — solving it to a proper type is correct.
     *
     * Every higher-kinded binder's meta is also flagged as an *effect carrier*
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole.Instantiation.effectCarrier]]). This is the effect
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]). This is the effect
     * phase's *callee-side* carrier notion (`EffectCarriers.carrierBinders`, deliberately unfiltered): an effectful
     * result rides *any* of the callee's own HKT binders — including a deliberately unconstrained one like `runStateToPair`'s
     * `G[_]` (the effect-transparent discharge combinators return `G[...]` with no ability constraint, and a `val`

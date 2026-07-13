@@ -25,8 +25,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * mismatches.
   *
   * What counts as an effect carrier (the head of `C[T']` after forcing):
-  *   - a metavariable whose [[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole.Instantiation.effectCarrier]]
-  *     role is set (a callee's ability-constrained higher-kinded binder — `printLine`'s `F`), or
+  *   - a metavariable whose [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]
+  *     flag is set (a callee's higher-kinded binder — `printLine`'s `F`), or
   *   - a head recorded in [[CheckState.ambientCarriers]] (the value-under-check's own carrier binders) — a recorded
   *     *meta* head is re-forced at query time, so a carrier pinned/solved to a concrete constructor after recording
   *     (the compiler track's `Either[E]`) is still recognized.

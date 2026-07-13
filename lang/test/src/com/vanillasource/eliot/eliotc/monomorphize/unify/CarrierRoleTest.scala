@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -10,19 +9,11 @@ import org.scalatest.matchers.should.Matchers
 
 import java.net.URI
 
-/** D2: the single `metaRoles` map replaces the former six side-sets. These tests pin the role lifecycle (a fresh meta is
-  * [[MetaRole.Plain]]) and the carrier-kind / effect-carrier queries the post-check pipeline reads.
-  *
-  * (The protected-set / abstract-associated-type machinery this doc once described — and the `Combine`-branch-join roles
-  * `combinable`/`candidates`/`combineResolved`/upper-bounds it once exercised — were removed with the associated-types
-  * lane and the refinement channel's flag day; see `docs/bounds-as-refinements.md` Steps 7b/7c. `defaultUnsolvedMetas`
-  * now defaults every unsolved meta to `Type`, both roles alike.)
+/** The per-meta carrier bookkeeping ([[Unifier.CarrierRole]] on the unifier's single map): the carrier-kind /
+  * effect-carrier queries the post-check pipeline reads.
   */
-class UnifierRoleTest extends AnyFlatSpec with Matchers {
+class CarrierRoleTest extends AnyFlatSpec with Matchers {
   private val ctx: Sourced[String] = Sourced(URI.create("Test.els"), PositionRange.zero, "ctx")
-
-  private def fqn(name: String, qualifier: Qualifier): ValueFQN =
-    ValueFQN(ModuleName(Seq("test"), "M"), QualifiedName(name, qualifier))
 
   /** Allocate `n` fresh metavariables, returning their ids and a fresh unifier over them. */
   private def withMetas(n: Int): (Vector[SemValue.MetaId], Unifier) = {
@@ -33,9 +24,9 @@ class UnifierRoleTest extends AnyFlatSpec with Matchers {
     (ids, Unifier.create(store, 0))
   }
 
-  "a fresh metavariable" should "have role Plain" in {
+  "a fresh metavariable" should "carry no carrier bookkeeping" in {
     val (ids, u) = withMetas(1)
-    u.roleOf(ids.head.value) shouldBe MetaRole.Plain
+    u.isEffectCarrier(ids.head.value) shouldBe false
   }
 
   "recordCarrierKind" should "expose the meta and its kind via carrierMetas" in {

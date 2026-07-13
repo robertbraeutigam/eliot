@@ -273,28 +273,18 @@ class TypeStackLoop(
       ) >> abort[Unit]
     )
 
-  /** Finalize every still-unsolved meta by a **total match on its [[MetaRole]]** (D2) — the structural F2 cure. Runs
-    * after the drain-and-resolve loop has reached its fixed point, so any meta unification could have determined is
-    * already solved. Every still-unsolved meta ([[MetaRole.Plain]] or [[MetaRole.Instantiation]]) defaults to [[VType]].
-    * Because the match is exhaustive over the sealed `MetaRole`, a future role added to the ADT forces an explicit
-    * decision here rather than silently inheriting the old "default everything to `Type`" behaviour — which is exactly
-    * the silent-miscompile path D2 removes.
+  /** Finalize every still-unsolved meta to [[VType]]. Runs after the drain-and-resolve loop has reached its fixed
+    * point, so any meta unification could have determined is already solved; what remains is an unconstrained
+    * (phantom) instantiation, whose canonical value is `Type`.
     */
   private def defaultUnsolvedMetas: CheckIO[Unit] =
     modify { s =>
-      val unifier = s.unifier
-      val store   = unifier.metaStore
-      val solved  = store.entries.foldLeft(store) { case (acc, (rawId, entry)) =>
-        entry match {
-          case Some(_) => acc // already solved by unification
-          case None    =>
-            unifier.roleOf(rawId) match {
-              case MetaRole.Plain            => acc.solve(SemValue.MetaId(rawId), VType)
-              case _: MetaRole.Instantiation => acc.solve(SemValue.MetaId(rawId), VType)
-            }
-        }
+      val store  = s.unifier.metaStore
+      val solved = store.entries.foldLeft(store) {
+        case (acc, (rawId, None)) => acc.solve(SemValue.MetaId(rawId), VType)
+        case (acc, _)             => acc
       }
-      s.withUnifier(unifier.copy(metaStore = solved))
+      s.withUnifier(s.unifier.copy(metaStore = solved))
     }
 
   /** The named, ordered post-check resolution pipeline (D1).
@@ -342,7 +332,7 @@ class TypeStackLoop(
       // first) rather than silently carrying and forgetting them — the hole that let pre-fix applied-associated-type
       // garbage compile. Runs before the meta-postcondition assertion, which the defaulting already satisfies.
       _ <- modify(s => s.withUnifier(s.unifier.flushPostponed()))
-      _ <- assertEveryMetaResolvedOrAbstract(ctx)
+      _ <- assertEveryMetaResolved(ctx)
     } yield ()
   }
 
@@ -365,12 +355,12 @@ class TypeStackLoop(
 
   /** Postcondition of the post-drain pipeline (D1): every metavariable is solved. The finalizer
     * ([[defaultUnsolvedMetas]]) makes this hold by construction, so it never fires in normal operation; it is the
-    * *compiler-bug* backstop for D2's per-role finalization — were a future role added to [[MetaRole]] and forgotten in
-    * `defaultUnsolvedMetas`'s total match, a meta could survive unsolved, and this assertion catches it. It
+    * *compiler-bug* backstop — were a future resolution path to bypass the finalizer and leave a meta unsolved, this
+    * assertion catches it. It
     * [[compilerAbort]]s rather than reporting a user diagnostic because a surviving unsolved meta is an internal
     * invariant violation, not a type error of the user's making.
     */
-  private def assertEveryMetaResolvedOrAbstract(ctx: PassContext): CheckIO[Unit] =
+  private def assertEveryMetaResolved(ctx: PassContext): CheckIO[Unit] =
     inspect { s =>
       s.unifier.metaStore.entries.collect { case (rawId, None) => rawId }.toList
     }.flatMap {

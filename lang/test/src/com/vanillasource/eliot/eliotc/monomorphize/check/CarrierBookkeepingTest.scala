@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.domain.{MetaRole, SemValue}
+import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
@@ -15,8 +15,8 @@ import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 
 /** The effect-carrier bookkeeping of the effect-lift plan (docs/effect-lift-in-checker.md, Step 2): the checker
   * records the value-under-check's own *ambient* effect-carrier heads ([[CheckState.ambientCarriers]]) and flags
-  * ability-constrained higher-kinded instantiation metas as effect carriers
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole.Instantiation.effectCarrier]]). Neither is visible on
+  * higher-kinded instantiation metas as effect carriers
+  * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]). Neither is visible on
   * the ordinary `MonomorphicValue` output, so a probe processor runs the same [[TypeStackLoop]] through its
   * [[TypeStackLoop.processWithState]] test seam and captures the final [[CheckState]].
   */
@@ -115,10 +115,7 @@ object CarrierBookkeepingTest {
             key.vfqn,
             key.typeArguments,
             state.ambientCarriers,
-            state.unifier.metaRoles.values.count {
-              case i: MetaRole.Instantiation => i.effectCarrier
-              case _                         => false
-            }
+            state.unifier.carrierRoles.values.count(_.effectCarrier)
           )
         }
   }

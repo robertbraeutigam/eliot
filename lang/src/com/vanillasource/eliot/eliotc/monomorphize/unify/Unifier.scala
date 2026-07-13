@@ -23,30 +23,23 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * evaluator (= normalises) and compares. There is no notion of "assignability", directional widening, or branch
   * joining here — a mismatch is a mismatch.
   *
-  * Per-metavariable metadata lives in [[metaRoles]] — one [[MetaRole]] per meta id (D2), the single map that subsumes
-  * the former scattered side-sets. Today it carries only the [[MetaRole.Instantiation]] carrier aspects (carrier kind,
-  * effect-carrier flag), read by the checker's effect lift.
+  * Per-metavariable *carrier* bookkeeping lives in [[carrierRoles]] — one [[Unifier.CarrierRole]] per higher-kinded
+  * instantiation meta id, the single map that subsumes the former scattered side-sets. It carries the carrier kind
+  * (verified post-drain) and the effect-carrier flag (read by the checker's effect lift); a meta absent from the map
+  * has no carrier aspect and is solved by ordinary unification or defaulted to `Type` at finalization.
   *
-  * @param metaRoles
-  *   Per-meta-id role. Absence ⇒ [[MetaRole.Plain]]. The checker writes the [[MetaRole.Instantiation]] carrier-kind /
-  *   effect-carrier aspects through the role-transition methods below.
+  * @param carrierRoles
+  *   Per-meta-id carrier bookkeeping for higher-kinded instantiation metas. The checker writes the carrier-kind /
+  *   effect-carrier aspects through the record methods below.
   */
 case class Unifier(
     metaStore: MetaStore,
     depth: Int,
     postponed: List[(SemValue, SemValue, Sourced[String])],
     errors: List[UnifyError],
-    metaRoles: Map[Int, MetaRole] = Map.empty
+    carrierRoles: Map[Int, Unifier.CarrierRole] = Map.empty
 ) {
-
-  /** The role of a metavariable, defaulting to [[MetaRole.Plain]] when unclassified. */
-  def roleOf(id: Int): MetaRole = metaRoles.getOrElse(id, MetaRole.Plain)
-
-  /** Replace a metavariable's role. */
-  def setRole(id: Int, role: MetaRole): Unifier = copy(metaRoles = metaRoles.updated(id, role))
-
-  /** Transform a metavariable's role in place (reading its current value, defaulting to [[MetaRole.Plain]]). */
-  def updateRole(id: Int, f: MetaRole => MetaRole): Unifier = setRole(id, f(roleOf(id)))
+  import Unifier.CarrierRole
 
   /** Whether `id` occurs in `value` (following solutions through the meta store) — the public probe the effect lift's
     * Phase-B deferred-slot decision uses to tell a *transparent* callee (the domain meta flows into the call's result,
@@ -56,39 +49,29 @@ case class Unifier(
     */
   def occursInValue(id: MetaId, value: SemValue): Boolean = occursIn(id, value)
 
-  /** Every higher-kinded carrier meta (an [[MetaRole.Instantiation]] with a recorded `carrierKind`), as
-    * `(id, (expectedKind, context))`. Drives post-drain carrier-kind verification.
+  /** Every higher-kinded carrier meta with a recorded `carrierKind`, as `(id, (expectedKind, context))`. Drives
+    * post-drain carrier-kind verification.
     */
   def carrierMetas: List[(Int, (SemValue, Sourced[String]))] =
-    metaRoles.toList.collect { case (id, MetaRole.Instantiation(Some(carrier), _)) => (id, carrier) }
+    carrierRoles.toList.collect { case (id, CarrierRole(Some(carrier), _)) => (id, carrier) }
 
   /** Whether a metavariable stands for an *effect* carrier (an ability-constrained higher-kinded instantiation meta —
-    * see [[MetaRole.Instantiation.effectCarrier]]).
+    * see [[Unifier.CarrierRole.effectCarrier]]).
     */
-  def isEffectCarrier(id: Int): Boolean = roleOf(id) match {
-    case i: MetaRole.Instantiation => i.effectCarrier
-    case _                         => false
-  }
+  def isEffectCarrier(id: Int): Boolean = carrierRoles.get(id).exists(_.effectCarrier)
 
   /** Record a higher-kinded instantiation meta's expected kind (`[F[_]]` carrier). */
-  def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): Unifier = updateRole(
-    id.value,
-    {
-      case i: MetaRole.Instantiation => i.copy(carrierKind = Some((expectedKind, context)))
-      case _                         => MetaRole.Instantiation(carrierKind = Some((expectedKind, context)))
-    }
-  )
+  def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): Unifier =
+    updateCarrier(id.value, _.copy(carrierKind = Some((expectedKind, context))))
 
   /** Mark an instantiation meta as standing for an *effect* carrier (an ability-constrained higher-kinded binder —
-    * see [[MetaRole.Instantiation.effectCarrier]]).
+    * see [[Unifier.CarrierRole.effectCarrier]]).
     */
-  def recordEffectCarrier(id: MetaId): Unifier = updateRole(
-    id.value,
-    {
-      case i: MetaRole.Instantiation => i.copy(effectCarrier = true)
-      case _                         => MetaRole.Instantiation(effectCarrier = true)
-    }
-  )
+  def recordEffectCarrier(id: MetaId): Unifier =
+    updateCarrier(id.value, _.copy(effectCarrier = true))
+
+  private def updateCarrier(id: Int, f: CarrierRole => CarrierRole): Unifier =
+    copy(carrierRoles = carrierRoles.updated(id, f(carrierRoles.getOrElse(id, CarrierRole()))))
 
   /** Speculatively unify `l` against `r` without committing a mismatch (D5), returning an explicit [[UnifyResult]]
     * rather than forcing callers to diff [[errors]] before and after a [[unify]] call. A [[UnifyResult.Unified]]
@@ -403,4 +386,23 @@ case class Unifier(
 object Unifier {
   def create(metaStore: MetaStore, depth: Int): Unifier =
     Unifier(metaStore, depth, Nil, Nil)
+
+  /** The carrier bookkeeping of one *higher-kinded* type-parameter instantiation metavariable (a `[F[_]]` carrier
+    * peeled from a polytype's leading binders). Only carrier metas appear in [[Unifier.carrierRoles]]; an ordinary
+    * `[A]` binder's meta (kind `Type`) carries no such record.
+    *
+    * @param carrierKind
+    *   The meta's expected kind plus a call-site context for an error. Verified post-drain: a carrier solved to a
+    *   value of the wrong kind is rejected rather than silently accepted.
+    * @param effectCarrier
+    *   Whether this meta stands for an *effect* carrier — the effect lift's *callee-side* carrier notion, deliberately
+    *   unfiltered: every higher-kinded binder of a referenced value is flagged (an effectful result rides *any* of the
+    *   callee's own HKT binders, including a deliberately unconstrained `G[_]`). The ability-constraint filter applies
+    *   only to a value's own *ambient* carriers ([[com.vanillasource.eliot.eliotc.monomorphize.check.CheckState]]).
+    *   Read by the checker-side effect lift to decide whether a `C[T']`-headed argument may be bind-lifted.
+    */
+  case class CarrierRole(
+      carrierKind: Option[(SemValue, Sourced[String])] = None,
+      effectCarrier: Boolean = false
+  )
 }

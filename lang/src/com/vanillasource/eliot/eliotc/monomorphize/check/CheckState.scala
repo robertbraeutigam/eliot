@@ -21,10 +21,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   * The two grow in lockstep (every `bind*` extends both), so their de Bruijn levels stay in sync.
   *
-  * Per-metavariable metadata (combinable / candidates / combine-resolved / upper-bounds / carrier-kinds /
-  * abstract-associated-type placeholders) is **not** held here as separate side-tables (D2): it lives in a single
-  * [[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole]] map on the [[unifier]], and the `record*` methods
-  * below delegate into it.
+  * Per-metavariable carrier bookkeeping (carrier kinds / effect-carrier flags) is **not** held here as separate
+  * side-tables: it lives in a single
+  * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole]] map on the [[unifier]], and the `record*`
+  * methods below delegate into it.
   *
   * @param gamma
   *   Γ: the typing context — parameter name → its type (de Bruijn level environment).
