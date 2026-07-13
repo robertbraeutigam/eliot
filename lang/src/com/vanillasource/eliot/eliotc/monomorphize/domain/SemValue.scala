@@ -31,7 +31,7 @@ object SemValue {
 
   case class VTopDef(fqn: ValueFQN, cached: Option[Lazy[SemValue]], spine: Spine) extends SemValue
 
-  /** A stuck primitive (native) application — a built-in operation (`add`, `min`, `&&`, `fold`, `inc`, …) applied to
+  /** A stuck primitive (native) application — a built-in operation (`add`, `min`, `&&`, `fold`, …) applied to
     * arguments that are not yet concrete, so it cannot reduce. Carries the native's own FQN and the (renormalised)
     * argument spine.
     *

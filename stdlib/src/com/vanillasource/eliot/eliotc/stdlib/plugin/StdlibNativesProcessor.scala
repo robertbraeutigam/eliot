@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 /** The `stdlib` native contributor: emits the total [[ContributedBinding]] under [[StdlibNativesProcessor.stdlibLabel]]
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
   * reason about — the compile-time arithmetic the refinement channel's `Interval` domain runs ([[BigInteger]]'s `Numeric`
-  * ability `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`) and the `Bool` eliminator
+  * ability `add`/`subtract`/`multiply`), the boolean operators (`&&`/`||`/`!`) and the `Bool` eliminator
   * `fold`, string equality (attached to the `Eq[String]::equals` impl method), and the [[BigInteger]] ordering comparison behind
   * `Compare[BigInteger]` — and `None` for every other name.
   *
@@ -55,7 +55,6 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   */
 class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] {
 
-  private val bigIntegerModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
   private val boolModule: ModuleName       = ModuleName(ModuleName.defaultSystemPackage, "Bool")
   private val compareModule: ModuleName    = ModuleName(ModuleName.defaultSystemPackage, "Compare")
   private val arithmeticModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Arithmetic")
@@ -78,9 +77,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private val numericSubtractFQN: ValueFQN = numericFn("subtract")
   private val numericMultiplyFQN: ValueFQN = numericFn("multiply")
 
-  private def bigIntegerFn(name: String): ValueFQN = ValueFQN(bigIntegerModule, QualifiedName(name, Qualifier.Default))
-
-  private val incFQN: ValueFQN             = bigIntegerFn("inc")
   private val boolAndFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("&&", Qualifier.Default))
   private val boolOrFQN: ValueFQN          = ValueFQN(boolModule, QualifiedName("||", Qualifier.Default))
   private val boolNotFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("!", Qualifier.Default))
@@ -91,7 +87,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private val stringType: SemValue = VTopDef(stringFQN, None, Spine.SNil)
 
   private val bindings: Map[ValueFQN, SemValue] = Map(
-    incFQN                    -> incNative,
     arithmeticAddFQN          -> arithmeticAddNative,
     arithmeticSubtractFQN     -> arithmeticSubtractNative,
     arithmeticMultiplyFQN     -> arithmeticMultiplyNative,
@@ -180,16 +175,6 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     */
   private def stuck(fqn: ValueFQN, args: SemValue*): SemValue =
     VStuckNative(fqn, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
-
-  /** `inc(n: BigInteger): BigInteger` — reduces `inc(VConst(Direct(n, _)))` to `VConst(Direct(n+1, _))`. */
-  private def incNative: SemValue =
-    VNative(
-      bigIntType,
-      {
-        case VConst(GroundValue.Direct(n: BigInt, tpe)) => VConst(GroundValue.Direct(n + 1, tpe))
-        case other                                      => stuck(incFQN, other)
-      }
-    )
 
   /** `lessThanOrEqual(a, b): Bool` — reduces to a concrete Bool when both arguments are concrete BigIntegers, otherwise
     * stays stuck (so the unifier falls back to ordinary unification).

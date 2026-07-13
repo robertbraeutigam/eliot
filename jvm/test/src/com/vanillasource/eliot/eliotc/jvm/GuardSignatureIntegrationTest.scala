@@ -87,7 +87,7 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
   // G2 lets the same guard read with the designed infix syntax — `A when (cond) orError "…"` — instead of the
   // application form above. The return-type parser admits a flat infix expression and the operator phase lowers it to
   // `orError(when(A, cond), "…")`, so it discharges identically. The `>` operand exercises the compile-time integer
-  // comparison (`eliot.lang.BigInteger.>`, reduced through the existing `inc`/`lessThanOrEqual` natives). (G2)
+  // comparison (`eliot.lang.BigInteger.>`, reduced through the existing `lessThanOrEqual` native). (G2)
 
   "a satisfied infix `when … orError` guard" should "type as its payload and run as the bare type" in {
     compileAndRun(

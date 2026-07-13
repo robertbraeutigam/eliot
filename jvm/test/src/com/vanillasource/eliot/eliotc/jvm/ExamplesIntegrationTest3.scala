@@ -199,9 +199,10 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   "monomorph check" should "handle dependent type integer arithmetic" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.lang.Numeric
         |data Box[I: BigInteger](content: String)
         |
-        |def someFunction[I: BigInteger](arg: String): Box[I.inc] = Box[3](arg)
+        |def someFunction[I: BigInteger](arg: String): Box[I + 1] = Box[3](arg)
         |
         |def main: IO[Unit] = printLine(content(someFunction[2]("Hello World!")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
