@@ -60,17 +60,21 @@ def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A { join(whenTrue, when
  * (`if(cond, printLine("hi"))`, whose own effects join the row). Both branches of an `if..else` are *built*, but
  * only the selected one is ever *run*, so this reads like an imperative `if`.
  *
+ * Since `if` curries just like all functions do, the second argument can appear after the first
+ * argument is applied separately, so `if(cond, "yes")` becomes `if(conf) "yes"`, just like in
+ * an imperative language.
+ *
  * ```eliot
  * // A pure value chosen by a chain; else binds right-associatively.
- * def sign(n: Int): String = if(n > 0, "+") else if(n < 0, "-") else "0"
+ * def sign(n: Int): String = if(n > 0) "+" else if(n < 0) "-" else "0"
  *
  * // Effectful branches: only the taken branch's printLine runs, and else discharges
  * // the {Abort}, so greet declares only {Console}.
  * def greet(known: Bool, name: String): {Console} Unit =
- *    if(known, printLine(name)) else printLine("hello, stranger")
+ *    if(known) printLine(name) else printLine("hello, stranger")
  *
  * // No else: a guard — the {Abort} floats up to the caller.
- * def requirePositive(n: Int): {Abort} Int = if(n > 0, n)
+ * def requirePositive(n: Int): {Abort} Int = if(n > 0) n
  * ```
  */
 def if[T](condition: Bool, value: {Abort} T): {Abort} T = fold(condition, value, abort)
