@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
+import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor
 
 import java.net.URI
 import java.nio.file.Path
@@ -39,7 +40,13 @@ import java.nio.file.Path
   * `error`/`E1 != E2` combinators that produce these verdicts in real code are exercised by their own tests
   * (`CompilerAbilityResolutionTest`, `GuardSignatureIntegrationTest`, and Stage 4's `Throw` client).
   */
-class AbilityGuardDischargeTest extends ProcessorTest(LangProcessors(systemModules = Seq.empty)*) {
+class AbilityGuardDischargeTest
+    extends ProcessorTest(
+      (LangProcessors(
+        systemModules = Seq.empty,
+        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)
+      ) :+ StdlibNativesProcessor())*
+    ) {
 
   private def compilerScan(pkg: Seq[String], name: String, content: String): Seq[SourceContent | PathScan] = {
     val path = (pkg :+ s"$name.els").foldLeft(Path.of(""))(_ `resolve` _)
@@ -51,8 +58,9 @@ class AbilityGuardDischargeTest extends ProcessorTest(LangProcessors(systemModul
   }
 
   // The self-contained base every guard needs: `Function` (arrow signatures), `Type`, `String`, the compile-time
-  // `Bool` (its `true`/`false`/`fold` reductions come from `SystemNativesProcessor`), and the compile-time `Either`
-  // carrier whose `Left`/`Right` constructors the discharge inspects.
+  // `Bool` (its `true`/`false` reductions come from `SystemNativesProcessor` and its `fold` reduction from
+  // `StdlibNativesProcessor`), and the compile-time `Either` carrier whose `Left`/`Right` constructors the discharge
+  // inspects.
   private val baseFacts: Seq[CompilerFact] =
     (compilerScan(Seq("eliot", "compiler"), "Type", "type Type") ++
       compilerScan(

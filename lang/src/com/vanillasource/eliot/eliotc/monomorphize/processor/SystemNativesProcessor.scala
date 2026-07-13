@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   bigIntFQN,
-  boolFQN,
   boolFalseFQN,
   boolTrueFQN,
   functionDataTypeFQN,
@@ -13,7 +12,7 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
 }
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -23,39 +22,31 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** The `system` native contributor: emits the total [[ContributedBinding]] under [[ContributedBinding.systemLabel]] for
   * the language-intrinsic system values the compiler itself reasons about — Function (type constructor), Type, the
-  * compile-time Bool primitives `true`/`false`/`fold`, the `Eq[Type]` structural-equality leaf `typeEquals`, and the
+  * compile-time Bool constants `true`/`false`, the `Eq[Type]` structural-equality leaf `typeEquals`, and the
   * value-position literal protocol `integerLiteral` — and `None` for every other name.
   *
   * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B): the Π-former is
   * the single primitive type former, so every function type is a VPi (read back to a Function structure only at quote
   * time by the Quoter).
   *
-  * Bool is declared opaque in the language (`type Bool`); its compile-time representation is supplied here as
-  * `VConst(Direct(Boolean, …))` so type-level predicates reduce during checking, and `fold` (an eliminator over an
-  * opaque `Bool` — *an* eliminator, not *the* way to branch: value/type match are the case-analysis primitives, and a
-  * platform may define any number of other branching functions) reduces like any other native, selecting a branch when
-  * its condition is concrete and staying stuck otherwise; the compiler special-cases nothing about it. Library
-  * Bool/BigInteger operations whose reduction the compiler merely supplies but does not
-  * reason about (`&&`, `lessThanOrEqual`, the arithmetic natives backing `Int`'s dependent bounds) live in the stdlib
-  * layer's `StdlibNativesProcessor`, not here.
+  * Bool is declared opaque in the language (`type Bool`); its two constants `true`/`false` are supplied here as
+  * `VConst(Direct(Boolean, …))` so type-level predicates reduce during checking. The `Bool` *eliminator* `fold` (an
+  * eliminator over the opaque `Bool` — *an* eliminator, not *the* way to branch: value/type match are the case-analysis
+  * primitives, and a platform may define any number of other branching functions) is an ordinary native the compiler
+  * special-cases nothing about, so — together with the other Bool/BigInteger operations whose reduction the compiler
+  * merely supplies but does not reason about (`&&`, `lessThanOrEqual`, the arithmetic natives backing `Int`'s dependent
+  * bounds) — it lives in the stdlib layer's `StdlibNativesProcessor`, not here.
   *
   * `typeEquals` compares two type normal forms and reads the answer back as a `Bool` — definitional type equality made a
-  * first-class value, backing the `Eq[Type]` instance (`lang/.../Eq.els`). Like `fold` it is a
-  * compiler intrinsic the checker reasons about (a guard `where E1 != E2` runs it during ability resolution), so it is
-  * owned here rather than in the library layer.
+  * first-class value, backing the `Eq[Type]` instance (`lang/.../Eq.els`). Unlike the ordinary `Bool`/arithmetic
+  * natives, it is genuine compiler machinery — structural normal-form comparison no Eliot body can express — that the
+  * checker reasons about (a guard `where E1 != E2` runs it during ability resolution), so it is owned here rather than
+  * in the library layer.
   *
   * The system names are disjoint from every other native supplier (the [[BindingMergerProcessor]] relies on native
   * disjointness): `Type` is owned here, not by `DataTypeNativesProcessor` (which excludes it).
   */
 class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] {
-
-  private val boolType: SemValue = VTopDef(boolFQN, None, Spine.SNil)
-
-  /** `eliot.lang.Bool::fold` — the compile-time native this processor supplies a reduction for. Owned here (not in
-    * `WellKnownTypes`) because `fold` is not a well-known compiler construct: it is one ordinary `Bool` eliminator
-    * among however many a platform cares to define, reduced exactly like any other native — the compiler special-cases
-    * nothing about it. */
-  private val boolFoldFQN: ValueFQN = ValueFQN(boolFQN.moduleName, QualifiedName("fold", Qualifier.Default))
 
   /** The canonical stuck form of a native: a [[VStuckNative]] carrying the native's own FQN and the (not-yet-concrete)
     * arguments as its spine. Keeping the FQN is what lets distinct stuck natives stay definitionally distinct and lets
@@ -82,7 +73,6 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     else if (vfqn === typeFQN) VType.some
     else if (vfqn === boolTrueFQN) Evaluator.trueValue.some
     else if (vfqn === boolFalseFQN) Evaluator.falseValue.some
-    else if (vfqn === boolFoldFQN) boolFoldNative.some
     else if (vfqn === typeEqualsFQN) typeEqualsNative.some
     else if (vfqn === integerLiteralFQN) integerLiteralNative.some
     else none
@@ -93,20 +83,6 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
       VType,
       domain => VNative(VType, codomain => VPi(domain, _ => codomain))
     )
-
-  /** `fold(condition, whenTrue, whenFalse)`: selects a branch when the condition is a concrete Bool, otherwise stays
-    * stuck. The type parameter `A` is implicit (never applied at evaluation time, since implicit type args are not
-    * threaded into the ORE), so the native takes exactly the three value arguments. The branches are passed through
-    * unevaluated-by-selection — NbE has already evaluated them to SemValues, but only the chosen one is returned.
-    */
-  private def boolFoldNative: SemValue =
-    VNative(boolType, cond => VNative(VType, whenTrue => VNative(VType, whenFalse => foldResult(cond, whenTrue, whenFalse))))
-
-  private def foldResult(cond: SemValue, whenTrue: SemValue, whenFalse: SemValue): SemValue = cond match {
-    case VConst(GroundValue.Direct(true, _))  => whenTrue
-    case VConst(GroundValue.Direct(false, _)) => whenFalse
-    case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
-  }
 
   /** `integerLiteral[V]: Int` — the value-position literal protocol. A value-position literal `n` is desugared to
     * `integerLiteral[n]` so the checker types it as plain `Int`

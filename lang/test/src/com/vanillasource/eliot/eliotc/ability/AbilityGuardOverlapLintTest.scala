@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
+import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor
 
 import java.net.URI
 import java.nio.file.Path
@@ -31,7 +32,13 @@ import java.nio.file.Path
   * The whole scenario lives in the **compiler** source pool (self-contained: `Bool` + `Function`, no effect
   * machinery), mirroring `AbilityGuardDischargeTest` — guards reduce through constructor / native reductions alone.
   */
-class AbilityGuardOverlapLintTest extends ProcessorTest(LangProcessors(systemModules = Seq.empty)*) {
+class AbilityGuardOverlapLintTest
+    extends ProcessorTest(
+      (LangProcessors(
+        systemModules = Seq.empty,
+        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)
+      ) :+ StdlibNativesProcessor())*
+    ) {
 
   private def compilerScan(pkg: Seq[String], name: String, content: String): Seq[SourceContent | PathScan] = {
     val path = (pkg :+ s"$name.els").foldLeft(Path.of(""))(_ `resolve` _)
@@ -43,8 +50,9 @@ class AbilityGuardOverlapLintTest extends ProcessorTest(LangProcessors(systemMod
   }
 
   // The self-contained base every guard needs: `Function` (arrow signatures), `Type`, and the compile-time `Bool`
-  // (whose `true`/`false`/`fold` reductions come from `SystemNativesProcessor`). Every synthesized marker's default
-  // guard is `eliot.lang.Bool::true`, so `Bool` must always be in the pool.
+  // (whose `true`/`false` reductions come from `SystemNativesProcessor` and its `fold` reduction from
+  // `StdlibNativesProcessor`). Every synthesized marker's default guard is `eliot.lang.Bool::true`, so `Bool` must
+  // always be in the pool.
   private val baseFacts: Seq[CompilerFact] =
     (compilerScan(Seq("eliot", "compiler"), "Type", "type Type") ++
       compilerScan(

@@ -14,9 +14,9 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 /** The `stdlib` native contributor: emits the total [[ContributedBinding]] under [[StdlibNativesProcessor.stdlibLabel]]
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
   * reason about — the compile-time arithmetic the refinement channel's `Interval` domain runs ([[BigInteger]]'s `Numeric`
-  * ability `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`), string equality (`stringEquals`,
-  * backing `Eq[String]`), and the [[BigInteger]] ordering comparison behind `Compare[BigInteger]` — and `None` for every
-  * other name.
+  * ability `add`/`subtract`/`multiply` and `inc`), the boolean operators (`&&`/`||`/`!`) and the `Bool` eliminator
+  * `fold`, string equality (`stringEquals`, backing `Eq[String]`), and the [[BigInteger]] ordering comparison behind
+  * `Compare[BigInteger]` — and `None` for every other name.
   *
   * These are ordinary library functions; the compiler only seeds the NbE evaluator with a native reduction rule so that,
   * e.g., `add(2, 3)` reduces to `5` during type checking. Each native reduces only when its arguments are concrete,
@@ -46,7 +46,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * retire together with the associated-type lane at Step 7c.
   *
   * This is a platform/library native supplier disjoint from the lang layer's `SystemNativesProcessor` (which owns the
-  * compiler-intrinsic `Function`/`Type`/`Bool` primitives): each owns its own names, so the merger never has to choose
+  * compiler-intrinsic `Function`/`Type` primitives and the `Bool` constants `true`/`false`): each owns its own names, so
+  * the merger never has to choose
   * between two native answers. The plugin registers [[StdlibNativesProcessor.stdlibLabel]] in the merger's native
   * roster via `StdlibPlugin.configure()`. The well-known lang types it builds on (`bigIntFQN`/`boolFQN`) stay in the
   * lang layer; only these library reductions live here.
@@ -83,6 +84,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private val boolAndFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("&&", Qualifier.Default))
   private val boolOrFQN: ValueFQN          = ValueFQN(boolModule, QualifiedName("||", Qualifier.Default))
   private val boolNotFQN: ValueFQN         = ValueFQN(boolModule, QualifiedName("!", Qualifier.Default))
+  private val boolFoldFQN: ValueFQN        = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
   private val stringEqualsFQN: ValueFQN    = ValueFQN(eqModule, QualifiedName("stringEquals", Qualifier.Default))
 
   private val bigIntType: SemValue = VTopDef(bigIntFQN, None, Spine.SNil)
@@ -100,6 +102,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     boolAndFQN                -> andNative,
     boolOrFQN                 -> orNative,
     boolNotFQN                -> notNative,
+    boolFoldFQN               -> boolFoldNative,
     stringEqualsFQN           -> stringEqualsNative,
     compareLessThanOrEqualFQN -> lessThanOrEqualNative
   )
@@ -234,6 +237,22 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
       VConst(GroundValue.Direct(!x, Evaluator.boolGroundType))
     case _                                         =>
       stuck(boolAndFQN, a)
+  }
+
+  /** `fold(condition, whenTrue, whenFalse)`: selects a branch when the condition is a concrete Bool, otherwise stays
+    * stuck. The type parameter `A` is implicit (never applied at evaluation time, since implicit type args are not
+    * threaded into the ORE), so the native takes exactly the three value arguments. The branches are passed through
+    * unevaluated-by-selection — NbE has already evaluated them to SemValues, but only the chosen one is returned. `fold`
+    * is *an* eliminator over the opaque `Bool`, not *the* way to branch (value/type match are the case-analysis
+    * primitives); the compiler special-cases nothing about it, reducing it exactly like `&&`/`lessThanOrEqual`.
+    */
+  private def boolFoldNative: SemValue =
+    VNative(boolType, cond => VNative(VType, whenTrue => VNative(VType, whenFalse => foldResult(cond, whenTrue, whenFalse))))
+
+  private def foldResult(cond: SemValue, whenTrue: SemValue, whenFalse: SemValue): SemValue = cond match {
+    case VConst(GroundValue.Direct(true, _))  => whenTrue
+    case VConst(GroundValue.Direct(false, _)) => whenFalse
+    case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
   }
 
   /** `stringEquals(a, b): Bool` — the compile-time counterpart of the jvm `stringEquals` leaf (backing `Eq[String]`).
