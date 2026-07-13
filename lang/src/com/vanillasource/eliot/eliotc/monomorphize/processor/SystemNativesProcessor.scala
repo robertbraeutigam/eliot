@@ -117,7 +117,8 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     * rewrite* to a plain `IntegerLiteral` node ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]]) —
     * so a value body's literal is never evaluated and stays structural for codegen.
     *
-    * But when the literal is *consumed by a compile-time computation* — a `where` guard bound `fitsIn[byteMin, …]`, or
+    * But when the literal is *consumed by a compile-time computation* — a `where` guard bound (e.g. `withinByte`, whose
+    * `fitsByte` compares against the `byteMin`/`byteMax` literals), or
     * any type-level use where its `BigInteger` value feeds a native like `lessThanOrEqual` — the rewrite is too late: the
     * consuming native must fire during *evaluation*, and an unreduced `integerLiteral[V]` argument leaves it stuck. So the
     * evaluator reduction is its arithmetic value: `integerLiteral[V]` reduces to `V`. This never disturbs codegen, where

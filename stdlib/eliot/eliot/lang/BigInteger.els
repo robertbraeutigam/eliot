@@ -9,15 +9,6 @@ type BigInteger
 def inc(bi: BigInteger): BigInteger
 
 /**
- * True iff the range `[min, max]` is fully contained in `[lo, hi]`.
- *
- * The range-containment test platform layers use to select an integer's representation and to gate range
- * coercions. It reduces to a `Bool` once all four bounds are concrete.
- */
-def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =
-  lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)
-
-/**
  * The inclusive bounds of a signed 8-bit `byte`. The single definition of each boundary, referenced by `fitsByte`
  * rather than repeating the literals.
  */
@@ -25,7 +16,9 @@ def byteMin: BigInteger = -128
 def byteMax: BigInteger = 127
 
 /**
- * Whether the range `[min, max]` fits in a signed byte — the width-containment predicate the `withinByte` `where`
- * precondition dispatches on (`fitsIn` specialised to the byte width).
+ * Whether the range `[min, max]` fits in a signed byte — i.e. `[min, max]` is fully contained in `[byteMin, byteMax]`.
+ * The width-containment predicate the `withinByte` `where` precondition dispatches on; reduces to a `Bool` once the
+ * bounds are concrete.
  */
-def fitsByte(min: BigInteger, max: BigInteger): Bool = fitsIn[byteMin, byteMax, min, max]
+def fitsByte(min: BigInteger, max: BigInteger): Bool =
+  lessThanOrEqual(byteMin, min) && lessThanOrEqual(max, byteMax)

@@ -33,7 +33,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * compiler leaf. Every such native is registered under two FQNs: (1) the *ability-method* FQN
   * (`Compare.lessThanOrEqual`, `Numeric.add`, …) — the load-bearing binding, because the channel's `Interval` transfer
   * reaches these during type-level reduction (`add`/`subtract`/`multiply` on the endpoints; `lessThanOrEqual` transitively
-  * through `fitsIn`/`min`/`max`), where ability *dispatch* never fires, so on the compiler track the ability method itself
+  * through `fitsByte`/`min`/`max`), where ability *dispatch* never fires, so on the compiler track the ability method itself
   * must reduce (a compiler intrinsic, like `Bool.fold`); and (2) the *implementation-method* FQN via
   * [[abilityImplNativeFor]] — the "native attached directly to the implementation" wiring, exercised when a `Numeric[Int]`
   * operation dispatches to `BigInteger` at the compile-time domain. `min`/`max` are derived `Compare` combinators (a
