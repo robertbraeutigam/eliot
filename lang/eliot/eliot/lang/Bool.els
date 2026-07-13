@@ -15,17 +15,3 @@ def true: Bool
  * The false truth value.
  */
 def false: Bool
-
-/**
- * Choose between two values on a `Bool`: yields `whenTrue` when `condition` is `true`, otherwise
- * `whenFalse`.
- *
- * The only way to branch on a `Bool`. Eliot is strict, so `whenTrue` and `whenFalse` are ordinary
- * value arguments rather than lazily-guarded branches — `fold` selects one, it is not short-circuit
- * control flow.
- *
- * ```eliot
- * def describe(b: Bool): String = fold(b, "yes", "no")
- * ```
- */
-def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A
