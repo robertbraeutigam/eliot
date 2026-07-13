@@ -4,3 +4,15 @@ type BigInteger
  * The successor of `bi` (`bi + 1`).
  */
 def inc(bi: BigInteger): BigInteger
+
+/**
+ * `BigInteger` supplies `Numeric` natively. Like `Compare[BigInteger]` and `Arithmetic[BigInteger, BigInteger]`, the
+ * methods are deliberately body-less: arbitrary-precision arithmetic is a compiler/backend leaf (`BigInteger` has no
+ * in-language representation), so each reduction is attached directly to its implementation method. This is the
+ * endpoint arithmetic the compile-time `Interval` domain instance delegates to when the channel evaluates a transfer.
+ */
+implement Numeric[BigInteger] {
+   def add(a: BigInteger, b: BigInteger): BigInteger
+   def subtract(a: BigInteger, b: BigInteger): BigInteger
+   def multiply(a: BigInteger, b: BigInteger): BigInteger
+}
