@@ -1,17 +1,18 @@
 /**
  * The Boolean truth values, `true` and `false`.
  *
- * Branch on a `Bool` with `fold`: there is no `if`/`then`/`else` syntax, and `Bool` exposes no
- * pattern-match constructors.
+ * `Bool` is opaque — it exposes no pattern-match constructors, so it cannot be `match`ed on. Branch on it
+ * with `if`..`else` or with `fold`, its two-armed eliminator; both are ordinary functions, there is no
+ * built-in conditional syntax.
  */
 type Bool
 
 /**
- * The true truth value.
+ * The affirmative truth value: `if` and `fold` take their first branch on it.
  */
 def true: Bool
 
 /**
- * The false truth value.
+ * The negative truth value: `fold` takes its `whenFalse` arm, and `if` falls through to its `else`.
  */
 def false: Bool

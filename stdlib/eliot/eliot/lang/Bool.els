@@ -5,36 +5,78 @@ type Bool
 
 /**
  * Logical conjunction: `true` when both `a` and `b` are `true`.
+ *
+ * Both operands are ordinary values — there is no short-circuiting. To run a computation only when a condition
+ * holds, branch with `if`..`else` instead.
  */
 infix left def &&(a: Bool, b: Bool): Bool
 
+/**
+ * Logical disjunction: `true` when at least one of `a` and `b` is `true`.
+ *
+ * `||` sits at the *same* precedence as `&&` (unlike most languages, where `&&` binds tighter), so a mixed chain
+ * groups left to right: `a || b && c` is `(a || b) && c` — parenthesise when you mean `a || (b && c)`. Operands
+ * are ordinary values; there is no short-circuiting.
+ */
 infix left at && def ||(a: Bool, b: Bool): Bool
 
+/**
+ * Logical negation: `true` becomes `false` and `false` becomes `true`.
+ */
 prefix def !(a: Bool): Bool
 
+// Compiler note: the return brace `{join(whenTrue, whenFalse)}` is `fold`'s refinement-channel `^Meta` merge
+// companion (docs/generic-refinement-merges.md). The compiler recognises a merge only via `Meta.join` — the one
+// refinement primitive — never by naming `fold` as "the branch"; the companion is generic over `A`'s domain (the
+// channel reduces it at the arm's meta type, so `join` is the compiler-derived `Meta[A$Meta]`). `fold` is a
+// primitive only because `Bool` is opaque — morally it is a match on a two-constructor `Bool` — and it has no
+// runtime body: it stays a native.
 /**
- * The eliminator for `Bool`: yields `whenTrue` when `condition` holds, otherwise `whenFalse`. This is *an* eliminator
- * over the opaque `Bool`, not *the* way to branch — value match and type match are the language's case-analysis
- * primitives, and other eliminators (`if`, a user's `foldEither`) are built on top of these. `fold` is a primitive
- * only because `Bool` is opaque; it is morally a match on a two-constructor `Bool`.
+ * The two-armed eliminator for `Bool`: yields `whenTrue` when `condition` holds, otherwise `whenFalse`.
  *
- * The return brace `{join(whenTrue, whenFalse)}` is `fold`'s refinement-channel `^Meta` **merge** companion
- * (`docs/generic-refinement-merges.md`): `fold` selects one arm at runtime, so the meta of its result is only known to
- * be one arm *or* the other — the domain's `Meta.join` of the two arms' metas. This is how the compiler recognises a
- * *merge* (via `Meta.join`, the one refinement primitive) without ever naming `fold` as "the branch"; it is generic
- * over `A`'s domain (the channel reduces this companion at the arm's meta type, so `join` is the compiler-derived
- * `Meta[A$Meta]`). No runtime body — `fold` stays a native.
+ * Both arms must have the same type — a pure arm is not auto-lifted to match an effectful one — and `fold` adds
+ * nothing to the effect row: with effectful arms the result is simply the arms' shared carrier type, and only the
+ * selected arm is ever run. For everyday branching prefer `if`..`else`, which is built on `fold` and does lift a
+ * pure arm to match an effectful one.
+ *
+ * The refinement of the result is the join of the two arms': which arm applies is decided only at runtime, so the
+ * compiler knows the result only as "one arm *or* the other" — e.g. an `Int` result's range covers both arms'
+ * ranges.
+ *
+ * ```eliot
+ * // Pure arms of one type: fold selects a value, adding nothing to the effect row.
+ * def label(active: Bool): String = fold(active, "ON", "OFF")
+ *
+ * // Effectful arms: both are {Console} Unit, and only the selected one runs.
+ * def report(ok: Bool): {Console} Unit =
+ *    fold(ok, printLine("all good"), printLine("check failed"))
+ * ```
  */
 def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A { join(whenTrue, whenFalse) }
 
 /**
- * Conditional execution — the `if` of `if..else`. Yields `value` when `condition` holds, otherwise short-circuits via
- * the `Abort` effect, which the `else` operator (in `eliot.effect.Abort`) discharges with the alternative.
+ * Conditional execution — the `if` of `if..else`: yields `value` when `condition` holds, otherwise short-circuits
+ * via the `Abort` effect.
  *
- * The branch type `{Abort} T` is the effect-row sugar (one inferred carrier for the whole signature), so `value` may be
- * a pure value (`if(cond, "yes")` — auto-lifted with `pure`) or an effectful computation (`if(cond, printLine("hi"))`,
- * whose own effects join the row). Only the selected branch's effect is performed: both
- * branches are *built*, but the unchosen one is never *run*, so this reads like an imperative `if`. Chains
- * right-associatively as `if(..) else if(..) else ..`.
+ * Pair it with the infix `else` (in `eliot.effect.Abort`), which discharges the `Abort` with an alternative;
+ * `else` binds right-associatively, so chains spell naturally as `if(..) else if(..) else ..`. Without an `else`
+ * the `{Abort}` floats up to the caller, making a bare `if` a guard inside an `{Abort}` function.
+ *
+ * `value` may be a pure value (`if(cond, "yes")`, auto-lifted) or an effectful computation
+ * (`if(cond, printLine("hi"))`, whose own effects join the row). Both branches of an `if..else` are *built*, but
+ * only the selected one is ever *run*, so this reads like an imperative `if`.
+ *
+ * ```eliot
+ * // A pure value chosen by a chain; else binds right-associatively.
+ * def sign(n: Int): String = if(n > 0, "+") else if(n < 0, "-") else "0"
+ *
+ * // Effectful branches: only the taken branch's printLine runs, and else discharges
+ * // the {Abort}, so greet declares only {Console}.
+ * def greet(known: Bool, name: String): {Console} Unit =
+ *    if(known, printLine(name)) else printLine("hello, stranger")
+ *
+ * // No else: a guard — the {Abort} floats up to the caller.
+ * def requirePositive(n: Int): {Abort} Int = if(n > 0, n)
+ * ```
  */
 def if[T](condition: Bool, value: {Abort} T): {Abort} T = fold(condition, value, abort)
