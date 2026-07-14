@@ -255,6 +255,22 @@ checking the *signature*, which survives unchanged.
 
 ### Next steps
 
+- **DONE — Increment 1: de-stack the six nested positions** (`38305b75`). All six nested `TypeStack` positions →
+  plain `Sourced[Expression]` across the four chained expression types (core → resolve → matchdesugared → operator).
+  matchdesugar's whole `Sourced[TypeStack]` plumbing (`MatchDesugarContext`/`DataMatchDesugarer`/`TypeMatchDesugarer`/
+  `MatchDesugarUtils`) vanished; `TypeStack` refs across the five front-end phases went **151 → 42** (core 21→7,
+  resolve 24→9, matchdesugar 71→15, operator 22→9, block 13→2). All 1253 tests green; 7 examples build + run. The
+  transient boundary adapters are all gone; the top-level value `typeStack` field stays a stack (so `walkTypeStack` is
+  untouched). Net −30 lines (understated — the big deletes are in increment 2).
+- **NEXT — Increment 2: drop the top-level stack + derive the kind.** De-stack the top-level value `typeStack` field
+  (the ≤2-level sig+kind stack) to the plain signature; **derive the kind on demand** in `walkTypeStack` from
+  `SignatureView.of(sig).binders` (the one non-mechanical spot); delete `TypeStack.scala`,
+  `TypeLevelSaturatedValueProcessor`, the `typeLevel` dimension, and the remaining top-level helpers
+  (`resolveInTypeStack`/`desugarInTypeStack`/`convertTypeStack`). This is where the big line-deletes land
+  (`TypeStack.scala` −28, `TypeLevelSaturatedValueProcessor` −77). `CACHE_VERSION` bump.
+
+Historical: the original spike framing below is superseded by the two increments above.
+
 - **Spike matchdesugar (the mechanical proof + go/no-go).** De-stack matchdesugar's nested positions and its own-signature
   handling: `MatchDesugaredExpression.FunctionLiteral.parameterType`/`body` and `FlatExpression.parts` → plain
   `Sourced[MatchDesugaredExpression]`; `Expression` (resolve) mirror positions likewise as far as matchdesugar reads
