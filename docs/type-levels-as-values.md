@@ -146,6 +146,30 @@ Deliverable: type expressions have names and run on the platform, verified equiv
   today's walk. Divergence is a finding, not a test bug — the fact-mode value is the intended authority.
 - `CACHE_VERSION` bump.
 
+**LANDED (2026-07-14, commit pending; `CACHE_VERSION` 22→23).** Delivered exactly as above. The derivation is
+`TypeLevelSaturatedValueProcessor` (a `SaturatedValue.Key → SaturatedValue.Key` transformation, level 0 → level `n`),
+partitioned from `SaturatedValueProcessor` by the `typeLevel` guard (each declines the other's levels; the fact engine
+runs both per key). It builds the synthetic level value from the host signature via `SignatureView`: the level-`n`
+expression's *generic binders* wrap `Type` as the synthetic signature (so `applyTypeArgs` peels them and the body checks
+against kind `Type`), and the same expression *with binders stripped* is the synthetic **runtime body** (its generic
+references now free, resolved to the ρ bindings). `TypeLevelEquivalenceTest` pins the equivalence for `zero`/`arrow`
+(non-generic pure signatures) and `genConst` (generic, parameter unused in the body).
+
+**Two Step-A findings (both expected per §5 "divergence is a finding"; neither is a silent accept):**
+
+1. **Type-kinded generic parameter referenced *as a type* in the level body diverges** — a `def genArrow[X]: Function[X, X]`
+   whose level-1 body is `Function[X, X]` reports a spurious `Type mismatch` at `X`. Cause: the body goes through the
+   *value-inference* path (`infer`/Γ), where the "types are values" binding gives `X`'s Γ slot its instantiated *value*
+   (`A`), not its *kind* (`Type`); the host's signature walk never hits this because `evalExpr` resolves `X` through ρ.
+   Pinned by `TypeLevelEquivalenceTest.genArrow` (asserts it currently errors). This is a **consumer-side** issue (the
+   checker's body-vs-signature paths), so it stays for **Step B/C**, which rework how a level body is checked — Step A is
+   "zero consumer changes." A `Bool`-kinded parameter (`COND: Bool`, the `orError` shape) does *not* hit it: its Γ slot
+   is `Bool`, which matches where a `Bool` is expected.
+2. **`orError`-combinator-form equivalence deferred to Step B.** Those forms are effectful (`{Throw[String]}`) and need
+   the compiler-pool `Either`/`Option`/`Guard` carriers in the harness — heavy for a leaf unit test, and their discharge
+   *is* the subject of Step B. The `Bool`-kinded reasoning above says they will not hit finding 1; their end-to-end
+   equivalence lands with the Step-B effectful-return read.
+
 ### Step B — effectful returns read the level-1 fact (the red tests go green)
 
 - In the settle/read for a return that is neither ground-`Type`-kinded nor under-applied (three-way structural

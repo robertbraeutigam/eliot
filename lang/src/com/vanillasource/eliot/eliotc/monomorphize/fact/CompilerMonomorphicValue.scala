@@ -28,20 +28,31 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param reduced
   *   The optional reduced compile-time body — the compiler track's analogue of [[MonomorphicValue.runtime]]. It is not
   *   destined for a code generator; it is the reduced value the runtime track's evaluator plugs in as a native.
+  * @param typeLevel
+  *   The *type level* of the value reduced (the type-levels-as-values plan): 0 = the ordinary value, `n ≥ 1` = its
+  *   level-`n` type expression. For a level-`n` value, `reduced` carries the value's instantiated level-`n` expression
+  *   (e.g. the reduced signature at `typeArguments`), and `signature` its kind.
   */
 case class CompilerMonomorphicValue(
     vfqn: ValueFQN,
     typeArguments: Seq[GroundValue],
     name: Sourced[QualifiedName],
     signature: GroundValue,
-    reduced: Option[Sourced[MonomorphicExpression.Expression]]
+    reduced: Option[Sourced[MonomorphicExpression.Expression]],
+    typeLevel: Int = 0
 ) extends CompilerFact {
   override def key(): CompilerFactKey[CompilerMonomorphicValue] =
-    CompilerMonomorphicValue.Key(vfqn, typeArguments)
+    CompilerMonomorphicValue.Key(vfqn, typeArguments, typeLevel)
 }
 
 object CompilerMonomorphicValue {
 
-  /** Composite key mirroring [[MonomorphicValue.Key]]: same value, different type arguments → different key. */
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[CompilerMonomorphicValue]
+  /** Composite key mirroring [[MonomorphicValue.Key]]: same value, different type arguments → different key. The
+    * `typeLevel` dimension additionally distinguishes a value's level-`n` type expression from its level-0 self; a
+    * level `≥ 1` key is answered by deriving the level value's [[com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue]]
+    * and running the same checker (`MonomorphicValue.Key` stays level-0-only — level `≥ 1` is compiler-track by
+    * definition).
+    */
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue], typeLevel: Int = 0)
+      extends CompilerFactKey[CompilerMonomorphicValue]
 }

@@ -27,7 +27,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class CompilerMonomorphicTypeCheckProcessor
     extends TransformationProcessor[SaturatedValue.Key, CompilerMonomorphicValue.Key](key =>
-      SaturatedValue.Key(key.vfqn, Platform.Compiler)
+      SaturatedValue.Key(key.vfqn, Platform.Compiler, key.typeLevel)
     ) {
 
   /** Fetch a name's compile-time reduction from the compiler pool, enforcing the **native-leaf boundary** (CP-C step c).
@@ -99,7 +99,8 @@ class CompilerMonomorphicTypeCheckProcessor
           key.typeArguments,
           value.typeStack.as(key.vfqn.name),
           result.signature,
-          result.body
+          result.body,
+          key.typeLevel
         )
       )
   }

@@ -56,6 +56,14 @@ class SaturatedValueProcessor
       EffectCheckedValue.Key(key.vfqn, key.platform)
     ) {
 
+  /** This processor owns only the *level-0* value — the ordinary runtime-body saturation. A `typeLevel ≥ 1` key is a
+    * type expression, derived from the level-0 value by [[com.vanillasource.eliot.eliotc.saturate.processor.TypeLevelSaturatedValueProcessor]];
+    * decline it here so the two processors partition `SaturatedValue.Key` cleanly (and this one is not asked to map a
+    * level-`n` key onto a nonexistent `EffectCheckedValue`).
+    */
+  override protected def generateFact(requestedKey: SaturatedValue.Key): CompilerIO[Unit] =
+    if (requestedKey.typeLevel != 0) abort[Unit] else super.generateFact(requestedKey)
+
   override protected def generateFromKeyAndFact(
       key: SaturatedValue.Key,
       effectChecked: EffectCheckedValue
@@ -65,7 +73,7 @@ class SaturatedValueProcessor
     dataSaturate(value).flatMap {
       case Some(rewritten) => rewritten.pure[CompilerIO]
       case None            => saturate(value)
-    }.map(SaturatedValue.apply)
+    }.map(SaturatedValue(_))
   }
 
   /** Fresh generic binder synthesized for one omitted, omittable parameter: its (unique within the value) name and its
