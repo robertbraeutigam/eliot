@@ -136,6 +136,11 @@ code is untouched in Stage 1.
 
 ## 4. Stage 2 — the "guard" is just an effectful return (larger; the research half)
 
+> **Status: attempt 1 PAUSED on the deep-reduction wall.** WIP branch `wip/return-position-unification-stage2`
+> (master left green). The scaffolding below is implemented and the full suite is green *with it*, but the inline
+> `if..else..raise` guard does not yet reduce to its verdict. **Read [Attempt-1 findings](#attempt-1-findings-what-works-what-blocks)
+> before resuming** — steps 1 and 3 of the sketch below need revising in light of what was learned.
+
 Goal: an effectful return (`raise`, `if..else..raise`, `orError`) is elaborated as an ordinary expression and
 **resolved on the compiler track**, its resolved return read by consumers. Removes `isGuardCarrier`/`sawGuardReturn`/the
 runtime-side `dischargeGuardedSignature` precompute reliance. `if..else..raise` and `orError` become one path.
@@ -190,6 +195,74 @@ defers (`CalculatedReturnResolver.scala:182-185`).
 - **Ability-implementation markers stay on their own path.** `MarkerGuardSignature` / the `where`-clause ability guards
   (`GuardChannel`, Stage-4 `reduceGuardSubValues`) are a *different* feature and must be untouched — they legitimately
   keep the `Bool`-verdict-in-return mechanism. Only the `eliot.lang.Guard` return-type guard is reworked.
+
+### Attempt-1 findings (what works, what blocks)
+
+All on branch `wip/return-position-unification-stage2` (commit message has the file-level summary). The fixture used:
+`def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"`, `main` calls `greeting[true]`.
+
+**Solved — landed green (no regression across the full lang+jvm suite):**
+
+- **B1 (the WIP's unsolved kind-check on the lifted arm) — SOLVED, and it was *two* independent bugs:**
+  1. *`EffectLifter.underApplied` did not recognise `VType`.* `if(COND, String[])`'s pure arm `String[]` is a **type**
+     (kind `Type`) flowing into `if`'s carrier value slot `{Abort} T = ?F[T]`. `mustPureWrapBeforeUnify` calls
+     `underApplied(actual = VType, arity)`, which only matched `VTopDef(None)`/`VNeutral` — so `VType` returned `false`,
+     the pure-wrap pre-arm never fired, and unification **postponed** `?F[T] =?= Type`. That postponed constraint then
+     hard-mismatched the instant the carrier pinned to `Either[String]` (`AbortCarrier[Either[String], Type] =?= Type`),
+     which is exactly the WIP's B1 error. Fix: add `case VType => 0 < arity` to `underApplied`. *This is a genuine,
+     guard-independent `EffectLifter` correctness fix* (any pure type into a carrier slot).
+  2. *The return-level `= Type` kind-unify itself.* At the return boundary `check(sig, VType)` the guard's inferred type
+     is a still-open carrier meta `?G[Type]` (pinning happens *after* `walkTypeStack`), which `isGuardCarrier` (concrete
+     `Either`/`Bool` only) does not accept, so it too postponed `?G[Type] =?= Type` and failed post-pin. Fix:
+     `Checker.isGuardKind` — at a `Type` boundary, also accept an **effect-carrier-meta-headed** inferred type
+     (`lifter.effectCarrierSplit`) as a guard, and on the compiler track **pin its carrier to `Either[String]` right
+     there** (`pinGuardCarrierToEither`). This is the "carve the effectful return out of the `= Type` kind-unify" the
+     2026-07-14 assessment called for, and it structurally kills B1.
+
+- **Settle split** — `Track.settleReturnPosition` now returns `(bodyCheckSig, publishSig, returnMeta)`. The compiler
+  track checks a guard body against a **lenient fresh meta** (a compile-time guard value's *type* is what matters, not
+  its body) while *publishing* the carrier verdict; every non-guard case keeps `bodyCheckSig == publishSig`.
+- **Runtime cross-track back-edge** — `CalculatedReturnResolver.settleEffectfulReturn` + `resolveEffectfulReturn`: a
+  **stuck** inline guard (detected by `isStuckEffectfulReturn`: forced head ∈ `{flatMap, map, pure}`) reads
+  `CompilerMonomorphicValue(v, args)` and discharges `Right(t)`→`t` (body checks against the payload — sound) /
+  `Left(msg)`→report+abort. A **combinator** guard (`orError`/`fold`/`requireOr`, which already reduces to `Right`/`Left`
+  here via the precompute-merge) keeps the ordinary `dischargeGuardedSignature` — untouched, no regression.
+- Salvage landed: `stdlib/eliot-compiler/eliot/effect/Abort.els`, `Unifier.effectCarrierMetaIds`.
+
+**BLOCKED — the deep-reduction wall (the actual research half):**
+
+Reducing the inline guard's carrier tower `else(if(COND, String[]), raise(…))` to `Right(String)`/`Left(msg)` **on the
+compiler track, before the body check** does not work with the in-place approach tried (`reduceGuardSubValues` reduces
+the bodied `else`/`if` per-instantiation via `CompilerMonomorphicValue`, seed them, then re-evaluate the elaborated
+`checkedSig` + `renormalize`). It bottoms out at a **`VNeutral(Reserved(Match))`** — a stuck pattern-match (from
+`else`'s inlined body: `flatMap`→`foldEither`/`foldOption`→`match`) whose discriminee becomes concrete only after
+inlining, but **`renormalize` has no rule to re-fire a `Reserved(Match)` neutral** (grep: `Match` appears only as a
+`SemValue.Marker` definition; pattern-match reduction lives solely in the full monomorphization pipeline — which is
+exactly how `orError`'s `foldOption` reduces to `Right`/`Left`). So the signature reduction needs the **full
+body-reduction pipeline** (`reduceSourced`/`MonomorphicEvaluator`), not `renormalize`. Two viable next moves:
+  - **Route the guard signature through the body reducer.** Reduce the elaborated `checkedSig` (COND applied) via the
+    same `reduceSourced` path the compiler track already uses for bodies, then read the result back as the published
+    signature. Domain mismatch to resolve: `reduceSourced` yields a `MonomorphicExpression`, the signature wants a
+    `GroundValue`/`SemValue`; and the ordering (the `PostDrainQuoter` is built later in `processIO`).
+  - **Synthetic value (Option A, previously demoted).** Reify the guard expression as a compile-time value `v^guard`
+    whose *body* is the guard, monomorphize it via the full pipeline (which reduces the tower correctly — this is
+    literally why `orError`-the-named-value works), read `CompilerMonomorphicValue(v^guard, args)`. Heavier (needs a
+    synthesized `SaturatedValue`), but it *is* the mechanism that already works.
+
+**Other findings:**
+
+- **`evalSemExpr(checkedSig)` is NOT a drop-in for `evalExpr(level)` in `walkTypeStack`.** Sketch step 1 says take the
+  return level's *value* from the elaborated `check`. Doing so uniformly **regressed `fold`-based guards** (and would
+  any `fold` sig): the elaborated `SemExpression` carries an **extra explicit type-arg meta** (`fold[?R](cond, …)`) that
+  the raw ORE `evalExpr` does not, and that extra arg leaves the `fold` native **stuck** (`instantiated` =
+  `VStuckNative(fold, [?R, false, Right, Left])` instead of the reduced `Left`), so the runtime `dischargeGuardedSignature`
+  never saw a `Left` to report — 3 green tests broke. Resolution: `walkTypeStack` keeps `evalExpr` for the signature
+  *value*; the elaborated `checkedSig` is captured in `levelExprs` (its last entry) and used **only** by the
+  compiler-track guard reduction. So step 1 should read "capture the elaborated return level for the *compiler-track
+  reducer*", not "take the signature value from it".
+- **Reject reporting site.** The existing tests expect the reject at the guard *definition* (`"empty" at "head"`) for a
+  direct monomorphize, and at the *use* reference for a caller — both already textually "head"/the callee name. The
+  runtime settle must therefore still *report* `Left` (not silently defer it), matching the direct-monomorphize convention.
 
 ## 5. Cleanup enabled once Stage 2 lands
 
