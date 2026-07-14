@@ -716,10 +716,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       case NamedValueReference(name, Some(qual), _) => QualRef(name.value.name, qual.value)
       case FunctionApplication(target, arg)         => App(target.value.structure, arg.value.structure)
       case FunctionLiteral(param, paramType, body)  =>
-        Lambda(param.value, paramType.map(_.firstStructure).getOrElse(Empty), body.value.firstStructure)
+        Lambda(param.value, paramType.map(_.value.structure).getOrElse(Empty), body.value.structure)
       case IntegerLiteral(lit)                      => IntLit(lit.value)
       case StringLiteral(lit)                       => StrLit(lit.value)
-      case FlatExpression(parts)                    => Flat(parts.map(_.value.signature.structure))
+      case FlatExpression(parts)                    => Flat(parts.map(_.value.structure))
     }
   }
 

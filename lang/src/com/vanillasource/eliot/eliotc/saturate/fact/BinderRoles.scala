@@ -180,7 +180,7 @@ object BinderRoles {
     case OperatorResolvedExpression.FunctionApplication(t, a)   =>
       parameterRefs(t.value) ++ parameterRefs(a.value)
     case OperatorResolvedExpression.FunctionLiteral(pn, pt, b)  =>
-      val inType = pt.toSeq.flatMap(_.value.levels.toList).flatMap(parameterRefs).toSet
+      val inType = pt.toSeq.map(_.value).flatMap(parameterRefs).toSet
       inType ++ (parameterRefs(b.value) - pn.value)
     case _                                                      => Set.empty
   }

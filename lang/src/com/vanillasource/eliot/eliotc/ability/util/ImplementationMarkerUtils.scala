@@ -103,7 +103,7 @@ object ImplementationMarkerUtils {
     // Strip type-level lambdas (generics on the impl) to reach the curried value-level function type.
     def stripTypeLambdas(e: Expression): Expression =
       e match {
-        case FunctionLiteral(_, Some(_), body) => stripTypeLambdas(body.value.signature)
+        case FunctionLiteral(_, Some(_), body) => stripTypeLambdas(body.value)
         case other                             => other
       }
     val stripped                                    = stripTypeLambdas(signature)

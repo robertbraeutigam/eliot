@@ -23,18 +23,18 @@ object Expression {
   // Function literal, i.e. a lambda expression, i.e. an ad-hoc function, i.e. an unnamed function
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Option[TypeStack[Expression]],
-      body: Sourced[TypeStack[Expression]]
+      parameterType: Option[Sourced[Expression]],
+      body: Sourced[Expression]
   ) extends Expression
   // Integer literal
   case class IntegerLiteral(integerLiteral: Sourced[String]) extends Expression
   // String literal
   case class StringLiteral(stringLiteral: Sourced[String])   extends Expression
   // Flat sequence of expression parts, to be resolved by OperatorResolverProcessor
-  case class FlatExpression(parts: Seq[Sourced[TypeStack[Expression]]]) extends Expression
+  case class FlatExpression(parts: Seq[Sourced[Expression]]) extends Expression
   // Match expression with scrutinee and cases, to be desugared by MatchDesugaringProcessor
   case class MatchExpression(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       cases: Seq[MatchCase]
   ) extends Expression
   // A `{ … }` block, to be lowered to immediately-applied lambdas by BlockDesugaringProcessor (after resolution).
@@ -42,13 +42,13 @@ object Expression {
 
   case class MatchCase(
       pattern: Sourced[Pattern],
-      body: Sourced[TypeStack[Expression]]
+      body: Sourced[Expression]
   )
 
   /** One line of a [[BlockExpression]]: an optional binder (name plus optional type) and the line's flat expression. */
   case class BlockLine(
       binderName: Option[Sourced[String]],
-      binderType: Option[TypeStack[Expression]],
+      binderType: Option[Sourced[Expression]],
       expression: Sourced[Expression]
   )
 
@@ -64,17 +64,17 @@ object Expression {
         structuralEquality.eqv(a1.value, a2.value)
       case (FunctionLiteral(p1, pt1, b1), FunctionLiteral(p2, pt2, b2))     =>
         p1.value == p2.value && // Leave the type here, it does not contribute to structure (?)
-        structuralEquality.eqv(b1.value.signature, b2.value.signature)
+        structuralEquality.eqv(b1.value, b2.value)
       case (IntegerLiteral(i1), IntegerLiteral(i2))                         => i1.value == i2.value
       case (StringLiteral(s1), StringLiteral(s2))                           => s1.value == s2.value
       case (FlatExpression(p1), FlatExpression(p2))                         =>
         p1.length == p2.length && (p1 zip p2).forall { case (a, b) =>
-          structuralEquality.eqv(a.value.signature, b.value.signature)
+          structuralEquality.eqv(a.value, b.value)
         }
       case (MatchExpression(s1, c1), MatchExpression(s2, c2))              =>
-        structuralEquality.eqv(s1.value.signature, s2.value.signature) &&
+        structuralEquality.eqv(s1.value, s2.value) &&
         c1.length == c2.length && (c1 zip c2).forall { case (a, b) =>
-          structuralEquality.eqv(a.body.value.signature, b.body.value.signature)
+          structuralEquality.eqv(a.body.value, b.body.value)
         }
       case _                                                                => false
     }

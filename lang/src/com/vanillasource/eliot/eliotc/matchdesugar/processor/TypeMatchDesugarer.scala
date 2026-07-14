@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -14,7 +13,7 @@ import MatchDesugarUtils.*
 class TypeMatchDesugarer(context: MatchDesugarContext) {
 
   def desugar(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       cases: Seq[Expression.MatchCase]
   )(using platform: Platform): CompilerIO[Expression] = {
     val constructorCases = cases.filter(_.pattern.value.isInstanceOf[Pattern.ConstructorPattern])
@@ -26,7 +25,7 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
         compilerAbort(ctorName.as("Type match must have a wildcard case."))
       case Some(wc) =>
         for {
-          wildcardBody <- context.desugarInTypeStack(wc.body, platform)
+          wildcardBody <- context.desugarSourced(wc.body, platform)
           handlers     <- constructorCases.traverse { ctorCase =>
                             val Pattern.ConstructorPattern(ctor, subPatterns) = ctorCase.pattern.value: @unchecked
                             for {
@@ -47,9 +46,9 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
 
   /** Chain type match expressions left to right with the wildcard body as the innermost fallback. */
   private def chainTypeMatches(
-      scrutinee: Sourced[TypeStack[Expression]],
-      cases: Seq[(ValueFQN, Sourced[TypeStack[Expression]])],
-      wildcardBody: Sourced[TypeStack[Expression]]
+      scrutinee: Sourced[Expression],
+      cases: Seq[(ValueFQN, Sourced[Expression])],
+      wildcardBody: Sourced[Expression]
   ): Expression = {
     val (typeMatchFqn, handler) = cases.head
     val elseLambdaBody          =
@@ -60,10 +59,10 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
   }
 
   private def buildTypeMatchExpression(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       typeMatchFqn: ValueFQN,
-      handler: Sourced[TypeStack[Expression]],
-      elseCase: Sourced[TypeStack[Expression]]
+      handler: Sourced[Expression],
+      elseCase: Sourced[Expression]
   ): Expression =
     buildCurriedCall(
       scrutinee,

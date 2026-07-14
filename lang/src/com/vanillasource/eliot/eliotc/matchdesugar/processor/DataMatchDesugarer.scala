@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleConstructors,
   ModuleName,
@@ -19,7 +19,7 @@ import MatchDesugarUtils.*
 class DataMatchDesugarer(context: MatchDesugarContext) {
 
   def desugar(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       cases: Seq[Expression.MatchCase]
   )(using platform: Platform): CompilerIO[Expression] =
     for {
@@ -84,10 +84,10 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
   }
 
   private def buildOrderedHandlers(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       cases: Seq[Expression.MatchCase],
       allConstructors: Seq[ValueFQN]
-  )(using Platform): CompilerIO[Seq[Sourced[TypeStack[Expression]]]] = {
+  )(using Platform): CompilerIO[Seq[Sourced[Expression]]] = {
     val casesByConstructor: Map[ValueFQN, Seq[Expression.MatchCase]] =
       cases
         .flatMap { c =>
@@ -114,10 +114,10 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
   }
 
   private def buildConstructorHandler(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       ctorVfqn: ValueFQN,
       cases: Seq[Expression.MatchCase]
-  )(using platform: Platform): CompilerIO[Sourced[TypeStack[Expression]]] = {
+  )(using platform: Platform): CompilerIO[Sourced[Expression]] = {
     val Pattern.ConstructorPattern(_, ctorFields) = cases.head.pattern.value: @unchecked
 
     if (cases.size == 1 || ctorFields.isEmpty)
@@ -127,11 +127,11 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
   }
 
   private def buildMultiCaseHandler(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       ctorVfqn: ValueFQN,
       cases: Seq[Expression.MatchCase],
       fieldCount: Int
-  )(using Platform): CompilerIO[Sourced[TypeStack[Expression]]] = {
+  )(using Platform): CompilerIO[Sourced[Expression]] = {
     val freshNames = (0 until fieldCount).map(i => scrutinee.as(s"$$match_${ctorVfqn.name.name}_$i"))
 
     val fieldPatternRows: Seq[Seq[Sourced[Pattern]]] = cases.map { c =>
@@ -148,11 +148,11 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
   }
 
   private def buildMultiCaseBody(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       freshNames: Seq[Sourced[String]],
       patternRows: Seq[Seq[Sourced[Pattern]]],
-      bodies: Seq[Sourced[TypeStack[Expression]]]
-  )(using platform: Platform): CompilerIO[Sourced[TypeStack[Expression]]] = {
+      bodies: Seq[Sourced[Expression]]
+  )(using platform: Platform): CompilerIO[Sourced[Expression]] = {
     val constructorColumnIdx = patternRows.head.indices.find { col =>
       patternRows.exists(_(col).value.isInstanceOf[Pattern.ConstructorPattern])
     }
@@ -167,15 +167,15 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
         context.desugarMatch(fieldRef, nestedCases, platform).map(wrapExpr(scrutinee, _))
 
       case None =>
-        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames.zip(patternRows.head), bodies.head), platform)
+        context.desugarSourced(wrapWithBindings(scrutinee, freshNames.zip(patternRows.head), bodies.head), platform)
     }
   }
 
   private def wrapWithBindings(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       bindingPairs: Seq[(Sourced[String], Sourced[Pattern])],
-      body: Sourced[TypeStack[Expression]]
-  ): Sourced[TypeStack[Expression]] =
+      body: Sourced[Expression]
+  ): Sourced[Expression] =
     bindingPairs.foldRight(body) { case ((freshName, pat), innerBody) =>
       pat.value match {
         case Pattern.VariablePattern(varName) if varName.value != freshName.value =>
@@ -190,10 +190,10 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
     }
 
   private def buildWildcardHandler(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       ctorVfqn: ValueFQN,
       wildcardCase: Expression.MatchCase
-  )(using platform: Platform): CompilerIO[Sourced[TypeStack[Expression]]] =
+  )(using platform: Platform): CompilerIO[Sourced[Expression]] =
     for {
       umv     <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn, platform))
       arity   <- umv.namedValue.roleHint match {
@@ -212,16 +212,16 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
     } yield handler
 
   private def buildHandleCasesCall(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       handleCasesFqn: ValueFQN,
-      handlers: Seq[Sourced[TypeStack[Expression]]]
+      handlers: Seq[Sourced[Expression]]
   ): Expression = {
     val selectorParam            = scrutinee.as("$selector")
     // Build: $selector(h1)(h2)...
     val selectorBody: Expression = handlers.foldLeft[Expression](
       Expression.ParameterReference(selectorParam)
     ) { (acc, handler) =>
-      Expression.FunctionApplication(scrutinee.as(acc), handler.as(handler.value.signature))
+      Expression.FunctionApplication(scrutinee.as(acc), handler)
     }
     // Build: \$selector -> $selector(h1)(h2)...
     val casesLambda              =

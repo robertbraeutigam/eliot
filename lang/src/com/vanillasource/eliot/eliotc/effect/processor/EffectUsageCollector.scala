@@ -98,7 +98,7 @@ class EffectUsageCollector(calleeSignatures: CalleeSignatures) {
         for {
           argUsage  <- collect(args.head, env, carrierEffects)
           bodyUsage <- collect(body, env - param.value, carrierEffects)
-          stored     = paramType.exists(pt => EffectCarriers.carrierHeaded(pt.value.signature, carrierEffects.keySet))
+          stored     = paramType.exists(pt => EffectCarriers.carrierHeaded(pt.value, carrierEffects.keySet))
         } yield Usage(
           bodyUsage.effectful || (argUsage.effectful && !stored),
           argUsage.usedEffects ++ bodyUsage.usedEffects,

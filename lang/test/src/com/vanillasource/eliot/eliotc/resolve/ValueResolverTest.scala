@@ -50,7 +50,7 @@ class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq
   it should "resolve lambda parameter references" in {
     runEngineForValue("data T\ndef a: T = x: T -> x").flatMap {
       case Some(FunctionLiteral(_, _, Sourced(_, _, body))) =>
-        body.signature match {
+        body match {
           case ParameterReference(Sourced(_, _, name)) => IO.delay(name shouldBe "x")
           case _                                       => IO.delay(fail(s"body was not a parameter reference"))
         }
@@ -104,7 +104,7 @@ class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq
   it should "allow lambda parameter to shadow dictionary name" in {
     runEngineForValue("data T\ndef b: T\ndef a: T = b: T -> b").flatMap {
       case Some(FunctionLiteral(_, _, Sourced(_, _, body))) =>
-        body.signature match {
+        body match {
           case ParameterReference(Sourced(_, _, name)) => IO.delay(name shouldBe "b")
           case _                                       => IO.delay(fail(s"body was not a parameter reference"))
         }
@@ -116,9 +116,9 @@ class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq
   it should "allow nested lambda parameter to shadow outer parameter" in {
     runEngineForValue("data T\ndef a: T = x: T -> x: T -> x").flatMap {
       case Some(FunctionLiteral(_, _, Sourced(_, _, outerBody))) =>
-        outerBody.signature match {
+        outerBody match {
           case FunctionLiteral(_, _, Sourced(_, _, innerBody)) =>
-            innerBody.signature match {
+            innerBody match {
               case ParameterReference(Sourced(_, _, name)) => IO.delay(name shouldBe "x")
               case _                                       => IO.delay(fail(s"inner body was not a parameter reference"))
             }

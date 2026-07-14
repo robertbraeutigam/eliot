@@ -157,7 +157,7 @@ class Checker(
                               paramType    <- paramTypeStack match {
                                                 case Some(ts) =>
                                                   for {
-                                                    pt <- evalExpr(ts.value.signature)
+                                                    pt <- evalExpr(ts.value)
                                                     _  <- doUnify(pt, domain, paramName.as("Type mismatch."))
                                                   } yield pt
                                                 case None     => pure(domain)
@@ -411,9 +411,9 @@ class Checker(
     case OperatorResolvedExpression.FunctionApplication(_, _) =>
       inferSpine(tm)
 
-    case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
+    case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeExpr), body) =>
       for {
-        paramType            <- evalExpr(paramTypeStack.value.signature)
+        paramType            <- evalExpr(paramTypeExpr.value)
         _                    <- modify(_.bindValueParam(paramName.value, paramType))
         (bodyExpr, bodyType) <- infer(body)
         tpe                   = VPi(paramType, _ => bodyType)

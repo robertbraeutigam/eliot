@@ -133,7 +133,7 @@ class SaturatedValueProcessor
       .getOrElse(OperatorResolvedExpression.ValueReference(pos.as(WellKnownTypes.typeFQN)))
     val newKind      = binders.foldRight(existingKind)((b, acc) => arrow(pos.as(b.kind), pos.as(acc)))
     val withBinders  = binders.foldRight(signature) { (b, acc) =>
-      OperatorResolvedExpression.FunctionLiteral(pos.as(b.name), Some(pos.as(TypeStack.of(b.kind))), pos.as(acc))
+      OperatorResolvedExpression.FunctionLiteral(pos.as(b.name), Some(pos.as(b.kind)), pos.as(acc))
     }
     value.copy(typeStack = value.typeStack.as(TypeStack(NonEmptySeq.of(withBinders, newKind))))
   }
@@ -243,7 +243,7 @@ class SaturatedValueProcessor
     */
   private def leadingBinderKinds(sig: Sourced[OperatorResolvedExpression]): Seq[OperatorResolvedExpression] = {
     val view = SignatureView.of(sig)
-    view.binders.map(b => b.parameterType.map(_.value.signature).getOrElse(typeRef(b.name))) ++
+    view.binders.map(b => b.parameterType.map(_.value).getOrElse(typeRef(b.name))) ++
       view.parameters.map(_.value)
   }
 
@@ -474,7 +474,7 @@ class SaturatedValueProcessor
       pos: Sourced[?]
   ): OperatorResolvedExpression = {
     val view          = SignatureView.of(pos.as(sig))
-    val explicitKinds = view.binders.dropRight(1).map(b => b.parameterType.map(_.value.signature).getOrElse(typeRef(b.name)))
+    val explicitKinds = view.binders.dropRight(1).map(b => b.parameterType.map(_.value).getOrElse(typeRef(b.name)))
     val resultRef     = OperatorResolvedExpression.ParameterReference(view.binders.last.name)
     val newHandler    = (explicitKinds ++ plan.allKinds)
       .foldRight(resultRef: OperatorResolvedExpression)((k, acc) => arrow(pos.as(k), pos.as(acc)))

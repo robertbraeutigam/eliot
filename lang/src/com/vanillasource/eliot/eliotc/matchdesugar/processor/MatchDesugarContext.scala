@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
@@ -14,18 +13,18 @@ import MatchDesugarUtils.*
   * captured, so the single shared context instance stays correct across both phases.
   */
 class MatchDesugarContext(
-    val desugarMatch: (Sourced[TypeStack[Expression]], Seq[Expression.MatchCase], Platform) => CompilerIO[Expression],
-    val desugarInTypeStack: (Sourced[TypeStack[Expression]], Platform) => CompilerIO[Sourced[TypeStack[Expression]]]
+    val desugarMatch: (Sourced[Expression], Seq[Expression.MatchCase], Platform) => CompilerIO[Expression],
+    val desugarSourced: (Sourced[Expression], Platform) => CompilerIO[Sourced[Expression]]
 ) {
 
   def buildPatternHandler(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       subPatterns: Seq[Sourced[Pattern]],
-      body: Sourced[TypeStack[Expression]],
+      body: Sourced[Expression],
       platform: Platform
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
+  ): CompilerIO[Sourced[Expression]] =
     for {
-      desugaredBody <- desugarInTypeStack(body, platform)
+      desugaredBody <- desugarSourced(body, platform)
       handler       <-
         buildFieldLambdas(
           scrutinee,
@@ -36,19 +35,19 @@ class MatchDesugarContext(
     } yield handler
 
   def buildFieldLambdas(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       fieldPatterns: Seq[Sourced[Pattern]],
-      body: Sourced[TypeStack[Expression]],
+      body: Sourced[Expression],
       platform: Platform
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
+  ): CompilerIO[Sourced[Expression]] =
     fieldPatterns.reverse.foldM(body)((innerBody, pat) => buildFieldLambda(scrutinee, pat, innerBody, platform))
 
   private def buildFieldLambda(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       fieldPat: Sourced[Pattern],
-      innerBody: Sourced[TypeStack[Expression]],
+      innerBody: Sourced[Expression],
       platform: Platform
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
+  ): CompilerIO[Sourced[Expression]] =
     bindingName(fieldPat.value) match {
       case Some(name) =>
         wrapExpr(scrutinee, Expression.FunctionLiteral(name, None, innerBody)).pure[CompilerIO]

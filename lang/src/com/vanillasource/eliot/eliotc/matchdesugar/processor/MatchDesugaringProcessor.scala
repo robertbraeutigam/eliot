@@ -17,7 +17,7 @@ class MatchDesugaringProcessor
     )
     with Logging {
 
-  private lazy val context            = new MatchDesugarContext(desugarMatch, desugarInTypeStack)
+  private lazy val context            = new MatchDesugarContext(desugarMatch, desugarSourced)
   private lazy val dataMatchDesugarer = new DataMatchDesugarer(context)
   private lazy val typeMatchDesugarer = new TypeMatchDesugarer(context)
 
@@ -65,6 +65,9 @@ class MatchDesugaringProcessor
       case other                                        => Expression.mapChildrenM(desugarExpression(_, platform))(other)
     }
 
+  private def desugarSourced(expr: Sourced[Expression], platform: Platform): CompilerIO[Sourced[Expression]] =
+    desugarExpression(expr.value, platform).map(expr.as)
+
   private def desugarInTypeStack(
       stack: Sourced[TypeStack[Expression]],
       platform: Platform
@@ -72,7 +75,7 @@ class MatchDesugaringProcessor
     stack.value.levels.traverse(desugarExpression(_, platform)).map(levels => stack.as(TypeStack(levels)))
 
   private def desugarMatch(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       cases: Seq[Expression.MatchCase],
       platform: Platform
   ): CompilerIO[Expression] =

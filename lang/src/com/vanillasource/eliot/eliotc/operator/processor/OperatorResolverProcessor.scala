@@ -42,7 +42,7 @@ class OperatorResolverProcessor
     expr match {
       case MatchDesugaredExpression.FlatExpression(parts)                       =>
         for {
-          resolvedParts <- parts.traverse(part => resolveInExpression(part.value.signature).map(part.as))
+          resolvedParts <- parts.traverse(part => resolveInExpression(part.value).map(part.as))
           result        <- resolveFlatExpression(resolvedParts)
         } yield result
       case MatchDesugaredExpression.FunctionApplication(target, arg)            =>
@@ -52,8 +52,8 @@ class OperatorResolverProcessor
         } yield OperatorResolvedExpression.FunctionApplication(resolvedTarget, resolvedArg)
       case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
         for {
-          resolvedParamType <- paramType.traverse(resolveInTypeStack)
-          resolvedBody      <- resolveInExpression(body.value.signature).map(body.as)
+          resolvedParamType <- paramType.traverse(pt => resolveInExpression(pt.value).map(pt.as))
+          resolvedBody      <- resolveInExpression(body.value).map(body.as)
         } yield OperatorResolvedExpression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)
       case MatchDesugaredExpression.IntegerLiteral(v)                           =>
         OperatorResolvedExpression.IntegerLiteral(v).pure[CompilerIO]

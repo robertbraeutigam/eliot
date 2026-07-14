@@ -23,31 +23,26 @@ object MatchDesugaredExpression {
   ) extends MatchDesugaredExpression
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Option[Sourced[TypeStack[MatchDesugaredExpression]]],
-      body: Sourced[TypeStack[MatchDesugaredExpression]]
+      parameterType: Option[Sourced[MatchDesugaredExpression]],
+      body: Sourced[MatchDesugaredExpression]
   ) extends MatchDesugaredExpression
-  case class FlatExpression(parts: Seq[Sourced[TypeStack[MatchDesugaredExpression]]]) extends MatchDesugaredExpression
+  case class FlatExpression(parts: Seq[Sourced[MatchDesugaredExpression]]) extends MatchDesugaredExpression
 
   def mapChildrenM[F[_]: Applicative](f: MatchDesugaredExpression => F[MatchDesugaredExpression])(
       expr: MatchDesugaredExpression
-  ): F[MatchDesugaredExpression] = {
-    def traverseStack(
-        stack: Sourced[TypeStack[MatchDesugaredExpression]]
-    ): F[Sourced[TypeStack[MatchDesugaredExpression]]] =
-      stack.value.levels.traverse(f).map(levels => stack.as(TypeStack(levels)))
-
+  ): F[MatchDesugaredExpression] =
     expr match {
       case FunctionApplication(target, arg)                             =>
         (f(target.value).map(target.as), f(arg.value).map(arg.as)).mapN(FunctionApplication.apply)
       case FunctionLiteral(paramName, paramType, body)                  =>
-        (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
+        (paramType.traverse(pt => f(pt.value).map(pt.as)), f(body.value).map(body.as))
+          .mapN(FunctionLiteral(paramName, _, _))
       case FlatExpression(parts)                                        =>
-        parts.traverse(traverseStack).map(FlatExpression.apply)
+        parts.traverse(p => f(p.value).map(p.as)).map(FlatExpression.apply)
       case ValueReference(name, typeArgs)                               =>
         typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }
-  }
 
   def fromExpression(expr: Expression): MatchDesugaredExpression = expr match {
     case Expression.FunctionApplication(target, arg)            =>
@@ -58,9 +53,9 @@ object MatchDesugaredExpression {
     case Expression.ValueReference(name, typeArgs)              =>
       ValueReference(name, typeArgs.map(ta => ta.map(fromExpression)))
     case Expression.FunctionLiteral(paramName, paramType, body) =>
-      FunctionLiteral(paramName, paramType.map(convertTypeStack), convertTypeStack(body))
+      FunctionLiteral(paramName, paramType.map(_.map(fromExpression)), body.map(fromExpression))
     case Expression.FlatExpression(parts)                       =>
-      FlatExpression(parts.map(convertTypeStack))
+      FlatExpression(parts.map(_.map(fromExpression)))
     case Expression.MatchExpression(_, _)                       =>
       throw IllegalStateException("MatchExpression should not exist after match desugaring")
     case Expression.BlockExpression(_)                          =>

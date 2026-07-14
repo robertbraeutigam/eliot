@@ -95,7 +95,7 @@ class CarrierKindChecker(
       case None     => pure(())
       case Some(ts) =>
         for {
-          kind   <- evalExpr(ts.value.signature, Some(Env.empty))
+          kind   <- evalExpr(ts.value, Some(Env.empty))
           forced <- force(kind)
           ctx     = fqn.as("Higher-kinded type parameter mismatch.")
           _      <- forced match {

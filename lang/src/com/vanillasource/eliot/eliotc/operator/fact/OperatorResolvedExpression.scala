@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.operator.fact
 
 import cats.{Applicative, Monad, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -23,7 +22,7 @@ object OperatorResolvedExpression {
   ) extends OperatorResolvedExpression
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Option[Sourced[TypeStack[OperatorResolvedExpression]]],
+      parameterType: Option[Sourced[OperatorResolvedExpression]],
       body: Sourced[OperatorResolvedExpression]
   ) extends OperatorResolvedExpression
 
@@ -47,7 +46,7 @@ object OperatorResolvedExpression {
     case ValueReference(name, typeArgs)                      =>
       ValueReference(name, typeArgs.map(_.map(substitute(_, paramName, replacement))))
     case FunctionLiteral(pn, paramType, body)                =>
-      val newParamType = paramType.map(_.map(stack => TypeStack(stack.levels.map(substitute(_, paramName, replacement)))))
+      val newParamType = paramType.map(_.map(substitute(_, paramName, replacement)))
       val newBody      =
         if (pn.value == paramName) body
         else body.map(substitute(_, paramName, replacement))
@@ -66,7 +65,7 @@ object OperatorResolvedExpression {
     case ValueReference(_, typeArgs)           =>
       typeArgs.exists(ta => containsVar(ta.value, varName))
     case FunctionLiteral(pn, paramType, body)  =>
-      val inParamType = paramType.exists(_.value.levels.exists(containsVar(_, varName)))
+      val inParamType = paramType.exists(pt => containsVar(pt.value, varName))
       val inBody      = pn.value != varName && containsVar(body.value, varName)
       inParamType || inBody
     case _: IntegerLiteral | _: StringLiteral  => false
@@ -92,7 +91,7 @@ object OperatorResolvedExpression {
         go(t.value, s).flatMap(go(a.value, _))
       case FunctionLiteral(_, paramType, body) =>
         val withParam: F[S] = paramType match {
-          case Some(pt) => pt.value.levels.toSeq.foldLeft(s.pure[F])((acc, l) => acc.flatMap(go(l, _)))
+          case Some(pt) => go(pt.value, s)
           case None     => s.pure[F]
         }
         withParam.flatMap(go(body.value, _))
@@ -104,22 +103,17 @@ object OperatorResolvedExpression {
 
   def mapChildrenM[F[_]: Applicative](f: OperatorResolvedExpression => F[OperatorResolvedExpression])(
       expr: OperatorResolvedExpression
-  ): F[OperatorResolvedExpression] = {
-    def traverseStack(
-        stack: Sourced[TypeStack[OperatorResolvedExpression]]
-    ): F[Sourced[TypeStack[OperatorResolvedExpression]]] =
-      stack.value.levels.traverse(f).map(levels => stack.as(TypeStack(levels)))
-
+  ): F[OperatorResolvedExpression] =
     expr match {
       case FunctionApplication(target, arg)                             =>
         (f(target.value).map(target.as), f(arg.value).map(arg.as)).mapN(FunctionApplication.apply)
       case FunctionLiteral(paramName, paramType, body)                  =>
-        (paramType.traverse(traverseStack), f(body.value).map(body.as)).mapN(FunctionLiteral(paramName, _, _))
+        (paramType.traverse(pt => f(pt.value).map(pt.as)), f(body.value).map(body.as))
+          .mapN(FunctionLiteral(paramName, _, _))
       case ValueReference(name, typeArgs)                               =>
         typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }
-  }
 
   /** True iff `expr` is a reference to the built-in `Function` type constructor (the arrow former). */
   def isFunctionReference(expr: OperatorResolvedExpression): Boolean = expr match {
@@ -201,10 +195,10 @@ object OperatorResolvedExpression {
 
   object SignatureView {
 
-    /** One leading generic binder of a signature: its parameter name and optional kind annotation (its type stack). */
+    /** One leading generic binder of a signature: its parameter name and optional kind annotation. */
     case class Binder(
         name: Sourced[String],
-        parameterType: Option[Sourced[TypeStack[OperatorResolvedExpression]]]
+        parameterType: Option[Sourced[OperatorResolvedExpression]]
     )
 
     /** Decompose a signature into its leading generic [[FunctionLiteral]] binders, its curried `Function` parameter
@@ -240,15 +234,10 @@ object OperatorResolvedExpression {
     case MatchDesugaredExpression.ValueReference(name, typeArgs)              =>
       ValueReference(name, typeArgs.map(ta => ta.map(fromExpression)))
     case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
-      FunctionLiteral(paramName, paramType.map(convertTypeStack), body.map(ts => fromExpression(ts.signature)))
+      FunctionLiteral(paramName, paramType.map(_.map(fromExpression)), body.map(fromExpression))
     case MatchDesugaredExpression.FlatExpression(_)                           =>
       throw IllegalStateException("FlatExpression should not exist after operator resolution")
   }
-
-  private def convertTypeStack(
-      stack: Sourced[TypeStack[MatchDesugaredExpression]]
-  ): Sourced[TypeStack[OperatorResolvedExpression]] =
-    stack.map(ts => TypeStack(ts.levels.map(fromExpression)))
 
   given Show[OperatorResolvedExpression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()

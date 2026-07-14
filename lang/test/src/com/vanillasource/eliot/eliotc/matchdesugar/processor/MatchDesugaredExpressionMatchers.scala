@@ -11,7 +11,7 @@ object MatchDesugaredExpressionMatchers {
     def unapply(expr: MatchDesugaredExpression): Option[(String, MatchDesugaredExpression)] =
       expr match {
         case FunctionLiteral(Sourced(_, _, paramName), _, Sourced(_, _, body)) =>
-          Some((paramName, body.signature))
+          Some((paramName, body))
         case _                                                                 => None
       }
   }

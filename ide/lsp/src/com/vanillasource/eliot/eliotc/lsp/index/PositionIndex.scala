@@ -75,15 +75,15 @@ object PositionIndex {
     case Expression.FunctionApplication(target, argument)                                              =>
       fromExpression(target.value) ++ fromExpression(argument.value)
     case Expression.FunctionLiteral(_, parameterType, body)                                            =>
-      parameterType.toSeq.flatMap(stack => fromStack(stack.value)) ++ fromStack(body.value)
+      parameterType.toSeq.flatMap(pt => fromExpression(pt.value)) ++ fromExpression(body.value)
     case Expression.FlatExpression(parts)                                                              =>
-      parts.flatMap(part => fromStack(part.value))
+      parts.flatMap(part => fromExpression(part.value))
     case Expression.MatchExpression(scrutinee, cases)                                                  =>
-      fromStack(scrutinee.value) ++
-        cases.flatMap(matchCase => fromPattern(matchCase.pattern.value) ++ fromStack(matchCase.body.value))
+      fromExpression(scrutinee.value) ++
+        cases.flatMap(matchCase => fromPattern(matchCase.pattern.value) ++ fromExpression(matchCase.body.value))
     case Expression.BlockExpression(lines)                                                             =>
       lines.flatMap(line =>
-        line.binderType.toSeq.flatMap(stack => fromStack(stack.value)) ++ fromExpression(line.expression.value)
+        line.binderType.toSeq.flatMap(bt => fromExpression(bt.value)) ++ fromExpression(line.expression.value)
       )
     case _: Expression.IntegerLiteral | _: Expression.StringLiteral | _: Expression.ParameterReference =>
       Seq.empty

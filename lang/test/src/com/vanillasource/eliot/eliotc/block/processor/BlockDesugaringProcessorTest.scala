@@ -172,7 +172,7 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   private object RLit {
     def unapply(e: Expression): Option[(String, Expression)] = e match {
-      case Expression.FunctionLiteral(Sourced(_, _, param), _, Sourced(_, _, body)) => Some((param, body.signature))
+      case Expression.FunctionLiteral(Sourced(_, _, param), _, Sourced(_, _, body)) => Some((param, body))
       case _                                                                        => None
     }
   }
@@ -187,7 +187,7 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   private object RFlat {
     def unapply(e: Expression): Option[Seq[Expression]] = e match {
-      case Expression.FlatExpression(parts) => Some(parts.map(_.value.signature))
+      case Expression.FlatExpression(parts) => Some(parts.map(_.value))
       case _                                => None
     }
   }

@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.resolve.fact
 import cats.Applicative
 import cats.syntax.all.*
 import cats.Show
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -21,12 +20,12 @@ object Expression {
       extends Expression
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Option[Sourced[TypeStack[Expression]]],
-      body: Sourced[TypeStack[Expression]]
+      parameterType: Option[Sourced[Expression]],
+      body: Sourced[Expression]
   ) extends Expression
-  case class FlatExpression(parts: Seq[Sourced[TypeStack[Expression]]]) extends Expression
+  case class FlatExpression(parts: Seq[Sourced[Expression]]) extends Expression
   case class MatchExpression(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       cases: Seq[MatchCase]
   ) extends Expression
   // A `{ … }` block, lowered to immediately-applied lambdas by BlockDesugaringProcessor; gone before matchdesugar.
@@ -34,7 +33,7 @@ object Expression {
 
   case class MatchCase(
       pattern: Sourced[Pattern],
-      body: Sourced[TypeStack[Expression]]
+      body: Sourced[Expression]
   )
 
   /** One line of a [[BlockExpression]]: an optional binder (name plus optional resolved type) and the line's resolved
@@ -42,38 +41,35 @@ object Expression {
     */
   case class BlockLine(
       binderName: Option[Sourced[String]],
-      binderType: Option[Sourced[TypeStack[Expression]]],
+      binderType: Option[Sourced[Expression]],
       expression: Sourced[Expression]
   )
 
-  def mapChildrenM[F[_]: Applicative](f: Expression => F[Expression])(expr: Expression): F[Expression] = {
-    def traverseStack(stack: Sourced[TypeStack[Expression]]): F[Sourced[TypeStack[Expression]]] =
-      stack.value.levels.traverse(f).map(levels => stack.as(TypeStack(levels)))
-
+  def mapChildrenM[F[_]: Applicative](f: Expression => F[Expression])(expr: Expression): F[Expression] =
     expr match {
       case FunctionApplication(target, arg)                =>
         (f(target.value).map(target.as), f(arg.value).map(arg.as)).mapN(FunctionApplication.apply)
       case FunctionLiteral(paramName, paramType, body)     =>
-        (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
+        (paramType.traverse(pt => f(pt.value).map(pt.as)), f(body.value).map(body.as))
+          .mapN(FunctionLiteral(paramName, _, _))
       case FlatExpression(parts)                           =>
-        parts.traverse(traverseStack).map(FlatExpression.apply)
+        parts.traverse(p => f(p.value).map(p.as)).map(FlatExpression.apply)
       case MatchExpression(scrutinee, cases)               =>
         (
-          traverseStack(scrutinee),
-          cases.traverse(mc => traverseStack(mc.body).map(MatchCase(mc.pattern, _)))
+          f(scrutinee.value).map(scrutinee.as),
+          cases.traverse(mc => f(mc.body.value).map(e => MatchCase(mc.pattern, mc.body.as(e))))
         ).mapN(MatchExpression.apply)
       case ValueReference(name, typeArgs)                  =>
         typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
       case BlockExpression(lines)                          =>
         lines
           .traverse(line =>
-            (line.binderType.traverse(traverseStack), f(line.expression.value).map(line.expression.as))
+            (line.binderType.traverse(bt => f(bt.value).map(bt.as)), f(line.expression.value).map(line.expression.as))
               .mapN((bt, e) => BlockLine(line.binderName, bt, e))
           )
           .map(BlockExpression.apply)
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }
-  }
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()

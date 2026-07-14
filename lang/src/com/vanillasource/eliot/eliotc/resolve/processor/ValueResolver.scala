@@ -131,7 +131,7 @@ class ValueResolver
   private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
     expr match {
       case FunctionLiteral(paramName, Some(_), body) =>
-        paramName.value +: collectGenericParamsFromExpr(body.value.signature)
+        paramName.value +: collectGenericParamsFromExpr(body.value)
       case _                                         => Seq.empty
     }
 
@@ -230,11 +230,11 @@ class ValueResolver
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body)               =>
         for {
-          resolvedParamType <- paramType.traverse(t => resolveTypeStack(paramName.as(t), false))
+          resolvedParamType <- paramType.traverse(t => resolveExpression(t.value, false).map(t.as))
           resolvedBody      <- withLocalScope {
                                  for {
                                    _    <- addParameter(paramName.value)
-                                   body <- resolveTypeStack(body, runtime)
+                                   body <- resolveExpression(body.value, runtime).map(body.as)
                                  } yield body
                                }
         } yield Expression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)
@@ -243,15 +243,15 @@ class ValueResolver
       case StringLiteral(s @ Sourced(_, _, value))                   =>
         Expression.StringLiteral(s.as(value)).pure[ScopedIO]
       case FlatExpression(parts)                                     =>
-        parts.traverse(part => resolveTypeStack(part, runtime)).map(Expression.FlatExpression(_))
+        parts.traverse(part => resolveExpression(part.value, runtime).map(part.as)).map(Expression.FlatExpression(_))
       case CoreExpression.MatchExpression(scrutinee, cases)          =>
         for {
-          resolvedScrutinee <- resolveTypeStack(scrutinee, runtime)
+          resolvedScrutinee <- resolveExpression(scrutinee.value, runtime).map(scrutinee.as)
           resolvedCases     <- cases.traverse { c =>
                                  withLocalScope {
                                    for {
                                      resolvedPattern <- resolvePattern(c.pattern)
-                                     resolvedBody    <- resolveTypeStack(c.body, runtime)
+                                     resolvedBody    <- resolveExpression(c.body.value, runtime).map(c.body.as)
                                    } yield Expression.MatchCase(resolvedPattern, resolvedBody)
                                  }
                                }
@@ -271,7 +271,7 @@ class ValueResolver
       case line :: rest =>
         for {
           resolvedType <- (line.binderName, line.binderType) match {
-                            case (Some(n), Some(t)) => resolveTypeStack(n.as(t), false).map(Some(_))
+                            case (Some(n), Some(t)) => resolveExpression(t.value, false).map(e => Some(n.as(e)))
                             case _                  => None.pure[ScopedIO]
                           }
           _            <- line.binderName.traverse(n => addParameter(n.value))

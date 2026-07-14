@@ -19,7 +19,7 @@ object EffectCarriers {
 
   /** A generic binder is a carrier iff its kind is an arrow (`Type -> Type`, i.e. higher-kinded). */
   def isHktBinder(binder: SignatureView.Binder): Boolean =
-    binder.parameterType.exists(pt => asArrow(pt.value.signature).isDefined)
+    binder.parameterType.exists(pt => asArrow(pt.value).isDefined)
 
   /** The higher-kinded binder names of a signature — the binders an effectful result can ride (`F` in `F[Unit]`). This
     * is the *callee* notion of a carrier: an ability method's return rides its ability's binder (`printLine : F[Unit]`)

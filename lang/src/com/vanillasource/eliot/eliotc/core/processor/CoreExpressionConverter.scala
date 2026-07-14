@@ -70,15 +70,15 @@ object CoreExpressionConverter {
       case SourceExpression.FlatExpression(Seq(single))                                =>
         convertExpression(single, typeContext)
       case SourceExpression.FlatExpression(parts)                                      =>
-        expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(convertExpression(p, typeContext).value)))))
+        expr.as(FlatExpression(parts.map(p => convertExpression(p, typeContext))))
       case SourceExpression.MatchExpression(scrutinee, cases)                          =>
         expr.as(
           MatchExpression(
-            scrutinee.as(TypeStack.of(convertExpression(scrutinee, typeContext).value)),
+            convertExpression(scrutinee, typeContext),
             cases.map(c =>
               MatchCase(
                 c.pattern.map(toPattern),
-                c.body.as(TypeStack.of(convertExpression(c.body, typeContext).value))
+                convertExpression(c.body, typeContext)
               )
             )
           )
@@ -87,7 +87,7 @@ object CoreExpressionConverter {
         expr.as(BlockExpression(lines.map { line =>
           BlockLine(
             line.binder.map(_.name),
-            line.binder.flatMap(_.typeExpression).map(t => TypeStack.of(convertExpression(t, typeContext = true).value)),
+            line.binder.flatMap(_.typeExpression).map(t => convertExpression(t, typeContext = true)),
             convertExpression(line.expression, typeContext)
           )
         }))
@@ -129,7 +129,7 @@ object CoreExpressionConverter {
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
       val kindType = convertExpression(param.typeRestriction, typeContext = true)
-      param.name.as(FunctionLiteral(param.name, Some(TypeStack.of(kindType.value)), acc.map(TypeStack.of)))
+      param.name.as(FunctionLiteral(param.name, Some(kindType), acc))
     }
   }
 
@@ -147,7 +147,7 @@ object CoreExpressionConverter {
       typeContext: Boolean = false
   ): Sourced[Expression] =
     args.foldRight(convertExpression(value, typeContext)) { (arg, acc) =>
-      arg.name.as(FunctionLiteral(arg.name, None, acc.map(TypeStack.of)))
+      arg.name.as(FunctionLiteral(arg.name, None, acc))
     }
 
   def toPattern(pattern: SourcePattern): Pattern =
@@ -179,8 +179,8 @@ object CoreExpressionConverter {
       param.name.as(
         FunctionLiteral(
           param.name,
-          param.typeExpression.map(convertExpression(_, typeContext = true).value).map(TypeStack.of),
-          acc.map(TypeStack.of)
+          param.typeExpression.map(convertExpression(_, typeContext = true)),
+          acc
         )
       )
     }

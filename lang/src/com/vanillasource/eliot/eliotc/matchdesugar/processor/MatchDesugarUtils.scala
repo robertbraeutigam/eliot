@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -12,8 +11,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 object MatchDesugarUtils {
 
-  def wrapExpr(src: Sourced[?], expr: Expression): Sourced[TypeStack[Expression]] =
-    src.as(TypeStack.of(expr))
+  def wrapExpr(src: Sourced[?], expr: Expression): Sourced[Expression] =
+    src.as(expr)
 
   def bindingName(pattern: Pattern): Option[Sourced[String]] =
     pattern match {
@@ -23,12 +22,12 @@ object MatchDesugarUtils {
     }
 
   def buildCurriedCall(
-      scrutinee: Sourced[TypeStack[Expression]],
+      scrutinee: Sourced[Expression],
       ref: Expression,
-      args: Seq[Sourced[TypeStack[Expression]]]
+      args: Seq[Sourced[Expression]]
   ): Expression =
     args.foldLeft(ref) { (acc, arg) =>
-      Expression.FunctionApplication(scrutinee.as(acc), arg.as(arg.value.signature))
+      Expression.FunctionApplication(scrutinee.as(acc), arg)
     }
 
   def firstConstructorPattern(pattern: Pattern): Option[ValueFQN] =

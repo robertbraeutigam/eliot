@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.block.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -55,8 +54,8 @@ class BlockDesugaringProcessor
   /** A line during merging: its binder (if any) and its accumulated flat parts. */
   private case class Merged(
       binderName: Option[Sourced[String]],
-      binderType: Option[Sourced[TypeStack[Expression]]],
-      parts: Seq[Sourced[TypeStack[Expression]]]
+      binderType: Option[Sourced[Expression]],
+      parts: Seq[Sourced[Expression]]
   )
 
   /** Walk the resolved expression tree, lowering any block and preserving every node's source position. */
@@ -66,26 +65,21 @@ class BlockDesugaringProcessor
       case Expression.FunctionApplication(target, arg)  =>
         (desugar(target), desugar(arg)).mapN((t, a) => expr.as(Expression.FunctionApplication(t, a)))
       case Expression.FunctionLiteral(pn, pt, body)     =>
-        (pt.traverse(desugarStack), desugarStack(body)).mapN((rpt, rb) =>
+        (pt.traverse(desugar), desugar(body)).mapN((rpt, rb) =>
           expr.as(Expression.FunctionLiteral(pn, rpt, rb))
         )
       case Expression.FlatExpression(parts)             =>
-        parts.traverse(desugarStack).map(ps => expr.as(Expression.FlatExpression(ps)))
+        parts.traverse(desugar).map(ps => expr.as(Expression.FlatExpression(ps)))
       case Expression.MatchExpression(scrutinee, cases) =>
         (
-          desugarStack(scrutinee),
-          cases.traverse(c => desugarStack(c.body).map(b => Expression.MatchCase(c.pattern, b)))
+          desugar(scrutinee),
+          cases.traverse(c => desugar(c.body).map(b => Expression.MatchCase(c.pattern, b)))
         ).mapN((s, cs) => expr.as(Expression.MatchExpression(s, cs)))
       case Expression.ValueReference(name, typeArgs)    =>
         typeArgs.traverse(desugar).map(tas => expr.as(Expression.ValueReference(name, tas)))
       case _: Expression.IntegerLiteral | _: Expression.StringLiteral | _: Expression.ParameterReference =>
         expr.pure[CompilerIO]
     }
-
-  private def desugarStack(
-      stack: Sourced[TypeStack[Expression]]
-  )(using Platform): CompilerIO[Sourced[TypeStack[Expression]]] =
-    stack.value.levels.traverse(level => desugar(stack.as(level)).map(_.value)).map(ls => stack.as(TypeStack(ls)))
 
   private def desugarBlock(
       blockSourced: Sourced[Expression],
@@ -100,7 +94,7 @@ class BlockDesugaringProcessor
   private def desugarLine(line: Expression.BlockLine)(using Platform): CompilerIO[Expression.BlockLine] =
     for {
       expr <- desugar(line.expression)
-      bt   <- line.binderType.traverse(desugarStack)
+      bt   <- line.binderType.traverse(desugar)
     } yield Expression.BlockLine(line.binderName, bt, expr)
 
   // ── Merge ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -132,8 +126,8 @@ class BlockDesugaringProcessor
       } yield demandsRightOperand(upperLast) || demandsLeftOperand(lowerFirst)
 
   /** The declared fixity of a boundary part: read by FQN for a bare value reference (an operator), else `Application`. */
-  private def boundaryFixity(part: Sourced[TypeStack[Expression]])(using platform: Platform): CompilerIO[Fixity] =
-    part.value.signature match {
+  private def boundaryFixity(part: Sourced[Expression])(using platform: Platform): CompilerIO[Fixity] =
+    part.value match {
       case Expression.ValueReference(fqn, _) => getFactOrAbort(ResolvedValue.Key(fqn.value, platform)).map(_.fixity)
       case _                                 => (Fixity.Application: Fixity).pure[CompilerIO]
     }
@@ -170,13 +164,13 @@ class BlockDesugaringProcessor
       val anchor    = Sourced.outline(line.parts)
       val paramName = line.binderName.getOrElse(anchor.as("_"))
       val lambda    =
-        anchor.as(Expression.FunctionLiteral(paramName, line.binderType, continuation.map(TypeStack.of)))
+        anchor.as(Expression.FunctionLiteral(paramName, line.binderType, continuation))
       anchor.as(Expression.FunctionApplication(lambda, expressionOf(line)))
     }
 
   private def checkNoSelfReference(line: Merged): CompilerIO[Unit] =
     line.binderName match {
-      case Some(name) if line.parts.exists(p => referencesParameter(p.value.signature, name.value)) =>
+      case Some(name) if line.parts.exists(p => referencesParameter(p.value, name.value)) =>
         compilerError(name.as(s"'${name.value}' is referenced in its own definition."))
       case _                                                                                        =>
         ().pure[CompilerIO]
@@ -184,15 +178,15 @@ class BlockDesugaringProcessor
 
   // ── Helpers ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-  private def partsOf(expr: Sourced[Expression]): Seq[Sourced[TypeStack[Expression]]] =
+  private def partsOf(expr: Sourced[Expression]): Seq[Sourced[Expression]] =
     expr.value match {
       case Expression.FlatExpression(parts) => parts
-      case other                            => Seq(expr.as(TypeStack.of(other)))
+      case other                            => Seq(expr.as(other))
     }
 
   private def expressionOf(line: Merged): Sourced[Expression] =
     line.parts match {
-      case Seq(single) => single.map(_.signature)
+      case Seq(single) => single
       case parts       => Sourced.outline(parts).as(Expression.FlatExpression(parts))
     }
 
@@ -204,15 +198,12 @@ class BlockDesugaringProcessor
     case Expression.FunctionApplication(target, arg)  =>
       referencesParameter(target.value, name) || referencesParameter(arg.value, name)
     case Expression.FunctionLiteral(pn, pt, body)     =>
-      pt.exists(stackReferencesParameter(_, name)) || (pn.value != name && stackReferencesParameter(body, name))
-    case Expression.FlatExpression(parts)             => parts.exists(stackReferencesParameter(_, name))
+      pt.exists(p => referencesParameter(p.value, name)) || (pn.value != name && referencesParameter(body.value, name))
+    case Expression.FlatExpression(parts)             => parts.exists(p => referencesParameter(p.value, name))
     case Expression.ValueReference(_, typeArgs)       => typeArgs.exists(ta => referencesParameter(ta.value, name))
     case Expression.MatchExpression(scrutinee, cases) =>
-      stackReferencesParameter(scrutinee, name) || cases.exists(c => stackReferencesParameter(c.body, name))
+      referencesParameter(scrutinee.value, name) || cases.exists(c => referencesParameter(c.body.value, name))
     case Expression.BlockExpression(lines)            => lines.exists(l => referencesParameter(l.expression.value, name))
     case _: Expression.IntegerLiteral | _: Expression.StringLiteral => false
   }
-
-  private def stackReferencesParameter(stack: Sourced[TypeStack[Expression]], name: String): Boolean =
-    stack.value.levels.exists(referencesParameter(_, name))
 }
