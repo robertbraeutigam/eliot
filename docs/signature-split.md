@@ -199,20 +199,86 @@ end-to-end (`MarkerGuardSignature` semantics, `AbilityImplementationProcessor` i
 `CompilerNativesProcessor` precompute for genuine compile-time natives; `SignatureView` (binder/return peeling and
 kind derivation).
 
-## 7. Staging (each increment lands green; lesson from Step A: split at birth, consumers in the same arc)
+## 7. Execution plan — steps that build on each other
 
-1. **Mechanical split at birth.** `core` mints the twins; roll the role through module (merge recast per §1) →
-   resolve (shared binders) → matchdesugar → operator → effect → termination → saturate. The checker still walks the
-   signature twin's body in place — behaviour identical to today. Full suite + examples green; `CACHE_VERSION` bump.
-   *Gate:* front-end fact shapes are single-bodied; zero behaviour change.
-2. **Flip the read.** `v@Runtime`'s check and callee references read `CompilerMonomorphicValue(v@Signature, args)`;
-   the kind check moves into the signature twin's own mono; the W3 inversion lands (back-edge). The in-place
-   `walkTypeStack` is deleted. *Gate:* suite green; the §2 acyclicity argument written down; overhead measured on the
-   examples + LSP workload.
-3. **Stage-2 carryover** (§4): the `underApplied` `VType` arm, inferred-row pinning, the Abort overlay, discharge at
-   the read. *Gate:* `if..else..raise` and bare-`raise` fixtures green **alongside** the existing `orError` forms.
-4. **Deletion sweep.** The §6 monomorphize items, then `Guard.els` + test rewrites. *Gate:* the ledger realized; the
-   net line count of `monomorphize/check` decisively negative.
+Each step is one committable unit: it compiles, the full suite + examples are green at its gate, and the next step
+assumes it. Fact-shape changes bump `CACHE_VERSION`. Steps 1–4 use **transient join adapters** (a processor that
+reconstitutes the old dual-slot view for the phases not yet converted) exactly as the `TypeStack` removal did — each
+adapter is deleted by the step that converts its consumer, and none survive past Step 4. Lesson from Step A's fate:
+the role is born with consumers in the same arc (Steps 5+6 are one arc; do not land 5 without starting 6).
+
+- **Step 0 — prep: the guard-independent `EffectLifter` fix.** Add the missing `case VType => 0 < arity` arm to
+  `EffectLifter.underApplied` (`EffectLifter.scala:131`) with a regression test (a pure *type* flowing into a carrier
+  value slot — Attempt 1's B1(1), a correctness fix regardless of this plan). No split dependency.
+  *Gate:* suite green.
+
+- **Step 1 — the role is born: identity, `core`, `module`.** Add `Role = Runtime | Signature` as a field on
+  `QualifiedName`; the `Show`/mangling of a **runtime** twin renders byte-identical to today (the role is invisible for
+  `Runtime`), so diagnostics, jvm class names, and test expectations don't churn. `CoreProcessor` (and
+  `DataDefinitionDesugarer`) mint both twins: signature twin body = the signature expression (always present), binder
+  list stamped on both, abstractness = runtime twin body `None`. `UnifiedModuleValueProcessor` merges per
+  `(name, role)`: signature twins all-agree (relocated `signatureEquality`; the `dischargedEffects` layer-union rule
+  rides the signature twin), runtime twins prefer-the-bodied. A transient join adapter reconstitutes the dual-slot
+  fact after the merge for `resolve` and everything downstream.
+  *Gate:* zero behaviour change; module-phase tests exercise the recast merge rules; `CACHE_VERSION` bump.
+
+- **Step 2 — `resolve` on twins.** Each twin resolves as its own value; the runtime twin's scope takes the stamped
+  binder list (the cross-twin scope point of §1). Join adapter moves to post-resolve.
+  *Gate:* zero behaviour change.
+
+- **Step 3 — `matchdesugar` + `operator` on twins.** Both phases become single-bodied end-to-end; join adapter moves
+  to post-operator. *Gate:* zero behaviour change (including `examples/TypeLevelMatch.els`).
+
+- **Step 4 — `effect`, `termination`, `saturate` on twins; monomorphize reads the pair.** Effect and recursion checks
+  keep today's scope — **runtime twins only** for now (extending them to signature bodies is Step 8, a separately
+  verified change). `SaturatedValue` is keyed per twin (`inferableArity` derived from the signature twin). The mono
+  processors read *both* twins and reconstruct today's `TypeStackLoop` input — the last join adapter deletes here, so
+  the front-end is fully single-bodied while the checker still walks the signature body in place (behaviour identical).
+  `used`/`uncurry`/backend and the LSP/apidoc indices key off runtime twins.
+  *Gate:* full suite + examples + `ide.lsp` tests green; zero behaviour change. (The mechanical split is complete.)
+
+- **Step 5 — the signature twin gets its own mono (consumer-first).** `CompilerMonomorphicValue(v@Signature, args)`:
+  check the signature body against the **derived kind**, elaborate + reduce on the compiler track. W3 values
+  (under-applied return) *decline* here — their back-edge lands in Step 6. The consumer landing in the same arc is an
+  **equivalence test**: for representative fixtures (generic, ability-constrained, guarded, W3-declined), the twin
+  mono's ground signature equals what the in-place walk produces.
+  *Gate:* equivalence holds; suite green.
+
+- **Step 6 — flip the read.** `v@Runtime`'s mono reads the twin mono instead of walking in place; the in-place
+  `walkTypeStack` + `levelExprs` plumbing is deleted (ability refs in type positions are discovered by the signature
+  twin's own mono). The W3 inversion lands: a calc-return signature twin reads back from
+  `MonomorphicValue(v@Runtime, args)` (generalized `readMonomorphicReturnGround`, `activeFactKeys` guard). Callee
+  references: guarded/calculated callee returns read the callee's signature-twin mono; for **ordinary pure** callee
+  signatures, decide by measurement whether to flip wholesale (per-`(value,args)` caching win vs. fact-read overhead)
+  and record the numbers + decision here. Write down the §2 acyclicity argument.
+  *Gate:* full suite + examples green; overhead measured on examples + the LSP workload; acyclicity note added to §2.
+
+- **Step 7 — the feature (Stage-2 carryover).** Rebuild `Unifier.effectCarrierMetaIds`; extend
+  `Track.Compiler.pinCarriers` to pin an **inferred** return row's carrier; re-add
+  `stdlib/eliot-compiler/eliot/effect/Abort.els`; derived effect row for signature twins (exempt from
+  `declared ⊇ used`); discharge at the twin read (`dischargeGuardedReturn`, reject-site convention preserved). Route
+  **all** guarded signatures — combinator (`orError`) *and* inline (`if..else..raise`) — through the twin read, leaving
+  the old runtime-side discharge path dead code (swept in Step 9).
+  *Gate:* new `if..else..raise` + bare-`raise` fixtures green **and** the untouched `orError`
+  `GuardSignatureIntegrationTest` passes via the new path.
+
+- **Step 8 — checks reach signatures (verify, don't assume).** Extend the recursion check to signature-twin bodies:
+  covariant `data Tree(left: Tree, right: Tree)` and the monad-transformer lift must stay accepted (the §5 structural
+  argument, now tested); add the type-alias-cycle regression (newly caught — a fail-safe win). Purity/effect accounting
+  over signature bodies with the derived-row exemption.
+  *Gate:* full suite + all examples compile — no legitimate program newly rejected.
+
+- **Step 9 — deletion sweep, checker.** Delete the §6 monomorphize items: `sawGuardReturn`/`recordGuardReturn`,
+  `isGuardCarrier` + the `VType` kind-check carve, `dischargeGuardedSignature` + the `Track.Runtime.settleGuardedReturn`
+  guard branch, the `settleReturnPosition` switch collapse, the Stage-4 `reduceGuardSubValues`/`reevaluateGuardReturn`/
+  `collectValueRefs` workaround, `flattenReturnToType`, and the guards' precompute-and-merge reliance.
+  *Gate:* suite green; net line count of `monomorphize/check` decisively negative — goal 2 realized.
+
+- **Step 10 — deletion sweep, stdlib/tests + closeout.** Delete `eliot.lang.Guard` (`when`/`orError`) from both
+  layers; rewrite `GuardSignatureIntegrationTest` to the `if..else..raise`/bare-`raise` forms; update the
+  `Expression.scala` return-parser doc comments and `ASTParserTest` guard cases. Mark this document **COMPLETE** with
+  the final net-line ledger.
+  *Gate:* full suite + all examples green.
 
 ## 8. Evidence record (absorbed from the retired docs — why this design and not the others)
 
