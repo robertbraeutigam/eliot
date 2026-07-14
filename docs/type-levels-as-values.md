@@ -6,10 +6,21 @@ remove accidental complexity by revealing that higher type levels are ordinary n
 
 ## The point — read this first
 
-There is exactly **one** goal: **simplify `monomorphize`** by making a value's higher type levels *ordinary,
-on-demand, compiler-track monomorphized named values*, so the bespoke type-stack walker dissolves into ordinary
-per-value monomorphization demands. **The phase must get smaller — net-delete code — not grow.** A level `n ≥ 1` is
-**not special in any way**: it is checked, reduced, and read like every other named value.
+**Reframed 2026-07-14 (Robert): the primary goal is UNIFORMITY, not `monomorphize` line-count.** Making a value's
+higher type levels *ordinary named values* means a type-level expression goes through **the whole pipeline
+automatically** — match desugaring, operator resolution, effect checking, ability resolution, per-instantiation
+reduction — exactly like a value body. Today it does **not**: each front-end phase must *individually* thread and
+traverse the `TypeStack`, and it is done **inconsistently** — operators and abilities already work in signatures, but a
+`match` in a signature crashed until `a18c1e2f` (matchdesugar only *converted* the signature, never desugared it). The
+net-delete that matters is therefore **not** in `monomorphize` (measured in §3: it does not net-delete there — the walk
+is already lean); it is across the **~35 files that carry `TypeStack`** (matchdesugar ~71 refs, core ~28, resolve ~26,
+operator ~24 …), all of which lose their type-stack-specific traversal once a level is an ordinary value the phase
+already knows how to process. That is §4 — **promoted from "optional tidying" to the actual target.**
+
+The secondary (original) framing — simplify `monomorphize` by dissolving the in-place `walkTypeStack` — is a **dead end
+as written** (§3): the walk is lean, the guard machinery doesn't collapse, calc-returns force the real-signature path,
+and the level-1 demand adds cross-track coupling. A level `n ≥ 1` is still **not special in any way**: it is checked,
+reduced, and read like every other named value.
 
 **Hard non-goals (this is where the first attempt went wrong — do not repeat it):**
 
@@ -160,19 +171,39 @@ special-casing (`sawGuardReturn` / kind-position guard-carrier acceptance and th
 subsumes them, they go with the walker; if it does not, **leave them alone** — do not build new machinery to preserve or
 extend them. The measure of success is *fewer* lines and *fewer* special cases in `monomorphize`, full stop.
 
-## 4. Follow-on (optional): remove the `TypeStack` structure itself
+## 4. The actual target: levels are named values born early, so every phase processes them uniformly
 
-The `TypeStack` *data structure* is pervasive (~35 files carry it through core → operator → saturate). Removing it —
-moving `TypeLevel` into core `NamedValue` identity and dropping the carriage so the Step-A derivation moves from the
-saturate boundary into core desugaring — is **mechanical once nothing walks it**, because §3 removes the only *reader*
-of the stack's structure. Do it only if the carriage is causing friction; the semantic simplification (§3) is what buys
-the win, and this is just tidying the plumbing afterward.
+**This is where the win is** (reframed 2026-07-14 — see "The point"). The `TypeStack` structure is pervasive (~35
+files carry it through core → resolve → matchdesugar → operator → effect → ability → saturate), and every one of those
+phases has to *individually* thread and traverse it — inconsistently (the `a18c1e2f` match-in-signature bug is the proof
+that a phase can silently skip it). The goal: **extract each type-stack level as its own named value at (or near) the
+`core` phase**, so a value's signature becomes a *reference* to a level-value, and drop the `TypeStack` carriage. Then:
+
+- Each front-end phase processes a level value with the **same code path it already uses for any value** — no
+  type-stack-specific traversal, no `convertTypeStack`/`desugarInTypeStack`/`traverseStack` special methods. That is the
+  net-delete: across ~35 files, not in `monomorphize`.
+- A type-level expression **automatically** gets match desugaring, operator resolution, effect checking, ability
+  resolution — gaps like `a18c1e2f` become structurally impossible, not one-off patches.
+- Step-A's `TypeLevelSaturatedValueProcessor` (which derives level-n at the *saturate* boundary — too late for the
+  front-end phases) is superseded: the derivation moves into core, *before* matchdesugar/operator/effect/ability, which
+  is exactly what lets those phases see the level.
+
+**Not yet measured/validated** (this is a large, ~35-file change and the next real design task): whether the extraction
+is tractable (a signature references its own generic binders — the level value must close over them), how a level value
+is keyed/named without a synthetic FQN (the `SaturatedValue`/`CompilerMonomorphicValue` `typeLevel` key dimension from
+Step A is the model — carry it into core identity), and whether it genuinely net-deletes across the front-end. Do a
+scoped spike (pick *one* phase, e.g. matchdesugar, and see if its type-stack code vanishes when it reads a level value)
+before committing to the full carriage removal.
 
 ## 5. Guardrails (the stop rules)
 
-- **Net-delete.** Every checker-touching change nets out to fewer lines and fewer special cases in `monomorphize`.
-- **Routing, not capability.** No new level-specific behaviour in `Checker` / `renormalize` / the walk. Route through the
-  platform as an ordinary value, or don't.
+- **Net-delete — but across the front-end, not just `monomorphize`.** The win is removing per-phase `TypeStack`
+  traversal (§4), not shrinking the checker walk (§3, which does not net-delete). A change that moves a level into an
+  ordinary value should let a phase *delete* its type-stack-specific code, not add more.
+- **Uniformity is the goal; still no level-specific behaviour in the kernel.** A level value must go through the
+  *existing* phase machinery, never a new level-aware branch inside `Checker` / `renormalize` / a phase. Route through
+  the platform as an ordinary value, or don't. (This is how "capability" — match/ability/effect in types — is
+  obtained: by reuse, not by teaching each phase about levels.)
 - **No kernel reduction re-implementation.** No sub-value binding composition, no read-back renormalize tricks, no
   carrier synthesis on level signatures. The named-value pipeline reduces; the kernel stays the kernel.
 - **Higher levels are not special.** A level `n ≥ 1` value is checked, reduced, and read exactly like a level-0 value.
