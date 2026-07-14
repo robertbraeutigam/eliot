@@ -1,26 +1,24 @@
-# Type levels as named values — dissolve the type-stack, simplify `monomorphize`
+# Type levels as named values — uniform front-end processing (levels born in `core`)
 
-**Status:** IN PROGRESS. **Step A is landed on master** (commit `614da60a`). The remaining work is a
-**simplification of the `monomorphize` phase**, not a feature. Its whole purpose is to make the phase *smaller* and
-remove accidental complexity by revealing that higher type levels are ordinary named values.
+**Status:** IN PROGRESS. **Step A landed** (`614da60a`); the **genArrow divergence fix** (`a4e64b62`) and the
+**match-in-signature fix** (`a18c1e2f`) landed 2026-07-14. The goal was **reframed** (Robert, 2026-07-14, `9f586f07`):
+this is not a `monomorphize` line-count exercise (that framing, §3, is measured dead) — it is about *uniformity*,
+realized by making higher type levels **ordinary named values born in the `core` phase**.
 
-## The point — read this first
+## Goals — read this first
 
-**Reframed 2026-07-14 (Robert): the primary goal is UNIFORMITY, not `monomorphize` line-count.** Making a value's
-higher type levels *ordinary named values* means a type-level expression goes through **the whole pipeline
-automatically** — match desugaring, operator resolution, effect checking, ability resolution, per-instantiation
-reduction — exactly like a value body. Today it does **not**: each front-end phase must *individually* thread and
-traverse the `TypeStack`, and it is done **inconsistently** — operators and abilities already work in signatures, but a
-`match` in a signature crashed until `a18c1e2f` (matchdesugar only *converted* the signature, never desugared it). The
-net-delete that matters is therefore **not** in `monomorphize` (measured in §3: it does not net-delete there — the walk
-is already lean); it is across the **~35 files that carry `TypeStack`** (matchdesugar ~71 refs, core ~28, resolve ~26,
-operator ~24 …), all of which lose their type-stack-specific traversal once a level is an ordinary value the phase
-already knows how to process. That is §4 — **promoted from "optional tidying" to the actual target.**
-
-The secondary (original) framing — simplify `monomorphize` by dissolving the in-place `walkTypeStack` — is a **dead end
-as written** (§3): the walk is lean, the guard machinery doesn't collapse, calc-returns force the real-signature path,
-and the level-1 demand adds cross-track coupling. A level `n ≥ 1` is still **not special in any way**: it is checked,
-reduced, and read like every other named value.
+1. **Uniformity (the primary goal).** A type-level expression must go through **the whole front-end pipeline
+   automatically** — match desugaring, operator resolution, effect checking, ability resolution, per-instantiation
+   reduction — *exactly like a value body*. Today it does **not**, and inconsistently so: operators and abilities work
+   in signatures, but a `match` in a signature crashed until `a18c1e2f`. The mechanism that delivers uniformity is
+   making each type level an **ordinary named value**, so no phase needs type-level-specific code.
+2. **Net-delete across the front-end (the measurable proxy).** `TypeStack` is threaded through **~35 files**
+   (matchdesugar ~71 refs, core ~28, resolve ~26, operator ~24 …). Every front-end phase individually traverses it;
+   all of that traversal *deletes* once a level is a value the phase already knows how to process. **This — not
+   `monomorphize` — is where the lines come off.**
+3. **Non-goal restated: not the `monomorphize` walk.** Dissolving `walkTypeStack` (§3) was measured and does *not*
+   net-delete; it is a dead end as written. A level `n ≥ 1` is **not special in any way** — checked, reduced, and read
+   like every other named value.
 
 **Hard non-goals (this is where the first attempt went wrong — do not repeat it):**
 
@@ -37,9 +35,10 @@ reduced, and read like every other named value.
   the body pipeline inside the kernel bottoms out at `Match` and is the anti-pattern the whole "named values" idea
   exists to avoid.
 
-**Guardrail, restated as a stop rule:** every checker-touching change in this plan must **net-delete** lines. If a
-change *teaches* `Checker` / `renormalize` / the type-stack walk any new level-specific behaviour, stop — the fix is to
-route the expression through the platform as an ordinary value, or not to do it.
+**Guardrail, restated as a stop rule:** the win is a phase *deleting* its type-stack-specific code because it now reads
+a level as an ordinary value — so a change that makes a phase (or the checker) *learn* new level-specific behaviour is
+going the wrong way; route the expression through the ordinary value machinery, or don't do it. Each staged step must
+net-delete (see §4's per-step gates and §5).
 
 ## 0. Principle
 
@@ -71,11 +70,13 @@ A value at level `n` has **body** = the level-`n` expression and **signature** =
 is checked as an ordinary value **against the evaluation of level `n+1`** — the same recursive "check a value's body
 against its signature", applied up a finite tower that bottoms at `Type`.
 
-**The payoff (this *is* the simplification).** `TypeStackLoop`'s bespoke `walkTypeStack` is revealed as *not
-primitive*: it is the ordinary body-vs-signature check applied recursively. So it dissolves into ordinary per-value
-monomorphization demands; the **fact engine** supplies the ordering, caching, and recursion guard that the hand-rolled
-walker currently re-implements. The per-level `= Type` kind-unify and its carve-outs stop existing because a level is
-just an ordinary value checked against the eval of the level above.
+**The payoff — front-end uniformity (not the `monomorphize` walk).** Once a level is an ordinary named value born in
+`core`, every front-end phase (matchdesugar, operator, effect, ability) processes it with the value path it already
+has — no phase threads `TypeStack`, and a type-level expression gets match/operator/effect/ability resolution *for
+free*. The measured dead-end (§3) tried to cash this out inside `monomorphize`'s `walkTypeStack`; the real dividend is
+deleting the per-phase type-stack traversal across the ~35 files that carry it (§4). A level is still "an ordinary value
+checked against the eval of the level above" — that model (§0) is unchanged; what moves is *where the level value is
+born* (core, early), so the front-end sees it.
 
 ## 2. What's landed — Step A (`614da60a`, `CACHE_VERSION` 23)
 
@@ -188,12 +189,50 @@ that a phase can silently skip it). The goal: **extract each type-stack level as
   front-end phases) is superseded: the derivation moves into core, *before* matchdesugar/operator/effect/ability, which
   is exactly what lets those phases see the level.
 
-**Not yet measured/validated** (this is a large, ~35-file change and the next real design task): whether the extraction
-is tractable (a signature references its own generic binders — the level value must close over them), how a level value
-is keyed/named without a synthetic FQN (the `SaturatedValue`/`CompilerMonomorphicValue` `typeLevel` key dimension from
-Step A is the model — carry it into core identity), and whether it genuinely net-deletes across the front-end. Do a
-scoped spike (pick *one* phase, e.g. matchdesugar, and see if its type-stack code vanishes when it reads a level value)
-before committing to the full carriage removal.
+### Next steps (sequenced; each gates the next)
+
+The full extraction is large (~35 files) and unvalidated, so it is staged so the cheap, high-information work comes
+first and any stage can stop the effort if the net-delete isn't there.
+
+- **B0 — Audit & measure (do this first; low-risk, no product code).** For each front-end phase (`core`, `resolve`,
+  `matchdesugar`, `operator`, `effect`, `ability`) classify its `TypeStack` handling into: **(a) level-traversal that
+  would vanish** — code that walks `.levels` and applies the phase's ordinary value-expression transform to each level
+  (e.g. matchdesugar's `desugarInTypeStack`, operator's per-level resolution), versus **(b) structural carriage that
+  stays** — constructing/passing the stack, and the binder/kind-chain *shape* a phase needs regardless. Output: a
+  per-phase deletable-line estimate **plus** the list of what a level-value must expose for a phase to treat it as an
+  ordinary value (its body expression, the host binders it closes over, its kind).
+  **Gate:** if the deletable total is small (≲ ~100 lines), the net-delete isn't there — stop and reconsider, exactly
+  as §3's stop-rule fired.
+
+- **B1 — Design the core extraction (design only, no code).** Decide and write down:
+  - **Identity/keying** — carry Step A's `typeLevel` dimension into core `NamedValue` identity, so `(v, level)` is a
+    distinct named value and a signature slot is a *reference* to `(v, level+1)`; no synthetic FQN.
+  - **Binder closure** — the signature (`Function[X, X]`) references the host's own generic binders, so the level value
+    is parametric in them. Step A's `SignatureView` binder-strip + synthetic-`… → Type` sig already models this at the
+    *saturate* boundary; the task is to reproduce it in `core`, where the binders are still syntactic.
+  - **Acyclicity** — the level body references only the host's binders and other top-level values, never the host's
+    runtime body, so host → its level value is acyclic; confirm no fact cycle is introduced (the invariant §3 nearly
+    broke).
+  - **Fetch point** — each phase, instead of walking `host.typeStack`, produces/reads the level value's fact and
+    processes its body with its ordinary value path.
+
+- **B2 — Spike matchdesugar end-to-end (the go/no-go).** Implement the minimal core extraction for the *signature*
+  level (level 1) only — enough that matchdesugar consumes the level value as an ordinary value body — and **delete**
+  matchdesugar's own-signature handling (the `a18c1e2f` `desugarInTypeStack`-of-own-signature call and the
+  `convertTypeStack` of the own signature).
+  **Acceptance:** matchdesugar's own-signature type-stack code is gone; `examples/TypeLevelMatch.els` + the full suite
+  stay green; matchdesugar's net line count is negative.
+  **Gate:** if the extraction infrastructure needed to let matchdesugar drop its code is *larger* than what it deletes,
+  §4 does not net-delete either — report and stop, don't force it.
+
+- **B3 — Roll out & remove the carriage.** Extend the extraction to the kind levels and the remaining phases
+  (`operator`, `effect`, `ability`, `resolve`); supersede `TypeLevelSaturatedValueProcessor` (its saturate-boundary
+  derivation now lives in `core`); drop/minimize the `TypeStack` structure across the ~35 files — keeping only the
+  binder/kind *shape* where a phase genuinely still needs it.
+  **Acceptance:** overall net-delete across the front-end; full suite + all examples green; `CACHE_VERSION` bumped.
+
+**Immediate next action: B0** — it is a read-only audit that either produces the net-delete case that justifies B1–B3
+or kills the approach cheaply.
 
 ## 5. Guardrails (the stop rules)
 
