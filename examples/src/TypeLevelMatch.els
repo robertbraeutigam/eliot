@@ -1,0 +1,12 @@
+import eliot.effect.Console
+data Box[A](content: A)
+
+// A `match` in a type/signature position is an ordinary type-level expression: it is desugared and
+// reduced by the same machinery as a value-level match. Here the return type of `useIt` is computed by
+// matching on the type `Box[String]`, which yields `String`.
+def useIt: (Box[String] match {
+   case Box[a] -> a
+   case _      -> String
+}) = "Hello World!"
+
+def main: IO[Unit] = printLine(useIt)

@@ -28,11 +28,16 @@ class MatchDesugaringProcessor
     for {
       desugaredRuntime <-
         blockDesugaredValue.runtime.traverse(expr => desugarExpression(expr.value, blockDesugaredValue.platform).map(expr.as))
+      // Desugar the value's own signature type stack too, not just the runtime body: a `match` written in a type
+      // position (a signature or kind level) is an ordinary expression and must go through match desugaring like any
+      // other, or it survives as a `MatchExpression` into a phase that rejects it. (The interior type stacks — a
+      // `match` scrutinee, a lambda parameter's annotation — already desugar via the `desugarInTypeStack` context.)
+      desugaredTypeStack <- desugarInTypeStack(blockDesugaredValue.typeStack, blockDesugaredValue.platform)
     } yield MatchDesugaredValue(
       blockDesugaredValue.vfqn,
       blockDesugaredValue.name,
       desugaredRuntime.map(_.map(MatchDesugaredExpression.fromExpression)),
-      MatchDesugaredExpression.convertTypeStack(blockDesugaredValue.typeStack),
+      MatchDesugaredExpression.convertTypeStack(desugaredTypeStack),
       convertParamConstraints(blockDesugaredValue.paramConstraints),
       blockDesugaredValue.fixity,
       blockDesugaredValue.precedence,
