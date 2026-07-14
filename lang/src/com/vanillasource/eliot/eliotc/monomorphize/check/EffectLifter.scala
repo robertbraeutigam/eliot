@@ -107,7 +107,7 @@ class EffectLifter(
     */
   def mustLiftBeforeUnify(actual: SemValue, expected: SemValue): CheckIO[Boolean] =
     effectCarrierSplit(actual).flatMap {
-      case Some((VMeta(_, prefix), _)) => force(expected).map(underApplied(_, prefix.toList.length + 1))
+      case Some((VMeta(_, prefix), _)) => force(expected).map(underApplied(_, prefix.toList.length + 1, allowType = false))
       case _                           => pure(false)
     }
 
@@ -120,15 +120,25 @@ class EffectLifter(
     */
   def mustPureWrapBeforeUnify(actual: SemValue, expected: SemValue): CheckIO[Boolean] =
     effectCarrierSplit(expected).flatMap {
-      case Some((VMeta(_, prefix), _)) => force(actual).map(underApplied(_, prefix.toList.length + 1))
+      case Some((VMeta(_, prefix), _)) => force(actual).map(underApplied(_, prefix.toList.length + 1, allowType = true))
       case _                           => pure(false)
     }
 
   /** A rigid head applied to fewer arguments than the carrier meta's application arity — the unsatisfiable
-    * postponement shape (mirrors `CarrierKindChecker.unsatisfiableApplication`). Non-rigid shapes (a meta, a `VPi`)
-    * are legitimately postponable and stay with definitional equality.
+    * postponement shape (mirrors `CarrierKindChecker.unsatisfiableApplication`). Non-rigid shapes (a meta, a `VPi`) are
+    * legitimately postponable and stay with definitional equality.
+    *
+    * `VType` (the type of types — a rigid nullary head, applied to zero arguments) counts as under-applied only when
+    * `allowType` is set, which is exactly the **pure-wrap** direction ([[mustPureWrapBeforeUnify]]): a pure *type*
+    * flowing into a carrier *value* slot (`if(COND, String[])`'s pure arm) must be `Effect.pure`-wrapped rather than
+    * degenerately unified. The **bind-lift** direction ([[mustLiftBeforeUnify]]) passes `allowType = false`: there the
+    * rigid head is the *expected* slot, and `expected = VType` means an effectful carrier-headed term is meeting a
+    * type/return position (e.g. a guarded signature reducing to `Either[String, A]`). Bind-lifting there would strip the
+    * carrier and silently drop the effect (collapsing a satisfied guard to `Left`), so that boundary stays a hard
+    * mismatch / return-position discharge, never a lift.
     */
-  private def underApplied(rigid: SemValue, arity: Int): Boolean = rigid match {
+  private def underApplied(rigid: SemValue, arity: Int, allowType: Boolean): Boolean = rigid match {
+    case VType                   => allowType && 0 < arity
     case VTopDef(_, None, spine) => spine.toList.length < arity
     case VNeutral(_, spine)      => spine.toList.length < arity
     case _                       => false

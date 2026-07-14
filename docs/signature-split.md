@@ -116,9 +116,12 @@ The split delivers *reduction machinery access*. For effectful returns to actual
 land on top — **none of it is on master today** (the Attempt-1 salvages were all lost in the hard revert; verified
 2026-07-14):
 
-- **`EffectLifter.underApplied` must recognise `VType`** (`case VType => 0 < arity`). A genuine, guard-independent
-  correctness fix (any pure *type* flowing into a carrier value slot — `if(COND, String[])`'s pure arm); confirmed by
-  Attempt 1, currently absent (`EffectLifter.scala:131` has only the `VTopDef`/`VNeutral` arms).
+- **`EffectLifter.underApplied` must recognise `VType`** — but **only in the pure-wrap direction** (`allowType`
+  parameter). A genuine, guard-independent correctness fix (any pure *type* flowing into a carrier value slot —
+  `if(COND, String[])`'s pure arm); confirmed by Attempt 1. Scoping is essential: recognising `VType` in the *shared*
+  arm also enables the *bind-lift* direction, where `expected = VType` is an effectful carrier-headed term meeting a
+  type/return position (a guarded signature reducing to `Either[String, A]`), and bind-lifting there strips the carrier
+  and collapses a satisfied guard to `Left`. Landed scoped in Step 0.
 - **Pin the *inferred* return row's carrier.** `Track.Compiler.pinCarriers` today keys off declared `paramConstraints`
   only; an inline guard's carrier arises from `else`/`raise` instantiation. Needs the unsolved effect-carrier-meta
   lookup (`Unifier.effectCarrierMetaIds` — rebuild; it was WIP-branch-only). The signature twin is a compile-time
@@ -207,9 +210,16 @@ reconstitutes the old dual-slot view for the phases not yet converted) exactly a
 adapter is deleted by the step that converts its consumer, and none survive past Step 4. Lesson from Step A's fate:
 the role is born with consumers in the same arc (Steps 5+6 are one arc; do not land 5 without starting 6).
 
-- **Step 0 — prep: the guard-independent `EffectLifter` fix.** Add the missing `case VType => 0 < arity` arm to
-  `EffectLifter.underApplied` (`EffectLifter.scala:131`) with a regression test (a pure *type* flowing into a carrier
-  value slot — Attempt 1's B1(1), a correctness fix regardless of this plan). No split dependency.
+- **Step 0 — prep: the guard-independent `EffectLifter` fix.** Teach `EffectLifter.underApplied` to treat `VType` (the
+  type of types — a rigid nullary head) as under-applied against a carrier meta, but **only in the pure-wrap direction**
+  (`mustPureWrapBeforeUnify`, `allowType = true`): a pure *type* flowing into a carrier *value* slot
+  (`if(COND, String[])`'s pure arm — Attempt 1's B1(1)) must be `Effect.pure`-wrapped. The **bind-lift** direction
+  (`mustLiftBeforeUnify`, `allowType = false`) must **not** recognise `VType`: there the rigid head is the *expected*
+  slot, and `expected = VType` is an effectful carrier-headed term meeting a type/return position (a guarded signature
+  reducing to `Either[String, A]`) — bind-lifting there strips the carrier and collapses a satisfied guard to `Left`
+  (verified: the unscoped shared-arm change reddens all five satisfied-guard `GuardSignatureIntegrationTest` cases; the
+  scoping keeps the suite green). Regression tests: the pure-wrap arm fires on `VType` and declines against a concrete
+  carrier; the bind-lift arm does not fire on `VType`-expected. No split dependency.
   *Gate:* suite green.
 
 - **Step 1 — the role is born: identity, `core`, `module`.** Add `Role = Runtime | Signature` as a field on

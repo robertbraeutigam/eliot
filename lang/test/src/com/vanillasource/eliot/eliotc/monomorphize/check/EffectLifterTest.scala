@@ -126,10 +126,26 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
     run(ambientIoState, lifter.mustLiftBeforeUnify(applied(io, string), string)) shouldBe false
   }
 
+  it should "not fire against a VType expected (an effectful term must not bind-lift at a type/return boundary)" in {
+    val (ids, st) = stateWithMetas(1)
+    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
+    run(st.recordEffectCarrier(ids.head), lifter.mustLiftBeforeUnify(actual, VType)) shouldBe false
+  }
+
   "mustPureWrapBeforeUnify" should "fire for a pure rigid term against an ambient carrier-meta application" in {
     val (ids, st) = stateWithMetas(1)
     val ambient   = st.recordAmbientCarriers(Set(CheckState.CarrierHead.Meta(ids.head.value)))
     run(ambient, lifter.mustPureWrapBeforeUnify(string, applied(VMeta(ids.head, Spine.SNil), unit))) shouldBe true
+  }
+
+  it should "fire for a pure type (VType) against an ambient carrier-meta application (if(COND, String[])'s pure arm)" in {
+    val (ids, st) = stateWithMetas(1)
+    val ambient   = st.recordAmbientCarriers(Set(CheckState.CarrierHead.Meta(ids.head.value)))
+    run(ambient, lifter.mustPureWrapBeforeUnify(VType, applied(VMeta(ids.head, Spine.SNil), unit))) shouldBe true
+  }
+
+  it should "not fire for a pure type (VType) against a concrete carrier (which mismatches properly)" in {
+    run(ambientIoState, lifter.mustPureWrapBeforeUnify(VType, applied(io, unit))) shouldBe false
   }
 
   it should "not fire when the expected carrier is concrete (which mismatches properly)" in {
