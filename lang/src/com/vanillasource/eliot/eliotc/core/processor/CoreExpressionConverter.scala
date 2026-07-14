@@ -135,7 +135,7 @@ object CoreExpressionConverter {
 
   /** Converts the body into core expression and embeds it as a lambda with the "function" parameters.
     *
-    * The parameters are left *unannotated*: a value's type stack (signature) is the single source of truth for its
+    * The parameters are left *unannotated*: a value's signature is the single source of truth for its
     * parameter types, and the body is always *checked* against that signature, so each parameter takes its type from
     * the signature's corresponding `Function` domain (see the `check(FunctionLiteral, VPi)` case in the monomorphize
     * `Checker`). Re-stating the type on the body lambda would only duplicate it — and would force later passes that

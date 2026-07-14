@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * The checker keeps the **typing context Γ** and the **evaluation environment ρ** separate (the textbook NbE-checker
   * shape), instead of overloading one `Env` for both:
   *   - [[gamma]] (Γ) maps a parameter name to its **type** — read by [[Checker.infer]]'s `ParameterReference`.
-  *   - [[rho]] (ρ) maps a parameter name to its **value** for the evaluator: an erased type-stack parameter to its
+  *   - [[rho]] (ρ) maps a parameter name to its **value** for the evaluator: an erased type parameter to its
   *     concrete value, a runtime value parameter to a **fresh neutral** standing for its not-yet-known runtime value
   *     (so a dependent type stays abstract in that parameter — genuine dependent Π), a peeled instantiation meta to the
   *     meta itself.
@@ -94,7 +94,7 @@ case class CheckState(
   def bindValueParam(name: String, tpe: SemValue): CheckState =
     copy(gamma = gamma.bind(name, tpe), rho = rho.bind(name, paramNeutral(name)))
 
-  /** Bind an erased type-stack parameter: its type in Γ and its evaluable value in ρ. Both are computed by the caller
+  /** Bind an erased type parameter: its type in Γ and its evaluable value in ρ. Both are computed by the caller
     * from the ground argument ([[TypeStackLoop.applyTypeArgs]]) — Γ from the argument's declared type, ρ from its
     * `groundToSem` form (so the reification gate and type-level code see a data value as its constructor `VTopDef`).
     */

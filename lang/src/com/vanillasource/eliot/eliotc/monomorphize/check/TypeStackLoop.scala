@@ -15,8 +15,10 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 
-/** Uniform top-down fold over a value's type stack. Each level is processed identically — there is no concept of
-  * "generic parameters" as a separate structure.
+/** Monomorphizes a value at concrete type arguments: kind-checks its signature against its (derived) kind
+  * ([[walkTypeStack]]), applies the type arguments, checks the body against the resulting type, then drains and quotes
+  * to ground. The kind is a projection of the signature's generic binders — there is no stored type-stack structure.
+  * (The name is historical; it predates removing the `TypeStack`.)
   *
   * Holds the callbacks and the [[Checker]] as fields so internal helpers don't have to thread them.
   */

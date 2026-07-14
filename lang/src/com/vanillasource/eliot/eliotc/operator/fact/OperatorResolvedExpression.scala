@@ -165,7 +165,7 @@ object OperatorResolvedExpression {
   ): OperatorResolvedExpression =
     args.foldLeft(head)((acc, arg) => arg.as(FunctionApplication(acc, arg))).value
 
-  /** A structural view of a value signature (one type-stack level): its leading generic binders, its curried `Function`
+  /** A structural view of a value signature: its leading generic binders, its curried `Function`
     * parameter domains, and its final non-arrow return position. Round-trips via [[SignatureView.toExpression]]; this is
     * the shared curried-arrow view used by the implicit-generics saturation rewrites, mirroring
     * `GroundValue.extractParamAndReturnTypes` at the operator-resolved level.

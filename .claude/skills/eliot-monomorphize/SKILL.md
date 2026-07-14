@@ -1,6 +1,6 @@
 ---
 name: eliot-monomorphize
-description: Use when editing, debugging, or reasoning about code under `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` — the NbE (Normalisation by Evaluation) type checker for Eliot. Covers the semantic domain (SemValue), the bidirectional checker, the three evaluators, pattern unification, the two platform tracks (runtime + compiler), and the TypeStackLoop that processes type stacks uniformly without any concept of "generic parameters."
+description: Use when editing, debugging, or reasoning about code under `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` — the NbE (Normalisation by Evaluation) type checker for Eliot. Covers the semantic domain (SemValue), the bidirectional checker, the three evaluators, pattern unification, the two platform tracks (runtime + compiler), and the TypeStackLoop that kind-checks a value's signature against its derived kind and drives monomorphization.
 ---
 
 # monomorphize: NbE type checker
@@ -28,7 +28,7 @@ monomorphize/
 │   ├── CheckState.scala        (gamma Γ + rho ρ, unifier, bindingCache, abilityResolutions, sawGuardReturn,
 │   │                            ambientCarriers + liftCounter for the effect lift)
 │   ├── SemExpression.scala     (checker output ADT; type slots are SemValue, not GroundValue)
-│   ├── TypeStackLoop.scala     (uniform top-down fold + the post-drain resolution sequence + defaults + postcondition)
+│   ├── TypeStackLoop.scala     (signature kind-check + the post-drain resolution sequence + defaults + postcondition)
 │   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; integerLiteral rewrite;
 │   │                            reduceSourced)
 │   ├── CalculatedReturnResolver.scala (D7 back-edge + W2b guard discharge)
@@ -145,7 +145,7 @@ substitution ever happens. `Spine` is a reversed cons list (`SNil | SApp(tail, h
 
 - **`gamma` (Γ)** — name → its **type**. Read only by `Checker.infer`'s `ParameterReference` (`state.gamma.lookupByName`).
 - **`rho` (ρ)** — name → its **value**, the env the evaluator consumes (`makeEvaluator.eval(rho, …)`). An erased
-  type-stack parameter binds its `groundToSem` value; a runtime value parameter binds a **fresh neutral**
+  type parameter binds its `groundToSem` value; a runtime value parameter binds a **fresh neutral**
   (`paramNeutral`, `Param(rho.level, name)`) standing for its unknown runtime value; a peeled instantiation meta binds
   the meta.
 
@@ -230,17 +230,19 @@ pattern arguments are not real value parameters (they need not be of kind `Type`
    never consults the user pool (native-leaf boundary). For a selected `Body` it runs `BindingClosure`, closing the body
    over its dependencies' `NativeBinding`s. The dependency walk lives **here** (the merger is the sole owner of the
    `NativeBinding` recursion); suppliers never read back the fact they feed. The mutual-recursion guard is the runtime's
-   active fact-request chain (`activeFactKeys`), not mutable state. Reified type-stack binders are wrapped as leading
+   active fact-request chain (`activeFactKeys`), not mutable state. Reified generic binders are wrapped as leading
    lambdas via `BindingClosure.reifyingWrap`, driven by the precomputed `SaturatedValue.binderRoles` (D6).
 
-### TypeStackLoop — the uniform fold
+### TypeStackLoop — the signature kind-check
 
 `TypeStackLoop.processIO` (`Checker` and `TypeStackLoop` hold a **`Track`**, not a bare `Platform` — see below; there
 is **no `platform match` anywhere in the checking core**, only `track.<hook>` dispatch):
 
-1. `walkTypeStack` — reverse the type-stack levels, fold with `expectedType = VType`; for each level `check(level,
-   expected)` then `expected = eval(level)`. **The fold body is identical for every level** — no "is this a type
-   parameter?" branch. Generics emerge from `FunctionLiteral` levels checked against `VPi` kinds from above.
+1. `walkTypeStack` — **derive the kind** from the signature's generic binders (`SignatureView.of(sig).binders` folded
+   into `Function[K1,…,Type]`; a binderless signature has kind `Type`, checked directly), then fold `[kind, signature]`
+   with `expectedType = VType`: for each level `check(level, expected)` then `expected = eval(level)`. **The fold body is
+   identical for every level** — no "is this a type parameter?" branch. Generics emerge from `FunctionLiteral` levels
+   checked against `VPi` kinds from above.
 2. `applyTypeArgs` — apply explicit ground type args, every argument injected through the **one canonical
    `groundToSem` conversion** (a type or data value ⟹ its applicable constructor `VTopDef`, a `Direct` literal ⟹
    `VConst`) — the same form is applied to the signature closure and bound into ρ, so no ground value ever has two
@@ -431,10 +433,12 @@ quiet-probe pattern.
 
 ## The hard rules
 
-1. **No concept of "generic parameters" in the checker's fold.** `TypeStackLoop`/`Checker` never extract, count, or
-   classify type-stack levels as "type params" vs "signature"; the fold is uniform (no `TypeParameterAnalysis`, no
-   walking leading `FunctionLiteral`s to count type params). *However*, four sanctioned **peripheral** readers legitimately
-   read binder structure through `SignatureView` / saturation metadata — do **not** mistake them for a violation:
+1. **No concept of "generic parameters" in the checker's fold.** `TypeStackLoop`/`Checker` never classify a signature's
+   binders as "type params" vs "value" to drive a *typing or equality* decision; the fold over `[kind, signature]` is
+   uniform (no `TypeParameterAnalysis`). *However*, sanctioned **peripheral** readers legitimately read binder structure
+   through `SignatureView` — do **not** mistake them for a violation:
+   `walkTypeStack` itself (reconstructs the kind `Function[K1,…,Type]` from the signature's binders to kind-check
+   against — the kind is a projection of the signature, never stored),
    `CarrierKindChecker.recordCarrierMetas` (seeds carrier kinds off the referenced value's `SignatureView`),
    `AbilityResolver.abilityArity` (reads an ability-marker's binder count for impl queries),
    `SaturatedValue.binderRoles` feeding `BindingClosure.reifyingWrap` (which leading binders a body reifies), and
@@ -488,8 +492,9 @@ quiet-probe pattern.
 
 ## Anti-patterns (reject in review)
 
-- **Inspecting the type-stack to count or classify type parameters in the checker's fold.** The fold is uniform. (The
-  four sanctioned peripheral readers in Hard Rule 1 are the *only* binder-structure reads, and none drives equality.)
+- **Classifying a signature's binders as type-params-vs-value to drive a typing or equality decision.** The fold is
+  uniform. (The sanctioned peripheral `SignatureView` readers in Hard Rule 1 — including `walkTypeStack`'s kind
+  derivation — are the *only* binder-structure reads, and none drives equality.)
 - **Producing `VPi` in the evaluator**, or `VLam` in the Checker when the expected type is `VType`.
 - **ORE substitution inside monomorphize.** All binding is closure capture in Scala.
 - **Calling `CompilerIO` from an evaluator.** The evaluators are synchronous and pure; prefetch bindings first.

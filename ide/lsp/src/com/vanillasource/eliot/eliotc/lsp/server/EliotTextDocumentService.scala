@@ -183,8 +183,8 @@ object EliotTextDocumentService {
     new Hover(new MarkupContent(MarkupKind.MARKDOWN, sections.flatten.mkString("\n\n")), LspPositions.toRange(range))
   }
 
-  /** A one-line "name : type" rendering of a resolved value, for hover. Uses the bottom level of the type stack — the
-    * type of the runtime value — which is the signature a reader expects to see.
+  /** A one-line "name : type" rendering of a resolved value, for hover. Uses the value's signature — the type of the
+    * runtime value — which is what a reader expects to see.
     */
   private def signatureOf(value: ResolvedValue): String =
     s"${value.name.value.show} : ${value.signature.value.show}"

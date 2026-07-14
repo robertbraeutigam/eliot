@@ -8,9 +8,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import MatchDesugarUtils.*
 
 /** The recursion hooks back into the match desugarer, carrying the [[Platform]] marker (CP1) so that nested-match and
-  * type-stack desugaring resolve every cross-value fact (constructors, ability-method markers) in the same pool as the
-  * value being desugared. The marker is a plain parameter on the hooks (and on this context's own builders) rather than
-  * captured, so the single shared context instance stays correct across both phases.
+  * sub-expression desugaring resolve every cross-value fact (constructors, ability-method markers) in the same pool as
+  * the value being desugared. The marker is a plain parameter on the hooks (and on this context's own builders) rather
+  * than captured, so the single shared context instance stays correct across both phases.
   */
 class MatchDesugarContext(
     val desugarMatch: (Sourced[Expression], Seq[Expression.MatchCase], Platform) => CompilerIO[Expression],

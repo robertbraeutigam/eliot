@@ -65,120 +65,43 @@ in place.
 
 ## 1. The model
 
-Named-value identity gains a **TypeLevel** dimension, parallel to `Qualifier`:
+A value's type is a value one level up. The finite tower:
 
-| TypeLevel | Content            | Today's representation            | Track    |
-|-----------|--------------------|-----------------------------------|----------|
-| 0         | runtime body       | `NamedValue.runtime`              | runtime  |
-| 1         | the signature      | `TypeStack.levels(0)`             | compiler |
-| n ≥ 2     | kind levels        | `TypeStack.levels(n-1)`           | compiler |
-| top       | literal `Type`     | implicit                          | —        |
+| Level | Content        | Representation (as shipped)                                  | Track    |
+|-------|----------------|-------------------------------------------------------------|----------|
+| 0     | runtime body   | `NamedValue.runtime`                                        | runtime  |
+| 1     | the signature  | `NamedValue.signature` (a plain expression)                | compiler |
+| 2     | the kind       | *derived* from the signature's generic binders, never stored | compiler |
+| top   | literal `Type` | implicit                                                    | —        |
 
-A value at level `n` has **body** = the level-`n` expression and **signature** = the level-`n+1` expression. Level `n`
-is checked as an ordinary value **against the evaluation of level `n+1`** — the same recursive "check a value's body
-against its signature", applied up a finite tower that bottoms at `Type`.
+The signature is checked against its kind — the same recursive "check a value's body against its signature", up a finite
+tower that bottoms at `Type`. Because the kind of a type constructor `[A: K1, B: K2] -> …` is exactly
+`Function[K1, Function[K2, Type]]`, it is a *projection* of the signature's binders and need not be stored; `walkTypeStack`
+derives it on demand (§4). **This is what shipped** — the earlier idea of representing each level as a distinct named
+value with its own `TypeLevel` identity (§2/§3) was measured to over-complicate and was dropped.
 
-**The payoff — front-end uniformity (not the `monomorphize` walk).** Once a level is an ordinary named value born in
-`core`, every front-end phase (matchdesugar, operator, effect, ability) processes it with the value path it already
-has — no phase threads `TypeStack`, and a type-level expression gets match/operator/effect/ability resolution *for
-free*. The measured dead-end (§3) tried to cash this out inside `monomorphize`'s `walkTypeStack`; the real dividend is
-deleting the per-phase type-stack traversal across the ~35 files that carry it (§4). A level is still "an ordinary value
-checked against the eval of the level above" — that model (§0) is unchanged; what moves is *where the level value is
-born* (core, early), so the front-end sees it.
+**The payoff — front-end uniformity.** With no `TypeStack` structure, every front-end phase (matchdesugar, operator,
+effect, ability) processes a signature (and every nested annotation) with the plain-value path it already has — a
+type-level `match`/operator/ability gets resolution *for free*, and a phase can no longer silently skip it (the
+`a18c1e2f` bug class is structurally impossible). See §4 for the delivered change.
 
-## 2. What's landed — Step A (`614da60a`, `CACHE_VERSION` 23)
+## 2. Historical — Step A (`614da60a`), later deleted
 
-The naming at the saturate/monomorphize boundary, with **zero consumer changes** and the full suite green:
+Step A added a `typeLevel` key dimension to `SaturatedValue`/`CompilerMonomorphicValue`, a
+`TypeLevelSaturatedValueProcessor` that derived a value's level-*n* type expression as a synthetic named value, and a
+`TypeLevelEquivalenceTest`. This was scaffolding for the abandoned "levels born as named values" direction. **All of it
+was deleted in increment 2 (`8da08c1c`)** — the B0 audit found the kind is a *derived projection* of the signature's
+binders, so it is never minted as a level value (see §4). One genuine fix from this thread survives: the `a4e64b62`
+genArrow divergence, which made the signature kind-check resolve type-parameter references consistently (it is about
+checking the signature, which stays).
 
-| Symbol | File | Role |
-|---|---|---|
-| `SaturatedValue(value, typeLevel = 0)` + `.Key(vfqn, platform, typeLevel = 0)` | `saturate/fact/SaturatedValue.scala` | level dimension on the saturate-boundary fact |
-| `CompilerMonomorphicValue(…, typeLevel = 0)` + `.Key(vfqn, typeArguments, typeLevel = 0)` | `monomorphize/fact/CompilerMonomorphicValue.scala` | level dimension on the compiler-mono fact |
-| `TypeLevelSaturatedValueProcessor` | `saturate/processor/TypeLevelSaturatedValueProcessor.scala` | derives `SaturatedValue.Key(v, Compiler, n≥1)` from the host level-0 value |
-| `SaturatedValueProcessor` (level-0 guard) | `saturate/processor/SaturatedValueProcessor.scala` | `generateFact` declines `typeLevel != 0` |
-| `CompilerMonomorphicTypeCheckProcessor` (rides `key.typeLevel`) | `monomorphize/processor/CompilerMonomorphicTypeCheckProcessor.scala` | maps the level onto the `SaturatedValue.Key` fetch + the produced fact |
-| `TypeLevelEquivalenceTest` | `lang/test/…/monomorphize/processor/` | pins level-1-reduced == level-0-signature |
+## 3. Historical — the `walkTypeStack`→level-1-demand measurement (dead)
 
-Both processors match `SaturatedValue.Key` by type; the fact engine (`SequentialCompilerProcessors`) runs **both** per
-key, and each `abort`s (declines) the levels it does not own — so the level partition needs no new dispatch mechanism.
-
-**The synthetic level-value construction (`TypeLevelSaturatedValueProcessor`).** For a requested level `n`, let
-`levelExpr = host.typeStack.levels(n-1)` and `view = SignatureView.of(levelExpr)`:
-
-- **runtime body** = `view.copy(binders = Seq.empty).toExpression` — the type expression with its leading generic
-  `FunctionLiteral` binders stripped, so those references are *free* and resolve to the ρ bindings.
-- **synthetic signature** = `view.withParameters(Seq.empty).withReturnType(Type).toExpression` — the generic binders
-  wrapping `Type`, so `applyTypeArgs` peels each binder and the body checks against kind `Type`.
-- **upper levels** = `host.typeStack.levels.drop(n)`; `n` beyond the stack top ⟹ the literal `Type`.
-
-This value is **an ordinary compiler-track value with a body and a signature** — that is the entire point. It carries
-no guard-specific carrier, no synthesised effect channel: keep it that way.
-
-**Step-A finding — RESOLVED (prerequisite for §3, landed ahead of the dissolution).** A level **body** is checked
-through the *value* path (`Checker.infer` → Γ), whereas today's **signature** walk evaluates through the *type* path
-(`walkTypeStack` → `evalExpr` → ρ). They used to resolve a generic-parameter reference differently: in a level body,
-`applyTypeArgs` bound a *type* argument's Γ slot to the instantiated **value** (`Γ(X) = A`), not its **kind** (`Type`),
-so `def genArrow[X]: Function[X, X]` — whose level-1 body is the arrow spine `Function[X, X]`, each `X` checked as a
-value-path spine argument against `Function`'s domain kind `Type` — reported a spurious `Type mismatch` at `X`. **Fix
-(two lines of substance):** (1) `applyTypeArgs` now binds Γ(param) to the argument's *kind* uniformly —
-`groundToSem(head.valueType)`, i.e. `Type` for a type argument (`Type : Type`), not the argument value `A` — so
-`infer(X)` reports `X : Type` and kind-checks against `Function`'s domain; ρ still binds `argVal` so a *type-position*
-use (`evalExpr`) reads the denoted value `A`, unchanged. (2) A level body reduces to a **type**, which the runtime
-staging gate (`PostDrainQuoter`) declines as "not a runtime constant"; the compiler track's `reduceSourced` now reads a
-reduced ground *type* (`valueType === Type`) back structurally (`groundTypeToMono`) — types are values, so a type is a
-legitimate compile-time constant here. `TypeLevelEquivalenceTest.genArrow` now asserts equivalence (was: asserted the
-divergence). Level checking is thereby *one* path: a type-parameter reference resolves consistently whether reached from
-a body or a signature — which is exactly what makes the §3 dissolution (route the signature through the level-1 mono)
-safe. This was the substance of the work — not any effect/guard concern.
-
-**Test-harness recipe (compiler-pool level tests).** A leaf `ProcessorTest(LangProcessors(systemModules = Seq.empty)*)`
-demanding a `CompilerMonomorphicValue` at a non-trivial signature must **declare `Type` and `Function` in the compiler
-pool** (`type Type` at `eliot.compiler.Type`; `type Function[A, B]` + `def apply` at `eliot.lang.Function`) and the test
-module must `import eliot.lang.Function`. To assert equivalence, read a pure type-denoting `MonomorphicExpression` back
-to a `GroundValue` (`TypeLevelEquivalenceTest.denote`) and compare to the host's level-0 `.signature`.
-
-## 3. The simplification — MEASURED, and it does **not** net-delete (do not attempt as written)
-
-The intended step: make a value's signature come from its **level-1 monomorphized value**, deleting the in-place stack
-walk — in `TypeStackLoop.processIO`, replace `walkTypeStack(rv.typeStack)` with a demand for
-`CompilerMonomorphicValue((v, 1), typeArgs)` and check `v`'s body against it, then delete `walkTypeStack` /
-`flattenReturnToType` / the per-level `= Type` kind-unify.
-
-**The mandated measurement was done (2026-07-14, by tracing every consumer, not by a throwaway implementation — the
-check ladder is too delicate to churn for a line count I was already confident of). The result is that this step
-net-ADDS and increases coupling. Concrete reasons:**
-
-- **`instantiated` (the checkSig) is already fully produced by `evalExpr(levels(0))` + `applyTypeArgs` +
-  `instantiateRemaining`.** `walkTypeStack`'s *only* unique contribution is the inline per-level kind-check plus
-  `levelExprs`. So the demand replaces ~10 lines of an already-lean fold — not a bespoke walker re-implementing
-  caching / a recursion guard (the plan's premise; the fold does neither).
-- **The guard-signature machinery does not collapse into the sub-mono.** `reduceGuardSubValues` /
-  `reevaluateGuardReturn` / `collectValueRefs` (~45 lines) exist because a guard reaches its ability (`Eq.equals`)
-  *through an operator body* (`!=`), which ordinary post-drain resolution — collecting refs from the *un-inlined*
-  checked signature — never sees. A level-1 sub-mono checks the identical un-inlined `E1 != E2`, so it has the same
-  blind spot; the machinery would have to be kept, not deleted.
-- **Calculated returns (W3/W4) force keeping the real-signature path anyway.** `installReturnMeta` needs the
-  un-reduced return position as a live meta the body solves; the level-1 reduced result has it defaulted. So
-  `applyTypeArgs` / `instantiateRemaining` / `flattenReturnToType` stay regardless.
-- **It adds a level-0→level-1 `CompilerMonomorphicValue` fact edge**, breaking the current *"`TypeStackLoop` names no
-  mono fact ⟹ the two tracks are acyclic by construction"* invariant, and needs level threading + a recursion base
-  case + a new callback.
-
-Net: removes ~10, adds ~20+ plus cross-track coupling. Per the stop-rule below, **the approach is wrong; it was not
-committed.** The real, concrete improvement in this thread was the §2 genArrow divergence fix (landed `a4e64b62`):
-level-checking is now genuinely one path, which also removed a "known divergence" carve-out from the test. If a future
-session still wants a *structural* simplification here, look at §4 (does moving `TypeLevel` into core identity and
-dropping the `TypeStack` carriage net-delete? — that is a different measurement) or leave `walkTypeStack` alone: it is
-already lean.
-
-- **The stop-rule that fired:** if the step does not remove more than it adds from the check ladder, the approach is
-  wrong — reconsider before committing.
-
-**Accidental complexity to re-examine as the walk dissolves** — remove it only if the dissolution genuinely makes it
-unnecessary, never by special-casing: the `= Type` kind-unify carve-outs live in the same code as the effectful-return
-special-casing (`sawGuardReturn` / kind-position guard-carrier acceptance and the like). If the ordinary level check
-subsumes them, they go with the walker; if it does not, **leave them alone** — do not build new machinery to preserve or
-extend them. The measure of success is *fewer* lines and *fewer* special cases in `monomorphize`, full stop.
+An intermediate idea was to make a value's signature come from a *demand* for its own level-1 `CompilerMonomorphicValue`,
+deleting the in-place `walkTypeStack`. Measured 2026-07-14 and found to net-ADD (a cross-track fact edge that breaks the
+tracks' acyclicity, the guard machinery doesn't collapse into the sub-mono, and calc-returns force keeping the
+real-signature path). **Superseded by §4**: increment 2 removed the stored stack a *different* way — by dropping the
+stored kind and deriving it from the signature's binders inside `walkTypeStack` itself, with no cross-track demand.
 
 ## 4. The actual target: remove `TypeStack` entirely, so every phase processes one expression
 

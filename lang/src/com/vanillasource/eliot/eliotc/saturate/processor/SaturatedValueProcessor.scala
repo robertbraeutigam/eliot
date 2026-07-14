@@ -30,11 +30,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** Saturates parameter-position bare references to omittable (`auto`-marked) type constructors (implicit-generics,
   * W1).
   *
-  * For each value, the *signature* (type-stack level 0) is walked: every value-parameter type whose head is a bare
-  * under-applied omittable constructor (e.g. `Int`, whose leading parameters `MIN`/`MAX` are `auto`) is rewritten into
-  * an explicit application over fresh binders (`Int` → `Int[$Int$0, $Int$1]`), and those binders are prepended to the
-  * value's generic prefix with the matching kind level synthesized/extended. Each bare occurrence mints *independent*
-  * binders (matching the hand-written `+`, whose left/right ranges differ).
+  * For each value, the *signature* is walked: every value-parameter type whose head is a bare under-applied omittable
+  * constructor (e.g. `Int`, whose leading parameters `MIN`/`MAX` are `auto`) is rewritten into an explicit application
+  * over fresh binders (`Int` → `Int[$Int$0, $Int$1]`), and those binders are prepended to the value's generic prefix.
+  * Each bare occurrence mints *independent* binders (matching the hand-written `+`, whose left/right ranges differ).
   *
   * The signature's curried-arrow structure is read and rebuilt through [[OperatorResolvedExpression.SignatureView]] (the
   * shared leading-binders / `Function`-domains / return-position view), so this processor only expresses *what* changes
@@ -79,16 +78,16 @@ class SaturatedValueProcessor
     for {
       (newParams, binders) <- saturateParams(view.parameters, pos)
       // The return position is left untouched. A bare under-applied omittable return (e.g. `Int`) is *calculated* (W3)
-      // — filled from the body rather than the source type stack — but that is a structural property of the (real)
+      // — filled from the body rather than the source signature — but that is a structural property of the (real)
       // return, re-derived on demand by the monomorphize checker off the head's `SaturatedValue.inferableArity`
       // (`CalculatedReturnResolver.isCalculatedReturn`). It is therefore neither flattened to a `Type` placeholder here
-      // nor recorded as a flag; the real return stays in the source type stack (the checker installs the return
+      // nor recorded as a flag; the real return stays in the source signature (the checker installs the return
       // metavariable and the caller reads the callee's monomorphized return, exactly as before).
       rewritten             = view.withParameters(newParams)
       saturated             =
         if (binders.isEmpty) value
-        // Only the type stack changes. The runtime body is left exactly as-is — its value-parameter lambdas are
-        // unannotated (a value's type stack is the single source of truth for parameter types; see
+        // Only the signature changes. The runtime body is left exactly as-is — its value-parameter lambdas are
+        // unannotated (a value's signature is the single source of truth for parameter types; see
         // `CoreExpressionConverter.buildCurriedBody`), so the body-against-signature check takes each parameter's type
         // from the saturated `VPi` domain with nothing to keep in sync. No walking or counting of body structure.
         else prependBinders(value, rewritten.toExpression, binders, pos)

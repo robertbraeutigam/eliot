@@ -351,7 +351,7 @@ class Checker(
     * @param bindInEnv
     *   Whether to bind each peeled parameter name to its fresh meta in the env. `false` (the default) is required for
     *   polytype instantiation inside the checker, so the callee's type-parameter names don't shadow any caller-scope
-    *   parameter with the same name. `true` is used only by the top-level type-stack walk, where leftover type
+    *   parameter with the same name. `true` is used only by the top-level signature walk, where leftover type
     *   parameters should become in-scope names.
     */
   private[check] def peelLams(
@@ -392,7 +392,7 @@ class Checker(
       for {
         state  <- get
         // A parameter's type is read straight from Γ ([[CheckState.gamma]]). Γ already holds the right type for every
-        // kind of binder: a runtime value parameter's declared type, an erased type-stack parameter's recovered type,
+        // kind of binder: a runtime value parameter's declared type, an erased type parameter's recovered type,
         // a peeled instantiation meta. (Type-position references go through the evaluator against ρ, never this path.)
         result <- state.gamma.lookupByName(name.value) match {
                     case Some(tpe) =>

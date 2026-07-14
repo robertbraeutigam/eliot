@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.S
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** The codegen-relevance classification of each leading type-stack ("generic") binder of a value, computed once,
+/** The codegen-relevance classification of each leading generic binder of a value, computed once,
   * statically (no evaluation), on the *saturated* signature + body. This is the monomorphization-keying plan's **B1**
   * analysis; it grows out of the D6 reified-binder analysis (originally only [[Role.reified]], whose single consumer was
   * the monomorphize binding wrap).
@@ -47,7 +47,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * non-convergence backstop remains as the fail-safe for type-level divergence.
   *
   * @param roles
-  *   One [[BinderRoles.Role]] per leading type-stack binder, in declaration order.
+  *   One [[BinderRoles.Role]] per leading generic binder, in declaration order.
   */
 case class BinderRoles(roles: Seq[BinderRoles.Role]) {
 
@@ -84,7 +84,7 @@ object BinderRoles {
     case Specialize
   }
 
-  /** One leading type-stack binder's runtime/codegen role.
+  /** One leading generic binder's runtime/codegen role.
     *
     * @param name
     *   The binder's name, with its source position (used to position the synthesized wrap lambda).
@@ -110,7 +110,7 @@ object BinderRoles {
       else Disposition.CollapseErase
   }
 
-  /** Classify the leading type-stack binders of a value. The binders come from the value's signature
+  /** Classify the leading generic binders of a value. The binders come from the value's signature
     * ([[SignatureView]]); each flag is derived from a different facet of the value:
     *
     *   - [[Role.reified]] from value-position references in the [[OperatorResolvedValue.runtime]] body;
@@ -145,7 +145,7 @@ object BinderRoles {
     * actually visits: value-position references, and the type arguments of nested value references (which `eval`
     * evaluates into the spine). A [[OperatorResolvedExpression.FunctionLiteral]]'s parameter-type annotation is
     * deliberately '''not''' walked — `eval` ignores it — and the literal's own bound name is excluded so a shadowing
-    * value parameter is not mistaken for a reified type-stack binder.
+    * value parameter is not mistaken for a reified generic binder.
     */
   private def valuePositionRefs(expr: OperatorResolvedExpression): Set[String] = expr match {
     case OperatorResolvedExpression.ParameterReference(name)    => Set(name.value)

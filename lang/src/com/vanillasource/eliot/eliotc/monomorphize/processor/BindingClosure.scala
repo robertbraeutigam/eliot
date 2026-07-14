@@ -60,11 +60,11 @@ object BindingClosure {
     )
   }
 
-  /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading type-stack (generic) parameters it reifies —
+  /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading generic parameters it reifies —
     * the ones it references in *value* position — so that applying the value's explicit type arguments substitutes
     * them.
     *
-    * A type-stack parameter is a binder of the value's '''signature''' (a leading generic `[N]`), but it is '''not''' a
+    * A generic parameter is a binder of the value's '''signature''' (a leading generic `[N]`), but it is '''not''' a
     * lambda of the '''runtime body''': `def bigOf[V] = V` has signature `(V: BigInteger) -> BigInteger` yet runtime
     * body just `V` (a bare reference, the reification of the erased `V`). Evaluated as-is under the empty env, that `V`
     * becomes a free [[SemValue.VNeutral]], so a later `bigOf[1]` only appends `1` to the neutral's spine instead of

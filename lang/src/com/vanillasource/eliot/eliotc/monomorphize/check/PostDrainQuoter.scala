@@ -344,7 +344,7 @@ class PostDrainQuoter(
   }
 
   /** Whether `name` denotes a runtime value parameter in this eval env (ρ) — i.e. it is bound to a neutral, the fresh
-    * rigid variable a runtime `FunctionLiteral` introduces during read-back. Erased type-stack parameters are bound to
+    * rigid variable a runtime `FunctionLiteral` introduces during read-back. Erased type parameters are bound to
     * values (`monoEnv` seeds them) and instantiation metas to `VMeta`, so only runtime lambda binders read back as
     * neutrals. Reading this off ρ replaces a separately-threaded `runtimeParams` set.
     */
