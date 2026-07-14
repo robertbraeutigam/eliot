@@ -5,11 +5,14 @@
 this is not a `monomorphize` line-count exercise (that framing, §3, is measured dead) — it is about *uniformity*,
 realized by making higher type levels **ordinary named values born in the `core` phase**.
 
-**B0 audit DONE (2026-07-14).** The read-only measurement (§4 "B0 — Audit results") is in: the net-delete is real,
-but it lives in **de-stacking the six *nested* single-level `TypeStack` positions (Change A)**, not in **levels born in
-core (Change B)**. Change A passes the gate (~80–120 lines, no new machinery, provably lossless); Change B is
-line-break-even (its per-phase traversal delete is offset by the core mint + a resolve scope-threading blocker + the
-`typeLevel` identity plumbing) and its headline *uniformity* win is **already banked by `a18c1e2f`**. See §4.
+**B0 audit DONE (2026-07-14).** The read-only measurement (§4 "B0 — Audit results") is in, and it collapsed the plan to
+**one change: remove `TypeStack` entirely**. The kind (level 1) is a *derived projection of the signature's binders*
+(`SignatureView.of(sig).binders` already reconstructs it), so it is neither stored nor minted — the signature and every
+nested annotation become plain expressions, and the kind is derived on demand in the one consumer that needs it
+(`walkTypeStack`). This deletes the nested carriage *and* the top-level stack *and* Step A's `typeLevel` /
+`TypeLevelSaturatedValueProcessor` scaffolding (>150 lines net), and makes uniformity structural for free. The earlier
+"Change A vs Change B" framing was wrong (minting the kind as a level value was over-engineering); see §4.
+**Next: spike matchdesugar.**
 
 ## Goals — read this first
 
@@ -178,24 +181,25 @@ special-casing (`sawGuardReturn` / kind-position guard-carrier acceptance and th
 subsumes them, they go with the walker; if it does not, **leave them alone** — do not build new machinery to preserve or
 extend them. The measure of success is *fewer* lines and *fewer* special cases in `monomorphize`, full stop.
 
-## 4. The actual target: levels are named values born early, so every phase processes them uniformly
+## 4. The actual target: remove `TypeStack` entirely, so every phase processes one expression
 
-**This is where the win is** (reframed 2026-07-14 — see "The point"). The `TypeStack` structure is pervasive (~35
-files carry it through core → resolve → matchdesugar → operator → effect → ability → saturate), and every one of those
-phases has to *individually* thread and traverse it — inconsistently (the `a18c1e2f` match-in-signature bug is the proof
-that a phase can silently skip it). The goal: **extract each type-stack level as its own named value at (or near) the
-`core` phase**, so a value's signature becomes a *reference* to a level-value, and drop the `TypeStack` carriage. Then:
+**This is where the win is** (reframed 2026-07-14; corrected by the B0 audit below). The `TypeStack` structure is
+pervasive (~35 files carry it through core → resolve → matchdesugar → operator → effect → ability → saturate), and every
+one of those phases has to *individually* thread and traverse it — inconsistently (the `a18c1e2f` match-in-signature bug
+is the proof that a phase can silently skip it). The goal: **drop the `TypeStack` structure entirely** — a value's
+signature and every nested type annotation become plain expressions, and the kind (the only genuinely higher level) is
+*derived from the signature's binders on demand*, never stored or minted. Then:
 
-- Each front-end phase processes a level value with the **same code path it already uses for any value** — no
-  type-stack-specific traversal, no `convertTypeStack`/`desugarInTypeStack`/`traverseStack` special methods. That is the
-  net-delete: across ~35 files, not in `monomorphize`.
+- Each front-end phase processes the signature (and every nested annotation) with the **same code path it already uses
+  for any value expression** — no type-stack-specific traversal, no `convertTypeStack`/`desugarInTypeStack`/
+  `traverseStack` special methods. That is the net-delete: across ~35 files, not in `monomorphize`.
 - A type-level expression **automatically** gets match desugaring, operator resolution, effect checking, ability
-  resolution — gaps like `a18c1e2f` become structurally impossible, not one-off patches.
-- Step-A's `TypeLevelSaturatedValueProcessor` (which derives level-n at the *saturate* boundary — too late for the
-  front-end phases) is superseded: the derivation moves into core, *before* matchdesugar/operator/effect/ability, which
-  is exactly what lets those phases see the level.
+  resolution — gaps like `a18c1e2f` become structurally impossible (there is nothing to forget to traverse).
+- Step A's `typeLevel` dimension + `TypeLevelSaturatedValueProcessor` are **deleted, not superseded**: the audit found
+  the kind is a projection of the signature (see B0 below), so no level-*n* value is ever minted, and the machinery that
+  derived one at the *saturate* boundary is unnecessary.
 
-### B0 — Audit results (DONE 2026-07-14): the net-delete is *de-stacking nested positions*, not *levels born in core*
+### B0 — Audit results (DONE 2026-07-14): one change — *remove `TypeStack` entirely*; the kind is a derived projection, not a minted value
 
 **Two structural facts dominate the whole measurement** (confirmed by reading every `TypeStack` site — the top-level
 value field *and* the six positions the structure is woven into inside the expression AST):
@@ -210,67 +214,61 @@ value field *and* the six positions the structure is woven into inside the expre
    the **top-level** value stack (`walkTypeStack`, `flattenReturnToType`, `MarkerGuardSignature`, the two saturate
    processors) — never on a nested one.
 
-**So the refactor decomposes into two independent changes with very different economics:**
+**The key insight (Robert, 2026-07-14): the kind (level 1) is a *derived projection of the signature*, not separate
+content.** `buildKindExpression` folds `function.genericParameters` into `Function(K1, …, Type)`; the signature
+(`curriedFunctionType`) bakes those *same* generic params in as binders. So `SignatureView.of(signature).binders` already
+reconstructs the kind — `[Binder(A, K1), Binder(B, K2)]` folded into `Function(K1, Function(K2, Type))` **is** level 1.
+The kind therefore does not need to be *stored* (as a stack level) or *minted* (as a named value): it can be **derived on
+demand** from the signature's binders in the one consumer that needs it (the monomorphize kind-check, `walkTypeStack`).
 
-- **Change A — de-stack the six nested positions** (`Sourced[TypeStack[E]]` → `Sourced[E]`). This is the **bulk** of the
-  ~150 refs and a clean, uniform, *provably lossless* net-delete: the nested stacks are single-level and
-  `.signature`-only, so the plain-expression traversal each phase already has subsumes them. Deletes
-  `traverseStack`/`convertTypeStack`/`wrapExpr`, the `.levels.map` arms of `substitute`/`containsVar`/
-  `foldValueReferences`/`mapChildrenM`, the nested call-sites of `resolveTypeStack`/`desugarInTypeStack`, the effect/
-  ability nested `.signature` reads (→ identity), and — the largest single win — nearly all of the match-desugarer's
-  plumbing (`MatchDesugarContext`, `DataMatchDesugarer`, `TypeMatchDesugarer`, `MatchDesugarUtils` thread
-  `Sourced[TypeStack[Expression]]` for scrutinee/body throughout; ≈50 of matchdesugar's 71 refs are this). Requires
-  **no new machinery** — no minting, no `typeLevel` identity, no cross-level scope threading, no cross-track fact edge.
-  Estimated **~80–120 lines** deleted.
+**So there is one change, not two: remove `TypeStack` everywhere.** An earlier framing of this doc split it into "de-stack
+the nested positions" versus "levels born in core (named values with a `typeLevel` identity)" — but that split was
+wrong. The top-level stack removes the *same way* the nested ones do: keep the signature as a plain expression, derive
+the kind. Minting the kind as a level-*n* named value (Step A's direction) was an over-engineering of "the type of a
+value is a value one level up" — representationally the kind is not a distinct value, it is a projection of the
+signature.
 
-- **Change B — the top-level level(s) born as named values in `core`** (the plan's original B1/B2/B3). Its economics are
-  **break-even-to-negative on lines**: it deletes the per-phase *own-value* stack traversal — measured (A) counts:
-  core 0, block ~6, resolve ~14, operator ~4, matchdesugar ~5–12 — but that is *offset* by the core mint (+15–30), the
-  **resolve cross-level scope-threading blocker** (levels are resolved top→bottom in one `withLocalScope` so upper
-  binders stay visible below; a level-value with its own scope must reconstruct that), and migrating the `typeLevel`
-  dimension into core identity (~25 lines relocated, threaded through the ~35-file fact chain). Its one large distinctive
-  delete is **superseding `TypeLevelSaturatedValueProcessor`** (−85 in saturate) — but that removes Step-A scaffolding
-  *this plan added*. `walkTypeStack` stays either way (degenerates to one iteration; §3-dead, not the target).
+- **What it deletes.** `Sourced[TypeStack[E]]` → `Sourced[E]` at all six nested positions *and* the top-level value
+  field (`NamedValue.typeStack` / the four downstream fact `typeStack` fields become the plain signature expression).
+  Removes `traverseStack`/`convertTypeStack`/`wrapExpr`/`resolveTypeStack`/`desugarInTypeStack`/`resolveInTypeStack`, the
+  `.levels.map` arms of `substitute`/`containsVar`/`foldValueReferences`/`mapChildrenM`, the match-desugarer's whole
+  `Sourced[TypeStack[Expression]]` plumbing (`MatchDesugarContext`/`DataMatchDesugarer`/`TypeMatchDesugarer`/
+  `MatchDesugarUtils` — ≈50 of matchdesugar's 71 refs), the `a18c1e2f` own-signature special path (the signature is now
+  just an expression, processed like the body), `TypeStack.scala` itself, the saturate 2-level rebuilds, **and** Step A's
+  `typeLevel` dimension + `TypeLevelSaturatedValueProcessor` (−85) — *deleted, not migrated*, since no level-*n* value is
+  minted. Estimated well over **~150 lines** net.
+- **The structural guarantee is free.** Once a phase gets one expression instead of a stack, it runs its ordinary path;
+  there is nothing to forget to traverse, so `a18c1e2f`-class gaps become structurally impossible. (Uniformity was
+  *already* achieved functionally by the per-phase `.levels.traverse(ordinaryTransform)` + `a18c1e2f`; removing the stack
+  makes it structural *and* deletes the traversal — both wins, no trade-off.)
+- **The two "costs" the old framing attributed to the top-level change evaporate.** There is no core mint. The **resolve
+  cross-level scope-threading blocker disappears** — with no separate kind level to resolve, `resolveTypeStack` collapses
+  to resolving one expression, no shared cross-level scope. No `typeLevel` identity to thread.
 
-**The headline motivation for Change B is already banked.** §4's Goal 1 ("a type-level expression must go through the
-whole front-end pipeline automatically — today it does NOT") is *no longer true*: the per-phase
-`.levels.traverse(ordinaryTransform)` already routes every level through match desugaring
-(`desugarInTypeStack`→`desugarExpression`), operator resolution (`resolveInTypeStack`→`resolveInExpression`, why
-`Box[I+1]` works), and name resolution; abilities/effects in type positions resolve in the checker (`walkTypeStack`'s
-`levelExprs`). The last gap — matchdesugar skipping the *own-value* signature — was closed by `a18c1e2f`. Change B would
-make uniformity a *structural* guarantee (a phase cannot forget to traverse when there is nothing to traverse) rather
-than a per-phase convention — real, but qualitative, not a net-delete.
+**The one spot with genuine (non-mechanical) work.** `walkTypeStack` (`TypeStackLoop`) today folds the stored
+`[kind, signature]` stack top-down, kind-checking the signature against the evaluated kind and emitting one
+kind-check `SemExpression` per level (`levelExprs`, consumed by the drain loop for ability refs embedded in type
+positions). After the stack is gone it must **derive the kind from the signature's binders** (`SignatureView.of(sig)`)
+instead of reading `levels(1)`, and still emit those `levelExprs`. Everything else across the ~35 files is mechanical
+`TypeStack[E] → E`. This is the piece the spike must validate; the genArrow signature-check fix (`a4e64b62`) is about
+checking the *signature*, which survives unchanged.
 
-**Gate verdict.** Change A **passes** the B0 gate (~80–120 clean delete, no offset, low risk). Change B **fails** it as a
-line exercise (net break-even once mint + scope-threading + `typeLevel` plumbing are counted; its −85 is self-scaffolding
-removal). This matches Robert's reframed goal exactly — *"the net-delete lives across the ~35 files carrying TypeStack"*
-— and identifies the mechanism: it is **Change A**, doable directly, not **Change B**.
+### Next steps
 
-**What a level-value must expose** (union across all consumers — needed only if Change B is pursued): body expression
-(the level-n type expr, host binders stripped); the host generic binders it closes over (its own leading generic prefix
-over `Type`); its kind (the level above; `Type` at the apex); `paramConstraints`; `inferableArity`; `roleHint`;
-`platform`; source position/name; and the `typeLevel` identity dimension. `SignatureView` (in
-`OperatorResolvedExpression`) already models the binder-strip + synthetic-`… → Type` signature at the *saturate*
-boundary; Change B reproduces it in `core`.
+- **Spike matchdesugar (the mechanical proof + go/no-go).** De-stack matchdesugar's nested positions and its own-signature
+  handling: `MatchDesugaredExpression.FunctionLiteral.parameterType`/`body` and `FlatExpression.parts` → plain
+  `Sourced[MatchDesugaredExpression]`; `Expression` (resolve) mirror positions likewise as far as matchdesugar reads
+  them; delete `desugarInTypeStack`/`convertTypeStack`/`traverseStack`/`wrapExpr` and the `MatchDesugarContext`/
+  `DataMatchDesugarer`/`TypeMatchDesugarer` `TypeStack` threading; the value's own signature is desugared as an ordinary
+  expression. **Acceptance:** matchdesugar's `TypeStack` code is gone, its net line count is negative,
+  `examples/TypeLevelMatch.els` + full suite green. **Gate:** if the infrastructure needed is larger than what deletes,
+  stop and report.
+- **Roll out to the remaining phases + the top-level field.** Extend `TypeStack[E] → E` across core/resolve/operator/
+  block facts + processors and the four fact `typeStack` fields; derive the kind on demand in `walkTypeStack`; delete
+  `TypeStack.scala`, `TypeLevelSaturatedValueProcessor`, and the `typeLevel` dimension. Full suite + all examples green;
+  `CACHE_VERSION` bumped.
 
-### Revised next steps
-
-- **A (recommended — the real net-delete): de-stack the six nested positions.** Turn `Sourced[TypeStack[E]]` →
-  `Sourced[E]` at `FunctionLiteral.parameterType`/`body`, `FlatExpression.parts`, `MatchExpression.scrutinee`,
-  `MatchCase.body`, `BlockLine.binderType` across the core/resolve/matchdesugar/operator facts; delete
-  `traverseStack`/`convertTypeStack`/`wrapExpr`/the nested `xInTypeStack` calls and the match-desugarer's stack
-  plumbing; collapse the effect/ability `.signature` reads to identity. **Keep the top-level 2-level value stack as-is**,
-  so `walkTypeStack` is untouched. This IS §4's "drop the TypeStack structure" (old B3), but the audit shows it needs
-  **none** of B1/B2's levels-born-in-core prerequisite. Spike **matchdesugar** first (heaviest, ~50 nested refs); gate on
-  net-negative line count, `examples/TypeLevelMatch.els` + full suite green.
-
-- **B (optional, deferred): levels born in core.** Pursue only if the *structural* guarantee against future
-  `a18c1e2f`-style gaps is judged worth the machinery. After Change A the top-level ≤2-level stack is the *only*
-  remaining traversal, so turning its `levels(1)` (kind) into a named value is small and clearly scoped, and it lets
-  `TypeLevelSaturatedValueProcessor` be deleted. Line-neutral at best — do it for the invariant, not the count.
-
-**Immediate next action:** decide A vs B (see verdict). Recommended: execute **Change A**, starting with a matchdesugar
-spike.
+**Immediate next action:** the matchdesugar spike.
 
 ## 5. Guardrails (the stop rules)
 
