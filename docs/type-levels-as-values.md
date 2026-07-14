@@ -94,6 +94,12 @@ lines (see §4).
 
 ### Step 0 — red tests + salvage (small; lands first)
 
+- **No revert is needed**: Stage-2 attempt 1 was never merged — master carries none of it (verified 2026-07-14;
+  the entire attempt is the single branch commit `77c2ed43`). "Reverting the current attempt" = not merging it,
+  plus deleting the three reference branches (`wip/return-position-unification-stage2`, `wip/if-else-guard-idiom`,
+  `failed/if-else-guard`) **once Step B is green** — by then their only unique content (the fixtures, the old
+  `docs/if-else-guard-idiom-wip.md` assessment) is superseded by committed tests and this plan. See Appendix A for
+  the branch-only inventory.
 - Cherry-pick from `wip/return-position-unification-stage2`, as two plain commits (do **not** merge the branch):
   1. `EffectLifter.underApplied`: `case VType => 0 < arity` — a guard-independent lifter correctness fix (any pure
      type flowing into a carrier slot).
@@ -201,3 +207,63 @@ Deliverable: type expressions have names and run on the platform, verified equiv
 - **Step C blast radius.** The check ladder is the most delicate code in the compiler (the Stage-1 notes chose a
   transient flatten precisely to avoid touching it). Step C is deliberately sequenced after B so the guard
   pressure is already off, and it can pause indefinitely without leaving anything half-migrated.
+
+## Appendix — demolition schedule
+
+Anchors are master as of 2026-07-14 (`2930ee01`). Line numbers drift; identifiers are the authority.
+
+### A. The current attempt: branch-only, never merged (deleted with the branches after Step B)
+
+Everything below exists **only** on `wip/return-position-unification-stage2` (`77c2ed43`) and is disposed of by
+never merging (Step 0). Listed so nobody "rescues" a piece of it later:
+
+- `CalculatedReturnResolver`: the "Effectful-return cross-track back-edge (Stage 2)" section — `stuckEffectfulHeads`
+  (hard-coded `{flatMap, map, pure}`), `isStuckEffectfulReturn`, `resolveEffectfulReturn`,
+  `readCompilerVerdict(Ground)`, `settleEffectfulReturn`, `deferReturnToBody`.
+- `Checker`: `isGuardKind` (the `= Type` kind-unify carve-out for carrier-meta-headed returns),
+  `pinGuardCarrierToEither`, `evalSemExpr` and its call into the read path.
+- `Track`: the `settleReturnPosition` 2→3-tuple widening (`bodyCheckSig`/`publishSig` split), the compiler-track
+  lenient `freshMeta` body-check branch, `pinInferredReturnCarriers`/`pinMetaToEither` (the inferred-meta sweep).
+- `TypeStackLoop`: `reduceEffectfulGuardReturn`, `reduceGuardSubValues`, the elaborated-level capture (`levelExprs`).
+- `Unifier.effectCarrierMetaIds`.
+- **Salvaged** (the only two pieces, via Step-0 cherry-picks): `EffectLifter.underApplied` `case VType => 0 < arity`;
+  `stdlib/eliot-compiler/eliot/effect/Abort.els`.
+
+### B. Master code removed, per step
+
+**Dies at Step B** (the fact-mode flip):
+
+| Site | Anchor | Replaced by |
+|---|---|---|
+| `sawGuardReturn` flag + `recordGuardReturn` | `CheckState.scala:63,69`; set `Checker.scala:241`; read `TypeStackLoop.scala:90` | the three-way structural dispatch needs no recorded state |
+| `isGuardCarrier` + the kind-ladder guard arm (`case VType =>`) | `CalculatedReturnResolver.scala:263`; `Checker.scala:238` | fact-mode read; a level-1 body never faces the `= Type` unify |
+| `dischargeGuardedSignature` (VPi peel via probe) | `CalculatedReturnResolver.scala:321` | `CompilerMonomorphicValue((v,1), groundArgs)` read |
+| `Marker.GuardProbe` reserved neutral | `SemValue.scala:102`, minted `CalculatedReturnResolver.scala:329` | goes with the peel (its only user — verified) |
+| runtime `Track.settleGuardedReturn` guard arm | `Track.scala:86` | settle reads the level-1 fact |
+| compiler `Track.settleGuardedReturn` publish-undischarged arm | `Track.scala:126` | level values publish through their own mono fact |
+| guards' reliance on the nullary precompute-merge | `CompilerNativesProcessor.scala:88-91` (`performsAbility` → `CompilerMonomorphicValue(vfqn, ∅)`) | per-instantiation level-1 read. The precompute itself **stays** for other compile-time natives; after Cleanup, re-audit whether it still has users |
+
+**Dies at Step C** (kind checks become level checks):
+
+| Site | Anchor | Replaced by |
+|---|---|---|
+| `flattenReturnToType` transient | `TypeStackLoop.scala:247` | a level value's *signature* carries the kind — nothing to flatten |
+| the per-level `= Type` kind-unify walk | `TypeStackLoop.walkTypeStack` | level *n* checked as an ordinary value against `eval(level n+1)`; `TypeStackLoop` shrinks to a driver or dissolves into `Checker` |
+
+**Dies at Cleanup** (after Step B is green):
+
+| Site | Anchor |
+|---|---|
+| `eliot.lang.Guard` module (`when`/`orError`) | `stdlib/eliot/eliot/lang/Guard.els` + `stdlib/eliot-compiler/eliot/lang/Guard.els` |
+| `when`/`orError` fixtures — **18 files** reference `orError` today (`grep -rl orError lang/test jvm/test examples/src`) | `GuardSignatureIntegrationTest` (rewrites to `if..else..raise`/bare `raise`), `MonomorphicTypeCheckTest` W2b/G1 blocks (`:1017-1131`), `CompilerAbilityResolutionTest`, `ASTParserTest`, `ExamplesIntegrationTest1-3`, `FullIntegrationTest`, `WhereOnDefIntegrationTest`, `TerminationIntegrationTest`, plus incidental tokenizer/module/resolve/operator/matchdesugar/ability fixtures — most rewrite mechanically |
+| parser doc examples using `A when (…) orError "…"` | `ast/fact/Expression.scala:248-249,284` (docs only — the infix-in-type-position parser support itself stays; `if..else..raise` needs it) |
+
+### C. Explicitly KEPT (do not "clean up" these)
+
+| Site | Anchor | Why |
+|---|---|---|
+| `dischargeGuardedReturn` + `extractGuardMessage` | `CalculatedReturnResolver.scala:280,298` | the single `Right`/`Left` boundary read (§2.2); callers at `Checker.scala:465,707` remain as the boundary sites |
+| `GuardChannel` | `monomorphize/check/GuardChannel.scala` | shared protocol with the ability `where`-guards |
+| declared-binder carrier pin | `Track.scala:169` (`throwCarrierErrorType`), `:188` (`pinCarrierToEither`) | the rail the §2.2 contract rides |
+| calculated-return inline mode, whole mechanism | `CalculatedReturnResolver`: `arityShortfall:84`, `isCalculatedReturn(Expr)`, `installReturnMeta:63`, `resolveCalculatedReturn:126`, `resolveCompleteCalculatedReturn:151`, `readMonomorphicReturn(Ground):175,220`, the `reportUnground`/`reportRecursive` errors | Step D: this *is* the inline access mode (§2.1) |
+| `MarkerGuardSignature` + ability-guard interpreter | `monomorphize/check/MarkerGuardSignature.scala`; `AbilityImplementationProcessor.scala:169-253` | different feature (`where` ability guards), untouched |
