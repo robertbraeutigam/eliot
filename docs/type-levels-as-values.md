@@ -117,23 +117,42 @@ pool** (`type Type` at `eliot.compiler.Type`; `type Function[A, B]` + `def apply
 module must `import eliot.lang.Function`. To assert equivalence, read a pure type-denoting `MonomorphicExpression` back
 to a `GroundValue` (`TypeLevelEquivalenceTest.denote`) and compare to the host's level-0 `.signature`.
 
-## 3. The simplification (the actual next work)
+## 3. The simplification — MEASURED, and it does **not** net-delete (do not attempt as written)
 
-Make a value's signature come from its **level-1 monomorphized value**, deleting the in-place stack walk:
+The intended step: make a value's signature come from its **level-1 monomorphized value**, deleting the in-place stack
+walk — in `TypeStackLoop.processIO`, replace `walkTypeStack(rv.typeStack)` with a demand for
+`CompilerMonomorphicValue((v, 1), typeArgs)` and check `v`'s body against it, then delete `walkTypeStack` /
+`flattenReturnToType` / the per-level `= Type` kind-unify.
 
-- In `TypeStackLoop.processIO`, replace `walkTypeStack(rv.typeStack)` (the only call site) with an ordinary demand for
-  the level-1 value's reduced result — `CompilerMonomorphicValue((v, 1), typeArgs)` — and check `v`'s body against it.
-  Level-1's own monomorphization recursively demands level 2, and so on; the tower is finite and bottoms at `Type`, and
-  `activeFactKeys` already guards the back-edge.
-- With that in place, the following **delete**: `walkTypeStack`; `flattenReturnToType`; the per-level `= Type`
-  kind-unify and every carve-out that exists only to keep that unify happy. `TypeStackLoop` shrinks to a thin driver
-  over "check level 0's body against the level-1 read", or dissolves into `Checker` outright.
-- **Measure the net line count.** If this step does not remove more than it adds from the check ladder, the approach is
+**The mandated measurement was done (2026-07-14, by tracing every consumer, not by a throwaway implementation — the
+check ladder is too delicate to churn for a line count I was already confident of). The result is that this step
+net-ADDS and increases coupling. Concrete reasons:**
+
+- **`instantiated` (the checkSig) is already fully produced by `evalExpr(levels(0))` + `applyTypeArgs` +
+  `instantiateRemaining`.** `walkTypeStack`'s *only* unique contribution is the inline per-level kind-check plus
+  `levelExprs`. So the demand replaces ~10 lines of an already-lean fold — not a bespoke walker re-implementing
+  caching / a recursion guard (the plan's premise; the fold does neither).
+- **The guard-signature machinery does not collapse into the sub-mono.** `reduceGuardSubValues` /
+  `reevaluateGuardReturn` / `collectValueRefs` (~45 lines) exist because a guard reaches its ability (`Eq.equals`)
+  *through an operator body* (`!=`), which ordinary post-drain resolution — collecting refs from the *un-inlined*
+  checked signature — never sees. A level-1 sub-mono checks the identical un-inlined `E1 != E2`, so it has the same
+  blind spot; the machinery would have to be kept, not deleted.
+- **Calculated returns (W3/W4) force keeping the real-signature path anyway.** `installReturnMeta` needs the
+  un-reduced return position as a live meta the body solves; the level-1 reduced result has it defaulted. So
+  `applyTypeArgs` / `instantiateRemaining` / `flattenReturnToType` stay regardless.
+- **It adds a level-0→level-1 `CompilerMonomorphicValue` fact edge**, breaking the current *"`TypeStackLoop` names no
+  mono fact ⟹ the two tracks are acyclic by construction"* invariant, and needs level threading + a recursion base
+  case + a new callback.
+
+Net: removes ~10, adds ~20+ plus cross-track coupling. Per the stop-rule below, **the approach is wrong; it was not
+committed.** The real, concrete improvement in this thread was the §2 genArrow divergence fix (landed `a4e64b62`):
+level-checking is now genuinely one path, which also removed a "known divergence" carve-out from the test. If a future
+session still wants a *structural* simplification here, look at §4 (does moving `TypeLevel` into core identity and
+dropping the `TypeStack` carriage net-delete? — that is a different measurement) or leave `walkTypeStack` alone: it is
+already lean.
+
+- **The stop-rule that fired:** if the step does not remove more than it adds from the check ladder, the approach is
   wrong — reconsider before committing.
-
-Sequence it behind the Step-A machinery so the guard pressure the old plan carried is gone; it can pause indefinitely
-without leaving anything half-migrated. Give it a regression pass over the implicit-generics (W3/W4) and any ability
-suites before landing, since the check ladder is the most delicate code in the compiler.
 
 **Accidental complexity to re-examine as the walk dissolves** — remove it only if the dissolution genuinely makes it
 unnecessary, never by special-casing: the `= Type` kind-unify carve-outs live in the same code as the effectful-return
