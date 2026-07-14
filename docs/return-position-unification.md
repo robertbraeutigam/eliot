@@ -1,7 +1,10 @@
 # Return-position unification — remove `calculatedReturn`, never add `guardedReturn`
 
-**Status:** DRAFT (design, not yet implemented). Supersedes the paused `if(cond) T else raise(…)` WIP
-(`wip/if-else-guard-idiom`) approach — see [Relation to the paused WIP](#relation-to-the-paused-wip).
+**Status:** Stage 1 landed; **Stage 2 (§4) SUPERSEDED by `type-levels-as-values.md`** (2026-07-14) — the
+TypeLevel plan generalizes Stage 2's goal (levels are named values compiled by the ordinary pipeline) and its
+Attempt-1 findings below are the evidence record for *why*. This doc also supersedes the earlier paused
+`if(cond) T else raise(…)` WIP (`wip/if-else-guard-idiom`) — see
+[Relation to the paused WIP](#relation-to-the-paused-wip).
 
 ## 0. Principle (Robert, 2026-07-14)
 
@@ -136,10 +139,14 @@ code is untouched in Stage 1.
 
 ## 4. Stage 2 — the "guard" is just an effectful return (larger; the research half)
 
-> **Status: attempt 1 PAUSED on the deep-reduction wall.** WIP branch `wip/return-position-unification-stage2`
-> (master left green). The scaffolding below is implemented and the full suite is green *with it*, but the inline
-> `if..else..raise` guard does not yet reduce to its verdict. **Read [Attempt-1 findings](#attempt-1-findings-what-works-what-blocks)
-> before resuming** — steps 1 and 3 of the sketch below need revising in light of what was learned.
+> **Status: SUPERSEDED — do not resume this sketch.** Attempt 1 paused on the deep-reduction wall (WIP branch
+> `wip/return-position-unification-stage2`, master left green); the 2026-07-14 architecture review concluded the
+> wall is structural (the in-place approach must re-implement the body pipeline feature-by-feature and still dies
+> at `Reserved(Match)`, which only the full monomorphization pipeline reduces). The replacement is
+> **`type-levels-as-values.md`**: every type level becomes a named value (`TypeLevel` dimension) compiled by the
+> ordinary pipeline. The [Attempt-1 findings](#attempt-1-findings-what-works-what-blocks) below remain the
+> evidence record; the branch is never merged (only the `EffectLifter.underApplied` `VType` fix and `Abort.els`
+> are salvaged, per the new plan's Step 0).
 
 Goal: an effectful return (`raise`, `if..else..raise`, `orError`) is elaborated as an ordinary expression and
 **resolved on the compiler track**, its resolved return read by consumers. Removes `isGuardCarrier`/`sawGuardReturn`/the
