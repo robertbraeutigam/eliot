@@ -5,14 +5,13 @@
 this is not a `monomorphize` line-count exercise (that framing, §3, is measured dead) — it is about *uniformity*,
 realized by making higher type levels **ordinary named values born in the `core` phase**.
 
-**B0 audit DONE (2026-07-14).** The read-only measurement (§4 "B0 — Audit results") is in, and it collapsed the plan to
-**one change: remove `TypeStack` entirely**. The kind (level 1) is a *derived projection of the signature's binders*
-(`SignatureView.of(sig).binders` already reconstructs it), so it is neither stored nor minted — the signature and every
-nested annotation become plain expressions, and the kind is derived on demand in the one consumer that needs it
-(`walkTypeStack`). This deletes the nested carriage *and* the top-level stack *and* Step A's `typeLevel` /
-`TypeLevelSaturatedValueProcessor` scaffolding (>150 lines net), and makes uniformity structural for free. The earlier
-"Change A vs Change B" framing was wrong (minting the kind as a level value was over-engineering); see §4.
-**Next: spike matchdesugar.**
+**COMPLETE (2026-07-14).** The plan collapsed to **one change: remove `TypeStack` entirely** (B0 audit), executed in two
+increments: nested positions (`38305b75`) then the top-level field + kind-derivation (`8da08c1c`). The kind is a *derived
+projection of the signature's binders* (`SignatureView.of(sig).binders`), so it is neither stored nor minted — the
+signature and every nested annotation are now plain expressions. `TypeStack.scala`, `TypeLevelSaturatedValueProcessor`,
+and the `typeLevel` dimension are deleted; ~−141 net lines; all 1249 tests green + 8 examples run; `CACHE_VERSION` 24.
+Uniformity is now structural (no stack to forget to traverse). The earlier "Change A vs Change B" framing was wrong
+(minting the kind as a level value was over-engineering). See §4 for the full record.
 
 ## Goals — read this first
 
@@ -262,12 +261,20 @@ checking the *signature*, which survives unchanged.
   resolve 24→9, matchdesugar 71→15, operator 22→9, block 13→2). All 1253 tests green; 7 examples build + run. The
   transient boundary adapters are all gone; the top-level value `typeStack` field stays a stack (so `walkTypeStack` is
   untouched). Net −30 lines (understated — the big deletes are in increment 2).
-- **NEXT — Increment 2: drop the top-level stack + derive the kind.** De-stack the top-level value `typeStack` field
-  (the ≤2-level sig+kind stack) to the plain signature; **derive the kind on demand** in `walkTypeStack` from
-  `SignatureView.of(sig).binders` (the one non-mechanical spot); delete `TypeStack.scala`,
-  `TypeLevelSaturatedValueProcessor`, the `typeLevel` dimension, and the remaining top-level helpers
-  (`resolveInTypeStack`/`desugarInTypeStack`/`convertTypeStack`). This is where the big line-deletes land
-  (`TypeStack.scala` −28, `TypeLevelSaturatedValueProcessor` −77). `CACHE_VERSION` bump.
+- **DONE — Increment 2: drop the top-level stack + derive the kind** (`8da08c1c`). The five value facts now carry a
+  plain `signature: Sourced[Expression]` instead of `typeStack: TypeStack[…]`; `walkTypeStack` **derives the kind** from
+  `SignatureView.of(sig).binders` (a binderless signature checks directly against `Type`). Deleted `TypeStack.scala`,
+  `TypeLevelSaturatedValueProcessor` + the `typeLevel` dimension (Step-A scaffolding — the kind is derived, never minted
+  as a level value), `buildKindExpression`, the top-level `xInTypeStack` helpers, and the saturate 2-level rebuild.
+  `flattenReturnToType`/`MarkerGuardSignature.stripSignature` simplified to signature transforms (both preserve binders,
+  so the derived kind is unchanged). Net −111 lines + 3 files deleted; **`TypeStack` is fully gone** (only the
+  `TypeStackLoop` class *name* remains). `CACHE_VERSION` 23 → 24. All 1249 tests green; 8 examples run.
+
+**Status: COMPLETE.** The `TypeStack` structure is removed end-to-end (increment 1 + 2 = ~−141 net lines). Every
+front-end phase now processes plain expressions with its ordinary value path, and the kind is a derived projection of the
+signature — never stored or minted. Uniformity is now structural: a `match`/operator/ability in a type position can no
+longer be silently skipped, because there is no stack to forget to traverse. Optional cosmetic follow-up: rename
+`TypeStackLoop` (the class name is the last vestige of the removed structure).
 
 Historical: the original spike framing below is superseded by the two increments above.
 
