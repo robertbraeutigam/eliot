@@ -1,9 +1,87 @@
 # Type levels as named values (`TypeLevel`) — dissolve the type-stack loop
 
-**Status:** PLAN (2026-07-14, not yet implemented). Supersedes `return-position-unification.md` §4 ("Stage 2")
-— its Attempt-1 findings section is the evidence record for this plan; Stage 1 (`calculatedReturn` removal) is
-landed on master and unaffected. The Stage-2 WIP branch (`wip/return-position-unification-stage2`) is **not
-merged**; only two pieces are salvaged (Step 0).
+**Status:** IN PROGRESS (2026-07-14). **Steps 0 and A are landed on master** (commits `5e477e4f`, `614da60a`);
+**Step B is next.** See "Implementation state & hand-over" immediately below. Supersedes `return-position-unification.md`
+§4 ("Stage 2") — its Attempt-1 findings section is the evidence record for this plan; Stage 1 (`calculatedReturn`
+removal) is landed on master and unaffected. The Stage-2 WIP branch (`wip/return-position-unification-stage2`) is
+**not merged**; only two pieces are salvaged (one in Step 0, one deferred to Step B).
+
+## Implementation state & hand-over (2026-07-14) — read this first
+
+**Landed:**
+
+- **Step 0** (`5e477e4f`): the six `ignore`d goal fixtures (`jvm/…/TypeLevelReturnIntegrationTest.scala`) + the
+  compile-time `AbortCarrier` overlay (`stdlib/eliot-compiler/eliot/effect/Abort.els`). The *second* intended Step-0
+  salvage, `EffectLifter.underApplied`'s `case VType => 0 < arity`, was found **not guard-independent** (it regresses the
+  5 satisfied `GuardSignatureIntegrationTest` cases on master — the eager `VType` pure-wrap mints a carrier-headed return
+  that hard-mismatches the `= Type` kind-unify, the very shape `Checker.isGuardKind` carved out) and is **deferred to
+  Step B**. See Step 0 / Appendix A.
+- **Step A** (`614da60a`, `CACHE_VERSION` 22→23): the `typeLevel` key dimension + the level-value derivation processor +
+  equivalence tests. Full suite green.
+
+**Code map (what exists now):**
+
+| Symbol | File | Role |
+|---|---|---|
+| `SaturatedValue(value, typeLevel = 0)` + `.Key(vfqn, platform, typeLevel = 0)` | `saturate/fact/SaturatedValue.scala` | level dimension on the saturate-boundary fact |
+| `CompilerMonomorphicValue(…, typeLevel = 0)` + `.Key(vfqn, typeArguments, typeLevel = 0)` | `monomorphize/fact/CompilerMonomorphicValue.scala` | level dimension on the compiler-mono fact |
+| `TypeLevelSaturatedValueProcessor` | `saturate/processor/TypeLevelSaturatedValueProcessor.scala` | derives `SaturatedValue.Key(v, Compiler, n≥1)` from the host level-0 value |
+| `SaturatedValueProcessor` (level-0 guard) | `saturate/processor/SaturatedValueProcessor.scala` | `generateFact` declines `typeLevel != 0` |
+| `CompilerMonomorphicTypeCheckProcessor` (rides `key.typeLevel`) | `monomorphize/processor/CompilerMonomorphicTypeCheckProcessor.scala` | maps the level onto the `SaturatedValue.Key` fetch + the produced fact |
+| `TypeLevelEquivalenceTest` | `lang/test/…/monomorphize/processor/` | pins level-1-reduced == level-0-signature |
+
+Both processors match `SaturatedValue.Key` by type; the fact engine (`SequentialCompilerProcessors`) runs **both** per
+key, and each `abort`s (declines) the levels it does not own — so the level partition needs no new dispatch mechanism.
+
+**The synthetic level-value construction (the exact recipe `TypeLevelSaturatedValueProcessor` implements).** For a
+requested level `n`, let `levelExpr = host.typeStack.levels(n-1)` (plan level `n` = `TypeStack` index `n-1`), and
+`view = SignatureView.of(levelExpr)`:
+
+- **runtime body** = `view.copy(binders = Seq.empty).toExpression` — the type expression with its leading generic
+  `FunctionLiteral` binders stripped, so those generic references are *free* and resolve to the ρ bindings.
+- **synthetic signature** (the new level-value's own `TypeStack.levels(0)`) = `view.withParameters(Seq.empty)
+  .withReturnType(Type).toExpression` — the generic binders wrapping `Type`. Its `evalExpr` is `VLam(binders…, _ =>
+  Type)`, so `applyTypeArgs` peels each binder (binding it in ρ) and the body is then checked against kind `Type`.
+- **upper levels** = `host.typeStack.levels.drop(n)` (the kind chain of `levelExpr`, unchanged by dropping the inner
+  type — a kind depends only on the binder kinds). `n` beyond the stack top ⟹ the literal `Type`.
+
+Why *this* shape and not the obvious alternatives: (a) `runtime = None`, signature = the whole level expr — puts the
+instantiated type in `.signature`, leaves `.reduced = None`, and **never runs the body** (no `EffectLifter`, no
+discharge), so Step B can't build on it; **rejected**. (b) body = the level expr *without* stripping binders — the body's
+own `FunctionLiteral(X, …)` re-introduces `X`, shadowing the ρ binding `applyTypeArgs` made, so the type args are
+ignored and the reduced body is the *un*-instantiated `∀X. …`; **wrong**.
+
+**THE lesson Step B must absorb (this is the crux of the remaining divergence).** A level **body** is checked through
+the *value* path (`Checker.infer` → Γ), whereas a **signature** level is evaluated through the *type* path
+(`walkTypeStack` → `checker.evalExpr` → ρ). These resolve a **generic parameter reference differently**:
+
+- In the signature walk, `walkTypeStack` does `check(FunctionLiteral(X, …), VPi(Type, _))`, which binds `X` via
+  `bindValueParam(X, domain = Type)` — Γ(X) = the **kind** `Type`. So `Function[X, X]` inside the signature checks fine.
+- In a level body, `X` arrives already instantiated: `applyTypeArgs` peels the synthetic binder and calls
+  `bindTypeStackParam(X, argType, argVal)`, and for a **type** argument the `head.valueType == Type` branch sets
+  `argType = argVal` — Γ(X) = the instantiated **value** `A`, not its kind. So `infer(ParameterReference(X))` yields
+  `X : A`, and using `X` where a `Type` is expected (e.g. a `Function` domain) is a **spurious `Type mismatch`**. The
+  *value* ρ(X) = `A` is correct (the body would *reduce* right); only the *type-check* is wrong.
+
+Consequence: **finding 1** (below) — a level body that references a `X: Type` parameter *as a type* mismatches.
+`Bool`-kinded parameters (`COND: Bool`, the `orError`/`if..else` shape) do **not** hit it (Γ(COND) = `Bool`, which
+matches). Step B's fixtures are all `Bool`-kinded, so Step B can proceed; but Step B must know the boundary, and the real
+fix (route a level body's type-parameter references through ρ, or delete the `= Type` value-check in Step C) belongs to
+Step B/C, not a checker hack in Step A.
+
+**Test-harness recipe (compiler-pool level tests).** A leaf `ProcessorTest(LangProcessors(systemModules = Seq.empty)*)`
+that demands a `CompilerMonomorphicValue` at a non-trivial signature must **declare `Type` and `Function` in the compiler
+pool** — `type Type` at module `eliot.compiler.Type`, `type Function[A, B]` + `def apply` at `eliot.lang.Function` — and
+the test module must `import eliot.lang.Function` (no ambient auto-import with `systemModules = Seq.empty`). Otherwise
+`walkTypeStack`'s `check(sig-level, VType)` routes the bare `Type`/`Function` reference through `inferValueReference`,
+which needs their `SaturatedValue` and errors `Name not defined.` — a **harness** gap, not a derivation bug. To assert
+equivalence, read a pure type-denoting `MonomorphicExpression` back to a `GroundValue` (`TypeLevelEquivalenceTest.denote`:
+a value-reference → `Structure`, a `Function[dom, cod]` chain → fold its args on) and compare to the host's level-0
+`.signature`.
+
+**Branches:** `wip/return-position-unification-stage2` (`77c2ed43`), `wip/if-else-guard-idiom`, `failed/if-else-guard`
+are reference-only; delete them **after Step B is green** (their unique content is the fixtures/assessment, superseded by
+committed tests + this doc).
 
 ## 0. Principle (Robert, 2026-07-14)
 
@@ -146,7 +224,7 @@ Deliverable: type expressions have names and run on the platform, verified equiv
   today's walk. Divergence is a finding, not a test bug — the fact-mode value is the intended authority.
 - `CACHE_VERSION` bump.
 
-**LANDED (2026-07-14, commit pending; `CACHE_VERSION` 22→23).** Delivered exactly as above. The derivation is
+**LANDED (2026-07-14, commit `614da60a`; `CACHE_VERSION` 22→23).** Delivered exactly as above. The derivation is
 `TypeLevelSaturatedValueProcessor` (a `SaturatedValue.Key → SaturatedValue.Key` transformation, level 0 → level `n`),
 partitioned from `SaturatedValueProcessor` by the `typeLevel` guard (each declines the other's levels; the fact engine
 runs both per key). It builds the synthetic level value from the host signature via `SignatureView`: the level-`n`
