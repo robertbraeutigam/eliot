@@ -1,25 +1,74 @@
-# Type levels as named values (`TypeLevel`) — dissolve the type-stack loop
+# Type levels as named values — dissolve the type-stack, simplify `monomorphize`
 
-**Status:** IN PROGRESS (2026-07-14). **Steps 0 and A are landed on master** (commits `5e477e4f`, `614da60a`);
-**Step B is next.** See "Implementation state & hand-over" immediately below. Supersedes `return-position-unification.md`
-§4 ("Stage 2") — its Attempt-1 findings section is the evidence record for this plan; Stage 1 (`calculatedReturn`
-removal) is landed on master and unaffected. The Stage-2 WIP branch (`wip/return-position-unification-stage2`) is
-**not merged**; only two pieces are salvaged (one in Step 0, one deferred to Step B).
+**Status:** IN PROGRESS. **Step A is landed on master** (commit `614da60a`). The remaining work is a
+**simplification of the `monomorphize` phase**, not a feature. Its whole purpose is to make the phase *smaller* and
+remove accidental complexity by revealing that higher type levels are ordinary named values.
 
-## Implementation state & hand-over (2026-07-14) — read this first
+## The point — read this first
 
-**Landed:**
+There is exactly **one** goal: **simplify `monomorphize`** by making a value's higher type levels *ordinary,
+on-demand, compiler-track monomorphized named values*, so the bespoke type-stack walker dissolves into ordinary
+per-value monomorphization demands. **The phase must get smaller — net-delete code — not grow.** A level `n ≥ 1` is
+**not special in any way**: it is checked, reduced, and read like every other named value.
 
-- **Step 0** (`5e477e4f`): the six `ignore`d goal fixtures (`jvm/…/TypeLevelReturnIntegrationTest.scala`) + the
-  compile-time `AbortCarrier` overlay (`stdlib/eliot-compiler/eliot/effect/Abort.els`). The *second* intended Step-0
-  salvage, `EffectLifter.underApplied`'s `case VType => 0 < arity`, was found **not guard-independent** (it regresses the
-  5 satisfied `GuardSignatureIntegrationTest` cases on master — the eager `VType` pure-wrap mints a carrier-headed return
-  that hard-mismatches the `= Type` kind-unify, the very shape `Checker.isGuardKind` carved out) and is **deferred to
-  Step B**. See Step 0 / Appendix A.
-- **Step A** (`614da60a`, `CACHE_VERSION` 22→23): the `typeLevel` key dimension + the level-value derivation processor +
-  equivalence tests. Full suite green.
+**Hard non-goals (this is where the first attempt went wrong — do not repeat it):**
 
-**Code map (what exists now):**
+- **Do not extend the compiler / the checker / the kernel to make any particular type-level computation reduce.**
+  Whether a value reduces at compile time is a property of *that value and its layer bodies*, never something the
+  checker should be grown to force.
+- **Do not chase making effectful guards reduce at compile time.** `if..else..raise`, `when`/`orError`, `{Throw}` /
+  `{Abort}` signature computations — none of these are a target here. They are ordinary values; if one does not reduce,
+  that is a pre-existing reducibility property of the values on its path, out of scope for this plan. (The old
+  "effectful returns read a guard verdict" framing has been **deleted** from this plan — it lured an implementer into
+  re-implementing reduction machinery in the checker. Do not resurrect it.)
+- **Do not re-implement reduction in the kernel.** No sub-value-binding composition, no type-arg-absorbing binding
+  wrappers, no deep-`renormalize` read-back, no carrier synthesis on level signatures. §0 explains why: re-implementing
+  the body pipeline inside the kernel bottoms out at `Match` and is the anti-pattern the whole "named values" idea
+  exists to avoid.
+
+**Guardrail, restated as a stop rule:** every checker-touching change in this plan must **net-delete** lines. If a
+change *teaches* `Checker` / `renormalize` / the type-stack walk any new level-specific behaviour, stop — the fix is to
+route the expression through the platform as an ordinary value, or not to do it.
+
+## 0. Principle
+
+> The unit of execution on every platform is a **named value**, not an expression. The NbE `Evaluator` is the
+> *kernel*, not the platform: an expression runs by becoming (part of) a value's **body**. "Types are values" must
+> therefore hold *representationally*, not just semantically — the type of a value is a named value one **TypeLevel**
+> up, compiled by the same pipeline as every other value.
+
+Only a named value passes through saturation → the effect phase → check-mode elaboration → ability resolution →
+per-instantiation match reduction. A signature slot that is walked *in place* gets none of that — it gets only the bare
+β/δ+native kernel, and match reduction in particular **cannot** be added to the kernel (`MatchNativesProcessor.stuck`
+mints `VNeutral(Reserved(Match), …)`, dropping the reducer; adding a dispatch rule to `renormalize` would duplicate the
+match native — the second-evaluator anti-pattern). So the way to make a higher-level expression behave *exactly* like
+runtime code is to make it a **named value** and let the ordinary pipeline run it — not to grow the kernel to reduce it
+in place.
+
+## 1. The model
+
+Named-value identity gains a **TypeLevel** dimension, parallel to `Qualifier`:
+
+| TypeLevel | Content            | Today's representation            | Track    |
+|-----------|--------------------|-----------------------------------|----------|
+| 0         | runtime body       | `NamedValue.runtime`              | runtime  |
+| 1         | the signature      | `TypeStack.levels(0)`             | compiler |
+| n ≥ 2     | kind levels        | `TypeStack.levels(n-1)`           | compiler |
+| top       | literal `Type`     | implicit                          | —        |
+
+A value at level `n` has **body** = the level-`n` expression and **signature** = the level-`n+1` expression. Level `n`
+is checked as an ordinary value **against the evaluation of level `n+1`** — the same recursive "check a value's body
+against its signature", applied up a finite tower that bottoms at `Type`.
+
+**The payoff (this *is* the simplification).** `TypeStackLoop`'s bespoke `walkTypeStack` is revealed as *not
+primitive*: it is the ordinary body-vs-signature check applied recursively. So it dissolves into ordinary per-value
+monomorphization demands; the **fact engine** supplies the ordering, caching, and recursion guard that the hand-rolled
+walker currently re-implements. The per-level `= Type` kind-unify and its carve-outs stop existing because a level is
+just an ordinary value checked against the eval of the level above.
+
+## 2. What's landed — Step A (`614da60a`, `CACHE_VERSION` 23)
+
+The naming at the saturate/monomorphize boundary, with **zero consumer changes** and the full suite green:
 
 | Symbol | File | Role |
 |---|---|---|
@@ -33,355 +82,76 @@ removal) is landed on master and unaffected. The Stage-2 WIP branch (`wip/return
 Both processors match `SaturatedValue.Key` by type; the fact engine (`SequentialCompilerProcessors`) runs **both** per
 key, and each `abort`s (declines) the levels it does not own — so the level partition needs no new dispatch mechanism.
 
-**The synthetic level-value construction (the exact recipe `TypeLevelSaturatedValueProcessor` implements).** For a
-requested level `n`, let `levelExpr = host.typeStack.levels(n-1)` (plan level `n` = `TypeStack` index `n-1`), and
-`view = SignatureView.of(levelExpr)`:
+**The synthetic level-value construction (`TypeLevelSaturatedValueProcessor`).** For a requested level `n`, let
+`levelExpr = host.typeStack.levels(n-1)` and `view = SignatureView.of(levelExpr)`:
 
 - **runtime body** = `view.copy(binders = Seq.empty).toExpression` — the type expression with its leading generic
-  `FunctionLiteral` binders stripped, so those generic references are *free* and resolve to the ρ bindings.
-- **synthetic signature** (the new level-value's own `TypeStack.levels(0)`) = `view.withParameters(Seq.empty)
-  .withReturnType(Type).toExpression` — the generic binders wrapping `Type`. Its `evalExpr` is `VLam(binders…, _ =>
-  Type)`, so `applyTypeArgs` peels each binder (binding it in ρ) and the body is then checked against kind `Type`.
-- **upper levels** = `host.typeStack.levels.drop(n)` (the kind chain of `levelExpr`, unchanged by dropping the inner
-  type — a kind depends only on the binder kinds). `n` beyond the stack top ⟹ the literal `Type`.
+  `FunctionLiteral` binders stripped, so those references are *free* and resolve to the ρ bindings.
+- **synthetic signature** = `view.withParameters(Seq.empty).withReturnType(Type).toExpression` — the generic binders
+  wrapping `Type`, so `applyTypeArgs` peels each binder and the body checks against kind `Type`.
+- **upper levels** = `host.typeStack.levels.drop(n)`; `n` beyond the stack top ⟹ the literal `Type`.
 
-Why *this* shape and not the obvious alternatives: (a) `runtime = None`, signature = the whole level expr — puts the
-instantiated type in `.signature`, leaves `.reduced = None`, and **never runs the body** (no `EffectLifter`, no
-discharge), so Step B can't build on it; **rejected**. (b) body = the level expr *without* stripping binders — the body's
-own `FunctionLiteral(X, …)` re-introduces `X`, shadowing the ρ binding `applyTypeArgs` made, so the type args are
-ignored and the reduced body is the *un*-instantiated `∀X. …`; **wrong**.
+This value is **an ordinary compiler-track value with a body and a signature** — that is the entire point. It carries
+no guard-specific carrier, no synthesised effect channel: keep it that way.
 
-**THE lesson Step B must absorb (this is the crux of the remaining divergence).** A level **body** is checked through
-the *value* path (`Checker.infer` → Γ), whereas a **signature** level is evaluated through the *type* path
-(`walkTypeStack` → `checker.evalExpr` → ρ). These resolve a **generic parameter reference differently**:
-
-- In the signature walk, `walkTypeStack` does `check(FunctionLiteral(X, …), VPi(Type, _))`, which binds `X` via
-  `bindValueParam(X, domain = Type)` — Γ(X) = the **kind** `Type`. So `Function[X, X]` inside the signature checks fine.
-- In a level body, `X` arrives already instantiated: `applyTypeArgs` peels the synthetic binder and calls
-  `bindTypeStackParam(X, argType, argVal)`, and for a **type** argument the `head.valueType == Type` branch sets
-  `argType = argVal` — Γ(X) = the instantiated **value** `A`, not its kind. So `infer(ParameterReference(X))` yields
-  `X : A`, and using `X` where a `Type` is expected (e.g. a `Function` domain) is a **spurious `Type mismatch`**. The
-  *value* ρ(X) = `A` is correct (the body would *reduce* right); only the *type-check* is wrong.
-
-Consequence: **finding 1** (below) — a level body that references a `X: Type` parameter *as a type* mismatches.
-`Bool`-kinded parameters (`COND: Bool`, the `orError`/`if..else` shape) do **not** hit it (Γ(COND) = `Bool`, which
-matches). Step B's fixtures are all `Bool`-kinded, so Step B can proceed; but Step B must know the boundary, and the real
-fix (route a level body's type-parameter references through ρ, or delete the `= Type` value-check in Step C) belongs to
-Step B/C, not a checker hack in Step A.
+**Known Step-A finding the dissolution must resolve (not a guard issue — a general one).** A level **body** is checked
+through the *value* path (`Checker.infer` → Γ), whereas today's **signature** walk evaluates through the *type* path
+(`walkTypeStack` → `evalExpr` → ρ). They resolve a generic-parameter reference differently: in a level body,
+`applyTypeArgs` binds a *type* argument's Γ slot to the instantiated **value** (`Γ(X) = A`), not its **kind** (`Type`),
+so `def genArrow[X]: Function[X, X]` — whose level-1 body is `Function[X, X]` — reports a spurious `Type mismatch` at
+`X` (pinned by `TypeLevelEquivalenceTest.genArrow` as a *finding*, not a silent accept). The dissolution's job is
+precisely to make level checking *one* path, so this divergence disappears: a level is checked as an ordinary value and
+a type-parameter reference resolves consistently. This is the substance of the work — not any effect/guard concern.
 
 **Test-harness recipe (compiler-pool level tests).** A leaf `ProcessorTest(LangProcessors(systemModules = Seq.empty)*)`
-that demands a `CompilerMonomorphicValue` at a non-trivial signature must **declare `Type` and `Function` in the compiler
-pool** — `type Type` at module `eliot.compiler.Type`, `type Function[A, B]` + `def apply` at `eliot.lang.Function` — and
-the test module must `import eliot.lang.Function` (no ambient auto-import with `systemModules = Seq.empty`). Otherwise
-`walkTypeStack`'s `check(sig-level, VType)` routes the bare `Type`/`Function` reference through `inferValueReference`,
-which needs their `SaturatedValue` and errors `Name not defined.` — a **harness** gap, not a derivation bug. To assert
-equivalence, read a pure type-denoting `MonomorphicExpression` back to a `GroundValue` (`TypeLevelEquivalenceTest.denote`:
-a value-reference → `Structure`, a `Function[dom, cod]` chain → fold its args on) and compare to the host's level-0
-`.signature`.
+demanding a `CompilerMonomorphicValue` at a non-trivial signature must **declare `Type` and `Function` in the compiler
+pool** (`type Type` at `eliot.compiler.Type`; `type Function[A, B]` + `def apply` at `eliot.lang.Function`) and the test
+module must `import eliot.lang.Function`. To assert equivalence, read a pure type-denoting `MonomorphicExpression` back
+to a `GroundValue` (`TypeLevelEquivalenceTest.denote`) and compare to the host's level-0 `.signature`.
 
-**Branches:** `wip/return-position-unification-stage2` (`77c2ed43`), `wip/if-else-guard-idiom`, `failed/if-else-guard`
-are reference-only; delete them **after Step B is green** (their unique content is the fixtures/assessment, superseded by
-committed tests + this doc).
+## 3. The simplification (the actual next work)
 
-## 0. Principle (Robert, 2026-07-14)
+Make a value's signature come from its **level-1 monomorphized value**, deleting the in-place stack walk:
 
-> The unit of execution on every platform is a **named value**, not an expression. The NbE `Evaluator` is the
-> *kernel*, not the platform: an expression runs by becoming (part of) a value's **body**. "Types are values" must
-> therefore hold *representationally*, not just semantically — the type of a value is a named value one
-> **TypeLevel** up, compiled by the same pipeline as every other value.
+- In `TypeStackLoop.processIO`, replace `walkTypeStack(rv.typeStack)` (the only call site) with an ordinary demand for
+  the level-1 value's reduced result — `CompilerMonomorphicValue((v, 1), typeArgs)` — and check `v`'s body against it.
+  Level-1's own monomorphization recursively demands level 2, and so on; the tower is finite and bottoms at `Type`, and
+  `activeFactKeys` already guards the back-edge.
+- With that in place, the following **delete**: `walkTypeStack`; `flattenReturnToType`; the per-level `= Type`
+  kind-unify and every carve-out that exists only to keep that unify happy. `TypeStackLoop` shrinks to a thin driver
+  over "check level 0's body against the level-1 read", or dissolves into `Checker` outright.
+- **Measure the net line count.** If this step does not remove more than it adds from the check ladder, the approach is
+  wrong — reconsider before committing.
 
-Why this principle was missing, in one paragraph (full evidence: `return-position-unification.md` §4 Attempt-1
-findings, and the 2026-07-14 architecture review): only a named value passes through saturation → the effect
-phase → check-mode elaboration (`EffectLifter`) → carrier pinning → ability resolution → per-instantiation match
-reduction. A signature slot gets none of that on *any* track — it gets only `evalExpr`/`renormalize`, the bare
-β/δ+native-refire kernel. Match reduction in particular *cannot* be added to the kernel: `MatchNativesProcessor.stuck`
-mints `VNeutral(Reserved(Match), …)`, which drops the native reducer — there is no FQN left to re-fire, and adding a
-dispatch rule to `renormalize` would duplicate the match native (the second-evaluator anti-pattern). Three guard
-attempts failed by re-implementing platform features inside the checker one at a time and all bottomed out at this
-boundary. `orError` needed zero checker machinery for one reason only: it is a named value.
+Sequence it behind the Step-A machinery so the guard pressure the old plan carried is gone; it can pause indefinitely
+without leaving anything half-migrated. Give it a regression pass over the implicit-generics (W3/W4) and any ability
+suites before landing, since the check ladder is the most delicate code in the compiler.
 
-## 1. The model
+**Accidental complexity to re-examine as the walk dissolves** — remove it only if the dissolution genuinely makes it
+unnecessary, never by special-casing: the `= Type` kind-unify carve-outs live in the same code as the effectful-return
+special-casing (`sawGuardReturn` / kind-position guard-carrier acceptance and the like). If the ordinary level check
+subsumes them, they go with the walker; if it does not, **leave them alone** — do not build new machinery to preserve or
+extend them. The measure of success is *fewer* lines and *fewer* special cases in `monomorphize`, full stop.
 
-Named-value identity gains a **TypeLevel** dimension, parallel to `Qualifier`:
+## 4. Follow-on (optional): remove the `TypeStack` structure itself
 
-- **TypeLevel 0** is the runtime body. It runs on the **runtime** track.
-- **TypeLevel n ≥ 1** is a type expression. It runs on the **compiler** track.
-- Every expression has a TypeLevel+1 expression — its type — except the literal `Type`, which is the top.
-- The value at level *n* has **body** = the level-*n* expression and **signature** = the level-*n+1* expression.
+The `TypeStack` *data structure* is pervasive (~35 files carry it through core → operator → saturate). Removing it —
+moving `TypeLevel` into core `NamedValue` identity and dropping the carriage so the Step-A derivation moves from the
+saturate boundary into core desugaring — is **mechanical once nothing walks it**, because §3 removes the only *reader*
+of the stack's structure. Do it only if the carriage is causing friction; the semantic simplification (§3) is what buys
+the win, and this is just tidying the plumbing afterward.
 
-Numbering (shifts today's `TypeStack` indexing by one — adopt this convention everywhere):
+## 5. Guardrails (the stop rules)
 
-| TypeLevel | Content                          | Today's representation            | Track    |
-|-----------|----------------------------------|-----------------------------------|----------|
-| 0         | runtime body                     | `NamedValue.runtime`              | runtime  |
-| 1         | the signature                    | `TypeStack.levels(0)` (signature) | compiler |
-| n ≥ 2     | kind levels                      | `TypeStack.levels(n-1)`           | compiler |
-| top       | literal `Type`                   | implicit                          | —        |
+- **Net-delete.** Every checker-touching change nets out to fewer lines and fewer special cases in `monomorphize`.
+- **Routing, not capability.** No new level-specific behaviour in `Checker` / `renormalize` / the walk. Route through the
+  platform as an ordinary value, or don't.
+- **No kernel reduction re-implementation.** No sub-value binding composition, no read-back renormalize tricks, no
+  carrier synthesis on level signatures. The named-value pipeline reduces; the kernel stays the kernel.
+- **Higher levels are not special.** A level `n ≥ 1` value is checked, reduced, and read exactly like a level-0 value.
+  If a task starts treating it specially, that task has drifted from the goal.
 
-The payoff: **`TypeStackLoop` is revealed as not primitive.** "Check level *n*'s expression against the evaluation
-of level *n+1*" is the ordinary "check a value's body against its signature," applied recursively up a finite
-tower. So the bespoke stack walker dissolves into ordinary per-value monomorphization demands; the fact engine
-supplies ordering, caching, and the recursion guard. A level-1 body containing `if..else..raise` is elaborated by
-`EffectLifter` *in body context* (the B1 class of `= Type` kind-unify fights structurally cannot arise — a body
-never faces that unify), its matches desugar and reduce through the existing `PatternMatch`/`TypeMatch` rails, its
-effect row is genuinely verified by the effect phase, and its per-instantiation reduction fires matches — all
-existing, green machinery.
+## Appendix — reference branches
 
-## 2. What remains — per-level *policy*, not special cases
-
-Three things do not dissolve. They relocate into declared policy; name them now so no implementer rediscovers
-them as "bugs."
-
-### 2.1 Two access modes, opposite authority — never merge them
-
-| Mode | When | Authority | Mechanism (exists today) |
-|---|---|---|---|
-| **inline** (δ-inline the body, live local metas) | adjacent levels mutually constrained — a level-1 body with holes (calculated return: under-applied constructor, `arityShortfall`) | **body**: level 0 solves level 1's holes | `installReturnMeta` deferral + `readMonomorphicReturn` back-edge |
-| **fact** (read `CompilerMonomorphicValue((v, n), groundArgs)`) | ground per-instantiation reads — callers, effectful level-1 values | **payload**: `Right(t)` becomes level 0's *expected* type; `Left(msg)` rejects | cross-track back-edge + `dischargeGuardedReturn`/`GuardChannel` |
-
-The first guard attempt produced a **silent-accept soundness bug** by merging these (the body solved the return
-meta while the `Right(t)` payload was discarded — `def g[COND]: if(COND, String[]) else raise(…) = 5` typed as
-`Int`). The payload-mismatch fixture in Step 0 pins this forever.
-
-### 2.2 The level-≥1 platform contract
-
-The compiler platform *defines* the type levels' effect channel, exactly as `main` pins the runtime ambient
-carrier to `IO`:
-
-- Declared row bound: a level-≥1 body may perform at most `{Throw[String]}` (`Abort` internally dischargeable —
-  `if..else` discharges it). Pure levels have row `{}` ⊆ the bound, trivially.
-- Carrier: `{Throw[String]}` pins to compile-time `Either[String]` **via the declared-binder rail**
-  (`Track.Compiler.pinCarriers` off `paramConstraints` — green in `CompilerAbilityResolutionTest` Increment D).
-  The fragile *inferred*-meta sweep of the WIP (`pinInferredReturnCarriers`/`pinGuardCarrierToEither`) is not needed
-  and not carried forward: the level value's signature *declares* the row.
-- Boundary read: `Right(t)` ⟹ `t`, `Left(msg)` ⟹ error at the concrete instantiation, via the existing
-  `GuardChannel` protocol. Two small, named sites — a contract, not machinery.
-
-### 2.3 Per-level check policy
-
-- `RecursionCheckProcessor` applies at **level 0 only** (today's "body only, never the signature"). Level-≥1
-  self-reference in `data` is legitimate covariance, governed by `StrictPositivityChecker`. Without this stated
-  policy, exploding signatures into bodies would flag every recursive `data Tree`.
-- The effect phase verifies level-≥1 rows against the §2.2 contract — a *new, free* user-facing check.
-- `MarkerGuardSignature` / the `where`-clause ability guards are a **different feature** and stay untouched.
-
-## 3. Implementation order
-
-Each step lands green on the full suite before the next starts. Checker-touching steps must **net-delete** checker
-lines (see §4).
-
-### Step 0 — red tests + salvage (small; lands first)
-
-- **No revert is needed**: Stage-2 attempt 1 was never merged — master carries none of it (verified 2026-07-14;
-  the entire attempt is the single branch commit `77c2ed43`). "Reverting the current attempt" = not merging it,
-  plus deleting the three reference branches (`wip/return-position-unification-stage2`, `wip/if-else-guard-idiom`,
-  `failed/if-else-guard`) **once Step B is green** — by then their only unique content (the fixtures, the old
-  `docs/if-else-guard-idiom-wip.md` assessment) is superseded by committed tests and this plan. See Appendix A for
-  the branch-only inventory.
-- Cherry-pick from `wip/return-position-unification-stage2` **one** piece as a plain commit (do **not** merge the
-  branch):
-  1. `stdlib/eliot-compiler/eliot/effect/Abort.els` — the compile-time `AbortCarrier` overlay (missing sibling of
-     the `Either`/`Option` overlays). Inert until a consumer demands it, so it lands green.
-- **Correction (2026-07-14, verified empirically):** the second intended salvage —
-  `EffectLifter.underApplied`'s `case VType => 0 < arity` — is **not** guard-independent and **cannot land in Step 0
-  while keeping green**. On master (without the branch's `Checker.isGuardKind` companion) it regresses the *satisfied*
-  `orError`/`when` guard path: the eager `VType` pure-wrap turns a pure-type return (`String[]`) into a
-  carrier-meta-headed return (`$bad-apply(Type)`), which then hard-mismatches the `= Type` kind-unify at the return
-  position — exactly the mismatch `Checker.isGuardKind` was written to carve out (the branch commit message states this
-  coupling). Blast radius is precisely the 5 satisfied cases in `GuardSignatureIntegrationTest`; `lang.test` stays
-  green with it. It therefore **moves to Step B**, landing alongside the fact-mode read that legitimizes a
-  carrier-headed effectful return (or Step C, where the `= Type` kind-unify is deleted outright). See Appendix A.
-- Land the goal fixtures as tests, `ignore`d/pending until Step B flips them:
-  - TRUE: `def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"`,
-    `main = printLine(greeting[true])` → runs, prints `hello`.
-  - FALSE: `greeting[false]` → build error containing `greeting unavailable`.
-  - Bare reject: `def unavailable: raise("not available") = …` → build error.
-  - **Helper-guard-by-name**: a user-written `def nonEmpty[A: Type, N: Int]: {Throw[String]} Type = …` referenced
-    *by name* in a return slot — syntactically indistinguishable from a type application; kills any temptation to
-    scan syntax.
-  - **Payload mismatch** (the §2.1 soundness pin): `def g[COND]: if(COND, String[]) else raise(…) = 5` must FAIL
-    (body `Int` vs accepted payload `String`).
-
-Every prior attempt stayed "green" while drifting because the goal was never encoded as a test.
-
-### Step A — the naming (green; zero consumer changes)
-
-Deliverable: type expressions have names and run on the platform, verified equivalent to today.
-
-- Add `typeLevel: Int = 0` to the boundary fact keys: `SaturatedValue.Key(vfqn, platform)` and
-  `CompilerMonomorphicValue.Key(vfqn, typeArguments)` (`MonomorphicValue.Key` stays level-0-only — level ≥ 1 is
-  compiler-track by definition). A proper key dimension, **not** a mangled synthetic FQN — level identity is
-  structural, not stringly (the `handleCases^PatternMatch#N` precedent is for front-end-minted values, which this
-  is not — yet; see Step E).
-- New derivation processor answering `SaturatedValue.Key((v, n≥1), Compiler)` from the host's `SaturatedValue`:
-  body = `TypeStack.levels(n-1)`, signature = `TypeStack.levels(n)` — or, at the top, `Type` with the §2.2
-  contract row on the codomain; generics = the host's. Demand-driven: a level nobody demands costs nothing, so
-  **every** value has level values *available* with no syntactic discrimination and no pure-case tax.
-- `CompilerMonomorphicTypeCheckProcessor` handles the new keys with the existing `TypeStackLoop`/`Track.Compiler`
-  unchanged (a level value is just a small ordinary value).
-- **Equivalence tests**: for existing green fixtures (pure signatures; the `orError` combinator forms), demand
-  `CompilerMonomorphicValue((v, 1), groundArgs)` and assert its reduced return equals what `evalExpr` produces in
-  today's walk. Divergence is a finding, not a test bug — the fact-mode value is the intended authority.
-- `CACHE_VERSION` bump.
-
-**LANDED (2026-07-14, commit `614da60a`; `CACHE_VERSION` 22→23).** Delivered exactly as above. The derivation is
-`TypeLevelSaturatedValueProcessor` (a `SaturatedValue.Key → SaturatedValue.Key` transformation, level 0 → level `n`),
-partitioned from `SaturatedValueProcessor` by the `typeLevel` guard (each declines the other's levels; the fact engine
-runs both per key). It builds the synthetic level value from the host signature via `SignatureView`: the level-`n`
-expression's *generic binders* wrap `Type` as the synthetic signature (so `applyTypeArgs` peels them and the body checks
-against kind `Type`), and the same expression *with binders stripped* is the synthetic **runtime body** (its generic
-references now free, resolved to the ρ bindings). `TypeLevelEquivalenceTest` pins the equivalence for `zero`/`arrow`
-(non-generic pure signatures) and `genConst` (generic, parameter unused in the body).
-
-**Two Step-A findings (both expected per §5 "divergence is a finding"; neither is a silent accept):**
-
-1. **Type-kinded generic parameter referenced *as a type* in the level body diverges** — a `def genArrow[X]: Function[X, X]`
-   whose level-1 body is `Function[X, X]` reports a spurious `Type mismatch` at `X`. Cause: the body goes through the
-   *value-inference* path (`infer`/Γ), where the "types are values" binding gives `X`'s Γ slot its instantiated *value*
-   (`A`), not its *kind* (`Type`); the host's signature walk never hits this because `evalExpr` resolves `X` through ρ.
-   Pinned by `TypeLevelEquivalenceTest.genArrow` (asserts it currently errors). This is a **consumer-side** issue (the
-   checker's body-vs-signature paths), so it stays for **Step B/C**, which rework how a level body is checked — Step A is
-   "zero consumer changes." A `Bool`-kinded parameter (`COND: Bool`, the `orError` shape) does *not* hit it: its Γ slot
-   is `Bool`, which matches where a `Bool` is expected.
-2. **`orError`-combinator-form equivalence deferred to Step B.** Those forms are effectful (`{Throw[String]}`) and need
-   the compiler-pool `Either`/`Option`/`Guard` carriers in the harness — heavy for a leaf unit test, and their discharge
-   *is* the subject of Step B. The `Bool`-kinded reasoning above says they will not hit finding 1; their end-to-end
-   equivalence lands with the Step-B effectful-return read.
-
-### Step B — effectful returns read the level-1 fact (the red tests go green)
-
-- In the settle/read for a return that is neither ground-`Type`-kinded nor under-applied (three-way structural
-  dispatch: ground → ordinary; `arityShortfall` → calculated, inline mode; otherwise → fact mode), demand
-  `CompilerMonomorphicValue((v, 1), groundArgs)` and discharge per §2.2. Unground args defer via the existing
-  return-meta (Use-Site Verification). Reporting sites preserved: reject at the definition for a direct
-  monomorphize, at the use reference for a caller.
-- Stage the flip: keep the combinator path (`dischargeGuardedSignature` + precompute-merge) until the fact-mode
-  path passes `GuardSignatureIntegrationTest`, then switch and delete the guard reliance on
-  `CompilerNativesProcessor`'s nullary precompute (the precompute itself stays for other compile-time natives).
-- Land here (deferred from Step 0) `EffectLifter.underApplied`'s `case VType => 0 < arity` — the pure-type-into-carrier
-  pure-wrap. It is a prerequisite for the `if(cond, T)` pure arm to lift, but it produces a carrier-headed return that
-  only type-checks once the fact-mode read (this step) or the `= Type` deletion (Step C) accepts a carrier-headed
-  effectful return. Re-run `GuardSignatureIntegrationTest` (still combinator-form until Cleanup) after adding it: the
-  5 satisfied cases must stay green under the fact-mode path.
-- Un-`ignore` the Step-0 fixtures. Delete on master what the flip obsoletes: `sawGuardReturn`/`recordGuardReturn`,
-  `isGuardCarrier`, the in-place `dischargeGuardedSignature` peeling (`GuardProbe` goes with it if nothing else
-  uses it). The never-merged Stage-2 branch machinery (settle split, `isGuardKind`, `stuckEffectfulHeads`,
-  `resolveEffectfulReturn`/`settleEffectfulReturn`, `reduceEffectfulGuardReturn`, `evalSemExpr`,
-  `pinInferredReturnCarriers`, `effectCarrierMetaIds`) is simply never merged.
-
-### Step C — kind checks become ordinary level checks
-
-- Level *n* is checked as an ordinary value against `eval(level n+1)` — the same recursive demand, so the
-  per-level `= Type` kind-unify in `walkTypeStack` and its carve-outs go: delete `flattenReturnToType` (a level-1
-  value's *signature* carries the kind; nothing to flatten), and `TypeStackLoop` shrinks to a driver over "check
-  level 0's body against the level-1 read" (or disappears into `Checker`).
-- This is the step with the widest blast radius on the check ladder — it gets its own regression pass over the
-  W3/W4 implicit-generics and ability-guard suites before landing.
-
-### Step D — calculated returns re-documented, not rewritten
-
-- The inline access mode *is* the calculated-return mechanism; `readMonomorphicReturn` stays. Write the §2.1
-  authority table into the code docs at `CalculatedReturnResolver` so the two modes are never re-unified.
-
-### Step E (optional; only if the carriage hurts) — front-end explosion
-
-- Move `TypeLevel` into core `NamedValue` identity and delete the `TypeStack` carriage; the Step-A derivation
-  moves from the saturate boundary into core desugaring. Mechanical by this point, because nothing downstream
-  reads the stack anymore. Skip it if the front-end carriage isn't causing friction — the semantic explosion
-  (Steps A–D) is what buys the simplification.
-
-### Cleanup (after Step B is green; was `return-position-unification.md` §5)
-
-- Delete `eliot.lang.Guard` (`when`/`orError`), both layers (`stdlib/eliot/…` and `stdlib/eliot-compiler/…`).
-- Rewrite `GuardSignatureIntegrationTest` to the `if..else..raise` / bare-`raise` forms.
-- Update `Expression.scala` return-type-parser doc comments and `ASTParserTest` cases referencing `when`/`orError`.
-
-## 4. Guardrails (the stop rules)
-
-- **Routing, not capability.** If a change teaches `Checker`, `renormalize`, or `walkTypeStack` any new
-  level-specific behaviour, stop — the fix is to route the expression through the platform as a value, never to
-  grow the kernel. Every checker-touching PR in this plan must net-delete checker lines.
-- **Never merge the two access modes** (§2.1). Body authority and payload authority are opposite; the
-  payload-mismatch fixture is the tripwire.
-- **Fail-safe, never silent.** A level that cannot be resolved errors loudly (the `PostDrainQuoter` "Cannot
-  resolve type." convention); no `Type` fallback, no discarded verdicts.
-
-## 5. Risks
-
-- **Step A equivalence gap.** The Attempt-1 gotcha (elaborated eval carries an extra explicit type-arg meta that
-  leaves `fold` natives stuck) showed raw-vs-elaborated evaluation can diverge. Fact mode runs the full mono
-  pipeline (metas solved before reduction), so it should not reproduce it — the equivalence tests exist to prove
-  that, per fixture, before any consumer switches.
-- **Step B changes how the working `orError` path resolves.** Staged flip (both paths live until the new one is
-  green) — same mitigation the Stage-2 draft prescribed.
-- **Cross-track cycles.** Level facts re-enter the compiler track from a runtime check; the existing
-  `activeFactKeys` recursion guard covers the back-edge — extend it to the level keys and add a cycle test.
-- **Cost.** Per-instantiation level facts add fact-engine overhead, but `walkTypeStack` already evaluates every
-  signature per instantiation; fact mode adds caching *across* callers. Measure at Step B; no optimization before
-  measurement.
-- **Step C blast radius.** The check ladder is the most delicate code in the compiler (the Stage-1 notes chose a
-  transient flatten precisely to avoid touching it). Step C is deliberately sequenced after B so the guard
-  pressure is already off, and it can pause indefinitely without leaving anything half-migrated.
-
-## Appendix — demolition schedule
-
-Anchors are master as of 2026-07-14 (`2930ee01`). Line numbers drift; identifiers are the authority.
-
-### A. The current attempt: branch-only, never merged (deleted with the branches after Step B)
-
-Everything below exists **only** on `wip/return-position-unification-stage2` (`77c2ed43`) and is disposed of by
-never merging (Step 0). Listed so nobody "rescues" a piece of it later:
-
-- `CalculatedReturnResolver`: the "Effectful-return cross-track back-edge (Stage 2)" section — `stuckEffectfulHeads`
-  (hard-coded `{flatMap, map, pure}`), `isStuckEffectfulReturn`, `resolveEffectfulReturn`,
-  `readCompilerVerdict(Ground)`, `settleEffectfulReturn`, `deferReturnToBody`.
-- `Checker`: `isGuardKind` (the `= Type` kind-unify carve-out for carrier-meta-headed returns),
-  `pinGuardCarrierToEither`, `evalSemExpr` and its call into the read path.
-- `Track`: the `settleReturnPosition` 2→3-tuple widening (`bodyCheckSig`/`publishSig` split), the compiler-track
-  lenient `freshMeta` body-check branch, `pinInferredReturnCarriers`/`pinMetaToEither` (the inferred-meta sweep).
-- `TypeStackLoop`: `reduceEffectfulGuardReturn`, `reduceGuardSubValues`, the elaborated-level capture (`levelExprs`).
-- `Unifier.effectCarrierMetaIds`.
-- **Salvaged**: `stdlib/eliot-compiler/eliot/effect/Abort.els` (Step-0 cherry-pick — inert, lands green). The second
-  intended salvage, `EffectLifter.underApplied` `case VType => 0 < arity`, is **coupled to `Checker.isGuardKind`**
-  (the pure-wrap it enables is what mints the carrier-meta-headed return that `isGuardKind` carves out of `= Type`);
-  carried alone on master it regresses the 5 satisfied `GuardSignatureIntegrationTest` cases, so it is **deferred to
-  Step B**, not Step 0.
-
-### B. Master code removed, per step
-
-**Dies at Step B** (the fact-mode flip):
-
-| Site | Anchor | Replaced by |
-|---|---|---|
-| `sawGuardReturn` flag + `recordGuardReturn` | `CheckState.scala:63,69`; set `Checker.scala:241`; read `TypeStackLoop.scala:90` | the three-way structural dispatch needs no recorded state |
-| `isGuardCarrier` + the kind-ladder guard arm (`case VType =>`) | `CalculatedReturnResolver.scala:263`; `Checker.scala:238` | fact-mode read; a level-1 body never faces the `= Type` unify |
-| `dischargeGuardedSignature` (VPi peel via probe) | `CalculatedReturnResolver.scala:321` | `CompilerMonomorphicValue((v,1), groundArgs)` read |
-| `Marker.GuardProbe` reserved neutral | `SemValue.scala:102`, minted `CalculatedReturnResolver.scala:329` | goes with the peel (its only user — verified) |
-| runtime `Track.settleGuardedReturn` guard arm | `Track.scala:86` | settle reads the level-1 fact |
-| compiler `Track.settleGuardedReturn` publish-undischarged arm | `Track.scala:126` | level values publish through their own mono fact |
-| guards' reliance on the nullary precompute-merge | `CompilerNativesProcessor.scala:88-91` (`performsAbility` → `CompilerMonomorphicValue(vfqn, ∅)`) | per-instantiation level-1 read. The precompute itself **stays** for other compile-time natives; after Cleanup, re-audit whether it still has users |
-
-**Dies at Step C** (kind checks become level checks):
-
-| Site | Anchor | Replaced by |
-|---|---|---|
-| `flattenReturnToType` transient | `TypeStackLoop.scala:247` | a level value's *signature* carries the kind — nothing to flatten |
-| the per-level `= Type` kind-unify walk | `TypeStackLoop.walkTypeStack` | level *n* checked as an ordinary value against `eval(level n+1)`; `TypeStackLoop` shrinks to a driver or dissolves into `Checker` |
-
-**Dies at Cleanup** (after Step B is green):
-
-| Site | Anchor |
-|---|---|
-| `eliot.lang.Guard` module (`when`/`orError`) | `stdlib/eliot/eliot/lang/Guard.els` + `stdlib/eliot-compiler/eliot/lang/Guard.els` |
-| `when`/`orError` fixtures — **18 files** reference `orError` today (`grep -rl orError lang/test jvm/test examples/src`) | `GuardSignatureIntegrationTest` (rewrites to `if..else..raise`/bare `raise`), `MonomorphicTypeCheckTest` W2b/G1 blocks (`:1017-1131`), `CompilerAbilityResolutionTest`, `ASTParserTest`, `ExamplesIntegrationTest1-3`, `FullIntegrationTest`, `WhereOnDefIntegrationTest`, `TerminationIntegrationTest`, plus incidental tokenizer/module/resolve/operator/matchdesugar/ability fixtures — most rewrite mechanically |
-| parser doc examples using `A when (…) orError "…"` | `ast/fact/Expression.scala:248-249,284` (docs only — the infix-in-type-position parser support itself stays; `if..else..raise` needs it) |
-
-### C. Explicitly KEPT (do not "clean up" these)
-
-| Site | Anchor | Why |
-|---|---|---|
-| `dischargeGuardedReturn` + `extractGuardMessage` | `CalculatedReturnResolver.scala:280,298` | the single `Right`/`Left` boundary read (§2.2); callers at `Checker.scala:465,707` remain as the boundary sites |
-| `GuardChannel` | `monomorphize/check/GuardChannel.scala` | shared protocol with the ability `where`-guards |
-| declared-binder carrier pin | `Track.scala:169` (`throwCarrierErrorType`), `:188` (`pinCarrierToEither`) | the rail the §2.2 contract rides |
-| calculated-return inline mode, whole mechanism | `CalculatedReturnResolver`: `arityShortfall:84`, `isCalculatedReturn(Expr)`, `installReturnMeta:63`, `resolveCalculatedReturn:126`, `resolveCompleteCalculatedReturn:151`, `readMonomorphicReturn(Ground):175,220`, the `reportUnground`/`reportRecursive` errors | Step D: this *is* the inline access mode (§2.1) |
-| `MarkerGuardSignature` + ability-guard interpreter | `monomorphize/check/MarkerGuardSignature.scala`; `AbilityImplementationProcessor.scala:169-253` | different feature (`where` ability guards), untouched |
+`wip/return-position-unification-stage2` (`77c2ed43`), `wip/if-else-guard-idiom`, `failed/if-else-guard` are
+reference-only historical attempts at the (now-abandoned) guard-reduction direction; do not mine them for machinery.
