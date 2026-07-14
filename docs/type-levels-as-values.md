@@ -100,11 +100,19 @@ lines (see §4).
   `failed/if-else-guard`) **once Step B is green** — by then their only unique content (the fixtures, the old
   `docs/if-else-guard-idiom-wip.md` assessment) is superseded by committed tests and this plan. See Appendix A for
   the branch-only inventory.
-- Cherry-pick from `wip/return-position-unification-stage2`, as two plain commits (do **not** merge the branch):
-  1. `EffectLifter.underApplied`: `case VType => 0 < arity` — a guard-independent lifter correctness fix (any pure
-     type flowing into a carrier slot).
-  2. `stdlib/eliot-compiler/eliot/effect/Abort.els` — the compile-time `AbortCarrier` overlay (missing sibling of
-     the `Either`/`Option` overlays).
+- Cherry-pick from `wip/return-position-unification-stage2` **one** piece as a plain commit (do **not** merge the
+  branch):
+  1. `stdlib/eliot-compiler/eliot/effect/Abort.els` — the compile-time `AbortCarrier` overlay (missing sibling of
+     the `Either`/`Option` overlays). Inert until a consumer demands it, so it lands green.
+- **Correction (2026-07-14, verified empirically):** the second intended salvage —
+  `EffectLifter.underApplied`'s `case VType => 0 < arity` — is **not** guard-independent and **cannot land in Step 0
+  while keeping green**. On master (without the branch's `Checker.isGuardKind` companion) it regresses the *satisfied*
+  `orError`/`when` guard path: the eager `VType` pure-wrap turns a pure-type return (`String[]`) into a
+  carrier-meta-headed return (`$bad-apply(Type)`), which then hard-mismatches the `= Type` kind-unify at the return
+  position — exactly the mismatch `Checker.isGuardKind` was written to carve out (the branch commit message states this
+  coupling). Blast radius is precisely the 5 satisfied cases in `GuardSignatureIntegrationTest`; `lang.test` stays
+  green with it. It therefore **moves to Step B**, landing alongside the fact-mode read that legitimizes a
+  carrier-headed effectful return (or Step C, where the `= Type` kind-unify is deleted outright). See Appendix A.
 - Land the goal fixtures as tests, `ignore`d/pending until Step B flips them:
   - TRUE: `def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"`,
     `main = printLine(greeting[true])` → runs, prints `hello`.
@@ -148,6 +156,11 @@ Deliverable: type expressions have names and run on the platform, verified equiv
 - Stage the flip: keep the combinator path (`dischargeGuardedSignature` + precompute-merge) until the fact-mode
   path passes `GuardSignatureIntegrationTest`, then switch and delete the guard reliance on
   `CompilerNativesProcessor`'s nullary precompute (the precompute itself stays for other compile-time natives).
+- Land here (deferred from Step 0) `EffectLifter.underApplied`'s `case VType => 0 < arity` — the pure-type-into-carrier
+  pure-wrap. It is a prerequisite for the `if(cond, T)` pure arm to lift, but it produces a carrier-headed return that
+  only type-checks once the fact-mode read (this step) or the `= Type` deletion (Step C) accepts a carrier-headed
+  effectful return. Re-run `GuardSignatureIntegrationTest` (still combinator-form until Cleanup) after adding it: the
+  5 satisfied cases must stay green under the fact-mode path.
 - Un-`ignore` the Step-0 fixtures. Delete on master what the flip obsoletes: `sawGuardReturn`/`recordGuardReturn`,
   `isGuardCarrier`, the in-place `dischargeGuardedSignature` peeling (`GuardProbe` goes with it if nothing else
   uses it). The never-merged Stage-2 branch machinery (settle split, `isGuardKind`, `stuckEffectfulHeads`,
@@ -226,8 +239,11 @@ never merging (Step 0). Listed so nobody "rescues" a piece of it later:
   lenient `freshMeta` body-check branch, `pinInferredReturnCarriers`/`pinMetaToEither` (the inferred-meta sweep).
 - `TypeStackLoop`: `reduceEffectfulGuardReturn`, `reduceGuardSubValues`, the elaborated-level capture (`levelExprs`).
 - `Unifier.effectCarrierMetaIds`.
-- **Salvaged** (the only two pieces, via Step-0 cherry-picks): `EffectLifter.underApplied` `case VType => 0 < arity`;
-  `stdlib/eliot-compiler/eliot/effect/Abort.els`.
+- **Salvaged**: `stdlib/eliot-compiler/eliot/effect/Abort.els` (Step-0 cherry-pick — inert, lands green). The second
+  intended salvage, `EffectLifter.underApplied` `case VType => 0 < arity`, is **coupled to `Checker.isGuardKind`**
+  (the pure-wrap it enables is what mints the carrier-meta-headed return that `isGuardKind` carves out of `= Type`);
+  carried alone on master it regresses the 5 satisfied `GuardSignatureIntegrationTest` cases, so it is **deferred to
+  Step B**, not Step 0.
 
 ### B. Master code removed, per step
 
