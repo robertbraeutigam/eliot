@@ -94,14 +94,22 @@ key, and each `abort`s (declines) the levels it does not own — so the level pa
 This value is **an ordinary compiler-track value with a body and a signature** — that is the entire point. It carries
 no guard-specific carrier, no synthesised effect channel: keep it that way.
 
-**Known Step-A finding the dissolution must resolve (not a guard issue — a general one).** A level **body** is checked
+**Step-A finding — RESOLVED (prerequisite for §3, landed ahead of the dissolution).** A level **body** is checked
 through the *value* path (`Checker.infer` → Γ), whereas today's **signature** walk evaluates through the *type* path
-(`walkTypeStack` → `evalExpr` → ρ). They resolve a generic-parameter reference differently: in a level body,
-`applyTypeArgs` binds a *type* argument's Γ slot to the instantiated **value** (`Γ(X) = A`), not its **kind** (`Type`),
-so `def genArrow[X]: Function[X, X]` — whose level-1 body is `Function[X, X]` — reports a spurious `Type mismatch` at
-`X` (pinned by `TypeLevelEquivalenceTest.genArrow` as a *finding*, not a silent accept). The dissolution's job is
-precisely to make level checking *one* path, so this divergence disappears: a level is checked as an ordinary value and
-a type-parameter reference resolves consistently. This is the substance of the work — not any effect/guard concern.
+(`walkTypeStack` → `evalExpr` → ρ). They used to resolve a generic-parameter reference differently: in a level body,
+`applyTypeArgs` bound a *type* argument's Γ slot to the instantiated **value** (`Γ(X) = A`), not its **kind** (`Type`),
+so `def genArrow[X]: Function[X, X]` — whose level-1 body is the arrow spine `Function[X, X]`, each `X` checked as a
+value-path spine argument against `Function`'s domain kind `Type` — reported a spurious `Type mismatch` at `X`. **Fix
+(two lines of substance):** (1) `applyTypeArgs` now binds Γ(param) to the argument's *kind* uniformly —
+`groundToSem(head.valueType)`, i.e. `Type` for a type argument (`Type : Type`), not the argument value `A` — so
+`infer(X)` reports `X : Type` and kind-checks against `Function`'s domain; ρ still binds `argVal` so a *type-position*
+use (`evalExpr`) reads the denoted value `A`, unchanged. (2) A level body reduces to a **type**, which the runtime
+staging gate (`PostDrainQuoter`) declines as "not a runtime constant"; the compiler track's `reduceSourced` now reads a
+reduced ground *type* (`valueType === Type`) back structurally (`groundTypeToMono`) — types are values, so a type is a
+legitimate compile-time constant here. `TypeLevelEquivalenceTest.genArrow` now asserts equivalence (was: asserted the
+divergence). Level checking is thereby *one* path: a type-parameter reference resolves consistently whether reached from
+a body or a signature — which is exactly what makes the §3 dissolution (route the signature through the level-1 mono)
+safe. This was the substance of the work — not any effect/guard concern.
 
 **Test-harness recipe (compiler-pool level tests).** A leaf `ProcessorTest(LangProcessors(systemModules = Seq.empty)*)`
 demanding a `CompilerMonomorphicValue` at a non-trivial signature must **declare `Type` and `Function` in the compiler

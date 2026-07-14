@@ -114,10 +114,11 @@ class TypeLevelEquivalenceTest extends ProcessorTest(LangProcessors(systemModule
     assertEquivalent("genConst", Seq(typeA))
   }
 
-  // Pinned Step-A finding (not a bug to silently accept): a level body that references a `X: Type` parameter as a type
-  // routes through the value-inference path, where the parameter's Γ slot is its instantiated value (`A`), not its kind
-  // (`Type`), so `Function[X, X]` reports a spurious `Type mismatch`. Resolved when Step B/C rework the level-body check.
-  "a level body referencing a type-kinded parameter (known Step-A divergence)" should "currently error rather than reduce" in {
-    mono("genArrow", Seq(typeA), 1).asserting(r => (r._1.flatMap(_.reduced).isEmpty, r._2.nonEmpty) shouldBe (true, true))
+  // Formerly a pinned Step-A divergence: a level body referencing a `X: Type` parameter as a type routes through the
+  // value-inference path. `applyTypeArgs` now binds the parameter's Γ slot to its *kind* (`Type`), not its instantiated
+  // value (`A`), so `Function[X, X]` kind-checks against `Type` and reduces exactly like the type-position walk — one
+  // path, per docs/type-levels-as-values.md §2.
+  "a level body referencing a type-kinded parameter" should "reduce its level-1 body to its instantiated level-0 signature" in {
+    assertEquivalent("genArrow", Seq(typeA))
   }
 }

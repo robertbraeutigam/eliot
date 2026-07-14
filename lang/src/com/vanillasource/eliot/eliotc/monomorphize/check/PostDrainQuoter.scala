@@ -91,8 +91,13 @@ class PostDrainQuoter(
       case Left(_)       => quoteSourced(expr)
       case Right(ground) =>
         materialise(ground, expr).flatMap {
-          case Some(mono) => expr.as(mono).pure[CompilerIO]
-          case None       => quoteSourced(expr)
+          case Some(mono)                                            => expr.as(mono).pure[CompilerIO]
+          // A level-≥1 (type-level) value's body reduces to a *type*, which `materialise` declines (it handles runtime
+          // value constants). A type is a legitimate compile-time constant here — the "types are values" cornerstone —
+          // so read it back structurally instead of falling to the runtime staging gate, whose fail-safe would abort on
+          // an erased type parameter the body references in value position (`Function[X, X]` with `X := A`).
+          case None if ground.valueType === GroundValue.Type => expr.as(groundTypeToMono(ground, expr)).pure[CompilerIO]
+          case None                                                 => quoteSourced(expr)
         }
     }
   }
@@ -257,6 +262,24 @@ class PostDrainQuoter(
       case GroundValue.Type                   =>
         Option.empty[MonomorphicExpression].pure[CompilerIO]
     }
+
+  /** Read a fully-ground compile-time **type** back as a structural value-reference spine — the type-level counterpart
+    * of [[materialise]] (which handles runtime value constants). A level-≥1 (type-level) value's body reduces to a
+    * type: a type constructor `name[arg…]` becomes the curried `name(arg)…` application over its (recursively
+    * read-back) arguments, and `Type` itself its own reference. Only ever called for a ground value whose `valueType`
+    * is `Type`, so the [[GroundValue.Direct]] arm is unreachable (a Direct is a runtime value, never a type).
+    */
+  private def groundTypeToMono(g: GroundValue, at: Sourced[?]): MonomorphicExpression = g match {
+    case GroundValue.Structure(name, args, _) =>
+      args.foldLeft(MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(name), Seq.empty))) {
+        (acc, arg) =>
+          MonomorphicExpression(g, MonomorphicExpression.FunctionApplication(at.as(acc), at.as(groundTypeToMono(arg, at))))
+      }
+    case GroundValue.Type                     =>
+      MonomorphicExpression(GroundValue.Type, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.typeFQN), Seq.empty))
+    case GroundValue.Direct(_, _)             =>
+      MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.anyFQN), Seq.empty))
+  }
 
   /** Materialise a data value as a constructor application (Stage 2). The constructor's field arity comes from its
     * [[RoleHint.ValueConstructor]] — the one sanctioned read of constructor-shape metadata, as `match` reconstruction

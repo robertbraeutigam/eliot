@@ -459,13 +459,13 @@ class TypeStackLoop(
       case head :: tail =>
         // Two forms of one erased argument: `argVal` — the canonical evaluable `groundToSem` form — is both applied to
         // the signature closure and bound into ρ (where the reification gate and any type-level code can reduce it);
-        // `argType` is bound into Γ as the argument's type — a *type* argument is its own type slot (types are
-        // values), a *value* argument contributes its declared `valueType`.
+        // `argType` is bound into Γ as the argument's *type*, uniformly its declared `valueType`. For a *type* argument
+        // `A` that is `A`'s kind `Type` (`Type : Type`), NOT `A` itself: a level body referencing the parameter in
+        // value position (`Function[X, X]`, an arrow spine whose args are checked through the value path) then
+        // kind-checks `X` against `Type`, agreeing with the type-position use (`evalExpr` reads the denoted value `A`
+        // from ρ). Binding `A` here instead would make `infer(X)` report `X : A`, a spurious `Type mismatch`.
         val argVal  = Evaluator.groundToSem(head)
-        val argType = head.valueType match {
-          case GroundValue.Type => argVal
-          case vt               => Evaluator.groundToSem(vt)
-        }
+        val argType = Evaluator.groundToSem(head.valueType)
         for {
           forced <- checker.force(sig)
           result <- forced match {
