@@ -450,14 +450,14 @@ class Checker(
                         sig              <- evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty))
                         appliedSig        = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
                         // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no
-                        // parameters left to apply, so its whole type forced to the `Type` placeholder `saturate`
-                        // installed — is resolved from its monomorphized return here, so a no-argument producer used by
-                        // name (`def y: Int = x`) works instead of leaking `Type` into a mismatch. The applied case
-                        // keeps a `VPi` here (resolved by `applyInferred`); a calculated-return *function* passed
-                        // unapplied keeps the placeholder inside its codomain (the higher-order limit, out of scope).
-                        calcReturn       <- if (sv.value.calculatedReturn)
-                                              calcReturns.resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
-                                            else pure(Option.empty[SemValue])
+                        // parameters left to apply, so its whole type is its (under-applied) source return (`def y: Int
+                        // = x` ⟹ a bare `Int`) — is resolved from its monomorphized return here, so a no-argument
+                        // producer used by name works instead of leaking the under-applied return into a mismatch.
+                        // `resolveCompleteCalculatedReturn` self-gates on that under-application; the applied case keeps
+                        // a `VPi` here (resolved by `applyInferred`), and a calculated-return *function* passed
+                        // unapplied keeps the under-applied return inside its codomain (the higher-order limit, out of
+                        // scope).
+                        calcReturn       <- calcReturns.resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
                         afterCalc         = calcReturn.getOrElse(appliedSig)
                         // Discharge a `{Throw[String]}` guard on a *complete* (fully applied) value read by name (W2b):
                         // `def y: Bar = foo` where `foo`'s return is `Right(Bar)`. A guarded *function* read unapplied

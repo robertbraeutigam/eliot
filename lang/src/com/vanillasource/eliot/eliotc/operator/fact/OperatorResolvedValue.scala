@@ -16,11 +16,6 @@ case class OperatorResolvedValue(
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    // True when the return position is a bare under-applied omittable (`auto`) reference (e.g. a bare `Int` or a
-    // W2-grown `Counter` return), so the return is *calculated* from the body rather than read from the source type
-    // stack (implicit-generics, W3). Set by `SaturatedValueProcessor`; consumed by the monomorphize
-    // checker — the callee infers the return from its body, the caller reads it off the callee's `MonomorphicValue`.
-    calculatedReturn: Boolean = false,
     platform: Platform = Platform.Runtime,
     // The ability FQNs this value discharges (the negative `{…, -E}` members). The effect accounting
     // ([[com.vanillasource.eliot.eliotc.effect.processor.EffectUsageCollector]]) subtracts these from a caller's

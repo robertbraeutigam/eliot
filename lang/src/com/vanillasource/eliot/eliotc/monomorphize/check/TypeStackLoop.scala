@@ -1,9 +1,10 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
+import cats.data.NonEmptySeq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -51,27 +52,38 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue
   ): CheckIO[TypeStackLoop.Result] =
     for {
+      // Whether this value's return is *calculated* (its source return is an under-applied omittable constructor —
+      // a bare `Int`, a bare W2-grown `Counter`), derived structurally from the signature rather than a persisted flag.
+      isCalc <- checker.calcReturns.isCalculatedReturnExpr(returnExprOf(resolvedValue))
+
       // W4 (Limit 5): a calculated return needs a body to calculate from. Reject a body-less calculated return at the
-      // definition before its `Type` placeholder reaches a use site (where it would otherwise surface as a confusing
-      // mismatch — or, worse, a silent `Type`).
-      _ <- failOnAbstractCalculatedReturn(resolvedValue)
+      // definition before its under-applied return reaches a use site (where it would otherwise surface as a confusing
+      // mismatch).
+      _ <- failOnAbstractCalculatedReturn(isCalc, resolvedValue)
+
+      // The value to check: a calculated return's under-applied source return (`Int`) is kind-ill-formed as a
+      // `Function` codomain (kind `BigInteger → … → Type`, not `Type`), so it is replaced by the kind-correct `Type`
+      // placeholder for the kind check — the body then solves the real return via the return metavariable
+      // `settleReturnPosition` installs (below), exactly as before. The real (calculated) return lives only in the
+      // source `OperatorResolvedValue`; this placeholder is a checker-internal transient, never persisted or a flag.
+      rv = if (isCalc) resolvedValue.copy(typeStack = flattenReturnToType(resolvedValue.typeStack)) else resolvedValue
 
       // Walk type stack levels top-down — returns the final SemValue plus one kind-check SemExpression per level
-      (signature, levelExprs) <- walkTypeStack(resolvedValue.typeStack)
+      (signature, levelExprs) <- walkTypeStack(rv.typeStack)
 
       // Apply explicit type args
-      appliedSig   <- applyTypeArgs(signature, typeArguments, resolvedValue.typeStack)
+      appliedSig   <- applyTypeArgs(signature, typeArguments, rv.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
 
       // Effect-lift bookkeeping: record the value's own *ambient* effect-carrier heads, now that every signature
       // binder is bound in ρ (an explicit type argument to its concrete value, a leftover to its instantiation meta).
-      _ <- recordAmbientCarriers(resolvedValue)
+      _ <- recordAmbientCarriers(rv)
 
       // Compiler-track carrier pinning (CP-D): a `{Throw[E]}` effect carrier in a compile-time value has no runtime
       // carrier to infer, so it is fixed to the compile-time `Throw` carrier `Either[E]` before the body is checked —
       // solving the carrier's instantiation meta lets the body's `pure`/`raise` dispatch resolve and reduce. Runtime
       // track never pins here (its carriers are inferred from the runtime use, or pinned to `IO` at `main`).
-      _ <- track.pinCarriers(checker, resolvedValue)
+      _ <- track.pinCarriers(checker, rv)
 
       // Whether the kind check accepted a `{Throw[String]}`-carrier return (a guarded signature, W2b) — captured here,
       // after `walkTypeStack` checked the signature but before the body check could set it for a nested guard.
@@ -90,8 +102,8 @@ class TypeStackLoop(
       //     undischarged carrier signature `Either[String, Type]` for a consumer to evaluate — a compiler-track guard
       //     discharge would replace the return with a metavariable, starving the body's `pure`/`raise` of its concrete
       //     carrier and blocking the reduction).
-      calcReturn              = resolvedValue.calculatedReturn && resolvedValue.runtime.isDefined
-      checkResult            <- track.settleReturnPosition(checker, instantiated, calcReturn, sawGuard, resolvedValue)
+      calcReturn              = isCalc && rv.runtime.isDefined
+      checkResult            <- track.settleReturnPosition(checker, instantiated, calcReturn, sawGuard, rv)
       (checkSig, returnMeta)  = checkResult
 
       // Capture ρ now, before `check` binds the runtime value parameters as `FunctionLiteral` binders — so ρ holds only
@@ -102,7 +114,7 @@ class TypeStackLoop(
 
       // Check runtime body if present — produces SemExpression with SemValue slots. A body-less value (an abstract
       // declaration) has nothing to check or emit here.
-      runtime      <- resolvedValue.runtime.traverse { body =>
+      runtime      <- rv.runtime.traverse { body =>
                         checker.check(body, checkSig).map(expr => body.as(expr))
                       }
 
@@ -113,7 +125,7 @@ class TypeStackLoop(
       // Post-drain resolution (D1): the sequence that settles every metavariable — the ability-resolution fixed
       // point, carrier-kind verification, the calculated-return fail-safe, the finalizer (default the rest to
       // Type), the postponement flush, and a postcondition assertion. See `runPostDrainResolution`.
-      _ <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
+      _ <- runPostDrainResolution(rv, abilityRefs, returnMeta)
       state <- get
       _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
 
@@ -142,9 +154,9 @@ class TypeStackLoop(
       // per-instantiation on the compiler track — yielding a `!=[Type]` body with `equals` already resolved — then
       // re-evaluate the guard return against that (so `!=` inlines the reduced form and the guard collapses to a
       // concrete `Bool`). Gated on a body-less guarded signature, so ordinary and W2b (bodied) signatures are untouched.
-      guardMarker    = sawGuard && resolvedValue.runtime.isEmpty
+      guardMarker    = sawGuard && rv.runtime.isEmpty
       guardBindings <- if (guardMarker) reduceGuardSubValues(levelExprs) else pure(Map.empty[ValueFQN, SemValue])
-      finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(resolvedValue, guardBindings) else pure(checkSig)
+      finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(rv, guardBindings) else pure(checkSig)
       quoterState   <- get
 
       // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
@@ -158,7 +170,7 @@ class TypeStackLoop(
                        implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(quoterState.bindingCache.getOrElse(fqn, None)),
                      track.platform
                    )
-      groundSig <- liftF(quoter.quoteSem(finalSig, resolvedValue.typeStack))
+      groundSig <- liftF(quoter.quoteSem(finalSig, rv.typeStack))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
       // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
       // channel, so the body is read back directly.
@@ -223,14 +235,33 @@ class TypeStackLoop(
     go(expr.value)
   }
 
+  /** The return-position expression of a value's signature (type-stack level 0), for the calculated-return detection. */
+  private def returnExprOf(resolvedValue: OperatorResolvedValue): OperatorResolvedExpression =
+    SignatureView.of(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature)).returnType.value
+
+  /** Replace a value's signature return position with the kind-correct `Type` placeholder, leaving its parameter arrows
+    * and higher kind levels intact. A calculated return's real (under-applied) return would otherwise fail the type
+    * stack's `= Type` kind check; the placeholder is a checker-internal transient — the body solves the real return via
+    * the metavariable [[CalculatedReturnResolver.installReturnMeta]] installs — never persisted onto the fact.
+    */
+  private def flattenReturnToType(
+      typeStack: Sourced[TypeStack[OperatorResolvedExpression]]
+  ): Sourced[TypeStack[OperatorResolvedExpression]] = {
+    val levels     = typeStack.value.levels
+    val view       = SignatureView.of(typeStack.as(levels.head))
+    val typeRef    = OperatorResolvedExpression.ValueReference(typeStack.as(WellKnownTypes.typeFQN))
+    val newSig     = view.withReturnType(typeRef).toExpression
+    typeStack.as(TypeStack(NonEmptySeq(newSig, levels.tail)))
+  }
+
   /** W4 (Limit 5): a calculated return is *calculated from the body*; a value with no body the checker can see cannot
     * calculate it, and an output position must not quantify it instead, so the bare return must be stated explicitly.
     * A body-less value here is a truly abstract declaration (`runtime` is `None` — e.g. a platform-layer signature
-    * awaiting an implementation): [[CalculatedReturnResolver.installReturnMeta]] would not run, leaving the `Type`
-    * placeholder in the signature, so this is reported at the definition rather than letting that placeholder escape.
+    * awaiting an implementation): [[CalculatedReturnResolver.installReturnMeta]] would not run, so this is reported at
+    * the definition rather than letting the under-applied return escape to a use site.
     */
-  private def failOnAbstractCalculatedReturn(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
-    if (resolvedValue.calculatedReturn && resolvedValue.runtime.isEmpty) {
+  private def failOnAbstractCalculatedReturn(isCalc: Boolean, resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
+    if (isCalc && resolvedValue.runtime.isEmpty) {
       val name = resolvedValue.vfqn.name.name
       liftF(
         compilerError(

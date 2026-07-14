@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
@@ -24,7 +25,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   *   - [[installReturnMeta]] — the *callee* side (called from `TypeStackLoop`): replace the bare return position of a
   *     calculated-return signature with a fresh meta, so checking the body solves it.
   *   - [[resolveCalculatedReturn]] — the *applied* read side (called from `Checker.applyInferred`): when an application
-  *     reaches a calculated-return producer's `Type` placeholder, read its monomorphized return instead.
+  *     reaches a calculated-return producer's under-applied source return, read its monomorphized return instead.
   *   - [[resolveCompleteCalculatedReturn]] — the *by-name* read side (called from `Checker.infer`): the twin for a
   *     fully-applied calculated-return value referenced without further application.
   *
@@ -71,6 +72,43 @@ class CalculatedReturnResolver(
       case _                     => meta
     }
 
+  /** The structural signal of a *calculated return*, replacing the former `calculatedReturn` flag on
+    * [[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue]]: a return position whose head is a type
+    * constructor applied to *fewer* arguments than its omittable arity (a bare `Int`, a bare W2-grown `Counter`, a
+    * partially-applied `Counter[0]`). The omittable arity is read off the head's [[SaturatedValue]]'s `inferableArity`,
+    * which saturation has already grown to include both the W1 `auto` arity and any W2 record growth (see
+    * `SaturatedValueProcessor.growTypeConstructor`) — so this needs neither a persisted flag nor a re-derivation of the
+    * growth oracle. A fully-applied return (`Int[0, 255]`, `IO[Unit]`, `String`), a bare `Type`, a type parameter, or a
+    * non-omittable under-applied head (`IO`, arity 0) is not a calculated return.
+    */
+  private def arityShortfall(fqn: ValueFQN, argCount: Int): CheckIO[Boolean] =
+    liftF(getFactIfProduced(SaturatedValue.Key(fqn, platform))).map {
+      case Some(sv) => argCount < sv.value.inferableArity
+      case None     => false
+    }
+
+  /** The [[SemValue]] form (the *read* sides): a forced return value headed by an under-applied type constructor is a
+    * calculated return. A `VPi` (a partial application), a `VType`, a metavariable, a neutral (type parameter), or a
+    * fully-applied constructor is not.
+    */
+  def isCalculatedReturn(retValue: SemValue): CheckIO[Boolean] =
+    force(retValue).flatMap {
+      case VTopDef(fqn, _, sp) => arityShortfall(fqn, sp.toList.size)
+      case _                   => pure(false)
+    }
+
+  /** The signature-expression form (the *callee* side, before evaluation): the return position's head is an
+    * under-applied omittable constructor. Mirrors [[isCalculatedReturn]] on the raw
+    * [[OperatorResolvedExpression]] a value's own signature carries.
+    */
+  def isCalculatedReturnExpr(returnType: OperatorResolvedExpression): CheckIO[Boolean] =
+    OperatorResolvedExpression.spine(returnType) match {
+      case (head @ OperatorResolvedExpression.ValueReference(name, _), args)
+          if !OperatorResolvedExpression.isFunctionReference(head) =>
+        arityShortfall(name.value, args.length)
+      case _ => pure(false)
+    }
+
   /** When a function application has reached the bare omittable return of a *calculated-return* producer
     * (implicit-generics, W3), resolve that return from the callee's monomorphized signature rather than the
     * (under-applied) source return left by `saturate`. This is the architectural "back-edge": the callee's concrete
@@ -89,39 +127,35 @@ class CalculatedReturnResolver(
       targetExpr: SemExpression,
       rawReturn: SemValue
   ): CheckIO[Option[SemValue]] =
-    force(rawReturn).flatMap {
-      // The calculated-return placeholder evaluates to `VType` (saturate replaced the bare omittable return with the
-      // kind-correct `Type`). A bare `VType` return here therefore means either a reached calculated return or an
-      // ordinary type-level function — confirm with the callee's `calculatedReturn` flag before reading its
-      // monomorphized return. An intermediate `VPi` (partial application) or any concrete return falls through to the
-      // ordinary codomain, so the SaturatedValue fact is fetched only at the rare `VType`-return application.
-      case VType =>
+    // The reached codomain *is* the callee's (under-applied) source return — a bare `Int`, a bare `Counter`. Its
+    // under-application is the structural signal that this is a calculated return, so read the callee's monomorphized
+    // return instead of the source codomain. An intermediate `VPi` (partial application), a genuine `Type` return, or
+    // any fully-applied concrete return is not under-applied and falls through to the ordinary codomain.
+    isCalculatedReturn(rawReturn).flatMap {
+      case true  =>
         innermostValueRef(targetExpr) match {
-          case Some((fqn, typeArgs)) =>
-            liftF(getFactIfProduced(SaturatedValue.Key(fqn.value, platform))).flatMap {
-              case Some(sv) if sv.value.calculatedReturn => readMonomorphicReturn(fqn, typeArgs)
-              case _                                     => pure(None)
-            }
+          case Some((fqn, typeArgs)) => readMonomorphicReturn(fqn, typeArgs)
           case None                  => pure(None)
         }
-      case _     => pure(None)
+      case false => pure(None)
     }
 
   /** Resolve the return of a *complete* (fully applied) calculated-return value referenced by name — the read-site twin
-    * of the [[resolveCalculatedReturn]] back-edge (W4, deferred W3 item 1). The value is complete iff its type forced to
-    * the `Type` placeholder `saturate` installed, i.e. no parameter `VPi` remains to apply; then its body-checked return
-    * is read from `MonomorphicValue(value, args)` exactly as in the applied path, sharing [[readMonomorphicReturn]]'s
-    * recursion guard. Returns [[None]] when a `VPi` still remains (the value is applied later, or passed higher-order
-    * with the placeholder buried in its codomain) so the ordinary signature stands.
+    * of the [[resolveCalculatedReturn]] back-edge (W4, deferred W3 item 1). The value is complete iff its applied type is
+    * its under-applied source return ([[isCalculatedReturn]]), i.e. no parameter `VPi` remains to apply; then its
+    * body-checked return is read from `MonomorphicValue(value, args)` exactly as in the applied path, sharing
+    * [[readMonomorphicReturn]]'s recursion guard. Returns [[None]] when a `VPi` still remains (the value is applied
+    * later, or passed higher-order with the under-applied return buried in its codomain) so the ordinary signature
+    * stands.
     */
   def resolveCompleteCalculatedReturn(
       vfqn: Sourced[ValueFQN],
       typeArgs: Seq[SemValue],
       appliedSig: SemValue
   ): CheckIO[Option[SemValue]] =
-    force(appliedSig).flatMap {
-      case VType => readMonomorphicReturn(vfqn, typeArgs)
-      case _     => pure(None)
+    isCalculatedReturn(appliedSig).flatMap {
+      case true  => readMonomorphicReturn(vfqn, typeArgs)
+      case false => pure(None)
     }
 
   /** The innermost [[SemExpression.ValueReference]] of a (possibly curried) application target, with its accumulated
@@ -154,7 +188,7 @@ class CalculatedReturnResolver(
   /** W4 (Limit 3 / deferred W3 item 2): a calculated return is read off `MonomorphicValue(callee, args)`, so the
     * callee's type arguments must be ground at the call. An instantiation determined only by the *surrounding*
     * context (rather than by the call's own arguments) may still be an unsolved metavariable when the return is read.
-    * Reading the return eagerly here would leave the bare `Type` placeholder, which then leaks into a confusing
+    * Reading the return eagerly here would leave the bare under-applied return, which then leaks into a confusing
     * mismatch downstream. Report a specific, actionable error instead. (Postponing the calculation until the
     * arguments ground — making such a call *compile* — is a completeness improvement deferred to W5.)
     */

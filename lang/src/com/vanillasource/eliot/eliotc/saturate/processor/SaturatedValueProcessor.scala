@@ -79,25 +79,21 @@ class SaturatedValueProcessor
     val view      = SignatureView.of(signature)
     for {
       (newParams, binders) <- saturateParams(view.parameters, pos)
-      // The return position is left untouched by the parameter rewrite, so detect on the original signature: a bare
-      // under-applied omittable return is *calculated* (W3), filled from the body rather than the source type stack.
-      calculatedReturn     <- detectCalculatedReturn(signature)
-      // A bare under-applied omittable return (e.g. `Int`, kind `BigInteger → … → Type`) is kind-ill-formed in the
-      // codomain of `Function`, which the type-stack kind-check requires to be `Type`. Replace it with the kind-correct
-      // `Type` placeholder; the monomorphize checker swaps that placeholder for a fresh metavariable the callee's body
-      // solves, and the caller recognises it (a `VType` return on a calculated-return producer) to read the callee's
-      // monomorphized return instead. The real (computed) return never lives in the source type stack — that is the
-      // whole point of "calculated".
+      // The return position is left untouched. A bare under-applied omittable return (e.g. `Int`) is *calculated* (W3)
+      // — filled from the body rather than the source type stack — but that is a structural property of the (real)
+      // return, re-derived on demand by the monomorphize checker off the head's `SaturatedValue.inferableArity`
+      // (`CalculatedReturnResolver.isCalculatedReturn`). It is therefore neither flattened to a `Type` placeholder here
+      // nor recorded as a flag; the real return stays in the source type stack (the checker installs the return
+      // metavariable and the caller reads the callee's monomorphized return, exactly as before).
       rewritten             = view.withParameters(newParams)
-      finalView             = if (calculatedReturn) rewritten.withReturnType(typeRef(pos)) else rewritten
       saturated             =
-        if (binders.isEmpty && !calculatedReturn) value
+        if (binders.isEmpty) value
         // Only the type stack changes. The runtime body is left exactly as-is — its value-parameter lambdas are
         // unannotated (a value's type stack is the single source of truth for parameter types; see
         // `CoreExpressionConverter.buildCurriedBody`), so the body-against-signature check takes each parameter's type
         // from the saturated `VPi` domain with nothing to keep in sync. No walking or counting of body structure.
-        else prependBinders(value, finalView.toExpression, binders, pos)
-    } yield saturated.copy(calculatedReturn = calculatedReturn)
+        else prependBinders(value, rewritten.toExpression, binders, pos)
+    } yield saturated
   }
 
   /** Saturate each parameter-position type in turn, threading the running fresh-binder index and accumulating the fresh
@@ -115,24 +111,6 @@ class SaturatedValueProcessor
           }
       }
       .map { case (params, _, binders) => (params, binders) }
-
-  /** Whether the value's return position is a bare under-applied omittable reference — a *calculated* return
-    * (implicit-generics, W3). The return is the signature's [[SignatureView.returnType]]; it is calculated iff
-    * that head is an omittable type constructor (W1/W2 arity, via [[inferableInfo]]) applied to fewer arguments than its
-    * omittable arity (e.g. a bare `Int`, or a bare W2-grown `Counter`). An explicit `Int[0, 255]`, a fully-applied
-    * `IO[Unit]`, a non-omittable head (`String`), or a type-parameter return (`R`, a
-    * [[OperatorResolvedExpression.ParameterReference]]) is not.
-    */
-  private def detectCalculatedReturn(
-      signature: Sourced[OperatorResolvedExpression]
-  )(using Platform): CompilerIO[Boolean] = {
-    val (head, args) = spine(SignatureView.of(signature).returnType.value)
-    head match {
-      case _: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
-        inferableInfo(headFqn(head)).map(_.exists { case (arity, _) => args.length < arity })
-      case _                                                                          => false.pure[CompilerIO]
-    }
-  }
 
   /** Prepend `binders` as leading generic `FunctionLiteral`s to `signature` and synthesize/extend the value's kind
     * level to `binder.kind → … → existingKind`, returning the value with the rewritten two-level type stack.
