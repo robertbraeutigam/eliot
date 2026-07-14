@@ -4,7 +4,6 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
@@ -237,7 +236,7 @@ class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq
     ).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == QualifiedName("a", Qualifier.Default) => rv }
-        .map(_.typeStack.value.signature)
+        .map(_.signature.value)
     }
 
   private def runEngineForTypeExpression(source: String): IO[Expression] =
@@ -248,7 +247,7 @@ class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq
     ).map { case (_, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == QualifiedName("a", Qualifier.Default) => rv }
-        .map(_.typeStack.value.signature)
+        .map(_.signature.value)
         .get
     }
 

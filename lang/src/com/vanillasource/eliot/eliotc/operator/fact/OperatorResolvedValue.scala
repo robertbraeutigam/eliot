@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.operator.fact
 
-import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -12,7 +12,7 @@ case class OperatorResolvedValue(
     vfqn: ValueFQN,
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[OperatorResolvedExpression]],
-    typeStack: Sourced[TypeStack[OperatorResolvedExpression]],
+    signature: Sourced[OperatorResolvedExpression],
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,

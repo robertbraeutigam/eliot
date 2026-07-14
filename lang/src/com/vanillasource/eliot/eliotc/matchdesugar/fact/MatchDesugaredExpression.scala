@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.matchdesugar.fact
 
 import cats.{Applicative, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -61,11 +60,6 @@ object MatchDesugaredExpression {
     case Expression.BlockExpression(_)                          =>
       throw IllegalStateException("BlockExpression should not exist after block desugaring")
   }
-
-  def convertTypeStack(
-      stack: Sourced[TypeStack[Expression]]
-  ): Sourced[TypeStack[MatchDesugaredExpression]] =
-    stack.map(ts => TypeStack(ts.levels.map(fromExpression)))
 
   given Show[MatchDesugaredExpression] = {
     case IntegerLiteral(Sourced(_, _, value))                                => value.toString()

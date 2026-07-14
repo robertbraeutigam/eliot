@@ -26,7 +26,7 @@ object EffectAccounting {
   )
 
   def bodyContext(value: OperatorResolvedValue, body: Sourced[OperatorResolvedExpression]): BodyContext = {
-    val view                = SignatureView.of(value.typeStack.as(value.typeStack.value.signature))
+    val view                = SignatureView.of(value.signature)
     // The value's own ambient effect carrier(s): a higher-kinded binder that carries an ability constraint (the M1
     // `{E...}` carrier or a hand-written `[F[_] ~ Effect]`), each mapped to the (non-machinery) effects it declares.
     val carrierEffects      = EffectCarriers

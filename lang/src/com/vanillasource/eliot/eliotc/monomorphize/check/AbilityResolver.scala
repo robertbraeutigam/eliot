@@ -183,7 +183,7 @@ class AbilityResolver(
     val markerFqn = ValueFQN(methodVfqn.moduleName, QualifiedName(abilityName, methodVfqn.name.qualifier))
     liftF(getFactIfProduced(OperatorResolvedValue.Key(markerFqn, platform))).map {
       case Some(orv) =>
-        OperatorResolvedExpression.SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature)).binders.length
+        OperatorResolvedExpression.SignatureView.of(orv.signature).binders.length
       case None      => Int.MaxValue
     }
   }

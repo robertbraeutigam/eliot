@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
-import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -11,7 +11,7 @@ case class ResolvedValue(
     vfqn: ValueFQN,
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[Expression]],
-    typeStack: Sourced[TypeStack[Expression]],
+    signature: Sourced[Expression],
     paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,

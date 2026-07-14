@@ -317,7 +317,7 @@ class OperatorResolverProcessorTest
   }
 
   private def signatureShow(rv: OperatorResolvedValue): String =
-    rv.typeStack.value.signature.show
+    rv.signature.value.show
 
   private def constraintShow(rv: OperatorResolvedValue): Map[String, Seq[(String, Seq[String])]] =
     rv.paramConstraints.view

@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, TypeStack, NamedValue}
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, NamedValue}
 import com.vanillasource.eliot.eliotc.ast.fact.Visibility
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
@@ -16,20 +16,20 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   "core processor" should "transform a simple constant reference" in {
     namedValue("def a: A = b", QualifiedName("a", Qualifier.Default)).asserting { nv =>
-      (nv.qualifiedName.value.name, nv.typeStack.signatureStructure, nv.runtimeStructure) shouldBe
+      (nv.qualifiedName.value.name, nv.signature.value.structure, nv.runtimeStructure) shouldBe
         ("a", Ref("A", T), Some(Ref("b")))
     }
   }
 
   it should "transform an abstract constant without body" in {
     namedValue("def a: A", QualifiedName("a", Qualifier.Default)).asserting { nv =>
-      (nv.qualifiedName.value.name, nv.typeStack.signatureStructure, nv.runtime) shouldBe ("a", Ref("A", T), None)
+      (nv.qualifiedName.value.name, nv.signature.value.structure, nv.runtime) shouldBe ("a", Ref("A", T), None)
     }
   }
 
   it should "place curried function type in typeStack for function without generics" in {
     namedValue("def f(x: X): R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function", T), Ref("X", T)), Ref("R", T))
+      nv.signature.value.structure shouldBe App(App(Ref("Function", T), Ref("X", T)), Ref("R", T))
     }
   }
 
@@ -43,7 +43,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place curried function type in typeStack for multi-parameter function" in {
     namedValue("def f(x: X, y: Y): R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         App(App(Ref("Function", T), Ref("X", T)), App(App(Ref("Function", T), Ref("Y", T)), Ref("R", T)))
     }
   }
@@ -63,19 +63,19 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   "generic parameters" should "become outer lambdas with Type reference in typeStack" in {
     namedValue("def f[A]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Ref("R", T))
+      nv.signature.value.structure shouldBe Lambda("A", Ref("Type", T), Ref("R", T))
     }
   }
 
   it should "preserve order for multiple generic parameters" in {
     namedValue("def f[A, B]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Lambda("B", Ref("Type", T), Ref("R", T)))
+      nv.signature.value.structure shouldBe Lambda("A", Ref("Type", T), Lambda("B", Ref("Type", T), Ref("R", T)))
     }
   }
 
   it should "place generics then function args in typeStack" in {
     namedValue("def f[A](x: X): R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         Lambda("A", Ref("Type", T), App(App(Ref("Function", T), Ref("X", T)), Ref("R", T)))
     }
   }
@@ -88,7 +88,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "handle multiple generics with multiple parameters" in {
     namedValue("def f[A, B](x: X, y: Y): R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         Lambda(
           "A",
           Ref("Type", T),
@@ -109,32 +109,32 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "produce same structure with explicit Type restriction as implicit" in {
     namedValue("def f[A: Type]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Ref("R", T))
+      nv.signature.value.structure shouldBe Lambda("A", Ref("Type", T), Ref("R", T))
     }
   }
 
   it should "produce same structure with explicit Function restriction as arity syntax" in {
     namedValue("def f[M: Function[Type, Type]]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         Lambda("M", App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T)), Ref("R", T))
     }
   }
 
   "type references with generics" should "convert to function applications" in {
     namedValue("def f: A[B]").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(Ref("A", T), Ref("B", T))
+      nv.signature.value.structure shouldBe App(Ref("A", T), Ref("B", T))
     }
   }
 
   it should "convert two-parameter type references to chained applications" in {
     namedValue("def f: A[B, C]").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(App(Ref("A", T), Ref("B", T)), Ref("C", T))
+      nv.signature.value.structure shouldBe App(App(Ref("A", T), Ref("B", T)), Ref("C", T))
     }
   }
 
   it should "convert deeply nested type references" in {
     namedValue("def f: A[B[C]]").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(Ref("A", T), App(Ref("B", T), Ref("C", T)))
+      nv.signature.value.structure shouldBe App(Ref("A", T), App(Ref("B", T), Ref("C", T)))
     }
   }
 
@@ -226,14 +226,14 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate type function returning Type" in {
     namedValue("data Person", QualifiedName("Person", Qualifier.Type)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Ref("Type", T)
+      nv.signature.value.structure shouldBe Ref("Type", T)
     }
   }
 
   // Note: Type constructor generic params are now runtime arguments, so signature is Function[Type, Type]
   it should "generate type function with generic param as argument in typeStack" in {
     namedValue("data Box[A]", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T))
     }
   }
@@ -246,7 +246,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate constructor with curried arguments in typeStack" in {
     namedValue("data Person(name: Name, age: Age)", QualifiedName("Person", Qualifier.Default)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         App(
           App(Ref("Function", T), Ref("Name", T)),
           App(App(Ref("Function", T), Ref("Age", T)), Ref("Person", Qualifier.Type))
@@ -272,7 +272,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate accessor with argument in typeStack" in {
     namedValue("data Person(name: Name)", QualifiedName("name", Qualifier.Default)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         App(App(Ref("Function", T), Ref("Person", Qualifier.Type)), Ref("Name", T))
     }
   }
@@ -280,7 +280,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "generate accessor with generic param and argument in typeStack" in {
     namedValue("data Box[A](value: A)", QualifiedName("value", Qualifier.Default)).asserting { nv =>
       // The accessor type is (A :: Type) -> Function(Box^Type(A), A)
-      nv.typeStack.signatureStructure shouldBe Lambda(
+      nv.signature.value.structure shouldBe Lambda(
         "A",
         Ref("Type", T),
         App(App(Ref("Function", T), App(Ref("Box", Qualifier.Type), Ref("A", T))), Ref("A", T))
@@ -306,20 +306,20 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate fieldless constructor returning data type" in {
     namedValue("data Maybe = Nothing | Just(value: A)", QualifiedName("Nothing", Qualifier.Default)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Ref("Maybe", Qualifier.Type)
+      nv.signature.value.structure shouldBe Ref("Maybe", Qualifier.Type)
     }
   }
 
   it should "generate constructor with fields returning data type" in {
     namedValue("data Maybe = Nothing | Just(value: A)", QualifiedName("Just", Qualifier.Default)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         App(App(Ref("Function", T), Ref("A", T)), Ref("Maybe", Qualifier.Type))
     }
   }
 
   it should "generate generic union constructors with shared type params" in {
     namedValue("data Maybe[A] = Nothing | Just(value: A)", QualifiedName("Just", Qualifier.Default)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         Lambda(
           "A",
           Ref("Type", T),
@@ -331,7 +331,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "generate generic fieldless constructor with type params" in {
     namedValue("data Maybe[A] = Nothing | Just(value: A)", QualifiedName("Nothing", Qualifier.Default)).asserting {
       nv =>
-        nv.typeStack.signatureStructure shouldBe
+        nv.signature.value.structure shouldBe
           Lambda("A", Ref("Type", T), App(Ref("Maybe", Qualifier.Type), Ref("A", T)))
     }
   }
@@ -390,7 +390,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       val nv = findByNameAndImplQualifier(nvs, "handleCases").head
       // handleCases[A, R](value: Box[A], cases: Function[Function[Function[A, R], R], R]): R
       val churchCasesType = App(App(Ref("Function", T), App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("A", T)), Ref("R", T))), Ref("R", T))), Ref("R", T))
-      nv.typeStack.signatureStructure shouldBe Lambda(
+      nv.signature.value.structure shouldBe Lambda(
         "A",
         Ref("Type", T),
         Lambda(
@@ -424,7 +424,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       val nv = findByNameAndImplQualifier(nvs, "handleCases").head
       // handleCases[R, R0](value: Foo[R], cases: Function[Function[Function[R, R0], R0], R0]): R0
       val churchCasesType = App(App(Ref("Function", T), App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("R", T)), Ref("R0", T))), Ref("R0", T))), Ref("R0", T))
-      nv.typeStack.signatureStructure shouldBe Lambda(
+      nv.signature.value.structure shouldBe Lambda(
         "R",
         Ref("Type", T),
         Lambda(
@@ -456,14 +456,14 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "type the meta value constructor as domain -> metaType" in {
     namedValue("type Int {range: Interval}", QualifiedName("Int$Meta", Qualifier.Default)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         App(App(Ref("Function", T), Ref("Interval", T)), Ref("Int$Meta", Qualifier.Type))
     }
   }
 
   it should "generate a slot accessor from the meta structure onto the domain" in {
     namedValue("type Int {range: Interval}", QualifiedName("range", Qualifier.Default)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         App(App(Ref("Function", T), Ref("Int$Meta", Qualifier.Type)), Ref("Interval", T))
     }
   }
@@ -497,7 +497,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "type the transfer companion over the meta types (T$Meta suffix), with no lookup" in {
     namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(
+      nv.signature.value.structure shouldBe App(
         App(Ref("Function", T), Ref("Foo$Meta", T)),
         Ref("Foo$Meta", T)
       )
@@ -560,7 +560,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   "effect-set sugar" should "desugar a single effect into one carrier-applied signature" in {
     namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda(
+      nv.signature.value.structure shouldBe Lambda(
         "F",
         App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T)),
         App(App(Ref("Function", T), App(Ref("F", T), Ref("String", T))), App(Ref("F", T), Ref("Unit", T)))
@@ -593,16 +593,16 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "produce the same signature as the hand-written carrier form" in {
     (namedValue("def f(x: {Suspend} String): {Suspend} Unit"), namedValue("def f[auto F[_] ~ Suspend](x: F[String]): F[Unit]"))
       .mapN { (sugar, hand) =>
-        (sugar.typeStack.signatureStructure, constraintShapes(sugar), sugar.inferableArity) shouldBe
-          (hand.typeStack.signatureStructure, constraintShapes(hand), hand.inferableArity)
+        (sugar.signature.value.structure, constraintShapes(sugar), sugar.inferableArity) shouldBe
+          (hand.signature.value.structure, constraintShapes(hand), hand.inferableArity)
       }
   }
 
   it should "treat the effect set as unordered" in {
     (namedValue("def f(x: {Suspend, Abort} String): String"), namedValue("def f(x: {Abort, Suspend} String): String"))
       .mapN { (ab, ba) =>
-        (ab.typeStack.signatureStructure, constraintShapes(ab).view.mapValues(_.toSet).toMap) shouldBe
-          (ba.typeStack.signatureStructure, constraintShapes(ba).view.mapValues(_.toSet).toMap)
+        (ab.signature.value.structure, constraintShapes(ab).view.mapValues(_.toSet).toMap) shouldBe
+          (ba.signature.value.structure, constraintShapes(ba).view.mapValues(_.toSet).toMap)
       }
   }
 
@@ -664,7 +664,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "handle data with generic constructor" in {
     namedValue("data Pair[A, B](fst: A, snd: B)", QualifiedName("Pair", Qualifier.Default)).asserting { nv =>
       // The constructor type is (A :: Type) -> (B :: Type) -> Function(A, Function(B, Pair^Type(A)(B)))
-      nv.typeStack.signatureStructure shouldBe
+      nv.signature.value.structure shouldBe
         Lambda(
           "A",
           Ref("Type", T),
@@ -701,12 +701,6 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   extension (nv: NamedValue) {
     def runtimeStructure: Option[ExprStructure] = nv.runtime.map(_.value.structure)
-  }
-
-  extension (stack: TypeStack[Expression]) {
-    def signatureStructure: ExprStructure = stack.signature.structure
-    // Gets the first expression in the stack (signature for TypeStack)
-    def firstStructure: ExprStructure     = stack.levels.head.structure
   }
 
   extension (expr: Expression) {

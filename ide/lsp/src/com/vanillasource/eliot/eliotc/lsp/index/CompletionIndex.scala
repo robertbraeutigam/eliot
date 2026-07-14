@@ -89,7 +89,7 @@ object CompletionIndex {
       .sortBy((qualifiedName, _) => if (qualifiedName.qualifier == Qualifier.Default) 0 else 1)
       .flatMap((_, fqn) => signatures.get(fqn))
       .headOption
-      .map(value => value.typeStack.value.signature.show)
+      .map(value => value.signature.value.show)
 
   /** Normalise a URI to a stable key so the editor's `file:///…` URIs match the compiler's `file:/…` URIs. Since CP1.5
     * every source URI is a `file:` URI (the base/platform layers are filesystem roots too, not `jar:` classpath

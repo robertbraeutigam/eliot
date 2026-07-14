@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.lsp.index
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.lsp.virtual.VfsUris
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
@@ -64,10 +63,7 @@ object PositionIndex {
 
   /** All value/constructor references appearing in a resolved value's body and type signature. */
   private def referencesOf(value: ResolvedValue): Seq[Sourced[ValueFQN]] =
-    value.runtime.toSeq.flatMap(body => fromExpression(body.value)) ++ fromStack(value.typeStack.value)
-
-  private def fromStack(stack: TypeStack[Expression]): Seq[Sourced[ValueFQN]] =
-    stack.levels.toSeq.flatMap(fromExpression)
+    value.runtime.toSeq.flatMap(body => fromExpression(body.value)) ++ fromExpression(value.signature.value)
 
   private def fromExpression(expression: Expression): Seq[Sourced[ValueFQN]] = expression match {
     case Expression.ValueReference(name, typeArgs)                                                     =>

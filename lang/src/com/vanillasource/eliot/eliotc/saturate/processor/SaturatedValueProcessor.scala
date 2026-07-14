@@ -1,9 +1,8 @@
 package com.vanillasource.eliot.eliotc.saturate.processor
 
-import cats.data.NonEmptySeq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
-import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.effect.fact.EffectCheckedValue
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleName,
@@ -56,14 +55,6 @@ class SaturatedValueProcessor
       EffectCheckedValue.Key(key.vfqn, key.platform)
     ) {
 
-  /** This processor owns only the *level-0* value — the ordinary runtime-body saturation. A `typeLevel ≥ 1` key is a
-    * type expression, derived from the level-0 value by [[com.vanillasource.eliot.eliotc.saturate.processor.TypeLevelSaturatedValueProcessor]];
-    * decline it here so the two processors partition `SaturatedValue.Key` cleanly (and this one is not asked to map a
-    * level-`n` key onto a nonexistent `EffectCheckedValue`).
-    */
-  override protected def generateFact(requestedKey: SaturatedValue.Key): CompilerIO[Unit] =
-    if (requestedKey.typeLevel != 0) abort[Unit] else super.generateFact(requestedKey)
-
   override protected def generateFromKeyAndFact(
       key: SaturatedValue.Key,
       effectChecked: EffectCheckedValue
@@ -83,7 +74,7 @@ class SaturatedValueProcessor
 
   private def saturate(value: OperatorResolvedValue)(using Platform): CompilerIO[OperatorResolvedValue] = {
     val pos       = value.name
-    val signature = value.typeStack.as(value.typeStack.value.signature)
+    val signature = value.signature
     val view      = SignatureView.of(signature)
     for {
       (newParams, binders) <- saturateParams(view.parameters, pos)
@@ -120,8 +111,8 @@ class SaturatedValueProcessor
       }
       .map { case (params, _, binders) => (params, binders) }
 
-  /** Prepend `binders` as leading generic `FunctionLiteral`s to `signature` and synthesize/extend the value's kind
-    * level to `binder.kind → … → existingKind`, returning the value with the rewritten two-level type stack.
+  /** Prepend `binders` as leading generic `FunctionLiteral`s to `signature`, returning the value with the rewritten
+    * signature. The kind is a projection of the (now binder-prefixed) signature, derived on demand — nothing to store.
     */
   private def prependBinders(
       value: OperatorResolvedValue,
@@ -129,13 +120,10 @@ class SaturatedValueProcessor
       binders: Seq[FreshBinder],
       pos: Sourced[?]
   ): OperatorResolvedValue = {
-    val existingKind = value.typeStack.value.levels.tail.headOption
-      .getOrElse(OperatorResolvedExpression.ValueReference(pos.as(WellKnownTypes.typeFQN)))
-    val newKind      = binders.foldRight(existingKind)((b, acc) => arrow(pos.as(b.kind), pos.as(acc)))
-    val withBinders  = binders.foldRight(signature) { (b, acc) =>
+    val withBinders = binders.foldRight(signature) { (b, acc) =>
       OperatorResolvedExpression.FunctionLiteral(pos.as(b.name), Some(pos.as(b.kind)), pos.as(acc))
     }
-    value.copy(typeStack = value.typeStack.as(TypeStack(NonEmptySeq.of(withBinders, newKind))))
+    value.copy(signature = value.signature.as(withBinders))
   }
 
   /** Saturate bare omittable references inside one parameter type. Recurses into applied constructors (`List[Int]`) but
@@ -247,9 +235,9 @@ class SaturatedValueProcessor
       view.parameters.map(_.value)
   }
 
-  /** A value's signature (type-stack level 0) carried with its source position, for [[SignatureView.of]]. */
+  /** A value's signature carried with its source position, for [[SignatureView.of]]. */
   private def signatureOf(value: OperatorResolvedValue): Sourced[OperatorResolvedExpression] =
-    value.typeStack.as(value.typeStack.value.signature)
+    value.signature
 
   private def typeRef(pos: Sourced[?]): OperatorResolvedExpression =
     OperatorResolvedExpression.ValueReference(pos.as(WellKnownTypes.typeFQN))
@@ -409,7 +397,7 @@ class SaturatedValueProcessor
     val view         = SignatureView.of(signatureOf(value))
     val newSignature = view.withParameters(view.parameters ++ plan.allKinds.map(pos.as)).toExpression
     value.copy(
-      typeStack = value.typeStack.as(TypeStack.of(newSignature)),
+      signature = value.signature.as(newSignature),
       inferableArity = value.inferableArity + plan.total
     )
   }
@@ -451,7 +439,7 @@ class SaturatedValueProcessor
   private def saturateImplMember(value: OperatorResolvedValue, plan: TypePlan): OperatorResolvedValue = {
     val pos          = value.name
     val dataTypeFqn  = ValueFQN(value.vfqn.moduleName, QualifiedName(plan.typeName, Qualifier.Type))
-    val applied      = applyPlanUnderBinders(value.typeStack.value.signature, plan, dataTypeFqn, pos)
+    val applied      = applyPlanUnderBinders(value.signature.value, plan, dataTypeFqn, pos)
     val newSignature =
       if (WellKnownTypes.isTypeMatchTypeMatch(value.vfqn)) rebuildTypeMatchHandler(applied, plan, pos) else applied
     prependBinders(value, newSignature, plan.binders, pos)

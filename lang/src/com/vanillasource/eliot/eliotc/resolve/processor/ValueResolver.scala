@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.ast.fact.{PrecedenceDeclaration as AstPrec
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{
   NamedValue,
-  TypeStack,
   Expression as CoreExpression,
   Pattern as CorePattern,
   PrecedenceDeclaration as CorePrecedenceDeclaration
@@ -37,7 +36,7 @@ class ValueResolver
       unifiedValue: UnifiedModuleValue
   ): CompilerIO[ResolvedValue] = {
     val namedValue    = unifiedValue.namedValue
-    val genericParams = collectGenericParams(namedValue.typeStack)
+    val genericParams = collectGenericParamsFromExpr(namedValue.signature.value)
     val scope         =
       ValueResolverScope(
         key.vfqn.moduleName,
@@ -50,12 +49,12 @@ class ValueResolver
     val resolveProgram = for {
       resolvedRuntime     <-
         namedValue.runtime.traverse(expr => resolveExpression(expr.value, true).map(expr.as))
-      resolvedStack       <- resolveTypeStack(namedValue.qualifiedName.as(namedValue.typeStack), false)
+      resolvedSignature   <- withLocalScope(resolveExpression(namedValue.signature.value, false)).map(namedValue.signature.as)
       resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
       resolvedDischarged  <- namedValue.dischargedEffects.traverse(resolveAbilityName)
       resolvedPrecedence  <- resolvePrecedenceDeclarations(namedValue.precedence)
-      _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
+      _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedSignature.value.show}")
       _                   <- debug[ScopedIO](
                                s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
                              )
@@ -63,7 +62,7 @@ class ValueResolver
       unifiedValue.vfqn,
       resolvedName,
       resolvedRuntime,
-      resolvedStack,
+      resolvedSignature,
       resolvedConstraints,
       namedValue.fixity,
       resolvedPrecedence,
@@ -125,35 +124,11 @@ class ValueResolver
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a type annotation
     * (paramType is Some). All FunctionLiterals in type position are universal intros.
     */
-  private def collectGenericParams(stack: TypeStack[CoreExpression]): Seq[String] =
-    collectGenericParamsFromExpr(stack.signature)
-
   private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
     expr match {
       case FunctionLiteral(paramName, Some(_), body) =>
         paramName.value +: collectGenericParamsFromExpr(body.value)
       case _                                         => Seq.empty
-    }
-
-  /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
-    * on below levels, but go out of scope outside the type stack.
-    *
-    * @param runtime
-    *   Whether the signature (bottom level) is in runtime context. Higher levels are always type-level.
-    */
-  private def resolveTypeStack(
-      stack: Sourced[TypeStack[CoreExpression]],
-      runtime: Boolean
-  ): ScopedIO[Sourced[TypeStack[Expression]]] =
-    withLocalScope {
-      val levels    = stack.value.levels.reverse
-      val numLevels = levels.length
-      levels.zipWithIndex
-        .traverse { case (expression, idx) =>
-          val isSignature = idx == numLevels - 1
-          resolveExpression(expression, if (isSignature) runtime else false)
-        }
-        .map(es => stack.as(TypeStack(es.reverse)))
     }
 
   private def resolveExpression(

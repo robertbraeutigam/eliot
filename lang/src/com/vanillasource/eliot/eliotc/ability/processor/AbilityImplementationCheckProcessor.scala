@@ -88,7 +88,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       ResolvedMethod(
         vfqn,
         resolved.name,
-        resolved.typeStack.as(resolved.typeStack.value.signature),
+        resolved.signature,
         resolved.runtime.isDefined
       )
     )
@@ -166,7 +166,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       methodVfqn.moduleName,
       QualifiedName(abilityName, methodVfqn.name.qualifier)
     )
-    getFactOrAbort(OperatorResolvedValue.Key(markerVfqn, platform)).map(r => r.typeStack.as(r.typeStack.value.signature))
+    getFactOrAbort(OperatorResolvedValue.Key(markerVfqn, platform)).map(r => r.signature)
   }
 
   private def collectModuleNames(v: GroundValue): Seq[ModuleName] =

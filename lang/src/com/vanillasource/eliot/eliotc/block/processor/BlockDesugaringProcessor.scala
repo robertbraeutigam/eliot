@@ -40,7 +40,7 @@ class BlockDesugaringProcessor
       resolvedValue.vfqn,
       resolvedValue.name,
       desugaredRuntime,
-      resolvedValue.typeStack,
+      resolvedValue.signature,
       resolvedValue.paramConstraints,
       resolvedValue.fixity,
       resolvedValue.precedence,

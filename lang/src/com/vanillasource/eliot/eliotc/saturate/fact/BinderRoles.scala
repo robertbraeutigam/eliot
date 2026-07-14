@@ -121,7 +121,7 @@ object BinderRoles {
     * computation reads only the value's own fields — no fact lookups — so it stays pure and local.
     */
   def of(value: OperatorResolvedValue): BinderRoles = {
-    val signature = value.typeStack.as(value.typeStack.value.signature)
+    val signature = value.signature
     val view      = SignatureView.of(signature)
     val binders   = view.binders
     val body      = value.runtime.map(_.value)

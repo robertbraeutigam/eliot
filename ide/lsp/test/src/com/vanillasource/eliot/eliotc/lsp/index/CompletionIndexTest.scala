@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.lsp.index
 
-import com.vanillasource.eliot.eliotc.core.fact.{Expression as CoreExpression, NamedValue, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.{Expression as CoreExpression, NamedValue}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ModuleValue, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, QualifiedName as ResolvedQualifiedName, Qualifier as ResolvedQualifier, ResolvedValue}
@@ -71,7 +71,7 @@ class CompletionIndexTest extends AnyFlatSpec with Matchers {
     NamedValue(
       Sourced(uri, range, QualifiedName("module", Qualifier.Default)),
       None,
-      TypeStack.of(CoreExpression.StringLiteral(Sourced(uri, range, "")))
+      Sourced(uri, range, CoreExpression.StringLiteral(Sourced(uri, range, "")))
     )
 
   /** A resolved value whose signature is a reference to `signatureName` (so its rendered detail is `Test::signatureName`).
@@ -81,6 +81,6 @@ class CompletionIndexTest extends AnyFlatSpec with Matchers {
       vfqn = fqn(name),
       name = Sourced(uri, range, ResolvedQualifiedName(name, ResolvedQualifier.Default)),
       runtime = None,
-      typeStack = Sourced(uri, range, TypeStack.of(Expression.ValueReference(Sourced(uri, range, fqn(signatureName)))))
+      signature = Sourced(uri, range, Expression.ValueReference(Sourced(uri, range, fqn(signatureName))))
     )
 }

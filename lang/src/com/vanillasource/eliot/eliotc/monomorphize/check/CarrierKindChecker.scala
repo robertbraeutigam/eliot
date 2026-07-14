@@ -71,7 +71,7 @@ class CarrierKindChecker(
           _     <- svOpt match {
                      case None     => pure(())
                      case Some(sv) =>
-                       val signature = sv.value.typeStack.map(_.signature)
+                       val signature = sv.value.signature
                        val binders   = SignatureView.of(signature).binders.drop(explicitArgs.size)
                        implicitMetas.zip(binders).traverse_ {
                          case (VMeta(id, _), binder) => recordIfHigherKinded(id, binder, fqn)
@@ -195,7 +195,7 @@ class CarrierKindChecker(
   private def kindOfTypeConstructor(fqn: ValueFQN): CheckIO[Option[SemValue]] =
     liftF(getFactIfProduced(SaturatedValue.Key(fqn, platform))).flatMap {
       case None     => pure(None)
-      case Some(sv) => evalExpr(sv.value.typeStack.value.signature, Some(Env.empty)).map(Some(_))
+      case Some(sv) => evalExpr(sv.value.signature.value, Some(Env.empty)).map(Some(_))
     }
 
 }

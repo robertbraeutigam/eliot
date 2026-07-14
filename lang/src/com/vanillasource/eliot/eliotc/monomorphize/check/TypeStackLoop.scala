@@ -1,8 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
-import cats.data.NonEmptySeq
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
@@ -66,13 +64,14 @@ class TypeStackLoop(
       // placeholder for the kind check — the body then solves the real return via the return metavariable
       // `settleReturnPosition` installs (below), exactly as before. The real (calculated) return lives only in the
       // source `OperatorResolvedValue`; this placeholder is a checker-internal transient, never persisted or a flag.
-      rv = if (isCalc) resolvedValue.copy(typeStack = flattenReturnToType(resolvedValue.typeStack)) else resolvedValue
+      rv = if (isCalc) resolvedValue.copy(signature = flattenReturnToType(resolvedValue.signature)) else resolvedValue
 
-      // Walk type stack levels top-down — returns the final SemValue plus one kind-check SemExpression per level
-      (signature, levelExprs) <- walkTypeStack(rv.typeStack)
+      // Kind-check the signature against its (derived) kind — returns the final SemValue plus one kind-check
+      // SemExpression per level (the kind, if generic, and the signature)
+      (signature, levelExprs) <- walkTypeStack(rv.signature)
 
       // Apply explicit type args
-      appliedSig   <- applyTypeArgs(signature, typeArguments, rv.typeStack)
+      appliedSig   <- applyTypeArgs(signature, typeArguments, rv.signature)
       instantiated <- instantiateRemaining(appliedSig)
 
       // Effect-lift bookkeeping: record the value's own *ambient* effect-carrier heads, now that every signature
@@ -170,7 +169,7 @@ class TypeStackLoop(
                        implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(quoterState.bindingCache.getOrElse(fqn, None)),
                      track.platform
                    )
-      groundSig <- liftF(quoter.quoteSem(finalSig, rv.typeStack))
+      groundSig <- liftF(quoter.quoteSem(finalSig, rv.signature))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
       // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
       // channel, so the body is read back directly.
@@ -218,7 +217,7 @@ class TypeStackLoop(
   ): CheckIO[SemValue] =
     for {
       _         <- guardBindings.toList.traverse_ { case (fqn, sem) => modify(_.cacheBinding(fqn, Some(sem))) }
-      guardExpr  = SignatureView.of(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature)).returnType
+      guardExpr  = SignatureView.of(resolvedValue.signature).returnType
       reduced   <- checker.evalExpr(guardExpr.value)
     } yield reduced
 
@@ -235,23 +234,21 @@ class TypeStackLoop(
     go(expr.value)
   }
 
-  /** The return-position expression of a value's signature (type-stack level 0), for the calculated-return detection. */
+  /** The return-position expression of a value's signature, for the calculated-return detection. */
   private def returnExprOf(resolvedValue: OperatorResolvedValue): OperatorResolvedExpression =
-    SignatureView.of(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature)).returnType.value
+    SignatureView.of(resolvedValue.signature).returnType.value
 
   /** Replace a value's signature return position with the kind-correct `Type` placeholder, leaving its parameter arrows
-    * and higher kind levels intact. A calculated return's real (under-applied) return would otherwise fail the type
-    * stack's `= Type` kind check; the placeholder is a checker-internal transient — the body solves the real return via
-    * the metavariable [[CalculatedReturnResolver.installReturnMeta]] installs — never persisted onto the fact.
+    * and generic binders intact (so the derived kind is unchanged). A calculated return's real (under-applied) return
+    * would otherwise fail the `= Type` kind check; the placeholder is a checker-internal transient — the body solves the
+    * real return via the metavariable [[CalculatedReturnResolver.installReturnMeta]] installs — never persisted.
     */
   private def flattenReturnToType(
-      typeStack: Sourced[TypeStack[OperatorResolvedExpression]]
-  ): Sourced[TypeStack[OperatorResolvedExpression]] = {
-    val levels     = typeStack.value.levels
-    val view       = SignatureView.of(typeStack.as(levels.head))
-    val typeRef    = OperatorResolvedExpression.ValueReference(typeStack.as(WellKnownTypes.typeFQN))
-    val newSig     = view.withReturnType(typeRef).toExpression
-    typeStack.as(TypeStack(NonEmptySeq(newSig, levels.tail)))
+      signature: Sourced[OperatorResolvedExpression]
+  ): Sourced[OperatorResolvedExpression] = {
+    val view    = SignatureView.of(signature)
+    val typeRef = OperatorResolvedExpression.ValueReference(signature.as(WellKnownTypes.typeFQN))
+    signature.as(view.withReturnType(typeRef).toExpression)
   }
 
   /** W4 (Limit 5): a calculated return is *calculated from the body*; a value with no body the checker can see cannot
@@ -383,23 +380,37 @@ class TypeStackLoop(
         )
     }
 
-  /** Walk the type stack top-down, folding each level against the one above as its expected kind.
+  /** Kind-check a value's signature against its (derived) kind, top-down.
     *
-    * For each level we (a) kind-check the ORE against the running `expected` so ill-kinded signatures surface as errors
-    * attached to the correct source, and (b) evaluate the ORE to obtain the next-lower level's expected kind. The final
-    * fold result is the signature's [[SemValue]] together with the per-level kind-check [[SemExpression]]s, which the
-    * drain-and-resolve loop walks to discover ability refs embedded in type positions.
+    * A generic signature `[A: K1, B: K2] -> …` has kind `Function[K1, Function[K2, Type]]`, derived from its leading
+    * binders (the kind is a projection of the signature, never stored). A binderless signature has kind `Type`, checked
+    * directly. For each level we (a) kind-check the ORE against the running `expected` so ill-kinded signatures surface
+    * as errors attached to the correct source, and (b) evaluate the ORE to obtain the next-lower level's expected kind.
+    * The result is the signature's [[SemValue]] plus one kind-check [[SemExpression]] per level (the kind, if generic,
+    * then the signature), which the drain-and-resolve loop walks to discover ability refs embedded in type positions.
     */
   private def walkTypeStack(
-      typeStack: Sourced[TypeStack[OperatorResolvedExpression]]
-  ): CheckIO[(SemValue, Seq[Sourced[SemExpression]])] =
-    typeStack.value.levels.toSeq.reverse.foldLeftM((VType: SemValue, Seq.empty[Sourced[SemExpression]])) {
+      signature: Sourced[OperatorResolvedExpression]
+  ): CheckIO[(SemValue, Seq[Sourced[SemExpression]])] = {
+    val view    = SignatureView.of(signature)
+    val typeRef = OperatorResolvedExpression.ValueReference(signature.as(WellKnownTypes.typeFQN))
+    // Levels top-down (kind first), reproducing the former stored `[signature, kind]` stack walked in reverse.
+    val levels  =
+      if (view.binders.isEmpty) Seq(signature)
+      else {
+        val kindExpr = view.binders.foldRight(typeRef: OperatorResolvedExpression) { (binder, acc) =>
+          OperatorResolvedExpression.arrow(signature.as(binder.parameterType.map(_.value).getOrElse(typeRef)), signature.as(acc))
+        }
+        Seq(signature.as(kindExpr), signature)
+      }
+    levels.foldLeftM((VType: SemValue, Seq.empty[Sourced[SemExpression]])) {
       case ((expected, acc), level) =>
         for {
-          checked <- checker.check(typeStack.as(level), expected)
-          next    <- checker.evalExpr(level)
-        } yield (next, acc :+ typeStack.as(checked))
+          checked <- checker.check(level, expected)
+          next    <- checker.evalExpr(level.value)
+        } yield (next, acc :+ signature.as(checked))
     }
+  }
 
   /** Instantiate any remaining VLam closures (unapplied type parameters) with fresh metas, binding each in the env.
     * This handles phantom type parameters and cases where fewer explicit type args were provided than type parameters
@@ -417,7 +428,7 @@ class TypeStackLoop(
     * for a peeled one. Any other head shape is not a carrier and is skipped. Read by the checker-side effect lift.
     */
   private def recordAmbientCarriers(resolvedValue: OperatorResolvedValue): CheckIO[Unit] = {
-    val view         = SignatureView.of(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature))
+    val view         = SignatureView.of(resolvedValue.signature)
     val carrierNames = EffectCarriers.carrierBinders(view).filter(resolvedValue.paramConstraints.contains)
     if (carrierNames.isEmpty) pure(())
     else

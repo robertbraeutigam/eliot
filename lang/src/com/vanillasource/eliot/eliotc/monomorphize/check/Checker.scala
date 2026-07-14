@@ -447,7 +447,7 @@ class Checker(
                       // solves from this call's arguments. Signatures reference only their own parameters or top-level
                       // values, so they evaluate under an empty env — outer-session bindings are not in scope.
                       for {
-                        sig              <- evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty))
+                        sig              <- evalExpr(sv.value.signature.value, env = Some(Env.empty))
                         appliedSig        = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
                         // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no
                         // parameters left to apply, so its whole type is its (under-applied) source return (`def y: Int

@@ -41,7 +41,7 @@ class MonomorphicTypeCheckProcessor
         MonomorphicValue(
           key.vfqn,
           key.typeArguments,
-          value.typeStack.as(key.vfqn.name),
+          value.signature.as(key.vfqn.name),
           result.signature,
           result.body
         )

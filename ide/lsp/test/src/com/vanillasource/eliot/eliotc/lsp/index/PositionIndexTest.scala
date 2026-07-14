@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.lsp.index
 
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName as ModuleQualifiedName, Qualifier as ModuleQualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, QualifiedName, Qualifier, ResolvedValue}
@@ -76,12 +75,12 @@ class PositionIndexTest extends AnyFlatSpec with Matchers {
   private def reference(name: String, range: PositionRange): Expression =
     Expression.ValueReference(sourced(range, fqn(name)))
 
-  /** A resolved value with a given definition-name location, an inert (FQN-free) type stack, and an optional body. */
+  /** A resolved value with a given definition-name location, an inert (FQN-free) signature, and an optional body. */
   private def definition(name: String, nameRange: PositionRange, body: Option[Expression] = None): ResolvedValue =
     ResolvedValue(
       vfqn = fqn(name),
       name = sourced(nameRange, QualifiedName(name, Qualifier.Default)),
       runtime = body.map(expression => sourced(nameRange, expression)),
-      typeStack = sourced(nameRange, TypeStack.of(Expression.ParameterReference(sourced(at(0, 0, 0, 0), "T"))))
+      signature = sourced(nameRange, Expression.ParameterReference(sourced(at(0, 0, 0, 0), "T")))
     )
 }

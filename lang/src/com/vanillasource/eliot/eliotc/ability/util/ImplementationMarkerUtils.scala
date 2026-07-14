@@ -72,7 +72,7 @@ object ImplementationMarkerUtils {
       case None             => None.pure[CompilerIO]
       case Some(markerVfqn) =>
         getFactIfProduced(UnifiedModuleValue.Key(markerVfqn, platform)).map(
-          _.flatMap(umv => firstArgTypeConstructorName(umv.namedValue.typeStack.signature))
+          _.flatMap(umv => firstArgTypeConstructorName(umv.namedValue.signature.value))
         )
     }
 

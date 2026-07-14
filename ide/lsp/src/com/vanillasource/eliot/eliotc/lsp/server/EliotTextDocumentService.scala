@@ -187,7 +187,7 @@ object EliotTextDocumentService {
     * type of the runtime value — which is the signature a reader expects to see.
     */
   private def signatureOf(value: ResolvedValue): String =
-    s"${value.name.value.show} : ${value.typeStack.value.signature.show}"
+    s"${value.name.value.show} : ${value.signature.value.show}"
 
   /** Map an in-scope-name entry to an lsp4j completion item: the bare name is both label and insert text, the kind
     * drives the icon, and the rendered signature (when known) becomes the detail shown alongside.

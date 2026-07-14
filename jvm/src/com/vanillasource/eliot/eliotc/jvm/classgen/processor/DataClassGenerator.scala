@@ -57,7 +57,7 @@ object DataClassGenerator {
       resolvedConstructor: OperatorResolvedValue,
       fields: Seq[MonomorphicParameterDefinition]
   ): Seq[MonomorphicParameterDefinition] = {
-    val view        = SignatureView.of(resolvedConstructor.typeStack.map(_.signature))
+    val view        = SignatureView.of(resolvedConstructor.signature)
     val binderNames = view.binders.map(_.name.value).toSet
     val polymorphic = view.parameters.map(param =>
       spine(param.value)._1 match {

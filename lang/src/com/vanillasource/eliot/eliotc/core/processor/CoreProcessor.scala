@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
-import cats.data.NonEmptySeq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{
   Expression as SourceExpression,
@@ -69,24 +68,6 @@ class CoreProcessor
       CoreAST(sourceAst.uri, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }
 
-  /** Builds the kind expression for a generic function's type stack. For generic parameters [A: K1, B: K2, ...], the
-    * kind is Function(K1, Function(K2, ..., Type)).
-    */
-  private def buildKindExpression(function: FunctionDefinition): CoreExpression = {
-    import CoreExpressionConverter.*
-    import CoreExpression.*
-    val s = function.name
-    function.genericParameters
-      .foldRight[Sourced[CoreExpression]](
-        s.as(NamedValueReference(s.as(QualifiedName("Type", Qualifier.Type))))
-      ) { (param, acc) =>
-        val kindType    = convertExpression(param.typeRestriction, typeContext = true)
-        val functionRef = s.as(NamedValueReference(s.as(QualifiedName("Function", Qualifier.Type))))
-        s.as(FunctionApplication(s.as(FunctionApplication(functionRef, kindType)), acc))
-      }
-      .value
-  }
-
   private def transformFunction(function: FunctionDefinition, roleHint: RoleHint): NamedValue = {
     import CoreExpressionConverter.*
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
@@ -98,10 +79,6 @@ class CoreProcessor
       case _                                                                                               => false
     }
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body, isTypeBody))
-    val typeStack    =
-      if (function.genericParameters.nonEmpty)
-        TypeStack(NonEmptySeq.of(curriedType.value, buildKindExpression(function)))
-      else TypeStack.of(curriedType.value)
     val constraints  = function.genericParameters
       .map(gp =>
         gp.name.value -> gp.abilityConstraints.map(c =>
@@ -122,7 +99,7 @@ class CoreProcessor
     NamedValue(
       function.name,
       curriedValue,
-      typeStack,
+      curriedType,
       constraints,
       function.fixity,
       function.precedence.map(convertPrecedenceDeclaration),

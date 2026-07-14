@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.operator.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import TokenClassifier.AnnotatedPart
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -23,13 +22,13 @@ class OperatorResolverProcessor
     given Platform = desugaredValue.platform
     for {
       resolvedRuntime     <- desugaredValue.runtime.traverse(expr => resolveInExpression(expr.value).map(expr.as))
-      resolvedTypeStack   <- resolveInTypeStack(desugaredValue.typeStack)
+      resolvedSignature   <- resolveInExpression(desugaredValue.signature.value).map(desugaredValue.signature.as)
       resolvedConstraints <- resolveParamConstraints(desugaredValue.paramConstraints)
     } yield OperatorResolvedValue(
       desugaredValue.vfqn,
       desugaredValue.name,
       resolvedRuntime,
-      resolvedTypeStack,
+      resolvedSignature,
       resolvedConstraints,
       desugaredValue.inferableArity,
       desugaredValue.roleHint,
@@ -64,11 +63,6 @@ class OperatorResolverProcessor
       case MatchDesugaredExpression.ValueReference(name, typeArgs)              =>
         typeArgs.traverse(ta => resolveInExpression(ta.value).map(ta.as)).map(OperatorResolvedExpression.ValueReference(name, _))
     }
-
-  private def resolveInTypeStack(
-      stack: Sourced[TypeStack[MatchDesugaredExpression]]
-  )(using Platform): CompilerIO[Sourced[TypeStack[OperatorResolvedExpression]]] =
-    stack.value.levels.traverse(resolveInExpression).map(levels => stack.as(TypeStack(levels)))
 
   private def resolveFlatExpression(
       parts: Seq[Sourced[OperatorResolvedExpression]]

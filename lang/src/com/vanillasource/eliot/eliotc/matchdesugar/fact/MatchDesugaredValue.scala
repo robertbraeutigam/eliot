@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.fact
 
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
-import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -12,7 +12,7 @@ case class MatchDesugaredValue(
     vfqn: ValueFQN,
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[MatchDesugaredExpression]],
-    typeStack: Sourced[TypeStack[MatchDesugaredExpression]],
+    signature: Sourced[MatchDesugaredExpression],
     paramConstraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,

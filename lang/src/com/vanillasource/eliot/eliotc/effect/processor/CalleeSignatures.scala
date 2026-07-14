@@ -29,7 +29,7 @@ class CalleeSignatures {
                      .map(_.map(_.dischargedEffects).getOrElse(Set.empty))
     } yield orvOpt match {
       case Some(orv) =>
-        val view           = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
+        val view           = SignatureView.of(orv.signature)
         val carrierBinders = EffectCarriers.carrierBinders(view)
         CalleeInfo(
           view.parameters.map(_.value),

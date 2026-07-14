@@ -21,16 +21,10 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * parameter-position bare omittable reference carries its [[OperatorResolvedValue]] through unchanged.
   *
   * @param value
-  *   The (possibly rewritten) operator-resolved value, carrying the saturated type stack.
-  * @param typeLevel
-  *   The *type level* of this value (the type-levels-as-values plan). Level 0 is the ordinary runtime-body value
-  *   (produced by `SaturatedValueProcessor`). Level `n ≥ 1` is a *type expression* run as a named value on the compiler
-  *   track — its body is the host value's `TypeStack.levels(n-1)`, its signature the level above (see
-  *   `TypeLevelSaturatedValueProcessor`). A level value is an ordinary [[OperatorResolvedValue]]; the level only
-  *   distinguishes the *key* so the derivation and the host coexist without a synthetic FQN.
+  *   The (possibly rewritten) operator-resolved value, carrying the saturated signature.
   */
-case class SaturatedValue(value: OperatorResolvedValue, typeLevel: Int = 0) extends CompilerFact {
-  override def key(): CompilerFactKey[SaturatedValue] = SaturatedValue.Key(value.vfqn, value.platform, typeLevel)
+case class SaturatedValue(value: OperatorResolvedValue) extends CompilerFact {
+  override def key(): CompilerFactKey[SaturatedValue] = SaturatedValue.Key(value.vfqn, value.platform)
 
   /** The codegen-relevance classification of each leading type-stack binder, computed once on this saturated value —
     * the monomorphization-keying plan's B1 analysis (grown from the D6 reified-binder flag). Each binder carries its
@@ -43,11 +37,5 @@ case class SaturatedValue(value: OperatorResolvedValue, typeLevel: Int = 0) exte
 }
 
 object SaturatedValue {
-
-  /** @param typeLevel
-    *   0 = the ordinary runtime-body value; `n ≥ 1` = the level-`n` type expression run as a named value on the
-    *   compiler track. A proper key dimension (not a mangled FQN): level identity is structural.
-    */
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime, typeLevel: Int = 0)
-      extends CompilerFactKey[SaturatedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[SaturatedValue]
 }

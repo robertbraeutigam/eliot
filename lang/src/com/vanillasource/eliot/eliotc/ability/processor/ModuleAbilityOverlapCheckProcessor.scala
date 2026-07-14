@@ -52,7 +52,7 @@ class ModuleAbilityOverlapCheckProcessor
       platform: Platform
   ): CompilerIO[Option[Sourced[OperatorResolvedExpression]]] =
     getFactIfProduced(OperatorResolvedValue.Key(markerVfqn, platform)).map(
-      _.map(resolved => resolved.typeStack.as(resolved.typeStack.value.signature))
+      _.map(resolved => resolved.signature)
     )
 
   private def reportOverlaps(

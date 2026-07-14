@@ -1,8 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
-import cats.data.NonEmptySeq
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
@@ -29,7 +27,7 @@ object MarkerGuardSignature {
     * generic binders and the guard return (pattern-argument arrows dropped); otherwise return it unchanged.
     */
   def strippedForGuard(resolvedValue: OperatorResolvedValue): OperatorResolvedValue =
-    if (isMarker(resolvedValue)) resolvedValue.copy(typeStack = stripSignature(resolvedValue.typeStack))
+    if (isMarker(resolvedValue)) resolvedValue.copy(signature = stripSignature(resolvedValue.signature))
     else resolvedValue
 
   /** A marker's local name equals its ability's name (methods carry the method name); its qualifier is an
@@ -45,13 +43,10 @@ object MarkerGuardSignature {
     }
 
   private def stripSignature(
-      typeStack: Sourced[TypeStack[OperatorResolvedExpression]]
-  ): Sourced[TypeStack[OperatorResolvedExpression]] = {
-    // Only the bottom level (index 0) is the value's signature; the higher levels are its kind chain and are irrelevant
-    // to the guard, which is read off the (stripped) signature's return.
-    val levels   = typeStack.value.levels
-    val view     = SignatureView.of(typeStack.as(levels.head))
-    val stripped = view.withParameters(Seq.empty).toExpression
-    typeStack.as(TypeStack(NonEmptySeq(stripped, levels.tail)))
+      signature: Sourced[OperatorResolvedExpression]
+  ): Sourced[OperatorResolvedExpression] = {
+    // Keep only the leading generic binders and the guard return; drop the pattern-argument arrows.
+    val view = SignatureView.of(signature)
+    signature.as(view.withParameters(Seq.empty).toExpression)
   }
 }

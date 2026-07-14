@@ -36,7 +36,7 @@ import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcess
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.reconcile.processor.ReconcileProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.saturate.processor.{SaturatedValueProcessor, TypeLevelSaturatedValueProcessor}
+import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.uncurry.processor.MonomorphicUncurryingProcessor
@@ -91,7 +91,6 @@ object LangProcessors {
     EffectCheckProcessor(),
     EffectDischargeSummaryProcessor(),
     SaturatedValueProcessor(),
-    TypeLevelSaturatedValueProcessor(),
     AbilityImplementationProcessor(),
     AbilityImplementationCheckProcessor(),
     ModuleAbilityOverlapCheckProcessor(),
