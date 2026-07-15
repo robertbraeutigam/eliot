@@ -22,8 +22,20 @@ object CoreExpressionConverter {
   /** Converts a source expression to a core expression. In type context, bare uppercase names get Qualifier.Type; in
     * body context, they get Qualifier.Default (unless they have [] args, which always implies type-level). Value-level
     * () args are always converted in body context, [] args always in type context.
+    *
+    * `signatureContext` marks the whole expression as part of a **signature** (a type expression — a return/argument
+    * type, a generic-parameter kind). Signatures are always evaluated on the compiler track, so an integer literal in
+    * one is a *compile-time* integer — a bare `BigInteger` — never the runtime `integerLiteral[n] : Int` value-literal
+    * protocol. It is threaded (invariantly) through the descent so a literal keeps its compile-time reading even inside
+    * a `()` value-argument application that a signature may contain (e.g. an inline guard `if(MIN > 0, T) else …`, whose
+    * `0` must unify with `MIN : BigInteger` — not default to `Int` as a body literal would). It is orthogonal to
+    * `typeContext`, which still governs the Type/Default namespace of bare names within that application.
     */
-  def convertExpression(expr: Sourced[SourceExpression], typeContext: Boolean): Sourced[Expression] =
+  def convertExpression(
+      expr: Sourced[SourceExpression],
+      typeContext: Boolean,
+      signatureContext: Boolean = false
+  ): Sourced[Expression] =
     expr.value match {
       case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
         val isUpper = fnName.value.charAt(0).isUpper
@@ -34,28 +46,31 @@ object CoreExpressionConverter {
         // constructor.
         if (isUpper && args.isEmpty && (typeContext || genericArgs.isDefined)) {
           val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
-          curryApplicationWith(base, genericArgs.getOrElse(Seq.empty), convertExpression(_, typeContext = true))
+          curryApplicationWith(base, genericArgs.getOrElse(Seq.empty), convertExpression(_, typeContext = true, signatureContext))
         } else {
           curryApplicationWith(
             expr.as(
               NamedValueReference(
                 fnName.map(n => QualifiedName(n, Qualifier.Default)),
                 moduleName,
-                genericArgs.getOrElse(Seq.empty).map(convertExpression(_, typeContext = true))
+                genericArgs.getOrElse(Seq.empty).map(convertExpression(_, typeContext = true, signatureContext))
               )
             ),
             args,
-            convertExpression(_, typeContext = false)
+            // A `()` value argument flips the *namespace* to Default, but stays within the enclosing signature — so a
+            // literal in it remains compile-time (`signatureContext` preserved).
+            convertExpression(_, typeContext = false, signatureContext)
           )
         }
       case SourceExpression.FunctionLiteral(params, body)                              =>
-        curryLambda(params, convertExpression(body, typeContext))
+        curryLambda(params, convertExpression(body, typeContext, signatureContext), signatureContext)
       case SourceExpression.IntegerLiteral(lit)                                        =>
-        if (typeContext) {
-          // Type/bound position (inside `[...]`): the literal is a bare `BigInteger` bound.
+        if (typeContext || signatureContext) {
+          // Type/bound position (inside `[...]`) or anywhere in a signature: the literal is a compile-time
+          // `BigInteger`, not the runtime `integerLiteral[n] : Int` value-literal protocol.
           expr.as(IntegerLiteral(lit))
         } else {
-          // Value position: desugar `n` into `integerLiteral[n] : Int[n, n]`. The inner `[n]` lands in
+          // Value position (a body): desugar `n` into `integerLiteral[n] : Int[n, n]`. The inner `[n]` lands in
           // `typeArgs` (type context), so it stays a bare `BigInteger`.
           expr.as(
             NamedValueReference(
@@ -68,17 +83,17 @@ object CoreExpressionConverter {
       case SourceExpression.StringLiteral(lit)                                         =>
         expr.as(StringLiteral(lit))
       case SourceExpression.FlatExpression(Seq(single))                                =>
-        convertExpression(single, typeContext)
+        convertExpression(single, typeContext, signatureContext)
       case SourceExpression.FlatExpression(parts)                                      =>
-        expr.as(FlatExpression(parts.map(p => convertExpression(p, typeContext))))
+        expr.as(FlatExpression(parts.map(p => convertExpression(p, typeContext, signatureContext))))
       case SourceExpression.MatchExpression(scrutinee, cases)                          =>
         expr.as(
           MatchExpression(
-            convertExpression(scrutinee, typeContext),
+            convertExpression(scrutinee, typeContext, signatureContext),
             cases.map(c =>
               MatchCase(
                 c.pattern.map(toPattern),
-                convertExpression(c.body, typeContext)
+                convertExpression(c.body, typeContext, signatureContext)
               )
             )
           )
@@ -87,8 +102,8 @@ object CoreExpressionConverter {
         expr.as(BlockExpression(lines.map { line =>
           BlockLine(
             line.binder.map(_.name),
-            line.binder.flatMap(_.typeExpression).map(t => convertExpression(t, typeContext = true)),
-            convertExpression(line.expression, typeContext)
+            line.binder.flatMap(_.typeExpression).map(t => convertExpression(t, typeContext = true, signatureContext)),
+            convertExpression(line.expression, typeContext, signatureContext)
           )
         }))
       case _: SourceExpression.EffectfulType                                           =>
@@ -109,9 +124,11 @@ object CoreExpressionConverter {
       returnType: Sourced[SourceExpression],
       genericParams: Seq[GenericParameter]
   ): Sourced[Expression] = {
-    val withArgs = args.foldRight[Sourced[Expression]](convertExpression(returnType, typeContext = true)) {
+    // The whole signature is a compile-time type expression: `signatureContext = true` keeps every integer literal a
+    // bare `BigInteger`, even inside a `()` value-argument application the return type may contain (an inline guard).
+    val withArgs = args.foldRight[Sourced[Expression]](convertExpression(returnType, typeContext = true, signatureContext = true)) {
       (arg, acc) =>
-        val argType     = convertExpression(arg.typeExpression, typeContext = true)
+        val argType     = convertExpression(arg.typeExpression, typeContext = true, signatureContext = true)
         val functionRef =
           arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Qualifier.Type))))
         val withArgType = arg.name.as(
@@ -128,7 +145,7 @@ object CoreExpressionConverter {
         )
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
-      val kindType = convertExpression(param.typeRestriction, typeContext = true)
+      val kindType = convertExpression(param.typeRestriction, typeContext = true, signatureContext = true)
       param.name.as(FunctionLiteral(param.name, Some(kindType), acc))
     }
   }
@@ -173,13 +190,14 @@ object CoreExpressionConverter {
     */
   private def curryLambda(
       params: Seq[SourceLambdaParameter],
-      body: Sourced[Expression]
+      body: Sourced[Expression],
+      signatureContext: Boolean = false
   ): Sourced[Expression] =
     params.foldRight(body) { (param, acc) =>
       param.name.as(
         FunctionLiteral(
           param.name,
-          param.typeExpression.map(convertExpression(_, typeContext = true)),
+          param.typeExpression.map(convertExpression(_, typeContext = true, signatureContext)),
           acc
         )
       )
