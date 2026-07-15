@@ -264,15 +264,17 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
   signature twin authoritative). `SignatureTwinResolveTest` pins it.
   *Gate:* zero behaviour change (full suite + examples green); new `SignatureTwinResolveTest`.
 
-  **Steps 3–4 are subsumed by the same topology (measured 2026-07-15).** A probe demanding
-  `MatchDesugaredValue` / `OperatorResolvedValue` / `SaturatedValue` for a signature twin (`def id[X](x: X): X`, and an
-  abstract `def a: T`) produced each fact with **zero errors** — the whole front-end is keyed by `(vfqn, platform)` and
-  is role-agnostic, so the signature twin flows through `matchdesugar` → `operator` → `saturate` unchanged. There is no
-  "single-bodied end-to-end" conversion and no migrating join adapter to do (the runtime twin stays dual-slot; `mono`
-  reads it as today). Effect/recursion checks are never demanded for signature twins in the real pipeline (nothing
-  references them), so they stay runtime-only for free until Step 8. **Steps 3 and 4 therefore reduce to adding the
-  matchdesugar/operator/saturate confirmation tests** — best landed together as one front-end-confirmation unit rather
-  than three near-empty commits.
+- **Steps 3–4 — `matchdesugar` + `operator` + `saturate` on twins.** *(landed 2026-07-15 — verification-only, no
+  production change; folded into one front-end-confirmation unit.)* The whole front-end is keyed by `(vfqn, platform)`
+  and role-agnostic, so the signature twin flows through `matchdesugar` → `operator` → `saturate` unchanged: each phase
+  produces the signature twin's fact with its body preserved and zero errors, and the saturated signature carries the
+  twin's `inferableArity` (§5). There is no "single-bodied end-to-end" conversion and no migrating join adapter to do
+  (the runtime twin stays dual-slot; `mono` reads it as today). Effect/recursion checks are never *demanded* for
+  signature twins in the real pipeline (nothing references them), so they stay runtime-only for free until Step 8.
+  `SignatureTwinFrontEndTest` pins matchdesugar/operator/saturate. `used`/`uncurry`/backend and the LSP/apidoc indices
+  key off runtime twins (unchanged — signature twins are not in the surface name set).
+  *Gate:* full suite + examples + `ide.lsp` green; zero behaviour change. (The mechanical split is complete — the real
+  divergence-work is all Step 5+.)
 
 - **Step 5 — the signature twin gets its own mono (consumer-first).** `CompilerMonomorphicValue(v@Signature, args)`:
   check the signature body against the **derived kind**, elaborate + reduce on the compiler track. W3 values
