@@ -318,26 +318,26 @@ class CalculatedReturnResolver(
       case _                                        => GuardChannel.fallbackRejectionMessage
     }
 
-  /** Discharge any guard in a *signature's* return position — the callee side (W2b). The signature is a chain of
-    * value-parameter `VPi` arrows ending in the (already type-argument-applied) return computation. Descend to that
-    * return — a guard depends only on the (now concrete) type parameters, never the value parameters, so a placeholder
-    * suffices to peel the arrows — and [[dischargeGuardedReturn]] it. The three outcomes mirror the model:
+  /** Discharge any guard in a *signature's* return position — the callee side (W2b), settled at the read of the value's
+    * (re-inflated, ground) signature twin (signature-unification C1). The signature is a chain of value-parameter `VPi`
+    * arrows ending in the return; descend to that return — a guard depends only on the (now concrete) type parameters, so
+    * a placeholder suffices to peel the arrows — and settle it **by its ground shape**, no `sawGuard` flag:
     *   - `Right(t)` ⟹ rebuild the arrows over the payload `t`, so the published signature and the body's expected type
     *     become the plain type `t`; no return meta.
-    *   - `Left` ⟹ the discharge aborts.
-    *   - not reduced (a non-guard ordinary return, or a guard *stuck* on abstract bounds) ⟹ **defer**. A stuck guard
-    *     (`isGuard`, recognised at the kind check) with a body becomes a fresh return metavariable the body solves —
-    *     exactly the calculated-return treatment, so the body type-checks instead of erroring against the undischarged
-    *     carrier, and the guard is re-decided at each concrete use (Use-Site Verification). A non-guard, or a body-less
-    *     stuck guard, is returned untouched (the latter stays stuck and hard-errors at read-back — fail-safe).
+    *   - `Left` ⟹ the discharge aborts (the author message).
+    *   - an `Either`/`Bool` **carrier-headed** return ([[isGuardCarrier]]) — a guard the twin published *undischarged*
+    *     (its verdict depends on a leftover generic binder the twin left as a `GroundValue.Param`) — with a body ⟹
+    *     **defer**: a fresh return metavariable the body solves, so the body type-checks instead of erroring against the
+    *     undischarged carrier, and the guard is re-decided at each concrete use (Use-Site Verification).
+    *   - anything else (an ordinary type, or a body-less carrier-headed return) ⟹ returned untouched (the latter stays
+    *     stuck and hard-errors at read-back — fail-safe).
     *
     * @return
-    *   the resolved signature and an optional return metavariable (`Some` only in the stuck-guard-deferred case, fed to
-    *   the same post-drain fail-safe as a calculated return).
+    *   the resolved signature and an optional return metavariable (`Some` only in the deferred case, fed to the same
+    *   post-drain fail-safe as a calculated return).
     */
   def dischargeGuardedSignature(
       sig: SemValue,
-      isGuard: Boolean,
       hasBody: Boolean,
       at: Sourced[?]
   ): CheckIO[(SemValue, Option[VMeta])] = {
@@ -353,9 +353,12 @@ class CalculatedReturnResolver(
         case VPi(domain, codomain) => peel(codomain(probe), domain :: domains)
         case leaf                  =>
           dischargeGuardedReturn(leaf, at).flatMap {
-            case Some(payload)              => pure((rebuild(domains, payload), None))
-            case None if isGuard && hasBody => freshMeta.map(m => (rebuild(domains, m), Some(m)))
-            case None                       => pure((sig, None))
+            case Some(payload) => pure((rebuild(domains, payload), None))
+            case None          =>
+              isGuardCarrier(leaf).flatMap {
+                case true if hasBody => freshMeta.map(m => (rebuild(domains, m), Some(m)))
+                case _               => pure((sig, None))
+              }
           }
       }
 

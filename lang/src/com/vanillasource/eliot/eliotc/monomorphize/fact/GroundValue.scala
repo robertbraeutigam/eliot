@@ -29,6 +29,19 @@ object GroundValue {
     override def valueType: GroundValue = this
   }
 
+  /** A signature-twin *parameter* (signature-unification C2): a leftover generic binder that a *partial-arity* signature
+    * twin received no type argument for, read back **under its binder** rather than defaulted to `Type`. `index` is the
+    * binder's position; `args` its applied spine (a higher-kinded binder `F[_]` occurring as `F[Unit]` carries `[Unit]`).
+    *
+    * A `Param` lives **only** inside a `CompilerMonomorphicValue(*@Signature)` fact at a partial key — it is the honest
+    * read-back of a generic signature (a function value) at fewer arguments than binders. Its two consumers:
+    *   - the value mono re-inflates each `Param` to a *fresh metavariable* (`Evaluator.groundToSem` with a Param→meta
+    *     substitution), preserving the constraint-covered deferral a leftover binder needs (signature-unification §4.7);
+    *   - `groundToSem` **without** a substitution hard-errors on a `Param` (fail-safe) — a `Param` must never leak into a
+    *     value mono's own published signature (codegen's erased/defaulted form, finding 2) or reach the runtime track.
+    */
+  case class Param(index: Int, args: Seq[GroundValue], override val valueType: GroundValue) extends GroundValue
+
   extension (gv: GroundValue) {
 
     def typeFQN: Option[ValueFQN] =
@@ -92,5 +105,7 @@ object GroundValue {
     case Direct(value, _)                         => value.toString
     case Structure(name, _, valueType) if valueType === Type => name.name.name
     case Structure(_, _, _)                       => "Structure(...)"
+    case Param(index, Nil, _)                     => s"?p$index"
+    case Param(index, args, _)                    => s"?p$index[${args.map(_.show).mkString(", ")}]"
   }
 }

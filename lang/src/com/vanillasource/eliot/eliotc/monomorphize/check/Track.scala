@@ -13,51 +13,24 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The per-track strategy for the two monomorphization tracks (runtime / compiler). It carries the track's [[Platform]]
-  * (so fact keys read the platform off the track rather than a bare threaded value) plus the four places the checking
+  * (so fact keys read the platform off the track rather than a bare threaded value) plus the three places the checking
   * core genuinely differs between the two tracks, each extracted 1:1 from a former `platform match` conditional in
   * [[TypeStackLoop]]:
   *
-  *   - [[settleReturnPosition]] — the calc-return / guard-discharge / pass-through switch for the return position;
   *   - [[pinCarriers]] — the compiler track's `{Throw[E]}` → `Either[E]` carrier pinning (a no-op on the runtime track);
   *   - [[implBindings]] — the compiler track's resolved-impl binding fetch, folded into the read-back evaluator's lookup
   *     (empty on the runtime track, whose body stays structural for codegen);
   *   - [[readBackBody]] — reduce the compile-time body ([[PostDrainQuoter.reduceSourced]]) on the compiler track, or
   *     keep it structural ([[PostDrainQuoter.quoteSourced]]) on the runtime track.
   *
-  * Everything else in the checking core is track-agnostic. A hook receives exactly the collaborators / primitives it
-  * needs (the [[Checker]] for the two that call checker methods, `fetchBinding` / the [[PostDrainQuoter]] for the read
-  * side); state access is via [[CheckIO]].
+  * The return-position settle is no longer a track hook: [[TypeStackLoop.settleAtRead]] reads the value's re-inflated
+  * ground signature and settles it directly, branching on [[platform]] once for the guard's runtime-discharge vs
+  * compiler-pass-through asymmetry (signature-unification C1). Everything else in the checking core is track-agnostic.
+  * A hook receives exactly the collaborators / primitives it needs (the [[Checker]] for the two that call checker
+  * methods, `fetchBinding` / the [[PostDrainQuoter]] for the read side); state access is via [[CheckIO]].
   */
 sealed trait Track {
   def platform: Platform
-
-  /** Settle a value's return position before the body is checked, yielding the signature to check against plus an
-    * optional return metavariable the body must solve. Three mutually-exclusive outcomes, exactly the former
-    * `(calcReturn, platform)` match:
-    *   - a *calculated* (bare, omittable) return — track-independent — becomes a fresh meta the body solves
-    *     ([[CalculatedReturnResolver.installReturnMeta]], W3);
-    *   - otherwise the track decides ([[settleGuardedReturn]]): the runtime track discharges an effectful-signatures
-    *     guard, the compiler track (the guard's *producer*) leaves the carrier signature as-is.
-    */
-  final def settleReturnPosition(
-      checker: Checker,
-      instantiated: SemValue,
-      calcReturn: Boolean,
-      sawGuard: Boolean,
-      resolvedValue: OperatorResolvedValue
-  ): CheckIO[(SemValue, Option[VMeta])] =
-    if (calcReturn)
-      checker.calcReturns.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
-    else
-      settleGuardedReturn(checker, instantiated, sawGuard, resolvedValue)
-
-  /** The non-calculated return branch of [[settleReturnPosition]]. */
-  protected def settleGuardedReturn(
-      checker: Checker,
-      instantiated: SemValue,
-      sawGuard: Boolean,
-      resolvedValue: OperatorResolvedValue
-  ): CheckIO[(SemValue, Option[VMeta])]
 
   /** Pin a compile-time value's effect carriers before its body is checked (compiler track only; a no-op on runtime). */
   def pinCarriers(checker: Checker, resolvedValue: OperatorResolvedValue): CheckIO[Unit]
@@ -83,23 +56,6 @@ object Track {
   case object Runtime extends Track {
     override val platform: Platform = Platform.Runtime
 
-    override protected def settleGuardedReturn(
-        checker: Checker,
-        instantiated: SemValue,
-        sawGuard: Boolean,
-        resolvedValue: OperatorResolvedValue
-    ): CheckIO[(SemValue, Option[VMeta])] =
-      // Ordinary values take the W2b effectful-signatures discharge. Ability-implementation *markers* never reach here:
-      // their guard verdict is read off the marker's signature twin (`AbilityImplementationProcessor.readGuardVerdict`,
-      // signature-unification Phase D-core), so no marker is monomorphized as a runtime value mono (the only caller of
-      // this hook). The former marker exemption that skipped the discharge is therefore unreachable and was removed.
-      checker.calcReturns.dischargeGuardedSignature(
-        instantiated,
-        sawGuard,
-        resolvedValue.runtime.isDefined,
-        resolvedValue.name
-      )
-
     override def pinCarriers(checker: Checker, resolvedValue: OperatorResolvedValue): CheckIO[Unit] = pure(())
 
     override def implBindings(
@@ -119,14 +75,6 @@ object Track {
     */
   case object Compiler extends Track {
     override val platform: Platform = Platform.Compiler
-
-    override protected def settleGuardedReturn(
-        checker: Checker,
-        instantiated: SemValue,
-        sawGuard: Boolean,
-        resolvedValue: OperatorResolvedValue
-    ): CheckIO[(SemValue, Option[VMeta])] =
-      pure((instantiated, Option.empty[VMeta]))
 
     /** Compiler-track carrier pinning (CP-D): a compile-time value's own `{Throw[E]}` effect carrier has no runtime
       * carrier to infer — it is fixed to the compiler platform's `Throw` carrier `Either[E]` (the `main`-pins-`IO`

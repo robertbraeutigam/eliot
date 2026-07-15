@@ -13,6 +13,7 @@ import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import org.objectweb.asm.{ClassReader, ClassVisitor, MethodVisitor, Opcodes}
 import org.scalatest.flatspec.AsyncFlatSpec
@@ -45,7 +46,10 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
     for {
       generator <- IncrementalFactGenerator.create(processors, None)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
+      // Register each source under both pools: the value mono reads its signature twin (compiler pool) mandatorily since
+      // signature-unification C1/C2, mirroring a real build where the compiler pool borrows the whole runtime track.
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
+      _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file), Platform.Compiler))
       _         <- Seq(
                      ModuleName(ModuleName.defaultSystemPackage, "Function") -> "type Function[A, B]",
                      ModuleName(ModuleName.compilerPackage, "Type")          -> "type Type",
@@ -59,6 +63,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
                      val path    = moduleName.toPath
                      val impFile = URI.create(path.toString)
                      generator.registerFact(PathScan(path, Seq(impFile))) >>
+                       generator.registerFact(PathScan(path, Seq(impFile), Platform.Compiler)) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, content)))
                    }
       _         <- generator.getFact(trigger)

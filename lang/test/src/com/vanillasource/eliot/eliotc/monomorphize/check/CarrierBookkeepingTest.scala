@@ -5,7 +5,8 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.processor.ReducedBindingClosure
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -108,15 +109,26 @@ object CarrierBookkeepingTest {
         key: CarrierProbe.Key,
         saturatedValue: SaturatedValue
     ): CompilerIO[CarrierProbe] =
-      new TypeStackLoop(fetchBinding, resolveAbilityImpl, Track.Runtime)
-        .processWithState(key.typeArguments, saturatedValue.value)
-        .map { case (state, _) =>
-          CarrierProbe(
-            key.vfqn,
-            key.typeArguments,
-            state.ambientCarriers,
-            state.unifier.carrierRoles.values.count(_.effectCarrier)
-          )
-        }
+      // The value mono reads its signature twin **mandatorily** (signature-unification C1/C2), so the probe mirrors the
+      // real `MonomorphicTypeCheckProcessor`: read the twin's ground signature and feed it in as `injectedSignature`.
+      getFactOrAbort(
+        CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
+      ).flatMap { twin =>
+        new TypeStackLoop(
+          fetchBinding,
+          resolveAbilityImpl,
+          Track.Runtime,
+          reduceInstance = ReducedBindingClosure.reduceInstance(_, _, _),
+          injectedSignature = Some(twin.signature)
+        ).processWithState(key.typeArguments, saturatedValue.value)
+          .map { case (state, _) =>
+            CarrierProbe(
+              key.vfqn,
+              key.typeArguments,
+              state.ambientCarriers,
+              state.unifier.carrierRoles.values.count(_.effectCarrier)
+            )
+          }
+      }
   }
 }

@@ -14,6 +14,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import org.scalatest.flatspec.AsyncFlatSpec
@@ -111,11 +112,17 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     for {
       generator <- IncrementalFactGenerator.create(SequentialCompilerProcessors(processors), None)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
+      // Register each source under **both** platform pools: the runtime pool (the value monos) and the compiler pool.
+      // Since signature-unification C1/C2 the value mono reads its signature twin (`CompilerMonomorphicValue(v@Signature)`)
+      // **mandatorily**, and the compiler pool borrows the whole runtime track in a real build (`PathScanner`), so the
+      // harness must mirror that — otherwise the twin never produces and the mandatory read aborts.
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
+      _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file), Platform.Compiler))
       _         <- imports.traverse { imp =>
                      val modulePath = imp.moduleName.toPath
                      val impFile    = URI.create(modulePath.toString)
                      generator.registerFact(PathScan(modulePath, Seq(impFile))) >>
+                       generator.registerFact(PathScan(modulePath, Seq(impFile), Platform.Compiler)) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, imp.content)))
                    }
       _         <- generator.getFact(trigger)

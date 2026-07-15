@@ -10,7 +10,6 @@ import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -95,7 +94,7 @@ class CompilerMonomorphicTypeCheckProcessor
       // The Step-6 flip: a `Runtime`-role value reads its *own* reduced ground signature from its signature twin's mono
       // rather than walking the signature in place. Absent (the signature twin computing itself, or a W3 twin that
       // declined) leaves the in-place walk. Acyclic: the signature twin never reads a runtime-role mono here.
-      injectedSignature <- signatureTwinSignature(signatureOnly, saturatedValue.value, key)
+      injectedSignature <- signatureTwinSignature(signatureOnly, key)
       result            <- TypeStackLoop.process(
                              key.typeArguments,
                              value,
@@ -115,29 +114,21 @@ class CompilerMonomorphicTypeCheckProcessor
     )
   }
 
-  /** The value's own reduced ground signature, read from `CompilerMonomorphicValue(v@Signature, args)` — the Step-6
-    * flip's injected signature. `None` (keeping the in-place walk) for a signature-twin key itself (it computes its
-    * signature), for an **ability-implementation marker** (its `where` guard rides the return slot and is reduced only by
-    * the in-place guard machinery — its twin would not; the read is skipped so that stuck-guard production never fires),
-    * and when the twin declined (a W3 calculated return) or is not producible.
+  /** The value's own reduced ground signature, read from `CompilerMonomorphicValue(v@Signature, args)` — the injected
+    * signature the value mono re-inflates (signature-unification C1/C2). `None` only for a signature-twin key itself (it
+    * computes its own signature); otherwise the twin is **mandatory** at every arity (a partial-arity key reads a
+    * *parametric* signature with leftover `GroundValue.Param`s), so a missing twin aborts — its own mono already reported
+    * the signature's errors.
     */
   private def signatureTwinSignature(
       signatureOnly: Boolean,
-      value: OperatorResolvedValue,
       key: CompilerMonomorphicValue.Key
   ): CompilerIO[Option[GroundValue]] =
-    // Gated on **full arity** for the same reason as the runtime processor (signature-unification §4.7): the injected
-    // signature is consumed by `establishSignature` only when `typeArguments.size == binders.size`; a partial-arity key
-    // (an erased-generic ability-impl method) falls to the in-place walk regardless, so reading its twin would only mint
-    // a `@Signature` fact that is discarded. Skipping it is behaviour-preserving and removes per-build waste.
-    if (
-      signatureOnly || MarkerGuardSignature.isMarker(value) ||
-      key.typeArguments.sizeIs != SignatureView.of(value.signature).binders.size
-    ) none[GroundValue].pure[CompilerIO]
+    if (signatureOnly) none[GroundValue].pure[CompilerIO]
     else
-      getFactIfProduced(
+      getFactOrAbort(
         CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
-      ).map(_.map(_.signature))
+      ).map(cmv => Some(cmv.signature))
 
   /** Resolve an ability in the **compiler** pool: a compiler-track value is entirely compile-time, so all of its
     * ability references belong to the compiler platform.

@@ -201,8 +201,40 @@ object Evaluator {
     case GroundValue.Type                    => VType
     case GroundValue.Structure(fqn, args, _) =>
       args.map(groundToSem).foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+    case GroundValue.Param(index, args, _)   =>
+      // Fail-safe (signature-unification C2): a `Param` is a leftover signature-twin binder, meant to be re-inflated to a
+      // fresh metavariable by the value mono's dedicated re-inflation (which threads a Param→meta substitution — see
+      // [[groundToSemParam]]). Reaching the plain conversion means a `Param` leaked outside a signature-twin fact; produce
+      // a non-quotable *runtime-parameter* neutral (distinct head, negative level) so it fails **loudly** at read-back
+      // ("Cannot quote neutral value") rather than silently carrying a parametric form into a ground signature.
+      args.map(groundToSem).foldLeft(
+        VNeutral(NeutralHead.Param(-1 - index, s"$$sig-param-leak:$index"), Spine.SNil): SemValue
+      )(applyValue)
     case _                                   => VConst(g)
   }
+
+  /** [[groundToSem]] with a `Param → SemValue` substitution — the value mono's re-inflation of a *parametric* signature
+    * twin (signature-unification C2). Each [[GroundValue.Param]] is replaced by `param(index)` (a fresh metavariable the
+    * caller allocates once per index), preserving the constraint-covered deferral a leftover generic binder needs; its
+    * applied spine is re-inflated positionally. Non-`Param` ground values convert exactly as [[groundToSem]].
+    */
+  def groundToSemParam(g: GroundValue, param: Int => SemValue): SemValue = g match {
+    case GroundValue.Type                    => VType
+    case GroundValue.Structure(fqn, args, _) =>
+      args.map(groundToSemParam(_, param)).foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+    case GroundValue.Param(index, args, _)   =>
+      args.map(groundToSemParam(_, param)).foldLeft(param(index))(applyValue)
+    case _                                   => VConst(g)
+  }
+
+  /** [[groundToSemPi]] with a `Param → SemValue` substitution (the value mono's re-inflation, C2): rebuild `VPi` for
+    * function types, converting leaf [[GroundValue.Param]]s via [[groundToSemParam]].
+    */
+  def groundToSemPiParam(g: GroundValue, param: Int => SemValue): SemValue =
+    g.asFunctionType match {
+      case Some((domain, codomain)) => VPi(groundToSemPiParam(domain, param), _ => groundToSemPiParam(codomain, param))
+      case None                     => groundToSemParam(g, param)
+    }
 
   /** Convert a ground *signature* to a [[SemValue]], re-inflating [[VPi]] for function types. [[groundToSem]] alone
     * leaves a quoted `Function[A, B]` as a stuck `Function` [[VTopDef]] — the Π structure is lost at quote time and

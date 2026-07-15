@@ -38,12 +38,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param abilityResolutions
   *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
   *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
-  * @param sawGuardReturn
-  *   Whether the kind check accepted a `{Throw[String]}`-carrier return as a *guarded type* (effectful-signatures W2b).
-  *   Set when [[Checker.check]] accepts an `Either[..]`-valued term where a `Type` kind is expected; read by
-  *   [[TypeStackLoop]] so that a guard whose bounds are abstract (stuck, not reducible to `Right`/`Left`) is *deferred*
-  *   to the body — its return position becomes a metavariable the body solves — instead of the body hard-erroring
-  *   against the undischarged carrier. Use-Site Verification: the guard is still enforced at every concrete instance.
   * @param ambientCarriers
   *   The value-under-check's own *ambient* effect-carrier heads: for each of its higher-kinded, ability-constrained
   *   signature binders (the M1 `{E...}` carrier, `[F[_] ~ E...]`), the forced head of the binder's value in ρ after
@@ -60,13 +54,9 @@ case class CheckState(
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
-    sawGuardReturn: Boolean = false,
     ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
     liftCounter: Int = 0
 ) {
-
-  /** Record that the kind check accepted a guard-carrier return (effectful-signatures W2b). See [[sawGuardReturn]]. */
-  def recordGuardReturn: CheckState = copy(sawGuardReturn = true)
 
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
@@ -95,7 +85,7 @@ case class CheckState(
     copy(gamma = gamma.bind(name, tpe), rho = rho.bind(name, paramNeutral(name)))
 
   /** Bind an erased type parameter: its type in Γ and its evaluable value in ρ. Both are computed by the caller
-    * from the ground argument ([[TypeStackLoop.applyTypeArgs]]) — Γ from the argument's declared type, ρ from its
+    * from the ground argument ([[TypeStackLoop.establishSignature]]) — Γ from the argument's declared type, ρ from its
     * `groundToSem` form (so the reification gate and type-level code see a data value as its constructor `VTopDef`).
     */
   def bindTypeStackParam(name: String, tpe: SemValue, value: SemValue): CheckState =

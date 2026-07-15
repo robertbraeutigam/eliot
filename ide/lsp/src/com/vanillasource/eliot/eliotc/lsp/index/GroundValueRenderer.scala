@@ -28,6 +28,8 @@ object GroundValueRenderer {
           if (structure.args.isEmpty) structure.typeName.name.name
           else s"${structure.typeName.name.name}[${structure.args.map(render).mkString(", ")}]"
       }
+    case GroundValue.Param(index, Nil, _) => s"?p$index"
+    case GroundValue.Param(index, args, _) => s"?p$index[${args.map(render).mkString(", ")}]"
   }
 
   /** A function type used as the left operand of an arrow is parenthesised so the arrow nesting reads unambiguously. */

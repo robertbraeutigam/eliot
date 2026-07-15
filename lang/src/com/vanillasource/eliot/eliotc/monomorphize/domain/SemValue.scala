@@ -74,6 +74,15 @@ object SemValue {
       */
     case class Param(level: Int, name: String) extends NeutralHead
 
+    /** A *signature-twin generic binder* left unapplied at a partial-arity key (signature-unification C2): distinct from
+      * [[Param]] (a runtime value parameter) precisely because it read-backs differently — a `Param` neutral surviving to
+      * read-back is a legitimately-structural runtime parameter that keeps a body structural, whereas a [[SignatureBinder]]
+      * neutral quotes to a [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Param]] (a parametric signature).
+      * `index` is the binder's position; `name` its declared name (for diagnostics). Bound in ρ by `bindTwinBinders` for a
+      * binder the key carries no argument for.
+      */
+    case class SignatureBinder(index: Int, name: String) extends NeutralHead
+
     /** A fresh rigid variable a binder-descending traversal injects to compare or probe under a [[VPi]]/[[VLam]]: the
       * unifier (identity-bearing — both codomains receive the same one) and the quoter (a throwaway probe). Keyed by
       * [[Origin]] and the traversal's local `depth`, so it can never coincide with a [[Param]] or the other traversal's

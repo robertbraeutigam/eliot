@@ -256,7 +256,7 @@ class Checker(
                           case (VType, false) => calcReturns.isCalculatedReturnExpr(tm.value)
                           case _              => pure(false)
                         }
-      outcome        <- if (guardKind) modify(_.recordGuardReturn).as(SlotOutcome.Resolved(expr): SlotOutcome)
+      outcome        <- if (guardKind) pure(SlotOutcome.Resolved(expr): SlotOutcome)
                         else if (w3Hole) pure(SlotOutcome.Resolved(expr): SlotOutcome)
                         else resolveLadder(tm, expr, inferred, expected, allowBindLift)
     } yield outcome
@@ -506,8 +506,8 @@ class Checker(
     * flips to. Applies only when the reference **fully applies** the callee (an explicit argument per binder, so the
     * ground read's per-instantiation defaulting matches the caller's intent) and **every argument is ground** (a
     * quotable [[SemValue]]); a partial application whose remaining binders this call infers, or an argument still an
-    * unsolved meta, keeps the in-place evaluation that handles those. Markers are excluded (their `where` guard reduces
-    * only in place). `None` falls back. Acyclic: the twin's own mono checks no body, so it never re-enters this path.
+    * unsolved meta, keeps the in-place evaluation that handles those. `None` falls back. Acyclic: the twin's own mono
+    * checks no body, so it never re-enters this path.
     */
   private def flippedCalleeSignature(
       vfqn: Sourced[ValueFQN],
@@ -516,7 +516,6 @@ class Checker(
   ): CheckIO[Option[SemValue]] =
     if (
       signatureOnly ||
-      MarkerGuardSignature.isMarker(sv.value) ||
       explicitTypeArgs.sizeIs != SignatureView.of(sv.value.signature).binders.size
     ) pure(None)
     else

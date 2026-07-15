@@ -101,6 +101,15 @@ class PostDrainQuoter(
       }
     }
 
+  /** Non-aborting [[reduceSignatureToGround]]: the reduced ground signature, or [[None]] when it does not fully reduce
+    * (a guard stuck on a leftover `GroundValue.Param`). The signature twin uses this so it can fall back to publishing
+    * the guard's undischarged *carrier type* instead of aborting (signature-unification C2).
+    */
+  def reduceSignatureToGroundOption(expr: SemExpression): CompilerIO[Option[GroundValue]] =
+    reduceWithEscalation(monoEnv, expr).map { reduced =>
+      Quoter.quote(0, Evaluator.renormalize(reduced, metaStore, lookupTopDef, deep = true), metaStore).toOption
+    }
+
   /** Quote a sourced [[SemExpression]] tree to a sourced [[MonomorphicExpression]] tree, applying the staging gate. */
   def quoteSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] =
     quoteSourcedIn(expr, monoEnv)
@@ -392,6 +401,10 @@ class PostDrainQuoter(
         materialiseStructure(s, at)
       case GroundValue.Type                   =>
         Option.empty[MonomorphicExpression].pure[CompilerIO]
+      case _: GroundValue.Param               =>
+        // A `Param` is a signature-twin artefact (C2) and is re-inflated to a metavariable long before any body reaches
+        // read-back; one reaching materialisation would be a leak, so decline (never emit a parametric runtime value).
+        Option.empty[MonomorphicExpression].pure[CompilerIO]
     }
 
   /** Read a fully-ground compile-time **type** back as a structural value-reference spine — the type-level counterpart
@@ -409,6 +422,10 @@ class PostDrainQuoter(
     case GroundValue.Type                     =>
       MonomorphicExpression(GroundValue.Type, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.typeFQN), Seq.empty))
     case GroundValue.Direct(_, _)             =>
+      MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.anyFQN), Seq.empty))
+    case _: GroundValue.Param                 =>
+      // Unreachable: a `Param` is a signature-twin artefact (C2), never a reduced runtime/compiler body read here. Emit
+      // the opaque top carrier as a fail-safe rather than a bogus structural reference.
       MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.anyFQN), Seq.empty))
   }
 

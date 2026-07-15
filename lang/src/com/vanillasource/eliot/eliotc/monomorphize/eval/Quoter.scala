@@ -33,6 +33,15 @@ object Quoter {
           GroundValue.Type
         )
 
+      case VNeutral(NeutralHead.SignatureBinder(index, _), spine) =>
+        // A leftover generic binder of a partial-arity signature twin (signature-unification C2), read back **under its
+        // binder** as a parametric signature. Distinct from a runtime `Param` neutral, which stays non-quotable (a body
+        // parameter that keeps the body structural). The spine (a higher-kinded binder's application, `F[Unit]`) is
+        // quoted positionally.
+        for {
+          args <- spine.toList.traverse(quote(depth, _, metaStore))
+        } yield GroundValue.Param(index, args, GroundValue.Type)
+
       case VNeutral(_, _) =>
         Left("Cannot quote neutral value — contains unresolved variable")
 

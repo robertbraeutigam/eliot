@@ -8,7 +8,6 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 
@@ -30,25 +29,15 @@ class MonomorphicTypeCheckProcessor
     // pattern-argument types are not real value parameters, so they are stripped to leave binders + guard return.
     val value = MarkerGuardSignature.strippedForGuard(saturatedValue.value)
     for {
-      // The Step-6 flip: read the value's *own* signature reduced to ground from its signature twin's compiler-track mono
-      // (types are compile-time, so the signature is authoritative there) rather than walking it in place. Absent (a W3
-      // calculated return whose twin declined, an ability-implementation marker whose `where` guard only the in-place
-      // machinery reduces, or a signature not producible on the compiler track) keeps the in-place walk. Acyclic:
-      // `CompilerMonomorphicValue` never reads back a runtime `MonomorphicValue`.
-      //
-      // Gated on **full arity** (one type argument per binder), because `TypeStackLoop.establishSignature` consumes the
-      // injected signature only at full arity — a partial-arity key (an erased-generic ability-impl method, keyed at its
-      // impl-resolution-scope args; signature-unification §4.7) falls to the in-place walk regardless. Reading the twin
-      // there would mint a partial-arity `@Signature` fact (leftover binders defaulted to `Type`) that is immediately
-      // discarded — pure waste on every build; skipping the read is behaviour-preserving (the value flows nowhere else).
-      injectedSignature <- if (
-                             MarkerGuardSignature.isMarker(value) ||
-                             key.typeArguments.sizeIs != SignatureView.of(value.signature).binders.size
-                           ) none[GroundValue].pure[CompilerIO]
-                           else
-                             getFactIfProduced(
-                               CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
-                             ).map(_.map(_.signature))
+      // Read the value's *own* signature reduced to ground from its signature twin's compiler-track mono (types are
+      // compile-time, so the signature is authoritative there) rather than walking it in place — the twin is
+      // **mandatory** at every arity (signature-unification C1/C2): a partial-arity key reads a *parametric* signature
+      // (leftover binders as `GroundValue.Param`s) which `establishSignature` re-inflates to fresh metas. A missing twin
+      // means its own mono already reported the signature's errors, so aborting here is the correct decline (no in-place
+      // re-check, no double reporting). Acyclic: `CompilerMonomorphicValue` never reads back a runtime `MonomorphicValue`.
+      injectedSignature <- getFactOrAbort(
+                             CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
+                           ).map(cmv => Some(cmv.signature))
       result            <- TypeStackLoop.process(
                              key.typeArguments,
                              value,

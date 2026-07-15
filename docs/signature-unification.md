@@ -2,8 +2,10 @@
 
 **Status: IN PROGRESS (updated 2026-07-15).** Phases A, B, D-core LANDED; Phase C's first cut BLOCKED and reverted
 (see §7 PHASE C OUTCOME), then **re-derived the same day from a full demand census** — see §7 PHASE C RE-DERIVATION
-(C-pre / C1 / C2). **C-pre LANDED** (dead guard machinery deleted + twin read gated on arity; net −104 lines, zero
-behaviour change — see §7 Phase C-pre); C1 / C2 / Phase E pending. Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
+(C-pre / C1 / C2). **C-pre LANDED** (net −104 lines). **C1+C2 LANDED together** (one commit, per the maintainer's call):
+the twin read is mandatory at every arity, the in-place walk is deleted, and partial-arity twins publish parametric
+signatures (`GroundValue.Param`) — **goal 2 is met** (`monomorphize/check` net −87 on top of C-pre's −104; one execution
+path at every arity). See §7 Phase C1+C2. Only Phase E (front-end single-bodying, severable) remains. Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
 0–8 + 10 are LANDED on master: every named value splits at birth into `v@Runtime` + `v@Signature` twins, the signature
 twin monomorphizes on the compiler track (`CompilerMonomorphicValue(v@Signature, args)`), the payoff feature (inline
 `if..else..raise` / bare `raise` guards) works end-to-end, and `when`/`orError` is retired. Its Step 9 — the checker
@@ -569,33 +571,51 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
     test totals before and after** the deletion (zero behaviour change), all example-integration tests pass, `HelloWorld`
     builds and runs. Net **−104 lines** (−136 / +32). No `CACHE_VERSION` bump: no persisted fact shape changed (a
     partial-arity twin fact is now simply never demanded, not reshaped).
-  - **C1 — the flip is mandatory at full arity; both settles become shape-driven; the guard machinery deletes.**
-    `establishSignature` splits **by arity, honestly**: a *full-arity* key reads its twin as **mandatory**
-    (`getFactOrAbort` semantics — verify §4.4's error propagation) and settles at the read with one leaf-driven
-    helper: `Right`/`Left`-headed ⟹ discharge (`dischargeGuardedReturn`; runtime track only — the compiler track
-    passes the carrier through, §6), arity-shortfall hole ⟹ `installReturnMeta` (bodied) / the W4 error (body-less),
-    otherwise pass through. A *partial-arity* key keeps the in-place walk plus a small partial settle: `isCalc` ⟹
-    `installReturnMeta`; a shape-recognized stuck guard with a body (`isGuardCarrier` on the peeled leaf) ⟹ the defer
-    meta (§4.5's sanctioned client); else pass through. Both settles are stateless ⟹ `CheckState.sawGuardReturn` /
-    `recordGuardReturn` and the `Track.settleReturnPosition`/`settleGuardedReturn` double dispatch delete;
-    `dischargeGuardedSignature`'s peel/rebuild collapses into the read-settle; the callee flip's marker exclusion
-    deletes. *Gate:* the §4.8 re-measure, plus the goal-2 net-line check — **C1 alone is expected to clear it**
-    (roughly 250 lines out against ~60 in).
-  - **C2 — parametric twins (severable): the walk deletes.** The twin at a partial-arity key stops defaulting leftover
-    binders and publishes each as a parameter (`GroundValue.Param` — quote-under-binder, the standard NbE read-back of
-    a *function* value, which a generic signature is; §3.5 already proved the fact language extends to a new shape). A
-    guard stuck on a `Param` publishes the undischarged carrier *type* (`Either[String, Type]` — exactly what the
-    compiler track's pass-through publishes for `someFn` today), never the unrepresentable stuck computation. The
-    value mono re-inflates `Param`s to fresh metas (the relocated `instantiateRemaining`), preserving the
-    constraint-covered deferral of finding 2; the partial settle merges into the one read-settle (carrier-headed
-    return at a non-ground key ⟹ defer). Then `walkTypeStack` + `levels`/`levelExprs`, `instantiateRemaining`,
-    `flattenReturnToType` + the ORE pre-detection delete — **one execution path at every arity**. Fences: `Param`
-    lives only in `CMV(*@Signature)` facts at partial keys (the value mono's own published signature keeps today's
-    defaulted/erased form — finding 2's codegen consumer is untouched); a `Param` reaching `groundToSem` without a
-    substitution hard-errors (fail-safe); `defaultUnsolvedMetas`/`assertEveryMetaResolved` exempt binder metas (they
-    resolve to `Param`s, a scoped read-back-under-binder discipline, not a signature-specific gate); `CACHE_VERSION`
-    bump; the `GroundValue` pattern-match sweep. *Gate:* §8 unchanged — if C2 can only stay green with a new
-    signature-specific gate, stop; C1's win stands alone.
+  - **C1 + C2 — the twin is mandatory at every arity; the walk deletes; goal 2 is met. [LANDED together, one commit.]**
+    The maintainer chose to land C1 and C2 as one unit (rather than incremental C1-then-C2) once the investigation showed
+    C1-alone is only a ~−35-line cleanup — the ~250-line goal-2 win lives in C2's walk deletion (below).
+
+    **What landed.** `establishSignature` is now **twin-mandatory at every arity** (no in-place walk): it reads the value's
+    signature twin (the processors use `getFactOrAbort`), allocates one fresh meta per *leftover* binder, binds each binder
+    in ρ/Γ (leading → its ground arg, leftover → its meta), and re-inflates the ground signature via
+    `Evaluator.groundToSemPiParam` — which replaces each leftover `GroundValue.Param` with that binder's meta. The return
+    position settles at the read via the one stateless `settleAtRead`: `isCalc` + body ⟹ `installReturnMeta`; else the
+    **runtime** track runs the (now shape-driven) `dischargeGuardedSignature` (`Right(t)` ⟹ discharge, `Left` ⟹ abort, an
+    `Either`/`Bool` carrier leaf ⟹ defer meta) while the **compiler** track passes the carrier through. Deleted:
+    `walkTypeStack` + `levels`/`levelExprs`, `instantiateRemaining`, `flattenReturnToType`, `applyTypeArgs`,
+    `CheckState.sawGuardReturn`/`recordGuardReturn`, `Track.settleReturnPosition`/`settleGuardedReturn` (both impls), the
+    callee flip's marker exclusion, and both processors' twin-read arity gate + marker exclusion.
+
+    **The parametric twin.** `GroundValue.Param(index, args, valueType)` (+ `NeutralHead.SignatureBinder`, a `Quoter`
+    arm, `groundToSemParam`/`groundToSemPiParam`, the `GroundValue` pattern-match sweep, `CACHE_VERSION` 26→27) is the
+    honest read-back of a generic signature at a partial key: `bindTwinBinders` binds a leftover **generic** binder to a
+    `SignatureBinder` neutral (a leftover **carrier** binder stays a meta for `pinCarriers`), which quotes to a `Param`.
+
+    **DEVIATIONS from the C1/C2 plan text (all verified green):**
+    1. **`sawGuardReturn` IS fully deleted after all** — §4.5's "`isGuardCarrier` on the peeled leaf" was empirically
+       false *in isolation* (a partial-arity stuck guard's leaf is a `VStuckNative` `fold`, not `Either`-headed — a
+       one-shot stderr probe confirmed), but C2's twin **publishes the undischarged carrier TYPE** (`Either[String,
+       Type]`) for a `Param`-stuck guard, so the value mono's re-inflated leaf **is** carrier-headed and `isGuardCarrier`
+       fires. Recognising the guard by shape at both sites (the twin's stuck-fallback + the settle) replaces the flag with
+       no residue. The twin recognises its own stuck guard via `isGuardCarrier(checked.expressionType)` — the checked
+       return's *type* — not a flag, gated to a no-value-parameter signature (the sole `Param`-stuck-guard source: an
+       abstract-site check of a no-param guard, §7 census); anything else stuck hard-errors ("Cannot resolve type.").
+    2. **The "Too many type arguments." check** (formerly in `applyTypeArgs`) relocated to `establishSignature`
+       (`typeArguments.size > binders.size` ⟹ error + abort).
+    3. **Test-harness fix (the bulk of the initial red):** the mandatory twin read requires the **compiler pool** to see
+       the test source, which a real build gives for free (`PathScanner` scans the whole runtime track) but the harnesses
+       did not — they pre-registered only a runtime `PathScan`. Registering the same source under `Platform.Compiler` in
+       `ProcessorTest.runGenerator`, `JvmClassGeneratorProcessorTest.runGenerator`, and the `CarrierProbeProcessor` (which
+       now reads the twin like the real processor) fixed 93 of the 99 initial failures — a harness gap the deleted walk
+       had masked, not a behaviour change.
+
+    *Gate — met:* `lang.test` (872) / `jvm.test` (211, incl. all example-integration tests) / `ide.lsp.test` (60) green,
+    identical totals to C-pre; `HelloWorld` + `EffectsThrow` (bare-`raise` guard) build and run. `monomorphize/check` net
+    **−87** (+199 / −286) on top of C-pre's −104 — **goal 2 (net-simplify the checker) is met**; one execution path at
+    every arity. The `Param` mechanism (+65 lines) lives outside `check/` (`fact/`/`eval/`/`domain/`) — a sanctioned new
+    fact shape, not checker bloat. Fences held: a `Param` reaching plain `groundToSem` produces a non-quotable poison
+    neutral (loud-fail at read-back); `Param` never leaks into a value mono's own published signature or codegen
+    (`materialise`/`groundTypeToMono` decline it).
 
 - **Phase E — front-end single-bodying (severable).** One body per front-end fact (§5's last block): the runtime twin
   drops its placeholder `.signature` (binder names forwarded), the sig twin *is* the signature, `signatureEquality`

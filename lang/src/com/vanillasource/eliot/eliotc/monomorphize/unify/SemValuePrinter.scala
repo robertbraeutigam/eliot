@@ -75,6 +75,9 @@ object SemValuePrinter {
             if (args.isEmpty) typeName.name.name
             else s"${typeName.name.name}[${args.map(showGround(_, topLevel = true)).mkString(", ")}]"
         }
+      case GroundValue.Param(index, Nil, _)         => s"?p$index"
+      case GroundValue.Param(index, args, _)        =>
+        s"?p$index[${args.map(showGround(_, topLevel = true)).mkString(", ")}]"
     }
 
   private def parenIf(cond: Boolean, s: String): String =
