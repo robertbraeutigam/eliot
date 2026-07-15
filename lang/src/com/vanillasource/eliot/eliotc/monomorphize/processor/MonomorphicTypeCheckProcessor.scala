@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.{MarkerGuardSignature, Track, TypeStackLoop}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -28,24 +28,33 @@ class MonomorphicTypeCheckProcessor
     // An ability-implementation marker is monomorphized only to discharge its `where` guard (ability-guards §2.3); its
     // pattern-argument types are not real value parameters, so they are stripped to leave binders + guard return.
     val value = MarkerGuardSignature.strippedForGuard(saturatedValue.value)
-    TypeStackLoop
-      .process(
-        key.typeArguments,
-        value,
-        fetchBinding = fetchBinding,
-        resolveAbility = resolveAbilityImpl,
-        track = Track.Runtime,
-        reduceInstance = ReducedBindingClosure.reduceInstance
-      )
-      .map(result =>
-        MonomorphicValue(
-          key.vfqn,
-          key.typeArguments,
-          value.signature.as(key.vfqn.name),
-          result.signature,
-          result.body
-        )
-      )
+    for {
+      // The Step-6 flip: read the value's *own* signature reduced to ground from its signature twin's compiler-track mono
+      // (types are compile-time, so the signature is authoritative there) rather than walking it in place. Absent (a W3
+      // calculated return whose twin declined, an ability-implementation marker whose `where` guard only the in-place
+      // machinery reduces, or a signature not producible on the compiler track) keeps the in-place walk. Acyclic:
+      // `CompilerMonomorphicValue` never reads back a runtime `MonomorphicValue`.
+      injectedSignature <- if (MarkerGuardSignature.isMarker(value)) none[GroundValue].pure[CompilerIO]
+                           else
+                             getFactIfProduced(
+                               CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
+                             ).map(_.map(_.signature))
+      result            <- TypeStackLoop.process(
+                             key.typeArguments,
+                             value,
+                             fetchBinding = fetchBinding,
+                             resolveAbility = resolveAbilityImpl,
+                             track = Track.Runtime,
+                             reduceInstance = ReducedBindingClosure.reduceInstance,
+                             injectedSignature = injectedSignature
+                           )
+    } yield MonomorphicValue(
+      key.vfqn,
+      key.typeArguments,
+      value.signature.as(key.vfqn.name),
+      result.signature,
+      result.body
+    )
   }
 
   private def resolveAbilityImpl(

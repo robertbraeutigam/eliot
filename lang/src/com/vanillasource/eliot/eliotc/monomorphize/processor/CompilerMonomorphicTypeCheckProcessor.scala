@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValu
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -89,26 +90,46 @@ class CompilerMonomorphicTypeCheckProcessor
     // inert placeholder) and a W3 decline. A `Runtime`-role key is the ordinary compiler-track value mono. The role
     // rides `key.vfqn`, so the input `SaturatedValue` is already the role-appropriate twin's.
     val signatureOnly = key.vfqn.name.role == Role.Signature
-    TypeStackLoop
-      .process(
-        key.typeArguments,
-        value,
-        fetchBinding = fetchBinding(value.name),
-        resolveAbility = resolveAbilityImpl,
-        track = Track.Compiler,
-        reduceInstance = ReducedBindingClosure.reduceInstance,
-        signatureOnly = signatureOnly
-      )
-      .map(result =>
-        CompilerMonomorphicValue(
-          key.vfqn,
-          key.typeArguments,
-          value.signature.as(key.vfqn.name),
-          result.signature,
-          result.body
-        )
-      )
+    for {
+      // The Step-6 flip: a `Runtime`-role value reads its *own* reduced ground signature from its signature twin's mono
+      // rather than walking the signature in place. Absent (the signature twin computing itself, or a W3 twin that
+      // declined) leaves the in-place walk. Acyclic: the signature twin never reads a runtime-role mono here.
+      injectedSignature <- signatureTwinSignature(signatureOnly, saturatedValue.value, key)
+      result            <- TypeStackLoop.process(
+                             key.typeArguments,
+                             value,
+                             fetchBinding = fetchBinding(value.name),
+                             resolveAbility = resolveAbilityImpl,
+                             track = Track.Compiler,
+                             reduceInstance = ReducedBindingClosure.reduceInstance,
+                             signatureOnly = signatureOnly,
+                             injectedSignature = injectedSignature
+                           )
+    } yield CompilerMonomorphicValue(
+      key.vfqn,
+      key.typeArguments,
+      value.signature.as(key.vfqn.name),
+      result.signature,
+      result.body
+    )
   }
+
+  /** The value's own reduced ground signature, read from `CompilerMonomorphicValue(v@Signature, args)` — the Step-6
+    * flip's injected signature. `None` (keeping the in-place walk) for a signature-twin key itself (it computes its
+    * signature), for an **ability-implementation marker** (its `where` guard rides the return slot and is reduced only by
+    * the in-place guard machinery — its twin would not; the read is skipped so that stuck-guard production never fires),
+    * and when the twin declined (a W3 calculated return) or is not producible.
+    */
+  private def signatureTwinSignature(
+      signatureOnly: Boolean,
+      value: OperatorResolvedValue,
+      key: CompilerMonomorphicValue.Key
+  ): CompilerIO[Option[GroundValue]] =
+    if (signatureOnly || MarkerGuardSignature.isMarker(value)) none[GroundValue].pure[CompilerIO]
+    else
+      getFactIfProduced(
+        CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
+      ).map(_.map(_.signature))
 
   /** Resolve an ability in the **compiler** pool: a compiler-track value is entirely compile-time, so all of its
     * ability references belong to the compiler platform.

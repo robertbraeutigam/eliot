@@ -204,6 +204,19 @@ object Evaluator {
     case _                                   => VConst(g)
   }
 
+  /** Convert a ground *signature* to a [[SemValue]], re-inflating [[VPi]] for function types. [[groundToSem]] alone
+    * leaves a quoted `Function[A, B]` as a stuck `Function` [[VTopDef]] — the Π structure is lost at quote time and
+    * [[renormalize]] does not re-fire a body-less top-def — which the body check (matching a `FunctionLiteral` against a
+    * `VPi`) cannot use. This rebuilds `VPi(domain, _ => codomain)` recursively, with a **constant** codomain: a ground
+    * signature is fully applied, so its codomain carries no residual dependency on the domain value. The signature-twin
+    * flip (signature split, Step 6) uses this to turn the twin's reduced ground signature back into a checkable type.
+    */
+  def groundToSemPi(g: GroundValue): SemValue =
+    g.asFunctionType match {
+      case Some((domain, codomain)) => VPi(groundToSemPi(domain), _ => groundToSemPi(codomain))
+      case None                     => groundToSem(g)
+    }
+
   /** Ground type for BigInteger values (used by eval for IntegerLiteral). */
   val bigIntGroundType: GroundValue =
     GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)

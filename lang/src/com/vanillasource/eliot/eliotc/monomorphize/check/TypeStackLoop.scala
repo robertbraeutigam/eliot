@@ -32,7 +32,13 @@ class TypeStackLoop(
     // against the derived kind and reducing it — exactly [[walkTypeStack]] + [[applyTypeArgs]] — with **no separate body
     // to check** (walking the signature is the whole job) and a **W3 decline** (a calculated return is solvable only by
     // the body, which a signature twin lacks). The default `false` is the ordinary runtime/compiler value mono.
-    signatureOnly: Boolean = false
+    signatureOnly: Boolean = false,
+    // The signature-split flip (Step 6): the value's *own* signature, already reduced to ground by its signature twin
+    // (`CompilerMonomorphicValue(v@Signature, args)`), fed in by the processor. When present (a fully-applied,
+    // non-calculated instance), [[establishSignature]] binds the type arguments and re-inflates this instead of walking
+    // the signature in place — routing every type-level expression through the twin's own monomorphization. `None` (a
+    // signature twin computing itself, a W3 value whose twin declined, or a partial application) keeps the in-place walk.
+    injectedSignature: Option[GroundValue] = None
 ) {
   import TypeStackLoop.AbilityRef
 
@@ -82,13 +88,12 @@ class TypeStackLoop(
       // ignored and everything below follows the ordinary body-less path (no body check, structural/reduced body `None`).
       bodyToCheck = if (signatureOnly) None else rv.runtime
 
-      // Kind-check the signature against its (derived) kind — returns the final SemValue plus one kind-check
-      // SemExpression per level (the kind, if generic, and the signature)
-      (signature, levelExprs) <- walkTypeStack(rv.signature)
-
-      // Apply explicit type args
-      appliedSig   <- applyTypeArgs(signature, typeArguments, rv.signature)
-      instantiated <- instantiateRemaining(appliedSig)
+      // Establish the value's signature at the concrete type arguments (the signature split's Step-6 flip): read it
+      // reduced-to-ground from the value's own signature twin (`injectedSignature`) and re-inflate it, or — a signature
+      // twin computing itself, a calculated return, a partial application — walk it in place. Either way yields the
+      // applied signature `SemValue` plus the kind-check ability-ref levels the drain loop walks (empty on the flip
+      // path — the twin already resolved the signature's abilities).
+      (instantiated, levelExprs) <- establishSignature(rv, typeArguments)
 
       // Effect-lift bookkeeping: record the value's own *ambient* effect-carrier heads, now that every signature
       // binder is bound in ρ (an explicit type argument to its concrete value, a leftover to its instantiation meta).
@@ -396,6 +401,40 @@ class TypeStackLoop(
         )
     }
 
+  /** Establish the value's signature at `typeArguments`, plus the ability-ref levels the drain loop walks (the
+    * signature split's Step-6 flip). Two paths:
+    *   - **flip** — `injectedSignature` is present (the value's signature twin produced its reduced ground signature)
+    *     and this is a fully-applied, non-`signatureOnly` instance: bind each type argument to its binder in ρ/Γ (the ρ
+    *     setup the body check needs, formerly a side effect of [[applyTypeArgs]]) and re-inflate the ground signature to
+    *     a checkable `VPi` ([[Evaluator.groundToSemPi]]). No in-place walk, and no signature ability levels — the twin's
+    *     own mono already resolved every ability embedded in the signature. The result is definitionally the in-place
+    *     walk's (the signature split's Step-5 equivalence), so the settle/body-check tail is shared unchanged.
+    *   - **in-place** — otherwise (a signature twin computing itself, a calculated return whose twin declined, a partial
+    *     application, or no twin signature available): the kind-checking [[walkTypeStack]] + [[applyTypeArgs]] +
+    *     [[instantiateRemaining]], exactly as before the flip.
+    */
+  private def establishSignature(
+      resolvedValue: OperatorResolvedValue,
+      typeArguments: Seq[GroundValue]
+  ): CheckIO[(SemValue, Seq[Sourced[SemExpression]])] = {
+    val binders = SignatureView.of(resolvedValue.signature).binders
+    injectedSignature match {
+      case Some(groundSig) if !signatureOnly && typeArguments.sizeIs == binders.size =>
+        binders
+          .zip(typeArguments)
+          .traverse_ { case (binder, arg) =>
+            modify(_.bindTypeStackParam(binder.name.value, Evaluator.groundToSem(arg.valueType), Evaluator.groundToSem(arg)))
+          }
+          .as((Evaluator.groundToSemPi(groundSig), Seq.empty[Sourced[SemExpression]]))
+      case _                                                                          =>
+        for {
+          (signature, levelExprs) <- walkTypeStack(resolvedValue.signature)
+          appliedSig              <- applyTypeArgs(signature, typeArguments, resolvedValue.signature)
+          instantiated            <- instantiateRemaining(appliedSig)
+        } yield (instantiated, levelExprs)
+    }
+  }
+
   /** Kind-check a value's signature against its (derived) kind, top-down.
     *
     * A generic signature `[A: K1, B: K2] -> …` has kind `Function[K1, Function[K2, Type]]`, derived from its leading
@@ -545,9 +584,11 @@ object TypeStackLoop {
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
       track: Track,
       reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO],
-      signatureOnly: Boolean = false
+      signatureOnly: Boolean = false,
+      injectedSignature: Option[GroundValue] = None
   ): CompilerIO[Result] =
-    new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance, signatureOnly).process(typeArguments, resolvedValue)
+    new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance, signatureOnly, injectedSignature)
+      .process(typeArguments, resolvedValue)
 
   private type AbilityRef = AbilityResolver.AbilityRef
 }
