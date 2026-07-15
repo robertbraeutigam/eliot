@@ -294,11 +294,16 @@ patterns.** Exhaustiveness is checked. Pitfall: a lowercase name is a *binder*, 
   - A body-less (abstract) def cannot have a calculated return — spell it out. Same when the body
     never produces the value (only `raise`/`abort`): nothing grounds the bounds, so declare them
     (`{Abort} UnsignedShort`, not `{Abort} Int`).
-- **Guarded returns** reject bad instantiations with your message (`import eliot.lang.Guard`):
+- **Guarded returns** reject bad instantiations with your message — written inline as
+  `if(cond, T) else raise(msg)` (a bare `raise(msg)` rejects unconditionally). Needs `if` from
+  `eliot.lang.Bool`, `else` from `eliot.effect.Abort`, and `raise` from `eliot.effect.Throw`:
 
   ```eliot
-  def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "head requires a non-empty Seq"
+  def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): if(MIN > 0, A) else raise("head requires a non-empty Seq") = ...
   ```
+
+  A satisfied guard types as the bare payload (`A` here); an unsatisfied one fails the build with your
+  message. A literal in the condition (`MIN > 0`) is a compile-time `BigInteger`, so it compares directly.
 
 - Types are values: a `def` can return a `Type` and be *used* as a type
   (`def stringBox: Type = Box[String]` then `def x: stringBox = …`), generic args can be values

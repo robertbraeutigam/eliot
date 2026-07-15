@@ -692,24 +692,29 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForFunctionArgInferable("type IO[A]").asserting(_ shouldBe Seq(("IO", Seq(false))))
   }
 
-  // --- effectful-signatures G2: the infix guard surface in the return-type position ---
+  // --- effectful-signatures: the inline guard surface in the return-type position ---
+  //
+  // A guarded return type is written inline as `if(cond, T) else raise(msg)` (the `when`/`orError` combinator surface was
+  // retired in the signature split Step 10). These cases pin the *parser* mechanics the greedy return-type run relies on
+  // — flat-expression flattening of an infix operator (`else`), the adjacency rule, and clean termination — none of which
+  // depends on the specific operator names.
 
-  "the return-type position" should "parse an infix guard as a flat expression (operator phase lowers it)" in {
-    runEngineForFunctionReturnTypes("def head[COND: Bool]: A when (COND) orError \"empty\" = bar").asserting(
-      _.collect { case ("head", Expression.FlatExpression(parts)) => parts.size } shouldBe Seq(5)
+  "the return-type position" should "parse an inline guard as a flat expression (operator phase lowers it)" in {
+    runEngineForFunctionReturnTypes("def head[COND: Bool]: if(COND, A) else raise(\"empty\") = bar").asserting(
+      _.collect { case ("head", Expression.FlatExpression(parts)) => parts.size } shouldBe Seq(3)
     )
   }
 
-  it should "keep `(MIN > 0)` a separate operand rather than gluing it onto the infix `when`" in {
-    // The space before `(` makes the parser treat `(MIN > 0)` as `when`'s operand, not the call `when(MIN > 0)`.
-    runEngineForFunctionReturnTypes("def head[MIN: BigInteger]: A when (MIN > 0) orError \"empty\" = bar").asserting(
-      _.collect { case ("head", Expression.FlatExpression(parts)) => parts.size } shouldBe Seq(5)
+  it should "keep a space-separated `(...)` a separate operand rather than gluing it onto the infix `else`" in {
+    // The space before `(` makes the parser treat `(raise("empty"))` as `else`'s operand, not the call `else(raise(...))`.
+    runEngineForFunctionReturnTypes("def head[COND: Bool]: if(COND, A) else (raise(\"empty\")) = bar").asserting(
+      _.collect { case ("head", Expression.FlatExpression(parts)) => parts.size } shouldBe Seq(3)
     )
   }
 
   it should "still attach an adjacent value-argument list (the application form stays a single call)" in {
-    runEngineForFunctionReturnTypes("def head[COND: Bool]: orError(when(A, COND), \"empty\") = bar").asserting(
-      _.collect { case ("head", app: Expression.FunctionApplication) => app.functionName.value } shouldBe Seq("orError")
+    runEngineForFunctionReturnTypes("def head[COND: Bool]: if(COND, A) = bar").asserting(
+      _.collect { case ("head", app: Expression.FunctionApplication) => app.functionName.value } shouldBe Seq("if")
     )
   }
 
@@ -721,7 +726,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "stop the greedy run before a following `private def`, keeping that def's visibility" in {
     // The greedy return-type run must not swallow the next definition's `private` modifier (now a hard keyword).
-    runEngineForFunctionVisibilities("def first: A when (COND) orError \"x\"\nprivate def second: B").asserting(
+    runEngineForFunctionVisibilities("def first: if(COND, A) else raise(\"x\")\nprivate def second: B").asserting(
       _ shouldBe Seq(("first", Visibility.Public), ("second", Visibility.Private))
     )
   }

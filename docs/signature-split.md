@@ -1,8 +1,14 @@
 # Signature split — the signature becomes a named value (`Runtime`/`Signature` role)
 
-**Status: IN PROGRESS** (updated 2026-07-15) — Steps 0–7 landed (Step 7, the payoff feature, complete this arc); Steps
-8–10 (checks reach signature bodies, the checker deletion sweep, the `Guard.els` removal + closeout) remain. This plan
-supersedes and replaces two retired documents:
+**Status: LANDED, with one goal unmet (updated 2026-07-15).** Steps 0–8 and 10 landed; **Step 9 (the checker deletion
+sweep) did not realize** — see the honest finding in §6 and the Step 9 note in §7. The payoff feature (effectful return
+guards: inline `if..else..raise`, bare `raise`) works end-to-end and the retired `when`/`orError` combinator surface is
+gone. But **goal 2 — that the split *net-simplifies* the checker — was not achieved**: the shipped Steps 5–7 chose a
+*gated-flip* design (the signature-twin read runs *beside* a retained in-place walk and the guard machinery), and every
+§6 deletion target turned out to be load-bearing for that design (proven, §6). Realizing the deletions would need a
+deeper rewrite that un-gates the flip for guards/W3/markers and removes the in-place walk — deferred, not done. So the
+split delivered goals *executionally* (the payoff feature) but the checker is not smaller; §6 records exactly what
+blocks each deletion so a later effort can pick it up. This plan supersedes and replaces two retired documents:
 
 - `docs/return-position-unification.md` — Stage 1 (structural calculated-return detection, no persisted flag) landed
   and stays; Stage 2 (effectful returns) is realized by this plan instead. Its Attempt-1 evidence is absorbed in §8.
@@ -174,6 +180,32 @@ programs:
 
 This is the measure of the plan (goal 2): each item below exists **only because a signature is not a value**. If an
 item does not become deletable, the design has drifted.
+
+> **Realization (Step 9, 2026-07-15): the ledger did NOT realize — goal 2 is unmet.** The plan's stop rule ("if the
+> deletion ledger doesn't realize, stop and re-derive") fired. The shipped Steps 5–7 did *not* make the signature a value
+> that fully replaces the in-place walk; they added a **gated flip** — `CompilerMonomorphicValue(v@Signature, args)` is
+> read only for the behaviour-preserving case (fully-applied, non-W3, non-marker), *beside* a retained in-place
+> `walkTypeStack`. Under that design every §6 target below is **load-bearing**, verified concretely:
+>
+> - **`dischargeGuardedSignature` + the `Track.Runtime` guard branch** — *proven* load-bearing: no-oping
+>   `Track.Runtime.settleGuardedReturn` to a pass-through reddens **6 satisfied-guard tests** (the runtime twin still
+>   discharges its guard `Right(t)` → `t` in place, because a guard's inferable effect-carrier binder makes it
+>   *partially* applied, so the flip is gated off and the in-place path runs).
+> - **`sawGuardReturn`/`recordGuardReturn` + `isGuardCarrier`** — drive Step 7's inline-guard reduction gate
+>   (`signatureOnly && sawGuard && !isMarker`) *and* the kind-check acceptance of an `Either`/`Bool`/effect-carrier-meta
+>   return; deleting them breaks the payoff feature.
+> - **`reduceGuardSubValues`/`collectValueRefs`** — *reused* by Step 7's inline guard (`reduceGuardSubValues(levelExprs,
+>   absorbTypeArgs = true, recursive = true)`); **`reevaluateGuardReturn`** is still needed by ability-implementation
+>   `where` *markers* (which are excluded from the flip by design).
+> - **`flattenReturnToType` + `walkTypeStack`/`levelExprs`** — still the W3-in-place path and the fallback for every
+>   non-flipped case (partial application, markers, non-ground callee refs, a signature twin computing itself).
+> - **precompute-and-merge reliance** — this one *did* clear, but only as a side effect of Step 10 deleting `orError`
+>   (its sole guard client); the precompute path itself stays for genuine compile-time natives.
+>
+> So the machinery below stays, and `monomorphize/check`'s net line count is **not** decisively negative. Realizing the
+> deletions is a *separate, deeper* effort: route guards/W3/markers fully through the signature-twin read (un-gate the
+> flip) so the in-place walk becomes genuinely unreferenced, then delete it. That was out of scope for the shipped
+> gated-flip Steps 5–7 and is left as future work; the items below are kept as the exact target list for it.
 
 **Monomorphize / checker — the guard machinery:**
 
@@ -401,23 +433,53 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
     deleted; the derived-effect-row exemption for signature twins was not needed for the inline guard to reduce and is
     left to Step 8. `CACHE_VERSION` unchanged (no persisted fact-shape change).
 
-- **Step 8 — checks reach signatures (verify, don't assume).** Extend the recursion check to signature-twin bodies:
-  covariant `data Tree(left: Tree, right: Tree)` and the monad-transformer lift must stay accepted (the §5 structural
-  argument, now tested); add the type-alias-cycle regression (newly caught — a fail-safe win). Purity/effect accounting
-  over signature bodies with the derived-row exemption.
-  *Gate:* full suite + all examples compile — no legitimate program newly rejected.
+- **Step 8 — checks reach signatures (verify, don't assume).** *(landed 2026-07-15.)* Both the recursion and effect
+  checks already run on every signature twin (the Step-6 flip demands the twin's compiler mono, which pulls the whole
+  `OperatorResolvedValue → RecursionChecked → EffectChecked → Saturated` chain). Verified (instrumented + tested) that
+  neither newly rejects a legitimate program:
+  - **Recursion**: on a signature twin the check is a **structural no-op** — the twin's body references only
+    `Runtime`-role type constructors while the search target is its own `Signature`-role FQN, so no callee can match.
+    Covariant `data Tree(left: Tree, right: Tree)` and the monad-transformer lift stay accepted. A cyclic type *alias*
+    (`type Foo = Foo`, mutual `A`/`B`) is caught on the **runtime** twin (whose body *is* the alias RHS) — the §5
+    fail-safe property realized. New regression tests in `TerminationIntegrationTest` pin all three.
+  - **Effect**: `Signature`-role twins are now **explicitly exempt** from the two user-facing diagnostics (the
+    `declared ⊇ used` subset check and the "declared pure but effectful" fail-safe), the §4 derived-row exemption made
+    principled — a twin's kind was never user-written, so a guard's return-type twin legitimately performs `Throw`/`Abort`
+    while reducing to its verdict. Previously this passed only by the accident of an empty carrier; now it is fail-safe by
+    construction. The runtime twin still gets the full check.
+  *Gate met:* full suite + all examples green.
 
-- **Step 9 — deletion sweep, checker.** Delete the §6 monomorphize items: `sawGuardReturn`/`recordGuardReturn`,
-  `isGuardCarrier` + the `VType` kind-check carve, `dischargeGuardedSignature` + the `Track.Runtime.settleGuardedReturn`
-  guard branch, the `settleReturnPosition` switch collapse, the Stage-4 `reduceGuardSubValues`/`reevaluateGuardReturn`/
-  `collectValueRefs` workaround, `flattenReturnToType`, and the guards' precompute-and-merge reliance.
-  *Gate:* suite green; net line count of `monomorphize/check` decisively negative — goal 2 realized.
+- **Step 9 — deletion sweep, checker. *(NOT REALIZED — documented finding, 2026-07-15.)*** The intent was to delete the
+  §6 monomorphize items (`sawGuardReturn`/`recordGuardReturn`, `isGuardCarrier` + the `VType` kind-check carve,
+  `dischargeGuardedSignature` + the `Track.Runtime.settleGuardedReturn` guard branch, the `settleReturnPosition` switch
+  collapse, the Stage-4 `reduceGuardSubValues`/`reevaluateGuardReturn`/`collectValueRefs` workaround, `flattenReturnToType`,
+  the precompute-and-merge reliance) and land goal 2 (net line count of `monomorphize/check` decisively negative). It did
+  not happen: **every target is load-bearing for the shipped gated-flip design** (Steps 5–7), proven and enumerated in the
+  §6 *Realization* block — no-oping the runtime guard discharge alone reddens 6 tests; the inline-guard payoff feature
+  *reuses* `sawGuard`/`isGuardCarrier`/`reduceGuardSubValues`; the W3-in-place path needs `flattenReturnToType`/
+  `walkTypeStack`; markers need `reevaluateGuardReturn`. Deleting any of them breaks a green, shipped feature. Per the
+  plan's own stop rule the honest outcome was to **document rather than force**: the machinery stays, and §6 records the
+  exact un-gate-the-flip rewrite that a future effort must do first. Only the precompute-and-merge *guard reliance*
+  cleared, and only because Step 10 removed `orError` (its sole guard client).
+  *Gate NOT met (goal 2 unmet); no code deleted.* The suite stays green because nothing changed here.
 
-- **Step 10 — deletion sweep, stdlib/tests + closeout.** Delete `eliot.lang.Guard` (`when`/`orError`) from both
-  layers; rewrite `GuardSignatureIntegrationTest` to the `if..else..raise`/bare-`raise` forms; update the
-  `Expression.scala` return-parser doc comments and `ASTParserTest` guard cases. Mark this document **COMPLETE** with
-  the final net-line ledger.
-  *Gate:* full suite + all examples green.
+- **Step 10 — deletion sweep, stdlib/tests + closeout.** *(landed 2026-07-15.)* Deleted `eliot.lang.Guard`
+  (`when`/`orError`) from **both** layers (`stdlib/eliot/eliot/lang/Guard.els`,
+  `stdlib/eliot-compiler/eliot/lang/Guard.els`); rewrote `GuardSignatureIntegrationTest` to the inline
+  `if..else..raise` / bare-`raise` forms; updated the `Expression.scala` return-parser doc comments, the `ASTParserTest`
+  guard cases, the internal `orError`-example comments (`TypeStackLoop`/`PostDrainQuoter`/`CompilerNativesProcessor`/
+  `CalculatedReturnResolver`), and the user-facing `eliot-code` skill.
+
+  **Prerequisite fix (`1a4a328d`): signature literals stay `BigInteger`.** The inline form did not at first fully replace
+  `when...orError`: `if(MIN > 0, T) else raise(…)` failed (`Expected: BigInteger, Actual: Int`) while the pure
+  `A when (MIN > 0) orError "…"` worked. Root cause (in `CoreExpressionConverter`): a signature's return type is converted
+  in type context, but a `()` value-argument application it contains (the inline `if(…)`) flipped to *value* context,
+  which desugared the literal `0` to the runtime `integerLiteral[0] : Int` value-literal protocol — clashing with
+  `MIN : BigInteger`. The `when` form stays a `FlatExpression` in type context, so its literal read as `BigInteger`. Fixed
+  by threading a `signatureContext` flag (orthogonal to the Type/Default `typeContext`): a literal anywhere in a signature
+  is a compile-time `BigInteger`, never the runtime `Int` form. Bodies unchanged. With this, inline `if..else..raise`
+  fully replaces `when...orError` including literal-comparison guards — no feature regression.
+  *Gate met:* full suite + all examples green.
 
 ## 8. Evidence record (absorbed from the retired docs — why this design and not the others)
 

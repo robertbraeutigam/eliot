@@ -62,13 +62,15 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(_.exists(_.names.contains(vfqn.name)))
 
   /** A **compile-time** value — one the compiler layer defines (concrete here) but the runtime pool leaves abstract, e.g.
-    * the guard combinators `error`/`orError` — whose checking body performs ability dispatch (`raise`/`pure`) cannot be
-    * reduced by the pure NbE evaluator against the abstract ability method (which has no binding), so its raw body would
-    * stall on it. For such a value the compile-time reduction is the **compiler backend's** output — the
-    * [[CompilerMonomorphicValue]] whose ability calls are resolved to the concrete impls and folded — built here into a
-    * self-contained [[BindingContribution.Leaf]] ([[ReducedBindingClosure]]). Both tracks then get the reducible form:
-    * the runtime track evaluates it in a type position (compiler-as-platform Increment E, the guard consumer), and the
-    * compiler track inlines it when reducing another compile-time value (e.g. `error` inside `orError`).
+    * the compiler-layer effect-carrier overlays that reduce an inline `if..else..raise` guard (the `Effect`/`Abort`
+    * instances on `AbortCarrier`, `foldEither`/`foldOption`) — whose checking body performs ability dispatch
+    * (`raise`/`pure`) cannot be reduced by the pure NbE evaluator against the abstract ability method (which has no
+    * binding), so its raw body would stall on it. For such a value the compile-time reduction is the **compiler
+    * backend's** output — the [[CompilerMonomorphicValue]] whose ability calls are resolved to the concrete impls and
+    * folded — built here into a self-contained [[BindingContribution.Leaf]] ([[ReducedBindingClosure]]). Both tracks then
+    * get the reducible form: the runtime track evaluates it in a type position (compiler-as-platform Increment E, the
+    * guard consumer), and the compiler track inlines it when reducing another compile-time value (e.g. `pure` inside the
+    * `AbortCarrier` `Effect` instance).
     *
     * The gate is deliberately narrow. Reducing an ability-using value at compile time only makes sense for a genuine
     * compile-time value; a *runtime* value that merely uses effects (`catch`/`runStateToPair`, or any user `{Console}` body)

@@ -180,8 +180,9 @@ class TypeStackLoop(
       finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(rv, guardBindings) else pure(checkSig)
 
       // An *inline* effectful guard (`if..else..raise`) on a **signature twin** (signature split, Step 7): unlike the
-      // named-combinator form (`orError`, a precomputed nullary native the shallow walk already inlined), the guard is
-      // spelled out with the carrier-generic combinators `else`/`if`, whose internal `flatMap`/`runAbort`/`foldOption`
+      // retired `orError` named-combinator form (a precomputed nullary native the shallow walk inlined — removed in Step
+      // 10), the guard is spelled out with the carrier-generic combinators `else`/`if`, whose internal
+      // `flatMap`/`runAbort`/`foldOption`
       // only resolve once the combinator is monomorphized at the concrete carrier. So — as for a `where`-guard marker
       // (Stage 4) — reduce the bodied sub-values (`else`/`if`) per-instantiation, each **wrapped to absorb its own type
       // arguments** (the reduced body is already instantiated). Both these and the guard's resolved ability *impls*
@@ -230,9 +231,10 @@ class TypeStackLoop(
   /** Quote a signature-twin guard's established ground signature to its `Right(t)` / `Left(msg)` **verdict** (signature
     * split, Step 7). The verdict is the *deep reduction* of the checked return position
     * ([[PostDrainQuoter.reduceSemExprToGround]], with the resolved impls / reduced sub-values below folded in) — the one
-    * form that yields the verdict uniformly: the shallow signature value is the reduced verdict only for a combinator
-    * guard (`orError`), but the carrier *type* (`Either[String, Type]`) for a bare `raise`, and a stuck `flatMap(match,…)`
-    * for an inline `if..else..raise`. So deep-reduce first; fall back to the shallow quote only when the deep reduction
+    * form that yields the verdict uniformly across guard shapes: the shallow signature value was the reduced verdict
+    * only for the retired `orError` combinator form, but is the carrier *type* (`Either[String, Type]`) for a bare
+    * `raise`, and a stuck `flatMap(match,…)` for an inline `if..else..raise`. So deep-reduce first; fall back to the
+    * shallow quote only when the deep reduction
     * declines (`None`), and finally to the shallow quote's fail-safe error (never a silent `Type`). Scoped to
     * `guardSignatureOnly`, so ordinary (non-guard) signatures quote their value directly and are untouched.
     */

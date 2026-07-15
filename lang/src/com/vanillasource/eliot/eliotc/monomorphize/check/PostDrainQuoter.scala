@@ -66,9 +66,10 @@ class PostDrainQuoter(
     }
 
   /** Non-aborting variant of [[quoteSem]]: the quoted ground value, or [[None]] when it does not reduce to a quotable
-    * ground form (a stuck neutral / residual lambda). The signature-twin guard path tries this first — a combinator
-    * guard (`orError`) is already reduced by the shallow signature walk and quotes here — and only deep-reduces (via
-    * [[reduceSemExprToGround]]) when it comes back [[None]] (an inline `if..else..raise` left a stuck `match`).
+    * ground form (a stuck neutral / residual lambda). The signature-twin guard path tries this first — the retired
+    * `orError` combinator guard was already reduced by the shallow signature walk and quoted here — and only
+    * deep-reduces (via [[reduceSemExprToGround]]) when it comes back [[None]] (an inline `if..else..raise` left a stuck
+    * `match`).
     */
   def quoteSemOption(v: SemValue): Option[GroundValue] =
     Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore).toOption

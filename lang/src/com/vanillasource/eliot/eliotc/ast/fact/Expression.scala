@@ -245,10 +245,10 @@ object Expression {
 
   /** A named reference with an optional generic argument list `[…]` (always attached) and a value-argument list `(…)`
     * attached *only* when its `(` is adjacent to the preceding token (no intervening whitespace). The one call parser
-    * for both value and type positions. Adjacency is what tells a value application `f(x)` / `orError(…)` apart from an
-    * infix operator followed by a parenthesized operand: in `A when (MIN > 0) orError "…"` the space after `when` keeps
-    * `(MIN > 0)` a separate atom, so the operator phase reads it as the operand of the infix `when` rather than as the
-    * call `when(MIN > 0)`. Inside the `(…)`/`[…]` the ordinary [[fullParser]] runs, so nested calls keep their usual
+    * for both value and type positions. Adjacency is what tells a value application `f(x)` / `if(c, T)` apart from an
+    * infix operator followed by a parenthesized operand: in `X else (raise("…"))` the space after `else` keeps
+    * `(raise("…"))` a separate atom, so the operator phase reads it as the operand of the infix `else` rather than as the
+    * call `else(raise("…"))`. Inside the `(…)`/`[…]` the ordinary [[fullParser]] runs, so nested calls keep their usual
     * form. A non-infix `f (x)` is harmless — the operator phase re-applies the two operands into `f(x)`.
     */
   private lazy val adjacentCallParser: Parser[Sourced[Token], Expression] = for {
@@ -280,9 +280,9 @@ object Expression {
   /** The parser for **every type position** — function argument and return types, lambda-parameter annotations,
     * generic-parameter bounds and ability type-parameters, `type`-alias bodies, and `implement` patterns. It admits a
     * greedy **flat run of type atoms**, so an infix *type* operator reads naturally without parentheses: `f: A => B`
-    * parses as a [[FlatExpression]] that `resolve`/`operator` lower to `=>(A, B)` (`Function[A, B]`), and a guard return
-    * type `A when (MIN > 0) orError "…"` lowers to `orError(when(A, MIN > 0), "…")`, exactly as a body would. A single
-    * atom is returned verbatim, so a plain `Int[0, 255]` / `IO[Unit]` is unchanged.
+    * parses as a [[FlatExpression]] that `resolve`/`operator` lower to `=>(A, B)` (`Function[A, B]`), and an inline guard
+    * return type `if(MIN > 0, A) else raise("…")` lowers to `else(if(MIN > 0, A), raise("…"))`, exactly as a body would. A
+    * single atom is returned verbatim, so a plain `Int[0, 255]` / `IO[Unit]` is unchanged.
     *
     * The greedy run stops cleanly at a body's `=`, a closing/separating delimiter (`)`/`]`/`}`/`,`/`:`/`~`/`->`), or the
     * next definition, because every definition-introducing token (`def`/`type`/`implement`/…/`private`/`opaque`) is a

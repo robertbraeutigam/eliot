@@ -256,9 +256,9 @@ class CalculatedReturnResolver(
     * expression whose *value* is a guard denotes a type/verdict but may instead reject, so its inferred *type* is not
     * the bare `Type` an ordinary return position has. Two guard-carrier shapes are accepted where a `Type` kind is
     * expected:
-    *   - the effectful-signatures carrier `Either[String, _]` ([[WellKnownTypes.eitherFQN]]-headed), from `error`/`when
-    *     orError` on the compile-time `Throw[String]` channel — discharged to its payload type (or rejected) by
-    *     [[dischargeGuardedSignature]] / [[dischargeGuardedReturn]] once the bounds are concrete;
+    *   - the effectful-signatures carrier `Either[String, _]` ([[WellKnownTypes.eitherFQN]]-headed), from an inline
+    *     `if(cond, T) else raise(msg)` / bare `raise(msg)` guard on the compile-time `Throw[String]` channel — discharged
+    *     to its payload type (or rejected) by [[dischargeGuardedSignature]] / [[dischargeGuardedReturn]] once concrete;
     *   - a bare `Bool` ([[WellKnownTypes.boolFQN]]-headed), the applicability verdict of an ability-implementation
     *     `where` guard riding the marker's return slot (ability-guards §2.3) — read as keep/decline at the use-site
     *     discharge in the ability processor.
