@@ -431,21 +431,51 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
      `readGuardVerdict` flip; the marker suite still passes via the Runtime-role `readGuardVerdict` path). Add the
      marker twin fixture with Phase D.
 
-- **Phase C — consumers read unconditionally; the walk deletes.** The value mono goes twin-mandatory with the uniform
-  read-settle (§3.2); `Track.settleReturnPosition`/`settleGuardedReturn`, `dischargeGuardedSignature`,
-  `sawGuardReturn`/`recordGuardReturn`, `flattenReturnToType`, `failOnAbstractCalculatedReturn` (relocated),
-  `establishSignature`'s in-place arm, `instantiateRemaining` (§4.7), `walkTypeStack` + `levelExprs`, and
-  `quoteSignature`/`peelSignatureBinders` delete. The callee flip's marker exclusion deletes. Verify §4.4's error
-  semantics and §4.5's premise; re-measure §4.8; write §4.6's acyclicity note into the code.
+- **Phase D (core) — markers via the twin read. [LANDED (commit ff32def6, done before C).]**
+  `AbilityImplementationProcessor.readGuardVerdict` is now the one compiler-track signature-twin read
+  (`CompilerMonomorphicValue(marker@Signature, groundArgs).signature.deepReturnType`), replacing the platform switch.
+  To make the marker twin yield its verdict, `processSignatureTwin`'s read-back became **raw-first** (reduce the raw
+  evaluated arrow chain, fall back to the checked-form escalation only when raw is *stuck* — an effectful inline guard),
+  which fixed a marker's pure `where fold(…)` / `E1 != E2` guard (the checked form appends `fold[Bool]`, an
+  instantiation type-arg that mis-fires the native) **and dropped the `sawGuard` read from the producer**. The
+  Runtime-role marker mono is now unreachable (verified: no marker reaches `processValueMono`). The self-lift is covered
+  by `AbilityGuardDischargeTest` + `EffectsThrow`/`EffectsTwoThrows`. The Stage-4 workaround
+  (`reevaluateGuardReturn`/`reduceGuardSubValues`) is now *dead* but its deletion is entangled with the value-mono flip,
+  so it waits with Phase C.
+
+- **Phase C — consumers read unconditionally; the walk deletes. [BLOCKED — stopped per §8; see PHASE C OUTCOME below.]**
+  The value mono goes twin-mandatory with the uniform read-settle (§3.2); `Track.settleReturnPosition`/
+  `settleGuardedReturn`, `dischargeGuardedSignature`, `sawGuardReturn`/`recordGuardReturn`, `flattenReturnToType`,
+  `failOnAbstractCalculatedReturn` (relocated), `establishSignature`'s in-place arm, `instantiateRemaining` (§4.7),
+  `walkTypeStack` + `levelExprs`, and `quoteSignature`/`peelSignatureBinders` delete. The callee flip's marker exclusion
+  deletes. Verify §4.4's error semantics and §4.5's premise; re-measure §4.8; write §4.6's acyclicity note into the code.
   *Gate:* full suite + examples + `ide.lsp` green; `monomorphize/check` net line count decisively negative — **this is
   the goal-2 gate the old plan failed; if it does not hold here, stop**.
 
-- **Phase D — markers via the twin read.** `AbilityImplementationProcessor.readGuardVerdict` becomes the one
-  compiler-track twin read; the Stage-4 workaround (`reevaluateGuardReturn`, the raw `reduceGuardSubValues`, and
-  `collectValueRefs` if unreferenced) and the Runtime-role marker monos delete. §4.3's self-lift regression test lands
-  *before* the flip. (D depends on B's marker twins; it can land before or after C — whichever keeps the walk's last
-  references contained. If C precedes D, the walk's deletion moves here.)
-  *Gate:* ability-guards suite (self-lift, IntArith width dispatch, guarded Coerce) + full suite green.
+  **PHASE C OUTCOME: the walk cannot delete; §4.7's full-arity assumption is FALSE; STOPPED per §8.** Making the value
+  mono twin-mandatory was implemented and reverted after it surfaced two genuine, independent blockers:
+  1. **Partial-arity value monos are a real key source (§4.7's "decide explicitly").** The refinement channel's `^Meta`
+     transfer companion demands the *generic* reduced body of a constrained value at **empty type arguments** —
+     `CompilerMonomorphicValue(intervalAdd, [])` where `intervalAdd[T ~ Numeric]` — so its leftover binder `T` must stay
+     a **metavariable** (keeping the body's `add`/`multiply` *constraint-covered*, resolving abstractly). The signature
+     twin cannot serve this: its output is a *ground* signature, so a leftover binder is defaulted to `Type`, and the
+     value mono reading it then resolves `Numeric[Type]` — "No ability implementation found". So the **in-place walk
+     (`walkTypeStack` + `instantiateRemaining`) genuinely survives** for generic value monos; it is not deletable, and
+     `getFactOrAbort` twin-mandatory breaks them. This is a §6-style survivor the plan did not foresee.
+  2. **The in-place walk's `flatten` and a leaf-based read-settle are incompatible.** `walkTypeStack` must flatten a
+     calculated return to a `Type` placeholder for its kind check, which erases the under-applied signal a
+     ground-shape read-settle (`settleAtRead`) reads off the leaf — so the settle cannot be uniformly leaf-driven across
+     the flip (twin hole, leaf-detected) and in-place (flattened, flag-detected) paths without regressing calculated
+     returns whose twin is absent.
+  Consequence: `walkTypeStack`/`establishSignature`/`instantiateRemaining`/`flattenReturnToType` **stay**, so the goal-2
+  net-negative gate is **not** reachable by this consumer flip alone. Per §8 ("if it does not hold, stop") the flip was
+  reverted rather than forced green with a partial-arity special-case gate. **Re-derivation needed before C can proceed:**
+  either (a) give the refinement channel a way to obtain a generic reduced body *without* a partial-arity value mono
+  (e.g. the twin carrying a symbolic residual), or (b) accept the in-place walk as a permanent §6 survivor and re-scope
+  Phase C to only the guard-machinery deletions (`dischargeGuardedSignature` merged into a flip-only read-settle, the
+  now-dead Stage-4 marker path, `sawGuardReturn`), which nets far less than "decisively negative". The written-but-reverted
+  work (`settleAtRead`, the twin-mandatory value mono, `readGuardVerdict`'s completeness) is recorded in this session's
+  history for whoever re-derives.
 
 - **Phase E — front-end single-bodying (severable).** One body per front-end fact (§5's last block): the runtime twin
   drops its placeholder `.signature` (binder names forwarded), the sig twin *is* the signature, `signatureEquality`
