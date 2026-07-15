@@ -354,14 +354,36 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
       Markers stay in-place; W2b effectful-signature guards are partial-applied (inferable carrier) → in-place. So the
       guard discharge is untouched by Step 6.
 
-- **Step 7 — the feature (Stage-2 carryover).** Rebuild `Unifier.effectCarrierMetaIds`; extend
-  `Track.Compiler.pinCarriers` to pin an **inferred** return row's carrier; re-add
-  `stdlib/eliot-compiler/eliot/effect/Abort.els`; derived effect row for signature twins (exempt from
+- **Step 7 — the feature (Stage-2 carryover).** *(PART 1 landed 2026-07-15 as `ff5fa879`; the crux remains.)* Rebuild
+  `Unifier.effectCarrierMetaIds`; extend `Track.Compiler.pinCarriers` to pin an **inferred** return row's carrier;
+  re-add `stdlib/eliot-compiler/eliot/effect/Abort.els`; derived effect row for signature twins (exempt from
   `declared ⊇ used`); discharge at the twin read (`dischargeGuardedReturn`, reject-site convention preserved). Route
   **all** guarded signatures — combinator (`orError`) *and* inline (`if..else..raise`) — through the twin read, leaving
   the old runtime-side discharge path dead code (swept in Step 9).
   *Gate:* new `if..else..raise` + bare-`raise` fixtures green **and** the untouched `orError`
   `GuardSignatureIntegrationTest` passes via the new path.
+
+  **Status & realization map (for the focused follow-up):**
+  - **Part 1 — DONE.** `stdlib/eliot-compiler/eliot/effect/Abort.els` re-added (`data AbortCarrier` + `Effect`/`Abort`
+    instances over any base `G` — the minimal port; `Suspend`/`State` cross-lifts omitted as a pure type-level guard
+    never reaches them). `CompilerAbortCarrierTest` pins its extraction. Additive — no behaviour change yet.
+  - **What already works** (do not break): `orError`/`when`/bare-`raise` guards reduce via the **precompute-and-merge**
+    path (a named combinator's nullary reduction is a `NativeBinding`), so `evalExpr` in the in-place walk inlines them.
+    `GuardSignatureIntegrationTest` is green through this path.
+  - **The unsolved case & the wall (reproduced 2026-07-15):** the *inline* `if(cond, T) else raise(msg)` form is not a
+    named combinator, so the shallow walk leaves it a stuck `flatMap((o => match(o)), match(String))` → *Cannot quote
+    lambda*. `match` reduces only in the deep body pipeline (`reduceSourced`, which re-evaluates the **checked**
+    `SemExpression` — the twin already has it in `levelExprs` — with impl bodies inlined), never in `evalExpr`.
+  - **Remaining pieces (interlocking):** (a) **reshape** the `signatureOnly` guard path — when `sawGuard` and the walk
+    result is stuck, `reduceSourced` the checked signature and discharge (`Right(t)`→`t`, `Left`→error) instead of
+    `quoteSem` (which fails); scope to guards so ordinary signatures + `orError` stay green (bounded regression risk).
+    (b) **`effectCarrierMetaIds`** is **derivable** from the Unifier's existing `carrierRoles`
+    (`collect{ CarrierRole(_, effectCarrier = true) }`), *not* a from-scratch rebuild. (c) extend `pinCarriers` to pin the
+    **inferred** carrier — an inline guard's carrier is `AbortCarrier[Either[String]]` (the `if`/`else` `{Abort}` over the
+    `raise` `Throw[String]` base = `Either[String]`); this is the delicate part (construct + pin the exact compile-time
+    carrier so `reduceSourced` fires). (d) route **all** guards (incl. `orError`) through the twin read — the riskier
+    gate item, since it touches the currently-working path. Anchors: `PostDrainQuoter.reduceSourced:88`;
+    `Track.Compiler.pinCarriers:140`; `Unifier.carrierRoles`.
 
 - **Step 8 — checks reach signatures (verify, don't assume).** Extend the recursion check to signature-twin bodies:
   covariant `data Tree(left: Tree, right: Tree)` and the monad-transformer lift must stay accepted (the §5 structural
