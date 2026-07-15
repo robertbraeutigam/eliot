@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier => CoreQualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleValue, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter, SemExpressionEvaluator}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicExpression}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -45,7 +45,9 @@ class PostDrainQuoter(
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
     monoEnv: Env,
     lookupTopDef: ValueFQN => Option[SemValue],
-    platform: Platform
+    platform: Platform,
+    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
+      (_, _) => Option.empty[SemValue].pure[CompilerIO]
 ) {
 
   private val erasedParams: Set[String]            = monoEnv.names.toSet
@@ -75,14 +77,14 @@ class PostDrainQuoter(
     Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore).toOption
 
   /** Deeply reduce a *checked type-level* [[SemExpression]] to a ground value — the signature-position analogue of
-    * [[reduceSourced]]'s body reduction. Re-evaluates the checked expression with drain-resolved ability impl bodies
-    * inlined ([[resolveAbilityRefs]] + `lookupTopDef`), which reduces the `match` (inside `foldOption`/`foldEither`) that
-    * a shallow signature walk ([[com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator.evalExpr]]) leaves stuck. So
-    * an inline `if(cond) T else raise(msg)` guard reduces to its `Right(t)` / `Left(msg)` verdict. [[None]] when it does
-    * not fully reduce (the caller then falls back to the shallow quote's fail-safe error).
+    * [[reduceSourced]]'s body reduction. Runs the stuck-driven [[reduceWithEscalation]] loop on the checked expression
+    * (with drain-resolved ability impl bodies inlined), which reduces the `match` (inside `foldOption`/`foldEither`)
+    * that a shallow signature walk leaves stuck. So an inline `if(cond) T else raise(msg)` guard reduces to its
+    * `Right(t)` / `Left(msg)` verdict. [[None]] when it does not fully reduce (the caller then falls back to the shallow
+    * quote's fail-safe error).
     */
-  def reduceSemExprToGround(expr: SemExpression): Option[GroundValue] =
-    Quoter.quote(0, Evaluator.force(semEvaluator.eval(monoEnv, resolveAbilityRefs(expr)), metaStore), metaStore).toOption
+  def reduceSemExprToGround(expr: SemExpression): CompilerIO[Option[GroundValue]] =
+    reduceWithEscalation(monoEnv, expr).map(reduced => Quoter.quote(0, reduced, metaStore).toOption)
 
   /** Quote a sourced [[SemExpression]] tree to a sourced [[MonomorphicExpression]] tree, applying the staging gate. */
   def quoteSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] =
@@ -104,21 +106,109 @@ class PostDrainQuoter(
     *     `foldEither`), whose parameters stay neutral — falls back to the ordinary structural quote, identical to the
     *     runtime track's read-back (with `resolveIfAbility` doing the ability→impl rewrite there).
     */
-  def reduceSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] = {
-    val reduced = Evaluator.force(semEvaluator.eval(monoEnv, resolveAbilityRefs(expr.value)), metaStore)
-    Quoter.quote(0, reduced, metaStore) match {
-      case Left(_)       => quoteSourced(expr)
-      case Right(ground) =>
-        materialise(ground, expr).flatMap {
-          case Some(mono)                                            => expr.as(mono).pure[CompilerIO]
-          // A level-≥1 (type-level) value's body reduces to a *type*, which `materialise` declines (it handles runtime
-          // value constants). A type is a legitimate compile-time constant here — the "types are values" cornerstone —
-          // so read it back structurally instead of falling to the runtime staging gate, whose fail-safe would abort on
-          // an erased type parameter the body references in value position (`Function[X, X]` with `X := A`).
-          case None if ground.valueType === GroundValue.Type => expr.as(groundTypeToMono(ground, expr)).pure[CompilerIO]
-          case None                                                 => quoteSourced(expr)
+  def reduceSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] =
+    reduceWithEscalation(monoEnv, expr.value).flatMap { reduced =>
+      Quoter.quote(0, reduced, metaStore) match {
+        case Left(_)       => quoteSourced(expr)
+        case Right(ground) =>
+          materialise(ground, expr).flatMap {
+            case Some(mono)                                            => expr.as(mono).pure[CompilerIO]
+            // A level-≥1 (type-level) value's body reduces to a *type*, which `materialise` declines (it handles runtime
+            // value constants). A type is a legitimate compile-time constant here — the "types are values" cornerstone —
+            // so read it back structurally instead of falling to the runtime staging gate, whose fail-safe would abort on
+            // an erased type parameter the body references in value position (`Function[X, X]` with `X := A`).
+            case None if ground.valueType === GroundValue.Type => expr.as(groundTypeToMono(ground, expr)).pure[CompilerIO]
+            case None                                                 => quoteSourced(expr)
+          }
+      }
+    }
+
+  /** Compile-time reduction with **stuck-driven escalation** (§3.4 of the signature-unification plan). Evaluate `expr`
+    * (its ability references resolved to the drain-chosen impls) under `env` with the base one-hop bindings; if the
+    * forced result quotes, return it — the common case pays nothing. If it is stuck on a *reducible* head (a bodied
+    * top-level definition, a stuck `match`, a stuck native — never a runtime `VLam` or a value-parameter neutral, which
+    * are legitimately structural), fetch each of the expression's value references **reduced at its own ground type
+    * arguments** ([[reduceInstance]] → the reference's own `CompilerMonomorphicValue`), splice those in, and
+    * re-evaluate. Loop until it quotes or no new reduced binding is available.
+    *
+    * This is the single mechanism the guarded signature, ability-guard markers, and any future stacked-carrier
+    * compile-time code share: each fetched reduced form was itself produced by a read-back that ran this same loop, so
+    * the recursion lives in the cached, `activeFactKeys`-guarded fact graph rather than in a closure-composition flag.
+    * It is shape-agnostic and stuck-driven — it never inspects whether the term is a guard.
+    */
+  private def reduceWithEscalation(env: Env, expr: SemExpression): CompilerIO[SemValue] = {
+    val resolved                                   = resolveAbilityRefs(expr)
+    def evalWith(extra: Map[ValueFQN, SemValue]): SemValue =
+      Evaluator.force(
+        new SemExpressionEvaluator(fqn => extra.get(fqn).orElse(lookupTopDef(fqn))).eval(env, resolved),
+        metaStore
+      )
+    def loop(bindings: Map[ValueFQN, SemValue]): CompilerIO[SemValue] = {
+      val forced = evalWith(bindings)
+      if (!reducibleStuck(forced)) forced.pure[CompilerIO]
+      else
+        escalationBindings(resolved, bindings.keySet).flatMap { extra =>
+          if (extra.isEmpty) forced.pure[CompilerIO] else loop(bindings ++ extra)
         }
     }
+    loop(Map.empty)
+  }
+
+  /** Whether a *forced* result is stuck in a way escalation could resolve. A runtime `VLam` (a compiler-track function
+    * over its value parameters, e.g. `foldEither`) and a value-parameter / read-back neutral are legitimately
+    * structural — they must fall straight through to the structural fallback, never re-fire escalation (§4.1). Anything
+    * else that fails to quote (a bodied top-def, a stuck `match`, a stuck native) is a candidate.
+    */
+  private def reducibleStuck(forced: SemValue): Boolean = forced match {
+    case SemValue.VLam(_, _)                                       => false
+    case SemValue.VNeutral(SemValue.NeutralHead.Param(_, _), _)    => false
+    case SemValue.VNeutral(SemValue.NeutralHead.Fresh(_, _), _)    => false
+    case other                                                     => Quoter.quote(0, other, metaStore).isLeft
+  }
+
+  /** Fetch the *reduced-at-instantiation* binding for each value reference in `resolved` whose FQN has not already been
+    * escalated (`already`) and whose type arguments are fully ground and non-empty — skipping any reference whose
+    * `CompilerMonomorphicValue` is an ancestor on the active request chain (would dead-lock). Each reduced body has its
+    * generic type parameters baked in, so it is wrapped in one ignore-lambda per ground type argument
+    * ([[absorbTypeArgs]]) — applying the reference's type arguments is then absorbed and the already-instantiated body
+    * is reached unchanged. Keyed by FQN; one instantiation per FQN, as the guard machinery it replaces also assumed.
+    */
+  private def escalationBindings(
+      resolved: SemExpression,
+      already: Set[ValueFQN]
+  ): CompilerIO[Map[ValueFQN, SemValue]] =
+    activeFactKeys.flatMap { ancestors =>
+      valueRefsWithArgs(resolved).distinctBy(_._1).foldLeftM(Map.empty[ValueFQN, SemValue]) {
+        case (acc, (fqn, typeArgs)) =>
+          if (already.contains(fqn)) acc.pure[CompilerIO]
+          else
+            typeArgs.toList.traverse(a => Quoter.quote(0, a, metaStore)) match {
+              case Right(groundArgs)
+                  if groundArgs.nonEmpty && !ancestors.contains(CompilerMonomorphicValue.Key(fqn, groundArgs)) =>
+                reduceInstance(fqn, groundArgs).map {
+                  case Some(sem) => acc + (fqn -> absorbTypeArgs(groundArgs.size, sem))
+                  case None      => acc
+                }
+              case _ => acc.pure[CompilerIO]
+            }
+      }
+    }
+
+  /** Wrap `binding` in `n` ignore-lambdas, so applying `n` (type) arguments to it is absorbed and the already-
+    * instantiated `binding` is reached unchanged — see [[escalationBindings]].
+    */
+  private def absorbTypeArgs(n: Int, binding: SemValue): SemValue =
+    if (n <= 0) binding else SemValue.VLam("_", _ => absorbTypeArgs(n - 1, binding))
+
+  /** Every [[SemExpression.ValueReference]] in a checked expression tree with its (unquoted) type arguments, descending
+    * through applications and lambda bodies.
+    */
+  private def valueRefsWithArgs(expr: SemExpression): Seq[(ValueFQN, Seq[SemValue])] = expr.expression match {
+    case SemExpression.ValueReference(vfqn, typeArgs)        => Seq((vfqn.value, typeArgs))
+    case SemExpression.FunctionApplication(target, argument) =>
+      valueRefsWithArgs(target.value) ++ valueRefsWithArgs(argument.value)
+    case SemExpression.FunctionLiteral(_, _, body)           => valueRefsWithArgs(body.value)
+    case _                                                   => Seq.empty
   }
 
   /** Rewrite each drain-resolved ability [[SemExpression.ValueReference]] to its concrete-impl reference, so the

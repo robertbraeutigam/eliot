@@ -205,6 +205,26 @@ discipline is exactly what fixes that. **Phase A must prove this on the stacked-
 lands**; the fallback design, if the hypothesis fails, is an explicit `deep` mode on the escalation fetch (close
 fetched bindings over reduced-at-instantiation deps) — still shape-agnostic and stuck-driven, never guard-gated.
 
+**PHASE A OUTCOME (landed): the pure one-hop hypothesis is FALSE; the `deep`-mode fallback is needed and shipped.**
+One-hop escalation over the expression's own top-level ground-arg refs reduces the *inline* `if..else..raise` guard
+(`greeting[COND]`) — both the satisfied `Right(t)` and the rejected `Left(msg)` — because the guard's combinators
+(`else`/`if`/`raise`) *are* the top-level refs, so each is fetched reduced at its own concrete stacked-carrier
+instantiation. It does **not** reduce a guard written through a *user function* (`guardOr[A](cond, value) =
+if(cond, value) else raise(...)`, used as `String[] |> guardOr(COND)`): there the guard combinators are nested inside
+`guardOr`'s body, `guardOr[String].reduced` is a **structural function** read-back (its impl-dispatch deps close over
+its runtime value parameters `cond`/`value`, so `reduceSourced` correctly keeps it structural — the `VLam` exclusion),
+and applying it to the guard's concrete args leaves those nested deps stuck (`flatMap((o => match(o)), match(abort))`).
+The refs are not in the guard expression, so the fixed-expression escalation loop cannot reach them. The `deep` fetch
+(`ReducedBindingClosure.reduceInstance(_, _, deep = true)`, the relocated Step-7 `recursive`) resolves it by closing
+the fetched binding's dependencies over their own reduced-at-instantiation forms. So `ReducedBindingClosure`'s `deep`
+parameter **survives** (it is *the* escalation fetch mode, no longer the guard-gated `recursive`); §5's "delete
+`ReducedBindingClosure`'s `recursive` parameter" is superseded — it is renamed and repurposed, not removed. The
+regression the eager-global attempt caused stays avoided: `deep` is invoked only by the *stuck-driven* escalation fetch
+at the expression's own ground args (the marker-guard reader keeps its one-hop `deep = false`), so no dependency is
+demanded at a defaulted `Type`. Verified green: the `if..else..raise` inline forms, the bare `raise`, the piped
+user-function guard (satisfied + rejected), the `MIN > 0` / `N < 10` compile-time-comparison guards, the ability-guard
+marker suite, and the S7 regression set (Arithmetic 14 / Ranges 21 / Intervals / WherePrecondition 100).
+
 Also verify: escalation must not re-fire on legitimately-structural compiler bodies (`foldEither` — a function over
 neutral runtime parameters). The trigger must be "quote failed AND the failure is a stuck top-def/match/native head",
 not "quote failed" alone (a `VLam`/param-neutral result goes straight to the structural fallback as today).
@@ -309,9 +329,11 @@ only the genuine platform strategy: `platform`, `pinCarriers`, `implBindings`, `
 **`CalculatedReturnResolver`**: `dischargeGuardedSignature` (the peel/rebuild + the stuck-guard-defer arm) ⟹ the
 read-settle (which reuses `dischargeGuardedReturn` on the leaf); `isCalculatedReturnExpr` ⟹ the SemValue form only.
 
-**Processors**: both mono processors' twin-read fallback arms and marker exclusions; `ReducedBindingClosure`'s
-`recursive` parameter; `AbilityImplementationProcessor.readGuardVerdict`'s platform switch (⟹ one twin read) and the
-Runtime-role marker monos it demanded.
+**Processors**: both mono processors' twin-read fallback arms and marker exclusions; ~~`ReducedBindingClosure`'s
+`recursive` parameter~~ **(superseded — Phase A: the one-hop hypothesis failed on the piped user-function guard, so
+this survives, renamed `deep`, as the escalation fetch mode; see §4.1 PHASE A OUTCOME)**;
+`AbilityImplementationProcessor.readGuardVerdict`'s platform switch (⟹ one twin read) and the Runtime-role marker monos
+it demanded.
 
 **Tests**: `SignatureTwinMonoTest`'s equivalence framing (there is no second computation to be equivalent *to*) ⟹
 direct assertions on twin facts.
@@ -355,15 +377,20 @@ Each phase is one committable unit: compiles, full suite + all examples + `ide.l
 load-bearing: the producer must be whole before any consumer loses its fallback, and the in-place walk is deleted
 *last*, only when nothing references it.
 
-- **Phase A — escalation replaces the guard-scoped reduction.** Build the stuck-driven escalation loop in the
-  compile-time read-back (§3.4) and route the *existing* twin guard path through it: `quoteSignature`'s deep-reduce
-  consults the escalated evaluation instead of the pre-composed `guardSubBindings`/`reducedImplBindings` maps. Delete
-  `reduceGuardSubValues`' inline-guard call, `reduceResolvedImpls`, `absorbLeadingArgs`, and
-  `ReducedBindingClosure.recursive`. **First prove §4.1's hypothesis on the stacked-carrier fixture** (the inline
-  `if..else..raise` guard) — if it fails, implement the deep-mode fallback before proceeding. The marker Stage-4 path
-  (`reduceGuardSubValues` raw + `reevaluateGuardReturn`) is untouched until Phase D.
-  *Gate:* guard suite + all examples green; the S7 regression set (Arithmetic/Intervals/Ranges/WherePrecondition…)
-  explicitly re-verified.
+- **Phase A — escalation replaces the guard-scoped reduction. [LANDED.]** Built the stuck-driven escalation loop in
+  the compile-time read-back (§3.4, in `PostDrainQuoter.reduceWithEscalation`, shared by `reduceSourced` and
+  `reduceSemExprToGround`) and routed the *existing* twin guard path through it: `quoteSignature`'s deep-reduce now
+  consults the escalated evaluation instead of the pre-composed `guardSubBindings`/`reducedImplBindings` maps. Deleted
+  `reduceGuardSubValues`' inline-guard call, `reduceResolvedImpls`, and `absorbLeadingArgs` from `TypeStackLoop` (the
+  absorb-in-ignore-lambdas moved into the escalation as `PostDrainQuoter.absorbTypeArgs`). **§4.1's one-hop hypothesis
+  was disproven on the piped user-function guard** (see §4.1 PHASE A OUTCOME): `ReducedBindingClosure.recursive` was
+  therefore **not** deleted — it is renamed `deep` and repurposed as the (stuck-driven, non-guard-gated) escalation
+  fetch mode; the marker Stage-4 path (`reduceGuardSubValues` raw + `reevaluateGuardReturn`) keeps its one-hop
+  `deep = false` and is otherwise untouched until Phase D.
+  *Gate — met:* full `lang.test` (233) + `jvm.test` (283) + `ide.lsp.test` green; guard suite green
+  (`GuardSignatureIntegrationTest` 8/8, `AbilityGuardDischargeTest`, `CompilerAbilityResolutionTest`,
+  `SignatureTwinMonoTest`, `CompilerAbortCarrierTest`); all examples build and run; S7 regression set
+  (Arithmetic/Intervals/Ranges/WherePrecondition) explicitly re-verified.
 
 - **Phase B — the twin's mono becomes an ordinary body mono.** Rebuild the `signatureOnly` mode per §3.1: binder kind
   checks + arrow-chain body check via the shared ladder (add the stateless W3-hole acceptance arm; the guard arm

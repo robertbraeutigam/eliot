@@ -27,26 +27,27 @@ object ReducedBindingClosure {
   /** Reduce `vfqn` at concrete `typeArguments` on the **compiler track** and return its reduced body as a self-contained
     * NbE binding, or [[None]] if it produced no [[CompilerMonomorphicValue]] / has no reduced body.
     *
-    * This is how an ability-dispatched guard's bodied sub-values are reduced *per instantiation* (ability-guards Stage
-    * 4): a guard `where E1 != E2` reaches the `Eq` method `equals` only inside `!=`'s body, so `equals` never resolves
-    * off the marker's own signature. Reducing `!=` here at its inferred `[Type]` yields a body with `equals` already
-    * resolved to `Eq[Type]::equals` (whose body-less native leaf then reduces the concrete comparison), which the
-    * signature read-back inlines to fully reduce the guard. Always the compiler track: a guard is a compile-time computation.
-    */
-  /** `recursive` (default `false`) additionally reduces each dependency at its own instantiation (see
-    * [[collectBindings]]) so that a **stacked** carrier resolves through every layer — used only by the inline-guard
-    * reader (signature split, Step 7), where an impl body's dependency (`AbortCarrier::abort` over the base `Either`)
-    * would otherwise close over a still-abstract raw binding. The default keeps the one-hop raw-dependency closure the
-    * precompute-and-merge and marker-guard readers rely on (reducing every dependency there would trip spurious
-    * per-instantiation ability resolutions — e.g. a `Compare` dependency at a defaulted `Type` argument).
+    * This is how a compile-time reduction reaches a callee's *reduced-at-its-instantiation* form: the stuck-driven
+    * escalation in [[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]] fetches this for each value
+    * reference that blocks a signature/body read-back (with `deep`), and the marker-guard reader (ability-guards Stage
+    * 4) fetches it (one-hop) for the bodied sub-values a `where` guard reaches through an operator (`!=`'s `equals`).
+    *
+    * `deep` (default `false`) additionally reduces each dependency at its own instantiation (see [[collectBindings]]) so
+    * that a **stacked** carrier resolves through every layer — used by the escalation fetch, where a reduced *function*
+    * body (`guardOr`, `else`) keeps its impl-dispatch dependencies structural (they close over its runtime value
+    * parameters), and applying it to the guard's concrete arguments must reach those dependencies already reduced (an
+    * `AbortCarrier` impl over the base `Either` resolving through every layer) rather than a still-abstract raw binding.
+    * The default one-hop closure keeps the marker-guard reader's exact behaviour (reducing every dependency there would
+    * trip spurious per-instantiation ability resolutions — e.g. a `Compare` dependency at a defaulted `Type` argument).
+    * Always the compiler track: a compile-time reduction never reaches a runtime target.
     */
   def reduceInstance(
       vfqn: ValueFQN,
       typeArguments: Seq[GroundValue],
-      recursive: Boolean = false
+      deep: Boolean = false
   ): CompilerIO[Option[SemValue]] =
     getFactIfProduced(CompilerMonomorphicValue.Key(vfqn, typeArguments)).flatMap {
-      case Some(cmv) => cmv.reduced.traverse(r => buildBinding(vfqn, r.value, Platform.Compiler, recursive))
+      case Some(cmv) => cmv.reduced.traverse(r => buildBinding(vfqn, r.value, Platform.Compiler, deep))
       case None      => None.pure[CompilerIO]
     }
 
@@ -58,10 +59,10 @@ object ReducedBindingClosure {
       vfqn: ValueFQN,
       reduced: MonomorphicExpression.Expression,
       platform: Platform,
-      recursive: Boolean = false
+      deep: Boolean = false
   ): CompilerIO[SemValue] =
     for {
-      deps <- collectBindings(reduced, vfqn, platform, recursive)
+      deps <- collectBindings(reduced, vfqn, platform, deep)
     } yield VTopDef(
       vfqn,
       Some(Lazy {
@@ -75,20 +76,20 @@ object ReducedBindingClosure {
     * an ancestor on the active fact-request chain (the same mutual-recursion guard [[BindingClosure]] uses). By default
     * each dependency is its raw [[NativeBinding]] body (a one-hop closure).
     *
-    * When `recursive` (the inline-guard reader), a dependency is instead taken **reduced at its own instantiation**
+    * When `deep` (the escalation fetch), a dependency is instead taken **reduced at its own instantiation**
     * ([[reduceInstance]], recursively, against the reference's ground type arguments), so a **stacked** carrier resolves
-    * through every layer: when this reduced body fell back to *structural* (an unreduced value parameter, e.g. `if`'s
-    * `condition`, left it un-normal-formed), its impl-dispatch dependency (`AbortCarrier::abort` = `AbortCarrier(pure(None))`)
-    * still gets its nested base ability (`pure`) resolved rather than closing over the raw, still-abstract binding.
-    * `MonomorphicEvaluator` drops a reference's type arguments, so the already-instantiated reduced dependency is used
-    * directly with no re-application. A dependency with no reduced form (a native leaf, a `data` constructor) falls back
-    * to its raw [[NativeBinding]] body.
+    * through every layer: when the reduced body of a *function* stays structural (its impl-dispatch dependencies close
+    * over its runtime value parameters, e.g. `else`/`guardOr`), each such dependency (`AbortCarrier`'s `Effect`/`Abort`
+    * impl over the base `Either`) still gets its own nested base ability resolved rather than closing over the raw,
+    * still-abstract binding. `MonomorphicEvaluator` drops a reference's type arguments, so the already-instantiated
+    * reduced dependency is used directly with no re-application. A dependency with no reduced form (a native leaf, a
+    * `data` constructor) falls back to its raw [[NativeBinding]] body.
     */
   private def collectBindings(
       reduced: MonomorphicExpression.Expression,
       selfFqn: ValueFQN,
       platform: Platform,
-      recursive: Boolean
+      deep: Boolean
   ): CompilerIO[Map[ValueFQN, SemValue]] =
     valueReferences(reduced).filterNot(_._1 == selfFqn).toList.foldLeftM(Map.empty[ValueFQN, SemValue]) {
       case (acc, (fqn, typeArgs)) =>
@@ -100,8 +101,8 @@ object ReducedBindingClosure {
                 case Some(binding) => acc + (fqn -> binding.semValue)
                 case None          => acc
               }
-            if (recursive)
-              reduceInstance(fqn, typeArgs, recursive = true).flatMap {
+            if (deep)
+              reduceInstance(fqn, typeArgs, deep = true).flatMap {
                 case Some(reduced) => (acc + (fqn -> reduced)).pure[CompilerIO]
                 case None          => raw
               }
