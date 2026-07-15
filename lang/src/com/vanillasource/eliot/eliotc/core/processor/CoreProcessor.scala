@@ -52,8 +52,9 @@ class CoreProcessor
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so
-      // everything downstream sees ordinary HKT-constrained generics (see EffectSugarDesugarer).
-      allFunctions.map { case (fd, hint) => transformFunction(EffectSugarDesugarer.desugar(fd), hint) }
+      // everything downstream sees ordinary HKT-constrained generics (see EffectSugarDesugarer). Each definition splits
+      // at birth into its `Runtime` twin and its `Signature` twin (see [[transformFunction]]).
+      allFunctions.flatMap { case (fd, hint) => transformFunction(EffectSugarDesugarer.desugar(fd), hint) }
     )
 
     // Strict-positivity check (termination precondition #2): reject any `data` whose own type constructor appears in a
@@ -68,7 +69,20 @@ class CoreProcessor
       CoreAST(sourceAst.uri, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }
 
-  private def transformFunction(function: FunctionDefinition, roleHint: RoleHint): NamedValue = {
+  /** Split one definition into its two twins (the signature split):
+    *   - the **`Runtime` twin** — today's value: its `runtime` body (`None` iff abstract) and its `signature`
+    *     (type) expression, rendering and behaving byte-identically to the pre-split `NamedValue`;
+    *   - the **`Signature` twin** — a plain named value whose *body* is the signature expression (always present, never
+    *     abstract), sharing the same generic binders (`paramConstraints`). Its own signature is the derived kind, which
+    *     is never minted or stored — so its `signature` slot carries an inert placeholder (the body expression) and is
+    *     not read until the signature twin gets its own monomorphization (a later step). It is compile-time-only and
+    *     participates in name resolution through exactly the same machinery as any other value; nothing resolves *into*
+    *     it yet.
+    *
+    * `dischargedEffects` and the constructor-shape `roleHint` stay on the `Runtime` twin (the effect phase and match
+    * reconstruction read the runtime twin today); the signature twin carries neither.
+    */
+  private def transformFunction(function: FunctionDefinition, roleHint: RoleHint): Seq[NamedValue] = {
     import CoreExpressionConverter.*
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val isTypeBody   = function.typeDefinition.value match {
@@ -96,17 +110,34 @@ class CoreProcessor
     val inferableArity = (function.genericParameters.map(_.inferable) ++ function.args.map(_.inferable))
       .takeWhile(identity)
       .size
-    NamedValue(
+    val precedence   = function.precedence.map(convertPrecedenceDeclaration)
+    val runtimeTwin  = NamedValue(
       function.name,
       curriedValue,
       curriedType,
       constraints,
       function.fixity,
-      function.precedence.map(convertPrecedenceDeclaration),
+      precedence,
       function.visibility,
       roleHint,
       inferableArity,
       function.dischargedEffects
     )
+    // The signature twin: its body IS the signature expression (always present). Its own signature (the kind) is
+    // derived on demand and never stored, so the slot repeats the body as an inert placeholder. Same binders,
+    // visibility, and fixity as the runtime twin; no `roleHint`/`dischargedEffects` (those describe the runtime value).
+    val signatureTwin = NamedValue(
+      function.name.map(_.signatureTwin),
+      Some(curriedType),
+      curriedType,
+      constraints,
+      function.fixity,
+      precedence,
+      function.visibility,
+      RoleHint.NoHint,
+      inferableArity,
+      Seq.empty
+    )
+    Seq(runtimeTwin, signatureTwin)
   }
 }

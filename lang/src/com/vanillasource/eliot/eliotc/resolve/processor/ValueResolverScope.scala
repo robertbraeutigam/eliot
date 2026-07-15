@@ -4,7 +4,7 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier.Ability
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, Role, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
@@ -42,7 +42,9 @@ object ValueResolverScope {
       .map(
         _.dictionary.values
           .collect {
-            case vfqn @ ValueFQN(_, QualifiedName(valueName, Ability(_))) if valueName === searchingValueName => vfqn
+            case vfqn @ ValueFQN(_, QualifiedName(valueName, Ability(_), Role.Runtime))
+                if valueName === searchingValueName =>
+              vfqn
           }
           .toSeq
       )
@@ -53,7 +55,7 @@ object ValueResolverScope {
       .map(
         _.dictionary.values
           .collectFirst {
-            case vfqn @ ValueFQN(_, QualifiedName(_, Ability(abilityName))) if abilityName === name =>
+            case vfqn @ ValueFQN(_, QualifiedName(_, Ability(abilityName), Role.Runtime)) if abilityName === name =>
               AbilityFQN(vfqn.moduleName, name)
           }
       )

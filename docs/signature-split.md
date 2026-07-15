@@ -222,15 +222,35 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
   carrier; the bind-lift arm does not fire on `VType`-expected. No split dependency.
   *Gate:* suite green.
 
-- **Step 1 — the role is born: identity, `core`, `module`.** Add `Role = Runtime | Signature` as a field on
-  `QualifiedName`; the `Show`/mangling of a **runtime** twin renders byte-identical to today (the role is invisible for
-  `Runtime`), so diagnostics, jvm class names, and test expectations don't churn. `CoreProcessor` (and
-  `DataDefinitionDesugarer`) mint both twins: signature twin body = the signature expression (always present), binder
-  list stamped on both, abstractness = runtime twin body `None`. `UnifiedModuleValueProcessor` merges per
-  `(name, role)`: signature twins all-agree (relocated `signatureEquality`; the `dischargedEffects` layer-union rule
-  rides the signature twin), runtime twins prefer-the-bodied. A transient join adapter reconstitutes the dual-slot
-  fact after the merge for `resolve` and everything downstream.
-  *Gate:* zero behaviour change; module-phase tests exercise the recast merge rules; `CACHE_VERSION` bump.
+- **Step 1 — the role is born: identity, `core`, `module`.** *(landed 2026-07-15.)* Add `Role = Runtime | Signature`
+  as a field on `QualifiedName` (default `Runtime`, invisible in `Show`/mangling — a runtime twin renders and mangles
+  byte-identically, so diagnostics, jvm class names, and test expectations don't churn). `CoreProcessor`
+  (`transformFunction`, so every `DataDefinitionDesugarer` output too) mints both twins: signature twin body = the
+  signature expression (always present, never abstract), binders stamped on both, abstractness = runtime twin body
+  `None`. The signature twin's own signature (the kind) is **not** minted/stored — its `signature` slot repeats the body
+  as an inert placeholder until Step 5.
+  `UnifiedModuleValueProcessor` merges **per `(name, role)`** (the role is part of the `vfqn` key): signature twins
+  **all-agree** (`hasSameSignatures`; no prefer-the-implementation, so two co-located *concrete* layers merge cleanly
+  where a runtime twin would be "Has multiple implementations."), runtime twins prefer-the-bodied (unchanged). The
+  `dischargedEffects` layer-union stays on the runtime twin for now (the effect phase reads it there; it relocates to
+  the signature twin when the effect phase converts, Step 4).
+
+  **Realization notes (differs from the original sketch above):**
+  - *No join adapter is needed.* The runtime twin stays the dual-slot `NamedValue`, so it **is** the reconstituted fact
+    `resolve` reads — byte-identical. The single-bodying of the runtime twin is deferred to Steps 2–4 as planned; the
+    "adapter" only becomes non-degenerate once a downstream phase drops the signature slot.
+  - *Signature twins stay out of the **surface name set**.* `ModuleNamesProcessor` extracts `Runtime`-role names only.
+    The name set / dictionary is enumerated and qualifier-decoded by many consumers (imports/shadowing, the ability &
+    constructor indices, `resolve`'s ability search, LSP completion, and the JVM backend — where a signature twin
+    *collides* onto its runtime twin's class name, a hard `ZipException`), and nothing ever *resolves into* a signature
+    twin. So the twins flow through the **value** machinery instead: `ModuleValueProcessor` registers each signature
+    twin's `ModuleValue` beside its runtime twin, and `UnifiedModuleValueProcessor` locates a value's files by its
+    `Runtime`-role surface name, then fetches the role-bearing `ModuleValue`s. A signature twin is thus a first-class,
+    demandable `UnifiedModuleValue` fact (what Step 5 needs) without polluting name resolution. The only qualifier
+    decoders touched are the four whose 2-arg `QualifiedName(_, _)` patterns the new field forces open — each now
+    matches `Role.Runtime` (self-documenting: signature twins are not ability methods).
+  *Gate:* zero behaviour change (full suite + examples + `ide.lsp` green, `HelloWorld` builds & runs);
+  `SignatureTwinMergeTest` exercises the recast merge rules; `CACHE_VERSION` 24 → 25.
 
 - **Step 2 — `resolve` on twins.** Each twin resolves as its own value; the runtime twin's scope takes the stamped
   binder list (the cross-twin scope point of §1). Join adapter moves to post-resolve.

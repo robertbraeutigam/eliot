@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, Role, UnifiedModuleNames}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -69,7 +69,7 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
 
   // The ability names of every ability-implementation member declared in the module.
   private def implementedAbilities(names: Set[QualifiedName]): Set[String] =
-    names.collect { case QualifiedName(_, Qualifier.AbilityImplementation(name, _)) => name }
+    names.collect { case QualifiedName(_, Qualifier.AbilityImplementation(name, _), Role.Runtime) => name }
 
   "the compiler-platform Either carrier" should "extract the concrete data names under the compiler marker" in {
     compilerNames.asserting(
