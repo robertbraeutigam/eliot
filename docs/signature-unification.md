@@ -2,10 +2,14 @@
 
 **Status: IN PROGRESS (updated 2026-07-15).** Phases A, B, D-core LANDED; Phase C's first cut BLOCKED and reverted
 (see §7 PHASE C OUTCOME), then **re-derived the same day from a full demand census** — see §7 PHASE C RE-DERIVATION
-(C-pre / C1 / C2). **C-pre LANDED** (net −104 lines). **C1+C2 LANDED together** (one commit, per the maintainer's call):
-the twin read is mandatory at every arity, the in-place walk is deleted, and partial-arity twins publish parametric
-signatures (`GroundValue.Param`) — **goal 2 is met** (`monomorphize/check` net −87 on top of C-pre's −104; one execution
-path at every arity). See §7 Phase C1+C2. Only Phase E (front-end single-bodying, severable) remains. Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
+(C-pre / C1 / C2). **C-pre + C1 + C2 LANDED** (C1+C2 as one commit, per the maintainer's call): the twin read is
+mandatory at every arity, the in-place walk is deleted, and partial-arity twins publish parametric signatures
+(`GroundValue.Param`). **Goal 2's *structural* half is met — there is now one execution path for a signature at every
+arity — but its *quantitative* half ("smaller") is essentially BREAK-EVEN, not a win** (see §7 "Goal-2 reckoning"):
+measured against the *pre-plan* baseline, `monomorphize/check` is ~2038 code lines vs ~2042 before Phase A, because the
+twin-mono machinery phases A/B *added* (escalation loop + `processSignatureTwin`) is about the same size as the walk
+phases C removed. The earlier "net −87 / goal 2 met" claim measured only the C1+C2 delta against C-pre, which was
+misleading. Only Phase E (front-end single-bodying, severable) remains. Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
 0–8 + 10 are LANDED on master: every named value splits at birth into `v@Runtime` + `v@Signature` twins, the signature
 twin monomorphizes on the compiler track (`CompilerMonomorphicValue(v@Signature, args)`), the payoff feature (inline
 `if..else..raise` / bare `raise` guards) works end-to-end, and `when`/`orError` is retired. Its Step 9 — the checker
@@ -609,13 +613,25 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
        now reads the twin like the real processor) fixed 93 of the 99 initial failures — a harness gap the deleted walk
        had masked, not a behaviour change.
 
-    *Gate — met:* `lang.test` (872) / `jvm.test` (211, incl. all example-integration tests) / `ide.lsp.test` (60) green,
-    identical totals to C-pre; `HelloWorld` + `EffectsThrow` (bare-`raise` guard) build and run. `monomorphize/check` net
-    **−87** (+199 / −286) on top of C-pre's −104 — **goal 2 (net-simplify the checker) is met**; one execution path at
-    every arity. The `Param` mechanism (+65 lines) lives outside `check/` (`fact/`/`eval/`/`domain/`) — a sanctioned new
-    fact shape, not checker bloat. Fences held: a `Param` reaching plain `groundToSem` produces a non-quotable poison
-    neutral (loud-fail at read-back); `Param` never leaks into a value mono's own published signature or codegen
-    (`materialise`/`groundTypeToMono` decline it).
+    *Gate:* `lang.test` (872) / `jvm.test` (211, incl. all example-integration tests) / `ide.lsp.test` (60) green,
+    identical totals to C-pre; `HelloWorld` + `EffectsThrow` (bare-`raise` guard) build and run. **One execution path at
+    every arity — the structural goal — is achieved.** Fences held: a `Param` reaching plain `groundToSem` produces a
+    non-quotable poison neutral (loud-fail at read-back); `Param` never leaks into a value mono's own published signature
+    or codegen (`materialise`/`groundTypeToMono` decline it).
+
+  - **Goal-2 reckoning (the honest line count).** A follow-up measurement (prompted by the maintainer noticing the
+    checker had not shrunk in the IDE) showed the "net −87 / goal 2 met" claim above was measured only against the C-pre
+    baseline, and `git diff --numstat` double-counts every rewritten comment. Measured properly, in `monomorphize/check`
+    **code lines** (blank/comment-stripped): **2042 before the whole plan (pre-A) → 2160 after A/B/D-core → 2089 after
+    C-pre → 2055 after C1+C2 → 2038 after a follow-up dedup** (`c2864543`, extracting the two monos' shared
+    drain→quoter tail into `drainAndBuildQuoter`). So the *deletion* phases (C) removed ~120 code lines, but the
+    *producer* phases (A/B) had added ~118 up front (the escalation loop + `processSignatureTwin`), so the plan is
+    **net break-even on size** — the checker is a hair smaller than before it started (2038 vs 2042), not the "smaller
+    and simpler" §0 promised as a *quantity*. What the plan genuinely bought is the *structure*: the second in-place
+    walk and the gated-flip machinery are gone, so a signature is computed exactly one way (the second-evaluator
+    anti-pattern §0 warns about is closed), at the cost of the twin-mono being an inherently full-sized mono pipeline.
+    The `Param` mechanism (~65 lines) lives outside `check/` (`fact/`/`eval/`/`domain/`) — a genuine new fact shape,
+    not checker bloat.
 
 - **Phase E — front-end single-bodying (severable).** One body per front-end fact (§5's last block): the runtime twin
   drops its placeholder `.signature` (binder names forwarded), the sig twin *is* the signature, `signatureEquality`
