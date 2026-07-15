@@ -42,7 +42,7 @@ class TypeStackLoop(
 ) {
   import TypeStackLoop.AbilityRef
 
-  private val checker = new Checker(fetchBinding, resolveAbility, track)
+  private val checker = new Checker(fetchBinding, resolveAbility, track, signatureOnly)
 
   def process(
       typeArguments: Seq[GroundValue],

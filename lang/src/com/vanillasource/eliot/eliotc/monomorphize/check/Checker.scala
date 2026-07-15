@@ -5,11 +5,12 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnow
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{BodyValueReferences, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BodyValueReferences, CompilerMonomorphicValue, GroundValue}
 import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -27,7 +28,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
-    track: Track
+    track: Track,
+    // Whether this checker serves a signature-twin mono (the signature split, Step 6). A signature twin's own mono walks
+    // its signature (which may reference self-in-signature type constructors like `Function`/`Type`), so the callee flip
+    // must **not** fire there — reading `CompilerMonomorphicValue(Function@Signature, …)` while computing exactly that
+    // fact is a demand cycle. The flip therefore fires only for body checks (a runtime/compiler *value* mono), whose
+    // callees are other values; the twin those bodies read then computes its signature in place, bottoming the demand.
+    signatureOnly: Boolean = false
 ) {
 
   /** The track's platform — fact keys read it off the [[track]] rather than threading a bare [[Platform]]. */
@@ -447,8 +454,18 @@ class Checker(
                       // solves from this call's arguments. Signatures reference only their own parameters or top-level
                       // values, so they evaluate under an empty env — outer-session bindings are not in scope.
                       for {
-                        sig              <- evalExpr(sv.value.signature.value, env = Some(Env.empty))
-                        appliedSig        = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
+                        // The Step-6 callee flip: when this reference fully applies the callee (an argument per binder)
+                        // and every argument is ground, read the callee's reduced ground signature from its signature
+                        // twin's mono (`CompilerMonomorphicValue(callee@Signature, groundArgs)`) instead of evaluating the
+                        // callee's signature in place. Otherwise (a partially-applied callee whose remaining binders this
+                        // call infers, a not-yet-ground argument, a marker, or an unproduced twin) fall back to the
+                        // in-place evaluation, which handles inference metas the ground read cannot.
+                        appliedSig       <- flippedCalleeSignature(vfqn, sv, explicitTypeArgs).flatMap {
+                                              case Some(flipped) => pure(flipped)
+                                              case None          =>
+                                                evalExpr(sv.value.signature.value, env = Some(Env.empty))
+                                                  .map(sig => explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue))
+                                            }
                         // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no
                         // parameters left to apply, so its whole type is its (under-applied) source return (`def y: Int
                         // = x` ⟹ a bare `Int`) — is resolved from its monomorphized return here, so a no-argument
@@ -471,6 +488,37 @@ class Checker(
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
                   }
       } yield result
+
+  /** The Step-6 callee flip (signature split): a callee reference's *own* reduced ground signature, read from
+    * `CompilerMonomorphicValue(callee@Signature, groundArgs)` — the same twin mono the value's own signature already
+    * flips to. Applies only when the reference **fully applies** the callee (an explicit argument per binder, so the
+    * ground read's per-instantiation defaulting matches the caller's intent) and **every argument is ground** (a
+    * quotable [[SemValue]]); a partial application whose remaining binders this call infers, or an argument still an
+    * unsolved meta, keeps the in-place evaluation that handles those. Markers are excluded (their `where` guard reduces
+    * only in place). `None` falls back. Acyclic: the twin's own mono checks no body, so it never re-enters this path.
+    */
+  private def flippedCalleeSignature(
+      vfqn: Sourced[ValueFQN],
+      sv: SaturatedValue,
+      explicitTypeArgs: Seq[SemValue]
+  ): CheckIO[Option[SemValue]] =
+    if (
+      signatureOnly ||
+      MarkerGuardSignature.isMarker(sv.value) ||
+      explicitTypeArgs.sizeIs != SignatureView.of(sv.value.signature).binders.size
+    ) pure(None)
+    else
+      get.flatMap { s =>
+        explicitTypeArgs.toList.traverse(a => Quoter.quote(0, a, s.unifier.metaStore)) match {
+          case Right(groundArgs) =>
+            liftF(
+              getFactIfProduced(
+                CompilerMonomorphicValue.Key(vfqn.value.copy(name = vfqn.value.name.signatureTwin), groundArgs)
+              )
+            ).map(_.map(cmv => Evaluator.groundToSemPi(cmv.signature)))
+          case Left(_)           => pure(None)
+        }
+      }
 
   /** Infer a function application by operating on its full spine: decompose the nested (curried) applications at the
     * root, resolve the head once — an immediately-applied unannotated lambda `(x -> body)(arg)` routes to
