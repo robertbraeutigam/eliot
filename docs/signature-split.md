@@ -276,12 +276,28 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
   *Gate:* full suite + examples + `ide.lsp` green; zero behaviour change. (The mechanical split is complete — the real
   divergence-work is all Step 5+.)
 
-- **Step 5 — the signature twin gets its own mono (consumer-first).** `CompilerMonomorphicValue(v@Signature, args)`:
-  check the signature body against the **derived kind**, elaborate + reduce on the compiler track. W3 values
-  (under-applied return) *decline* here — their back-edge lands in Step 6. The consumer landing in the same arc is an
-  **equivalence test**: for representative fixtures (generic, ability-constrained, guarded, W3-declined), the twin
-  mono's ground signature equals what the in-place walk produces.
-  *Gate:* equivalence holds; suite green.
+- **Step 5 — the signature twin gets its own mono (consumer-first).** *(landed 2026-07-15.)*
+  `CompilerMonomorphicValue(v@Signature, args)`: check the signature body against the **derived kind**, elaborate +
+  reduce on the compiler track. W3 values (under-applied return) *decline* here — their back-edge lands in Step 6. The
+  consumer landing in the same arc is an **equivalence test**: for representative fixtures (generic, ability-constrained,
+  guarded, W3-declined), the twin mono's ground signature equals what the in-place walk produces.
+
+  **Realization notes:**
+  - *The signature twin's mono reuses the runtime twin's, minus the body.* `TypeStackLoop` gains a `signatureOnly` flag;
+    when set it (a) ignores the value's (placeholder) `.runtime` slot — walking the signature *is* the whole job, so the
+    ordinary body-less path runs (no body check, `reduced`/`body` `None`) — and (b) declines a calculated return (`isCalc`)
+    with an explicit, error-free abort instead of the abstract-calc-return error. Nothing else changes: `walkTypeStack` +
+    `applyTypeArgs` + carrier-pinning + post-drain resolution are the same calls, so equivalence with the runtime twin's
+    in-place walk is nearly by construction (only the body-driven return — calc / guard — could diverge, and W3 declines).
+  - *No new fact, no new processor, no shape change.* The role rides `CompilerMonomorphicValue`'s key `vfqn`, so
+    `CompilerMonomorphicTypeCheckProcessor` branches on `key.vfqn.name.role` (its `TransformationProcessor` already reads
+    the role-appropriate `SaturatedValue`). For a `Signature`-role key, `signature` carries the sibling's *reduced ground
+    signature* (what §2's consumer reads) and `reduced` is `None`. `CACHE_VERSION` unchanged (25) — a new producer branch
+    for an existing fact type at new keys, no persisted shape churn.
+  - *The read is not yet flipped* (that is Step 6): nothing in the real pipeline demands a signature-twin mono; only the
+    equivalence test (`SignatureTwinMonoTest`) does, comparing both twins on the *same* compiler track (apples-to-apples,
+    so the guard producer path matches too — pinCarriers runs identically with no body).
+  *Gate:* equivalence holds (`SignatureTwinMonoTest`); full suite + all modules + examples green.
 
 - **Step 6 — flip the read.** `v@Runtime`'s mono reads the twin mono instead of walking in place; the in-place
   `walkTypeStack` + `levelExprs` plumbing is deleted (ability refs in type positions are discovered by the signature

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{Role, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.{MarkerGuardSignature, Track, TypeStackLoop}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, NativeBinding}
@@ -84,6 +84,11 @@ class CompilerMonomorphicTypeCheckProcessor
     // An ability-implementation marker is monomorphized only to discharge its `where` guard (ability-guards §2.3); its
     // pattern-argument types are not real value parameters, so they are stripped to leave binders + guard return.
     val value = MarkerGuardSignature.strippedForGuard(saturatedValue.value)
+    // A `Signature`-role key demands the signature twin's own monomorphization (the signature split): kind-check the
+    // signature body against the derived kind and reduce it, with no separate body to check (the `.runtime` slot is an
+    // inert placeholder) and a W3 decline. A `Runtime`-role key is the ordinary compiler-track value mono. The role
+    // rides `key.vfqn`, so the input `SaturatedValue` is already the role-appropriate twin's.
+    val signatureOnly = key.vfqn.name.role == Role.Signature
     TypeStackLoop
       .process(
         key.typeArguments,
@@ -91,7 +96,8 @@ class CompilerMonomorphicTypeCheckProcessor
         fetchBinding = fetchBinding(value.name),
         resolveAbility = resolveAbilityImpl,
         track = Track.Compiler,
-        reduceInstance = ReducedBindingClosure.reduceInstance
+        reduceInstance = ReducedBindingClosure.reduceInstance,
+        signatureOnly = signatureOnly
       )
       .map(result =>
         CompilerMonomorphicValue(

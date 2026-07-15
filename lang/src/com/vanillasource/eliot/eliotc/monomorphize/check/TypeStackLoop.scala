@@ -26,7 +26,13 @@ class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
     track: Track,
-    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO]
+    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO],
+    // The signature-split `Signature`-twin mode. A signature twin *is* a value whose body is its sibling's signature
+    // expression and whose own signature is the derived kind; monomorphizing it means kind-checking that signature
+    // against the derived kind and reducing it — exactly [[walkTypeStack]] + [[applyTypeArgs]] — with **no separate body
+    // to check** (walking the signature is the whole job) and a **W3 decline** (a calculated return is solvable only by
+    // the body, which a signature twin lacks). The default `false` is the ordinary runtime/compiler value mono.
+    signatureOnly: Boolean = false
 ) {
   import TypeStackLoop.AbilityRef
 
@@ -58,8 +64,11 @@ class TypeStackLoop(
 
       // W4 (Limit 5): a calculated return needs a body to calculate from. Reject a body-less calculated return at the
       // definition before its under-applied return reaches a use site (where it would otherwise surface as a confusing
-      // mismatch).
-      _ <- failOnAbstractCalculatedReturn(isCalc, resolvedValue)
+      // mismatch). A **signature twin** (`signatureOnly`) has no body of its own to calculate from, so a calculated
+      // return there is not an error but an explicit, error-free *decline*: the runtime twin's mono owns the W3
+      // back-edge (`readMonomorphicReturn`) that reads such a return back from the body.
+      _ <- if (signatureOnly) { if (isCalc) liftF(abort[Unit]) else pure(()) }
+           else failOnAbstractCalculatedReturn(isCalc, resolvedValue)
 
       // The value to check: a calculated return's under-applied source return (`Int`) is kind-ill-formed as a
       // `Function` codomain (kind `BigInteger → … → Type`, not `Type`), so it is replaced by the kind-correct `Type`
@@ -67,6 +76,11 @@ class TypeStackLoop(
       // `settleReturnPosition` installs (below), exactly as before. The real (calculated) return lives only in the
       // source `OperatorResolvedValue`; this placeholder is a checker-internal transient, never persisted or a flag.
       rv = if (isCalc) resolvedValue.copy(signature = flattenReturnToType(resolvedValue.signature)) else resolvedValue
+
+      // The body to check against the settled signature. A **signature twin** (`signatureOnly`) has none — walking its
+      // signature (its own body, in the value model) *is* the whole job — so its inert placeholder `.runtime` slot is
+      // ignored and everything below follows the ordinary body-less path (no body check, structural/reduced body `None`).
+      bodyToCheck = if (signatureOnly) None else rv.runtime
 
       // Kind-check the signature against its (derived) kind — returns the final SemValue plus one kind-check
       // SemExpression per level (the kind, if generic, and the signature)
@@ -103,7 +117,7 @@ class TypeStackLoop(
       //     undischarged carrier signature `Either[String, Type]` for a consumer to evaluate — a compiler-track guard
       //     discharge would replace the return with a metavariable, starving the body's `pure`/`raise` of its concrete
       //     carrier and blocking the reduction).
-      calcReturn              = isCalc && rv.runtime.isDefined
+      calcReturn              = isCalc && bodyToCheck.isDefined
       checkResult            <- track.settleReturnPosition(checker, instantiated, calcReturn, sawGuard, rv)
       (checkSig, returnMeta)  = checkResult
 
@@ -114,8 +128,8 @@ class TypeStackLoop(
       monoEnv <- inspect(_.rho)
 
       // Check runtime body if present — produces SemExpression with SemValue slots. A body-less value (an abstract
-      // declaration) has nothing to check or emit here.
-      runtime      <- rv.runtime.traverse { body =>
+      // declaration, or a signature twin whose placeholder body is ignored) has nothing to check or emit here.
+      runtime      <- bodyToCheck.traverse { body =>
                         checker.check(body, checkSig).map(expr => body.as(expr))
                       }
 
@@ -530,9 +544,10 @@ object TypeStackLoop {
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
       track: Track,
-      reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO]
+      reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO],
+      signatureOnly: Boolean = false
   ): CompilerIO[Result] =
-    new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance).process(typeArguments, resolvedValue)
+    new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance, signatureOnly).process(typeArguments, resolvedValue)
 
   private type AbilityRef = AbilityResolver.AbilityRef
 }

@@ -17,6 +17,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * is a different fact. A compile-time ability dispatched on a generic parameter can only reduce once that generic is
   * concrete, so the runtime track requests this fact at the concrete type arguments of a use site.
   *
+  * The key's `vfqn` also carries the signature-split **role** (`Runtime` / `Signature`). For a `Runtime`-role key this
+  * is the ordinary value mono described above. For a **`Signature`-role key** (the signature twin, whose body *is* the
+  * sibling's signature expression) the checker runs in `signatureOnly` mode: [[signature]] is then the sibling value's
+  * *reduced ground signature* at `typeArguments` (the "reduced, ground signature" a consumer reads), and [[reduced]] is
+  * `None` (there is no separate body). A calculated-return (W3) signature twin declines — it produces no fact — because
+  * only the body can solve its return; the runtime twin owns that back-edge.
+  *
   * @param vfqn
   *   The fully qualified name of the original value
   * @param typeArguments
