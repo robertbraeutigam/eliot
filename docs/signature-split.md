@@ -79,16 +79,35 @@ where match reduction actually lives).
 
 Consequences to design deliberately, not discover:
 
-- **The acyclicity argument changes.** Today `TypeStackLoop` names no monomorphic fact, which keeps the two tracks
-  acyclic *by construction* (see `TypeStackLoop.Result`'s doc). Under the split, monomorphization demands
-  monomorphization — acyclicity becomes a property of the demand DAG: Eliot has no recursion (the reference graph of
-  bodies is checked acyclic), and the derived kind bottoms the tower (a signature twin's own check demands no further
-  signature mono). `activeFactKeys` remains the recursion backstop. This argument must be **written down and verified**
-  during implementation, not assumed.
-- **Caching win.** Today a callee's signature is re-walked per reference, per instantiation, inside every caller's
-  check. It becomes a computed-once, cached fact per `(value, args)`.
-- **Granularity risk.** Every callee reference becoming a fact read is a real overhead-profile change; measure on the
-  examples + LSP workload before declaring the increment done.
+- **The acyclicity argument (written down and verified, Step 6).** Today `TypeStackLoop` names no monomorphic fact,
+  which keeps the two tracks acyclic *by construction* (see `TypeStackLoop.Result`'s doc). Under the flip,
+  monomorphization demands monomorphization, so acyclicity is a property of the **demand DAG**, argued in three parts:
+  1. **A value mono depends only on its own signature twin, at depth 1.** `MonomorphicValue(v@Runtime, args)` (and its
+     compiler analogue) reads `CompilerMonomorphicValue(v@Signature, args)` for its signature; the signature twin's mono
+     is `signatureOnly`, so it **checks no body** and issues no further mono demand of its own. The demand bottoms
+     immediately — there is no `v@Signature@Signature` (the kind is derived, never a fact, §1).
+  2. **The callee flip must not fire while a signature twin computes itself.** A signature twin's own mono walks its
+     signature, and a *self-in-signature* type constructor (`Function`'s kind mentions `Function`, `Type : Type`) would
+     then read `CompilerMonomorphicValue(Function@Signature, …)` while computing exactly that fact — a genuine cycle
+     (it surfaced in implementation as `Cyclic fact demand: Function@Signature <- Function@Signature`). The fix is
+     structural, not a backstop: the callee flip is **gated off inside `signatureOnly` monos** (`Checker(signatureOnly)`
+     → `flippedCalleeSignature` returns `None`), so a twin's walk resolves its callees in place (`evalExpr`) and never
+     re-enters the twin fact. Callee flips therefore fire only in **body** checks (a runtime/compiler *value* mono),
+     whose callee twin then bottoms per part 1. Depth stays ≤ 1.
+  3. **No recursion closes it.** Eliot has no recursion (the body reference graph is checked acyclic), and the callee of
+     a flip is a *different* value than the one being checked, so the finite body-reference DAG cannot cycle.
+     `activeFactKeys` remains the backstop for the W3 back-edge (`readMonomorphicReturnGround`, which re-enters the own
+     track's value mono and would otherwise re-enter an in-progress fact on a genuinely recursive calculated return).
+- **Caching win, realised.** A callee's signature is now the computed-once, cached `CompilerMonomorphicValue(callee@Signature,
+  args)` fact instead of re-walked per reference per instantiation — but only for a **fully-applied, all-ground-args,
+  non-marker** callee reference; a partial application (remaining binders inferred by this call), a not-yet-ground
+  argument, or a marker keeps the in-place `evalExpr` (which handles inference metas the ground read cannot).
+- **Granularity / overhead — measured (Step 6).** On the examples workload the flip's overhead is **negligible**: a
+  checker-heavy example (`EffectsMulti`) compiles in ~2.82 s pre-flip vs ~2.92 s post-flip (best of 3), a ~3 % wall delta
+  that is within noise dominated by the ~2.8 s fixed JVM/mill startup — the signature-twin monos are largely computed on
+  the compiler track anyway, and the added reads are fact-cache lookups. The `ide.lsp` suite (which drives the same mono
+  machinery) stays green; it was not separately profiled. Decision: **keep** both the own-signature and the (gated)
+  callee flip.
 
 ## 3. The two information-flow inversions become explicit dataflow
 
@@ -299,14 +318,41 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
     so the guard producer path matches too — pinCarriers runs identically with no body).
   *Gate:* equivalence holds (`SignatureTwinMonoTest`); full suite + all modules + examples green.
 
-- **Step 6 — flip the read.** `v@Runtime`'s mono reads the twin mono instead of walking in place; the in-place
-  `walkTypeStack` + `levelExprs` plumbing is deleted (ability refs in type positions are discovered by the signature
-  twin's own mono). The W3 inversion lands: a calc-return signature twin reads back from
-  `MonomorphicValue(v@Runtime, args)` (generalized `readMonomorphicReturnGround`, `activeFactKeys` guard). Callee
-  references: guarded/calculated callee returns read the callee's signature-twin mono; for **ordinary pure** callee
-  signatures, decide by measurement whether to flip wholesale (per-`(value,args)` caching win vs. fact-read overhead)
-  and record the numbers + decision here. Write down the §2 acyclicity argument.
+- **Step 6 — flip the read.** *(landed 2026-07-15 as 6a/6b/6c.)* `v@Runtime`'s mono reads the twin mono instead of
+  walking in place, and callee references read the callee's twin the same way. Write down the §2 acyclicity argument.
   *Gate:* full suite + examples green; overhead measured on examples + the LSP workload; acyclicity note added to §2.
+
+  **Realization notes (differs from the original sketch — the flip lands, but as a *gated* flip beside a retained
+  in-place path, not a wholesale replacement):**
+  - *6a — own-signature flip.* `TypeStackLoop.establishSignature` reads the value's own reduced ground signature from
+    `CompilerMonomorphicValue(v@Signature, args)` (injected by both mono processors) and re-inflates it to a checkable
+    `VPi` via the new `Evaluator.groundToSemPi`, binding the type arguments to their binders in ρ/Γ — no in-place walk.
+    Scoped to the behaviour-preserving case (Step 5's equivalence backs it): **fully-applied, non-W3, non-marker**.
+    Markers are excluded *and their twin is not even read* — a `where` guard rides the return slot and reduces only in
+    the in-place guard machinery (else a stuck `Bool::&&` signature).
+  - *6b — callee flip.* `Checker.inferValueReference` reads `CompilerMonomorphicValue(callee@Signature, groundArgs)` when
+    the reference **fully applies** the callee and **every argument is ground**; otherwise the in-place `evalExpr`
+    (partial application whose remaining binders this call infers, or an inference-meta argument, needs it). The flip is
+    **gated off inside `signatureOnly` monos** (`Checker(signatureOnly)`) — the load-bearing acyclicity fix (§2 part 2):
+    without it, self-in-signature `Function`/`Type` cause `Cyclic fact demand`. `groundToSemPi` is the shared
+    re-inflation (a quoted `Function` type lost its Π structure).
+  - *6c — W3 back-edge inversion.* `readMonomorphicReturnGround` re-enters the **own track's** value mono
+    (`MonomorphicValue` on runtime, `CompilerMonomorphicValue` on compiler) instead of the runtime one unconditionally —
+    the callee flip now lets a compiler-track value reach a calculated-return callee whose reduced return lives in the
+    compiler pool. The recursion guard covers both key shapes.
+  - *Deliberate deviations from the sketch, all so each commit stays green:*
+    - **`walkTypeStack` + `levelExprs` are NOT deleted.** The kind-check-and-eval of a signature is irreducible, and the
+      signature twin's own mono still needs it (as does the in-place fallback for W3 / partial application / markers /
+      non-ground callee refs). What Step 6 achieves is removing the in-place walk from the *common runtime-value path*
+      (it reads the twin); the walk survives, now reached only through `signatureOnly` monos and the fallbacks. Its
+      deletion, if ever, is not Step 6.
+    - **The W3 form is "twin declines, `v@Runtime` computes in place," not "twin reads back."** A W3 signature twin still
+      declines (Step 5); `v@Runtime` solves its own calculated return from its body via the in-place path; the back-edge
+      serves *caller* references to W3 callees. This sidesteps the `v@Runtime ↔ v@Signature` self-cycle a read-back would
+      create.
+    - **Guards are not routed through the twin read** (that is Step 7's job with `dischargeGuardedReturn` at the read).
+      Markers stay in-place; W2b effectful-signature guards are partial-applied (inferable carrier) → in-place. So the
+      guard discharge is untouched by Step 6.
 
 - **Step 7 — the feature (Stage-2 carryover).** Rebuild `Unifier.effectCarrierMetaIds`; extend
   `Track.Compiler.pinCarriers` to pin an **inferred** return row's carrier; re-add
