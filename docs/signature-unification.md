@@ -1,6 +1,13 @@
 # Signature unification — one execution path for signatures
 
-**Status: IN PROGRESS (updated 2026-07-15).** Phases A, B, D-core LANDED; Phase C's first cut BLOCKED and reverted
+**Status: COMPLETE (updated 2026-07-15).** All phases (A, B, D-core, C-pre, C1+C2, E) landed. There is now one
+execution path for a signature at every arity (the signature twin's mono), and the front-end no longer carries the
+inert signature-twin duplicate (Phase E). Honest outcome on the two goals: **goal 1 (execution model — the
+`if..else..raise`-in-signature wall) delivered; goal 2 (net-simplify) is nuanced** — `monomorphize/check` is
+break-even (a mechanism swap, walk → twin-mono), but Phase E's front-end deletion is a genuine net −45, and the
+*structural* win (no second path, no gated flip) stands. Prior status below.
+
+**Status history: IN PROGRESS (2026-07-15).** Phases A, B, D-core LANDED; Phase C's first cut BLOCKED and reverted
 (see §7 PHASE C OUTCOME), then **re-derived the same day from a full demand census** — see §7 PHASE C RE-DERIVATION
 (C-pre / C1 / C2). **C-pre + C1 + C2 LANDED** (C1+C2 as one commit, per the maintainer's call): the twin read is
 mandatory at every arity, the in-place walk is deleted, and partial-arity twins publish parametric signatures
@@ -633,7 +640,22 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
     The `Param` mechanism (~65 lines) lives outside `check/` (`fact/`/`eval/`/`domain/`) — a genuine new fact shape,
     not checker bloat.
 
-- **Phase E — front-end single-bodying (severable).** One body per front-end fact (§5's last block): the runtime twin
+- **Phase E — remove the inert front-end signature twin. [LANDED (`d999c423`).]** The realized shape was narrower and
+  cleaner than the plan's "single-bodying" framing: the signature twin's front-end content was an exact duplicate of the
+  runtime value's `.signature`, so it was **removed outright**, not merged. `CoreProcessor.transformFunction` produces
+  only the runtime value; `Role.Signature` survives purely as a *monomorphize-level key dimension* — a Signature-role
+  `CompilerMonomorphicValue` reads the **runtime** value's `SaturatedValue` (the processor's key→`SaturatedValue`
+  mapping strips the role to `Runtime`) and checks its signature via `processSignatureTwin`. Deleted the now-dead
+  front-end own-signature arms (`EffectCheckProcessor`'s `Signature` exemption, `UnifiedModuleValueProcessor`'s
+  `Signature` merge branch + the pointless `surfaceName` role-strip, `RecursionChecker`'s sig-twin no-op note) and three
+  obsolete test files (`SignatureTwinFrontEndTest`/`SignatureTwinResolveTest`/`SignatureTwinMergeTest`).
+  `NamedValue.signature` and `signatureEquality` **stay** (the runtime twin's real type + its layer-merge agreement
+  check; the runtime-merge behaviour is covered by `PlatformScopedUnificationTest`). Verified by a low-risk ordering:
+  first redirect the mono to read the runtime `SaturatedValue` while the twin still existed (green ⟹ equivalent), then
+  delete the twin. Unlike the C phases (a mechanism swap, break-even), E is **pure deletion — net −45 lines** (src+test).
+  `CACHE_VERSION` 27→28. *Gate — met:* lang 857 / jvm 211 (incl. examples) / ide.lsp 60 green; `HelloWorld` runs.
+
+- **Phase E — front-end single-bodying (original plan, superseded by the LANDED record above).** One body per front-end fact (§5's last block): the runtime twin
   drops its placeholder `.signature` (binder names forwarded), the sig twin *is* the signature, `signatureEquality`
   collapses into the sig-twin all-agree merge, and each phase's own-signature arm deletes. Consumers sweep: resolver
   binder scope, matchdesugar/operator own-signature paths, effect-phase reads (`dischargedEffects` relocates to the
