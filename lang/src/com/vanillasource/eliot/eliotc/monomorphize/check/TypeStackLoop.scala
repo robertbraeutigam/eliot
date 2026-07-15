@@ -133,52 +133,9 @@ class TypeStackLoop(
       // post-drain pipeline below. (The signature's own ability refs were resolved by the twin's mono, not re-walked here.)
       abilityRefs   = runtime.toSeq.flatMap(checker.abilityResolver.collectAbilityRefs)
 
-      // Post-drain resolution (D1): the sequence that settles every metavariable — the ability-resolution fixed
-      // point, carrier-kind verification, the calculated-return fail-safe, the finalizer (default the rest to
-      // Type), the postponement flush, and a postcondition assertion. See `runPostDrainResolution`.
-      _ <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
-      state <- get
-      _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
-
-      // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
-      _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
-
-      // Compiler backend (CP-C step b): the compiler track reduces its body to a normal form, folding each
-      // drain-resolved ability impl's *body* in via NbE — so it needs those impl bindings reachable by the evaluator.
-      // `track.implBindings` fetches them once from the track's pool (empty on the runtime track, whose body stays
-      // structural for codegen); they are merged ahead of the checker's own binding cache below.
-      implBindings <- track.implBindings(fetchBinding)
-
-      // The SemValue analogue of `PostDrainQuoter.resolveAbilityRefs` (which rewrites ability references in a *body*
-      // SemExpression): map each drain-resolved ability *method* FQN to its impl body, so an ability call that survives
-      // in a type-position SemValue reduces during signature read-back — the case where a guard names an ability method
-      // directly (`where equals(E1, E2)`). The impl bodies are already dependency-closed, so a single inline suffices.
-      // Keyed by the ability-method FQN; a guard resolves one instance per method, so there is no conflation.
-      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
-                                implBindings.get(implFqn).map(ref.value -> _)
-                              }.toMap
-
-      quoterState   <- get
-
-      // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
-      // SemValue → GroundValue transition and has no silent fallback; Quoter reports unresolved metas as compiler
-      // errors. `reduceInstance` gives the quoter's compile-time read-back its stuck-driven escalation loop: an inline
-      // effectful guard (`if..else..raise`) whose carrier-generic combinators (`else`/`if`, whose internal
-      // `flatMap`/`runAbort`/`foldOption` resolve only once monomorphized at the concrete carrier) leave the signature
-      // return stuck reduces by fetching each blocking reference *reduced at its own instantiation* — a *stacked*
-      // carrier (`AbortCarrier` over the `Throw[String]` base `Either[String]`) resolving through the fact graph.
-      quoter     = new PostDrainQuoter(
-                     quoterState.unifier.metaStore,
-                     quoterState.abilityResolutions,
-                     monoEnv,
-                     fqn =>
-                       implBindings
-                         .get(fqn)
-                         .orElse(abilityMethodBindings.get(fqn))
-                         .orElse(quoterState.bindingCache.getOrElse(fqn, None)),
-                     track.platform,
-                     (fqn, args) => reduceInstance(fqn, args, true)
-                   )
+      // Post-drain resolution + quoter assembly (shared with the signature twin): drain-and-resolve every metavariable,
+      // abort on any unification error, then build the `PostDrainQuoter` over the drain-resolved impl bindings.
+      quoter    <- drainAndBuildQuoter(resolvedValue, abilityRefs, returnMeta, monoEnv)
       groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.signature))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
       // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
@@ -224,27 +181,7 @@ class TypeStackLoop(
       // carrier meta is created by the check, so both are present to pin to the compile-time `Either[String]` now.
       _                    <- track.pinCarriers(checker, resolvedValue)
       abilityRefs           = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
-      _                    <- runPostDrainResolution(resolvedValue, abilityRefs, None)
-      state                <- get
-      _                    <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
-      _                    <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
-      implBindings         <- track.implBindings(fetchBinding)
-      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
-                                implBindings.get(implFqn).map(ref.value -> _)
-                              }.toMap
-      quoterState          <- get
-      quoter                = new PostDrainQuoter(
-                                quoterState.unifier.metaStore,
-                                quoterState.abilityResolutions,
-                                monoEnv,
-                                fqn =>
-                                  implBindings
-                                    .get(fqn)
-                                    .orElse(abilityMethodBindings.get(fqn))
-                                    .orElse(quoterState.bindingCache.getOrElse(fqn, None)),
-                                track.platform,
-                                (fqn, args) => reduceInstance(fqn, args, true)
-                              )
+      quoter               <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
       // The signature's ground read-back. Reduce the **raw** evaluated arrow chain first (renormalising natives as it
       // quotes): this settles an ordinary type, a bare `{Throw[String]}` carrier return, a type-level `match` (whose
       // pattern binder the match reduction binds — the check would freeze it to a neutral), a W3 under-applied hole,
@@ -384,6 +321,39 @@ class TypeStackLoop(
       }
       s.withUnifier(s.unifier.copy(metaStore = solved))
     }
+
+  /** The shared post-drain tail of both monos (the value mono and the signature twin): run the drain-and-resolve
+    * pipeline ([[runPostDrainResolution]]), report and abort on any unification error, then assemble the
+    * [[PostDrainQuoter]] over the drain-resolved impl bindings. `track.implBindings` does not mutate the check state, so
+    * the one post-drain `state` seeds both the error check and the quoter.
+    *
+    * `abilityMethodBindings` maps each drain-resolved ability *method* FQN to its impl body — the SemValue analogue of
+    * [[PostDrainQuoter.resolveAbilityRefs]] — so an ability call surviving in a type-position SemValue reduces during
+    * read-back (a guard naming an ability method directly, `where equals(E1, E2)`); one instance per method, no conflation.
+    */
+  private def drainAndBuildQuoter(
+      resolvedValue: OperatorResolvedValue,
+      abilityRefs: Seq[AbilityRef],
+      returnMeta: Option[SemValue.VMeta],
+      monoEnv: Env
+  ): CheckIO[PostDrainQuoter] =
+    for {
+      _            <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
+      state        <- get
+      _            <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
+      _            <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
+      implBindings <- track.implBindings(fetchBinding)
+      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
+                                implBindings.get(implFqn).map(ref.value -> _)
+                              }.toMap
+    } yield new PostDrainQuoter(
+      state.unifier.metaStore,
+      state.abilityResolutions,
+      monoEnv,
+      fqn => implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(state.bindingCache.getOrElse(fqn, None)),
+      track.platform,
+      (fqn, args) => reduceInstance(fqn, args, true)
+    )
 
   /** The post-check resolution sequence (D1) that settles every metavariable, in order:
     *
