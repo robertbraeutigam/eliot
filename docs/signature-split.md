@@ -252,20 +252,27 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
   *Gate:* zero behaviour change (full suite + examples + `ide.lsp` green, `HelloWorld` builds & runs);
   `SignatureTwinMergeTest` exercises the recast merge rules; `CACHE_VERSION` 24 → 25.
 
-- **Step 2 — `resolve` on twins.** Each twin resolves as its own value; the runtime twin's scope takes the stamped
-  binder list (the cross-twin scope point of §1). Join adapter moves to post-resolve.
-  *Gate:* zero behaviour change.
+- **Step 2 — `resolve` on twins.** *(landed 2026-07-15 — verification-only, no production change.)* Each twin resolves
+  as its own value through the *same* `ValueResolver` — no role-specific path. The signature twin's body is its
+  (resolved) signature expression, and the generic binders baked into that expression are in scope while it resolves
+  (the cross-twin scope point). **Why no code change:** the Step-1 realization keeps the runtime twin dual-slot, so its
+  binder scope still comes from its own `.signature` (`collectGenericParamsFromExpr`, unchanged), and the signature twin
+  — a well-formed `NamedValue` whose `.signature` placeholder equals its body (both = the curried type, which carries
+  the binders) — resolves through the identical path. The original sketch's "runtime twin's scope takes the stamped
+  binder list" + "join adapter moves post-resolve" were artifacts of the progressive single-bodying mechanic Step 1 did
+  not adopt; the runtime twin's `.signature` slot survives until the deletion sweep (Step 9, after Step 6 makes the
+  signature twin authoritative). `SignatureTwinResolveTest` pins it.
+  *Gate:* zero behaviour change (full suite + examples green); new `SignatureTwinResolveTest`.
 
-- **Step 3 — `matchdesugar` + `operator` on twins.** Both phases become single-bodied end-to-end; join adapter moves
-  to post-operator. *Gate:* zero behaviour change (including `examples/TypeLevelMatch.els`).
-
-- **Step 4 — `effect`, `termination`, `saturate` on twins; monomorphize reads the pair.** Effect and recursion checks
-  keep today's scope — **runtime twins only** for now (extending them to signature bodies is Step 8, a separately
-  verified change). `SaturatedValue` is keyed per twin (`inferableArity` derived from the signature twin). The mono
-  processors read *both* twins and reconstruct today's `TypeStackLoop` input — the last join adapter deletes here, so
-  the front-end is fully single-bodied while the checker still walks the signature body in place (behaviour identical).
-  `used`/`uncurry`/backend and the LSP/apidoc indices key off runtime twins.
-  *Gate:* full suite + examples + `ide.lsp` tests green; zero behaviour change. (The mechanical split is complete.)
+  **Steps 3–4 are subsumed by the same topology (measured 2026-07-15).** A probe demanding
+  `MatchDesugaredValue` / `OperatorResolvedValue` / `SaturatedValue` for a signature twin (`def id[X](x: X): X`, and an
+  abstract `def a: T`) produced each fact with **zero errors** — the whole front-end is keyed by `(vfqn, platform)` and
+  is role-agnostic, so the signature twin flows through `matchdesugar` → `operator` → `saturate` unchanged. There is no
+  "single-bodied end-to-end" conversion and no migrating join adapter to do (the runtime twin stays dual-slot; `mono`
+  reads it as today). Effect/recursion checks are never demanded for signature twins in the real pipeline (nothing
+  references them), so they stay runtime-only for free until Step 8. **Steps 3 and 4 therefore reduce to adding the
+  matchdesugar/operator/saturate confirmation tests** — best landed together as one front-end-confirmation unit rather
+  than three near-empty commits.
 
 - **Step 5 — the signature twin gets its own mono (consumer-first).** `CompilerMonomorphicValue(v@Signature, args)`:
   check the signature body against the **derived kind**, elaborate + reduce on the compiler track. W3 values
