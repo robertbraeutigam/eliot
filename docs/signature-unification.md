@@ -392,13 +392,44 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
   `SignatureTwinMonoTest`, `CompilerAbortCarrierTest`); all examples build and run; S7 regression set
   (Arithmetic/Intervals/Ranges/WherePrecondition) explicitly re-verified.
 
-- **Phase B — the twin's mono becomes an ordinary body mono.** Rebuild the `signatureOnly` mode per §3.1: binder kind
-  checks + arrow-chain body check via the shared ladder (add the stateless W3-hole acceptance arm; the guard arm
-  already exists) + ordinary `readBackBody`. Twins now produce for **every** value — W3 (under-applied ground, §3.5)
-  and markers (stripped view) included; the twin's W3 decline deletes. Consumers are *not* yet flipped (the value
-  mono's fallback still runs where it ran). `CACHE_VERSION` bump (twin fact content changes for W3/marker keys).
-  *Gate:* twin facts assert directly (`SignatureTwinMonoTest` successor): ordinary / generic / ability-constrained /
-  guarded / W3 / marker fixtures produce the expected ground; full suite green.
+- **Phase B — the twin's mono becomes an ordinary body mono. [LANDED.]** Rebuilt the `signatureOnly` mode per §3.1 as
+  `TypeStackLoop.processSignatureTwin` (dispatched from `processIO`; the value mono is now `processValueMono`): per-binder
+  kind checks + bind the ground args (`bindTwinBinders`), one `checker.check(arrowChain, VType)` through the shared
+  ladder (with the new stateless W3-hole acceptance arm — an under-applied omittable constructor in a `Type` position is
+  accepted as-is), the ordinary post-drain resolution, then the read-back. Twins now produce for **every** value: W3
+  yields the under-applied ground hole (§3.5 — `Quoter` grounds `VTopDef(Counter, None, …)` at any arity), so the W3
+  decline is gone; markers reduce their stripped view. Consumers are **not** flipped — the value mono's own
+  `settleReturnPosition` still installs the W3 return meta independently of `isCalc`, so the W3 twin producing needs no
+  consumer skip (verified: full `lang.test` green with W3 twins live). `CACHE_VERSION` 25→26.
+  *Gate — met:* full `lang.test` + `jvm.test` + `ide.lsp.test` green; all 35 examples build and run;
+  `SignatureTwinMonoTest` 7/7 (ordinary / generic / ability-constrained / guarded / W3-under-applied); `GuardSignatureIntegrationTest` 8/8.
+
+  **PHASE B OUTCOMES / deviations (important for Phase C):**
+  1. **`sawGuardReturn` is NOT yet eliminated (§3.3's "stateless" is not realized here).** The read-back is a two-way
+     split, exactly mirroring the value mono's `quoteSignature`: an effectful **guard** (`sawGuard`) reduces the
+     **checked** arrow chain via the escalation loop (`reduceSignatureToGround`) — it needs the checker's effect-lift
+     `pure`, absent from the raw signature; **everything else** (ordinary type, bare `{Throw[String]}` carrier return,
+     **type-level `match`**, W3 hole) reduces the **raw** evaluated arrow chain via `quoteSem`. This split is forced: a
+     type-level `match` in a return position (`useIt: Box[String] match { case Box[a] -> a … }`) does **not** reduce
+     from the checked form — the check freezes the pattern binder `a` to a rigid neutral, so the match reduction cannot
+     extract it, and it quotes to "contains unresolved variable". True unification (dropping `sawGuard`, §3.3/§3.4)
+     requires un-freezing checked-form match pattern binders first; deferred.
+  2. **`monoEnv` is captured *before* the arrow-chain check** (only the erased type-stack binders), as the value mono
+     does — otherwise the check's pattern-binder neutrals pollute the read-back env and shadow the match extraction.
+  3. **`bindTwinBinders` binds each binder's Γ type to its *declared kind* (`kindSem`)**, never the ground argument's
+     `valueType`: a higher-kinded carrier binder `[F[_]]` bound to `IO` needs `Γ[F] = VPi(Type, _ => Type)` to type
+     `F[Unit]`, but `IO`'s own `valueType` is merely `Type` (fails "Not a function.").
+  4. **`reduceWithEscalation` now renormalises (deep) before deciding "stuck"** — a native left stuck at eval time
+     (`add(2,1)`) re-fires to `3` instead of triggering escalation, which would monomorphize the enclosing value and
+     resolve an ability the native leaf should short-circuit.
+  5. **`stdlib/eliot/eliot/lang/BigInteger.els` now `import eliot.lang.Numeric`** (beside its existing `import Compare`).
+     The twin check resolves `AddResult[BigInteger,BigInteger]` at ground args eagerly (the value mono's generic walk
+     defers it), demanding the compiler-pool `implement Numeric[BigInteger]` marker, whose ability name only resolved
+     via same-package in the runtime pool. This is a latent-import fix, but flags that the body model's eager ground-arg
+     resolution is more demanding than the generic walk — watch for further missing-import surfacings in later phases.
+  6. **Marker signature twins are capable but not asserted in the test** (they are not demanded until Phase D's
+     `readGuardVerdict` flip; the marker suite still passes via the Runtime-role `readGuardVerdict` path). Add the
+     marker twin fixture with Phase D.
 
 - **Phase C — consumers read unconditionally; the walk deletes.** The value mono goes twin-mandatory with the uniform
   read-settle (§3.2); `Track.settleReturnPosition`/`settleGuardedReturn`, `dischargeGuardedSignature`,

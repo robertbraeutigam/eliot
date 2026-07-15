@@ -67,6 +67,17 @@ class TypeStackLoop(
       typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
   ): CheckIO[TypeStackLoop.Result] =
+    if (signatureOnly) processSignatureTwin(typeArguments, resolvedValue)
+    else processValueMono(typeArguments, resolvedValue)
+
+  /** The ordinary runtime/compiler *value* mono: establish the value's signature (the Step-6 flip reading its own
+    * signature twin, or the in-place walk), check its body against it, drain, and read the body back. (The signature
+    * twin's own mono is [[processSignatureTwin]].)
+    */
+  private def processValueMono(
+      typeArguments: Seq[GroundValue],
+      resolvedValue: OperatorResolvedValue
+  ): CheckIO[TypeStackLoop.Result] =
     for {
       // Whether this value's return is *calculated* (its source return is an under-applied omittable constructor —
       // a bare `Int`, a bare W2-grown `Counter`), derived structurally from the signature rather than a persisted flag.
@@ -211,6 +222,99 @@ class TypeStackLoop(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
+
+  /** The signature twin's monomorphization as an **ordinary body mono** (signature-unification §3.1): the signature's
+    * binder-stripped arrow chain *is* the body. Kind-check each declared binder against `VType` and bind its ground
+    * argument in ρ/Γ, then check the arrow chain (`parameters → returnType`) against `VType` through the shared
+    * resolution ladder — whose acceptance arms (ordinary type / guard carrier / W3 under-applied hole) cover every
+    * return shape — run the ordinary post-drain resolution, and reduce the checked chain to its ground signature via the
+    * same escalation read-back every compiler body takes. No `walkTypeStack`, no `settleReturnPosition`, no `sawGuard`
+    * gate, no W3 decline: every signature twin produces — a plain type, a `Right(t)`/`Left(msg)` guard verdict, or an
+    * under-applied W3 hole (§3.5). The published body is `None` (the signature is the whole product).
+    */
+  private def processSignatureTwin(
+      typeArguments: Seq[GroundValue],
+      resolvedValue: OperatorResolvedValue
+  ): CheckIO[TypeStackLoop.Result] = {
+    val view     = SignatureView.of(resolvedValue.signature)
+    // The arrow chain with the generic binders stripped (they are bound in ρ/Γ by `bindTwinBinders`): `params → return`.
+    val bodyExpr = resolvedValue.signature.as(view.copy(binders = Seq.empty).toExpression)
+    for {
+      _                    <- bindTwinBinders(view.binders, typeArguments)
+      // Capture ρ now — holding only the erased type-stack binders (their ground values / carrier metas), *before* the
+      // check binds any value / pattern binder of the arrow chain. This is the same clean env the value mono captures
+      // before its body check; the read-back reduces the checked chain under it, so a signature-position `match`'s
+      // pattern binder (`case Box[a] -> a`) is extracted by the match reduction rather than shadowed by a stale
+      // post-check neutral. (Carrier metas the pin below solves live in the metastore, not ρ, so this stays authoritative.)
+      monoEnv              <- inspect(_.rho)
+      _                    <- recordAmbientCarriers(resolvedValue)
+      checked              <- checker.check(bodyExpr, VType)
+      // Compile-time carrier pinning runs *after* the arrow-chain check (as the value mono pins after its signature
+      // walk): a declared `{Throw[String]}` carrier binder's meta is bound above and an *inline* guard's inferred
+      // carrier meta is created by the check, so both are present to pin to the compile-time `Either[String]` now.
+      _                    <- track.pinCarriers(checker, resolvedValue)
+      abilityRefs           = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
+      _                    <- runPostDrainResolution(resolvedValue, abilityRefs, None)
+      state                <- get
+      _                    <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
+      _                    <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
+      implBindings         <- track.implBindings(fetchBinding)
+      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
+                                implBindings.get(implFqn).map(ref.value -> _)
+                              }.toMap
+      quoterState          <- get
+      quoter                = new PostDrainQuoter(
+                                quoterState.unifier.metaStore,
+                                quoterState.abilityResolutions,
+                                monoEnv,
+                                fqn =>
+                                  implBindings
+                                    .get(fqn)
+                                    .orElse(abilityMethodBindings.get(fqn))
+                                    .orElse(quoterState.bindingCache.getOrElse(fqn, None)),
+                                track.platform,
+                                (fqn, args) => reduceInstance(fqn, args, true)
+                              )
+      // The signature's ground read-back. Two shapes, exactly as the value mono's `quoteSignature`:
+      //   - an *effectful guard* (`sawGuard`, an inline `if..else..raise`) reduces the **checked** arrow chain — the
+      //     one carrying the checker's effect-lift `pure` the raw signature lacks — through the escalation loop to its
+      //     `Right(t)` / `Left(msg)` verdict ([[PostDrainQuoter.reduceSignatureToGround]]);
+      //   - everything else (an ordinary type, a bare `{Throw[String]}` carrier return, a type-level `match`, a W3
+      //     under-applied hole) reduces the **raw** evaluated arrow chain (a `match`'s pattern binder is bound by the
+      //     match reduction rather than frozen to a neutral by the check), renormalising natives as it quotes.
+      sawGuard             <- inspect(_.sawGuardReturn)
+      groundSig            <- if (sawGuard) liftF(quoter.reduceSignatureToGround(checked, resolvedValue.signature))
+                              else checker.evalExpr(bodyExpr.value).flatMap(raw => liftF(quoter.quoteSem(raw, resolvedValue.signature)))
+    } yield TypeStackLoop.Result(groundSig, None)
+  }
+
+  /** Kind-check each signature binder's declared kind against `VType` and bind its ground type argument in ρ/Γ (the
+    * signature-unification body model, §3.1 step 1). Left-to-right, so a binder whose kind references an earlier binder
+    * sees it already bound. A leftover binder with no argument (a phantom the key does not carry) instantiates to a
+    * fresh meta; the mono key carries one argument per binder in practice (§4.7).
+    */
+  private def bindTwinBinders(
+      binders: Seq[SignatureView.Binder],
+      typeArguments: Seq[GroundValue]
+  ): CheckIO[Unit] =
+    binders.zipWithIndex.traverse_ { case (binder, i) =>
+      for {
+        // Kind-check the binder's declared kind against `VType`, then evaluate it to the binder's *type* for Γ. The
+        // binder's declared kind is authoritative — a higher-kinded carrier binder `[F[_]]` yields `VPi(Type, _ =>
+        // Type)`, whereas the ground argument's own `valueType` is merely `Type` (`IO : Type`), which cannot type the
+        // application `F[Unit]`. A value binder `[N: BigInteger]` yields `BigInteger`; an unannotated `[X]` yields `Type`.
+        _       <- binder.parameterType.traverse_(kind => checker.check(kind, VType).void)
+        kindSem <- binder.parameterType.traverse(kind => checker.evalExpr(kind.value)).map(_.getOrElse(VType))
+        // ρ's value: the explicit ground argument's applicable head form, or — for a leftover (phantom / auto-carrier)
+        // binder the key does not carry — a fresh instantiation meta that stays open for `pinCarriers` (the compile-time
+        // `Either[String]`) or the finalizer's `Type` default.
+        value   <- typeArguments.lift(i) match {
+                     case Some(arg) => pure(Evaluator.groundToSem(arg))
+                     case None      => checker.freshMeta.widen[SemValue]
+                   }
+        _       <- modify(_.bindTypeStackParam(binder.name.value, kindSem, value))
+      } yield ()
+    }
 
   /** Quote a signature-twin guard's established ground signature to its `Right(t)` / `Left(msg)` **verdict** (signature
     * split, Step 7). The verdict is the *deep reduction* of the checked return position

@@ -1,3 +1,4 @@
+import eliot.lang.Numeric
 import eliot.lang.Compare
 import eliot.lang.Bool
 

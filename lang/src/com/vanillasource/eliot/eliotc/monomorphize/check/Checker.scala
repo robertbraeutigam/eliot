@@ -245,7 +245,19 @@ class Checker(
                           case VType => calcReturns.isGuardCarrier(inferred)
                           case _     => pure(false)
                         }
+      // The W3-hole acceptance (signature-unification §3.3, arm 3): an under-applied omittable constructor (a bare
+      // `Int`, a bare W2-grown `Counter`) in a `Type` position denotes a *calculated return* — its missing arguments
+      // the body computes — so accept it as-is rather than unifying its type-constructor kind against `Type` (which
+      // would reject `BigInteger -> Type` ≠ `Type`). Stateless: the under-applied head is published unchanged and the
+      // consumer's read recognises it (`isCalculatedReturn`). This fires only where a bare omittable constructor is
+      // checked against `Type` — in practice the signature twin's arrow chain, since the value mono flattens its own
+      // calculated return to a `Type` placeholder before ever checking it.
+      w3Hole         <- (forcedExpected, guardKind) match {
+                          case (VType, false) => calcReturns.isCalculatedReturnExpr(tm.value)
+                          case _              => pure(false)
+                        }
       outcome        <- if (guardKind) modify(_.recordGuardReturn).as(SlotOutcome.Resolved(expr): SlotOutcome)
+                        else if (w3Hole) pure(SlotOutcome.Resolved(expr): SlotOutcome)
                         else resolveLadder(tm, expr, inferred, expected, allowBindLift)
     } yield outcome
 

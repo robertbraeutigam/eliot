@@ -164,8 +164,15 @@ class SignatureTwinMonoTest extends ProcessorTest(LangProcessors(systemModules =
       .asserting { case (rt, sig, errs) => (rt.isDefined, sig, errs) shouldBe (true, rt, Seq.empty) }
   }
 
-  "the signature twin's compiler mono for a calculated return (W3)" should "decline, error-free (its back-edge is Step 6)" in {
+  "the signature twin's compiler mono for a calculated return (W3)" should "produce the under-applied return hole (§3.5)" in {
+    // Signature-unification Phase B: the twin is an ordinary body mono, so it no longer *declines* a calculated return —
+    // it produces the signature with the return left as an **under-applied constructor head** (`Counter` with zero
+    // arguments), which the value mono's own body still solves via its return meta. The `Quoter` grounds the
+    // body-less `VTopDef(Counter, None, …)` at any arity, so the hole rides the twin fact with no fact-shape change.
     bothSignatures(fqn("bump"), Seq(GroundValue.Type))
-      .asserting { case (_, sig, errs) => (sig, errs) shouldBe (None, Seq.empty) }
+      .asserting { case (_, sig, errs) =>
+        (sig.map(_.deepReturnType), errs) shouldBe
+          (Some(GroundValue.Structure(fqn("Counter", Qualifier.Type), Seq.empty, GroundValue.Type)), Seq.empty)
+      }
   }
 }
