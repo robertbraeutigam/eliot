@@ -56,6 +56,48 @@ class TerminationIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("recursively"))
   }
 
+  // Signature split, Step 8: a recursive type *alias* is caught by the same no-recursion gate. A `Type`-qualified value's
+  // runtime body *is* its alias RHS, so `type Foo = Foo` is a self-cycle in the body-reference graph exactly as a
+  // recursive `def` is — a fail-safe property (a recursive alias cannot terminate the type-level reduction it drives).
+  "a directly self-recursive type alias" should "be rejected as recursion" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |type Foo = Foo
+        |def useFoo(x: Foo): Foo = x
+        |
+        |def main: IO[Unit] = printLine("unreachable")""".stripMargin
+    ).asserting(_ should include("recursively"))
+  }
+
+  "a mutually-recursive pair of type aliases" should "be rejected as recursion" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |type A = B
+        |type B = A
+        |def useA(x: A): A = x
+        |
+        |def main: IO[Unit] = printLine("unreachable")""".stripMargin
+    ).asserting(_ should include("recursively"))
+  }
+
+  // Signature split, Step 8: the monad-transformer lifting pattern stays accepted end-to-end. `{Abort}` + `else` forces
+  // the compile-time and runtime `AbortCarrier` instances (over `IO`), whose `Effect`/`Abort` method bodies call the
+  // *same-named* abstract ability methods (`pure`/`flatMap`/`abort`) on the inner carrier. Those abstract methods are a
+  // different FQN (`Qualifier.Ability`) from the implementation methods (`Qualifier.AbilityImplementation`) containing
+  // them, so the no-recursion gate — now running on both twins of each such value — does not mistake the lift for
+  // recursion. (The signature twins' recursion check is a structural no-op here; the runtime twins are the classic
+  // ability-method-vs-implementation-method distinction.)
+  "the monad-transformer lifting pattern (an Abort carrier over IO)" should "not be mistaken for recursion" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Abort
+        |
+        |def lookup: {Abort} String = abort
+        |
+        |def main: IO[Unit] = printLine(lookup else "fallback")""".stripMargin
+    ).asserting(_ shouldBe "fallback")
+  }
+
   "a deep non-recursive helper chain" should "compile and run" in {
     compileAndRun(
       """import eliot.effect.Console
