@@ -2,7 +2,8 @@
 
 **Status: IN PROGRESS (updated 2026-07-15).** Phases A, B, D-core LANDED; Phase C's first cut BLOCKED and reverted
 (see §7 PHASE C OUTCOME), then **re-derived the same day from a full demand census** — see §7 PHASE C RE-DERIVATION
-(C-pre / C1 / C2); Phase E pending. Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
+(C-pre / C1 / C2). **C-pre LANDED** (dead guard machinery deleted + twin read gated on arity; net −104 lines, zero
+behaviour change — see §7 Phase C-pre); C1 / C2 / Phase E pending. Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
 0–8 + 10 are LANDED on master: every named value splits at birth into `v@Runtime` + `v@Signature` twins, the signature
 twin monomorphizes on the compiler track (`CompilerMonomorphicValue(v@Signature, args)`), the payoff feature (inline
 `if..else..raise` / bare `raise` guards) works end-to-end, and `when`/`orError` is retired. Its Step 9 — the checker
@@ -333,8 +334,9 @@ settles; **[C2]** = parametric twins (severable).
   implicit metas appended, so its key is full-arity**]**
 - `quoteSignature` + `peelSignatureBinders` + the `guardMarker`/`inlineGuard` gates + `reduceGuardSubValues` +
   `reduceResolvedImpls` + `absorbLeadingArgs` + `reevaluateGuardReturn` + `collectValueRefs` (the in-walk composition)
-  ⟹ ordinary `readBackBody` + escalation (§3.4). **[C-pre** — dead since B/D-core; see §7 RE-DERIVATION finding 5.
-  `reduceResolvedImpls`/`absorbLeadingArgs` already deleted in A**]**
+  ⟹ ordinary `readBackBody` + escalation (§3.4). **[C-pre — DONE:** all deleted; the value mono's `groundSig` now calls
+  `quoter.quoteSem(checkSig, rv.signature)` directly. `reduceResolvedImpls`/`absorbLeadingArgs` were already deleted in
+  A**]**
 - the guard-scoped quoter lookup maps (`guardSubBindings`, `reducedImplBindings`) ⟹ escalation's binding loop.
   **[done in A]**
 
@@ -551,10 +553,22 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
 
   The re-cut phases (each one committable, same gates as this section's preamble):
 
-  - **C-pre — delete the dead code; stop the twin waste (no behaviour change).** Delete finding 5's list
-    (fixture-check the body-less guarded declarations — `def foo: Left("boom")`, bare-`raise` — before removing the
-    `guardMarker` arm). Gate the processors' twin read on arity match (finding 4). *Gate:* full suite + examples
-    green, zero behaviour change.
+  - **C-pre — delete the dead code; stop the twin waste (no behaviour change). [LANDED.]** Deleted finding 5's list:
+    `quoteSignature` / `quoteSignatureFallback` / `peelSignatureBinders` (the value mono's `groundSig` now calls
+    `quoter.quoteSem(checkSig, rv.signature)` directly — `signatureOnly && sawGuard` was constantly `false` in
+    `processValueMono` since the B dispatch), the Stage-4 trio (`reduceGuardSubValues` / `reevaluateGuardReturn` /
+    `collectValueRefs` + the `guardMarker` / `guardBindings` / `finalSig` block), and `Track.Runtime.settleGuardedReturn`'s
+    marker exemption (D-core moved marker verdicts to `readGuardVerdict`, so no marker reaches the runtime value mono).
+    Gated the processors' twin read on arity match (finding 4): both mono processors now skip the twin read when
+    `key.typeArguments.size != SignatureView.binders.size`, so a partial-arity key no longer mints a defaulted-`Type`
+    `@Signature` fact that `establishSignature`'s flip gate immediately discards. **The three dead arms were proven
+    unreachable empirically before deletion** — temporary stderr sentinels on `guardMarker`, `guardBindings.nonEmpty`,
+    and the marker-in-settle branch fired **zero times** across the full `lang.test` + `jvm.test` suites (which exercise
+    the `def foo: Left("boom")` body-less guarded declaration, the bare-`raise` `EffectsThrow`/`EffectsTwoThrows`
+    examples, and the marker guard suite). *Gate — met:* `lang.test` / `jvm.test` / `ide.lsp.test` green with **identical
+    test totals before and after** the deletion (zero behaviour change), all example-integration tests pass, `HelloWorld`
+    builds and runs. Net **−104 lines** (−136 / +32). No `CACHE_VERSION` bump: no persisted fact shape changed (a
+    partial-arity twin fact is now simply never demanded, not reshaped).
   - **C1 — the flip is mandatory at full arity; both settles become shape-driven; the guard machinery deletes.**
     `establishSignature` splits **by arity, honestly**: a *full-arity* key reads its twin as **mandatory**
     (`getFactOrAbort` semantics — verify §4.4's error propagation) and settles at the read with one leaf-driven

@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 
@@ -34,7 +35,16 @@ class MonomorphicTypeCheckProcessor
       // calculated return whose twin declined, an ability-implementation marker whose `where` guard only the in-place
       // machinery reduces, or a signature not producible on the compiler track) keeps the in-place walk. Acyclic:
       // `CompilerMonomorphicValue` never reads back a runtime `MonomorphicValue`.
-      injectedSignature <- if (MarkerGuardSignature.isMarker(value)) none[GroundValue].pure[CompilerIO]
+      //
+      // Gated on **full arity** (one type argument per binder), because `TypeStackLoop.establishSignature` consumes the
+      // injected signature only at full arity — a partial-arity key (an erased-generic ability-impl method, keyed at its
+      // impl-resolution-scope args; signature-unification §4.7) falls to the in-place walk regardless. Reading the twin
+      // there would mint a partial-arity `@Signature` fact (leftover binders defaulted to `Type`) that is immediately
+      // discarded — pure waste on every build; skipping the read is behaviour-preserving (the value flows nowhere else).
+      injectedSignature <- if (
+                             MarkerGuardSignature.isMarker(value) ||
+                             key.typeArguments.sizeIs != SignatureView.of(value.signature).binders.size
+                           ) none[GroundValue].pure[CompilerIO]
                            else
                              getFactIfProduced(
                                CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)

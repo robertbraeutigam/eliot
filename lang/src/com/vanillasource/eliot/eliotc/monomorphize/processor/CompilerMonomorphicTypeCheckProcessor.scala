@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -125,7 +126,14 @@ class CompilerMonomorphicTypeCheckProcessor
       value: OperatorResolvedValue,
       key: CompilerMonomorphicValue.Key
   ): CompilerIO[Option[GroundValue]] =
-    if (signatureOnly || MarkerGuardSignature.isMarker(value)) none[GroundValue].pure[CompilerIO]
+    // Gated on **full arity** for the same reason as the runtime processor (signature-unification §4.7): the injected
+    // signature is consumed by `establishSignature` only when `typeArguments.size == binders.size`; a partial-arity key
+    // (an erased-generic ability-impl method) falls to the in-place walk regardless, so reading its twin would only mint
+    // a `@Signature` fact that is discarded. Skipping it is behaviour-preserving and removes per-build waste.
+    if (
+      signatureOnly || MarkerGuardSignature.isMarker(value) ||
+      key.typeArguments.sizeIs != SignatureView.of(value.signature).binders.size
+    ) none[GroundValue].pure[CompilerIO]
     else
       getFactIfProduced(
         CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
