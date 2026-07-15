@@ -30,15 +30,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   *     method (`Qualifier.AbilityImplementation`) that contains it. Ability-mediated potential recursion, if any, is
   *     resolved — and its convergence policed — by monomorphization, not here.
   *
-  * Under the signature split the check runs on **both** twins of every value (each is an
-  * [[OperatorResolvedValue]]). On the `Runtime` twin it behaves exactly as above; a genuinely cyclic type *alias*
-  * (`type Foo = Foo`, mutual `type A = B` / `type B = A`) is caught here, because a `Type`-qualified value's runtime
-  * body *is* its alias RHS (the §5 fail-safe property — a recursive alias cannot diverge type-level reduction). On the
-  * `Signature` twin the check is a **structural no-op**: the twin's body is the value's *type expression*, whose
-  * references are the type constructors it mentions — all `Runtime`-role FQNs — while the search target is the twin's
-  * own `Signature`-role FQN, so no callee can ever match it. It therefore never flags a signature twin (verified: a
-  * covariant `data Tree` and the monad-transformer lift stay accepted), and the cyclic-alias catch above is what the
-  * split's "type-alias cycle is a fail-safe win" reduces to in practice.
+  * The check runs on every value's runtime body. A genuinely cyclic type *alias* (`type Foo = Foo`, mutual
+  * `type A = B` / `type B = A`) is caught here too, because a `Type`-qualified value's runtime body *is* its alias RHS
+  * (the fail-safe property — a recursive alias cannot diverge type-level reduction); a covariant `data Tree` and the
+  * monad-transformer lift stay accepted (their self-reference is in the signature, not the runtime body).
   */
 class RecursionChecker {
 

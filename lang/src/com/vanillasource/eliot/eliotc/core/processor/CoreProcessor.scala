@@ -69,18 +69,14 @@ class CoreProcessor
       CoreAST(sourceAst.uri, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }
 
-  /** Split one definition into its two twins (the signature split):
-    *   - the **`Runtime` twin** — today's value: its `runtime` body (`None` iff abstract) and its `signature`
-    *     (type) expression, rendering and behaving byte-identically to the pre-split `NamedValue`;
-    *   - the **`Signature` twin** — a plain named value whose *body* is the signature expression (always present, never
-    *     abstract), sharing the same generic binders (`paramConstraints`). Its own signature is the derived kind, which
-    *     is never minted or stored — so its `signature` slot carries an inert placeholder (the body expression) and is
-    *     not read until the signature twin gets its own monomorphization (a later step). It is compile-time-only and
-    *     participates in name resolution through exactly the same machinery as any other value; nothing resolves *into*
-    *     it yet.
+  /** Convert one definition into its [[NamedValue]] — its `runtime` body (`None` iff abstract) and its `signature`
+    * (type) expression.
     *
-    * `dischargedEffects` and the constructor-shape `roleHint` stay on the `Runtime` twin (the effect phase and match
-    * reconstruction read the runtime twin today); the signature twin carries neither.
+    * The signature split (S0–S8) once minted a second *signature twin* here — a value whose body was the signature
+    * expression, so a signature could be monomorphized on its own — but that twin was an inert duplicate: its content is
+    * exactly this value's `signature`, already threaded through the whole front-end. Signature-unification Phase E
+    * removed it; `Role.Signature` survives only as a *monomorphize-level* key dimension (`CompilerMonomorphicValue(v@Signature,
+    * args)`), whose input is this same runtime value's `SaturatedValue` (its signature checked via `processSignatureTwin`).
     */
   private def transformFunction(function: FunctionDefinition, roleHint: RoleHint): Seq[NamedValue] = {
     import CoreExpressionConverter.*
@@ -111,33 +107,19 @@ class CoreProcessor
       .takeWhile(identity)
       .size
     val precedence   = function.precedence.map(convertPrecedenceDeclaration)
-    val runtimeTwin  = NamedValue(
-      function.name,
-      curriedValue,
-      curriedType,
-      constraints,
-      function.fixity,
-      precedence,
-      function.visibility,
-      roleHint,
-      inferableArity,
-      function.dischargedEffects
+    Seq(
+      NamedValue(
+        function.name,
+        curriedValue,
+        curriedType,
+        constraints,
+        function.fixity,
+        precedence,
+        function.visibility,
+        roleHint,
+        inferableArity,
+        function.dischargedEffects
+      )
     )
-    // The signature twin: its body IS the signature expression (always present). Its own signature (the kind) is
-    // derived on demand and never stored, so the slot repeats the body as an inert placeholder. Same binders,
-    // visibility, and fixity as the runtime twin; no `roleHint`/`dischargedEffects` (those describe the runtime value).
-    val signatureTwin = NamedValue(
-      function.name.map(_.signatureTwin),
-      Some(curriedType),
-      curriedType,
-      constraints,
-      function.fixity,
-      precedence,
-      function.visibility,
-      RoleHint.NoHint,
-      inferableArity,
-      Seq.empty
-    )
-    Seq(runtimeTwin, signatureTwin)
   }
 }

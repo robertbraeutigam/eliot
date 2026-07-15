@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.module.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.NamedValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleNames, ModuleValue, Role, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleNames, ModuleValue, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
@@ -19,28 +19,18 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
     for {
       pathScan     <- getFactOrAbort(PathScan.Key(key.vfqn.moduleName.toPath, key.platform))
       allNames     <- pathScan.files.traverse(file => getFactOrAbort(ModuleNames.Key(file)).map(file -> _))
-      // A value is located by its `Runtime`-role *surface* name (the only role in [[ModuleNames]]); a `Signature`-twin
-      // request lives in exactly the files where its runtime twin is declared. The `ModuleValue` demand below then uses
-      // the full role-bearing `vfqn`, so the signature twin's own facts are fetched.
-      surfaceName   = key.vfqn.name.copy(role = Role.Runtime)
-      filesWithName = allNames.collect { case (file, names) if names.names.value.contains(surfaceName) => file }
+      filesWithName = allNames.collect { case (file, names) if names.names.value.contains(key.vfqn.name) => file }
       allValues    <- filesWithName.traverse(file => getFactOrAbort(ModuleValue.Key(file, key.vfqn, key.platform)))
       _            <- compilerAbort(allNames.head._2.names.as(s"Could not find '${key.vfqn.name.show}'."))
                         .whenA(allValues.isEmpty)
       unifiedValue <- unifyValues(key.vfqn, allValues, pathScan.overrideFiles, key.platform)
     } yield unifiedValue
 
-  /** Reconciles every co-located declaration of a name across the pool's layers into one value. The merge is **per
-    * `(name, role)`** — the role is part of `vfqn`, so a given call sees only one role's declarations:
+  /** Reconciles every co-located declaration of a name across the pool's layers into one value, preferring the
+    * implementation. Every declaration must first agree on signature (`hasSameSignatures`, else "Has multiple different
+    * definitions.").
     *
-    *   - **`Runtime` twins** follow the prefer-the-implementation rule below.
-    *   - **`Signature` twins** are always bodied (a declaration always has a signature) and must all *agree* — there is
-    *     no "prefer the implementation" / "multiple implementations" notion, since every layer simply restates the same
-    *     signature. Agreement is `hasSameSignatures` (a signature twin's `signature` slot repeats its body, so this
-    *     compares the signature expressions); the override overlay may still supersede. The `dischargedEffects` union
-    *     stays on the runtime twin for now (the effect phase reads it there), so the signature merge carries none.
-    *
-    * The runtime rules stay order-free with one exception, the compiler-as-platform override: among the
+    * The rules stay order-free with one exception, the compiler-as-platform override: among the
     * *implementations* (`runtime.isDefined`), an implementation that comes from an **override file** (the compiler
     * overlay, per [[PathScan.overrideFiles]]) supersedes the platform's — so the compiler track can redefine a name the
     * platform also implements without it counting as a conflict. Absent any override (always so on the runtime track,
@@ -57,11 +47,6 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
       abort
     } else if (!hasSameSignatures(values)) {
       compilerError(values.head.namedValue.qualifiedName.as("Has multiple different definitions.")) *> abort
-    } else if (vfqn.name.role == Role.Signature) {
-      val overriding = values.filter(value => overrideFiles.contains(value.uri))
-      val chosen     = overriding.headOption.getOrElse(values.head)
-      UnifiedModuleValue(chosen.vfqn, chosen.dictionary, chosen.namedValue, chosen.privateNames, platform)
-        .pure[CompilerIO]
     } else {
       val implementations = values.filter(_.namedValue.runtime.isDefined)
       val overriding      = implementations.filter(value => overrideFiles.contains(value.uri))

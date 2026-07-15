@@ -34,13 +34,6 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.qualifiedName.value -> nv).toMap
       _              <- moduleNames.names.value.keys.toSeq
                           .flatMap(name => namedValuesMap.get(name).map(nv => (name, nv)))
-                          // Register the `Runtime` twin and, alongside it, its `Signature` twin (same files, same
-                          // dictionary). The signature twin is not in the surface name set, but it is a first-class
-                          // value fact demandable by its role-bearing FQN (the value machinery — see the header).
-                          .flatMap { (name, namedValue) =>
-                            (name, namedValue) +:
-                              namedValuesMap.get(name.signatureTwin).map(sig => (name.signatureTwin, sig)).toSeq
-                          }
                           .map { (name, namedValue) =>
                             registerFactIfClear(
                               ModuleValue(

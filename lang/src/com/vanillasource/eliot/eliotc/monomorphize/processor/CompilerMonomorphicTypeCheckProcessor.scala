@@ -28,7 +28,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class CompilerMonomorphicTypeCheckProcessor
     extends TransformationProcessor[SaturatedValue.Key, CompilerMonomorphicValue.Key](key =>
-      SaturatedValue.Key(key.vfqn, Platform.Compiler)
+      // Both roles' monos read the **runtime** value's `SaturatedValue` (signature-unification Phase E): a `Signature`
+      // mono checks that same value's signature expression (`processSignatureTwin`), so there is no separate front-end
+      // signature-twin fact — `Role.Signature` is now purely a monomorphize-level key dimension, `signatureOnly` below.
+      SaturatedValue.Key(key.vfqn.copy(name = key.vfqn.name.copy(role = Role.Runtime)), Platform.Compiler)
     ) {
 
   /** Fetch a name's compile-time reduction from the compiler pool, enforcing the **native-leaf boundary** (CP-C step c).

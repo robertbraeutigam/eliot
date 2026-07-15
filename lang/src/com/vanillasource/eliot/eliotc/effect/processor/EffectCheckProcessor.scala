@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.effect.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.fact.EffectCheckedValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.Role
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{arrow, spine}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -52,21 +51,9 @@ class EffectCheckProcessor
   ): CompilerIO[EffectCheckedValue] = {
     given Platform = checked.value.platform
     val value      = checked.value
-    // Signature-twin exemption (the signature split, §4 derived-row exemption). A `Signature`-role twin's body is a
-    // *type expression* whose own signature — the derived kind — is compiler-derived, never user-written, so its effect
-    // row is *inferred*, not declared. The two user-facing diagnostics here (the `declared ⊇ used` subset check and the
-    // "declared pure but result is effectful" fail-safe) police a *user's declared* row against the effects a body
-    // performs; a signature twin has no such declaration to honour. In particular a guard's return-type twin
-    // legitimately performs `Throw`/`Abort` while reducing to its `Right(t)`/`Left(msg)` verdict (which the signature
-    // twin's own monomorphization discharges) — that is a type-level computation, not a runtime leak to reject. The
-    // runtime twin still receives the full check, so genuine effect leaks in the actual value are unaffected. So the
-    // signature twin passes through untouched rather than being checked against an empty (and thus accidentally
-    // permissive, or — for a differently-shaped guard — accidentally rejecting) carrier.
-    if (value.vfqn.name.role == Role.Signature) EffectCheckedValue(value).pure[CompilerIO]
-    else
-      value.runtime
-        .traverse_(body => checkBody(value, body))
-        .as(EffectCheckedValue(value))
+    value.runtime
+      .traverse_(body => checkBody(value, body))
+      .as(EffectCheckedValue(value))
   }
 
   /** Run the two effect diagnostics over one value's body against its declared signature. An error registered here
