@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -213,23 +213,31 @@ class CalculatedReturnResolver(
     * non-recursive program has an acyclic producer call graph, so a repeated FQN on the active chain is exactly the
     * recursion signal; report it as a specific error rather than blocking forever or defaulting to `Type`.
     */
-  // NOTE: this back-edge re-enters the *runtime* `MonomorphicValue` unconditionally. On the compiler track (`platform ==
-  // Compiler`) it should re-enter `CompilerMonomorphicValue` instead — but no compiler-track client uses a calculated
-  // return yet, so this stays runtime-only for now (fail-safe: a compiler-pool-only callee simply yields no fact and the
-  // caller errors, never a silently wrong type). Threading the compiler-track re-entry is a follow-up increment.
+  // The back-edge re-enters the *own track*'s mono (the signature split's Step-6 W3 inversion): the runtime track reads
+  // `MonomorphicValue`, the compiler track reads `CompilerMonomorphicValue`. Before the flip no compiler-track client
+  // took a calculated return; now a compiler-track value referencing a calculated-return callee resolves it here, so the
+  // read must target the compiler pool (reading the runtime `MonomorphicValue` of a compiler-pool-only callee would find
+  // no fact and error). The recursion guard covers both key shapes.
   private def readMonomorphicReturnGround(
       fqn: Sourced[ValueFQN],
       groundArgs: Seq[GroundValue]
   ): CheckIO[Option[SemValue]] =
     liftF(activeFactKeys).flatMap { active =>
       val recursing = active.exists {
-        case MonomorphicValue.Key(vfqn, _) => vfqn == fqn.value
-        case _                             => false
+        case MonomorphicValue.Key(vfqn, _)         => vfqn == fqn.value
+        case CompilerMonomorphicValue.Key(vfqn, _) => vfqn == fqn.value
+        case _                                     => false
       }
       if (recursing) liftF(reportRecursiveCalculatedReturn(fqn) >> abort[Option[SemValue]])
       else
-        liftF(getFactIfProduced(MonomorphicValue.Key(fqn.value, groundArgs)))
-          .map(_.map(mv => Evaluator.groundToSem(mv.signature.deepReturnType)))
+        platform match {
+          case Platform.Runtime  =>
+            liftF(getFactIfProduced(MonomorphicValue.Key(fqn.value, groundArgs)))
+              .map(_.map(mv => Evaluator.groundToSem(mv.signature.deepReturnType)))
+          case Platform.Compiler =>
+            liftF(getFactIfProduced(CompilerMonomorphicValue.Key(fqn.value, groundArgs)))
+              .map(_.map(cmv => Evaluator.groundToSem(cmv.signature.deepReturnType)))
+        }
     }
 
   private def reportRecursiveCalculatedReturn(fqn: Sourced[ValueFQN]): CompilerIO[Unit] =
