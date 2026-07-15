@@ -33,9 +33,20 @@ object ReducedBindingClosure {
     * resolved to `Eq[Type]::equals` (whose body-less native leaf then reduces the concrete comparison), which the
     * signature read-back inlines to fully reduce the guard. Always the compiler track: a guard is a compile-time computation.
     */
-  def reduceInstance(vfqn: ValueFQN, typeArguments: Seq[GroundValue]): CompilerIO[Option[SemValue]] =
+  /** `recursive` (default `false`) additionally reduces each dependency at its own instantiation (see
+    * [[collectBindings]]) so that a **stacked** carrier resolves through every layer — used only by the inline-guard
+    * reader (signature split, Step 7), where an impl body's dependency (`AbortCarrier::abort` over the base `Either`)
+    * would otherwise close over a still-abstract raw binding. The default keeps the one-hop raw-dependency closure the
+    * precompute-and-merge and marker-guard readers rely on (reducing every dependency there would trip spurious
+    * per-instantiation ability resolutions — e.g. a `Compare` dependency at a defaulted `Type` argument).
+    */
+  def reduceInstance(
+      vfqn: ValueFQN,
+      typeArguments: Seq[GroundValue],
+      recursive: Boolean = false
+  ): CompilerIO[Option[SemValue]] =
     getFactIfProduced(CompilerMonomorphicValue.Key(vfqn, typeArguments)).flatMap {
-      case Some(cmv) => cmv.reduced.traverse(r => buildBinding(vfqn, r.value, Platform.Compiler))
+      case Some(cmv) => cmv.reduced.traverse(r => buildBinding(vfqn, r.value, Platform.Compiler, recursive))
       case None      => None.pure[CompilerIO]
     }
 
@@ -46,10 +57,11 @@ object ReducedBindingClosure {
   def buildBinding(
       vfqn: ValueFQN,
       reduced: MonomorphicExpression.Expression,
-      platform: Platform
+      platform: Platform,
+      recursive: Boolean = false
   ): CompilerIO[SemValue] =
     for {
-      deps <- collectBindings(reduced, vfqn, platform)
+      deps <- collectBindings(reduced, vfqn, platform, recursive)
     } yield VTopDef(
       vfqn,
       Some(Lazy {
@@ -59,30 +71,52 @@ object ReducedBindingClosure {
       Spine.SNil
     )
 
-  /** Collect the [[NativeBinding]]s of every value reference in the reduced body, skipping the value's own FQN and any
-    * FQN already an ancestor on the active fact-request chain (the same mutual-recursion guard [[BindingClosure]] uses).
+  /** Collect the binding of every value reference in the reduced body, skipping the value's own FQN and any FQN already
+    * an ancestor on the active fact-request chain (the same mutual-recursion guard [[BindingClosure]] uses). By default
+    * each dependency is its raw [[NativeBinding]] body (a one-hop closure).
+    *
+    * When `recursive` (the inline-guard reader), a dependency is instead taken **reduced at its own instantiation**
+    * ([[reduceInstance]], recursively, against the reference's ground type arguments), so a **stacked** carrier resolves
+    * through every layer: when this reduced body fell back to *structural* (an unreduced value parameter, e.g. `if`'s
+    * `condition`, left it un-normal-formed), its impl-dispatch dependency (`AbortCarrier::abort` = `AbortCarrier(pure(None))`)
+    * still gets its nested base ability (`pure`) resolved rather than closing over the raw, still-abstract binding.
+    * `MonomorphicEvaluator` drops a reference's type arguments, so the already-instantiated reduced dependency is used
+    * directly with no re-application. A dependency with no reduced form (a native leaf, a `data` constructor) falls back
+    * to its raw [[NativeBinding]] body.
     */
   private def collectBindings(
       reduced: MonomorphicExpression.Expression,
       selfFqn: ValueFQN,
-      platform: Platform
+      platform: Platform,
+      recursive: Boolean
   ): CompilerIO[Map[ValueFQN, SemValue]] =
-    (valueReferences(reduced) - selfFqn).toList.foldLeftM(Map.empty[ValueFQN, SemValue]) { (acc, fqn) =>
-      activeFactKeys.flatMap { ancestors =>
-        if (ancestors.contains(NativeBinding.Key(fqn, platform))) acc.pure[CompilerIO]
-        else
-          getFactIfProduced(NativeBinding.Key(fqn, platform)).map {
-            case Some(binding) => acc + (fqn -> binding.semValue)
-            case None          => acc
+    valueReferences(reduced).filterNot(_._1 == selfFqn).toList.foldLeftM(Map.empty[ValueFQN, SemValue]) {
+      case (acc, (fqn, typeArgs)) =>
+        activeFactKeys.flatMap { ancestors =>
+          if (ancestors.contains(NativeBinding.Key(fqn, platform))) acc.pure[CompilerIO]
+          else {
+            def raw: CompilerIO[Map[ValueFQN, SemValue]] =
+              getFactIfProduced(NativeBinding.Key(fqn, platform)).map {
+                case Some(binding) => acc + (fqn -> binding.semValue)
+                case None          => acc
+              }
+            if (recursive)
+              reduceInstance(fqn, typeArgs, recursive = true).flatMap {
+                case Some(reduced) => (acc + (fqn -> reduced)).pure[CompilerIO]
+                case None          => raw
+              }
+            else raw
           }
-      }
+        }
     }
 
-  private def valueReferences(expr: MonomorphicExpression.Expression): Set[ValueFQN] = expr match {
-    case MonomorphicExpression.MonomorphicValueReference(vfqn, _)    => Set(vfqn.value)
-    case MonomorphicExpression.FunctionApplication(target, argument) =>
+  private def valueReferences(
+      expr: MonomorphicExpression.Expression
+  ): Set[(ValueFQN, Seq[GroundValue])] = expr match {
+    case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) => Set((vfqn.value, typeArgs))
+    case MonomorphicExpression.FunctionApplication(target, argument)     =>
       valueReferences(target.value.expression) ++ valueReferences(argument.value.expression)
-    case MonomorphicExpression.FunctionLiteral(_, _, body)          => valueReferences(body.value.expression)
-    case _                                                          => Set.empty
+    case MonomorphicExpression.FunctionLiteral(_, _, body)              => valueReferences(body.value.expression)
+    case _                                                              => Set.empty
   }
 }

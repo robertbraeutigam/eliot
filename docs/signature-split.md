@@ -1,6 +1,8 @@
 # Signature split — the signature becomes a named value (`Runtime`/`Signature` role)
 
-**Status: PLANNED** (2026-07-14). This plan supersedes and replaces two retired documents:
+**Status: IN PROGRESS** (updated 2026-07-15) — Steps 0–7 landed (Step 7, the payoff feature, complete this arc); Steps
+8–10 (checks reach signature bodies, the checker deletion sweep, the `Guard.els` removal + closeout) remain. This plan
+supersedes and replaces two retired documents:
 
 - `docs/return-position-unification.md` — Stage 1 (structural calculated-return detection, no persisted flag) landed
   and stays; Stage 2 (effectful returns) is realized by this plan instead. Its Attempt-1 evidence is absorbed in §8.
@@ -354,36 +356,50 @@ the role is born with consumers in the same arc (Steps 5+6 are one arc; do not l
       Markers stay in-place; W2b effectful-signature guards are partial-applied (inferable carrier) → in-place. So the
       guard discharge is untouched by Step 6.
 
-- **Step 7 — the feature (Stage-2 carryover).** *(PART 1 landed 2026-07-15 as `ff5fa879`; the crux remains.)* Rebuild
-  `Unifier.effectCarrierMetaIds`; extend `Track.Compiler.pinCarriers` to pin an **inferred** return row's carrier;
-  re-add `stdlib/eliot-compiler/eliot/effect/Abort.els`; derived effect row for signature twins (exempt from
-  `declared ⊇ used`); discharge at the twin read (`dischargeGuardedReturn`, reject-site convention preserved). Route
-  **all** guarded signatures — combinator (`orError`) *and* inline (`if..else..raise`) — through the twin read, leaving
-  the old runtime-side discharge path dead code (swept in Step 9).
-  *Gate:* new `if..else..raise` + bare-`raise` fixtures green **and** the untouched `orError`
-  `GuardSignatureIntegrationTest` passes via the new path.
+- **Step 7 — the feature (Stage-2 carryover).** *(COMPLETE 2026-07-15 — Part 1 `ff5fa879`, the crux this commit.)* The
+  inline `if(cond, T) else raise(msg)` and bare `raise(msg)` guards now reduce on the signature twin's compiler mono to
+  their `Right(t)`/`Left(msg)` verdict, discharged at the consumer's twin read — the same path `orError` already takes.
+  *Gate met:* new `if..else..raise` + bare-`raise` `GuardSignatureIntegrationTest` fixtures green (accept runs as the
+  bare type, reject fails the build with the author message) **and** the untouched `orError` cases still pass; full
+  suite + all examples green.
 
-  **Status & realization map (for the focused follow-up):**
-  - **Part 1 — DONE.** `stdlib/eliot-compiler/eliot/effect/Abort.els` re-added (`data AbortCarrier` + `Effect`/`Abort`
-    instances over any base `G` — the minimal port; `Suspend`/`State` cross-lifts omitted as a pure type-level guard
-    never reaches them). `CompilerAbortCarrierTest` pins its extraction. Additive — no behaviour change yet.
-  - **What already works** (do not break): `orError`/`when`/bare-`raise` guards reduce via the **precompute-and-merge**
-    path (a named combinator's nullary reduction is a `NativeBinding`), so `evalExpr` in the in-place walk inlines them.
-    `GuardSignatureIntegrationTest` is green through this path.
-  - **The unsolved case & the wall (reproduced 2026-07-15):** the *inline* `if(cond, T) else raise(msg)` form is not a
-    named combinator, so the shallow walk leaves it a stuck `flatMap((o => match(o)), match(String))` → *Cannot quote
-    lambda*. `match` reduces only in the deep body pipeline (`reduceSourced`, which re-evaluates the **checked**
-    `SemExpression` — the twin already has it in `levelExprs` — with impl bodies inlined), never in `evalExpr`.
-  - **Remaining pieces (interlocking):** (a) **reshape** the `signatureOnly` guard path — when `sawGuard` and the walk
-    result is stuck, `reduceSourced` the checked signature and discharge (`Right(t)`→`t`, `Left`→error) instead of
-    `quoteSem` (which fails); scope to guards so ordinary signatures + `orError` stay green (bounded regression risk).
-    (b) **`effectCarrierMetaIds`** is **derivable** from the Unifier's existing `carrierRoles`
-    (`collect{ CarrierRole(_, effectCarrier = true) }`), *not* a from-scratch rebuild. (c) extend `pinCarriers` to pin the
-    **inferred** carrier — an inline guard's carrier is `AbortCarrier[Either[String]]` (the `if`/`else` `{Abort}` over the
-    `raise` `Throw[String]` base = `Either[String]`); this is the delicate part (construct + pin the exact compile-time
-    carrier so `reduceSourced` fires). (d) route **all** guards (incl. `orError`) through the twin read — the riskier
-    gate item, since it touches the currently-working path. Anchors: `PostDrainQuoter.reduceSourced:88`;
-    `Track.Compiler.pinCarriers:140`; `Unifier.carrierRoles`.
+  **Realization map (what landed, and the two mechanisms the sketch under-anticipated):**
+  - **Part 1 — DONE** (`ff5fa879`): `stdlib/eliot-compiler/eliot/effect/Abort.els` (`data AbortCarrier` + `Effect`/`Abort`
+    over any base `G`). `CompilerAbortCarrierTest` pins its extraction.
+  - **`Unifier.effectCarrierMetaIds`** — derived from `carrierRoles.collect { case (id, CarrierRole(_, true)) => id }`,
+    as planned.
+  - **`Track.Compiler.pinCarriers` pins the inferred carrier** (`pinInferredReturnCarriers` → `pinMetaToEither`): every
+    still-unsolved effect-carrier meta is fixed to the base `Either[String]`. The `{Abort}` layer
+    (`AbortCarrier[Either[String]]`) is *not* pinned — it is already solved *structurally* by the `else` signature's
+    `computation: AbortCarrier[G, A]` unification, so only the base metas (`else`'s `G`, `raise`'s carrier) remain to pin.
+  - **`isGuardCarrier` recognises an effect-carrier *meta* head** (not in the sketch — the load-bearing kind-check fix).
+    At kind-check time the inline guard's return type is `?G[?A]` (carrier still a meta), so the concrete-`Either`/`Bool`
+    recognition missed it; without acceptance the kind check postponed `?G[?A] ~ Type`, which the carrier pin then turned
+    into a hard `Either[String, _] ~ Type` mismatch. Accepting an ability-constrained (effect) meta head as a guarded
+    return closes that — and does **not** over-fire, because a normal effectful return (`{Console} Unit`) never reaches
+    this ladder with a `Type` expectation (verified against the effect examples). `sawGuard` is *not* the gate for the
+    reduction — it is `false` for `orError` too; the reduction is driven by `signatureOnly && sawGuard && !isMarker`.
+  - **Deep-reduce to the verdict, uniformly** (`TypeStackLoop.quoteSignature` → `PostDrainQuoter.reduceSemExprToGround`):
+    the checked return position (peeled of its binders) is re-evaluated with the resolved impls / reduced sub-values
+    folded in — the one form that yields `Right(t)`/`Left(msg)` for *all* shapes (the shallow signature value is the
+    verdict only for `orError`; the carrier *type* for bare `raise`; a stuck `flatMap(match,…)` for inline `if..else`).
+    The raw signature ORE is *not* usable here — it lacks the checker's effect-lift `pure`; the **checked** expression
+    (in `levelExprs`) carries it.
+  - **The stacked-carrier recursive reduction** (not in the sketch — the true crux, the Attempt-1 wall). An inline
+    `if..else..raise` builds `AbortCarrier` *over* the `Throw[String]` base `Either[String]`, so an impl body performs a
+    *nested* base ability call (`Effect[AbortCarrier[G]]::pure` = `a -> AbortCarrier(pure(Some(a)))`; `AbortCarrier::abort`
+    = `AbortCarrier(pure(None))`). Reducing an impl / sub-value at one instantiation leaves that inner call abstract; it
+    must be resolved **recursively**. `ReducedBindingClosure.reduceInstance` gains a `recursive` flag: when set,
+    `collectBindings` takes each dependency **reduced at its own instantiation** (recursively) instead of its raw
+    `NativeBinding` — the base-carrier impls bottom out non-nested. The guard path (`reduceGuardSubValues` for `else`/`if`;
+    `reduceResolvedImpls` for the surface `raise`/`pure` impls) uses `recursive = true`, each binding wrapped to *absorb*
+    the reference's type arguments (`absorbLeadingArgs` — the reduced body is already instantiated; `MonomorphicEvaluator`
+    drops a reference's type args, but the twin-read quoter applies them). The flag defaults `false`, so the
+    precompute-and-merge and `where`-marker readers keep the one-hop raw closure — reducing every dependency there tripped
+    spurious per-instantiation resolutions (a `Compare` dep at a defaulted `Type` arg), the regression that scoped this.
+  - **Still to sweep (Steps 8–10):** the old runtime-side discharge path is now redundant for these guards but not yet
+    deleted; the derived-effect-row exemption for signature twins was not needed for the inline guard to reduce and is
+    left to Step 8. `CACHE_VERSION` unchanged (no persisted fact-shape change).
 
 - **Step 8 — checks reach signatures (verify, don't assume).** Extend the recursion check to signature-twin bodies:
   covariant `data Tree(left: Tree, right: Tree)` and the monad-transformer lift must stay accepted (the §5 structural

@@ -60,6 +60,15 @@ case class Unifier(
     */
   def isEffectCarrier(id: Int): Boolean = carrierRoles.get(id).exists(_.effectCarrier)
 
+  /** Every metavariable id flagged as an *effect* carrier (see [[Unifier.CarrierRole.effectCarrier]]) — a derived
+    * projection of [[carrierRoles]], never a separate side-table. Used by the compiler track to pin an *inline* guard's
+    * **inferred** return-row carrier: `if..else..raise` / a bare `raise` introduce their `{Throw[String]}`/`{Abort}`
+    * carrier through the instantiated combinators, with no declared `paramConstraints` binder to key off, so the still-
+    * unsolved effect-carrier metas are the only handle on that carrier (see `Track.Compiler.pinCarriers`).
+    */
+  def effectCarrierMetaIds: List[Int] =
+    carrierRoles.toList.collect { case (id, CarrierRole(_, true)) => id }
+
   /** Record a higher-kinded instantiation meta's expected kind (`[F[_]]` carrier). */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): Unifier =
     updateCarrier(id.value, _.copy(carrierKind = Some((expectedKind, context))))

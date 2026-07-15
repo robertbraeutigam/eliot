@@ -45,7 +45,7 @@ class MonomorphicTypeCheckProcessor
                              fetchBinding = fetchBinding,
                              resolveAbility = resolveAbilityImpl,
                              track = Track.Runtime,
-                             reduceInstance = ReducedBindingClosure.reduceInstance,
+                             reduceInstance = ReducedBindingClosure.reduceInstance(_, _, _),
                              injectedSignature = injectedSignature
                            )
     } yield MonomorphicValue(

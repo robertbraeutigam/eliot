@@ -65,6 +65,24 @@ class PostDrainQuoter(
       case Left(msg) => compilerAbort(at.as("Cannot resolve type."), Seq(msg))
     }
 
+  /** Non-aborting variant of [[quoteSem]]: the quoted ground value, or [[None]] when it does not reduce to a quotable
+    * ground form (a stuck neutral / residual lambda). The signature-twin guard path tries this first — a combinator
+    * guard (`orError`) is already reduced by the shallow signature walk and quotes here — and only deep-reduces (via
+    * [[reduceSemExprToGround]]) when it comes back [[None]] (an inline `if..else..raise` left a stuck `match`).
+    */
+  def quoteSemOption(v: SemValue): Option[GroundValue] =
+    Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore).toOption
+
+  /** Deeply reduce a *checked type-level* [[SemExpression]] to a ground value — the signature-position analogue of
+    * [[reduceSourced]]'s body reduction. Re-evaluates the checked expression with drain-resolved ability impl bodies
+    * inlined ([[resolveAbilityRefs]] + `lookupTopDef`), which reduces the `match` (inside `foldOption`/`foldEither`) that
+    * a shallow signature walk ([[com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator.evalExpr]]) leaves stuck. So
+    * an inline `if(cond) T else raise(msg)` guard reduces to its `Right(t)` / `Left(msg)` verdict. [[None]] when it does
+    * not fully reduce (the caller then falls back to the shallow quote's fail-safe error).
+    */
+  def reduceSemExprToGround(expr: SemExpression): Option[GroundValue] =
+    Quoter.quote(0, Evaluator.force(semEvaluator.eval(monoEnv, resolveAbilityRefs(expr)), metaStore), metaStore).toOption
+
   /** Quote a sourced [[SemExpression]] tree to a sourced [[MonomorphicExpression]] tree, applying the staging gate. */
   def quoteSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] =
     quoteSourcedIn(expr, monoEnv)

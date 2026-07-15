@@ -138,9 +138,46 @@ object Track {
       * instances and reduce. A no-op on a compiler value with no effect carrier.
       */
     override def pinCarriers(checker: Checker, resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
-      resolvedValue.paramConstraints.toList.traverse_ { case (binderName, constraints) =>
-        throwCarrierErrorType(binderName, constraints)
-          .traverse_(pinCarrierToEither(checker, binderName, _, resolvedValue.name))
+      for {
+        _ <- resolvedValue.paramConstraints.toList.traverse_ { case (binderName, constraints) =>
+               throwCarrierErrorType(binderName, constraints)
+                 .traverse_(pinCarrierToEither(checker, binderName, _, resolvedValue.name))
+             }
+        // Also pin any *inferred* return-row carrier (signature split, Step 7). A guard written *inline*
+        // (`if..else..raise`, or a bare `raise`) introduces its `{Throw[String]}`/`{Abort}` carrier through the
+        // instantiated `if`/`else`/`raise`, with no declared `paramConstraints` binder to key off. Its base carrier is
+        // the guard channel's fixed `Throw[String]` carrier `Either[String]`; the `{Abort}` layer over it
+        // (`AbortCarrier[Either[String]]`) is already solved *structurally* by the `else` signature's
+        // `computation: AbortCarrier[G, A]` unification, so only the still-unsolved base metas (`else`'s `G`, `raise`'s
+        // carrier) need pinning. Fixing them lets the `else`/`runAbort`/`raise` dispatch resolve so the return reduces
+        // to `Right(t)` / `Left(msg)`.
+        _ <- pinInferredReturnCarriers(checker, resolvedValue.name)
+      } yield ()
+
+    /** Pin each still-unsolved *effect-carrier* metavariable ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.effectCarrierMetaIds]])
+      * to the compile-time `Either[String]`. Used for an inline guard's inferred carrier, which has no
+      * `paramConstraints` binder — see [[pinCarriers]]. A carrier already solved (the `AbortCarrier[G]` layer whose base
+      * `G` is the meta left open) is skipped by [[pinMetaToEither]], which only pins a still-open meta.
+      */
+    private def pinInferredReturnCarriers(checker: Checker, at: Sourced[?]): CheckIO[Unit] =
+      inspect(_.unifier.effectCarrierMetaIds).flatMap(_.traverse_(id => pinMetaToEither(checker, MetaId(id), at)))
+
+    /** Solve a still-open effect-carrier meta to the fixed compile-time `Either[String]` (the guard channel's error
+      * type is `String`). Skipped when the meta is already solved (its carrier was fixed structurally — e.g. an
+      * `AbortCarrier[G]` layer — or by a prior declared-carrier pin).
+      */
+    private def pinMetaToEither(checker: Checker, id: MetaId, at: Sourced[?]): CheckIO[Unit] =
+      checker.force(VMeta(id, Spine.SNil)).flatMap {
+        case meta: VMeta =>
+          val either = VTopDef(
+            WellKnownTypes.eitherFQN,
+            None,
+            Spine.SNil :+ VTopDef(WellKnownTypes.stringFQN, None, Spine.SNil)
+          )
+          modify(s =>
+            s.withUnifier(s.unifier.unify(meta, either, at.as("Compile-time effect carrier `Either[String]`.")))
+          )
+        case _           => pure(())
       }
 
     /** Fetch each drain-resolved ability impl's [[NativeBinding]] body once from the compiler pool, so [[readBackBody]]'s

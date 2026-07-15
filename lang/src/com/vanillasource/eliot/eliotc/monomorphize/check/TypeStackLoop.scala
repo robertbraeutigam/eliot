@@ -26,7 +26,8 @@ class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
     track: Track,
-    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO],
+    reduceInstance: (ValueFQN, Seq[GroundValue], Boolean) => CompilerIO[Option[SemValue]] =
+      (_, _, _) => none[SemValue].pure[CompilerIO],
     // The signature-split `Signature`-twin mode. A signature twin *is* a value whose body is its sibling's signature
     // expression and whose own signature is the derived kind; monomorphizing it means kind-checking that signature
     // against the derived kind and reducing it — exactly [[walkTypeStack]] + [[applyTypeArgs]] — with **no separate body
@@ -177,6 +178,27 @@ class TypeStackLoop(
       guardMarker    = sawGuard && rv.runtime.isEmpty
       guardBindings <- if (guardMarker) reduceGuardSubValues(levelExprs) else pure(Map.empty[ValueFQN, SemValue])
       finalSig      <- if (guardBindings.nonEmpty) reevaluateGuardReturn(rv, guardBindings) else pure(checkSig)
+
+      // An *inline* effectful guard (`if..else..raise`) on a **signature twin** (signature split, Step 7): unlike the
+      // named-combinator form (`orError`, a precomputed nullary native the shallow walk already inlined), the guard is
+      // spelled out with the carrier-generic combinators `else`/`if`, whose internal `flatMap`/`runAbort`/`foldOption`
+      // only resolve once the combinator is monomorphized at the concrete carrier. So — as for a `where`-guard marker
+      // (Stage 4) — reduce the bodied sub-values (`else`/`if`) per-instantiation, each **wrapped to absorb its own type
+      // arguments** (the reduced body is already instantiated). Both these and the guard's resolved ability *impls*
+      // (`raise`/`pure`, next) are reduced **recursively** (`reduceInstance` recursive) so a *stacked* carrier
+      // (`AbortCarrier` over the `Throw[String]` base `Either[String]`) resolves through every layer — an impl body's
+      // nested base ability (`Effect[AbortCarrier[G]]::pure`'s inner `pure`; `AbortCarrier::abort`'s inner `pure`) is
+      // resolved, not left abstract. Fed into the read-back evaluator below, the **checked** guard expression (which
+      // carries the checker's effect-lift `pure`) deep-reduces to the `Right(t)`/`Left(msg)` verdict — the raw signature
+      // ORE would not, lacking that lift.
+      inlineGuard    = signatureOnly && sawGuard && !MarkerGuardSignature.isMarker(rv)
+      guardSubBindings <- if (inlineGuard) reduceGuardSubValues(levelExprs, absorbTypeArgs = true, recursive = true)
+                          else pure(Map.empty[ValueFQN, SemValue])
+      // The guard's resolved ability impls (`raise`/`pure`), reduced at their own instantiations (recursively, so a
+      // stacked carrier's nested base ability resolves), wrapped to absorb the impl reference's type arguments the
+      // quoter emits. Keyed by impl FQN — what the quoter's ability-ref rewrite produces.
+      reducedImplBindings <- if (inlineGuard) reduceResolvedImpls(state.abilityResolutions)
+                             else pure(Map.empty[ValueFQN, SemValue])
       quoterState   <- get
 
       // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
@@ -187,10 +209,15 @@ class TypeStackLoop(
                      quoterState.abilityResolutions,
                      monoEnv,
                      fqn =>
-                       implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(quoterState.bindingCache.getOrElse(fqn, None)),
+                       guardSubBindings
+                         .get(fqn)
+                         .orElse(reducedImplBindings.get(fqn))
+                         .orElse(implBindings.get(fqn))
+                         .orElse(abilityMethodBindings.get(fqn))
+                         .orElse(quoterState.bindingCache.getOrElse(fqn, None)),
                      track.platform
                    )
-      groundSig <- liftF(quoter.quoteSem(finalSig, rv.signature))
+      groundSig <- liftF(quoteSignature(quoter, finalSig, levelExprs, signatureOnly && sawGuard, rv))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
       // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
       // channel, so the body is read back directly.
@@ -200,15 +227,60 @@ class TypeStackLoop(
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
 
+  /** Quote a signature-twin guard's established ground signature to its `Right(t)` / `Left(msg)` **verdict** (signature
+    * split, Step 7). The verdict is the *deep reduction* of the checked return position
+    * ([[PostDrainQuoter.reduceSemExprToGround]], with the resolved impls / reduced sub-values below folded in) — the one
+    * form that yields the verdict uniformly: the shallow signature value is the reduced verdict only for a combinator
+    * guard (`orError`), but the carrier *type* (`Either[String, Type]`) for a bare `raise`, and a stuck `flatMap(match,…)`
+    * for an inline `if..else..raise`. So deep-reduce first; fall back to the shallow quote only when the deep reduction
+    * declines (`None`), and finally to the shallow quote's fail-safe error (never a silent `Type`). Scoped to
+    * `guardSignatureOnly`, so ordinary (non-guard) signatures quote their value directly and are untouched.
+    */
+  private def quoteSignature(
+      quoter: PostDrainQuoter,
+      finalSig: SemValue,
+      levelExprs: Seq[Sourced[SemExpression]],
+      guardSignatureOnly: Boolean,
+      resolvedValue: OperatorResolvedValue
+  ): CompilerIO[GroundValue] =
+    if (!guardSignatureOnly) quoter.quoteSem(finalSig, resolvedValue.signature)
+    else
+      levelExprs.lastOption.flatMap(level => quoter.reduceSemExprToGround(peelSignatureBinders(level.value))) match {
+        case Some(ground) => ground.pure[CompilerIO]
+        case None         =>
+          quoter.quoteSemOption(finalSig) match {
+            case Some(ground) => ground.pure[CompilerIO]
+            case None         => quoter.quoteSem(finalSig, resolvedValue.signature)
+          }
+      }
+
+  /** Strip the leading [[SemExpression.FunctionLiteral]] binders off a checked signature, returning its inner return
+    * position — the guard expression whose deep reduction yields the `Right(t)` / `Left(msg)` verdict. The binders'
+    * type-parameter values are already bound in ρ (`monoEnv`) by [[applyTypeArgs]], so the peeled body reduces against
+    * the concrete type arguments.
+    */
+  private def peelSignatureBinders(checked: SemExpression): SemExpression =
+    checked.expression match {
+      case SemExpression.FunctionLiteral(_, _, body) => peelSignatureBinders(body.value)
+      case _                                         => checked
+    }
+
   /** Reduce the bodied sub-values a guarded signature calls, per instantiation, on the compiler track (ability-guards
     * Stage 4 — see the call site). Walks the checked signature levels for value references whose type arguments are
     * ground and reduces each via [[reduceInstance]] (compiler-track `CompilerMonomorphicValue` → self-contained reduced
     * binding). A ref with no reduced form (a native, a body-less type constructor, an unresolved instance) is skipped.
     * The returned bindings are keyed by FQN and take precedence in the read-back evaluator's lookup, so a guard's `!=`
     * reduces via its `[Type]`-instantiated body (with `equals` resolved) rather than its generic, ability-stuck native.
+    *
+    * `absorbTypeArgs` (the inline-guard reader, which reduces the *checked* expression whose references still carry their
+    * type arguments): each reduced binding is wrapped in one ignore-lambda per type argument, so applying the checked
+    * reference's type arguments is absorbed and the already-instantiated body is reached unchanged. The marker reader
+    * (default `false`) reduces the raw signature ORE, whose references carry no type arguments, so no wrapping is needed.
     */
   private def reduceGuardSubValues(
-      levelExprs: Seq[Sourced[SemExpression]]
+      levelExprs: Seq[Sourced[SemExpression]],
+      absorbTypeArgs: Boolean = false,
+      recursive: Boolean = false
   ): CheckIO[Map[ValueFQN, SemValue]] =
     for {
       state <- get
@@ -216,14 +288,37 @@ class TypeStackLoop(
       result <- refs.foldLeftM(Map.empty[ValueFQN, SemValue]) { case (acc, (vfqn, typeArgs)) =>
                   typeArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore)) match {
                     case Right(groundArgs) if groundArgs.nonEmpty =>
-                      liftF(reduceInstance(vfqn.value, groundArgs)).map {
-                        case Some(sem) => acc + (vfqn.value -> sem)
+                      liftF(reduceInstance(vfqn.value, groundArgs, recursive)).map {
+                        case Some(sem) =>
+                          acc + (vfqn.value -> (if (absorbTypeArgs) absorbLeadingArgs(groundArgs.size, sem) else sem))
                         case None      => acc
                       }
                     case _                                        => pure(acc)
                   }
                 }
     } yield result
+
+  /** The inline guard's drain-resolved ability *impls*, each reduced at its own instantiation (recursively, so a
+    * stacked carrier's nested base ability resolves) and wrapped to absorb the impl reference's type arguments the
+    * quoter emits (signature split, Step 7). Keyed by impl FQN. An impl with no reduced form (a native leaf) is skipped,
+    * so the raw `implBindings` fallback still covers it.
+    */
+  private def reduceResolvedImpls(
+      abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])]
+  ): CheckIO[Map[ValueFQN, SemValue]] =
+    abilityResolutions.values.toList.distinctBy(_._1).foldLeftM(Map.empty[ValueFQN, SemValue]) {
+      case (acc, (implFqn, implArgs)) =>
+        liftF(reduceInstance(implFqn, implArgs, true)).map {
+          case Some(sem) => acc + (implFqn -> absorbLeadingArgs(implArgs.size, sem))
+          case None      => acc
+        }
+    }
+
+  /** Wrap `binding` in `n` ignore-lambdas, so applying `n` (type) arguments to it is absorbed and the already-
+    * instantiated `binding` is reached unchanged — see [[reduceGuardSubValues]]'s `absorbTypeArgs`.
+    */
+  private def absorbLeadingArgs(n: Int, binding: SemValue): SemValue =
+    if (n <= 0) binding else SemValue.VLam("_", _ => absorbLeadingArgs(n - 1, binding))
 
   /** Re-evaluate a guard marker's `where` guard with its bodied sub-values reduced per-instantiation
     * (`guardBindings`), so an ability the guard reaches through an operator (`Eq`'s `equals`, via `!=`) resolves and the
@@ -583,7 +678,8 @@ object TypeStackLoop {
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
       track: Track,
-      reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) => none[SemValue].pure[CompilerIO],
+      reduceInstance: (ValueFQN, Seq[GroundValue], Boolean) => CompilerIO[Option[SemValue]] =
+      (_, _, _) => none[SemValue].pure[CompilerIO],
       signatureOnly: Boolean = false,
       injectedSignature: Option[GroundValue] = None
   ): CompilerIO[Result] =

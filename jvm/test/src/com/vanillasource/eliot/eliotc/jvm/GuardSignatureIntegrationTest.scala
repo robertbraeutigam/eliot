@@ -55,6 +55,38 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("not available"))
   }
 
+  // The *inline* `if(cond) T else raise(msg)` guard (signature split, Step 7): unlike `orError` (a precomputed nullary
+  // native), the guard is spelled with the carrier-generic `if`/`else` over a **stacked** carrier (`AbortCarrier` over
+  // the `Throw[String]` base `Either[String]`). The signature twin's compiler mono reduces it — resolving each layer's
+  // abilities recursively and reducing the `match` in the deep body pipeline — to the same `Right(t)`/`Left(msg)`
+  // verdict the combinator form produces, which the consumer's twin read discharges.
+
+  "a satisfied inline `if..else..raise` guard" should "type as its payload and run as the bare type" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Throw
+        |import eliot.effect.Abort
+        |import eliot.lang.Bool
+        |
+        |def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"
+        |
+        |def main: IO[Unit] = printLine(greeting[true])""".stripMargin
+    ).asserting(_ shouldBe "hello")
+  }
+
+  "an unsatisfied inline `if..else..raise` guard" should "fail the build with the author message" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |import eliot.effect.Throw
+        |import eliot.effect.Abort
+        |import eliot.lang.Bool
+        |
+        |def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"
+        |
+        |def main: IO[Unit] = printLine(greeting[false])""".stripMargin
+    ).asserting(_ should include("greeting unavailable"))
+  }
+
   // A compile-time guard written through a *user-defined* pipe and a user guard combinator (effect-lift Step 5): the
   // pipe and `guardOr` are ordinary user source, compiled on the compiler track like any other value; the checker's
   // effect lift elaborates their `{Throw[String]}` path per instantiation and the signature still reduces to
