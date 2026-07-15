@@ -1,6 +1,8 @@
 # Signature unification — one execution path for signatures
 
-**Status: PLANNED (2026-07-15).** Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
+**Status: IN PROGRESS (updated 2026-07-15).** Phases A, B, D-core LANDED; Phase C's first cut BLOCKED and reverted
+(see §7 PHASE C OUTCOME), then **re-derived the same day from a full demand census** — see §7 PHASE C RE-DERIVATION
+(C-pre / C1 / C2); Phase E pending. Supersedes and **replaces** `docs/signature-split.md` (deleted). That plan's Steps
 0–8 + 10 are LANDED on master: every named value splits at birth into `v@Runtime` + `v@Signature` twins, the signature
 twin monomorphizes on the compiler track (`CompilerMonomorphicValue(v@Signature, args)`), the payoff feature (inline
 `if..else..raise` / bare `raise` guards) works end-to-end, and `when`/`orError` is retired. Its Step 9 — the checker
@@ -71,7 +73,8 @@ discharges `Right(t) ⤳ t` / `Left(msg) ⤳ author error`. It is not an in-plac
 discharge wearing the old Track-switch clothes.
 
 Consequence: the guard consumer side needs a **relocation, not new machinery** — a lean, uniform "settle at the read"
-(one helper, role- and track-agnostic) replaces the switch, the flag, and the stuck-guard-defer arm. The genuinely hard
+(one helper, role- and track-agnostic) replaces the switch, the flag, and the stuck-guard-defer arm (the defer arm
+survives *relocated*, shape-recognized, for the partial-arity class — §4.5, §4.7). The genuinely hard
 work is confined to the *producer* side (making the twin's mono an ordinary body mono, §4.1–4.2) and to markers/W3
 (§4.3–4.4).
 
@@ -269,16 +272,17 @@ the LSP (whole-workspace diagnostics demand every value's mono; the twin's error
 `CompilationResult`); (iii) no diagnostic is *duplicated* (the runtime twin and its signature twin at the same args
 both being demanded must yield one report — the fact cache already dedups the twin's own production).
 
-### 4.5 The stuck-guard-defer arm can die — verify the premise
+### 4.5 The stuck-guard-defer arm — premise VERIFIED FALSE; the arm survives as the partial-arity defer
 
 `dischargeGuardedSignature`'s `isGuard && hasBody ⟹ fresh return meta` arm served the in-place model, where a value's
-own mono could meet a guard *stuck on abstract binders*. Under twin-mandatory, a value mono only ever reads verdicts
-produced at **its own ground arguments** — a guard at ground args always decides (its condition is a closed
-compile-time computation). Sweep for counterexamples before deleting: an ability-`where` guard over a type an
-instance leaves generic? (No — marker discharge happens at matched ground args.) A guard referencing an abstract
-native? (Stalls loudly in the twin — correct.) If a legitimate stuck-at-ground case surfaces, the fail-safe is that
-the twin's read-back hard-errors — never a silent acceptance — and the fix is a deliberate design decision, not a
-quiet re-add of the defer arm.
+own mono could meet a guard *stuck on abstract binders*. The sweep (§7 RE-DERIVATION census) answered the premise:
+the counterexample is real and **sanctioned** — a guarded value *is* monomorphized at partial arity (an abstract-site
+definition check; `MonomorphicTypeCheckTest` "defer a guard stuck on an abstract bound to the body" encodes it
+deliberately, with Use-Site Verification re-deciding the guard at every concrete instance above). So the defer does
+not die: it relocates into the partial-arity settle (C1), recognized by **shape** (`isGuardCarrier` on the peeled
+leaf — `dischargeGuardedReturn` itself is already shape-driven; only this defer arm consumes the `sawGuard` flag)
+instead of the flag, and under C2 becomes the read-settle's "carrier-headed return at a non-ground key" arm. The
+fail-safe stands: a stuck guard *without* a body stays stuck and hard-errors at read-back, never silently accepted.
 
 ### 4.6 Acyclicity, re-argued
 
@@ -292,12 +296,18 @@ escalation's fact demands. New in this plan: escalation adds `CMV(ref, args)` de
 ordinary body-mono demands (depth-1 twin reads inside, per (1)) and are `activeFactKeys`-guarded, so the argument
 composes. Write this into the code where the old argument lives (`TypeStackLoop.Result`'s successor).
 
-### 4.7 Full-arity mono keys (delete `instantiateRemaining`)
+### 4.7 Full-arity mono keys — VERIFIED FALSE; partial arity is a permanent, sanctioned mono class
 
-The always-flip arm binds `binders.zip(typeArguments)` — it assumes every mono key carries an argument per binder.
-Verify this invariant holds (callers append implicit metas for every peeled binder; unsolved phantoms default to
-`Type` and quote into the key), then make it an assertion and delete `instantiateRemaining`. If a genuine
-partial-arity key source exists, surface it in Phase C and decide explicitly — do not keep the arm "just in case".
+The always-flip arm binds `binders.zip(typeArguments)` — it assumed every mono key carries an argument per binder.
+The census (§7 RE-DERIVATION: static demand-site enumeration + an instrumented full-suite/examples sweep) found the
+invariant does not hold and **cannot be made to hold**: partial-arity keys are minted structurally, on both tracks,
+by (A) erased-generic ability-impl methods (the drain rewrite `PostDrainQuoter.resolveAbilityRefs` emits the
+impl-method FQN with only the *impl-resolution-scope* args; the method's own generics are per-call and the backend
+erases them — the dominant class, minted by every effectful program), (B) the compiler generic-body fetches
+(`CompilerNativesProcessor`'s `CMV(v, [])` for ability-performing runtime-abstract values), and (C) abstract-site
+definition checks in the test harness. `instantiateRemaining` is their instantiation mechanism and is not deletable
+by assertion — it survives scoped to the partial-arity walk under C1, and relocates into the parametric-twin
+re-inflation under C2.
 
 ### 4.8 Performance
 
@@ -308,32 +318,45 @@ bar.
 
 ## 5. Deletion ledger
 
-The measure of the plan. Everything here deletes; each item names its replacement.
+The measure of the plan. Everything here deletes; each item names its replacement. Phase tags per the §7
+RE-DERIVATION: **[C-pre]** = dead today, delete first; **[C1]** = the mandatory full-arity flip + shape-driven
+settles; **[C2]** = parametric twins (severable).
 
 **`TypeStackLoop`** (becomes two small, renamed units — the twin mono and the value mono):
-- `walkTypeStack` + the `levels` construction + `levelExprs` plumbing ⟹ per-binder kind checks + one body check (§3.1).
-- `establishSignature`'s in-place arm + `instantiateRemaining` ⟹ twin-mandatory read (§3.2, §4.7).
+- `walkTypeStack` + the `levels` construction + `levelExprs` plumbing ⟹ per-binder kind checks + one body check
+  (§3.1). **[C2** — until then it survives scoped to partial-arity keys, §4.7**]**
+- `establishSignature`'s in-place arm + `instantiateRemaining` ⟹ twin-mandatory read (§3.2, §4.7). **[full-arity arm
+  C1; partial-arity arm C2** (re-inflation of `Param`s)**]**
 - `flattenReturnToType` + the `isCalc` pre-detection (`returnExprOf` / `isCalculatedReturnExpr`) ⟹ the ladder's W3
-  acceptance arm + read-side `isCalculatedReturn` (§3.3, §3.5).
-- `failOnAbstractCalculatedReturn` ⟹ the W4 error at the read-settle (§3.2).
+  acceptance arm + read-side `isCalculatedReturn` (§3.3, §3.5). **[C2]**
+- `failOnAbstractCalculatedReturn` ⟹ the W4 error at the read-settle (§3.2). **[C1** — a body-less value has no
+  implicit metas appended, so its key is full-arity**]**
 - `quoteSignature` + `peelSignatureBinders` + the `guardMarker`/`inlineGuard` gates + `reduceGuardSubValues` +
   `reduceResolvedImpls` + `absorbLeadingArgs` + `reevaluateGuardReturn` + `collectValueRefs` (the in-walk composition)
-  ⟹ ordinary `readBackBody` + escalation (§3.4).
+  ⟹ ordinary `readBackBody` + escalation (§3.4). **[C-pre** — dead since B/D-core; see §7 RE-DERIVATION finding 5.
+  `reduceResolvedImpls`/`absorbLeadingArgs` already deleted in A**]**
 - the guard-scoped quoter lookup maps (`guardSubBindings`, `reducedImplBindings`) ⟹ escalation's binding loop.
+  **[done in A]**
 
-**`CheckState`**: `sawGuardReturn` + `recordGuardReturn` ⟹ nothing (the acceptances are stateless).
+**`CheckState`**: `sawGuardReturn` + `recordGuardReturn` ⟹ nothing (the acceptances are stateless; the defer arm
+recognizes by shape, §4.5). **[C1]**
 
-**`Track`**: `settleReturnPosition` + `settleGuardedReturn` (both impls) ⟹ the one read-settle helper. `Track` keeps
-only the genuine platform strategy: `platform`, `pinCarriers`, `implBindings`, `readBackBody`.
+**`Track`**: `settleReturnPosition` + `settleGuardedReturn` (both impls) ⟹ the one read-settle helper (the
+runtime-discharge vs compiler-pass-through asymmetry stays as one branch in it, §6). `Track` keeps only the genuine
+platform strategy: `platform`, `pinCarriers`, `implBindings`, `readBackBody`. **[C1]**
 
 **`CalculatedReturnResolver`**: `dischargeGuardedSignature` (the peel/rebuild + the stuck-guard-defer arm) ⟹ the
-read-settle (which reuses `dischargeGuardedReturn` on the leaf); `isCalculatedReturnExpr` ⟹ the SemValue form only.
+read-settle (which reuses `dischargeGuardedReturn` on the leaf; the defer arm relocates to the partial settle, §4.5);
+`isCalculatedReturnExpr` ⟹ the SemValue form only **[C1; the `isCalculatedReturnExpr` retirement is C2]**.
 
-**Processors**: both mono processors' twin-read fallback arms and marker exclusions; ~~`ReducedBindingClosure`'s
+**Processors**: both mono processors' twin-read fallback arms and marker exclusions **[C1** — the *full-arity*
+fallback deletes and the twin read becomes `getFactOrAbort`; the partial-arity in-place arm survives until C2, and the
+twin read is *gated on arity match* from C-pre on (today every partial-arity value mints a twin fact that the flip
+gate then discards — pure waste, §7 RE-DERIVATION finding 4)**]**; ~~`ReducedBindingClosure`'s
 `recursive` parameter~~ **(superseded — Phase A: the one-hop hypothesis failed on the piped user-function guard, so
 this survives, renamed `deep`, as the escalation fetch mode; see §4.1 PHASE A OUTCOME)**;
 `AbilityImplementationProcessor.readGuardVerdict`'s platform switch (⟹ one twin read) and the Runtime-role marker monos
-it demanded.
+it demanded **[done in D-core]**.
 
 **Tests**: `SignatureTwinMonoTest`'s equivalence framing (there is no second computation to be equivalent *to*) ⟹
 direct assertions on twin facts.
@@ -361,6 +384,14 @@ So nobody "cleans up" past the design. Each is the minimal expression of a real 
   expression and peeling metas is the one NbE evaluator doing bidirectional inference. This is the inference boundary,
   permanent by design. (An under-applied or non-ground *guard* callee correctly stays stuck there and is settled at a
   later read — Use-Site Verification.)
+- **The partial-arity mono class** (§4.7 census): erased-generic ability-impl methods keyed at impl-resolution-scope
+  args (method generics per-call, erased by the backend), compiler generic-body fetches at `[]`, abstract-site
+  definition checks. A real execution mode of the one value model — served by the scoped in-place walk under C1 and by
+  parametric twins under C2, but **never** by defaulting leftover binders to ground `Type` in a fact a *check*
+  re-reads (that is the `Numeric[Type]` failure that blocked the first C). The runtime track's *published* signature
+  keeps the defaulted form — codegen consumes it as exactly the erasure it wants.
+- **The runtime-discharge vs compiler-pass-through branch of the read-settle** — the guard's consumer/producer
+  asymmetry is a genuine platform difference (one branch inside the one settle helper, not a `Track` double dispatch).
 - **`MarkerGuardSignature`** (recognition + strip) and `AbilityImplementationProcessor`'s verdict interpretation — the
   ability-guards feature, with its own reject-vs-decline semantics.
 - **`Track`'s platform hooks** (`pinCarriers`, `implBindings`, `readBackBody`) — genuinely two platforms.
@@ -443,7 +474,8 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
   (`reevaluateGuardReturn`/`reduceGuardSubValues`) is now *dead* but its deletion is entangled with the value-mono flip,
   so it waits with Phase C.
 
-- **Phase C — consumers read unconditionally; the walk deletes. [BLOCKED — stopped per §8; see PHASE C OUTCOME below.]**
+- **Phase C — consumers read unconditionally; the walk deletes. [First cut BLOCKED — stopped per §8, see PHASE C
+  OUTCOME; RE-DERIVED 2026-07-15 from a full demand census into C-pre / C1 / C2, see PHASE C RE-DERIVATION below.]**
   The value mono goes twin-mandatory with the uniform read-settle (§3.2); `Track.settleReturnPosition`/
   `settleGuardedReturn`, `dischargeGuardedSignature`, `sawGuardReturn`/`recordGuardReturn`, `flattenReturnToType`,
   `failOnAbstractCalculatedReturn` (relocated), `establishSignature`'s in-place arm, `instantiateRemaining` (§4.7),
@@ -469,13 +501,87 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
      returns whose twin is absent.
   Consequence: `walkTypeStack`/`establishSignature`/`instantiateRemaining`/`flattenReturnToType` **stay**, so the goal-2
   net-negative gate is **not** reachable by this consumer flip alone. Per §8 ("if it does not hold, stop") the flip was
-  reverted rather than forced green with a partial-arity special-case gate. **Re-derivation needed before C can proceed:**
-  either (a) give the refinement channel a way to obtain a generic reduced body *without* a partial-arity value mono
-  (e.g. the twin carrying a symbolic residual), or (b) accept the in-place walk as a permanent §6 survivor and re-scope
-  Phase C to only the guard-machinery deletions (`dischargeGuardedSignature` merged into a flip-only read-settle, the
-  now-dead Stage-4 marker path, `sawGuardReturn`), which nets far less than "decisively negative". The written-but-reverted
+  reverted rather than forced green with a partial-arity special-case gate. ~~Re-derivation needed before C can proceed:
+  either (a) the twin carrying a symbolic residual, or (b) accept the walk and re-scope~~ **(superseded by the
+  RE-DERIVATION below, which does both — (b) as C1, (a) as C2 — on the strength of the census)**. The written-but-reverted
   work (`settleAtRead`, the twin-mandatory value mono, `readGuardVerdict`'s completeness) is recorded in this session's
   history for whoever re-derives.
+
+  **PHASE C RE-DERIVATION (2026-07-15).** A full demand census — static (every `MonomorphicValue.Key` /
+  `CompilerMonomorphicValue.Key` construction site classified) and empirical (an instrumented sweep logging every
+  `TypeStackLoop` entry whose key carries fewer args than the value has binders, over full `lang.test` + `jvm.test` +
+  all 35 examples) — corrected the blocker's shape. Findings:
+
+  1. **Partial arity is a permanent, sanctioned mono class on BOTH tracks — not a refinement-channel quirk** (§4.7).
+     Three sources, in production order of volume:
+     - **(A) Erased-generic ability-impl methods** (dominant; minted by every effectful program): the drain rewrite
+       (`PostDrainQuoter.resolveAbilityRefs`) emits the impl-method FQN with only the *impl-resolution-scope* type
+       args; the method's own generics are per-call and the backend erases them. Observed: `IO::flatMap` at 0 args /
+       2 binders, `State::flatMap` 2/4, `Abort::abort` 1/2, the guarded self-lift `Throw` impl's `raise` 3/4, user
+       carrier impls (`Effect[Id]`) — as runtime value monos *and*, via the processors' unconditional twin read,
+       compiler-track `@Signature` twins at the same partial keys.
+     - **(B) Compiler generic-body fetches**: `CompilerNativesProcessor` demands `CMV(v, [])` for an
+       ability-performing, runtime-abstract value (`intervalAdd`/`intervalSubtract`/`intervalMultiply`) to build its
+       compile-time `Leaf` binding — the class the first cut tripped on.
+     - **(C) Abstract-site definition checks** (test harness only): unit tests demand generic definitions at `[]`
+       (`MonomorphicTypeCheckTest`, `CompilerAbilityResolutionTest`), including the *deliberate* stuck-guard-defer
+       fixture (§4.5) and the partial-arity guard *producers* (`raiseGuard`/`someFn`, whose one leftover binder is the
+       saturation-grown auto-carrier that `pinCarriers` grounds — pinned leftovers are solved metas, not generics).
+  2. **What a partial-arity mono's products are for.** The **body** is the point of (A) (erased codegen) and (B) (the
+     generic reduced `Leaf`); leftover binders must stay *metavariables* during the check so constraint-covered
+     ability refs defer (verified: `AbilityResolver.tryResolveOne` defers exactly while an arg's quote fails — ground
+     `Type` would instead hard-demand `Numeric[Type]`). The **signature** of a partial-arity mono is consumed only on
+     the runtime track, by codegen, in exactly its defaulted form (leftover ⟹ `Type` = the erasure the backend
+     wants). No consumer re-inflates a partial-arity *fact* signature as types-to-check-against — which is precisely
+     why feeding the twin's ground signature back into the check broke (B).
+  3. **Every other demand is arity-complete by construction**, so the flip can be *mandatory* at full arity: callers
+     append implicit metas per peeled binder; the callee flip enforces size-match + ground
+     (`Checker.flippedCalleeSignature`); the W3 back-edge reads at the reference's instantiation args
+     (`readMonomorphicReturnGround`); markers read at matched ground args; the refinement channel's `^Meta`/`^Where`
+     companions reduce at full-arity keys (the companions are minted monomorphic or reduced at mapped meta-types).
+  4. **Today's waste**: both mono processors demand the twin *unconditionally*, so every class-(A) value mints a
+     partial-arity twin fact (leftovers defaulted to `Type`) that the flip's arity gate then **discards** — on every
+     build, for every impl method.
+  5. **Already dead** (the `processIO` dispatch means `processValueMono` never sees `signatureOnly`; D-core removed
+     markers from value monos): `quoteSignature`'s guard path (`signatureOnly && sawGuard` ≡ false) +
+     `quoteSignatureFallback` + `peelSignatureBinders` (only the plain `quoteSem` call is live); the Stage-4 trio
+     (`reduceGuardSubValues`/`reevaluateGuardReturn`/`collectValueRefs`) — its `guardMarker` gate is reachable only by
+     body-less guarded *declarations*, where the `groundArgs.nonEmpty` gate makes it a no-op;
+     `Track.Runtime.settleGuardedReturn`'s marker exemption.
+
+  The re-cut phases (each one committable, same gates as this section's preamble):
+
+  - **C-pre — delete the dead code; stop the twin waste (no behaviour change).** Delete finding 5's list
+    (fixture-check the body-less guarded declarations — `def foo: Left("boom")`, bare-`raise` — before removing the
+    `guardMarker` arm). Gate the processors' twin read on arity match (finding 4). *Gate:* full suite + examples
+    green, zero behaviour change.
+  - **C1 — the flip is mandatory at full arity; both settles become shape-driven; the guard machinery deletes.**
+    `establishSignature` splits **by arity, honestly**: a *full-arity* key reads its twin as **mandatory**
+    (`getFactOrAbort` semantics — verify §4.4's error propagation) and settles at the read with one leaf-driven
+    helper: `Right`/`Left`-headed ⟹ discharge (`dischargeGuardedReturn`; runtime track only — the compiler track
+    passes the carrier through, §6), arity-shortfall hole ⟹ `installReturnMeta` (bodied) / the W4 error (body-less),
+    otherwise pass through. A *partial-arity* key keeps the in-place walk plus a small partial settle: `isCalc` ⟹
+    `installReturnMeta`; a shape-recognized stuck guard with a body (`isGuardCarrier` on the peeled leaf) ⟹ the defer
+    meta (§4.5's sanctioned client); else pass through. Both settles are stateless ⟹ `CheckState.sawGuardReturn` /
+    `recordGuardReturn` and the `Track.settleReturnPosition`/`settleGuardedReturn` double dispatch delete;
+    `dischargeGuardedSignature`'s peel/rebuild collapses into the read-settle; the callee flip's marker exclusion
+    deletes. *Gate:* the §4.8 re-measure, plus the goal-2 net-line check — **C1 alone is expected to clear it**
+    (roughly 250 lines out against ~60 in).
+  - **C2 — parametric twins (severable): the walk deletes.** The twin at a partial-arity key stops defaulting leftover
+    binders and publishes each as a parameter (`GroundValue.Param` — quote-under-binder, the standard NbE read-back of
+    a *function* value, which a generic signature is; §3.5 already proved the fact language extends to a new shape). A
+    guard stuck on a `Param` publishes the undischarged carrier *type* (`Either[String, Type]` — exactly what the
+    compiler track's pass-through publishes for `someFn` today), never the unrepresentable stuck computation. The
+    value mono re-inflates `Param`s to fresh metas (the relocated `instantiateRemaining`), preserving the
+    constraint-covered deferral of finding 2; the partial settle merges into the one read-settle (carrier-headed
+    return at a non-ground key ⟹ defer). Then `walkTypeStack` + `levels`/`levelExprs`, `instantiateRemaining`,
+    `flattenReturnToType` + the ORE pre-detection delete — **one execution path at every arity**. Fences: `Param`
+    lives only in `CMV(*@Signature)` facts at partial keys (the value mono's own published signature keeps today's
+    defaulted/erased form — finding 2's codegen consumer is untouched); a `Param` reaching `groundToSem` without a
+    substitution hard-errors (fail-safe); `defaultUnsolvedMetas`/`assertEveryMetaResolved` exempt binder metas (they
+    resolve to `Param`s, a scoped read-back-under-binder discipline, not a signature-specific gate); `CACHE_VERSION`
+    bump; the `GroundValue` pattern-match sweep. *Gate:* §8 unchanged — if C2 can only stay green with a new
+    signature-specific gate, stop; C1's win stands alone.
 
 - **Phase E — front-end single-bodying (severable).** One body per front-end fact (§5's last block): the runtime twin
   drops its placeholder `.signature` (binder names forwarded), the sig twin *is* the signature, `signatureEquality`
@@ -532,3 +638,13 @@ load-bearing: the producer must be whole before any consumer loses its fallback,
   to the value's name; the callee read to the reference).
 - **Step A's fate** (retired TypeLevel plan): scaffolding born without consumers gets deleted wholesale — hence the
   producer-first-but-consumed-in-the-same-arc phase ordering (B produces, C/D consume, nothing lands unread).
+- **The 2026-07-15 demand census** (the basis of the §7 RE-DERIVATION; re-runnable by logging `TypeStackLoop`
+  entries with `typeArguments.size < binders.size` over the full suite + examples): every partial-arity mono key in
+  `lang.test` + `jvm.test` + all 35 examples comes from (A) erased-generic impl methods, (B) `CompilerNativesProcessor`
+  `[]`-fetches, or (C) test abstract-site checks; every other demand site is arity-complete by construction. The
+  defaulted-`Type` twin facts minted at partial keys are discarded unread (C-pre fixes). The stuck-guard-defer arm has
+  a deliberate test client (`MonomorphicTypeCheckTest` "defer a guard stuck on an abstract bound to the body"); the
+  discharge (`dischargeGuardedReturn`) is already shape-driven — only the defer arm consumes the `sawGuard` flag, so
+  the flag deletes once the defer recognizes by shape. Constraint-covered deferral rests on `AbilityResolver
+  .tryResolveOne` deferring while an arg's quote fails — a *meta* defers, a ground `Type` hard-demands; this is the
+  exact mechanism the parametric twin (C2) must preserve through re-inflation.
