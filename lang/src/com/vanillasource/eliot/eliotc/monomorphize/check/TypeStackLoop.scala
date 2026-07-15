@@ -275,16 +275,19 @@ class TypeStackLoop(
                                 track.platform,
                                 (fqn, args) => reduceInstance(fqn, args, true)
                               )
-      // The signature's ground read-back. Two shapes, exactly as the value mono's `quoteSignature`:
-      //   - an *effectful guard* (`sawGuard`, an inline `if..else..raise`) reduces the **checked** arrow chain — the
-      //     one carrying the checker's effect-lift `pure` the raw signature lacks — through the escalation loop to its
-      //     `Right(t)` / `Left(msg)` verdict ([[PostDrainQuoter.reduceSignatureToGround]]);
-      //   - everything else (an ordinary type, a bare `{Throw[String]}` carrier return, a type-level `match`, a W3
-      //     under-applied hole) reduces the **raw** evaluated arrow chain (a `match`'s pattern binder is bound by the
-      //     match reduction rather than frozen to a neutral by the check), renormalising natives as it quotes.
-      sawGuard             <- inspect(_.sawGuardReturn)
-      groundSig            <- if (sawGuard) liftF(quoter.reduceSignatureToGround(checked, resolvedValue.signature))
-                              else checker.evalExpr(bodyExpr.value).flatMap(raw => liftF(quoter.quoteSem(raw, resolvedValue.signature)))
+      // The signature's ground read-back. Reduce the **raw** evaluated arrow chain first (renormalising natives as it
+      // quotes): this settles an ordinary type, a bare `{Throw[String]}` carrier return, a type-level `match` (whose
+      // pattern binder the match reduction binds — the check would freeze it to a neutral), a W3 under-applied hole,
+      // and a *pure* guard (a marker's `where fold(…)`/`E1 != E2` Bool computation — the raw `fold` has no
+      // instantiation type-argument to mis-fire the native on). It is *stuck*, never wrongly reduced, only for an
+      // **effectful** inline guard (`if..else..raise`), whose `else`/`runAbort` need the checker's effect-lift `pure`
+      // absent from the raw signature — so fall back there to the **checked** arrow chain via the escalation loop, which
+      // reduces it to its `Right(t)` / `Left(msg)` verdict. No `sawGuard`: the shape falls out of which reduction settles.
+      raw                  <- checker.evalExpr(bodyExpr.value)
+      groundSig            <- quoter.quoteSemOption(raw) match {
+                                case Some(ground) => liftF(ground.pure[CompilerIO])
+                                case None         => liftF(quoter.reduceSignatureToGround(checked, resolvedValue.signature))
+                              }
     } yield TypeStackLoop.Result(groundSig, None)
   }
 
