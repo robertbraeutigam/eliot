@@ -5,32 +5,10 @@ import eliot.lang.Interval
 import eliot.compiler.Meta
 
 /**
- * The type of all integers. `Int` is a single type — there are no distinct `Int[MIN, MAX]` per range: an integer's
- * value range is *meta-information* tracked in the compiler's refinement channel (`docs/bounds-as-refinements.md`),
- * carried in the `range` slot below (an `Interval[BigInteger]`), not in a type parameter. So `Int` behaves like any
- * ordinary type — one instantiation, one set of abilities — and how a value is laid out in memory is chosen by the
- * platform from its tracked range.
+ * The type of integers, each carrying a compiler-tracked range of the values it may hold.
  */
 type Int {range: Interval[BigInteger]}
 
-/**
- * `Int` implements `Numeric` homogeneously: with the value range moved out of the type, `Int + Int` is again an `Int`.
- *
- * The instance methods *are* the integer arithmetic leaves — there is no separate `nativeAdd`/… indirection. Each is
- * body-less (an abstract signature the platform backend realises directly; the JVM emits it inline — see the backend's
- * `Intrinsics`, which recognises the `Numeric[Int]` instance-method FQN), so the whole instance lives here in the base:
- * a platform layer supplies representation and bytecode, not an `.els` half of the instance.
- *
- * Each method also carries a **return brace** — the refinement channel's range *transfer*. `MetaTransferDesugarer` turns
- * `def add(a: Int, b: Int): Int {range(a) + range(b)}` into the `^Meta` companion
- * `add^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(range(a) + range(b))`, which the channel reduces to propagate
- * an `Int`'s value range through arithmetic. The brace computes the result range from the operand ranges (`range(a)`,
- * `range(b)`, the `Int$Meta` slot) through the `Numeric[Interval[BigInteger]]` instance — the same `+`/`-`/`*` operators,
- * dispatched on the interval domain and resolved in the compiler pool, bottoming out at the endpoints'
- * `Numeric[BigInteger]` compile-time leaves. The brace is platform-independent (byte-for-byte identical on every
- * target), so it belongs in the base even though the runtime bytecode is the platform's; the `^Meta` companion is
- * compiler-pool-only (dead at runtime).
- */
 implement Numeric[Int] {
    def add(a: Int, b: Int): Int {range(a) + range(b)}
    def subtract(a: Int, b: Int): Int {range(a) - range(b)}
@@ -42,12 +20,6 @@ implement Numeric[Int] {
  */
 def intToString(value: Int): String
 
-/**
- * Value ordering of two integers. Like the arithmetic methods above, `lessThanOrEqual` *is* the backend leaf — body-less
- * here, emitted inline by the platform (the JVM picks primitive `long` comparison or `BigInteger.compareTo` from the
- * operands' lowered representations; see the backend's `Intrinsics`). Its result is a `Bool`, so it carries no `^Meta`
- * transfer (there is no range to propagate). One primitive; `<`/`<=`/`>`/`>=`/`min`/`max` all derive from it in `Compare`.
- */
 implement Compare[Int] {
    def lessThanOrEqual(a: Int, b: Int): Bool
 }
