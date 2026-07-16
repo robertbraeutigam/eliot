@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, MonomorphicEvaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicExpression}
@@ -59,24 +59,62 @@ object EscalatingReducer {
           escalatingLoop(
             MetaStore.empty,
             evalWith,
-            already => escalate(candidates, already, ReducedBindingClosure.reduceInstance(_, _, deep = true), (_, sem) => sem)
-          ).map(result => Quoter.quote(0, result, MetaStore.empty).toOption)
+            already => escalate(candidates, already, ReducedBindingClosure.reduceInstance(_, _, deep = true), (_, sem) => sem),
+            channelStuck
+          ).map(result => Quoter.quote(0, result, MetaStore.empty).toOption.filterNot(isAbstractAbilityStructure))
         }
       case _                                                        => none[GroundValue].pure[CompilerIO]
     }
 
-  /** The shared stuck-driven escalation loop. Evaluate with the current escalated bindings; if the forced result quotes
-    * (against `metaStore`) return it — the common case pays nothing. If it is [[reducibleStuck]], `fetch` more bindings
-    * (keyed by what has already been escalated) and loop until it quotes or no new binding is available.
+  /** The channel instantiation of [[escalatingLoop]]'s stuck predicate: [[reducibleStuck]] *plus* a stuck abstract-
+    * ability application (which quotes to a `GroundValue.Structure` headed by a [[Qualifier.Ability]] method). After the
+    * linker fix this path is unreachable — abilities are resolved before the channel sees them — but were one ever to
+    * survive, treating it as stuck makes the loop escalate rather than accept the bogus structure; if it still does not
+    * resolve, [[reduceApplied]]'s [[isAbstractAbilityStructure]] filter drops it to ⊤ (never a structure). Quotes once,
+    * mirroring [[reducibleStuck]], so the hot common path pays no extra cost (`docs/refinement-channel-follow-ups.md`
+    * §2.5).
+    */
+  private def channelStuck(forced: SemValue, metaStore: MetaStore): Boolean = forced match {
+    case SemValue.VLam(_, _)                                    => false
+    case SemValue.VNeutral(SemValue.NeutralHead.Param(_, _), _) => false
+    case SemValue.VNeutral(SemValue.NeutralHead.Fresh(_, _), _) => false
+    case other                                                  =>
+      Quoter.quote(0, other, metaStore) match {
+        case Left(_)   => true
+        case Right(gv) => isAbstractAbilityStructure(gv)
+      }
+  }
+
+  /** Whether a quoted ground value is a structure headed by an abstract [[Qualifier.Ability]] method — a bogus
+    * refinement result the channel must never store (§2.5). A legitimate channel meta is a `$Meta` structure
+    * ([[Qualifier.Type]]) or a `Direct`, never ability-qualified, so this drops only bogus values.
+    */
+  private def isAbstractAbilityStructure(gv: GroundValue): Boolean = gv match {
+    case GroundValue.Structure(name, _, _) =>
+      name.name.qualifier match {
+        case _: Qualifier.Ability => true
+        case _                    => false
+      }
+    case _                                 => false
+  }
+
+  /** The shared stuck-driven escalation loop. Evaluate with the current escalated bindings; if the forced result is not
+    * `stuck` (against `metaStore`) return it — the common case pays nothing. If it is stuck, `fetch` more bindings (keyed
+    * by what has already been escalated) and loop until it is unstuck or no new binding is available.
+    *
+    * `stuck` defaults to [[reducibleStuck]] — the in-checker read-back keeps that predicate byte-for-byte — while the
+    * channel executor passes its hardened variant ([[channelStuck]]) so a bogus abstract-ability structure escalates
+    * rather than being accepted (§2.5).
     */
   def escalatingLoop(
       metaStore: MetaStore,
       eval: Map[ValueFQN, SemValue] => SemValue,
-      fetch: Set[ValueFQN] => CompilerIO[Map[ValueFQN, SemValue]]
+      fetch: Set[ValueFQN] => CompilerIO[Map[ValueFQN, SemValue]],
+      stuck: (SemValue, MetaStore) => Boolean = reducibleStuck
   ): CompilerIO[SemValue] = {
     def loop(bindings: Map[ValueFQN, SemValue]): CompilerIO[SemValue] = {
       val forced = eval(bindings)
-      if (!reducibleStuck(forced, metaStore)) forced.pure[CompilerIO]
+      if (!stuck(forced, metaStore)) forced.pure[CompilerIO]
       else
         fetch(bindings.keySet).flatMap { extra =>
           if (extra.isEmpty) forced.pure[CompilerIO] else loop(bindings ++ extra)
@@ -112,6 +150,13 @@ object EscalatingReducer {
     * (splicing more reduced bodies can make it quote, never change an already-quoting result), a native leaf / `data`
     * constructor still returns `None` (unchanged), and the `CompilerMonomorphicValue.Key(fqn, [])` ancestor check still
     * guards cycles.
+    *
+    * '''Ambiguous-FQN decline (§2.3).''' The binding map and both evaluators' lookups are keyed by **FQN only**, so an
+    * FQN referenced at ≥2 *distinct* ground-arg vectors cannot be served correctly — one instantiation's reduced body
+    * (its ability-impl choices baked in) would silently stand in for the other. Such an FQN is therefore **declined**
+    * (never escalated): the term stays stuck (a loud error on the checker read-back, a sound ⊤ on the channel path)
+    * rather than splicing an arbitrary winner. An FQN referenced at a single instantiation (however many times) is
+    * escalated as before.
     */
   def escalate(
       candidates: Seq[(ValueFQN, Seq[GroundValue])],
@@ -120,7 +165,8 @@ object EscalatingReducer {
       wrap: (Int, SemValue) => SemValue
   ): CompilerIO[Map[ValueFQN, SemValue]] =
     activeFactKeys.flatMap { ancestors =>
-      candidates.distinctBy(_._1).foldLeftM(Map.empty[ValueFQN, SemValue]) { case (acc, (fqn, groundArgs)) =>
+      val unambiguous = candidates.distinct.groupBy(_._1).collect { case (_, Seq(single)) => single }.toSeq
+      unambiguous.foldLeftM(Map.empty[ValueFQN, SemValue]) { case (acc, (fqn, groundArgs)) =>
         if (already.contains(fqn) || ancestors.contains(CompilerMonomorphicValue.Key(fqn, groundArgs)))
           acc.pure[CompilerIO]
         else

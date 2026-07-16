@@ -34,4 +34,24 @@ class WhereOnDefIntegrationTest extends FullIntegrationTest {
       useByte + "def relay(y: Int): Int = useByte(y)\ndef main: IO[Unit] = printLine(intToString(relay(42)))"
     ).asserting(_ should include("Cannot prove the precondition of 'Test::useByte'"))
   }
+
+  // Higher-order escape (`docs/refinement-channel-follow-ups.md` §2.1): passing a `where`-bearing def as a *value*
+  // rides a function value whose eventual call the channel never sees, so the precondition would be silently skipped.
+  // Reject any reference to a `where`-bearing def that is not the head of a full application.
+  it should "reject a where-bearing def passed as a bare value, not silently bypass the precondition" in {
+    compileForErrors(
+      useByte +
+        "def call(f: Int => Int, x: Int): Int = f(x)\n" +
+        "def main: IO[Unit] = printLine(intToString(call(useByte, 1000)))"
+    ).asserting(_ should include("cannot be passed as a value"))
+  }
+
+  it should "reject a partial application of a where-bearing def passed as a value" in {
+    compileForErrors(
+      "import eliot.effect.Console\nimport eliot.lang.Interval\n" +
+        "def clampFirst(a: Int, b: Int): Int where withinByte(range(a)) = a\n" +
+        "def apply1(g: Int => Int): Int = g(5)\n" +
+        "def main: IO[Unit] = printLine(intToString(apply1(clampFirst(200))))"
+    ).asserting(_ should include("cannot be passed as a value"))
+  }
 }

@@ -140,8 +140,17 @@ class RefinementChannelProcessor
         // effects during the walk remain.
         walkFlow(body).as(Flow.topBoundary)
 
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, _) =>
+        // A **bare** reference to a def — *not* the head of a full application (that path is the `FunctionApplication`
+        // arm's `checkWhere`). If the def carries a `where` precondition, passing it as a value silently bypasses that
+        // precondition: its eventual call rides a function value whose head the channel never sees as a
+        // `MonomorphicValueReference`, so the demand is made nowhere (`docs/refinement-channel-follow-ups.md` §2.1).
+        // Reject it loudly — the Use-Site Verification cornerstone requires every manifest use to be checked. ⊤ for the
+        // node itself (a function value carries no integer range).
+        rejectWhereAsValueIfBearing(node, vfqn.value).as(Flow.topBoundary)
+
       case _ =>
-        // A parameter/value reference or a string literal: ⊤ (no known integer range at this node).
+        // A parameter reference or a string literal: ⊤ (no known integer range at this node).
         Flow.topBoundary.pure[CompilerIO]
     }
 
@@ -232,19 +241,45 @@ class RefinementChannelProcessor
       appliedArgs: Int,
       argMetas: Seq[Option[GroundValue]]
   ): CompilerIO[Unit] =
-    getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { namesOpt =>
-      if (!namesOpt.exists(_.names.contains(whereCompanionName(callee)))) ().pure[CompilerIO]
-      else
+    hasWhereCompanion(callee).flatMap {
+      case false => ().pure[CompilerIO]
+      case true  =>
         getFactIfProduced(MonomorphicValue.Key(callee, calleeTypeArgs)).flatMap {
           case Some(mv) =>
             mv.naturalArity match {
               case Some(arity) if arity > 0 && appliedArgs >= arity =>
                 demandPrecondition(callNode, callee, argMetas.take(arity))
+              case Some(arity) if arity > 0                         =>
+                // A *partial* application of a `where`-bearing def is a function value with an undemandable precondition
+                // — the same escape as a bare reference (§2.1). Reject it loudly rather than let the partial value flow
+                // to a call the channel cannot see.
+                rejectWhereAsValue(callNode, callee)
               case _                                                => ().pure[CompilerIO]
             }
           case None     => ().pure[CompilerIO]
         }
     }
+
+  /** Whether `callee` declares a `where` precondition — a cached [[UnifiedModuleNames]] membership test for its
+    * [[whereCompanionName]] in the compiler pool (where [[MetaWhereDesugarer]] emits the `^Where` companion).
+    */
+  private def hasWhereCompanion(callee: ValueFQN): CompilerIO[Boolean] =
+    getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))
+      .map(_.exists(_.names.contains(whereCompanionName(callee))))
+
+  private def rejectWhereAsValueIfBearing(node: Sourced[MonomorphicExpression], callee: ValueFQN): CompilerIO[Unit] =
+    hasWhereCompanion(callee).ifM(rejectWhereAsValue(node, callee), ().pure[CompilerIO])
+
+  /** The §2.1 fail-safe: a reference to a `where`-bearing def that is not the head of a full application — a bare value
+    * reference or a partial application — is a use whose precondition can never be demanded. Reject it with a loud,
+    * conservative error rather than silently accept the escape. (Lifting the restriction later would need value-level
+    * tracking of the precondition through the function value, which the channel deliberately does not have.)
+    */
+  private def rejectWhereAsValue(node: Sourced[MonomorphicExpression], callee: ValueFQN): CompilerIO[Unit] =
+    Sourced.compilerError(
+      node.as(s"A def with a `where` precondition ('${callee.show}') cannot be passed as a value."),
+      Seq("Call it directly with all its arguments so its precondition is checked at the use site.")
+    )
 
   /** Evaluate a resolved `^Where` companion over the call's argument metas and turn the verdict into a use-site error or
     * a pass. Every argument's meta must be known (⊤ cannot discharge a demand — the fail-safe of §4.3); the predicate

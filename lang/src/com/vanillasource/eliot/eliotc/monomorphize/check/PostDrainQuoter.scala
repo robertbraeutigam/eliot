@@ -190,7 +190,10 @@ class PostDrainQuoter(
       resolved: SemExpression,
       already: Set[ValueFQN]
   ): CompilerIO[Map[ValueFQN, SemValue]] = {
-    val candidates = valueRefsWithArgs(resolved).distinctBy(_._1).flatMap { case (fqn, typeArgs) =>
+    // No pre-collapse by FQN: pass every (fqn, ground-type-args) candidate through so `escalate` can *decline* an FQN
+    // referenced at two distinct instantiations (§2.3) rather than silently escalating an arbitrary first one. Identical
+    // (fqn, args) duplicates are folded by `escalate`'s own `.distinct`.
+    val candidates = valueRefsWithArgs(resolved).flatMap { case (fqn, typeArgs) =>
       typeArgs.toList.traverse(a => Quoter.quote(0, a, metaStore)).toOption.map(fqn -> _)
     }
     EscalatingReducer.escalate(candidates, already, reduceInstance, absorbTypeArgs(_, _))

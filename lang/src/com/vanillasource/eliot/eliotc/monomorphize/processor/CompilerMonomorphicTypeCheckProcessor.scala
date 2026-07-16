@@ -1,15 +1,17 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
+import cats.Id
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.module.fact.{Role, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.core.processor.MetaWhereDesugarer
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, Role, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.{MarkerGuardSignature, Track, TypeStackLoop}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -94,6 +96,10 @@ class CompilerMonomorphicTypeCheckProcessor
     // rides `key.vfqn`, so the input `SaturatedValue` is already the role-appropriate twin's.
     val signatureOnly = key.vfqn.name.role == Role.Signature
     for {
+      // §2.2 fail-safe: the refinement channel demands `where` preconditions only over runtime bodies, so a
+      // `where`-guarded callee reached from this compile-time body would escape its precondition — reject it loudly.
+      // Only the real body reduction (a `Runtime`-role key) is scanned; a `Signature`-role key reduces the signature.
+      _                 <- if (signatureOnly) ().pure[CompilerIO] else rejectWhereBearingCallees(value)
       // The Step-6 flip: a `Runtime`-role value reads its *own* reduced ground signature from its signature twin's mono
       // rather than walking the signature in place. Absent (the signature twin computing itself, or a W3 twin that
       // declined) leaves the in-place walk. Acyclic: the signature twin never reads a runtime-role mono here.
@@ -132,6 +138,43 @@ class CompilerMonomorphicTypeCheckProcessor
       getFactOrAbort(
         CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
       ).map(cmv => Some(cmv.signature))
+
+  /** §2.2 fail-safe: reject a compiler-track body that references a `where`-bearing callee. The refinement channel
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor]]) demands a `where` precondition
+    * only over *runtime* [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] bodies, never
+    * compiler-track ones, so a `where`-guarded def reached from an `eliot-compiler` overlay (compile-time) body would
+    * have its precondition silently skipped — the same silent-accept class as the higher-order escape
+    * (`docs/refinement-channel-follow-ups.md` §2.1/§2.2). Until the channel is extended to walk compiler-track bodies,
+    * any such reference is rejected loudly and the value aborts (never a silently-unchecked compile-time precondition).
+    * Membership is a cached [[UnifiedModuleNames]] read for the callee's `^Where` companion, so a `where`-free body pays
+    * one lookup per distinct callee.
+    */
+  private def rejectWhereBearingCallees(value: OperatorResolvedValue): CompilerIO[Unit] =
+    value.runtime.traverse_ { body =>
+      val callees =
+        OperatorResolvedExpression.foldValueReferences[Id, Set[ValueFQN]](body.value, Set.empty)((acc, ref) =>
+          acc + ref.value
+        )
+      callees.toList.traverse_ { callee =>
+        hasWhereCompanion(callee).flatMap {
+          case true  =>
+            compilerError(
+              value.name.as(s"A `where`-guarded value '${callee.name.name}' cannot be called from compile-time code."),
+              Seq(
+                "The refinement channel checks `where` preconditions only at runtime use sites; move this call to a runtime value."
+              )
+            ) >> abort[Unit]
+          case false => ().pure[CompilerIO]
+        }
+      }
+    }
+
+  /** Whether `callee` declares a `where` precondition — a cached [[UnifiedModuleNames]] membership test for its `^Where`
+    * companion ([[MetaWhereDesugarer.whereSuffix]] in the [[Qualifier.Meta]] namespace) in the compiler pool.
+    */
+  private def hasWhereCompanion(callee: ValueFQN): CompilerIO[Boolean] =
+    getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))
+      .map(_.exists(_.names.contains(QualifiedName(callee.name.name + MetaWhereDesugarer.whereSuffix, Qualifier.Meta))))
 
   /** Resolve an ability in the **compiler** pool: a compiler-track value is entirely compile-time, so all of its
     * ability references belong to the compiler platform.

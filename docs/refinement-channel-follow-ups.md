@@ -44,7 +44,17 @@ post-landing review's findings plus the retired plan's still-open deferred items
 
 ## 2. Fail-safe follow-ups (correctness — ordered by priority)
 
-### 2.1 Higher-order `where` escape — **CONFIRMED silent-accept gap**
+Status: **§2.1, §2.2, §2.3, §2.5 LANDED 2026-07-16** (this commit). §2.4 **deferred** (see its note — it is an
+already-loud, untriggered spurious rejection, not a silent-accept, and its fix is coupled to the strict-§1 tightening it
+unblocks). CACHE_VERSION 29→30 (channel/escalation semantics changed).
+
+### 2.1 Higher-order `where` escape — **CONFIRMED silent-accept gap** — **DONE**
+
+**Fixed** in `RefinementChannelProcessor`: a bare `MonomorphicValueReference` to a `^Where`-bearing def (walk's
+value-reference arm) and a *partial* application of one (`checkWhere`'s sub-arity arm) now hard-error — "a def with a
+`where` precondition cannot be passed as a value". Membership is the same cheap `UnifiedModuleNames` `^Where` lookup the
+full-application check already does. Locked by two `WhereOnDefIntegrationTest` cases (bare higher-order arg + partial
+application). The original probe (`call(useByte, 1000)`) is now rejected instead of printing `1000`.
 
 **Evidence (probe-verified 2026-07-16):**
 
@@ -71,31 +81,45 @@ the `whereCompanionName` in the channel walk's value-reference arm (and the part
 `checkWhere`). Conservative and loud; lifting the restriction later (demanding the precondition at the eventual
 call through the function value) would need value-level tracking the channel deliberately does not have.
 
-### 2.2 The channel does not run over compiler-track code (carried from the retired plan §6)
+### 2.2 The channel does not run over compiler-track code (carried from the retired plan §6) — **DONE (conservative reject)**
 
 A `where`-guarded def called *from* an `eliot-compiler` overlay body is never demanded — the channel walks
 runtime `MonomorphicValue`s only. Same failure class as §2.1 (a manifest use whose precondition is never
-demanded), different entry path. Fix direction: walk `CompilerMonomorphicValue` bodies with the same
-`checkWhere` (records can be discarded; only the demand matters), or reject `where`-bearing callees from
-compiler-track bodies until then.
+demanded), different entry path.
 
-### 2.3 FQN-keyed escalation bindings — latent wrong-splice hazard
+**Fixed** with the plan's conservative-reject option: `CompilerMonomorphicTypeCheckProcessor` now scans a
+`Runtime`-role compiler-track body's *raw* (operator-resolved) value references and hard-errors + aborts if any callee
+declares a `^Where` companion — "a `where`-guarded value cannot be called from compile-time code" — until the channel
+is extended to walk compiler-track bodies. The scan is on the raw body (a reduced body would have already folded a pure
+`where`-def call away, hiding the reference) and gated to the real body reduction (a `Signature`-role key reduces the
+signature, not the body). Verified never to fire on the base build (no shipped def carries a `where` precondition) and
+not to false-fire on the existing `where`/transfer suites. No positive integration test: a compile-time call to a
+`where`-def is not expressible from surface syntax today (it would need genuinely compile-time-evaluated user code
+reaching a runtime precondition-bearing def), so the guard is covered by the full-suite-green + base-build-doesn't-fire
+verification. When the walk-compiler-bodies path is built, this reject becomes the fallback it already documents.
 
-`EscalatingReducer.escalate` (and the in-checker candidate builder) does `candidates.distinctBy(_._1)`, and both
+### 2.3 FQN-keyed escalation bindings — latent wrong-splice hazard — **DONE**
+
+`EscalatingReducer.escalate` (and the in-checker candidate builder) did `candidates.distinctBy(_._1)`, and both
 the spliced-binding map and the evaluator lookup are keyed by **FQN only**. If one stuck term references the same
 FQN at two *different* ground instantiations, one instantiation's reduced body — with its ability-impl choices
-baked in — serves both; in the channel path the winner is arbitrary (`ReducedBindingClosure.valueReferences`
+baked in — served both; in the channel path the winner was arbitrary (`ReducedBindingClosure.valueReferences`
 returns a `Set`, so `.toSeq` order is hash-driven). **Rationale for acting despite no observed failure:** a
 cross-spliced body usually sticks on a shape mismatch and degrades to ⊤/stuck (sound), but a same-shape pair —
 Bool-valued predicates, guard-selected impls over one type shape — could *quote a wrong result silently*: a
 wrongly-narrow interval or a wrong guard verdict, exactly the "behavioral widening must never become wrong
-narrowing" risk the retired plan's §7 named. Pre-existing (inherited from the guard tower), but the channel
-raised its stakes. **Fix (fail-safe, cheap):** when the candidate list contains one FQN at ≥2 distinct
-ground-arg vectors, decline to escalate that FQN — the term stays stuck (loud error on the checker path, sound ⊤
-on the channel path) — never splice an arbitrary winner. Keying the binding map by (FQN, args) is *not* the cheap
-fix: the evaluators' lookups are FQN-only by design.
+narrowing" risk the retired plan's §7 named.
 
-### 2.4 Compiler-track literal ascription (carried Step-4 follow-on; **blocker for the strict §1 invariant**)
+**Fixed:** `escalate` now groups candidates by FQN (`candidates.distinct.groupBy(_._1).collect { case (_, Seq(one)) =>
+one }`) and escalates only an FQN referenced at a *single* ground-arg vector; an FQN at ≥2 distinct vectors is
+**declined**, so the term stays stuck (a loud error on the checker read-back, a sound ⊤ on the channel path) instead of
+splicing an arbitrary winner. The in-checker candidate builder (`PostDrainQuoter.escalationBindings`) dropped its
+pre-collapse `distinctBy(_._1)` so the ambiguous case actually reaches `escalate` (identical `(fqn, args)` duplicates
+are folded by `escalate`'s own `.distinct`). Keying the binding map by (FQN, args) is *not* the cheap fix: the
+evaluators' lookups are FQN-only by design. Strictly more conservative than before (only ever declines an escalation
+that could not have been served correctly); full suite green confirms no reachable path relied on the arbitrary winner.
+
+### 2.4 Compiler-track literal ascription (carried Step-4 follow-on; **blocker for the strict §1 invariant**) — **DEFERRED (not a silent-accept)**
 
 A compiler-track `def x: BigInteger = <literal>` fails its own check when its `CMV(x, [])` is demanded:
 check-mode types `integerLiteral[n]` as `Int`, never ascribing it to the declared `BigInteger`. Today this is
@@ -106,15 +130,31 @@ a correct program, and it is **the** reason §1's invariant must stay "raw until
 declared `BigInteger` type), or by giving `byteMin`/`byteMax` genuinely-`BigInteger` bodies; then re-evaluate
 tightening the seed (e.g. preferring `CMV.reduced` over raw wherever it exists).
 
-### 2.5 `reducibleStuck` abstract-ability hardening (carried Step-4 follow-on, sharpened)
+**Deferred (2026-07-16), unlike its four siblings.** Unlike §2.1/§2.2 (silent-accepts) and §2.3/§2.5 (a silent-wrong
+splice/structure), §2.4 is **already fail-safe**: an untriggered, *loud* spurious rejection — it never accepts a wrong
+program, it would at worst reject a correct one, and only along a path nothing currently reaches. So it does not violate
+the gaps-must-be-fail-safe rule. Its only available fix is compiler-track literal ascription in the checker's
+*check-mode* (the "genuinely-`BigInteger` body" alternative is not real — `byteMin`/`byteMax` already *are* `= -128`/`=
+127` literals; the issue is how check-mode types the literal). That change exists to **unblock the strict §1
+tightening** (prefer `CMV.reduced` over the raw seed) and is best done *with* that tightening and its tests, not
+decoupled — decoupled it adds checker check-mode risk for zero current correctness payoff. Tracked here for whoever
+takes on the strict-§1 tightening.
+
+### 2.5 `reducibleStuck` abstract-ability hardening (carried Step-4 follow-on, sharpened) — **DONE**
 
 A stuck *abstract-ability* application quotes to a `GroundValue.Structure`, so `reducibleStuck` treats it as
 non-stuck — after the linker fix this path should be unreachable (abilities are resolved before the channel sees
-them), but if it ever fires it yields a bogus structure rather than escalation/⊤. The retired plan deferred this
-because `reducibleStuck` is shared with the in-checker read-back and changing it risks the checker for no live
-gain. **Sharper fix that removes the deferral's cost:** make the stuck-predicate a parameter of
-`escalatingLoop`, so the *channel* instantiation hardens (stuck abstract ability ⟹ escalate, else ⊤ — never a
-structure) while the checker instantiation keeps today's predicate byte-for-byte.
+them), but if it ever fires it yields a bogus structure rather than escalation/⊤.
+
+**Fixed** with the sharper fix: `escalatingLoop` gained a `stuck` predicate parameter defaulting to `reducibleStuck`,
+so the in-checker read-back keeps today's predicate byte-for-byte while `reduceApplied` (the channel executor) passes a
+hardened `channelStuck` — `reducibleStuck` *plus* "quotes to a `Structure` headed by a `Qualifier.Ability` method ⟹
+stuck" (one quote, mirroring `reducibleStuck`, so the hot path pays nothing). If such a term ever survives, the loop
+escalates rather than accepting it; and if escalation cannot resolve it, `reduceApplied`'s `isAbstractAbilityStructure`
+filter drops it to ⊤ (never stores the bogus structure). A legitimate channel meta is a `$Meta` structure
+(`Qualifier.Type`) or a `Direct`, never ability-qualified, so the filter drops only bogus values. Defensive (the path
+is unreachable today, so no positive test); the parameterization is clean and the checker predicate is unchanged, and
+the full suite confirms no regression.
 
 ## 3. Simplifications / hardening (mechanical, behavior-preserving)
 
