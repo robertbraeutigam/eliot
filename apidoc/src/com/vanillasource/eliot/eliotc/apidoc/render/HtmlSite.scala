@@ -187,7 +187,7 @@ object HtmlSite {
   private def sectionTitle(kind: DocItem.Kind): String = kind match {
     case DocItem.Kind.TypeLike => "Types"
     case DocItem.Kind.Ability  => "Abilities"
-    case DocItem.Kind.Value    => "Definitions"
+    case DocItem.Kind.Value    => "Functions"
   }
 
   private def renderItem(item: DocItem): String = {
@@ -195,11 +195,12 @@ object HtmlSite {
     val doc    = item.doc.map(d => s"""<div class="doc">${MarkdownRenderer.render(d)}</div>""").getOrElse("")
     val members =
       if (item.members.isEmpty) ""
-      else {
-        val label = if (item.kind == DocItem.Kind.Ability) "Methods" else "Definitions"
-        val rows  = item.members.map(renderMember).mkString
-        s"""<div class="members"><h3>$label</h3>$rows</div>"""
-      }
+      else if (item.kind == DocItem.Kind.Ability)
+        s"""<div class="members"><h3>Methods</h3>${item.members.map(renderMember).mkString}</div>"""
+      else
+        // A type's per-layer concrete definitions (its `data`/`type` forms) collapse like the Implementations block —
+        // closed by default, so an abstract type leads with its contract, not with its platform representations.
+        s"""<details class="members impls"><summary>Definitions</summary>${item.members.map(renderMember).mkString}</details>"""
     val implementations =
       if (item.implementations.isEmpty) ""
       else s"""<details class="members impls"><summary>Implementations</summary>${item.implementations.map(renderImplementation).mkString}</details>"""
