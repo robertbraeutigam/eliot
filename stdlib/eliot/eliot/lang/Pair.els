@@ -1,8 +1,4 @@
 /**
  * An ordered pair of two independently-typed values: a `first` of type `A` and a `second` of type `B`.
- *
- * The product type of the base library. It is what discharging the `State[S]` effect produces via `runStateToPair`:
- * a `Pair[A, S]` of the result and the final state. The field accessors `first`/`second` and the eliminator
- * `foldPair` come with the concrete value constructor.
  */
 type Pair[A, B]

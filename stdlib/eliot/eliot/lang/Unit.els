@@ -5,10 +5,7 @@ type Unit
 def unit: Unit
 
 /**
- * The trivial refinement domain: `Unit` is the meta of every type that carries no refinement (`Bool`, `String`, any
- * un-slotted type — see `MetaConstructorDesugarer`), so its lattice `join` does nothing (there is only one `Unit`).
- * Making `Meta` total this way is what lets the refinement machinery special-case nothing: a merge over untracked arms
- * simply joins `Unit` to `Unit`. Compiler-pool-only, like every `Meta` instance.
+ * The trivial refinement domain: `Unit` is the meta of every type that carries no refinement.
  */
 implement Meta[Unit] {
    def join(a: Unit, b: Unit): Unit = a

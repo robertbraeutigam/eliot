@@ -2,19 +2,7 @@ import eliot.lang.Numeric
 import eliot.lang.Compare
 
 /**
- * A closed interval `[start, end]` of values of a single numeric type `T`: a `start` and an `end`, both `T`. With `Int`'s
- * value range moved out of its type into the refinement channel (`docs/bounds-as-refinements.md`), both endpoints of a
- * range share one type, so `Interval` needs only one type parameter.
- *
- * An `Interval` is the general form of a numeric range: `Interval[BigInteger]` is the compile-time bound of an `Int`,
- * while `Interval[Int]` is an ordinary runtime interval of machine integers. It closes under `+`/`-`/`*` (see the
- * `Numeric[Interval[T]]` instance) purely by delegating to the `Numeric` and `Compare` of its endpoints — this is exactly
- * why those abilities exist, so no interval arithmetic is written twice.
- *
- * The type is abstract in the base (`data` is a chosen representation, which the base avoids); each platform layer
- * supplies the concrete `data Interval[T](start, end)` and the method bodies. Like `Int`, the `Numeric` instance is
- * *split across layers*: the base owns the platform-independent method signatures, and the platform layers supply the
- * endpoint-wise bodies.
+ * A closed interval `[start, end]` of values of a single numeric type `T`: a `start` and an `end`, both `T`.
  */
 type Interval[T]
 

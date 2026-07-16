@@ -1,14 +1,5 @@
 /**
- * Homogeneous arithmetic over a single type `A`: `add`, `subtract`, and `multiply`, each `A -> A -> A`. Unlike the
- * heterogeneous `Arithmetic[A, B]` (whose result type is computed from *both* operand types so a dependently-bounded
- * `Int[L1,H1] + Int[L2,H2]` can name a distinct result range), `Numeric` keeps the operand and result types the same —
- * the shape a number type wants once its value range is tracked in the refinement channel rather than in its type
- * (`docs/bounds-as-refinements.md`), so `add` is simply `A -> A -> A`.
- *
- * This is the ability the refinement channel's domain code runs: the compile-time `Interval` closes under arithmetic
- * through its endpoints' `Numeric` (a single-parameter instance, no associated result types), which is what lets the
- * `^Meta` transfer companions dispatch on ground types. `Numeric` also carries the `+`/`-`/`*` operators (below), so a
- * type gains them purely by implementing `Numeric`.
+ * Arithmetic over a single type `A`.
  */
 ability Numeric[A] {
    def add(a: A, b: A): A
@@ -17,10 +8,7 @@ ability Numeric[A] {
 }
 
 /**
- * Infix `+` — addition over any type with a `Numeric[T]` implementation. It delegates to `add`, so its result is again a
- * `T`: for `Int`, `Int + Int : Int` (the summand's value range is tracked in the refinement channel, not the type). This
- * is the one type-generic operator every numeric type shares — a type gains `+` purely by implementing `Numeric`, with no
- * operator of its own.
+ * Infix `+` — addition over any type with a `Numeric[T]` implementation.
  */
 infix left
 def +[T ~ Numeric[T]](left: T, right: T): T = add(left, right)
