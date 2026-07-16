@@ -6,7 +6,8 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier => CoreQualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleValue, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter, SemExpressionEvaluator}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicExpression}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
+import com.vanillasource.eliot.eliotc.monomorphize.processor.EscalatingReducer
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -158,7 +159,9 @@ class PostDrainQuoter(
     * This is the single mechanism the guarded signature, ability-guard markers, and any future stacked-carrier
     * compile-time code share: each fetched reduced form was itself produced by a read-back that ran this same loop, so
     * the recursion lives in the cached, `activeFactKeys`-guarded fact graph rather than in a closure-composition flag.
-    * It is shape-agnostic and stuck-driven — it never inspects whether the term is a guard.
+    * It is shape-agnostic and stuck-driven — it never inspects whether the term is a guard. The loop skeleton itself is
+    * [[EscalatingReducer.escalatingLoop]], shared with the channel's post-monomorphize executor
+    * ([[EscalatingReducer.reduceApplied]]) so the two are one mechanism, not siblings.
     */
   private def reduceWithEscalation(env: Env, expr: SemExpression): CompilerIO[SemValue] = {
     val resolved                                   = resolveAbilityRefs(expr)
@@ -174,56 +177,24 @@ class PostDrainQuoter(
         lookupTopDef,
         deep = true
       )
-    def loop(bindings: Map[ValueFQN, SemValue]): CompilerIO[SemValue] = {
-      val forced = evalWith(bindings)
-      if (!reducibleStuck(forced)) forced.pure[CompilerIO]
-      else
-        escalationBindings(resolved, bindings.keySet).flatMap { extra =>
-          if (extra.isEmpty) forced.pure[CompilerIO] else loop(bindings ++ extra)
-        }
-    }
-    loop(Map.empty)
+    EscalatingReducer.escalatingLoop(metaStore, evalWith, escalationBindings(resolved, _))
   }
 
-  /** Whether a *forced* result is stuck in a way escalation could resolve. A runtime `VLam` (a compiler-track function
-    * over its value parameters, e.g. `foldEither`) and a value-parameter / read-back neutral are legitimately
-    * structural — they must fall straight through to the structural fallback, never re-fire escalation (§4.1). Anything
-    * else that fails to quote (a bodied top-def, a stuck `match`, a stuck native) is a candidate.
-    */
-  private def reducibleStuck(forced: SemValue): Boolean = forced match {
-    case SemValue.VLam(_, _)                                       => false
-    case SemValue.VNeutral(SemValue.NeutralHead.Param(_, _), _)    => false
-    case SemValue.VNeutral(SemValue.NeutralHead.Fresh(_, _), _)    => false
-    case other                                                     => Quoter.quote(0, other, metaStore).isLeft
-  }
-
-  /** Fetch the *reduced-at-instantiation* binding for each value reference in `resolved` whose FQN has not already been
-    * escalated (`already`) and whose type arguments are fully ground and non-empty — skipping any reference whose
-    * `CompilerMonomorphicValue` is an ancestor on the active request chain (would dead-lock). Each reduced body has its
-    * generic type parameters baked in, so it is wrapped in one ignore-lambda per ground type argument
-    * ([[absorbTypeArgs]]) — applying the reference's type arguments is then absorbed and the already-instantiated body
-    * is reached unchanged. Keyed by FQN; one instantiation per FQN, as the guard machinery it replaces also assumed.
+  /** The in-checker instantiation of [[EscalatingReducer.escalate]]'s escalation fetch: escalate each value reference in
+    * `resolved` whose type arguments quote to a fully-ground form (the [[SemExpression]] carries [[SemValue]] type args,
+    * unlike the already-ground [[MonomorphicExpression]] path). Each reduced body has its generic type parameters baked
+    * in, so [[absorbTypeArgs]] wraps it in one ignore-lambda per ground type argument — applying the reference's type
+    * arguments is then absorbed and the already-instantiated body is reached unchanged.
     */
   private def escalationBindings(
       resolved: SemExpression,
       already: Set[ValueFQN]
-  ): CompilerIO[Map[ValueFQN, SemValue]] =
-    activeFactKeys.flatMap { ancestors =>
-      valueRefsWithArgs(resolved).distinctBy(_._1).foldLeftM(Map.empty[ValueFQN, SemValue]) {
-        case (acc, (fqn, typeArgs)) =>
-          if (already.contains(fqn)) acc.pure[CompilerIO]
-          else
-            typeArgs.toList.traverse(a => Quoter.quote(0, a, metaStore)) match {
-              case Right(groundArgs)
-                  if groundArgs.nonEmpty && !ancestors.contains(CompilerMonomorphicValue.Key(fqn, groundArgs)) =>
-                reduceInstance(fqn, groundArgs).map {
-                  case Some(sem) => acc + (fqn -> absorbTypeArgs(groundArgs.size, sem))
-                  case None      => acc
-                }
-              case _ => acc.pure[CompilerIO]
-            }
-      }
+  ): CompilerIO[Map[ValueFQN, SemValue]] = {
+    val candidates = valueRefsWithArgs(resolved).distinctBy(_._1).flatMap { case (fqn, typeArgs) =>
+      typeArgs.toList.traverse(a => Quoter.quote(0, a, metaStore)).toOption.map(fqn -> _)
     }
+    EscalatingReducer.escalate(candidates, already, reduceInstance, absorbTypeArgs(_, _))
+  }
 
   /** Wrap `binding` in `n` ignore-lambdas, so applying `n` (type) arguments to it is absorbed and the already-
     * instantiated `binding` is reached unchanged — see [[escalationBindings]].

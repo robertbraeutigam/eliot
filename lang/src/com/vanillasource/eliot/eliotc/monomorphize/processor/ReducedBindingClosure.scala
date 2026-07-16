@@ -85,7 +85,7 @@ object ReducedBindingClosure {
     * reduced dependency is used directly with no re-application. A dependency with no reduced form (a native leaf, a
     * `data` constructor) falls back to its raw [[NativeBinding]] body.
     */
-  private def collectBindings(
+  private[processor] def collectBindings(
       reduced: MonomorphicExpression.Expression,
       selfFqn: ValueFQN,
       platform: Platform,
@@ -111,7 +111,7 @@ object ReducedBindingClosure {
         }
     }
 
-  private def valueReferences(
+  private[processor] def valueReferences(
       expr: MonomorphicExpression.Expression
   ): Set[(ValueFQN, Seq[GroundValue])] = expr match {
     case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) => Set((vfqn.value, typeArgs))

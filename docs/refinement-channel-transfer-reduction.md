@@ -94,7 +94,18 @@ a precedent: `V` is genuinely a compile-time constant in the language.)
 
 ## 5. The plan
 
-### Step 1 — extract the stuck-driven escalation loop into a standalone linker-executor
+### Step 1 — extract the stuck-driven escalation loop into a standalone linker-executor — **DONE (2026-07-16)**
+
+Landed as `monomorphize/processor/EscalatingReducer.scala`: `reduceApplied(vfqn, typeArgs, argMetas)` plus the shared
+loop skeleton `escalatingLoop(metaStore, eval, fetch)` + `reducibleStuck(forced, metaStore)` + the escalation-fetch
+helper `escalate(candidates, already, reduceInstance, wrap)`. `PostDrainQuoter.reduceWithEscalation`/`escalationBindings`
+were refactored onto that skeleton (its private `reducibleStuck` deleted; the in-checker fetch pre-quotes its
+`SemExpression` type args to ground candidates and passes `absorbTypeArgs` as `wrap`, exactly preserving prior
+behaviour — the `MonomorphicExpression` path passes identity since `MonomorphicEvaluator` already drops type args). The
+`groundArgs.isEmpty` skip now lives in the shared `escalate`, so Step 2's gate-open is a one-line change benefiting both
+instantiations. `ReducedBindingClosure.collectBindings`/`valueReferences` widened to `private[processor]`. `reduceApplied`
+is wired into the channel in Step 3; it is created-but-unused after Step 1. Full suite green (eliotc 133, lang 233, jvm
+283, ide.lsp 383) + HelloWorld builds and runs; no behaviour change (pure extraction).
 
 A single-owner component beside `ReducedBindingClosure` (e.g. `monomorphize/processor/EscalatingReducer.scala`)
 exposing roughly `reduceApplied(vfqn, typeArgs, argMetas: Seq[SemValue]): CompilerIO[Option[GroundValue]]`:
