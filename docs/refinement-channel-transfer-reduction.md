@@ -1,159 +1,189 @@
-# The Refinement Channel's Transfer Reduction: Why `^Meta` Transfers Must Bottom Out at Natives
+# The Refinement Channel's Transfer Reduction: Link Monomorphized Callees (the Compiler Platform's Missing `used` Step)
 
-Status: **Design record / investigation writeup (2026-07-16).** Captures why a range-transfer `^Meta`
-companion body must reduce to platform **natives** and cannot route through an ordinary Eliot `implement`
-instance (e.g. `Numeric[Interval[T]]`) — even one placed on the compiler track. The trigger was the proposal to
-make the `Int` arithmetic transfers idiomatic:
+Status: **PLAN (2026-07-16).** Converts the same-day investigation writeup ("why `^Meta` transfers must bottom
+out at natives") into a plan that *repeals* that rule. The investigation's evidence is retained (§1–§2); the
+diagnosis is sharpened by the 2026-07-16 architecture review (§3): the "natives only" restriction is not a
+property of the evaluator or of the monomorphizer — it is a **linking bug**. The channel evaluates compile-time
+code linked against *raw* (pre-monomorphization) callee bodies, so ability references that every mono correctly
+exchanges for exact implementations get smuggled back in at link time. The fix is to give the compiler platform
+the post-monomorphize step the runtime platform already has: **link only monomorphized callees, transitively,
+demand-driven** — after which the bare NbE `force` is exactly as legitimate an executor as the JVM is for
+codegen output.
 
-```
-implement Numeric[Int] {
-   def add(a: Int, b: Int): Int {a.range + b.range}   -- use the Interval's own Numeric ability
-   ...
-}
-```
+The invariant this plan enshrines (the compiler-platform twin of "codegen links only monomorphized callees"):
 
-instead of today's plain-function form `def nativeAdd(a: Int, b: Int): Int {intervalAdd(range(a), range(b))}`
-(`stdlib/eliot/eliot/lang/Int.els`), where `intervalAdd`/`intervalSubtract`/`intervalMultiply` are the compiler-overlay
-plain functions in `stdlib/eliot-compiler/eliot/lang/Interval.els`. The idiomatic form **does not work**, and the
-reason is structural, not incidental. No code changed as a result of this investigation; this note records *why* the
-plain-function indirection is load-bearing, so it is not "cleaned up" into an ability call later.
+> **Post-monomorphize evaluation may only ever see monomorphized bodies.** A raw (operator-resolved)
+> body may appear only beneath a native leaf or inside a monomorphization; it must never be spliced into a
+> post-mono reduction.
 
-(The original `docs/bounds-as-refinements.md` design doc was retired in `19448816`; the mechanism now lives entirely
-in the code paths referenced below. Source comments still cite the old doc by name.)
+## 1. The two stages of a range transfer (retained evidence)
 
-## 1. The two stages of a range transfer
-
-The refinement channel (`monomorphize/channel/RefinementChannelProcessor.scala`) is a **post-pass over each
-`MonomorphicValue`** — an abstract interpretation that runs *downstream* of type formation, over the checker's already
-monomorphized output, and records a per-node value interval into a `RefinementTable`. Its own docstring is explicit
-that it runs after the checker "with zero risk to the checker's invariants." It is **not** the checker and it does not
-re-monomorphize.
-
-Computing one arithmetic node's result range happens in two stages:
+The refinement channel (`monomorphize/channel/RefinementChannelProcessor.scala`) is a post-pass over each
+runtime `MonomorphicValue`. Computing one arithmetic node's result range happens in two stages:
 
 - **Stage 1 — the companion's own monomorphization.** A return brace `def add(…): Int {expr}` desugars
-  (`MetaTransferDesugarer`) into a `^Meta` transfer companion `add^Meta(a: Int$Meta, b: Int$Meta): Int$Meta =
-  Int$Meta(expr)`. That companion is a compiler-track value; it is monomorphized by
-  `CompilerMonomorphicTypeCheckProcessor → TypeStackLoop.process` — **the same unified checker/evaluator that every
-  runtime body and every signature twin goes through**, with full ability resolution (`resolveAbilityImpl` + the drain).
-  Its output is a *reduced body* stored on the `CompilerMonomorphicValue`.
+  (`MetaTransferDesugarer`) into the `^Meta` companion `add^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = …`, an
+  ordinary compiler-track value monomorphized by `CompilerMonomorphicTypeCheckProcessor → TypeStackLoop` — the
+  same unified checker as every runtime body and signature twin, with full ability resolution. Its own body's
+  ability references are drained and rewritten to exact impls at read-back
+  (`PostDrainQuoter.resolveAbilityRefs` + `Track.Compiler.implBindings`). **Stage 1 is correct and stays.**
 
-- **Stage 2 — the channel's transfer force.** When the channel walks an `Int` `+`/`-`/`*` leaf, `metaViaCompanion`
-  fetches that reduced body (`ReducedBindingClosure.reduceInstance`, **one-hop**, `deep = false`), applies the two
-  concrete operand metas, and reduces:
+- **Stage 2 — the channel's application.** At a companion-bearing call the channel fetches the reduced body
+  (`ReducedBindingClosure.reduceInstance`, **one-hop, `deep = false`**), applies the concrete operand metas, and
+  runs a **bare `Evaluator.force`** (`metaViaCompanion`; same pattern in `demandPrecondition` for `^Where`).
+  `force`/`renormalize` unfold cached bodies and (re-)fire natives; they have — correctly, per the one-evaluator
+  cornerstone — **no ability rule**. Stage 2 is where the plan intervenes.
 
-  ```scala
-  val applied = argMetas.foldLeft(reducedBody)(Evaluator.applyValue)
-  val forced  = Evaluator.force(applied, MetaStore.empty)   // <-- bare NbE force
-  Quoter.quote(0, forced, MetaStore.empty).collect { case s: GroundValue.Structure => s }
+Because the companion's parameters are abstract during stage 1, the per-call computation is structurally forced
+into stage 2. Under today's stage 2, anything on that path must reduce without dispatch — hence the "must bottom
+out at natives" rule, and hence the `intervalAdd`/`intervalSubtract`/`intervalMultiply`/`intervalJoin`
+plain-function indirections in `stdlib/eliot-compiler/eliot/lang/Interval.els`.
+
+## 2. The observed failures (retained evidence)
+
+- `Numeric[BigInteger]::add` fires in stage 2 (native intrinsic bound at the ability-method FQN);
+  `Numeric[Interval[T]]::add` does not (an Eliot `implement` instance needing dispatch) — stays stuck, transfer
+  quotes to nothing, result ⊤.
+- Wrapping the ability call in a plain function (`intervalAddViaAbility`) makes stage 1 succeed but stage 2
+  still yields ⊤; adding the instance to the compiler overlay does not help. Availability was never the blocker.
+- Written **inline** as `{a.range + b.range}` the companion fails earlier: its compiler-track `SaturatedValue`
+  is never produced (stage-1 entry never fires; the plain-function form does). Still undiagnosed — see Step 5b.
+- `ImplementBlock` (`ast/fact/ImplementBlock.scala:58-65`) rebuilds impl methods without `returnMeta`: a
+  transfer brace on an `implement` method parses and is **silently dropped**. See Step 5a.
+- Discriminating probe (the only test that observes narrowing — value-printing tests pass either way):
+
+  ```
+  def useByte(x: Int): Int where withinByte(range(x)) = x
+  def main: IO[Unit] = printLine(intToString(useByte(add(40, 40))))
   ```
 
-  This is the **same `Evaluator`** as everywhere else (there is only one — the cornerstone holds; this is not a second
-  interpreter). But it is invoked as a **bare `force`**: no `resolveAbility`, no drain, no stuck-driven escalation. It
-  can unfold a top-level definition and **re-fire a native** when it meets that native's FQN with concrete arguments,
-  but it does **not perform ability-instance dispatch** — selecting an `implement` from a receiver type is
-  monomorphization's job, and monomorphization is not running here.
+  Narrowing transfer ⟹ compiles; broken transfer ⟹ "value range is not known".
 
-## 2. Why the operand-level computation is *forced* into the dispatch-free stage
+## 3. The corrected diagnosis: it is the linker, not the mono
 
-The companion's parameters `a`, `b` are **abstract** during stage 1 (they are the companion's own binders), so
-`range(a)`/`range(b)` are neutral and the interval arithmetic cannot be computed then — with or without dispatch. The
-**only** point at which the operands are concrete is stage 2, inside the bare `force`. Therefore:
+"There are no abilities in expressions at the end of the pipeline" is true — but it is a **transitive-closure
+property, and each monomorphization only de-abilifies its own body.** When a body calls `+[Interval,Interval]`,
+the `Numeric::add` ability reference is not in that body; it is in `+`'s body, and it is exchanged for the exact
+impl inside `+`'s **own** mono at that instantiation. On the runtime track the closure property is established
+by **`used` + codegen linking**: every reachable callee's `MonomorphicValue` is demanded at its concrete
+instantiation, and codegen links *those monomorphized forms*. Raw bodies never reach execution.
 
-> The actual per-call range computation is structurally forced to happen in the dispatch-free `force`. Anything on that
-> path must therefore reduce **without dispatch** — i.e. it must bottom out at a **native**.
+The channel violates exactly this at link time: `ReducedBindingClosure.collectBindings` with `deep = false`
+closes the companion's (correct, ability-free) reduced body over each callee's **raw `NativeBinding` body** —
+the pre-monomorphization, operator-resolved form in which constraint-covered ability references are still
+abstract. The stuck abilities of §2 all come from these spliced raw bodies, never from the companion itself.
+Meanwhile the checker's own escalation read-back already links the other way — `TypeStackLoop.scala` passes
+`reduceInstance(_, _, deep = true)`, and `PostDrainQuoter.reduceWithEscalation` fetches a stuck reference
+**reduced at its own instantiation**. Two linking disciplines; the channel got the wrong one.
 
-This is the crux. It is not that "the Interval instance is missing from the pool," and it is not fixable by adding the
-instance: the one place the computation can run is the one place dispatch does not.
+Corollary: **no new dispatch capability is needed anywhere.** Dispatch stays where the pipeline put it — inside
+each value's monomorphization. The executor only has to guarantee it never evaluates a raw body. §7 of the
+original writeup framed the fix as "a dispatch-aware reduction"; that framing is hereby corrected — the channel
+needs the *linker* the rest of the pipeline already uses, i.e. the compiler platform's demand-driven
+`used`-equivalent.
 
-## 3. Why `Numeric[BigInteger]` works but `Numeric[Interval[T]]` cannot
+## 4. Rejected alternative: per-value monomorphization keys
 
-The two abilities are realized differently, and that difference is exactly what stage 2 is sensitive to:
+Considered and rejected: shaping companions with erased value-kinded *type* binders
+(`add^Meta[A: Int$Meta, B: Int$Meta]`) so the channel demands `CompilerMonomorphicValue.Key(companion, metas)`
+per call site (the ability-guard-verdict / `integerLiteral[V]` pattern). Rejected because metas are **normal
+value parameters** and should stay so: the runtime track also monomorphizes at type arguments only and lets
+values flow later — keying monos by values is a category error the runtime side never commits, and a fact-space
+cost with no compensating need once §3's linking fix restores the closure property. (`integerLiteral[V]` is not
+a precedent: `V` is genuinely a compile-time constant in the language.)
 
-| element | realization | in the stage-2 `force` |
-|---|---|---|
-| `Numeric[BigInteger]::add` | a **native intrinsic bound at the ability-method FQN** (`StdlibNativesProcessor.numericAddNative = (a,b) => a+b`, keyed on `numericFn("add")`) | fires with concrete `BigInteger` operands — **no dispatch needed** ✓ |
-| `Numeric[Interval[T]]::add` | an ordinary **Eliot `implement` instance** | requires *dispatch* to the instance; the bare `force` doesn't do that → stays a stuck neutral → transfer quotes to nothing → ⊤ ✗ |
+## 5. The plan
 
-So `intervalAdd(range(a), range(b))` reduces because it is a plain function whose body bottoms out at
-`Numeric::add`/`min`/`max` **on `BigInteger`** — natives at their ability-method FQNs, which fire once the interval
-*endpoints* are concrete. `a.range + b.range` puts a `Numeric::add` **on `Interval`** in the path, and there is no
-native at that FQN for `Interval`; the endpoints being concrete does not help, because the outer interval `add` never
-gets selected.
+### Step 1 — extract the stuck-driven escalation loop into a standalone linker-executor
 
-This is why the compiler overlay's `Meta[Interval[T]]` join is *also* routed through the plain function `intervalJoin`
-rather than the instance's own `join`, for the identical reason (the branch-merge path, `docs/generic-refinement-merges.md`).
-The overlay comment states the rule — "a transitively-reached Eliot-body ability instance does not dispatch under the
-channel's NbE evaluation — only natives re-fire" — and this investigation confirms that comment is literally the
-mechanism.
+A single-owner component beside `ReducedBindingClosure` (e.g. `monomorphize/processor/EscalatingReducer.scala`)
+exposing roughly `reduceApplied(vfqn, typeArgs, argMetas: Seq[SemValue]): CompilerIO[Option[GroundValue]]`:
 
-## 4. Two distinct failure stages (evidence)
+1. fetch `CompilerMonomorphicValue(vfqn, typeArgs)`'s reduced body (a `MonomorphicExpression`);
+2. bindings₀ = the one-hop raw closure (today's `collectBindings`) — the cheap common case pays nothing new;
+3. evaluate via `MonomorphicEvaluator(lookup = bindings)`, apply `argMetas`, `Evaluator.renormalize` (re-fires
+   natives; empty metastore);
+4. if the result quotes, done; if it is *reducibly* stuck (same `reducibleStuck` exemptions as
+   `PostDrainQuoter`: a runtime `VLam` and a value-parameter neutral are legitimately structural), fetch each of
+   the body's value references **reduced at its own ground type arguments**
+   (`reduceInstance(fqn, args, deep = true)`, `activeFactKeys`-guarded), splice, re-evaluate; loop until it
+   quotes or no new binding is available.
 
-Written **inline** as `{a.range + b.range}`, the companion fails even earlier than stage 2: its compiler-track
-`SaturatedValue` is never produced, so `CompilerMonomorphicValue(add^Meta)` is never even entered (traced: the
-compiler-mono entry never fires for the inline form; it does fire for the plain-function form). Wrapping the *same*
-ability call in a plain function —
+This is a near-verbatim extraction of `PostDrainQuoter.reduceWithEscalation`'s loop shape, freed from the
+checking session (standalone it needs no metastore, no drain `abilityResolutions` — every fetched reduced body
+already has its drain rewrites baked in — and no `monoEnv`). Extract the loop skeleton parameterized by (eval
+function, escalation fetch) and instantiate it twice, so `PostDrainQuoter`'s in-checker loop and this one are
+**one** mechanism, not siblings. Stuck-driven (lazy) rather than eager `deep = true` everywhere is deliberate:
+it avoids the recorded defaulted-`Type` spurious-resolution gotcha (`ReducedBindingClosure` docstring) by only
+ever monomorphizing what evaluation actually demands.
 
-```
-def intervalAddViaAbility[T ~ Numeric[T] & Compare[T]](a: Interval[T], b: Interval[T]): Interval[T] = a + b
-```
+### Step 2 — close the monomorphic-callee escalation gate
 
-— makes stage 1 succeed (`bodyReduced = true`), but the transfer **still yields ⊤**, because at stage 2 the wrapped
-function's body still reaches `Numeric[Interval]::add` with no native to fire and no dispatch. So the plain-function
-wrapper only moves the failure from stage 1 to stage 2; it does not rescue it. Adding a full `Numeric[Interval[T]]`
-instance to the compiler overlay also did not help — confirming availability was never the blocker.
+`PostDrainQuoter.escalationBindings` only escalates references with **non-empty** ground type args
+(`groundArgs.nonEmpty`, `PostDrainQuoter.scala:218`), so a *monomorphic* stuck callee is never fetched at its
+`CMV(fqn, Seq.empty)`. Runtime-abstract ability-performing monomorphic values are covered by
+`CompilerNativesProcessor`'s reduced `Leaf` contribution, but a runtime-*concrete* (borrowed-body) monomorphic
+callee with ability calls has neither. Extend escalation to empty-arg references (in the shared skeleton, so
+both instantiations benefit); first do the archaeology on why the gate existed (likely conservatism inherited
+from the guard machinery's one-instantiation-per-FQN assumption) and keep the full suite green.
 
-Discriminating probe used throughout (a `where`-precondition is the only test that actually observes narrowing — the
-existing `100 + 100` integration tests assert only the printed *value*, which is `200` whether the node narrows or
-falls back to bignum):
+### Step 3 — route the channel through the executor
 
-```
-def useByte(x: Int): Int where withinByte(range(x)) = x
-def main: IO[Unit] = printLine(intToString(useByte(add(40, 40))))
-```
+`metaViaCompanion` and `demandPrecondition` call `reduceApplied` instead of
+`reduceInstance + foldLeft(applyValue) + Evaluator.force`. Delete the bare-force application. The channel
+remains a post-pass that never mutates checker state — it only demands more facts (memoized, cycle-guarded);
+its "zero risk to the checker's invariants" separation survives with that re-justification.
 
-With the transfer on the impl `add` and the plain `intervalAdd` body, `add(40, 40)` narrows to `Int$Meta(Interval[80,80])`
-and the precondition passes; with the ability body it reports "value range is not known."
+Verify: the §2 probe with the transfer routed through `implement Numeric[Interval[T]]` narrows
+(`add(40, 40)` ⟹ `Interval[80,80]`, `useByte` passes); the ability-form no longer reports "value range is not
+known"; full suite + examples green.
 
-## 5. Relationship to the signature-unification work
+### Step 4 — make the stdlib transfers idiomatic; delete the plain-function indirections
 
-This is **not** a regression of, or a counterexample to, the signature↔runtime unification. That plan unified the
-**signature twin** with the **runtime value**: both are computed by the one `TypeStackLoop`/`Checker`/`Evaluator`, and
-the `^Meta` companion *bodies* themselves go through that same unified monomorphizer (stage 1 above). That unification
-is intact.
+The payoff, and the proof the rule of §1 is repealed:
 
-The non-unified piece is a **third** subsystem — the bounds-as-refinements *channel* — which the plan never touched. It
-is a deliberately lightweight downstream post-pass, and its stage-2 transfer is a bare `Evaluator.force` without an
-ability-dispatch context. So: same evaluator, different (stripped-down) invocation — orthogonal to signature/runtime
-unification.
+- give the compiler pool the `Numeric[Interval[T]]` instance **bodies** (the pure endpoint-wise delegation —
+  either as the sanctioned overlay copy in `stdlib/eliot-compiler/eliot/lang/Interval.els`, or hoisted into the
+  base split instance if the layer-merge rules allow a platform-independent body there);
+- rewrite the `Int` vessels' braces to the idiomatic form (`{range(a) + range(b)}` / `add(range(a), range(b))`)
+  and, once Step 5a lands, move them onto the impl methods where they belong;
+- route the auto-derived `Meta[Int$Meta]` join through the `Meta[Interval[T]]` instance's own `join`;
+- **delete** `intervalAdd`, `intervalSubtract`, `intervalMultiply`, `intervalJoin` and the three overlay
+  comments that state the natives-only rule; update `RefinementChannelProcessor`'s class docs likewise.
 
-## 6. Adjacent findings surfaced by the same investigation
+### Step 5 — independent fail-safe front-end fixes
 
-- **Operator-level arithmetic narrowing does not fire at all today** (independent of the idiomatic-transfer question).
-  The channel is **intra-procedural**: in a body, `x + y` is a reference to `Numeric::+` (which has no `^Meta`
-  companion), while the companion-bearing leaf (`nativeAdd`, or an impl `add`) appears only inside `+`/`add`'s *own*
-  body applied to **parameters**, never concrete operands. So `useByte(40 + 40)` is rejected as "range not known" even
-  on a clean tree; only a literal or a **direct** `add(40, 40)`/leaf call narrows. The `nativeAdd^Meta` transfer is
-  therefore effectively dead for real user arithmetic written with the operators.
+- **5a.** Forward `returnMeta` in `ImplementBlock`'s method reconstruction (`ImplementBlock.scala:58-65`,
+  one-liner) so a transfer brace on an impl method generates its companion instead of silently vanishing; add a
+  test asserting the companion exists.
+- **5b.** Diagnose the inline-brace stage-1 failure (§2: inline `{a.range + b.range}` never produces the
+  companion's compiler `SaturatedValue`). Start from a failing test; silent non-production of a fact is a
+  fail-safe violation regardless of this plan.
 
-- **`ImplementBlock` silently drops the return-meta brace on `implement` methods.** The parser reads a `{…}` return
-  brace on an impl method into `FunctionDefinition.returnMeta`, but `ImplementBlock`'s reconstruction of the qualified
-  method copies only name/generics/args/type/body — omitting `returnMeta` (it defaults to empty). So a transfer brace on
-  an impl method is parsed then discarded and no `^Meta` companion is generated. A one-line fix (`returnMeta =
-  f.returnMeta`) makes it flow; it is a latent gap, currently unexercised because no shipped impl method carries a brace.
+### Step 6 — sweep and bump
 
-## 7. The design option (if `a.range + b.range` is wanted)
+Update the stale rule statements (this doc's referrers, the `eliot-layers`/channel-adjacent comments citing
+"only natives re-fire transitively"), and bump `CACHE_VERSION` (channel results change for previously-⊤ nodes).
 
-"Implemented on the compiler track" is necessary but not sufficient; the missing capability is **dispatch at the point
-of concrete operands**. To make the idiomatic form work — and delete the `intervalAdd`/`intervalJoin` plain-function
-indirection — the channel's stage-2 transfer would need to reduce the `^Meta` companion through a **dispatch-aware**
-reduction at the concrete operand metas, rather than a bare `force`. The machinery mostly exists:
-`PostDrainQuoter.reduceWithEscalation` already performs dispatch-aware, stuck-driven reduction using `reduceInstance`;
-`metaViaCompanion` simply does not route its final operand application through it (it uses `Evaluator.force` with
-`deep = false` one-hop bindings). Routing the transfer through the escalation loop — or equivalently, monomorphizing the
-companion *at the concrete operand metas* rather than at abstract binders — is the "one evaluator, one path" instinct
-applied to the one subsystem the signature-unification plan did not reach.
+## 6. Non-goals / deferred
 
-That is a real, self-contained piece of work with an upside (idiomatic transfers, less compiler-overlay duplication) and
-a cost (the channel gains a monomorphizing reduction where today it is a cheap post-pass, and its "zero risk to the
-checker's invariants" separation would have to be re-justified). It is recorded here as an option, not a commitment.
+- **Operator-level narrowing** (original §6 finding): the channel is intra-procedural, so `x + y` through the
+  generic `+` (no `^Meta` companion) still does not narrow — only direct companion-bearing calls do. This plan
+  makes the *fix* expressible (after Steps 3+5a a brace on the generic `+`/its impl methods can contain ability
+  calls and would reduce), but wiring companions onto the operators is its own follow-on with its own tests.
+- **The channel does not run over compiler-track code**: a `where`-guarded def called *from* an
+  `eliot-compiler` overlay body is never demanded (the channel walks runtime `MonomorphicValue`s only). A real
+  fail-safe gap, orthogonal to transfers; track separately.
+- **The marker-guard reader's one-hop fetch** (`deep = false` by recorded choice) stays as-is in this plan;
+  revisit once the shared skeleton exists, since stuck-driven escalation would give it the same behavior without
+  the eager-deep gotcha.
+
+## 7. Risks
+
+- **New fact edges from the channel** (`channel → CompilerMonomorphicValue` at escalated instantiations):
+  already exist via `reduceInstance`; cycle safety is the existing `activeFactKeys` guard; cost is memoized.
+- **Escalation at empty type args** (Step 2) touches the checker's own read-back path — the reason it is a
+  separate, individually-verified step.
+- **Behavioral widening, not narrowing**: every change makes previously-⊤ nodes narrow; ⊤ was sound, so a
+  regression here can only be a *wrongly narrow* interval — the probe suite must therefore include a case
+  asserting a correct non-narrowing (an unknown operand stays ⊤) alongside the narrowing cases.
