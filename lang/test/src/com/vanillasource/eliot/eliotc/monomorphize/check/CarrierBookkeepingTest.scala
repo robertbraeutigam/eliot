@@ -118,7 +118,7 @@ object CarrierBookkeepingTest {
           fetchBinding,
           resolveAbilityImpl,
           Track.Runtime,
-          reduceInstance = ReducedBindingClosure.reduceInstance(_, _, _),
+          reduceInstance = ReducedBindingClosure.reduceInstance(_, _),
           injectedSignature = Some(twin.signature)
         ).processWithState(key.typeArguments, saturatedValue.value)
           .map { case (state, _) =>

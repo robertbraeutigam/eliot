@@ -47,12 +47,29 @@ class PostDrainQuoter(
     monoEnv: Env,
     lookupTopDef: ValueFQN => Option[SemValue],
     platform: Platform,
-    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
-      (_, _) => Option.empty[SemValue].pure[CompilerIO]
+    // Required (no default): defaulting it to a no-op fetch would be a silent-degradation trap — a construction site
+    // that omitted it would get an escalation loop that can never escalate (terms that should reduce stay stuck), with
+    // no compile error and nothing to grep for. The one production site (`TypeStackLoop`) always passes the real fetch.
+    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]]
 ) {
 
   private val erasedParams: Set[String]            = monoEnv.names.toSet
   private val semEvaluator: SemExpressionEvaluator = new SemExpressionEvaluator(lookupTopDef)
+
+  /** Deep-renormalise `v` (descending under [[SemValue.VPi]] binders, re-firing post-drain-solved natives stuck in a
+    * `VPi` codomain like `Int[add(L,R), …]`) then quote it. The shared core of the four deep-quote entry points
+    * ([[quoteSem]]/[[quoteSemOption]] over a [[SemValue]], [[reduceSignatureToGround]]/[[reduceSignatureToGroundOption]]
+    * over a reduced signature), which differ only in how they treat a `Left`: [[orAbort]] vs. `.toOption`.
+    */
+  private def quoteDeep(v: SemValue): Either[String, GroundValue] =
+    Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore)
+
+  /** A quoted result, or the fail-safe loud `Cannot resolve type.` abort at `at` — never a silent `Type` fallback. */
+  private def orAbort(result: Either[String, GroundValue], at: Sourced[?]): CompilerIO[GroundValue] =
+    result match {
+      case Right(g)  => g.pure[CompilerIO]
+      case Left(msg) => compilerAbort(at.as("Cannot resolve type."), Seq(msg))
+    }
 
   /** Quote a [[SemValue]] to a [[GroundValue]]. Raises a sourced compiler error on failure.
     *
@@ -63,10 +80,7 @@ class PostDrainQuoter(
     * as a loud `Cannot resolve type.` instead of a silent nonsense ground `Structure` (D3 / F1).
     */
   def quoteSem(v: SemValue, at: Sourced[?]): CompilerIO[GroundValue] =
-    Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore) match {
-      case Right(g)  => g.pure[CompilerIO]
-      case Left(msg) => compilerAbort(at.as("Cannot resolve type."), Seq(msg))
-    }
+    orAbort(quoteDeep(v), at)
 
   /** Non-aborting variant of [[quoteSem]]: the quoted ground value, or [[None]] when it does not reduce to a quotable
     * ground form (a stuck neutral / residual lambda). The signature-twin guard path tries this first — the retired
@@ -75,7 +89,7 @@ class PostDrainQuoter(
     * `match`).
     */
   def quoteSemOption(v: SemValue): Option[GroundValue] =
-    Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore).toOption
+    quoteDeep(v).toOption
 
   /** Deeply reduce a *checked type-level* [[SemExpression]] to a ground value — the signature-position analogue of
     * [[reduceSourced]]'s body reduction. Runs the stuck-driven [[reduceWithEscalation]] loop on the checked expression
@@ -95,21 +109,14 @@ class PostDrainQuoter(
     * hole (§3.5) — the shape falling out of the reduction rather than a per-shape branch.
     */
   def reduceSignatureToGround(expr: SemExpression, at: Sourced[?]): CompilerIO[GroundValue] =
-    reduceWithEscalation(monoEnv, expr).flatMap { reduced =>
-      Quoter.quote(0, Evaluator.renormalize(reduced, metaStore, lookupTopDef, deep = true), metaStore) match {
-        case Right(g)  => g.pure[CompilerIO]
-        case Left(msg) => compilerAbort(at.as("Cannot resolve type."), Seq(msg))
-      }
-    }
+    reduceWithEscalation(monoEnv, expr).flatMap(reduced => orAbort(quoteDeep(reduced), at))
 
   /** Non-aborting [[reduceSignatureToGround]]: the reduced ground signature, or [[None]] when it does not fully reduce
     * (a guard stuck on a leftover `GroundValue.Param`). The signature twin uses this so it can fall back to publishing
     * the guard's undischarged *carrier type* instead of aborting (signature-unification C2).
     */
   def reduceSignatureToGroundOption(expr: SemExpression): CompilerIO[Option[GroundValue]] =
-    reduceWithEscalation(monoEnv, expr).map { reduced =>
-      Quoter.quote(0, Evaluator.renormalize(reduced, metaStore, lookupTopDef, deep = true), metaStore).toOption
-    }
+    reduceWithEscalation(monoEnv, expr).map(reduced => quoteDeep(reduced).toOption)
 
   /** Quote a sourced [[SemExpression]] tree to a sourced [[MonomorphicExpression]] tree, applying the staging gate. */
   def quoteSourced(expr: Sourced[SemExpression]): CompilerIO[Sourced[MonomorphicExpression]] =

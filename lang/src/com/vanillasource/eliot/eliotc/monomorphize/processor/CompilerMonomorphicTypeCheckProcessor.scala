@@ -110,7 +110,7 @@ class CompilerMonomorphicTypeCheckProcessor
                              fetchBinding = fetchBinding(value.name),
                              resolveAbility = resolveAbilityImpl,
                              track = Track.Compiler,
-                             reduceInstance = ReducedBindingClosure.reduceInstance(_, _, _),
+                             reduceInstance = ReducedBindingClosure.reduceInstance(_, _),
                              signatureOnly = signatureOnly,
                              injectedSignature = injectedSignature
                            )

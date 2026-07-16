@@ -158,47 +158,56 @@ the full suite confirms no regression.
 
 ## 3. Simplifications / hardening (mechanical, behavior-preserving)
 
-### 3.1 Remove `PostDrainQuoter`'s default no-op `reduceInstance`
+Status: **all of §3 LANDED 2026-07-16** (§3.1–§3.5). Full suite green (0 failures, 0 aborts) + HelloWorld runs.
+CACHE_VERSION 30→31 (the §3.3 field-forwarding changes impl-method AST fact content).
 
-`PostDrainQuoter.scala:50` defaults the escalation fetch to `(_, _) => None`. There is exactly one production
-construction site (`TypeStackLoop.scala:349`) and it always passes the real fetch. **Rationale:** the default is
-a silent-degradation trap — a future construction site that omits the parameter gets an escalation loop that
-can never escalate: quiet behavior loss (terms that should reduce stay stuck), no compile error, nothing to
-grep for. Make the parameter required.
+### 3.1 Remove `PostDrainQuoter`'s default no-op `reduceInstance` — **DONE**
 
-### 3.2 Migrate the marker-guard reader onto `escalatingLoop` (carried from the retired plan §6)
+`PostDrainQuoter`'s escalation-fetch parameter no longer defaults to the no-op `(_, _) => None`; it is **required**.
+The one production construction site (`TypeStackLoop`) already passes the real fetch. The default was a
+silent-degradation trap — a future construction site omitting it would get an escalation loop that can never escalate
+(terms that should reduce stay stuck), with no compile error and nothing to grep for.
 
-The ability-guards marker reader still fetches sub-values one-hop (`reduceInstance(deep = false)` by recorded
-choice) — the last reader on the old linking discipline. **Rationale:** stuck-driven escalation gives it the
-same behavior without the eager-deep gotcha the one-hop choice was guarding against (spurious per-instantiation
-resolutions at defaulted-`Type` arguments — laziness only monomorphizes what evaluation demands), and retiring
-the last `deep = false` caller lets `ReducedBindingClosure.reduceInstance`'s two-mode `deep` flag become
-unconditional, deleting the duality and its gotcha-laden docstring.
+### 3.2 Migrate the marker-guard reader onto `escalatingLoop` (carried from the retired plan §6) — **DONE (already migrated; cleanup landed)**
 
-### 3.3 `ImplementBlock`'s impl-method rebuild → `f.copy(...)`
+**Finding:** the migration itself was already completed by the signature-unification rewrite — the marker-guard reader
+(`AbilityImplementationProcessor.readGuardVerdict`) now reads the marker's **signature-twin** `CompilerMonomorphicValue`
+(Phase D), whose mono runs the stuck-driven `escalatingLoop`; it no longer calls `reduceInstance` one-hop. So §3.2's
+premise ("still fetches sub-values one-hop") was stale, and the last `deep = false` caller of
+`ReducedBindingClosure.reduceInstance` was already gone.
 
-Step 5a fixed the silently-dropped `returnMeta`/`whereClause` by adding them to the positional rebuild
-(`ImplementBlock.scala:58`). **Rationale:** the fixed-field rebuild is the *bug class*, not just the two fixed
-fields — it still silently drops `doc` (impl methods lose their apidoc), `dischargedEffects` (an impl method
-declaring `{…, -E}` loses the discharge — conservative/loud downstream, but the same trap), `fixity`, and
-`precedence`, and every future `FunctionDefinition` field re-opens it. Rebuild with `f.copy(name = …,
-genericParameters = …, visibility = Visibility.Public)` so fields forward by default and only deliberate
-overrides are spelled out.
+**Cleanup landed:** dropped `reduceInstance`'s now-dead two-mode `deep` flag (every caller passed `deep = true`) — it
+now always reduces deep, threading `TypeStackLoop.reduceInstance`, both processors, `EscalatingReducer`, and the test
+seam down to a 2-arg signature — and rewrote the gotcha-laden docstring (deep is safe because `escalatingLoop`'s
+laziness only escalates a *stuck* term, never eagerly monomorphizing what evaluation does not demand). `buildBinding`/
+`collectBindings` keep their `deep` flag: they are still genuinely two-valued (the one-hop raw seed for the escalating
+loop, and `CompilerNativesProcessor`'s eager `Leaf`, both pass `deep = false`).
 
-### 3.4 Cross-reference the two "monomorphized bodies only" mechanisms
+### 3.3 `ImplementBlock`'s impl-method rebuild → `f.copy(...)` — **DONE**
 
-`CompilerNativesProcessor`'s eager `Leaf` contribution (for checking-time evaluation, which is pure and cannot
-demand facts mid-eval) and `EscalatingReducer`'s lazy escalation (read-back and channel) both implement §1's
-invariant at different seams. **Rationale:** they cannot be merged (the evaluator purity boundary), and without
-a sentence in `EscalatingReducer`'s class doc saying so, a future simplification pass will try. One comment,
-no code.
+Rebuilt the impl method with `f.copy(name = …, genericParameters = …, visibility = Visibility.Public)` — only the three
+deliberate overrides spelled out, everything else forwarded by default. The positional rebuild was the *bug class*: it
+silently dropped every field it did not restate — beyond the Step-5a `returnMeta`/`whereClause`, also `doc` (impl-method
+apidoc), `dischargedEffects` (an impl method declaring `{…, -E}`), `fixity`, and `precedence` — and every future
+`FunctionDefinition` field re-opened it. (Because this now forwards previously-dropped fields, impl-method AST fact
+content can change → CACHE_VERSION bump.)
 
-### 3.5 `PostDrainQuoter` entry-point consolidation (low priority)
+### 3.4 Cross-reference the two "monomorphized bodies only" mechanisms — **DONE**
 
-Seven quote/reduce entry points with near-miss semantics (`quoteSem`/`quoteSemOption`/`reduceSemExprToGround`/
-`reduceSignatureToGround`(+`Option`)/`reduceSourced`/`quoteSourced`). The aborting variants are the `Option`
-variants plus an error at the call site. Sanctioned signature-unification survivors, so consolidate
-opportunistically — an API-surface cleanup, not a correctness item.
+Added a paragraph to `EscalatingReducer`'s class doc noting that `CompilerNativesProcessor`'s eager `Leaf` contribution
+(for checking-time evaluation, which is pure and cannot demand facts mid-eval) and `EscalatingReducer`'s lazy escalation
+(read-back and channel) are the eager and lazy halves of §1's one invariant at different seams, and that they cannot be
+merged (the evaluator purity boundary) — so a future simplification pass does not try. One comment, no code.
+
+### 3.5 `PostDrainQuoter` entry-point consolidation (low priority) — **DONE (opportunistic dedup)**
+
+The seven entry points stay (their callers need the different return shapes), but their duplicated cores are now
+consolidated. Two private helpers were extracted: `quoteDeep(v): Either[String, GroundValue]` (the deep-renormalise-then-
+quote the four deep-quote entry points shared verbatim) and `orAbort(result, at)` (the shared `Cannot resolve type.`
+fail-safe abort). `quoteSem`/`quoteSemOption`/`reduceSignatureToGround`/`reduceSignatureToGroundOption` are now
+one-liners over those helpers — the aborting/`Option` split reduced to `orAbort` vs `.toOption`. `reduceSemExprToGround`/
+`reduceSourced`/`quoteSourced` genuinely differ (no deep renormalise, or a materialise/staging-gate step) and are left
+as-is. Pure refactor, behavior-preserving.
 
 ## 4. Deferred / language decisions (carried from the retired plan, unchanged rationale)
 

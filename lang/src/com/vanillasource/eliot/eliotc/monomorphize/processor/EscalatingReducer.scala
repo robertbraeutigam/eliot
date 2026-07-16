@@ -22,6 +22,14 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
   * instantiates it with its own (eval function, escalation fetch), so they are one mechanism, not siblings. Each fetched
   * reduced form was itself produced by a read-back that ran this same loop, so the recursion lives in the cached,
   * `activeFactKeys`-guarded fact graph rather than in a closure-composition flag.
+  *
+  * '''Not the only seam for §1's invariant.''' [[CompilerNativesProcessor]] enforces the same "monomorphized bodies
+  * only" invariant *eagerly*, at a different seam: it contributes a refinement artifact's reduced
+  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.CompilerMonomorphicValue]] as a self-contained
+  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Leaf]] (never the raw body) so a checking-time
+  * evaluation — which is pure and cannot demand facts mid-eval — already closes over the monomorphized form. The two
+  * cannot be merged (that purity boundary is exactly why one is eager and this one lazy); they are the eager and lazy
+  * halves of the one invariant, not redundant.
   */
 object EscalatingReducer {
 
@@ -59,7 +67,7 @@ object EscalatingReducer {
           escalatingLoop(
             MetaStore.empty,
             evalWith,
-            already => escalate(candidates, already, ReducedBindingClosure.reduceInstance(_, _, deep = true), (_, sem) => sem),
+            already => escalate(candidates, already, ReducedBindingClosure.reduceInstance(_, _), (_, sem) => sem),
             channelStuck
           ).map(result => Quoter.quote(0, result, MetaStore.empty).toOption.filterNot(isAbstractAbilityStructure))
         }

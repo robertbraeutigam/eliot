@@ -51,23 +51,17 @@ object ImplementBlock {
         } yield (
           errors,
           functions.map(f =>
-            // Transform the function into an "implement" function. Change name into implement qualifier,
-            // and also prepend the common generic parameters.
-            // Note: the implement qualifier has to include the instantiation type parameters
-            // Visibility is always public for implementation functions.
-            FunctionDefinition(
-              f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey))),
-              genericParameters ++ f.genericParameters,
-              f.args,
-              f.typeDefinition,
-              f.body,
-              visibility = Visibility.Public,
-              // Forward the refinement-channel companions parsed on the method. Without this, a transfer brace
-              // (`: T {…}` → `^Meta` transfer companion) or a `where` precondition (`^Where` companion) on an impl
-              // method parses and is then silently dropped here — a fail-safe violation: the brace/precondition simply
-              // vanishes rather than the channel demanding it at the call site (bounds-as-refinements §4.2/§4.3).
-              returnMeta = f.returnMeta,
-              whereClause = f.whereClause
+            // Transform the function into an "implement" function via `f.copy` — only the three deliberate overrides are
+            // spelled out (name → implement qualifier including the instantiation type parameters, prepend the common
+            // generic parameters, always-public visibility); everything else forwards by default. A *positional* rebuild
+            // was the bug class here: it silently dropped every field it did not restate — the refinement-channel
+            // companions (`returnMeta`/`whereClause`, a transfer brace or `where` precondition vanishing rather than
+            // being demanded at the call site — bounds-as-refinements §4.2/§4.3), plus `doc`, `dischargedEffects`,
+            // `fixity`, `precedence` — and every future `FunctionDefinition` field would re-open it. `f.copy` closes it.
+            f.copy(
+              name = f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey))),
+              genericParameters = genericParameters ++ f.genericParameters,
+              visibility = Visibility.Public
             )
           ) :+
             // We add the implementation to the default method as a marker, that this type implements the marker.

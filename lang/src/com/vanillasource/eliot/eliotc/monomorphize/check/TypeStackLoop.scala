@@ -28,11 +28,11 @@ class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
     track: Track,
-    // Reduce a callee at concrete type arguments on the compiler track, returning its self-contained reduced binding.
-    // `deep` closes the binding's dependencies over their own reduced-at-instantiation forms (the escalation fetch);
-    // one-hop (`deep = false`) is the marker-guard reader's default.
-    reduceInstance: (ValueFQN, Seq[GroundValue], Boolean) => CompilerIO[Option[SemValue]] =
-      (_, _, _) => none[SemValue].pure[CompilerIO],
+    // Reduce a callee at concrete type arguments on the compiler track, returning its self-contained reduced binding
+    // (deep — dependencies closed over their own reduced-at-instantiation forms; see `ReducedBindingClosure`). Feeds the
+    // stuck-driven escalation fetch of the post-drain read-back.
+    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
+      (_, _) => none[SemValue].pure[CompilerIO],
     // The signature-split `Signature`-twin mode ([[processSignatureTwin]]): the value's body IS its sibling's signature
     // expression (a binder-stripped arrow chain), monomorphized as an ordinary body mono — per-binder kind checks, one
     // `check(chain, VType)`, ordinary read-back. Every twin produces (a plain type, a guard verdict, a W3 hole, or — at a
@@ -352,7 +352,7 @@ class TypeStackLoop(
       monoEnv,
       fqn => implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(state.bindingCache.getOrElse(fqn, None)),
       track.platform,
-      (fqn, args) => reduceInstance(fqn, args, true)
+      reduceInstance
     )
 
   /** The post-check resolution sequence (D1) that settles every metavariable, in order:
@@ -563,8 +563,8 @@ object TypeStackLoop {
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
       track: Track,
-      reduceInstance: (ValueFQN, Seq[GroundValue], Boolean) => CompilerIO[Option[SemValue]] =
-      (_, _, _) => none[SemValue].pure[CompilerIO],
+      reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
+      (_, _) => none[SemValue].pure[CompilerIO],
       signatureOnly: Boolean = false,
       injectedSignature: Option[GroundValue] = None
   ): CompilerIO[Result] =

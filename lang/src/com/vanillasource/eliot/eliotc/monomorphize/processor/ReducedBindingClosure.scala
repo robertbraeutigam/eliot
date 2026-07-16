@@ -28,26 +28,26 @@ object ReducedBindingClosure {
     * NbE binding, or [[None]] if it produced no [[CompilerMonomorphicValue]] / has no reduced body.
     *
     * This is how a compile-time reduction reaches a callee's *reduced-at-its-instantiation* form: the stuck-driven
-    * escalation in [[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]] fetches this for each value
-    * reference that blocks a signature/body read-back (with `deep`), and the marker-guard reader (ability-guards Stage
-    * 4) fetches it (one-hop) for the bodied sub-values a `where` guard reaches through an operator (`!=`'s `equals`).
+    * escalation shared by [[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]] and
+    * [[EscalatingReducer]] fetches this for each value reference that blocks a signature/body read-back.
     *
-    * `deep` (default `false`) additionally reduces each dependency at its own instantiation (see [[collectBindings]]) so
-    * that a **stacked** carrier resolves through every layer — used by the escalation fetch, where a reduced *function*
-    * body (`guardOr`, `else`) keeps its impl-dispatch dependencies structural (they close over its runtime value
-    * parameters), and applying it to the guard's concrete arguments must reach those dependencies already reduced (an
-    * `AbortCarrier` impl over the base `Either` resolving through every layer) rather than a still-abstract raw binding.
-    * The default one-hop closure keeps the marker-guard reader's exact behaviour (reducing every dependency there would
-    * trip spurious per-instantiation ability resolutions — e.g. a `Compare` dependency at a defaulted `Type` argument).
-    * Always the compiler track: a compile-time reduction never reaches a runtime target.
+    * It always reduces **deep** ([[collectBindings]] with `deep = true`): each dependency is itself taken reduced at its
+    * own instantiation, so a **stacked** carrier resolves through every layer — a reduced *function* body (`guardOr`,
+    * `else`) keeps its impl-dispatch dependencies structural (they close over its runtime value parameters), and applying
+    * it to concrete arguments must reach those dependencies already reduced (an `AbortCarrier` impl over the base
+    * `Either` resolving through every layer) rather than a still-abstract raw binding. Deep is safe here because it is
+    * only ever driven by [[EscalatingReducer.escalatingLoop]]'s laziness — a *stuck* term escalates, nothing else — so it
+    * never eagerly monomorphizes a dependency evaluation does not demand. (The former one-hop `deep = false` mode existed
+    * only to avoid that eager gotcha for the marker-guard reader, which now reads the marker's signature-twin mono
+    * instead — no caller needs one-hop, so the flag is gone.) Always the compiler track: a compile-time reduction never
+    * reaches a runtime target.
     */
   def reduceInstance(
       vfqn: ValueFQN,
-      typeArguments: Seq[GroundValue],
-      deep: Boolean = false
+      typeArguments: Seq[GroundValue]
   ): CompilerIO[Option[SemValue]] =
     getFactIfProduced(CompilerMonomorphicValue.Key(vfqn, typeArguments)).flatMap {
-      case Some(cmv) => cmv.reduced.traverse(r => buildBinding(vfqn, r.value, Platform.Compiler, deep))
+      case Some(cmv) => cmv.reduced.traverse(r => buildBinding(vfqn, r.value, Platform.Compiler, deep = true))
       case None      => None.pure[CompilerIO]
     }
 
@@ -102,7 +102,7 @@ object ReducedBindingClosure {
                 case None          => acc
               }
             if (deep)
-              reduceInstance(fqn, typeArgs, deep = true).flatMap {
+              reduceInstance(fqn, typeArgs).flatMap {
                 case Some(reduced) => (acc + (fqn -> reduced)).pure[CompilerIO]
                 case None          => raw
               }
