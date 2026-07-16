@@ -43,20 +43,3 @@ implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
       Interval(min(min(min(c11, c12), c21), c22), max(max(max(c11, c12), c21), c22))
    }
 }
-
-/**
- * The inclusive bounds of a signed 8-bit `byte`, as `BigInteger` values. Named `def`s rather than bare literals in
- * `withinByte` because a value-position integer literal types as `Int`, not `BigInteger`, and `withinByte` compares
- * against the interval's `BigInteger` endpoints — the declared `BigInteger` return type ascribes the literal.
- */
-def byteMin: BigInteger = -128
-def byteMax: BigInteger = 127
-
-/**
- * True iff the interval `i` fits a signed byte (`[byteMin, byteMax]`) — the width-named `where` precondition predicate
- * for an `Int`'s tracked range: `def useByte(x: Int): Int where withinByte(range(x))` demands, at each call, that the
- * caller's computed range for `x` fits a signed byte, reducing to a `Bool` over the argument's concrete interval.
- * Compiler-pool-only (the channel evaluates it), like the interval domain instances above.
- */
-def withinByte(i: Interval[BigInteger]): Bool =
-   lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)

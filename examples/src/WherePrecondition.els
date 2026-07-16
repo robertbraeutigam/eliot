@@ -1,5 +1,12 @@
 import eliot.effect.Console
 import eliot.lang.Interval
+
+def byteMin: BigInteger = -128
+def byteMax: BigInteger = 127
+
+def withinByte(i: Interval[BigInteger]): Bool =
+   lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
+
 /**
  * A `where` refinement precondition (`docs/bounds-as-refinements.md` §4.3). `asByte` demands that its argument's value
  * range *provably* fit a signed byte; the compiler verifies this at every call site — a use-site check — and rejects an
