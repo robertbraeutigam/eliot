@@ -11,10 +11,9 @@ implement Numeric[Int] {
    def multiply(a: Int, b: Int): Int {range(a) * range(b)}
 }
 
-/**
- * Render an integer as its decimal `String`.
- */
-def intToString(value: Int): String
+implement Show[Int] {
+   def show(value: Int): String
+}
 
 implement Compare[Int] {
    def lessThanOrEqual(a: Int, b: Int): Bool

@@ -1,12 +1,12 @@
 import eliot.effect.Console
-ability Show[A] {
-   def show(a: A): String
+ability Display[A] {
+   def display(a: A): String
 }
 
 data Hello(name: String)
 
-implement Show[Hello] {
-   def show(a: Hello): String = "Hello World!"
+implement Display[Hello] {
+   def display(a: Hello): String = "Hello World!"
 }
 
-def main: IO[Unit] = printLine(show(Hello("World")))
+def main: IO[Unit] = printLine(display(Hello("World")))

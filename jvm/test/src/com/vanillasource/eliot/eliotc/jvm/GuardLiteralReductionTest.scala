@@ -17,7 +17,7 @@ class GuardLiteralReductionTest extends FullIntegrationTest {
         |ability InRange[N: BigInteger] { def keep(x: Int): Int }
         |implement[N: BigInteger] InRange[N] where fitsIn[myLo, myHi, N, N] { def keep(x: Int): Int = x }
         |def use: Int = keep[42](7)
-        |def main: IO[Unit] = printLine(intToString(use))""".stripMargin
+        |def main: IO[Unit] = printLine(show(use))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 }

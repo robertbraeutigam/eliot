@@ -23,16 +23,16 @@ import scala.jdk.CollectionConverters.*
   * compile runs through a real session ([[LspPlugin]] + VFS, LangPlugin, StdlibPlugin; no JVM backend): `LspPlugin`
   * demands `UsedNames(main)` — forcing a [[MonomorphicValue]] per reachable instantiation — *and* the matching
   * [[RefinementTable]] per instance, exactly as the service does. The integer literal `42` seeds the channel's singleton
-  * interval `[42, 42]` (α), so hovering it reports that range; a non-pinnable node (the `intToString` function reference,
+  * interval `[42, 42]` (α), so hovering it reports that range; a non-pinnable node (the `show` function reference,
   * a ⊤ node) reports none, per the intra-procedural fail-safe (`docs/bounds-as-refinements.md` §6-iii).
   */
 class TypeHintRangeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val line1  = """import eliot.effect.Console"""
-  private val line2  = """def main: IO[Unit] = printLine(intToString(42))"""
+  private val line2  = """def main: IO[Unit] = printLine(show(42))"""
   private val source = s"$line1\n$line2"
 
-  private val literalPosition  = Position(2, line2.indexOf("42") + 1)          // inside the `42` literal
-  private val functionPosition = Position(2, line2.indexOf("intToString") + 2) // inside the `intToString` reference
+  private val literalPosition  = Position(2, line2.indexOf("42") + 1)   // inside the `42` literal
+  private val functionPosition = Position(2, line2.indexOf("show") + 2) // inside the `show` reference
 
   "a hover value range" should "report the singleton interval the channel pins for an integer literal" in {
     rangeAt(literalPosition).asserting(_ shouldBe Some((BigInt(42), BigInt(42))))

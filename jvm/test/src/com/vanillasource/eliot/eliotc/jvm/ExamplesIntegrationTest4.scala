@@ -16,7 +16,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |def widened: Int = 7
         |
-        |def main: IO[Unit] = printLine(intToString(widened))""".stripMargin
+        |def main: IO[Unit] = printLine(show(widened))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
@@ -27,7 +27,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |data Counter(n: Int)
         |
-        |def main: IO[Unit] = printLine(intToString(n(Counter(42))))""".stripMargin
+        |def main: IO[Unit] = printLine(show(n(Counter(42))))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
@@ -38,7 +38,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |
         |def field(c: Counter): Int = c match { case Counter(x) -> x }
         |
-        |def main: IO[Unit] = printLine(intToString(field(Counter(7))))""".stripMargin
+        |def main: IO[Unit] = printLine(show(field(Counter(7))))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
@@ -54,7 +54,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |  case Second -> 15
         |}
         |
-        |def main: IO[Unit] = printLine(intToString(choose(Second)))""".stripMargin
+        |def main: IO[Unit] = printLine(show(choose(Second)))""".stripMargin
     ).asserting(_ shouldBe "15")
   }
 
@@ -80,7 +80,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |def total: Int = 3 + 4
         |
-        |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
+        |def main: IO[Unit] = printLine(show(total))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
@@ -90,7 +90,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |def double(x: Int): Int = x + x
         |
-        |def main: IO[Unit] = printLine(intToString(double(21)))""".stripMargin
+        |def main: IO[Unit] = printLine(show(double(21)))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
@@ -101,7 +101,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |
         |def mk(v: Int): Counter = Counter(v)
         |
-        |def main: IO[Unit] = printLine(intToString(n(mk(42))))""".stripMargin
+        |def main: IO[Unit] = printLine(show(n(mk(42))))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
@@ -114,7 +114,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |def big: Int = 70000
         |
-        |def main: IO[Unit] = printLine(intToString(big))""".stripMargin
+        |def main: IO[Unit] = printLine(show(big))""".stripMargin
     ).asserting(_ shouldBe "70000")
   }
 
@@ -123,7 +123,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |def product: Int = 1000 * 1000
         |
-        |def main: IO[Unit] = printLine(intToString(product))""".stripMargin
+        |def main: IO[Unit] = printLine(show(product))""".stripMargin
     ).asserting(_ shouldBe "1000000")
   }
 
@@ -137,10 +137,10 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def longSum: Int = 5000000000 + 5000000000
         |
         |def main: IO[Unit] = {
-        |   printLine(intToString(byteSum))
-        |   printLine(intToString(shortDiff))
-        |   printLine(intToString(intProduct))
-        |   printLine(intToString(longSum))
+        |   printLine(show(byteSum))
+        |   printLine(show(shortDiff))
+        |   printLine(show(intProduct))
+        |   printLine(show(longSum))
         |}""".stripMargin
     ).asserting(_ shouldBe "200\n200\n1000000\n10000000000")
   }
@@ -150,7 +150,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |def huge: Int = 5000000000
         |
-        |def main: IO[Unit] = printLine(intToString(huge))""".stripMargin
+        |def main: IO[Unit] = printLine(show(huge))""".stripMargin
     ).asserting(_ shouldBe "5000000000")
   }
 
@@ -163,7 +163,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def a: Int = 3
         |def b: Int = 5
         |
-        |def main: IO[Unit] = printLine(intToString(id(a) + id(b)))""".stripMargin
+        |def main: IO[Unit] = printLine(show(id(a) + id(b)))""".stripMargin
     ).asserting(_ shouldBe "8")
   }
 
@@ -174,7 +174,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def a: Int = 3
         |def big: Int = 5000000000
         |
-        |def main: IO[Unit] = printLine(intToString(id(a) + id(big)))""".stripMargin
+        |def main: IO[Unit] = printLine(show(id(a) + id(big)))""".stripMargin
     ).asserting(_ shouldBe "5000000003")
   }
 
@@ -247,7 +247,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |  case IntPair(s, l) -> s + l
         |}
         |
-        |def main: IO[Unit] = printLine(intToString(sum(IntPair(200, 5000000000))))""".stripMargin
+        |def main: IO[Unit] = printLine(show(sum(IntPair(200, 5000000000))))""".stripMargin
     ).asserting(_ shouldBe "5000000200")
   }
 
@@ -327,7 +327,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |
         |def total: Int = add(a, add(b, c))
         |
-        |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
+        |def main: IO[Unit] = printLine(show(total))""".stripMargin
     ).asserting(_ shouldBe "60")
   }
 
@@ -343,7 +343,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |
         |def total: Int = add(a, b)
         |
-        |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
+        |def main: IO[Unit] = printLine(show(total))""".stripMargin
     ).asserting(_ shouldBe "50")
   }
 
@@ -360,7 +360,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |
         |def total: Int = plus(a, b)
         |
-        |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
+        |def main: IO[Unit] = printLine(show(total))""".stripMargin
     ).asserting(_ shouldBe "50")
   }
 
@@ -375,7 +375,7 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def a: Int = 30
         |def b: Int = 20
         |
-        |def main: IO[Unit] = printLine(intToString(plus(times(a, b), a)))""".stripMargin
+        |def main: IO[Unit] = printLine(show(plus(times(a, b), a)))""".stripMargin
     ).asserting(_ shouldBe "630")
   }
 
@@ -392,8 +392,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def sum: Interval[Int] = a + b
         |
         |def main: IO[Unit] = {
-        |  printLine(intToString(sum.start))
-        |  printLine(intToString(sum.end))
+        |  printLine(show(sum.start))
+        |  printLine(show(sum.end))
         |}""".stripMargin
     ).asserting(_ shouldBe "1\n3")
   }
@@ -411,10 +411,10 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
         |def prod: Interval[Int] = a * b
         |
         |def main: IO[Unit] = {
-        |  printLine(intToString(diff.start))
-        |  printLine(intToString(diff.end))
-        |  printLine(intToString(prod.start))
-        |  printLine(intToString(prod.end))
+        |  printLine(show(diff.start))
+        |  printLine(show(diff.end))
+        |  printLine(show(prod.start))
+        |  printLine(show(prod.end))
         |}""".stripMargin
     ).asserting(_ shouldBe "-2\n0\n0\n2")
   }

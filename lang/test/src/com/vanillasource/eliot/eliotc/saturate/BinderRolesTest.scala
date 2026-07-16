@@ -69,7 +69,7 @@ class BinderRolesTest extends ProcessorTest(LangProcessors()*) {
 
   "a dispatched (ability-constrained) binder (S6 describe)" should "be disposed specialize, not collapsed" in {
     dispositionOf(
-      "ability Show[A] { def render(x: A): String }\ndef describe[A ~ Show](x: A): String = render(x)",
+      "ability Render[A] { def render(x: A): String }\ndef describe[A ~ Render](x: A): String = render(x)",
       "describe"
     ).asserting(_ shouldBe (Seq.empty, Seq(("A", Disposition.Specialize))))
   }

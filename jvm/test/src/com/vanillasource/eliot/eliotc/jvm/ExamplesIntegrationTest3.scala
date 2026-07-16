@@ -83,57 +83,57 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """import eliot.effect.Console
-        |ability Show[A] {
-        |   def show(a: A): String
+        |ability Display[A] {
+        |   def display(a: A): String
         |}
         |
         |data Hello(name: String)
         |
-        |implement Show[Hello] {
-        |   def show(a: Hello): String = "Hello World!"
+        |implement Display[Hello] {
+        |   def display(a: Hello): String = "Hello World!"
         |}
         |
-        |def main: IO[Unit] = printLine(show(Hello("World")))""".stripMargin
+        |def main: IO[Unit] = printLine(display(Hello("World")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
   "ability constraint" should "pass ability through generic function" in {
     compileAndRun(
       """import eliot.effect.Console
-        |ability Show[A] {
-        |   def show(a: A): String
+        |ability Display[A] {
+        |   def display(a: A): String
         |}
         |
         |data Hello(name: String)
         |
-        |implement Show[Hello] {
-        |   def show(a: Hello): String = "Hello World!"
+        |implement Display[Hello] {
+        |   def display(a: Hello): String = "Hello World!"
         |}
         |
-        |def showAnything[A ~ Show](thing: A): String = show(thing)
+        |def displayAnything[A ~ Display](thing: A): String = display(thing)
         |
-        |def main: IO[Unit] = printLine(showAnything(Hello("World")))""".stripMargin
+        |def main: IO[Unit] = printLine(displayAnything(Hello("World")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
   "ability derive" should "derive implementation for generic type" in {
     compileAndRun(
       """import eliot.effect.Console
-        |ability Show[A] {
-        |  def show(a: A): String
+        |ability Display[A] {
+        |  def display(a: A): String
         |}
         |
-        |implement Show[String] {
-        |  def show(str: String): String = str
+        |implement Display[String] {
+        |  def display(str: String): String = str
         |}
         |
         |data Box[A](content: A)
         |
-        |implement[A ~ Show] Show[Box[A]] {
-        |  def show(box: Box[A]): String = show(content(box))
+        |implement[A ~ Display] Display[Box[A]] {
+        |  def display(box: Box[A]): String = display(content(box))
         |}
         |
-        |def main: IO[Unit] = printLine(show(Box("Hello World!")))""".stripMargin
+        |def main: IO[Unit] = printLine(display(Box("Hello World!")))""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
 
@@ -266,28 +266,28 @@ def main: IO[Unit] = printLine(<===>)
   "integer addition" should "compute and print a sum at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = printLine(intToString(3 + 4))""".stripMargin
+def main: IO[Unit] = printLine(show(3 + 4))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
   "integer subtraction" should "compute and print a difference at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = printLine(intToString(10 - 4))""".stripMargin
+def main: IO[Unit] = printLine(show(10 - 4))""".stripMargin
     ).asserting(_ shouldBe "6")
   }
 
   "integer arithmetic" should "respect operator precedence at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = printLine(intToString(2 + 3 * 4))""".stripMargin
+def main: IO[Unit] = printLine(show(2 + 3 * 4))""".stripMargin
     ).asserting(_ shouldBe "14")
   }
 
   it should "compute a negative result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = printLine(intToString(3 - 10))""".stripMargin
+def main: IO[Unit] = printLine(show(3 - 10))""".stripMargin
     ).asserting(_ shouldBe "-7")
   }
 
@@ -297,7 +297,7 @@ def main: IO[Unit] = printLine(intToString(3 - 10))""".stripMargin
   it should "carry a byte-operand sum into a wider result representation at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = printLine(intToString(100 + 100))""".stripMargin
+def main: IO[Unit] = printLine(show(100 + 100))""".stripMargin
     ).asserting(_ shouldBe "200")
   }
 
@@ -307,7 +307,7 @@ def main: IO[Unit] = printLine(intToString(100 + 100))""".stripMargin
   it should "narrow a short-operand difference into a byte result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-def main: IO[Unit] = printLine(intToString(1000 - 999))""".stripMargin
+def main: IO[Unit] = printLine(show(1000 - 999))""".stripMargin
     ).asserting(_ shouldBe "1")
   }
 

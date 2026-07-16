@@ -9,19 +9,16 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   * [[ExpressionCodeGenerator]], and excluded from `JvmClassGenerator`'s body-less "Function not implemented." method
   * generation.
   *
-  * `intToString` renders via `Long.toString`. The width-agnostic arithmetic and ordering leaves *are* the `Int` ability
-  * instance methods — the `Numeric[Int]` `add`/`subtract`/`multiply` and the `Compare[Int]` `lessThanOrEqual`, with no
-  * separate `nativeAdd`/`intLessThanOrEqual` def — each one unbox/op/rebox instruction group whose width is read from the
-  * operand/result representations, so it is cheapest inline.
+  * The width-agnostic rendering, arithmetic and ordering leaves *are* the `Int` ability instance methods — the
+  * `Show[Int]` `show` (rendered via `Long.toString`/`BigInteger.toString`), the `Numeric[Int]` `add`/`subtract`/`multiply`
+  * and the `Compare[Int]` `lessThanOrEqual`, with no separate `intToString`/`nativeAdd`/`intLessThanOrEqual` def — each one
+  * unbox/op/rebox instruction group whose width is read from the operand/result representations, so it is cheapest inline.
   *
   * Integer *literals* are NOT intrinsics: `integerLiteral[V]` is rewritten into a plain `MonomorphicExpression.
   * IntegerLiteral(V)` at the `lang` readback boundary (`PostDrainQuoter`), so it reaches codegen as an ordinary
   * integer-literal node (`ExpressionCodeGenerator.createExpressionCode`'s `IntegerLiteral` arm) and never as a call.
   */
 object Intrinsics {
-
-  private def langInt(name: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName(name, Qualifier.Default))
 
   private def langBool(name: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Bool"), QualifiedName(name, Qualifier.Default))
@@ -40,14 +37,10 @@ object Intrinsics {
   val boolOrFQN: ValueFQN    = langBool("||")
   val boolNotFQN: ValueFQN   = langBool("!")
 
-  /** `intToString(value): String` — realised as `Long.toString`. */
-  val intToStringFQN: ValueFQN = langInt("intToString")
-
   val boolOps: Set[ValueFQN] =
     Set(boolTrueFQN, boolFalseFQN, boolFoldFQN, boolAndFQN, boolOrFQN, boolNotFQN)
 
-  val all: Set[ValueFQN] =
-    Set(intToStringFQN) ++ boolOps
+  val all: Set[ValueFQN] = boolOps
 
   /** Whether `vfqn` is the `Int`-module instance method `name` of ability `ability` — an `Int` ability-impl leaf carried
     * body-less *directly* on its instance in the base `Int.els` (no `nativeAdd`/`intLessThanOrEqual` indirection).
@@ -62,6 +55,13 @@ object Intrinsics {
         case Qualifier.AbilityImplementation(`ability`, _) => true
         case _                                             => false
       })
+
+  /** The `Show[Int]` rendering method (`show`) — the width-agnostic rendering leaf. One leaf covers every width: the
+    * emission reads the operand's lowered representation and renders a `BigInteger` at full precision via
+    * `BigInteger.toString`, or unboxes any narrower wrapper to `long` and renders via `Long.toString`.
+    */
+  def showIntShow(vfqn: ValueFQN): Boolean =
+    intAbilityImpl(vfqn, "Show", Set("show"))
 
   /** The `Numeric[Int]` arithmetic methods (`add`/`subtract`/`multiply`) — the width-agnostic arithmetic leaves. Each
     * takes its operands at whatever representation their bounds lowered to and produces a result at its own true-bound
@@ -80,5 +80,5 @@ object Intrinsics {
     intAbilityImpl(vfqn, "Compare", Set("lessThanOrEqual"))
 
   def isIntrinsic(vfqn: ValueFQN): Boolean =
-    all.contains(vfqn) || numericIntArith(vfqn) || compareIntOrdering(vfqn)
+    all.contains(vfqn) || showIntShow(vfqn) || numericIntArith(vfqn) || compareIntOrdering(vfqn)
 }

@@ -3,6 +3,6 @@ import eliot.effect.Console
  * An `Int` parameter. `Int` is a single type (a value's range is meta-information in the refinement channel, not a type
  * parameter), so `describe` simply takes an `Int` and renders it. `describe(42)` prints `42`.
  */
-def describe(x: Int): String = intToString(x)
+def describe(x: Int): String = show(x)
 
 def main: IO[Unit] = printLine(describe(42))

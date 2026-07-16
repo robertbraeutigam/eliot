@@ -10,10 +10,10 @@ def diff: Interval[Int] = a - b
 def prod: Interval[Int] = a * b
 
 def main: IO[Unit] = {
-  printLine(intToString(sum.start))
-  printLine(intToString(sum.end))
-  printLine(intToString(diff.start))
-  printLine(intToString(diff.end))
-  printLine(intToString(prod.start))
-  printLine(intToString(prod.end))
+  printLine(show(sum.start))
+  printLine(show(sum.end))
+  printLine(show(diff.start))
+  printLine(show(diff.end))
+  printLine(show(prod.start))
+  printLine(show(prod.end))
 }

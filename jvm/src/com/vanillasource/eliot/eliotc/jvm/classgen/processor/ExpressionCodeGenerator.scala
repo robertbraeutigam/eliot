@@ -287,7 +287,7 @@ object ExpressionCodeGenerator {
   /** Emit a backend [[Intrinsics]] call inline. After Phase 3, an `Int[MIN, MAX]` value is carried at the *narrowest*
     * JVM wrapper its range fits (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), and the operand/result
     * representations are read from the (already lowered) expression types:
-    *   - `intToString` unboxes its operand to `long` and calls `Long.toString(long)`;
+    *   - the `Show[Int]` `show` leaf unboxes its operand to `long` and calls `Long.toString(long)`;
     *   - `nativeWiden` converts its operand from the source to the target representation (unbox/rebox, via `BigInteger`
     *     when the target is `BigInteger`);
     *   - an arithmetic leaf (the `Numeric[Int]` methods `add`/`subtract`/`multiply`) computes in primitive `long`
@@ -309,7 +309,7 @@ object ExpressionCodeGenerator {
       expectedResultMeta: Option[GroundValue]
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val calledVfqn = sourcedCalledVfqn.value
-    if (calledVfqn === Intrinsics.intToStringFQN) {
+    if (Intrinsics.showIntShow(calledVfqn)) {
       val operandRep = repInternalNameOf(arguments.head.expressionType, arguments.head.meta)
       for {
         classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)

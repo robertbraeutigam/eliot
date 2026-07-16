@@ -15,7 +15,7 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
         |
         |def pick[A](a: A, b: A): A = a
         |
-        |def main: IO[Unit] = printLine(intToString(pick(3, 700)))""".stripMargin
+        |def main: IO[Unit] = printLine(show(pick(3, 700)))""".stripMargin
     ).asserting(_ shouldBe "3")
   }
 
@@ -27,7 +27,7 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
         |
         |def wide: Int = pick(3, 700)
         |
-        |def main: IO[Unit] = printLine(intToString(wide))""".stripMargin
+        |def main: IO[Unit] = printLine(show(wide))""".stripMargin
     ).asserting(_ shouldBe "700")
   }
 
@@ -47,7 +47,7 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
         |
         |def main: IO[Unit] = {
         |  val result = runStateToPair(nextPort else 8080, "<none>")
-        |  printLine(intToString(result.first))
+        |  printLine(show(result.first))
         |}""".stripMargin,
       stdin = "not-a-number\n"
     ).asserting(_ shouldBe "8080")

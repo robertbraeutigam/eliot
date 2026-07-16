@@ -86,6 +86,7 @@ object ModuleName {
     "Option",
     "Pair",
     "Runtime",
+    "Show",
     "String",
     "Unit"
   ).map(ModuleName(defaultSystemPackage, _))

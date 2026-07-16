@@ -1,17 +1,16 @@
 import eliot.effect.Console
-ability Show[A] {
-  def show(a: A): String
+ability Display[A] {
+  def display(a: A): String
 }
 
-implement Show[String] {
-  def show(str: String): String = str
+implement Display[String] {
+  def display(str: String): String = str
 }
 
 data Box[A](content: A)
 
-implement[A ~ Show] Show[Box[A]] {
-  def show(box: Box[A]): String = show(box.content)
+implement[A ~ Display] Display[Box[A]] {
+  def display(box: Box[A]): String = display(box.content)
 }
 
-def main: IO[Unit] = printLine(show(Box("Hello World!")))
-
+def main: IO[Unit] = printLine(display(Box("Hello World!")))

@@ -1,0 +1,7 @@
+/**
+ * Rendering a value of type `A` to its canonical `String` form. A platform supplies one `show` per
+ * representable type; generic code prints any `A` for which a `Show[A]` implementation is in scope.
+ */
+ability Show[A] {
+   def show(value: A): String
+}

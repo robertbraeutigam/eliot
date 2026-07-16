@@ -33,20 +33,20 @@ class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
       |""".stripMargin
 
   "an inline `+` transfer brace" should "narrow an out-of-range sum so the where precondition is rejected" in {
-    compileForErrors(prelude + "def main: IO[Unit] = printLine(intToString(useByte(f(100, 100))))")
+    compileForErrors(prelude + "def main: IO[Unit] = printLine(show(useByte(f(100, 100))))")
       .asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
   }
 
   it should "stay ⊤ for an unknown operand rather than bogus-narrow (soundness)" in {
     compileForErrors(
-      prelude + "def relay(y: Int): Int = useByte(f(y, y))\ndef main: IO[Unit] = printLine(intToString(relay(10)))"
+      prelude + "def relay(y: Int): Int = useByte(f(y, y))\ndef main: IO[Unit] = printLine(show(relay(10)))"
     ).asserting(_ should include("Cannot prove the precondition of 'Test::useByte'"))
   }
 
   "a dotted `a.range + b.range` transfer brace" should "fail loudly on undeclared `.`/`+` precedence, not silently" in {
     compileForErrors(
       prelude.replace("{range(a) + range(b)}", "{a.range + b.range}") +
-        "def main: IO[Unit] = printLine(intToString(useByte(f(100, 100))))"
+        "def main: IO[Unit] = printLine(show(useByte(f(100, 100))))"
     ).asserting(_ should include("have no defined relative precedence"))
   }
 }

@@ -10,22 +10,22 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // Coherence: two implementations of an ability for the same type overlap and are rejected (at most one instance per
   // type combination), via the ordinary ability overlap check.
   "two overlapping ability implementations" should "be rejected as overlapping" in {
-    // A generic `Show[A]` and a specific `Show[Database]` are distinct implementations (different `(ability, pattern)`
+    // A generic `Display[A]` and a specific `Display[Database]` are distinct implementations (different `(ability, pattern)`
     // identities) whose patterns unify, so the definition-time overlap lint rejects the pair. (Two *identical*
-    // `Show[Database]` would instead be the same identity and collide as a duplicate name.)
+    // `Display[Database]` would instead be the same identity and collide as a duplicate name.)
     compileForErrors(
       """import eliot.effect.Console
         |
-        |ability Show[A] {
-        |   def show(a: A): String
+        |ability Display[A] {
+        |   def display(a: A): String
         |}
         |
         |data Database(url: String)
         |
-        |implement[A] Show[A] { def show(a: A): String = "one" }
-        |implement Show[Database] { def show(d: Database): String = "two" }
+        |implement[A] Display[A] { def display(a: A): String = "one" }
+        |implement Display[Database] { def display(d: Database): String = "two" }
         |
-        |def useDb: String = show(Database("x"))
+        |def useDb: String = display(Database("x"))
         |
         |def main: IO[Unit] = printLine(useDb)""".stripMargin
     ).asserting(_ should include("Overlapping ability implementation"))

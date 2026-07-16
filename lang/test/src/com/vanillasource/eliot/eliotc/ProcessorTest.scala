@@ -56,6 +56,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Bool", ProcessorTest.boolImportContent),
     SystemImport("Numeric", ProcessorTest.numericStubContent),
     SystemImport("Compare", ProcessorTest.compareAbilityStubContent),
+    SystemImport("Show", ProcessorTest.showAbilityStubContent),
     SystemImport("Eq", ProcessorTest.eqAbilityStubContent),
     SystemImport("Option", ProcessorTest.optionStubContent),
     SystemImport("Either", "type Either[E, A]"),
@@ -185,6 +186,8 @@ object ProcessorTest {
     "ability Numeric[A] { def add(a: A, b: A): A\n def subtract(a: A, b: A): A\n def multiply(a: A, b: A): A }"
 
   val compareAbilityStubContent: String = "ability Compare[A] { def lessThanOrEqual(a: A, b: A): Bool }"
+
+  val showAbilityStubContent: String = "ability Show[A] { def show(value: A): String }"
 
   val eqAbilityStubContent: String = "ability Eq[A] { def equals(a: A, b: A): Bool }"
 
