@@ -65,14 +65,15 @@ object MetaConstructorDesugarer {
     *
     * {{{
     *   implement Meta[Int$Meta] {
-    *     def join(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(intervalJoin(range(a), range(b)))
+    *     def join(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(join(range(a), range(b)))
     *   }
     * }}}
     *
-    * Each slot is joined by its domain's **plain join function** (`Interval` ⤳ `intervalJoin`, decapitalized head +
-    * `Join`) — not the `Meta[Interval]` *instance*, because a transitively-reached Eliot-body instance does not dispatch
-    * under the channel's NbE (the same Step-4c reason the arithmetic vessels bottom at `intervalAdd`), so the compound
-    * join must bottom out at a plain function. The result is rewrapped in the meta *constructor* `Int$Meta(..)`.
+    * Each slot is joined by the `Meta` ability's own `join`, dispatched on the slot's domain (`range(a) : Interval[..]` ⤳
+    * the `Meta[Interval[T]]` instance). The compound join thus routes through the domain's *instance*, not a hand-copied
+    * plain function: the refinement channel's post-monomorphize executor links each instance at its own monomorphization
+    * (`docs/refinement-channel-transfer-reduction.md`), so a transitively-reached Eliot-body instance dispatches. The
+    * result is rewrapped in the meta *constructor* `Int$Meta(..)`.
     *
     * The marker/method shapes mirror [[DataDefinitionDesugarer.createPatternMatchImpl]] and the surface `implement`
     * desugar ([[com.vanillasource.eliot.eliotc.ast.fact.ImplementBlock]]): a body-less marker whose sole arg is the
@@ -107,14 +108,14 @@ object MetaConstructorDesugarer {
     }
   }
 
-  /** The per-slot join expression `<domainJoin>(<slot>(a), <slot>(b))` — e.g. `intervalJoin(range(a), range(b))` — or
-    * `None` when the slot's domain head is not a simple type application (see [[metaJoinInstance]]).
+  /** The per-slot join expression `join(<slot>(a), <slot>(b))` — e.g. `join(range(a), range(b))`, dispatched by the
+    * slot's domain type to that domain's `Meta` instance — or `None` when the slot's domain head is not a simple type
+    * application (see [[metaJoinInstance]]).
     */
   private def slotJoin(slot: ArgumentDefinition): Option[Sourced[SourceExpression]] =
     slot.typeExpression.value match {
       case SourceExpression.FunctionApplication(_, domainHead, _, _) =>
-        val joinFn = domainHead.map(name => name.take(1).toLowerCase + name.drop(1) + "Join")
-        Some(app(joinFn, Seq(project(slot.name, "a"), project(slot.name, "b"))))
+        Some(app(domainHead.as("join"), Seq(project(slot.name, "a"), project(slot.name, "b"))))
       case _                                                         => None
     }
 

@@ -178,7 +178,46 @@ Verify: the §2 probe with the transfer routed through `implement Numeric[Interv
 (`add(40, 40)` ⟹ `Interval[80,80]`, `useByte` passes); the ability-form no longer reports "value range is not
 known"; full suite + examples green.
 
-### Step 4 — make the stdlib transfers idiomatic; delete the plain-function indirections
+### Step 4 — make the stdlib transfers idiomatic; delete the plain-function indirections — **DONE (2026-07-16)**
+
+Landed all four bullets **plus a required linker extension the plan had not anticipated**: the `Numeric[Interval[T]]`
+bodies are copied into `stdlib/eliot-compiler/eliot/lang/Interval.els` (self-sufficient, structurally identical to the
+runtime base+jvm split — the base `Interval` is abstract, so the bodies must live where `data Interval` does; hoisting
+into the base is impossible); the `Int` vessels' braces are now `add`/`subtract`/`multiply(range(a), range(b))`
+(`stdlib/eliot/eliot/lang/Int.els`); the auto-derived `Meta[Int$Meta]` join routes through the `Meta` ability method
+`join` (`MetaConstructorDesugarer.slotJoin`, dispatched to `Meta[Interval[T]]`); and `intervalAdd`/`intervalSubtract`/
+`intervalMultiply`/`intervalJoin` + all natives-only comments are deleted (overlay + `RefinementChannelProcessor` class
+docs).
+
+**The linker extension (the real discovery):** routing through an ability instance first produced a stuck/malformed
+result, because `CompilerNativesProcessor` handed the channel the **raw** operator-resolved body of a runtime-concrete,
+ability-performing refinement artifact (the derived `Meta[Int$Meta]::join`, and the `^Meta` transfer companions) — its
+inner ability still abstract — instead of the monomorphized `CMV.reduced` form. This is exactly §1's invariant ("post-mono
+evaluation may only ever see monomorphized bodies") applied to the *base binding a reduction closes over*, not just the
+channel's escalation. Fix: `CompilerNativesProcessor.runtimeConcrete` now returns `false` for a **refinement artifact**
+(`Qualifier.Meta`, or a `Meta[<T>$Meta]` `AbilityImplementation` whose pattern carries the `$Meta` suffix) — these are
+compile-time-only (dead in the runtime pool though physically emitted there), so they contribute their resolved
+`CMV.reduced` body. The old `intervalAdd`/`intervalJoin` plain functions dodged this only by not being abilities
+(`performsAbility` = false). The runtime-concrete `Numeric[Interval[T]]::add` (genuinely used for runtime `Interval[Int]`
+arithmetic) keeps its raw base binding and is instead resolved by the channel's **escalation** (Steps 1–3).
+
+**Verified (§7 discipline):** merge probe `useByte(fold(flag, 40, 200))` ⟹ "not satisfied" (join computed `[40,200]`
+through `Meta[Interval]`); a user transfer-brace `def f(a,b): Int {add(range(a),range(b))}` with `useByte(f(100,100))`
+⟹ "not satisfied" (`[200,200]` through `Numeric[Interval]::add`); and the **soundness** case — an unknown operand
+`useByte(fold(flag, y, 40))` with `y` a parameter ⟹ ⊤ ("value range is not known"), never a bogus narrow. Full suite
+green (eliotc 133, lang 233, jvm 283, ide.lsp 383) + all 34 examples build & run (Ranges 21, Arithmetic 14,
+WherePrecondition 100). Note: the arithmetic transfer is not reachable from user `+`/`add` (the §6 operator-level
+non-goal — the generic `+` carries no `^Meta` companion), so it was verified via the user transfer-brace probe.
+
+**Follow-ons the trace surfaced (fail-safe, not blocking — the shipped narrowing is correct & sound):**
+- A compiler-track `def x: BigInteger = <literal>` whose `CMV(x, Runtime)` is demanded by deep escalation fails its own
+  check (check-mode types `integerLiteral[n]` as `Int`, never ascribing it to `BigInteger`). This is a *loud* failure
+  (no longer triggered here), but a latent spurious-rejection trap. Fix by compiler-track literal ascription, or by
+  giving `byteMin`/`byteMax` genuinely-`BigInteger` bodies. Belongs with Step 5's fail-safe fixes.
+- `EscalatingReducer.reducibleStuck` treats a stuck *abstract-ability* application (which quotes to a `GroundValue.Structure`)
+  as non-stuck. Not reachable after this step's linker fix (abilities are resolved before the channel sees them) and the
+  soundness probe confirms an unknown input yields ⊤, but hardening it (a stuck abstract ability ⟹ escalate or ⊤, never a
+  bogus structure) is worthwhile defense-in-depth.
 
 The payoff, and the proof the rule of §1 is repealed:
 

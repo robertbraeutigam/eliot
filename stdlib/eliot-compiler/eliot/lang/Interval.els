@@ -9,11 +9,13 @@ import eliot.compiler.Meta
  * same Eliot code runs under the compiler's NbE evaluator). Self-sufficiency is the point: a compile-time interval
  * (e.g. as an `Int` bound object) must not depend on a sibling *runtime* target's layer being present.
  *
- * Only the refinement-domain pieces live here (`Meta[Interval[T]]` for joins; the plain `intervalAdd`/`intervalSubtract`/
- * `intervalMultiply` transfer functions the `Int` `^Meta` vessels reach) — the ones the bounds-as-refinements channel
- * evaluates. The runtime `Numeric[Interval[T]]` instance stays split across the base + jvm layers; the compiler track
- * reaches the transfer through the plain functions below (a transitively-reached ability *instance* does not dispatch
- * under the channel's NbE evaluation), so the instance is not copied into this overlay.
+ * The refinement-domain instances the bounds-as-refinements channel (`docs/bounds-as-refinements.md`) evaluates live
+ * here: `Meta[Interval[T]]` (branch-merge join) and `Numeric[Interval[T]]` (the `+`/`-`/`*` transfer). Both are ordinary
+ * ability instances the channel's post-monomorphize executor dispatches — the `Int` `^Meta` vessels and the auto-derived
+ * `Meta[Int$Meta]` join route through them directly (`docs/refinement-channel-transfer-reduction.md` repealed the former
+ * "transfers must bottom out at natives" rule that had forced a hand-copied plain-function form). `Numeric[Interval[T]]`
+ * is copied here (structurally identical to the runtime base+jvm split) rather than borrowed, because the compile-time
+ * track must be self-sufficient from a sibling runtime target (jvm) that may be absent.
  */
 data Interval[T](start: T, end: T)
 
@@ -21,7 +23,8 @@ data Interval[T](start: T, end: T)
  * An `Interval[T]` (e.g. `Interval[BigInteger]`, an `Int`'s value range) is a refinement **domain** — the value a range
  * is tracked as by the bounds-as-refinements channel (`docs/bounds-as-refinements.md`). Its lattice `join` covers two
  * ranges: the least interval containing both is `[min of the starts, max of the ends]`, delegating to the endpoints' own
- * `Compare`. A compiler-pool-only instance, exercised at `match`/`if` branch merges.
+ * `Compare`. A compiler-pool-only instance, exercised at `match`/`if` branch merges (the auto-derived `Meta[Int$Meta]`
+ * join dispatches to it on the range slot).
  */
 implement[T ~ Compare[T]] Meta[Interval[T]] {
    def join(a: Interval[T], b: Interval[T]): Interval[T] =
@@ -29,21 +32,31 @@ implement[T ~ Compare[T]] Meta[Interval[T]] {
 }
 
 /**
- * An `Interval[T]` closes under arithmetic — the non-associated-type transfer the refinement channel evaluates
- * (`docs/bounds-as-refinements.md` Step 4c). These are **plain functions**, not a `Numeric[Interval]` ability instance:
- * an `Int`'s `^Meta` transfer companion reaches them *transitively* (through the vessel's return brace), and a
- * transitively-reached Eliot-body ability *instance* does not dispatch under the channel's NbE evaluation — only natives
- * re-fire transitively — so the interval arithmetic must bottom out directly at the endpoints' `Numeric` **natives** (and,
- * for multiplication's corner selection, `Compare`).
+ * The compiler platform's self-sufficient copy of the runtime `Numeric[Interval[T]]` instance (base signatures + jvm
+ * bodies) — structurally identical, so the refinement channel's `Int` arithmetic transfers (`nativeAdd`/… whose `^Meta`
+ * companion braces are `add`/`subtract`/`multiply` over the operand ranges) dispatch through *this instance* rather than
+ * a hand-copied plain function. The channel's post-monomorphize executor links the instance at its own monomorphization
+ * (`docs/refinement-channel-transfer-reduction.md`), so the endpoint-wise delegation bottoms out at the endpoints'
+ * `Numeric[BigInteger]` compile-time leaves (and, for multiplication's corner selection, `Compare`):
  *
  *   - `[a, b] + [c, d] = [a + c, b + d]`
  *   - `[a, b] - [c, d] = [a - d, b - c]`   (subtraction pairs a start with the other end)
  *   - `[a, b] * [c, d] = [min of the four corner products, max of them]`
- *
- * At the `Int` domain (`T = BigInteger`) `add`/`subtract`/`multiply` reduce through the `Numeric[BigInteger]` compile-time
- * leaves. The bare `add`/`subtract`/`multiply` resolve unambiguously here (this overlay imports only `Numeric`, not
- * `Arithmetic`).
  */
+implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
+   def add(a: Interval[T], b: Interval[T]): Interval[T] =
+      Interval(add(start(a), start(b)), add(end(a), end(b)))
+   def subtract(a: Interval[T], b: Interval[T]): Interval[T] =
+      Interval(subtract(start(a), end(b)), subtract(end(a), start(b)))
+   def multiply(a: Interval[T], b: Interval[T]): Interval[T] = {
+      val c11 = multiply(start(a), start(b))
+      val c12 = multiply(start(a), end(b))
+      val c21 = multiply(end(a), start(b))
+      val c22 = multiply(end(a), end(b))
+      Interval(min(min(min(c11, c12), c21), c22), max(max(max(c11, c12), c21), c22))
+   }
+}
+
 /**
  * The inclusive bounds of a signed 8-bit `byte`, as `BigInteger` values. Named `def`s rather than bare literals in
  * `withinByte` because a value-position integer literal types as `Int`, not `BigInteger`, and `withinByte` compares
@@ -56,30 +69,7 @@ def byteMax: BigInteger = 127
  * True iff the interval `i` fits a signed byte (`[byteMin, byteMax]`) — the width-named `where` precondition predicate
  * for an `Int`'s tracked range: `def useByte(x: Int): Int where withinByte(range(x))` demands, at each call, that the
  * caller's computed range for `x` fits a signed byte, reducing to a `Bool` over the argument's concrete interval.
- * Compiler-pool-only (the channel evaluates it), like the interval arithmetic above.
+ * Compiler-pool-only (the channel evaluates it), like the interval domain instances above.
  */
 def withinByte(i: Interval[BigInteger]): Bool =
    lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
-
-/**
- * The lattice join of two intervals — the least interval containing both, `[min of the starts, max of the ends]`. The
- * **plain-function** form of the `Meta[Interval[T]]` instance's `join` (they compute the same thing): the compiler's
- * auto-derived `Meta[T$Meta]` instances reach it *transitively* through their generated bodies, and a transitively-
- * reached ability *instance* does not dispatch under the refinement channel's NbE evaluation — only natives re-fire — so
- * a compound meta-structure's join must bottom out at this plain function (which itself bottoms at the endpoints'
- * `Compare` natives), exactly as `intervalAdd`/… back the arithmetic transfer (`docs/generic-refinement-merges.md`).
- */
-def intervalJoin[T ~ Compare](a: Interval[T], b: Interval[T]): Interval[T] =
-   Interval(min(start(a), start(b)), max(end(a), end(b)))
-
-def intervalAdd[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =
-   Interval(add(start(a), start(b)), add(end(a), end(b)))
-def intervalSubtract[T ~ Numeric](a: Interval[T], b: Interval[T]): Interval[T] =
-   Interval(subtract(start(a), end(b)), subtract(end(a), start(b)))
-def intervalMultiply[T ~ Numeric & Compare](a: Interval[T], b: Interval[T]): Interval[T] = {
-   val c11 = multiply(start(a), start(b))
-   val c12 = multiply(start(a), end(b))
-   val c21 = multiply(end(a), start(b))
-   val c22 = multiply(end(a), end(b))
-   Interval(min(min(min(c11, c12), c21), c22), max(max(max(c11, c12), c21), c22))
-}

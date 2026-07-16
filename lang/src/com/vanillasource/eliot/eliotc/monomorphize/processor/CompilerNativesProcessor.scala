@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.Id
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.processor.MetaConstructorDesugarer
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, CompilerMonomorphicValue, ContributedBinding}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -121,12 +122,33 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * value — its reduction belongs to codegen, not compile time — so it is never compile-time-reduced here even when it
     * uses effects. Gated on runtime-pool membership (a quiet name-set read) so a compiler-only value is not probed and
     * does not trigger the runtime pool's "Could not find" abort.
+    *
+    * A **refinement artifact** ([[isRefinementArtifact]]) is never runtime-concrete for this purpose even though it is
+    * physically emitted into the runtime pool (dead there, never code-generated): it is a compile-time-only value the
+    * refinement channel evaluates, so its ability calls (`add`/`join` dispatched on the interval domain) must be resolved
+    * — the [[CompilerMonomorphicValue]] reduced form — never the raw operator-resolved body whose ability stays abstract
+    * and stalls. This is the plan invariant (`docs/refinement-channel-transfer-reduction.md`) applied to the base binding
+    * a post-monomorphize reduction closes over: never a raw body.
     */
   private def runtimeConcrete(vfqn: ValueFQN): CompilerIO[Boolean] =
-    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime))
-      .map(_.exists(_.names.contains(vfqn.name)))
-      .ifM(
-        getFactIfProduced(SaturatedValue.Key(vfqn, Platform.Runtime)).map(_.exists(_.value.runtime.isDefined)),
-        false.pure[CompilerIO]
-      )
+    if (isRefinementArtifact(vfqn)) false.pure[CompilerIO]
+    else
+      getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime))
+        .map(_.exists(_.names.contains(vfqn.name)))
+        .ifM(
+          getFactIfProduced(SaturatedValue.Key(vfqn, Platform.Runtime)).map(_.exists(_.value.runtime.isDefined)),
+          false.pure[CompilerIO]
+        )
+
+  /** Whether `vfqn` is a compile-time-only refinement-channel artifact: a `^Meta` transfer companion / meta accessor
+    * ([[Qualifier.Meta]]) or the auto-derived `Meta[<T>$Meta]` lattice instance
+    * ([[Qualifier.AbilityImplementation]] whose pattern is the meta structure). Both are dead in the runtime pool (never
+    * code-generated) and reached only by the refinement channel, so their reduction is compile-time and their ability
+    * calls must be resolved through the compiler backend, not their raw bodies.
+    */
+  private def isRefinementArtifact(vfqn: ValueFQN): Boolean = vfqn.name.qualifier match {
+    case Qualifier.Meta                              => true
+    case Qualifier.AbilityImplementation(_, pattern) => pattern.contains(MetaConstructorDesugarer.metaTypeSuffix)
+    case _                                           => false
+  }
 }

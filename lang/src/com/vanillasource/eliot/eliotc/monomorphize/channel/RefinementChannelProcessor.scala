@@ -25,9 +25,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   *   - **α (literal seeding):** an integer literal `n` seeds the singleton `[n, n]`.
   *   - **Transfers (Step-4c form):** at an `Int` `+`/`-`/`*` leaf the result interval is the leaf's `^Meta` transfer
-  *     companion (`rangeAdd^Meta`/… — the base-layer vessels' companions, whose braces spell the transfer as the plain
-  *     `intervalAdd`/… endpoint arithmetic bottoming at `Numeric[BigInteger]` natives) evaluated through the one NbE
-  *     evaluator on the two operand intervals. Unknown if either operand is unknown.
+  *     companion (`nativeAdd^Meta`/… — the base-layer vessels' companions, whose braces spell the transfer as
+  *     `add`/`subtract`/`multiply` over the operand ranges, dispatched through the `Numeric[Interval[BigInteger]]`
+  *     instance and bottoming at `Numeric[BigInteger]` natives) evaluated through the one NbE evaluator on the two
+  *     operand intervals. Unknown if either operand is unknown.
   *   - **Merges (Step 3):** at *any ordinary call* whose callee declares a `^Meta` **merge** companion — e.g. `fold`,
   *     whose `fold^Meta` spells `join(whenTrue, whenFalse)` over the domain's `Meta.join` — the result interval is that
   *     companion reduced on the argument metas (`mergeViaCompanion`), *mechanically identical* to a transfer: no branch
@@ -109,8 +110,8 @@ class RefinementChannelProcessor
             // An ordinary call (or constructor). Descend into the arguments (so a literal/arithmetic argument narrows,
             // and a `where` precondition is demanded over their ranges, bounds-as-refinements §4.3). The result is a ⊤
             // boundary **unless** the callee declares a `^Meta` companion — a **transfer** (`nativeAdd`, whose result
-            // range is `intervalAdd` of the operand ranges) or a **merge** (`fold`, whose result range is `Meta.join`
-            // of its arms). Both are computed by the *same* uniform path: reduce `<callee>^Meta` on the argument metas
+            // range is `Numeric[Interval]::add` of the operand ranges) or a **merge** (`fold`, whose result range is
+            // `Meta.join` of its arms). Both are computed by the *same* uniform path: reduce `<callee>^Meta` on the argument metas
             // (`metaViaCompanion`). The channel names no leaf and no branch construct — the `^Meta` companion is the one
             // recognition point (`docs/generic-refinement-merges.md`). A lambda argument's body is skipped by the
             // `FunctionLiteral` case below.
@@ -142,15 +143,17 @@ class RefinementChannelProcessor
     }
 
   /** The refinement result of a call, when its callee declares a `^Meta` companion — a **transfer** (`nativeAdd^Meta`,
-    * whose result range is `intervalAdd` of the operand ranges) or a **merge** (`fold^Meta`, whose result range is
-    * `Meta.join` of its arms). Both are computed uniformly: reduce `<callee>^Meta` on the arguments' metas and read its
-    * result `Int$Meta`'s `range` slot back. `None` (⊤) when the callee has no companion, or an input's range is unknown.
+    * whose result range is `Numeric[Interval]::add` of the operand ranges) or a **merge** (`fold^Meta`, whose result
+    * range is `Meta.join` of its arms). Both are computed uniformly: reduce `<callee>^Meta` on the arguments' metas and
+    * read its result `Int$Meta`'s `range` slot back. `None` (⊤) when the callee has no companion, or an input's range is
+    * unknown.
     *
     * The companion is reduced at the **meta** type arguments — the call's base type args mapped through [[metaTypeOf]].
     * A *monomorphic* companion (`nativeAdd`, no type args) reduces at `[]` and its `Int$Meta` params take the operand
     * metas directly. A *generic* companion (`fold[A]`) reduces at `A := metaTypeOf(Int) = Int$Meta`, so the bare `A`
     * params bind to the meta type; its `join` then dispatches via the compiler-derived `Meta[Int$Meta]` to
-    * `Int$Meta(intervalJoin(range(whenTrue), range(whenFalse)))`. An unknown/non-`Int` argument (⊤ — e.g. `fold`'s
+    * `Int$Meta(join(range(whenTrue), range(whenFalse)))` — the inner `join` dispatched through the `Meta[Interval]`
+    * instance by the channel's post-monomorphize executor. An unknown/non-`Int` argument (⊤ — e.g. `fold`'s
     * `condition`) is a `VType` placeholder the reduction ignores unless it feeds a slot projection, in which case the
     * projection stalls and the result is ⊤ (sound). A merge over untracked arms reduces at `A := Unit` (an untracked
     * type's [[metaTypeOf]] is `Unit`) through the trivial `Meta[Unit]` and reads back no interval (⊤). The membership
