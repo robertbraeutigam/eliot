@@ -1,8 +1,8 @@
 package com.vanillasource.eliot.eliotc.jvm
 
 /** End-to-end proof that an **inline** return-transfer brace whose expression is ordinary Eliot arithmetic reduces
-  * through the refinement channel — the payoff of the transfer-reduction linker fix
-  * (`docs/refinement-channel-transfer-reduction.md`, Steps 1-4) and the resolution of its Step 5b diagnosis.
+  * through the refinement channel — the payoff of the transfer-reduction linker fix and the resolution of its "5b"
+  * inline-brace diagnosis (both recorded in `docs/refinement-channel-follow-ups.md` §1).
   *
   * A def `def f(a: Int, b: Int): Int {range(a) + range(b)}` carries a `^Meta` transfer companion whose body sums the
   * operand ranges through `Numeric[Interval]::+` — an *ability call*, not a native. Before the linker fix the channel
@@ -10,16 +10,16 @@ package com.vanillasource.eliot.eliotc.jvm
   * the escalating executor now links only monomorphized callees, so the range propagates and a downstream `where`
   * precondition sees the real interval.
   *
-  * Step 5b's premise — that the *inline* brace "silently" fails to produce the companion's compiler `SaturatedValue` —
-  * does not hold for the current compiler: the dotless inline form below narrows at compile time, and the *dotted*
+  * That diagnosis's premise — that the *inline* brace "silently" fails to produce the companion's compiler
+  * `SaturatedValue` — does not hold for the current compiler: the dotless inline form below narrows at compile time, and the *dotted*
   * `{a.range + b.range}` form fails only at operator-precedence resolution with a **loud** error (`.` and `+` have no
   * declared relative precedence), which correctly aborts the value rather than silently accepting a wrong (or ⊤) result.
   *
-  * These cases pin the *compile-time* channel behaviour (fact production + narrowing), which is what Step 5b concerns.
-  * Runtime lowering of a narrow return across a *user* def's call boundary is a separate backend representation matter
+  * These cases pin the *compile-time* channel behaviour (fact production + narrowing). Runtime lowering of a narrow
+  * return across a *user* def's call boundary is a separate backend representation matter
   * (the callee's body is compiled once with ⊤ parameters, so it returns a wide representation the brace-narrowed caller
-  * does not match) — out of Step 5's front-end scope and not reachable from the shipped layers, whose transfer braces
-  * sit only on native leaves.
+  * does not match) — deferred in `docs/refinement-channel-follow-ups.md` §4 and not reachable from the shipped layers,
+  * whose transfer braces sit only on native leaves.
   */
 class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
   private val prelude =

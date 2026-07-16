@@ -49,7 +49,7 @@ def intToString(value: Int): String
 // `Int`'s value range through arithmetic. The brace computes the result range from the operand ranges (`range(a)`,
 // `range(b)`, the `Int$Meta` slot) through the `Numeric[Interval[BigInteger]]` instance (`add`/`subtract`/`multiply`
 // dispatched on the interval domain, resolved per the compiler pool). The channel's post-monomorphize executor links
-// that instance at its own monomorphization (`docs/refinement-channel-transfer-reduction.md`), so the endpoint-wise
+// that instance at its own monomorphization (`docs/refinement-channel-follow-ups.md`), so the endpoint-wise
 // delegation bottoms out at the endpoints' `Numeric[BigInteger]` compile-time leaves. The `^Meta` companion is
 // compiler-pool-only (dead at runtime); the merged `nativeAdd` itself is the jvm native.
 def nativeAdd(a: Int, b: Int): Int {add(range(a), range(b))}

@@ -127,7 +127,7 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * physically emitted into the runtime pool (dead there, never code-generated): it is a compile-time-only value the
     * refinement channel evaluates, so its ability calls (`add`/`join` dispatched on the interval domain) must be resolved
     * — the [[CompilerMonomorphicValue]] reduced form — never the raw operator-resolved body whose ability stays abstract
-    * and stalls. This is the plan invariant (`docs/refinement-channel-transfer-reduction.md`) applied to the base binding
+    * and stalls. This is the plan invariant (`docs/refinement-channel-follow-ups.md`) applied to the base binding
     * a post-monomorphize reduction closes over: never a raw body.
     */
   private def runtimeConcrete(vfqn: ValueFQN): CompilerIO[Boolean] =

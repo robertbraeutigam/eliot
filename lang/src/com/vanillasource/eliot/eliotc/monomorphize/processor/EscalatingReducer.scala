@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
 /** The compiler platform's post-monomorphize **linker-executor** — the `used`-equivalent the runtime platform already has
-  * (`docs/refinement-channel-transfer-reduction.md` §3). It evaluates a compiler-track value applied to concrete
+  * (`docs/refinement-channel-follow-ups.md` §1). It evaluates a compiler-track value applied to concrete
   * argument metas and enforces the invariant that *post-monomorphize evaluation may only ever see monomorphized bodies*:
   * a raw (operator-resolved) callee body may appear only beneath a native leaf, never spliced into the reduction. The
   * cheap common case (a transfer bottoming at natives) pays nothing new; when the one-hop raw closure sticks on an

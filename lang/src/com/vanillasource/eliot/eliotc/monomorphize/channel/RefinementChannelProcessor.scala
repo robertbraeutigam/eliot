@@ -53,7 +53,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * The companion's body may itself route through ability instances (a transfer's `Numeric[Interval]`, a merge's
   * `Meta.join`); the post-monomorphize linker-executor ([[EscalatingReducer]]) resolves those through each instance's
   * own monomorphization, so the former "a transfer must bottom out at natives" restriction is repealed
-  * (`docs/refinement-channel-transfer-reduction.md`). A callee with no `^Meta` companion simply gets no narrowing
+  * (`docs/refinement-channel-follow-ups.md`). A callee with no `^Meta` companion simply gets no narrowing
   * there — a bignum layout, sound but wide, never wrong.
   */
 class RefinementChannelProcessor
@@ -174,7 +174,7 @@ class RefinementChannelProcessor
         for {
           metaTypeArgs <- calleeTypeArgs.traverse(metaTypeOf)
           // Reduce `<callee>^Meta` at the meta type args, applied to the argument metas, through the compiler platform's
-          // escalating linker-executor (`docs/refinement-channel-transfer-reduction.md` §3): it links only monomorphized
+          // escalating linker-executor (`docs/refinement-channel-follow-ups.md` §1): it links only monomorphized
           // callees, so a transfer/merge whose body routes through an ability instance resolves through that instance's
           // own monomorphization rather than sticking on the abstract ability method. An unknown/untracked argument (⊤)
           // is a `VType` placeholder the reduction ignores unless it feeds a slot projection (then the projection stalls

@@ -72,7 +72,7 @@ object MetaConstructorDesugarer {
     * Each slot is joined by the `Meta` ability's own `join`, dispatched on the slot's domain (`range(a) : Interval[..]` ⤳
     * the `Meta[Interval[T]]` instance). The compound join thus routes through the domain's *instance*, not a hand-copied
     * plain function: the refinement channel's post-monomorphize executor links each instance at its own monomorphization
-    * (`docs/refinement-channel-transfer-reduction.md`), so a transitively-reached Eliot-body instance dispatches. The
+    * (`docs/refinement-channel-follow-ups.md`), so a transitively-reached Eliot-body instance dispatches. The
     * result is rewrapped in the meta *constructor* `Int$Meta(..)`.
     *
     * The marker/method shapes mirror [[DataDefinitionDesugarer.createPatternMatchImpl]] and the surface `implement`

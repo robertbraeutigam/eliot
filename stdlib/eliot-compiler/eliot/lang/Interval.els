@@ -12,7 +12,7 @@ import eliot.compiler.Meta
  * The refinement-domain instances the bounds-as-refinements channel (`docs/bounds-as-refinements.md`) evaluates live
  * here: `Meta[Interval[T]]` (branch-merge join) and `Numeric[Interval[T]]` (the `+`/`-`/`*` transfer). Both are ordinary
  * ability instances the channel's post-monomorphize executor dispatches — the `Int` `^Meta` vessels and the auto-derived
- * `Meta[Int$Meta]` join route through them directly (`docs/refinement-channel-transfer-reduction.md` repealed the former
+ * `Meta[Int$Meta]` join route through them directly (`docs/refinement-channel-follow-ups.md` repealed the former
  * "transfers must bottom out at natives" rule that had forced a hand-copied plain-function form). `Numeric[Interval[T]]`
  * is copied here (structurally identical to the runtime base+jvm split) rather than borrowed, because the compile-time
  * track must be self-sufficient from a sibling runtime target (jvm) that may be absent.
@@ -36,7 +36,7 @@ implement[T ~ Compare[T]] Meta[Interval[T]] {
  * bodies) — structurally identical, so the refinement channel's `Int` arithmetic transfers (`nativeAdd`/… whose `^Meta`
  * companion braces are `add`/`subtract`/`multiply` over the operand ranges) dispatch through *this instance* rather than
  * a hand-copied plain function. The channel's post-monomorphize executor links the instance at its own monomorphization
- * (`docs/refinement-channel-transfer-reduction.md`), so the endpoint-wise delegation bottoms out at the endpoints'
+ * (`docs/refinement-channel-follow-ups.md`), so the endpoint-wise delegation bottoms out at the endpoints'
  * `Numeric[BigInteger]` compile-time leaves (and, for multiplication's corner selection, `Compare`):
  *
  *   - `[a, b] + [c, d] = [a + c, b + d]`
