@@ -25,33 +25,29 @@ type UnsignedLong    = Int
 
 /**
  * `Int` implements `Numeric` homogeneously: with the value range moved out of the type, `Int + Int` is again an `Int`.
- * The instance is *split across layers*: the base owns the abstract method signatures; a platform layer redefines the
- * same instance to supply the method bodies. The two halves merge because an `implement` block's identity is its
- * `(ability, pattern)` — here `Numeric[Int]`.
+ *
+ * The instance methods *are* the integer arithmetic leaves — there is no separate `nativeAdd`/… indirection. Each is
+ * body-less (an abstract signature the platform backend realises directly; the JVM emits it inline — see the backend's
+ * `Intrinsics`, which recognises the `Numeric[Int]` instance-method FQN), so the whole instance lives here in the base:
+ * a platform layer supplies representation and bytecode, not an `.els` half of the instance.
+ *
+ * Each method also carries a **return brace** — the refinement channel's range *transfer*. `MetaTransferDesugarer` turns
+ * `def add(a: Int, b: Int): Int {range(a) + range(b)}` into the `^Meta` companion
+ * `add^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(range(a) + range(b))`, which the channel reduces to propagate
+ * an `Int`'s value range through arithmetic. The brace computes the result range from the operand ranges (`range(a)`,
+ * `range(b)`, the `Int$Meta` slot) through the `Numeric[Interval[BigInteger]]` instance — the same `+`/`-`/`*` operators,
+ * dispatched on the interval domain and resolved in the compiler pool, bottoming out at the endpoints'
+ * `Numeric[BigInteger]` compile-time leaves. The brace is platform-independent (byte-for-byte identical on every
+ * target), so it belongs in the base even though the runtime bytecode is the platform's; the `^Meta` companion is
+ * compiler-pool-only (dead at runtime).
  */
 implement Numeric[Int] {
-   def add(a: Int, b: Int): Int
-   def subtract(a: Int, b: Int): Int
-   def multiply(a: Int, b: Int): Int
+   def add(a: Int, b: Int): Int {range(a) + range(b)}
+   def subtract(a: Int, b: Int): Int {range(a) - range(b)}
+   def multiply(a: Int, b: Int): Int {range(a) * range(b)}
 }
 
 /**
  * Render an integer as its decimal `String`.
  */
 def intToString(value: Int): String
-
-// The refinement channel's `^Meta` **transfer** companions for integer arithmetic (`docs/bounds-as-refinements.md`
-// §4.2), carried directly on the arithmetic leaves so the channel needs no leaf→vessel name map: it looks up
-// `<callee>^Meta` uniformly (the same path `fold^Meta` takes). Each declaration is body-less (its runtime is the jvm
-// native leaf it merges with — `jvm/.../Int.els`) and carries only a **return brace** — the range transfer.
-// `MetaTransferDesugarer` turns `def nativeAdd(a: Int, b: Int): Int {expr}` into `nativeAdd^Meta(a: Int$Meta, b:
-// Int$Meta): Int$Meta = Int$Meta(expr)` (in the `Qualifier.Meta` namespace), which the channel reduces to propagate an
-// `Int`'s value range through arithmetic. The brace computes the result range from the operand ranges (`range(a)`,
-// `range(b)`, the `Int$Meta` slot) through the `Numeric[Interval[BigInteger]]` instance (`add`/`subtract`/`multiply`
-// dispatched on the interval domain, resolved per the compiler pool). The channel's post-monomorphize executor links
-// that instance at its own monomorphization (`docs/refinement-channel-follow-ups.md`), so the endpoint-wise
-// delegation bottoms out at the endpoints' `Numeric[BigInteger]` compile-time leaves. The `^Meta` companion is
-// compiler-pool-only (dead at runtime); the merged `nativeAdd` itself is the jvm native.
-def nativeAdd(a: Int, b: Int): Int {add(range(a), range(b))}
-def nativeSubtract(a: Int, b: Int): Int {subtract(range(a), range(b))}
-def nativeMultiply(a: Int, b: Int): Int {multiply(range(a), range(b))}

@@ -290,7 +290,7 @@ object ExpressionCodeGenerator {
     *   - `intToString` unboxes its operand to `long` and calls `Long.toString(long)`;
     *   - `nativeWiden` converts its operand from the source to the target representation (unbox/rebox, via `BigInteger`
     *     when the target is `BigInteger`);
-    *   - an arithmetic leaf (`nativeAdd`/`nativeSubtract`/`nativeMultiply`) computes in primitive `long`
+    *   - an arithmetic leaf (the `Numeric[Int]` methods `add`/`subtract`/`multiply`) computes in primitive `long`
     *     (`LADD`/`LSUB`/`LMUL`, then rebox at the result representation) when operands and result fit `Long`, or in
     *     `java.math.BigInteger` (`add`/`subtract`/`multiply`) when anything overflows it — so a `Long`×`Long` product
     *     whose result range spills into `BigInteger` never truncates through a `long`.
@@ -493,20 +493,21 @@ object ExpressionCodeGenerator {
   private def pushBoolConstant(value: Boolean)(mv: MethodVisitor): Unit =
     mv.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", if (value) "TRUE" else "FALSE", "Ljava/lang/Boolean;")
 
-  /** The primitive `long` opcode for an arithmetic leaf FQN. */
+  /** The primitive `long` opcode for an arithmetic leaf FQN — the `Numeric[Int]` method name (`add`/`subtract`/
+    * `multiply`). */
   private def longOpcode(leafVfqn: ValueFQN): Int =
-    if (leafVfqn === Intrinsics.nativeAddFQN) Opcodes.LADD
-    else if (leafVfqn === Intrinsics.nativeSubtractFQN) Opcodes.LSUB
-    else Opcodes.LMUL // nativeMultiply
+    leafVfqn.name.name match {
+      case "add"      => Opcodes.LADD
+      case "subtract" => Opcodes.LSUB
+      case _          => Opcodes.LMUL // multiply
+    }
 
   /** The `java.math.BigInteger` instance method for an arithmetic leaf FQN; applied to the two `BigInteger`s on the
-    * stack, it leaves the (already-boxed) `BigInteger` result.
+    * stack, it leaves the (already-boxed) `BigInteger` result. The `Numeric[Int]` method names (`add`/`subtract`/
+    * `multiply`) coincide with `BigInteger`'s.
     */
   private def bigIntegerOp(leafVfqn: ValueFQN)(mv: org.objectweb.asm.MethodVisitor): Unit = {
-    val method =
-      if (leafVfqn === Intrinsics.nativeAddFQN) "add"
-      else if (leafVfqn === Intrinsics.nativeSubtractFQN) "subtract"
-      else "multiply" // nativeMultiply
+    val method = leafVfqn.name.name // "add" / "subtract" / "multiply" — same as BigInteger's
     mv.visitMethodInsn(
       Opcodes.INVOKEVIRTUAL,
       bigIntegerInternalName,

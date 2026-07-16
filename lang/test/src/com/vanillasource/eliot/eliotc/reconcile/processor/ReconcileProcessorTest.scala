@@ -49,8 +49,13 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
 
   // ---- fixtures -----------------------------------------------------------------------------------------------------
 
-  private def langInt(name: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName(name, Qualifier.Default))
+  /** The `Numeric[Int]` `add` instance method — the integer-addition leaf the refinement channel narrows through (no
+    * `nativeAdd` indirection). Its FQN carries the ability-impl qualifier. */
+  private val numericIntAdd: ValueFQN =
+    ValueFQN(
+      ModuleName(defaultSystemPackage, "Int"),
+      QualifiedName("add", Qualifier.AbilityImplementation("Numeric", "Int"))
+    )
 
   private def structureType(module: String, name: String): GroundValue =
     GroundValue.Structure(
@@ -113,6 +118,6 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
     }
 
   private val addBody: Sourced[UncurriedMonomorphicExpression] =
-    uApp(1, intType, uRef(2, langInt("nativeAdd")), uInt(3, 1), uInt(4, 300))
+    uApp(1, intType, uRef(2, numericIntAdd), uInt(3, 1), uInt(4, 300))
   private val addTable: RefinementTable = table(nm(1, metaVal(301)), nm(3, metaVal(1)), nm(4, metaVal(300)))
 }

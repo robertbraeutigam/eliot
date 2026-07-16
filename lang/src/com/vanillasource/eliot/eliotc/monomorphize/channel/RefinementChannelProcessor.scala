@@ -25,7 +25,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   *   - **α (literal seeding):** an integer literal `n` seeds the singleton `[n, n]`.
   *   - **Transfers (Step-4c form):** at an `Int` `+`/`-`/`*` leaf the result interval is the leaf's `^Meta` transfer
-  *     companion (`nativeAdd^Meta`/… — the base-layer vessels' companions, whose braces spell the transfer as
+  *     companion (`add^Meta`/… — the `Numeric[Int]` instance methods' companions, whose braces spell the transfer as
   *     `add`/`subtract`/`multiply` over the operand ranges, dispatched through the `Numeric[Interval[BigInteger]]`
   *     instance and bottoming at `Numeric[BigInteger]` natives) evaluated through the one NbE evaluator on the two
   *     operand intervals. Unknown if either operand is unknown.
@@ -112,8 +112,8 @@ class RefinementChannelProcessor
           case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
             // An ordinary call (or constructor). Descend into the arguments (so a literal/arithmetic argument narrows,
             // and a `where` precondition is demanded over their ranges, bounds-as-refinements §4.3). The result is a ⊤
-            // boundary **unless** the callee declares a `^Meta` companion — a **transfer** (`nativeAdd`, whose result
-            // range is `Numeric[Interval]::add` of the operand ranges) or a **merge** (`fold`, whose result range is
+            // boundary **unless** the callee declares a `^Meta` companion — a **transfer** (`Numeric[Int]::add`, whose
+            // result range is `Numeric[Interval]::add` of the operand ranges) or a **merge** (`fold`, whose result range is
             // `Meta.join` of its arms). Both are computed by the *same* uniform path: reduce `<callee>^Meta` on the argument metas
             // (`metaViaCompanion`). The channel names no leaf and no branch construct — the `^Meta` companion is the one
             // recognition point (`docs/generic-refinement-merges.md`). A lambda argument's body is skipped by the
@@ -154,14 +154,14 @@ class RefinementChannelProcessor
         Flow.topBoundary.pure[CompilerIO]
     }
 
-  /** The refinement result of a call, when its callee declares a `^Meta` companion — a **transfer** (`nativeAdd^Meta`,
+  /** The refinement result of a call, when its callee declares a `^Meta` companion — a **transfer** (`add^Meta`,
     * whose result range is `Numeric[Interval]::add` of the operand ranges) or a **merge** (`fold^Meta`, whose result
     * range is `Meta.join` of its arms). Both are computed uniformly: reduce `<callee>^Meta` on the arguments' metas and
     * read its result `Int$Meta`'s `range` slot back. `None` (⊤) when the callee has no companion, or an input's range is
     * unknown.
     *
     * The companion is reduced at the **meta** type arguments — the call's base type args mapped through [[metaTypeOf]].
-    * A *monomorphic* companion (`nativeAdd`, no type args) reduces at `[]` and its `Int$Meta` params take the operand
+    * A *monomorphic* companion (`add`, no type args) reduces at `[]` and its `Int$Meta` params take the operand
     * metas directly. A *generic* companion (`fold[A]`) reduces at `A := metaTypeOf(Int) = Int$Meta`, so the bare `A`
     * params bind to the meta type; its `join` then dispatches via the compiler-derived `Meta[Int$Meta]` to
     * `Int$Meta(join(range(whenTrue), range(whenFalse)))` — the inner `join` dispatched through the `Meta[Interval]`
@@ -346,9 +346,10 @@ object RefinementChannelProcessor {
     GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
   /** A callee's `^Meta` companion FQN: its own name in the [[Qualifier.Meta]] namespace, same module — what
-    * [[MetaTransferDesugarer]] emits from a return brace. `fold` ⤳ `fold^Meta` (merge), `nativeAdd` ⤳ `nativeAdd^Meta`
-    * (transfer). The channel recognises a refinement operation *only* by the presence of this companion — no leaf or
-    * branch construct is named.
+    * [[MetaTransferDesugarer]] emits from a return brace. `fold` ⤳ `fold^Meta` (merge), the `Numeric[Int]` `add` ⤳
+    * `add^Meta` (transfer). Keeping only `callee.name.name` also *strips* an ability-impl callee's `(ability, pattern)`
+    * qualifier down to plain `Meta`, so the arithmetic instance method's companion resolves. The channel recognises a
+    * refinement operation *only* by the presence of this companion — no leaf or branch construct is named.
     */
   private[channel] def metaCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, QualifiedName(callee.name.name, Qualifier.Meta))

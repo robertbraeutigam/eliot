@@ -33,8 +33,9 @@ implement[T ~ Compare[T]] Meta[Interval[T]] {
 
 /**
  * The compiler platform's self-sufficient copy of the runtime `Numeric[Interval[T]]` instance (base signatures + jvm
- * bodies) — structurally identical, so the refinement channel's `Int` arithmetic transfers (`nativeAdd`/… whose `^Meta`
- * companion braces are `add`/`subtract`/`multiply` over the operand ranges) dispatch through *this instance* rather than
+ * bodies) — structurally identical, so the refinement channel's `Int` arithmetic transfers (the `Numeric[Int]` methods
+ * `add`/`subtract`/`multiply`, whose `^Meta` companion braces are `add`/`subtract`/`multiply` over the operand ranges)
+ * dispatch through *this instance* rather than
  * a hand-copied plain function. The channel's post-monomorphize executor links the instance at its own monomorphization
  * (`docs/refinement-channel-follow-ups.md`), so the endpoint-wise delegation bottoms out at the endpoints'
  * `Numeric[BigInteger]` compile-time leaves (and, for multiplication's corner selection, `Compare`):

@@ -365,7 +365,7 @@ verdict the ability processor interprets per candidate.
 `RefinementChannelProcessor` is a **post-pass** over each runtime `MonomorphicValue` (producing the `RefinementTable`
 fact), not part of checking: it walks the fully-ground body bottom-up and computes each node's **meta value** (an
 opaque domain `GroundValue`, e.g. `Int$Meta(Interval(lo, hi))`) by flow. A literal seeds via the `integerLiteral^Meta`
-companion; a call whose callee declares a `^Meta` companion computes a **transfer** (`nativeAdd^Meta`) or a **merge**
+companion; a call whose callee declares a `^Meta` companion computes a **transfer** (the `Numeric[Int]` `add^Meta`) or a **merge**
 (`fold^Meta`, `Meta.join` over the arms) by reducing that companion through the one NbE evaluator — no leaf and no
 branch construct is named, the companion is the sole recognition point. A def's `where` precondition (its `^Where`
 companion) is demanded at every full call over the arguments' metas — an unknown (⊤) range or a `false` verdict is a

@@ -5,8 +5,10 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 /** Pins the channel's one recognition point: a refinement operation is a callee with a `^Meta` companion, found by
-  * `metaCompanionFqn` uniformly — an arithmetic transfer (`nativeAdd` ⤳ `nativeAdd^Meta`) and a branch merge (`fold`
-  * ⤳ `fold^Meta`) go through the same lookup, with no leaf FQN list. The end-to-end transfer/merge is exercised by the
+  * `metaCompanionFqn` uniformly — an arithmetic transfer (the `Numeric[Int]` `add` ⤳ `add^Meta`) and a branch merge
+  * (`fold` ⤳ `fold^Meta`) go through the same lookup, with no leaf FQN list. The arithmetic callee is an *ability-impl*
+  * method, so this also pins that `metaCompanionFqn` strips the `(ability, pattern)` qualifier to plain `Meta` — which is
+  * what makes the instance method's transfer companion resolvable. The end-to-end transfer/merge is exercised by the
   * full-layer integration suite (`ExamplesIntegrationTest`).
   */
 class RefinementChannelProcessorTest extends AnyFlatSpec with Matchers {
@@ -18,9 +20,12 @@ class RefinementChannelProcessorTest extends AnyFlatSpec with Matchers {
       ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Meta))
   }
 
-  it should "name an arithmetic transfer callee's ^Meta companion the same way (no leaf special-case)" in {
-    val nativeAdd = ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Int"), QualifiedName("nativeAdd", Qualifier.Default))
-    metaCompanionFqn(nativeAdd) shouldBe
-      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Int"), QualifiedName("nativeAdd", Qualifier.Meta))
+  it should "name an arithmetic transfer callee's ^Meta companion the same way (ability-impl qualifier stripped to Meta)" in {
+    val add = ValueFQN(
+      ModuleName(ModuleName.defaultSystemPackage, "Int"),
+      QualifiedName("add", Qualifier.AbilityImplementation("Numeric", "Int"))
+    )
+    metaCompanionFqn(add) shouldBe
+      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Int"), QualifiedName("add", Qualifier.Meta))
   }
 }

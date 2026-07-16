@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * **meta value** (an opaque domain [[GroundValue]] — the type's `$Meta` structure) by flow, recording an entry only for
   * the nodes it can pin. The channel is domain-agnostic: the propagation rules ([[RefinementChannelProcessor]]) are a
   * literal seed (α — the one domain-origin point) and, at every other node, reducing the callee's `^Meta` companion on
-  * the argument metas — a **transfer** (`nativeAdd^Meta`) or a **merge** (`fold^Meta`), computed the same way through the
+  * the argument metas — a **transfer** (`add^Meta`) or a **merge** (`fold^Meta`), computed the same way through the
   * one NbE evaluator, naming no leaf and no branch construct. Everything else — a parameter, a value reference, an
   * ordinary call/constructor result, a lambda body — is ⊤ (no entry, laid out as a bignum). The reconcile pass
   * ([[com.vanillasource.eliot.eliotc.reconcile.processor.ReconcileProcessor]]) stamps these meta values onto the body,

@@ -8,9 +8,9 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   * [[ExpressionCodeGenerator]], and excluded from `JvmClassGenerator`'s body-less "Function not implemented." method
   * generation.
   *
-  * `intToString` renders via `Long.toString`. The three width-agnostic arithmetic leaves (`nativeAdd`/`nativeSubtract`/
-  * `nativeMultiply`) and the representation converter `nativeWiden` are the platform primitives the `Arithmetic[Int]`
-  * instance in `Int.els` resolves to; each is one unbox/op/rebox instruction group whose width is read from the
+  * `intToString` renders via `Long.toString`. The three width-agnostic arithmetic leaves *are* the `Numeric[Int]`
+  * instance methods (`add`/`subtract`/`multiply`) — there is no separate `nativeAdd`/… def — recognised by their
+  * ability-impl FQN ([[numericIntArith]]); each is one unbox/op/rebox instruction group whose width is read from the
   * operand/result representations, so it is cheapest inline.
   *
   * Integer *literals* are NOT intrinsics: `integerLiteral[V]` is rewritten into a plain `MonomorphicExpression.
@@ -49,27 +49,35 @@ object Intrinsics {
     */
   val intLessThanOrEqualFQN: ValueFQN = langInt("intLessThanOrEqual")
 
-  /** The three arithmetic leaf natives, one per operator (`Int.els`). Each is width-agnostic: it takes its operands at
-    * whatever representation their bounds lowered to and produces a result at its own true-bound representation. The
-    * emission reads those operand/result representations to pick the working machine type (`long` or `BigInteger`) and
-    * instruction — so one leaf covers every width, and a microcontroller backend would select width-specific
-    * instructions from the same lowered representations.
-    */
-  val nativeAddFQN: ValueFQN      = langInt("nativeAdd")
-  val nativeSubtractFQN: ValueFQN = langInt("nativeSubtract")
-  val nativeMultiplyFQN: ValueFQN = langInt("nativeMultiply")
-
   val boolOps: Set[ValueFQN] =
     Set(boolTrueFQN, boolFalseFQN, boolFoldFQN, boolAndFQN, boolOrFQN, boolNotFQN)
 
   val all: Set[ValueFQN] =
     Set(
       intToStringFQN,
-      intLessThanOrEqualFQN,
-      nativeAddFQN,
-      nativeSubtractFQN,
-      nativeMultiplyFQN
+      intLessThanOrEqualFQN
     ) ++ boolOps
 
-  def isIntrinsic(vfqn: ValueFQN): Boolean = all.contains(vfqn)
+  /** The `Numeric[Int]` arithmetic methods (`add`/`subtract`/`multiply`) — the width-agnostic arithmetic leaves,
+    * carried body-less *directly* on the instance in the base `Int.els` (no `nativeAdd`/… indirection). Each takes its
+    * operands at whatever representation their bounds lowered to and produces a result at its own true-bound
+    * representation; the emission reads those representations to pick the working machine type (`long` or `BigInteger`)
+    * and instruction, so one leaf covers every width and a microcontroller backend would select width-specific
+    * instructions from the same lowered representations.
+    *
+    * Recognised by their ability-impl qualifier rather than a plain name, since an instance method's FQN is
+    * `add#Numeric,Int` (a [[Qualifier.AbilityImplementation]]), not a plain [[Qualifier.Default]]. Module `Int` has
+    * exactly one `Numeric` instance, so the pattern string need not be matched.
+    */
+  private val numericArithNames: Set[String] = Set("add", "subtract", "multiply")
+
+  def numericIntArith(vfqn: ValueFQN): Boolean =
+    vfqn.moduleName == ModuleName(defaultSystemPackage, "Int") &&
+      numericArithNames.contains(vfqn.name.name) &&
+      (vfqn.name.qualifier match {
+        case Qualifier.AbilityImplementation("Numeric", _) => true
+        case _                                             => false
+      })
+
+  def isIntrinsic(vfqn: ValueFQN): Boolean = all.contains(vfqn) || numericIntArith(vfqn)
 }
