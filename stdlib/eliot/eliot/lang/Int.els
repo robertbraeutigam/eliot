@@ -1,4 +1,6 @@
 import eliot.lang.Numeric
+import eliot.lang.Compare
+import eliot.lang.Bool
 import eliot.lang.Interval
 import eliot.compiler.Meta
 
@@ -51,3 +53,13 @@ implement Numeric[Int] {
  * Render an integer as its decimal `String`.
  */
 def intToString(value: Int): String
+
+/**
+ * Value ordering of two integers. Like the arithmetic methods above, `lessThanOrEqual` *is* the backend leaf — body-less
+ * here, emitted inline by the platform (the JVM picks primitive `long` comparison or `BigInteger.compareTo` from the
+ * operands' lowered representations; see the backend's `Intrinsics`). Its result is a `Bool`, so it carries no `^Meta`
+ * transfer (there is no range to propagate). One primitive; `<`/`<=`/`>`/`>=`/`min`/`max` all derive from it in `Compare`.
+ */
+implement Compare[Int] {
+   def lessThanOrEqual(a: Int, b: Int): Bool
+}

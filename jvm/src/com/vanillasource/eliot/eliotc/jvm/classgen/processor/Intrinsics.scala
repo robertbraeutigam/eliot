@@ -3,14 +3,15 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 
-/** Backend intrinsics: body-less stdlib `def`s that the JVM realises by emitting bytecode *inline at the call site*
-  * rather than as a generated static method. They are recognised here by their well-known FQN, emitted inline by
+/** Backend intrinsics: body-less stdlib leaves that the JVM realises by emitting bytecode *inline at the call site*
+  * rather than as a generated static method. They are recognised here by their well-known FQN (or, for the `Int`
+  * ability-impl leaves, their ability-impl qualifier — [[numericIntArith]]/[[compareIntOrdering]]), emitted inline by
   * [[ExpressionCodeGenerator]], and excluded from `JvmClassGenerator`'s body-less "Function not implemented." method
   * generation.
   *
-  * `intToString` renders via `Long.toString`. The three width-agnostic arithmetic leaves *are* the `Numeric[Int]`
-  * instance methods (`add`/`subtract`/`multiply`) — there is no separate `nativeAdd`/… def — recognised by their
-  * ability-impl FQN ([[numericIntArith]]); each is one unbox/op/rebox instruction group whose width is read from the
+  * `intToString` renders via `Long.toString`. The width-agnostic arithmetic and ordering leaves *are* the `Int` ability
+  * instance methods — the `Numeric[Int]` `add`/`subtract`/`multiply` and the `Compare[Int]` `lessThanOrEqual`, with no
+  * separate `nativeAdd`/`intLessThanOrEqual` def — each one unbox/op/rebox instruction group whose width is read from the
   * operand/result representations, so it is cheapest inline.
   *
   * Integer *literals* are NOT intrinsics: `integerLiteral[V]` is rewritten into a plain `MonomorphicExpression.
@@ -42,42 +43,42 @@ object Intrinsics {
   /** `intToString(value): String` — realised as `Long.toString`. */
   val intToStringFQN: ValueFQN = langInt("intToString")
 
-  /** `intLessThanOrEqual(a, b): Bool` — the ordering leaf behind the runtime `Compare[Int]` instance. One leaf covers
-    * every width: the result is a `Bool` (no result-width growth to dispatch on), and the emission picks its working
-    * representation (primitive `long` via `LCMP`, or `BigInteger.compareTo`) from the operands' lowered
-    * representations.
-    */
-  val intLessThanOrEqualFQN: ValueFQN = langInt("intLessThanOrEqual")
-
   val boolOps: Set[ValueFQN] =
     Set(boolTrueFQN, boolFalseFQN, boolFoldFQN, boolAndFQN, boolOrFQN, boolNotFQN)
 
   val all: Set[ValueFQN] =
-    Set(
-      intToStringFQN,
-      intLessThanOrEqualFQN
-    ) ++ boolOps
+    Set(intToStringFQN) ++ boolOps
 
-  /** The `Numeric[Int]` arithmetic methods (`add`/`subtract`/`multiply`) — the width-agnostic arithmetic leaves,
-    * carried body-less *directly* on the instance in the base `Int.els` (no `nativeAdd`/… indirection). Each takes its
-    * operands at whatever representation their bounds lowered to and produces a result at its own true-bound
-    * representation; the emission reads those representations to pick the working machine type (`long` or `BigInteger`)
-    * and instruction, so one leaf covers every width and a microcontroller backend would select width-specific
-    * instructions from the same lowered representations.
-    *
-    * Recognised by their ability-impl qualifier rather than a plain name, since an instance method's FQN is
-    * `add#Numeric,Int` (a [[Qualifier.AbilityImplementation]]), not a plain [[Qualifier.Default]]. Module `Int` has
-    * exactly one `Numeric` instance, so the pattern string need not be matched.
+  /** Whether `vfqn` is the `Int`-module instance method `name` of ability `ability` — an `Int` ability-impl leaf carried
+    * body-less *directly* on its instance in the base `Int.els` (no `nativeAdd`/`intLessThanOrEqual` indirection).
+    * Recognised by the ability-impl qualifier rather than a plain name, since an instance method's FQN is `add#Numeric,Int`
+    * (a [[Qualifier.AbilityImplementation]]), not a plain [[Qualifier.Default]]. Module `Int` has exactly one instance of
+    * each such ability, so the pattern string need not be matched.
     */
-  private val numericArithNames: Set[String] = Set("add", "subtract", "multiply")
-
-  def numericIntArith(vfqn: ValueFQN): Boolean =
+  private def intAbilityImpl(vfqn: ValueFQN, ability: String, names: Set[String]): Boolean =
     vfqn.moduleName == ModuleName(defaultSystemPackage, "Int") &&
-      numericArithNames.contains(vfqn.name.name) &&
+      names.contains(vfqn.name.name) &&
       (vfqn.name.qualifier match {
-        case Qualifier.AbilityImplementation("Numeric", _) => true
+        case Qualifier.AbilityImplementation(`ability`, _) => true
         case _                                             => false
       })
 
-  def isIntrinsic(vfqn: ValueFQN): Boolean = all.contains(vfqn) || numericIntArith(vfqn)
+  /** The `Numeric[Int]` arithmetic methods (`add`/`subtract`/`multiply`) — the width-agnostic arithmetic leaves. Each
+    * takes its operands at whatever representation their bounds lowered to and produces a result at its own true-bound
+    * representation; the emission reads those representations to pick the working machine type (`long` or `BigInteger`)
+    * and instruction, so one leaf covers every width and a microcontroller backend would select width-specific
+    * instructions from the same lowered representations.
+    */
+  def numericIntArith(vfqn: ValueFQN): Boolean =
+    intAbilityImpl(vfqn, "Numeric", Set("add", "subtract", "multiply"))
+
+  /** The `Compare[Int]` ordering method (`lessThanOrEqual`) — the ordering leaf. One leaf covers every width: the result
+    * is a `Bool` (no result-width growth to dispatch on), and the emission picks its working representation (primitive
+    * `long` via `LCMP`, or `BigInteger.compareTo`) from the operands' lowered representations.
+    */
+  def compareIntOrdering(vfqn: ValueFQN): Boolean =
+    intAbilityImpl(vfqn, "Compare", Set("lessThanOrEqual"))
+
+  def isIntrinsic(vfqn: ValueFQN): Boolean =
+    all.contains(vfqn) || numericIntArith(vfqn) || compareIntOrdering(vfqn)
 }

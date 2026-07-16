@@ -335,8 +335,9 @@ object ExpressionCodeGenerator {
         expectedResultType,
         expectedResultMeta
       )
-    } else if (calledVfqn === Intrinsics.intLessThanOrEqualFQN) {
-      // The ordering leaf: compare in primitive `long` (`LCMP`) when both operands fit it, else via
+    } else if (Intrinsics.compareIntOrdering(calledVfqn)) {
+      // The ordering leaf (`Compare[Int]::lessThanOrEqual`): compare in primitive `long` (`LCMP`) when both operands fit
+      // it, else via
       // `BigInteger.compareTo`; either way branch the comparison outcome into a boxed `Boolean`.
       val leftRep       = repInternalNameOf(arguments(0).expressionType, arguments(0).meta)
       val rightRep      = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)

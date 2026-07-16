@@ -45,7 +45,8 @@ Anything else body-less → **`"Function not implemented."`** abort. So the two 
 > **is control flow** (`fold` must branch, not push three operands). When unsure, native method is simpler; reach for
 > intrinsic only when the descriptor varies or you need a jump. Note an ability-impl method can go *either* way: a
 > fixed-descriptor one (`Eq[String]::equals`) is a mangled static method (row above), but a width-varying one (the
-> `Numeric[Int]` arithmetic) is an inline intrinsic recognised by its ability-impl FQN.
+> `Numeric[Int]` arithmetic and `Compare[Int]::lessThanOrEqual`) is an inline intrinsic recognised by its ability-impl
+> FQN (`Intrinsics.numericIntArith`/`compareIntOrdering`).
 
 Why non-generic ⇒ native method works: the call site invokes `mangledMethodName(fqn, typeArgs)`
 (`CommonPatterns`), which for **empty typeArgs + `Qualifier.Default`** is the **bare name** — matching the fixed
