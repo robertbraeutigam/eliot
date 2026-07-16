@@ -36,9 +36,20 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
       body: Option[Expression] = None,
       fixity: Fixity = Fixity.Application,
       precedence: Seq[PrecedenceDeclaration] = Seq.empty,
-      visibility: Visibility = Visibility.Public
+      visibility: Visibility = Visibility.Public,
+      metaSlots: Seq[ArgumentDefinition] = Seq.empty
   ): FunctionDefinition =
-    FunctionDefinition(s(QualifiedName(name, qualifier)), generics, args, s(ret), body.map(s), fixity, precedence, visibility)
+    FunctionDefinition(
+      s(QualifiedName(name, qualifier)),
+      generics,
+      args,
+      s(ret),
+      body.map(s),
+      fixity,
+      precedence,
+      visibility,
+      metaSlots = metaSlots
+    )
 
   "signature renderer" should "render a nullary value with no parentheses" in {
     SignatureRenderer.function(fn("main", ret = ty("IO", ty("Unit")))) shouldBe "def main: IO[Unit]"
@@ -87,6 +98,12 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
     SignatureRenderer.function(
       fn("Int", Qualifier.Type, args = Seq(arg("MIN", ty("BigInteger"), inferable = true), arg("MAX", ty("BigInteger"), inferable = true)))
     ) shouldBe "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
+  }
+
+  it should "render the compiler-tracked meta-slot brace of a type" in {
+    SignatureRenderer.function(
+      fn("Int", Qualifier.Type, metaSlots = Seq(arg("range", ty("Interval", ty("BigInteger")))))
+    ) shouldBe "type Int {range: Interval[BigInteger]}"
   }
 
   it should "render a type alias body" in {

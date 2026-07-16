@@ -91,9 +91,18 @@ object SignatureRenderer {
     val prefix = visibilityPrefix(fn.visibility)
     // For a `type`, the parameters live in `args` (TypeAliasDefinition moves them there) and are bracketed with `[]`.
     val params = if (fn.args.isEmpty) "" else fn.args.map(typeParameter).mkString("[", ", ", "]")
+    val meta   = metaSlotList(fn.metaSlots)
     val body   = fn.body.map(b => s" = ${b.value.show}").getOrElse("")
-    s"${prefix}type ${fn.name.value.name}$params$body"
+    s"${prefix}type ${fn.name.value.name}$params$meta$body"
   }
+
+  /** The compiler-tracked meta-slot brace of a type, e.g. the `{range: Interval[BigInteger]}` of
+    * `type Int {range: Interval[BigInteger]}` — the named refinement channel the type carries (bounds-as-refinements
+    * §4.2). Each slot is a `name: Domain` binder; empty for a type with no meta slots.
+    */
+  private def metaSlotList(slots: Seq[ArgumentDefinition]): String =
+    if (slots.isEmpty) ""
+    else slots.map(slot => s"${slot.name.value}: ${slot.typeExpression.value.show}").mkString(" {", ", ", "}")
 
   private def visibilityPrefix(visibility: Visibility): String =
     visibility match {
