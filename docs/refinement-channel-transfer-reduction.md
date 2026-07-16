@@ -149,9 +149,27 @@ callee with ability calls has neither. Extend escalation to empty-arg references
 both instantiations benefit); first do the archaeology on why the gate existed (likely conservatism inherited
 from the guard machinery's one-instantiation-per-FQN assumption) and keep the full suite green.
 
-### Step 3 — route the channel through the executor
+### Step 3 — route the channel through the executor — **DONE (2026-07-16)**
 
-`metaViaCompanion` and `demandPrecondition` call `reduceApplied` instead of
+`metaViaCompanion` and `demandPrecondition` now call `EscalatingReducer.reduceApplied` instead of
+`ReducedBindingClosure.reduceInstance + foldLeft(applyValue) + Evaluator.force`; the bare-force application (and its
+`MetaStore`/`Quoter` imports) is deleted. `checkWhere` no longer fetches the `^Where` companion's reduced `SemValue`
+separately — it keeps only the `MonomorphicValue` fetch for the arity gate, and `demandPrecondition` reduces the
+companion through `reduceApplied` (so an existing-but-unreducible companion now fails loudly via the "Cannot evaluate"
+arm rather than silently skipping — strictly more fail-safe; no test relied on the skip). The channel is still a post-pass
+that never mutates checker state — it only demands more facts (memoized, `activeFactKeys`-cycle-guarded); its "zero risk
+to the checker's invariants" separation survives.
+
+Verified — **no regression** (this is a mechanism swap; the *narrowing payoff* is Step 4): full suite green (eliotc 133,
+lang 233, jvm 283, ide.lsp 383) + all 34 examples build & run (Ranges 21, Arithmetic 14, WherePrecondition 100, …).
+`WhereOnDefIntegrationTest`'s literal-through-`where` narrowing (`useByte(42)` passes, `useByte(1000)` rejected,
+`useByte(y)` unknown) all flow through `reduceApplied` and pass. The §2 **discriminating** ability-form probe
+(`useByte(add(40, 40))` ⟹ `Interval[80,80]`) is deferred to Step 4 as intended: it needs the `Int` vessels' transfers
+rewritten to route through `implement Numeric[Interval[T]]`; today an arithmetic result still reaches `where` as ⊤
+(`40 + 40` ⟹ "value range is not known"), which is the §6 operator-level non-goal (the generic `+`/`Numeric[Int]::add`
+carries no `^Meta` companion), unchanged by this step.
+
+Original text: `metaViaCompanion` and `demandPrecondition` call `reduceApplied` instead of
 `reduceInstance + foldLeft(applyValue) + Evaluator.force`. Delete the bare-force application. The channel
 remains a post-pass that never mutates checker state — it only demands more facts (memoized, cycle-guarded);
 its "zero risk to the checker's invariants" separation survives with that re-justification.

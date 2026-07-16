@@ -4,10 +4,10 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.processor.{MetaConstructorDesugarer, MetaWhereDesugarer}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN, WellKnownTypes}
-import com.vanillasource.eliot.eliotc.monomorphize.domain.{MetaStore, SemValue}
-import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
+import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
-import com.vanillasource.eliot.eliotc.monomorphize.processor.ReducedBindingClosure
+import com.vanillasource.eliot.eliotc.monomorphize.processor.EscalatingReducer
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -167,18 +167,22 @@ class RefinementChannelProcessor
       else
         for {
           metaTypeArgs <- calleeTypeArgs.traverse(metaTypeOf)
-          reduced      <- ReducedBindingClosure.reduceInstance(metaCompanionFqn(callee), metaTypeArgs)
-        } yield reduced.flatMap { body =>
-          val semArgs = argMetas.map {
-            case Some(gv) => Evaluator.groundToSem(gv) // the argument's own meta value, passed opaquely
-            case None     => SemValue.VType            // ⊤ placeholder: an unknown/untracked argument
-          }
-          val applied = semArgs.foldLeft(body)((f, mv) => Evaluator.applyValue(f, mv))
-          val forced  = Evaluator.force(applied, MetaStore.empty)
-          // The result meta is the reduced companion's output (an opaque domain structure — the type's `$Meta`); it is
-          // stored verbatim and never inspected here. A stuck/⊤ result does not quote to a structure and is dropped.
-          Quoter.quote(0, forced, MetaStore.empty).toOption.collect { case s: GroundValue.Structure => s }
-        }
+          // Reduce `<callee>^Meta` at the meta type args, applied to the argument metas, through the compiler platform's
+          // escalating linker-executor (`docs/refinement-channel-transfer-reduction.md` §3): it links only monomorphized
+          // callees, so a transfer/merge whose body routes through an ability instance resolves through that instance's
+          // own monomorphization rather than sticking on the abstract ability method. An unknown/untracked argument (⊤)
+          // is a `VType` placeholder the reduction ignores unless it feeds a slot projection (then the projection stalls
+          // and the result is ⊤, sound). The result meta is an opaque domain structure (the type's `$Meta`), stored
+          // verbatim; a stuck/⊤ result does not quote to a structure and is dropped.
+          result       <- EscalatingReducer.reduceApplied(
+                            metaCompanionFqn(callee),
+                            metaTypeArgs,
+                            argMetas.map {
+                              case Some(gv) => Evaluator.groundToSem(gv) // the argument's own meta value, passed opaquely
+                              case None     => SemValue.VType            // ⊤ placeholder: an unknown/untracked argument
+                            }
+                          )
+        } yield result.collect { case s: GroundValue.Structure => s }
     }
 
   /** The **meta type** of a base type — its `$Meta` meta structure if the type declares one (a slotted type like `Int`
@@ -225,17 +229,14 @@ class RefinementChannelProcessor
     getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { namesOpt =>
       if (!namesOpt.exists(_.names.contains(whereCompanionName(callee)))) ().pure[CompilerIO]
       else
-        (
-          ReducedBindingClosure.reduceInstance(whereCompanionFqn(callee), Seq.empty),
-          getFactIfProduced(MonomorphicValue.Key(callee, calleeTypeArgs))
-        ).tupled.flatMap {
-          case (Some(companion), Some(mv)) =>
+        getFactIfProduced(MonomorphicValue.Key(callee, calleeTypeArgs)).flatMap {
+          case Some(mv) =>
             mv.naturalArity match {
               case Some(arity) if arity > 0 && appliedArgs >= arity =>
-                demandPrecondition(callNode, callee, companion, argMetas.take(arity))
+                demandPrecondition(callNode, callee, argMetas.take(arity))
               case _                                                => ().pure[CompilerIO]
             }
-          case _                           => ().pure[CompilerIO]
+          case None     => ().pure[CompilerIO]
         }
     }
 
@@ -247,7 +248,6 @@ class RefinementChannelProcessor
   private def demandPrecondition(
       callNode: Sourced[MonomorphicExpression],
       callee: ValueFQN,
-      companion: SemValue,
       argMetas: Seq[Option[GroundValue]]
   ): CompilerIO[Unit] =
     argMetas.sequence match {
@@ -257,10 +257,10 @@ class RefinementChannelProcessor
           Seq("A `where` precondition demands a provable range — pass a value whose range the compiler can determine.")
         )
       case Some(metas) =>
-        val applied = metas.foldLeft(companion) { (f, gv) =>
-          Evaluator.applyValue(f, Evaluator.groundToSem(gv))
-        }
-        Quoter.quote(0, Evaluator.force(applied, MetaStore.empty), MetaStore.empty).toOption match {
+        // Reduce the `^Where` companion over the argument metas through the escalating linker-executor (same executor as
+        // the transfer/merge path), then read the verdict: `true` passes, `false` is a violation, and anything else — a
+        // non-`Bool` predicate shape, or a companion that did not reduce — fails loudly rather than silently accepting.
+        EscalatingReducer.reduceApplied(whereCompanionFqn(callee), Seq.empty, metas.map(Evaluator.groundToSem)).flatMap {
           case Some(gv) if isBoolTrue(gv)  => ().pure[CompilerIO]
           case Some(gv) if isBoolFalse(gv) =>
             Sourced.compilerError(
