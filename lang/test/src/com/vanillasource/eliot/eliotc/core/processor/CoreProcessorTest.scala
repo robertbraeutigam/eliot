@@ -516,6 +516,12 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  it should "generate a transfer companion for a brace on an implement method" in {
+    namedValues("implement Num[Foo] { def add(a: Foo, b: Foo): Foo {a} }").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("add", Qualifier.Meta))
+    }
+  }
+
   "bracket-aware qualifiers" should "make uppercase-only-brackets a type application" in {
     namedValue("data Box[A]\ndef f: R = Box[A]").asserting { nv =>
       nv.runtimeStructure shouldBe Some(App(Ref("Box", T), Ref("A", T)))

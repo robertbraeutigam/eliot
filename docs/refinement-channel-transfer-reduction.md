@@ -230,14 +230,45 @@ The payoff, and the proof the rule of §1 is repealed:
 - **delete** `intervalAdd`, `intervalSubtract`, `intervalMultiply`, `intervalJoin` and the three overlay
   comments that state the natives-only rule; update `RefinementChannelProcessor`'s class docs likewise.
 
-### Step 5 — independent fail-safe front-end fixes
+### Step 5 — independent fail-safe front-end fixes — **DONE (2026-07-16)**
 
-- **5a.** Forward `returnMeta` in `ImplementBlock`'s method reconstruction (`ImplementBlock.scala:58-65`,
-  one-liner) so a transfer brace on an impl method generates its companion instead of silently vanishing; add a
-  test asserting the companion exists.
-- **5b.** Diagnose the inline-brace stage-1 failure (§2: inline `{a.range + b.range}` never produces the
-  companion's compiler `SaturatedValue`). Start from a failing test; silent non-production of a fact is a
-  fail-safe violation regardless of this plan.
+- **5a — DONE.** `ImplementBlock`'s impl-method reconstruction (`ImplementBlock.scala:58-65`) rebuilt each
+  `FunctionDefinition` from a fixed field list that dropped `returnMeta` (and `whereClause`), so a transfer brace
+  (or a `where` precondition) on an `implement` method parsed and then silently vanished — `MetaTransferDesugarer`
+  runs over every function definition but saw an empty `returnMeta` and emitted no `^Meta` companion. Fixed by
+  forwarding both `returnMeta` and `whereClause` (`whereClause` is the same silent-drop of a *precondition*, the
+  more fail-safe-relevant of the two). Regression test in `CoreProcessorTest` ("generate a transfer companion for
+  a brace on an implement method") asserts the `add^Meta` companion now exists for `implement Num[Foo] { def
+  add(a: Foo, b: Foo): Foo {a} }`.
+- **5b — DIAGNOSED; not a fail-safe violation.** The §2 "inline `{a.range + b.range}` never produces the
+  companion's compiler `SaturatedValue`" observation conflated two things, both now resolved:
+  - The genuine transfer-reduction failure (the *dotless* inline `{range(a) + range(b)}` and the plain-function
+    forms yielding ⊤) is **fixed by Steps 1-4's linker fix**: the dotless inline form now narrows correctly
+    (`useByte(f(100, 100))` with `def f(a, b): Int {range(a) + range(b)}` ⟹ "not satisfied"). The `^Meta`
+    companion's `SaturatedValue`, its `CompilerMonomorphicValue`, the channel reduction and the `where`-check all
+    fire — proof the whole chain works.
+  - The *specifically dotted* `{a.range + b.range}` form fails at **operator-precedence resolution** with a
+    **loud** error — "Operators '+' and '.' have no defined relative precedence" — because `.` is declared
+    `infix left below apply` (its only relation) while `+`/`-`/`*` form their own chain with no link to `.` or
+    `apply` (`Function.els`, `Numeric.els`). `f` is therefore *rejected* at operator resolution, so its `^Meta`
+    companion produces no `SaturatedValue` — the fail-safe-correct consequence of a rejected value (a rejected
+    value emits no downstream facts by construction), **not** a silent non-production. Parenthesising the dots
+    (`{(a.range) + (b.range)}`) narrows exactly like the dotless form, isolating precedence as the sole blocker.
+  - So there is **no fail-safe violation** to fix. Locked in by `InlineTransferBraceIntegrationTest` (dotless
+    inline transfer narrows out-of-range / stays ⊤ on unknown / the dotted form fails loudly, never silently).
+  - **Out of scope, surfaced by 5b:** making the dotted `a.range + b.range` parse is a deliberate language
+    decision — declaring `.` above the arithmetic operators (member access binds tighter than `+`) — not a
+    fail-safe fix; deferred. And a transfer brace on a *user* (non-native) def crashes at *runtime* when its
+    narrow return crosses a call boundary (the callee body is compiled once with ⊤ params ⟹ wide representation,
+    which the brace-narrowed caller does not match) — a backend representation-reconciliation matter, loud (a
+    crash, not a silent-wrong result) and not reachable from the shipped layers (their braces sit only on native
+    leaves). Both tracked separately, neither is a silent-accept gap.
+
+Two Step-4 follow-ons were flagged for "Step 5's fail-safe fixes"; both **deferred with rationale** (neither is a
+currently-reachable silent-accept): the compiler-track `def x: BigInteger = <literal>` deep-escalation check is a
+*loud spurious rejection* (safe, latent, not triggered today), and the `EscalatingReducer.reducibleStuck`
+abstract-ability hardening is defense-in-depth for a path the linker fix makes unreachable — and `reducibleStuck`
+is shared with the in-checker read-back, so changing it risks the checker for no live gain.
 
 ### Step 6 — sweep and bump
 

@@ -61,7 +61,13 @@ object ImplementBlock {
               f.args,
               f.typeDefinition,
               f.body,
-              visibility = Visibility.Public
+              visibility = Visibility.Public,
+              // Forward the refinement-channel companions parsed on the method. Without this, a transfer brace
+              // (`: T {…}` → `^Meta` transfer companion) or a `where` precondition (`^Where` companion) on an impl
+              // method parses and is then silently dropped here — a fail-safe violation: the brace/precondition simply
+              // vanishes rather than the channel demanding it at the call site (bounds-as-refinements §4.2/§4.3).
+              returnMeta = f.returnMeta,
+              whereClause = f.whereClause
             )
           ) :+
             // We add the implementation to the default method as a marker, that this type implements the marker.
