@@ -68,7 +68,7 @@ class TokenParser(sourced: Sourced[?]) {
   /** A negative integer literal: a `-` *immediately* followed by digits (no intervening space), lexed as a single
     * literal token. Placed before [[symbolParser]] and made `atomic`, so a `-` that is not glued to digits (binary
     * subtraction `a - b`, the operator name `def -`, the arrow `->`) still backtracks to the symbol parser. This is what
-    * lets dependent-int bounds like `Int[-128, 127]` and signed width aliases (`type Long = Int[-9223…, 9223…]`) carry a
+    * lets dependent-int bounds like `Int[-128, 127]` and large ones (`Int[-9223…, 9223…]`) carry a
     * negative `BigInteger`. Binary subtraction therefore requires spacing (`a - 1`, not `a-1`), matching Eliot style.
     */
   private lazy val negativeIntegerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(

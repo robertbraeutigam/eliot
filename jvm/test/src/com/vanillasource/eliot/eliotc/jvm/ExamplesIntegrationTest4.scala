@@ -20,15 +20,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     ).asserting(_ shouldBe "7")
   }
 
-  it should "accept a literal assigned through a width alias and print it" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |def small: Byte = 42
-        |
-        |def main: IO[Unit] = printLine(intToString(small))""".stripMargin
-    ).asserting(_ shouldBe "42")
-  }
-
   it should "construct and access a record with a bare Int field (W2)" in {
     // `Counter`'s bare `Int` field generalizes the type to `Counter[lo, hi]`; the accessor `n` (a match under the hood)
     // recovers the field. Exercises construct + accessor + handleCases end-to-end at runtime.

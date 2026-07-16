@@ -13,18 +13,6 @@ import eliot.compiler.Meta
  */
 type Int {range: Interval[BigInteger]}
 
-// Common signed/unsigned aliases. Their historical bounds now live as refinement demands, not in the type, so each is a
-// plain alias for `Int`; a narrow layout for e.g. `Byte` will come from a `where`/representation demand once value-range
-// contracts land (Option B, `docs/bounds-as-refinements.md`).
-type Byte            = Int
-type UnsignedByte    = Int
-type Short           = Int
-type UnsignedShort   = Int
-type Medium          = Int
-type UnsignedMedium  = Int
-type Long            = Int
-type UnsignedLong    = Int
-
 /**
  * `Int` implements `Numeric` homogeneously: with the value range moved out of the type, `Int + Int` is again an `Int`.
  *

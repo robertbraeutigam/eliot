@@ -38,9 +38,9 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
         |import eliot.effect.Abort
         |import eliot.lang.Pair
         |
-        |def parsePort(raw: String): {Abort} UnsignedShort = abort
+        |def parsePort(raw: String): {Abort} Int = abort
         |
-        |def nextPort: {Console, State[String], Abort} UnsignedShort = {
+        |def nextPort: {Console, State[String], Abort} Int = {
         |  val raw = readLine
         |  putState(raw)
         |  parsePort(raw)

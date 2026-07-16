@@ -2,10 +2,10 @@ import eliot.effect.Console
 import eliot.lang.Numeric
 /**
  * Integer arithmetic. `Int` is a single type — an integer's value range is meta-information tracked in the compiler's
- * refinement channel, not a type parameter — so `count`, its alias `UnsignedByte` (now a plain alias for `Int`), and the
- * sum are all just `Int`. `count + count + count` computes `21`. Prints `21`.
+ * refinement channel, not a type parameter — so `count`, the sum, and the total are all just `Int`.
+ * `count + count + count` computes `21`. Prints `21`.
  */
-def count: UnsignedByte = 7
+def count: Int = 7
 
 def total: Int = count + count + count
 
