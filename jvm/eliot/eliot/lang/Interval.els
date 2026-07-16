@@ -1,17 +1,8 @@
 import eliot.lang.Numeric
 import eliot.lang.Compare
 
-/**
- * The JVM representation of an interval: a plain record of its two endpoints. The accessors `start`/`end` and the
- * value constructor merge with the base's abstract `type Interval[T]`.
- */
 data Interval[T](start: T, end: T)
 
-// The JVM half of the base's split `Numeric[Interval[T]]` instance: same `(ability, pattern)`, so it merges with the
-// base's abstract half into one implementation. The base fixes the method signatures (left abstract there); this layer
-// supplies the method bodies, which delegate endpoint-wise to the endpoints' own `Numeric` (and, for multiplication's
-// corner selection, `Compare`). The bodies are pure — no JVM native is involved — so the compiler layer carries a
-// structurally identical copy for compile-time evaluation (see `stdlib/eliot-compiler`).
 implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
    def add(a: Interval[T], b: Interval[T]): Interval[T] =
       Interval(add(start(a), start(b)), add(end(a), end(b)))

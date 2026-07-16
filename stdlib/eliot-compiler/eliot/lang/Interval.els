@@ -3,20 +3,6 @@ import eliot.lang.Compare
 import eliot.lang.Bool
 import eliot.compiler.Meta
 
-/**
- * The compile-time `Interval`: the compiler platform's self-sufficient copy of the representation and the domain
- * instance bodies (the bodies are pure — endpoint-wise delegation to the endpoints' own `Numeric`/`Compare` — so the
- * same Eliot code runs under the compiler's NbE evaluator). Self-sufficiency is the point: a compile-time interval
- * (e.g. as an `Int` bound object) must not depend on a sibling *runtime* target's layer being present.
- *
- * The refinement-domain instances the bounds-as-refinements channel (`docs/bounds-as-refinements.md`) evaluates live
- * here: `Meta[Interval[T]]` (branch-merge join) and `Numeric[Interval[T]]` (the `+`/`-`/`*` transfer). Both are ordinary
- * ability instances the channel's post-monomorphize executor dispatches — the `Int` `^Meta` vessels and the auto-derived
- * `Meta[Int$Meta]` join route through them directly (`docs/refinement-channel-follow-ups.md` repealed the former
- * "transfers must bottom out at natives" rule that had forced a hand-copied plain-function form). `Numeric[Interval[T]]`
- * is copied here (structurally identical to the runtime base+jvm split) rather than borrowed, because the compile-time
- * track must be self-sufficient from a sibling runtime target (jvm) that may be absent.
- */
 data Interval[T](start: T, end: T)
 
 /**
