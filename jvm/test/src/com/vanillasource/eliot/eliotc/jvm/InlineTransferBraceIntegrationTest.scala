@@ -22,10 +22,12 @@ package com.vanillasource.eliot.eliotc.jvm
   * whose transfer braces sit only on native leaves.
   */
 class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
+  // `withinByte` is a test-local predicate (it deliberately lives only where a test needs it, not in any layer).
   private val prelude =
     """import eliot.effect.Console
-      |import eliot.lang.Interval
-      |import eliot.lang.Numeric
+      |def byteMin: BigInteger = -128
+      |def byteMax: BigInteger = 127
+      |def withinByte(i: Interval[BigInteger]): Bool = lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
       |def useByte(x: Int): Int where withinByte(range(x)) = x
       |def f(a: Int, b: Int): Int {range(a) + range(b)} = a + b
       |""".stripMargin

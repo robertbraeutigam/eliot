@@ -49,11 +49,18 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("TypeMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("Int", ProcessorTest.intStubContent),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    // Registered (loadable) but NOT auto-imported (absent from `defaultSystemModules`): every synthesized
-    // ability-implementation marker's default guard is a module-qualified reference to `eliot.lang.Bool::true`
-    // (ability-guards §2.3), which resolves by FQN without an import but does need the module producible — mirroring
-    // real builds, where `Bool` is always on the layer path.
+    // The rest of the auto-imported `eliot.lang` prelude. Each is a *minimal* default (a type/ability head plus its
+    // single primitive) — enough for auto-import to find the module and resolve the bare type/ability name in every
+    // snippet. Tests that exercise the derived surface (`+`/`-`/`*`, `<`/`min`/`max`, `==`, `some`/`fold`, …) enrich
+    // just those modules via [[ambientStubsWith]], which overrides these defaults.
     SystemImport("Bool", ProcessorTest.boolImportContent),
+    SystemImport("Numeric", ProcessorTest.numericStubContent),
+    SystemImport("Compare", ProcessorTest.compareAbilityStubContent),
+    SystemImport("Eq", ProcessorTest.eqAbilityStubContent),
+    SystemImport("Option", ProcessorTest.optionStubContent),
+    SystemImport("Either", "type Either[E, A]"),
+    SystemImport("Pair", "type Pair[A, B]"),
+    SystemImport("Interval", "type Interval[T]"),
     SystemImport("Console", ProcessorTest.consoleStubContent, ModuleName.effectPackage),
     SystemImport("Log", ProcessorTest.logStubContent, ModuleName.effectPackage),
     SystemImport("Dep", ProcessorTest.depStubContent, ModuleName.effectPackage)
@@ -168,6 +175,21 @@ object ProcessorTest {
   val boolImportContent: String =
     "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool"
 
+  /** Minimal defaults for the rest of the auto-imported `eliot.lang` prelude. Each declares only the type/ability head
+    * and its single primitive — the whole prelude is auto-imported into every module, so these must be self-consistent
+    * (they reference no other prelude name beyond `Bool`, which is itself ambient) and export a small, collision-free
+    * name set. Tests exercising the derived surface override the relevant module via [[ambientStubsWith]] (e.g. the
+    * richer [[compareStubContent]] with `<`/`min`/`max`, or an `Arithmetic`/operator-carrying `Numeric`).
+    */
+  val numericStubContent: String =
+    "ability Numeric[A] { def add(a: A, b: A): A\n def subtract(a: A, b: A): A\n def multiply(a: A, b: A): A }"
+
+  val compareAbilityStubContent: String = "ability Compare[A] { def lessThanOrEqual(a: A, b: A): Bool }"
+
+  val eqAbilityStubContent: String = "ability Eq[A] { def equals(a: A, b: A): Bool }"
+
+  val optionStubContent: String = "type Option[A]\ndef none[A]: Option[A]"
+
   /** The `Compare` ability stub, mirroring the real `eliot.lang.Compare`: `lessThanOrEqual` is the single primitive (its
     * `BigInteger` reduction is supplied by `StdlibNativesProcessor` under the ability-method FQN), `min`/`max` are
     * derived, and `BigInteger` implements it with a body-less method (the native attaches to the implementation). The
@@ -250,11 +272,22 @@ object ProcessorTest {
     */
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: F[X]\n}"
 
-  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int`/`integerLiteral`
-    * as a *local* declaration name (and never write a value-position integer literal) pass this to
-    * `ModuleValueProcessor` so the ambient versions do not shadow their local ones. (Effects like `Console`/`Log`/`Dep`
-    * are no longer ambient — they are import-required from `eliot.effect` — so they need no filtering here.)
+  /** The *legacy* ambient prelude a self-contained checker/monomorphize unit test relies on: value application
+    * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`/`IO`), and the Phase-6 literal desugar's
+    * `Int`/`Runtime`. Production auto-imports the *whole* `eliot.lang` prelude (see `ModuleName.defaultSystemModules`),
+    * but these bespoke tests build the rest of their type world (`Bool`/`Option`/`Either`/`Numeric`/`Compare`/…) inline
+    * or via explicit stubs that would otherwise double-import (shadow) against the full prelude. They therefore pin this
+    * smaller set — exactly the pre-expansion `defaultSystemModules` — so their hand-built environments stand unchanged.
+    * The expanded auto-import is exercised end-to-end by the examples + the jvm `ExamplesIntegrationTest`s.
+    */
+  val coreAmbientModules: Seq[ModuleName] =
+    Seq("Function", "Unit", "String", "BigInteger", "IO", "Int", "Runtime")
+      .map(ModuleName(ModuleName.defaultSystemPackage, _))
+
+  /** [[coreAmbientModules]] minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int`/`integerLiteral` as a
+    * *local* declaration name (and never write a value-position integer literal) pass this to `ModuleValueProcessor` so
+    * the ambient versions do not shadow their local ones.
     */
   val systemModulesWithoutInt: Seq[ModuleName] =
-    ModuleName.defaultSystemModules.filterNot(m => Set("Int", "Runtime").contains(m.name))
+    coreAmbientModules.filterNot(m => Set("Int", "Runtime").contains(m.name))
 }

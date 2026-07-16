@@ -1,5 +1,3 @@
-import eliot.lang.Interval
-
 /**
  * Convert a `BigInteger` literal into the platform's concrete integer value.
  */

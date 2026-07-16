@@ -36,7 +36,6 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.effect.Abort
-        |import eliot.lang.Pair
         |
         |def parsePort(raw: String): {Abort} Int = abort
         |

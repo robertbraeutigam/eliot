@@ -1,5 +1,3 @@
-import eliot.lang.Bool
-
 // The `Eq[Type]` instance. The `Eq` ability itself is declared abstractly in the base layer (`stdlib/.../Eq.els`);
 // this file re-declares it because name resolution is per-file — an `implement Eq` must be colocated with the ability,
 // so the file that hosts the instance must carry its own copy of the declaration, and the layer merge then verifies

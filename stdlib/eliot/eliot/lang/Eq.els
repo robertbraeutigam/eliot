@@ -1,5 +1,3 @@
-import eliot.lang.Bool
-
 /**
  * Equality — the ability that supplies `==` and `!=` for a type `A`.
  *

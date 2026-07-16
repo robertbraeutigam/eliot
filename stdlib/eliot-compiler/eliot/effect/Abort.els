@@ -1,5 +1,4 @@
 import eliot.effect.Effect
-import eliot.lang.Option
 
 // The compile-time `Abort` carrier, the sibling of the runtime jvm `AbortCarrier` (jvm/eliot/eliot/effect/Abort.els).
 // The checker needs it so an `if(cond) Type else raise(msg)` return guard reduces: `if` introduces `{Abort}` over the

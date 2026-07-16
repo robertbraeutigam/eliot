@@ -17,7 +17,10 @@ import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor
 // supplier is the fallback, so the merger reads the right reduction with no ordering.
 class MonomorphicTypeCheckTest
     extends ProcessorTest(
-      (LangProcessors(extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)) :+ StdlibNativesProcessor())*
+      (LangProcessors(
+        systemModules = ProcessorTest.coreAmbientModules,
+        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)
+      ) :+ StdlibNativesProcessor())*
     ) {
 
   // --- Explicit integerLiteral constructor ---
@@ -1019,8 +1022,12 @@ class MonomorphicTypeCheckTest
   // The compile-time `Throw[String]` carrier the discharge reads back (`Right(t)` ⤳ the type `t`, `Left(msg)` ⤳ a
   // rejection). In a real build this is the always-linked compiler-platform `Either` layer; the suite supplies it as a
   // concrete `data Either` so the constructors carry the well-known `eliot.lang.Either.Left`/`Right` FQNs.
+  // Override the ambient `Either` stub (a bare `type Either[E, A]`) with the concrete `data` the guard tests need,
+  // rather than appending a second `Either` entry (which would register `eliot/lang/Either.els` twice).
   private val guardImports: Seq[SystemImport] =
-    intImports :+ SystemImport("Either", "data Either[E, A] = Left(error: E) | Right(value: A)")
+    intImports.map(s =>
+      if (s.module == "Either") s.copy(content = "data Either[E, A] = Left(error: E) | Right(value: A)") else s
+    )
 
   // A guarded `head`: its return type is a `{Throw[String]} Type` computation that yields the payload `String` when the
   // boolean type parameter `COND` is `true` and rejects with "empty" when it is `false`. The condition is a plain `Bool`

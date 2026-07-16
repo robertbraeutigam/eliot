@@ -33,10 +33,11 @@ object ModuleName {
 
   /** The package for the effect surface and its machinery: the abilities a user writes in a `{...}` set
     * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), the sequencing machinery (`Effect`/`Suspend`), and each
-    * effect's carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`). `Console`/`Log`/`Dep` are
-    * auto-imported from here (see [[defaultSystemModules]]); the rest are imported explicitly or resolved by FQN. The
-    * `Effect` ability's FQN is read by [[com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery]]; the
-    * `Console`/`Log`/`Inf` native leaves by the jvm `NativeImplementation`.
+    * effect's carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`). Nothing here is auto-imported —
+    * unlike the `eliot.lang` prelude (see [[defaultSystemModules]]), every effect is import-required or resolved by FQN,
+    * so a file that prints declares `import eliot.effect.Console`. The `Effect` ability's FQN is read by
+    * [[com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery]]; the `Console`/`Log`/`Inf` native leaves by the
+    * jvm `NativeImplementation`.
     */
   val effectPackage = Seq("eliot", "effect")
 
@@ -63,23 +64,30 @@ object ModuleName {
   // TODO: Unit is no longer here, so we shouldn't refer to it...
   // This is used to determine what to automatically import, but this should work differently.
   // NOTE: anything added here is auto-imported into every module, so the test harness must provide a matching stub
-  // (see ProcessorTest's default systemImports). `Int`/`Runtime` are ambient as of the Phase-6 literal desugar: every
-  // value-position integer literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so
-  // `integerLiteral` (Runtime) and `Int` must resolve in every module. Code therefore must NOT import them explicitly
-  // (that would double-import and shadow).
-  // Only the `eliot.lang` prelude (the `java.lang` analogue) is auto-imported. Everything in a domain package —
-  // including every effect in `eliot.effect` (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/…) and the machinery
-  // (`Effect`/`Suspend`) — is import-required: a file that prints declares `import eliot.effect.Console`. The two
-  // Phase-6 ambients `Int`/`Runtime` are here because every value-position integer literal desugars to
-  // `integerLiteral[n] : Int[n, n]`, so they must resolve with no import.
+  // (see ProcessorTest's default systemImports). Anything auto-imported must NOT also be imported explicitly by user
+  // code — that would double-import and shadow ("Imported names shadow other imported names").
+  // The whole `eliot.lang` prelude (the `java.lang` analogue) is auto-imported: every module living directly under the
+  // `eliot.lang` package is ambient in every file. Everything in a domain package — including every effect in
+  // `eliot.effect` (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/…) and the machinery (`Effect`/`Suspend`) — stays
+  // import-required: a file that prints declares `import eliot.effect.Console`. `Int`/`Runtime` are among the prelude
+  // because every value-position integer literal `n` is rewritten to `integerLiteral[n] : Int[n, n]`
+  // (`CoreExpressionConverter`), so they must resolve with no import anyway.
   val defaultSystemModules                 = Seq(
-    "Function",
-    "Unit",
-    "String",
     "BigInteger",
-    "IO",
+    "Bool",
+    "Compare",
+    "Either",
+    "Eq",
+    "Function",
     "Int",
-    "Runtime"
+    "Interval",
+    "IO",
+    "Numeric",
+    "Option",
+    "Pair",
+    "Runtime",
+    "String",
+    "Unit"
   ).map(ModuleName(defaultSystemPackage, _))
   // `PatternMatch`/`TypeMatch` are intentionally NOT here: they are desugaring machinery in the
   // `eliot.compiler.internal` package that user code never names. Compiler-generated `implement` markers reference them

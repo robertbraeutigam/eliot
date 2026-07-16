@@ -1,4 +1,3 @@
-import eliot.lang.Bool
 import eliot.effect.Console
 import eliot.effect.Abort
 

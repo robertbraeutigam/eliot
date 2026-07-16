@@ -1,7 +1,3 @@
-import eliot.lang.Numeric
-import eliot.lang.Compare
-import eliot.lang.Bool
-import eliot.lang.Interval
 import eliot.compiler.Meta
 
 /**

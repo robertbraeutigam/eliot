@@ -23,7 +23,6 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
-        |import eliot.lang.Bool
         |
         |def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"
         |
@@ -36,7 +35,6 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
-        |import eliot.lang.Bool
         |
         |def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"
         |
@@ -63,7 +61,6 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
     """import eliot.effect.Console
       |import eliot.effect.Throw
       |import eliot.effect.Abort
-      |import eliot.lang.Bool
       |
       |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
       |
@@ -95,8 +92,6 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
-        |import eliot.lang.Bool
-        |import eliot.lang.Compare
         |
         |def positive[MIN: BigInteger]: if(MIN > 0, String[]) else raise("must be positive") = "ok"
         |
@@ -109,8 +104,6 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
-        |import eliot.lang.Bool
-        |import eliot.lang.Compare
         |
         |def positive[MIN: BigInteger]: if(MIN > 0, String[]) else raise("must be positive") = "ok"
         |
@@ -123,8 +116,6 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
-        |import eliot.lang.Bool
-        |import eliot.lang.Compare
         |
         |def small[N: BigInteger]: if(N < 10, String[]) else raise("too big") = "ok"
         |

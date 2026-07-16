@@ -1,5 +1,3 @@
-import eliot.lang.Bool
-
 /**
  * Total ordering. `lessThanOrEqual` is the single primitive; every other comparison derives from it by
  * argument swap (`<=`/`>=`), negation (`<`/`>`), or a single fold (`min`/`max`). A platform therefore only

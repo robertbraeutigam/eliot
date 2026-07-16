@@ -37,7 +37,11 @@ import scala.concurrent.duration.*
 // onto `LangProcessors`, with its native label registered so the binding merger consults it.
 class MonomorphizationVersioningTest
     extends ProcessorTest(
-      (LangProcessors(maxNestedRepeats = 8, extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)) :+
+      (LangProcessors(
+        systemModules = ProcessorTest.coreAmbientModules,
+        maxNestedRepeats = 8,
+        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)
+      ) :+
         StdlibNativesProcessor())*
     ) {
 

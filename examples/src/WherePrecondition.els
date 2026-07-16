@@ -1,5 +1,4 @@
 import eliot.effect.Console
-import eliot.lang.Interval
 
 def byteMin: BigInteger = -128
 def byteMax: BigInteger = 127

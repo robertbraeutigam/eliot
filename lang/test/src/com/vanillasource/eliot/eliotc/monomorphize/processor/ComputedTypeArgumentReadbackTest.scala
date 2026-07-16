@@ -28,7 +28,10 @@ import com.vanillasource.eliot.eliotc.used.UsedNames
 // reduce through) onto `LangProcessors` and registers its native label so the binding merger consults it.
 class ComputedTypeArgumentReadbackTest
     extends ProcessorTest(
-      (LangProcessors(extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)) :+ StdlibNativesProcessor())*
+      (LangProcessors(
+        systemModules = ProcessorTest.coreAmbientModules,
+        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)
+      ) :+ StdlibNativesProcessor())*
     ) {
 
   // A reified BigInteger value `bigOf[1]` applied to a literal, used directly as another value's type argument, must

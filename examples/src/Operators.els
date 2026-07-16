@@ -1,8 +1,8 @@
 import eliot.effect.Console
-def main: IO[Unit] = printLine(content(Bool("Hello") | Bool("World") | Bool("!")))
+def main: IO[Unit] = printLine(content(Cell("Hello") | Cell("World") | Cell("!")))
 
-data Bool(content: String)
+data Cell(content: String)
 
 infix left
-def |(lhs: Bool, rhs: Bool): Bool = rhs
+def |(lhs: Cell, rhs: Cell): Cell = rhs
 

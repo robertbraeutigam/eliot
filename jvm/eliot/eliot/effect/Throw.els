@@ -1,7 +1,5 @@
 import eliot.effect.Effect
 import eliot.effect.Suspend
-import eliot.lang.Either
-import eliot.lang.Eq
 
 // Re-declared here so the colocated `ThrowCarrier` instances below can resolve the `Throw` ability — name resolution
 // is per-file, so a sibling layer file's declaration is not in scope. The merge verifies this copy agrees with the

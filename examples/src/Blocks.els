@@ -7,7 +7,6 @@ import eliot.effect.Console
 // hand-written `flatMap` nest.
 
 import eliot.effect.State
-import eliot.lang.Pair
 
 // `swap` reads the current state, installs `next`, and returns the previous value. In block form:
 //   `val old = state`      binds the carried state,

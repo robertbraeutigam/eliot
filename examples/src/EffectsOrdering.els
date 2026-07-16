@@ -2,8 +2,6 @@ import eliot.effect.Console
 import eliot.effect.Effect
 import eliot.effect.State
 import eliot.effect.Abort
-import eliot.lang.Option
-import eliot.lang.Pair
 
 // A pure carrier (the identity monad), so the two discharge orders below are plain values with no I/O.
 data Id[A](runId: A)

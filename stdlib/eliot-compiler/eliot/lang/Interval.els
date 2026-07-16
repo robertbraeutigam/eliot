@@ -1,6 +1,3 @@
-import eliot.lang.Numeric
-import eliot.lang.Compare
-import eliot.lang.Bool
 import eliot.compiler.Meta
 
 data Interval[T](start: T, end: T)

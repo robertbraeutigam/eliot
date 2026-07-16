@@ -1,5 +1,4 @@
 import eliot.effect.Console
-import eliot.lang.Numeric
 /**
  * Integer arithmetic. `Int` is a single type — an integer's value range is meta-information tracked in the compiler's
  * refinement channel, not a type parameter — so `count`, the sum, and the total are all just `Int`.

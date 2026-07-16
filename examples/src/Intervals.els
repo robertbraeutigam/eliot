@@ -1,6 +1,4 @@
 import eliot.effect.Console
-import eliot.lang.Numeric
-import eliot.lang.Interval
 
 def a: Interval[Int] = Interval(0, 1)
 def b: Interval[Int] = Interval(1, 2)

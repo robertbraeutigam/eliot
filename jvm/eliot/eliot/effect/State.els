@@ -1,7 +1,6 @@
 import eliot.effect.Effect
 import eliot.effect.Suspend
 import eliot.effect.Abort
-import eliot.lang.Pair
 
 // Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name
 // resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.

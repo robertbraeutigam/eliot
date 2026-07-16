@@ -78,7 +78,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "run an arithmetic result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |def total: Int = 3 + 4
         |
         |def main: IO[Unit] = printLine(intToString(total))""".stripMargin
@@ -89,7 +88,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "run a bare Int return computed from the body (W3)" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |def double(x: Int): Int = x + x
         |
         |def main: IO[Unit] = printLine(intToString(double(21)))""".stripMargin
@@ -123,7 +121,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "compute a product that overflows 16 bits" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |def product: Int = 1000 * 1000
         |
         |def main: IO[Unit] = printLine(intToString(product))""".stripMargin
@@ -134,7 +131,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "compute the right result across magnitudes in one program" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |def byteSum: Int = 100 + 100
         |def shortDiff: Int = 500 - 300
         |def intProduct: Int = 1000 * 1000
@@ -163,7 +159,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   "generic instantiation" should "run a generic Int function at two call sites" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |def id(x: Int): Int = x
         |def a: Int = 3
         |def b: Int = 5
@@ -175,7 +170,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "run a generic Int function at two very different magnitudes" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |def id(x: Int): Int = x
         |def a: Int = 3
         |def big: Int = 5000000000
@@ -189,13 +183,13 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   "multi-field data" should "extract the first field of a two-field constructor" in {
     compileAndRun(
       """import eliot.effect.Console
-        |data Pair(a: String, b: String)
+        |data Duo(a: String, b: String)
         |
-        |def first(p: Pair): String = p match {
-        |  case Pair(x, y) -> x
+        |def firstOf(p: Duo): String = p match {
+        |  case Duo(x, y) -> x
         |}
         |
-        |def main: IO[Unit] = printLine(first(Pair("hello", "world")))""".stripMargin
+        |def main: IO[Unit] = printLine(firstOf(Duo("hello", "world")))""".stripMargin
     ).asserting(_ shouldBe "hello")
   }
 
@@ -204,13 +198,13 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "extract the second field of a two-field constructor" in {
     compileAndRun(
       """import eliot.effect.Console
-        |data Pair(a: String, b: String)
+        |data Duo(a: String, b: String)
         |
-        |def second(p: Pair): String = p match {
-        |  case Pair(x, y) -> y
+        |def secondOf(p: Duo): String = p match {
+        |  case Duo(x, y) -> y
         |}
         |
-        |def main: IO[Unit] = printLine(second(Pair("hello", "world")))""".stripMargin
+        |def main: IO[Unit] = printLine(secondOf(Duo("hello", "world")))""".stripMargin
     ).asserting(_ shouldBe "world")
   }
 
@@ -247,7 +241,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "match out two integer fields and sum them" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |data IntPair(small: Int, large: Int)
         |
         |def sum(p: IntPair): Int = p match {
@@ -268,13 +261,13 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
       """import eliot.effect.Console
         |data Box[A](item: A)
         |
-        |data Pair[A, B](first: A, second: B)
+        |data Duo[A, B](fst: A, snd: B)
         |
-        |def secondOf[A, B](p: Pair[A, B]): B = p match {
-        |  case Pair(x, y) -> y
+        |def secondOf[A, B](p: Duo[A, B]): B = p match {
+        |  case Duo(x, y) -> y
         |}
         |
-        |def main: IO[Unit] = printLine(secondOf(Pair(Box("boxed"), secondOf(Pair("c", "plain")))))""".stripMargin
+        |def main: IO[Unit] = printLine(secondOf(Duo(Box("boxed"), secondOf(Duo("c", "plain")))))""".stripMargin
     ).asserting(_ shouldBe "plain")
   }
 
@@ -327,7 +320,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   "the Numeric ability" should "add ints across nested calls" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -345,7 +337,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "no longer reject a result that would exceed a former range bound" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -361,7 +352,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "run a generic function over a Numeric constraint" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |
         |def plus[T ~ Numeric[T]](x: T, y: T): T = add(x, y)
         |
@@ -378,7 +368,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "compose generic Numeric functions" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |
         |def plus[T ~ Numeric[T]](x: T, y: T): T = add(x, y)
         |def times[T ~ Numeric[T]](x: T, y: T): T = multiply(x, y)
@@ -396,8 +385,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   "the Interval type" should "add intervals endpoint-wise" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
-        |import eliot.lang.Interval
         |
         |def a: Interval[Int] = Interval(0, 1)
         |def b: Interval[Int] = Interval(1, 2)
@@ -416,8 +403,6 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   it should "subtract and multiply intervals endpoint-wise" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
-        |import eliot.lang.Interval
         |
         |def a: Interval[Int] = Interval(0, 1)
         |def b: Interval[Int] = Interval(1, 2)

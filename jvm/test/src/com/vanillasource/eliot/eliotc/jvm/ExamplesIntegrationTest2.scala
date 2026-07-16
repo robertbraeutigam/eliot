@@ -40,7 +40,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
-        |import eliot.lang.Option
         |
         |def safe: {Abort} String = "config-value"
         |
@@ -55,7 +54,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
-        |import eliot.lang.Option
         |
         |def giveUp: {Abort} String = abort
         |
@@ -71,7 +69,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
-        |import eliot.lang.Option
         |
         |def andThen[A](first: Unit, second: A): A = second
         |
@@ -88,7 +85,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Throw
-        |import eliot.lang.Either
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |
@@ -101,7 +97,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Throw
-        |import eliot.lang.Either
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
@@ -182,10 +177,10 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |
-        |def first: {Throw[String]} String = raise("first failed")
-        |def second(prev: String): {Throw[String]} String = prev
+        |def raiseFirst: {Throw[String]} String = raise("first failed")
+        |def keepSecond(prev: String): {Throw[String]} String = prev
         |
-        |def combined: {Throw[String]} String = second(first)
+        |def combined: {Throw[String]} String = keepSecond(raiseFirst)
         |
         |def main: IO[Unit] = printLine(combined catch (err -> err))""".stripMargin
     ).asserting(_ shouldBe "first failed")
@@ -216,8 +211,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // accessor. Recursive type-argument mangling keeps the two depths distinct.
   "if..else used at two effect-carrier nesting depths" should "not collapse into one mangled JVM method" in {
     compileAndRun(
-      """import eliot.lang.Bool
-        |import eliot.lang.Eq
+      """
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
@@ -235,7 +229,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // runs — both branches are built, the unchosen one is never executed — matching an imperative `if`.
   "if..else with effectful branches" should "run only the selected branch's effect" in {
     compileAndRun(
-      """import eliot.lang.Bool
+      """
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
@@ -267,7 +261,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
-        |import eliot.lang.Option
         |
         |data Id[A](runId: A)
         |
@@ -298,7 +291,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
-        |import eliot.lang.Pair
         |
         |def swap(next: String): {State[String]} String =
         |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
@@ -317,7 +309,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
-        |import eliot.lang.Pair
         |
         |data Id[A](runId: A)
         |
@@ -345,7 +336,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
-        |import eliot.lang.Pair
         |
         |data Id[A](runId: A)
         |
@@ -373,7 +363,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
-        |import eliot.lang.Pair
         |
         |data Id[A](runId: A)
         |
@@ -409,7 +398,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
-        |import eliot.lang.Pair
         |
         |def step: {State[String], Console} String =
         |   flatMap(
@@ -431,8 +419,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     """import eliot.effect.Effect
       |import eliot.effect.State
       |import eliot.effect.Abort
-      |import eliot.lang.Option
-      |import eliot.lang.Pair
       |
       |data Id[A](runId: A)
       |
@@ -545,7 +531,6 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
-        |import eliot.lang.Pair
         |
         |def swap(next: String): {State[String]} String = {
         |  val old = state

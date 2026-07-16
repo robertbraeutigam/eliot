@@ -290,9 +290,9 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |data Database(url: String)
         |data Logger(name: String)
         |
-        |def first: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
+        |def firstDep: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
-        |def main: IO[Unit] = printLine(first.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
+        |def main: IO[Unit] = printLine(firstDep.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
     compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
       .asserting(_ shouldBe "the-db")
   }
@@ -306,11 +306,11 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
         |data Database(url: String)
         |data Logger(name: String)
         |
-        |def second: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
+        |def secondDep: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
         |def pick(a: String, b: String): String = b
         |
-        |def main: IO[Unit] = printLine(second.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
+        |def main: IO[Unit] = printLine(secondDep.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
 }

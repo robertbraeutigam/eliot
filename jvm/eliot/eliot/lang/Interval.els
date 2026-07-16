@@ -1,6 +1,3 @@
-import eliot.lang.Numeric
-import eliot.lang.Compare
-
 data Interval[T](start: T, end: T)
 
 implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {

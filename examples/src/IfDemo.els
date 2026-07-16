@@ -1,5 +1,3 @@
-import eliot.lang.Bool
-import eliot.lang.Eq
 import eliot.effect.Console
 import eliot.effect.Abort
 

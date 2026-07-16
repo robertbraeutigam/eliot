@@ -34,7 +34,6 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
-        |import eliot.lang.Pair
         |
         |def swap(next: String): {State[String]} String = {
         |  val old = state
@@ -164,12 +163,12 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   "operators" should "evaluate infix operators with correct associativity" in {
     compileAndRun(
       """import eliot.effect.Console
-        |def main: IO[Unit] = printLine(content(Bool("Hello") | Bool("World") | Bool("!")))
+        |def main: IO[Unit] = printLine(content(Cell("Hello") | Cell("World") | Cell("!")))
         |
-        |data Bool(content: String)
+        |data Cell(content: String)
         |
         |infix left
-        |def |(lhs: Bool, rhs: Bool): Bool = rhs""".stripMargin
+        |def |(lhs: Cell, rhs: Cell): Cell = rhs""".stripMargin
     ).asserting(_ shouldBe "!")
   }
 
@@ -199,7 +198,6 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   "monomorph check" should "handle dependent type integer arithmetic" in {
     compileAndRun(
       """import eliot.effect.Console
-        |import eliot.lang.Numeric
         |data Box[I: BigInteger](content: String)
         |
         |def someFunction[I: BigInteger](arg: String): Box[I + 1] = Box[3](arg)
@@ -268,7 +266,6 @@ def main: IO[Unit] = printLine(<===>)
   "integer addition" should "compute and print a sum at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-import eliot.lang.Numeric
 def main: IO[Unit] = printLine(intToString(3 + 4))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
@@ -276,7 +273,6 @@ def main: IO[Unit] = printLine(intToString(3 + 4))""".stripMargin
   "integer subtraction" should "compute and print a difference at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-import eliot.lang.Numeric
 def main: IO[Unit] = printLine(intToString(10 - 4))""".stripMargin
     ).asserting(_ shouldBe "6")
   }
@@ -284,7 +280,6 @@ def main: IO[Unit] = printLine(intToString(10 - 4))""".stripMargin
   "integer arithmetic" should "respect operator precedence at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-import eliot.lang.Numeric
 def main: IO[Unit] = printLine(intToString(2 + 3 * 4))""".stripMargin
     ).asserting(_ shouldBe "14")
   }
@@ -292,7 +287,6 @@ def main: IO[Unit] = printLine(intToString(2 + 3 * 4))""".stripMargin
   it should "compute a negative result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-import eliot.lang.Numeric
 def main: IO[Unit] = printLine(intToString(3 - 10))""".stripMargin
     ).asserting(_ shouldBe "-7")
   }
@@ -303,7 +297,6 @@ def main: IO[Unit] = printLine(intToString(3 - 10))""".stripMargin
   it should "carry a byte-operand sum into a wider result representation at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-import eliot.lang.Numeric
 def main: IO[Unit] = printLine(intToString(100 + 100))""".stripMargin
     ).asserting(_ shouldBe "200")
   }
@@ -314,7 +307,6 @@ def main: IO[Unit] = printLine(intToString(100 + 100))""".stripMargin
   it should "narrow a short-operand difference into a byte result at runtime" in {
     compileAndRun(
       """import eliot.effect.Console
-import eliot.lang.Numeric
 def main: IO[Unit] = printLine(intToString(1000 - 999))""".stripMargin
     ).asserting(_ shouldBe "1")
   }

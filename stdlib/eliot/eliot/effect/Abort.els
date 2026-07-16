@@ -1,5 +1,4 @@
 import eliot.effect.Effect
-import eliot.lang.Option
 
 /**
  * The abort effect: a computation that may short-circuit, abandoning the rest of the work.
