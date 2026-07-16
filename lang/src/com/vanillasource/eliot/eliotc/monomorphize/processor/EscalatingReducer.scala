@@ -97,11 +97,21 @@ object EscalatingReducer {
     case other                                                  => Quoter.quote(0, other, metaStore).isLeft
   }
 
-  /** Fetch the *reduced-at-instantiation* binding for each `candidate` value reference not yet escalated (`already`),
-    * with non-empty ground type arguments, and not an ancestor on the active fact-request chain (would dead-lock). Each
-    * fetched form is post-processed by `wrap` (the in-checker read-back wraps in ignore-lambdas to absorb the reference's
-    * type arguments; the [[MonomorphicEvaluator]] path drops type arguments already, so it passes the reduced form
-    * through unchanged). Keyed by FQN; one instantiation per FQN.
+  /** Fetch the *reduced-at-instantiation* binding for each `candidate` value reference not yet escalated (`already`) and
+    * not an ancestor on the active fact-request chain (would dead-lock). Each fetched form is post-processed by `wrap`
+    * (the in-checker read-back wraps in ignore-lambdas to absorb the reference's type arguments; the
+    * [[MonomorphicEvaluator]] path drops type arguments already, so it passes the reduced form through unchanged). Keyed
+    * by FQN; one instantiation per FQN.
+    *
+    * A **monomorphic** callee (empty ground type arguments) is escalated too — `wrap(0, sem) = sem` splices its reduced
+    * body directly. The former `groundArgs.nonEmpty` gate was conservatism inherited from the guard tower (whose
+    * escalation candidates are all carrier-generic, so an empty-arg ref never needed escalation), not a correctness
+    * requirement: a runtime-*concrete* (borrowed-body) monomorphic callee performing ability dispatch — which the
+    * refinement channel's transfers reach — has no `CompilerNativesProcessor` `Leaf` and must be linked at its own
+    * `CompilerMonomorphicValue(fqn, [])`. This is sound: escalation only ever fires on a [[reducibleStuck]] term
+    * (splicing more reduced bodies can make it quote, never change an already-quoting result), a native leaf / `data`
+    * constructor still returns `None` (unchanged), and the `CompilerMonomorphicValue.Key(fqn, [])` ancestor check still
+    * guards cycles.
     */
   def escalate(
       candidates: Seq[(ValueFQN, Seq[GroundValue])],
@@ -111,10 +121,7 @@ object EscalatingReducer {
   ): CompilerIO[Map[ValueFQN, SemValue]] =
     activeFactKeys.flatMap { ancestors =>
       candidates.distinctBy(_._1).foldLeftM(Map.empty[ValueFQN, SemValue]) { case (acc, (fqn, groundArgs)) =>
-        if (
-          already.contains(fqn) || groundArgs.isEmpty ||
-          ancestors.contains(CompilerMonomorphicValue.Key(fqn, groundArgs))
-        )
+        if (already.contains(fqn) || ancestors.contains(CompilerMonomorphicValue.Key(fqn, groundArgs)))
           acc.pure[CompilerIO]
         else
           reduceInstance(fqn, groundArgs).map {

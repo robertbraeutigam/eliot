@@ -128,9 +128,20 @@ function, escalation fetch) and instantiate it twice, so `PostDrainQuoter`'s in-
 it avoids the recorded defaulted-`Type` spurious-resolution gotcha (`ReducedBindingClosure` docstring) by only
 ever monomorphizing what evaluation actually demands.
 
-### Step 2 — close the monomorphic-callee escalation gate
+### Step 2 — close the monomorphic-callee escalation gate — **DONE (2026-07-16)**
 
-`PostDrainQuoter.escalationBindings` only escalates references with **non-empty** ground type args
+Removed the `groundArgs.isEmpty` skip from the shared `EscalatingReducer.escalate` (Step 1 had already moved the gate
+there, so this one-line change benefits both instantiations — the in-checker read-back and the channel executor).
+**Archaeology:** the gate entered in `b104bba6` (signature-unification Phase A), where the escalation loop was built for
+the **guard tower** — whose candidates (`else`/`guardOr`/`catch`) are all carrier-generic, so an empty-arg (monomorphic)
+reference never needed escalation. It was conservatism, not a correctness requirement. Opening it is sound: escalation
+only ever fires on a `reducibleStuck` term (splicing more reduced bodies can make it quote, never change an
+already-quoting result), a native leaf / `data` constructor still returns `None`, `wrap(0, sem) = sem` splices a
+monomorphic reduced body directly, and the `CompilerMonomorphicValue.Key(fqn, [])` ancestor check still guards cycles.
+Verified: full suite green (eliotc 133, lang 233, jvm 283, ide.lsp 383) + **all 34 examples build** end-to-end;
+WherePrecondition runs `100`, Ranges runs `21` (known-good regression outputs).
+
+Original text: `PostDrainQuoter.escalationBindings` only escalates references with **non-empty** ground type args
 (`groundArgs.nonEmpty`, `PostDrainQuoter.scala:218`), so a *monomorphic* stuck callee is never fetched at its
 `CMV(fqn, Seq.empty)`. Runtime-abstract ability-performing monomorphic values are covered by
 `CompilerNativesProcessor`'s reduced `Leaf` contribution, but a runtime-*concrete* (borrowed-body) monomorphic
