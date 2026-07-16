@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.apidoc.build
 
 import com.vanillasource.eliot.eliotc.apidoc.model.{DocItem, DocModule}
 import com.vanillasource.eliot.eliotc.apidoc.render.SignatureRenderer
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, DataDefinition, FunctionDefinition, Visibility}
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, DataDefinition, Expression, FunctionDefinition, Visibility}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 
 /** Builds the presentation [[DocModule]] model from the per-file parsed ASTs, each tagged with the module it belongs to
@@ -32,11 +32,21 @@ object DocModelBuilder {
     build(layerFiles, DocText.fromLayerFiles(layerFiles))
 
   def build(layerFiles: Seq[(ModuleName, String, AST)], docFor: ValueFQN => DocText.Selected): Result = {
-    val implementationsByAbility: Map[String, Seq[(String, FunctionDefinition)]] =
-      layerFiles
-        .flatMap { case (_, layer, ast) =>
-          ast.functionDefinitions.filter(isPublic).flatMap(fn => implMarkerAbility(fn).map(_ -> (layer, fn)))
-        }
+    // Every public `implement` marker across every layer, tagged (layer, abilityName, marker). The same markers feed
+    // two views: grouped by ability they list under the ability page (`implementationsByAbility`), grouped by the
+    // concrete type(s) each pattern targets they list under those type pages (`implementationsByType`) — the same
+    // collapsed "Implementations" block, so a type reads as more than the sum of its (often abstract) declaration.
+    val taggedImplementations: Seq[(String, String, FunctionDefinition)] =
+      layerFiles.flatMap { case (_, layer, ast) =>
+        ast.functionDefinitions.filter(isPublic).flatMap(fn => implMarkerAbility(fn).map(ability => (layer, ability, fn)))
+      }
+
+    val implementationsByAbility: Map[String, Seq[(String, String, FunctionDefinition)]] =
+      taggedImplementations.groupBy(_._2)
+
+    val implementationsByType: Map[String, Seq[(String, String, FunctionDefinition)]] =
+      taggedImplementations
+        .flatMap { case impl @ (_, _, marker) => implementedTypeNames(marker).map(_ -> impl) }
         .groupBy(_._1)
         .view
         .mapValues(_.map(_._2))
@@ -47,7 +57,13 @@ object DocModelBuilder {
       .toSeq
       .sortBy { case (moduleName, _) => (moduleName.packages.mkString("."), moduleName.name) }
       .map { case (moduleName, files) =>
-        buildModule(moduleName, files.map { case (_, layer, ast) => (layer, ast) }, implementationsByAbility, docFor)
+        buildModule(
+          moduleName,
+          files.map { case (_, layer, ast) => (layer, ast) },
+          implementationsByAbility,
+          implementationsByType,
+          docFor
+        )
       }
 
     Result(builtModules.map(_._1), builtModules.flatMap(_._2))
@@ -56,7 +72,8 @@ object DocModelBuilder {
   private def buildModule(
       moduleName: ModuleName,
       files: Seq[(String, AST)],
-      implementationsByAbility: Map[String, Seq[(String, FunctionDefinition)]],
+      implementationsByAbility: Map[String, Seq[(String, String, FunctionDefinition)]],
+      implementationsByType: Map[String, Seq[(String, String, FunctionDefinition)]],
       docFor: ValueFQN => DocText.Selected
   ): (DocModule, Seq[String]) = {
     val taggedFunctions = files.flatMap { case (layer, ast) => ast.functionDefinitions.filter(isPublic).map(layer -> _) }
@@ -67,7 +84,14 @@ object DocModelBuilder {
     val abilityMethods = taggedFunctions.filter(t => abilityMethodOf(t._2).isDefined)
 
     val typeItems = (types.map(_._2.name.value.name) ++ taggedData.map(_._2.name.value)).distinct.sorted.map { name =>
-      buildTypeItem(moduleName, name, types.filter(_._2.name.value.name == name), taggedData.filter(_._2.name.value == name), docFor)
+      buildTypeItem(
+        moduleName,
+        name,
+        types.filter(_._2.name.value.name == name),
+        taggedData.filter(_._2.name.value == name),
+        implementationsByType.getOrElse(name, Seq.empty),
+        docFor
+      )
     }
 
     val abilityItems = taggedFunctions.flatMap(t => abilityMarkerOf(t._2)).distinct.sorted.map { name =>
@@ -113,6 +137,7 @@ object DocModelBuilder {
       name: String,
       typeDecls: Seq[(String, FunctionDefinition)],
       dataDecls: Seq[(String, DataDefinition)],
+      implementations: Seq[(String, String, FunctionDefinition)],
       docFor: ValueFQN => DocText.Selected
   ): (DocItem, Seq[String]) = {
     val concreteTypes    = typeDecls.filter(_._2.body.isDefined)
@@ -139,7 +164,8 @@ object DocModelBuilder {
       doc = selected.doc,
       layers = DocText.sortLayers(typeDecls.map(_._1) ++ dataDecls.map(_._1)),
       implementedOn = DocText.sortLayers(concreteTypes.map(_._1) ++ dataDecls.map(_._1)),
-      members = members
+      members = members,
+      implementations = implementationItems(implementations)
     )
     (item, selected.warnings)
   }
@@ -149,7 +175,7 @@ object DocModelBuilder {
       name: String,
       markers: Seq[(String, FunctionDefinition)],
       methods: Seq[(String, FunctionDefinition)],
-      implementations: Seq[(String, FunctionDefinition)],
+      implementations: Seq[(String, String, FunctionDefinition)],
       docFor: ValueFQN => DocText.Selected
   ): (DocItem, Seq[String]) = {
     val commonParameters = markers.head._2.genericParameters
@@ -167,13 +193,6 @@ object DocModelBuilder {
         (DocItem.Member(signature, selected.doc), selected.warnings)
       }
 
-    val implementationItems = implementations
-      .map { case (layer, marker) => SignatureRenderer.implementation(name, marker) -> layer }
-      .groupBy(_._1)
-      .toSeq
-      .sortBy(_._1)
-      .map { case (signature, group) => DocItem.Implementation(signature, DocText.sortLayers(group.map(_._2)), None) }
-
     val selected = docFor(ValueFQN(moduleName, QualifiedName(name, Qualifier.Ability(name))))
 
     val item = DocItem(
@@ -183,9 +202,38 @@ object DocModelBuilder {
       doc = selected.doc,
       layers = DocText.sortLayers(markers.map(_._1) ++ methods.map(_._1)),
       members = methodMembersWithWarnings.map(_._1),
-      implementations = implementationItems
+      implementations = implementationItems(implementations)
     )
     (item, selected.warnings ++ methodMembersWithWarnings.flatMap(_._2))
+  }
+
+  /** Collapses a set of `(layer, abilityName, marker)` implementations into presentation items: each distinct
+    * `implement Ability[pattern]` signature once, carrying the sorted layers that provide it. Shared by the ability
+    * page (its own implementations) and every type page (the implementations that target that type).
+    */
+  private def implementationItems(
+      implementations: Seq[(String, String, FunctionDefinition)]
+  ): Seq[DocItem.Implementation] =
+    implementations
+      .map { case (layer, ability, marker) => SignatureRenderer.implementation(ability, marker) -> layer }
+      .groupBy(_._1)
+      .toSeq
+      .sortBy(_._1)
+      .map { case (signature, group) => DocItem.Implementation(signature, DocText.sortLayers(group.map(_._2)), None) }
+
+  /** The distinct concrete type names an `implement` marker targets — the head name of each pattern argument, minus the
+    * implementation's own generic parameters. A carrier-generic `implement[F[_] ~ Suspend] Console[F]` targets no
+    * concrete type (its only pattern head is the generic `F`), so it is listed under its ability only, never a type
+    * page. A heterogeneous `implement Arithmetic[Int, BigInteger]` targets both `Int` and `BigInteger`.
+    */
+  private def implementedTypeNames(marker: FunctionDefinition): Seq[String] = {
+    val ownGenerics = marker.genericParameters.map(_.name.value).toSet
+    marker.args.flatMap(arg => headTypeName(arg.typeExpression.value)).filterNot(ownGenerics).distinct
+  }
+
+  private def headTypeName(expr: Expression): Option[String] = expr match {
+    case Expression.FunctionApplication(_, name, _, _) => Some(name.value)
+    case _                                             => None
   }
 
   /** A declaration appears in the docs only if it is `public`; `private` names are module-local and are omitted, mirroring

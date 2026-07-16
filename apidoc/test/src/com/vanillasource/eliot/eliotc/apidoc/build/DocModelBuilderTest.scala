@@ -100,6 +100,62 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
     item.implementations shouldBe Seq(DocItem.Implementation("implement Show[Hello]", Seq("src"), None))
   }
 
+  it should "list a type's ability implementations on its own page, gathered from across modules" in {
+    val bigIntModule = ModuleName(Seq("eliot", "lang"), "BigInteger")
+    val numericModule = ModuleName(Seq("eliot", "lang"), "Numeric")
+    val modules       = DocModelBuilder.build(
+      Seq(
+        (
+          numericModule,
+          "stdlib",
+          ast(functions = Seq(fn("Numeric", Qualifier.Ability("Numeric"), generics = Seq(gp("A")))))
+        ),
+        (
+          bigIntModule,
+          "stdlib",
+          ast(functions =
+            Seq(
+              fn("BigInteger", Qualifier.Type),
+              fn("Numeric", Qualifier.AbilityImplementation("Numeric", "BigInteger"), args = Seq(arg("arg0", ty("BigInteger")))),
+              fn("Compare", Qualifier.AbilityImplementation("Compare", "BigInteger"), args = Seq(arg("arg0", ty("BigInteger"))))
+            )
+          )
+        )
+      )
+    ).modules
+    val item          = moduleNamed(modules, "BigInteger").items.find(_.kind == DocItem.Kind.TypeLike).getOrElse(fail("no type item"))
+
+    item.implementations shouldBe Seq(
+      DocItem.Implementation("implement Compare[BigInteger]", Seq("stdlib"), None),
+      DocItem.Implementation("implement Numeric[BigInteger]", Seq("stdlib"), None)
+    )
+  }
+
+  it should "not list a carrier-generic implementation on any type page" in {
+    val consoleModule = ModuleName(Seq("eliot", "effect"), "Console")
+    val modules       = DocModelBuilder.build(
+      Seq(
+        (
+          consoleModule,
+          "jvm",
+          ast(functions =
+            Seq(
+              fn("Console", Qualifier.Ability("Console"), generics = Seq(gp("F"))),
+              fn(
+                "Console",
+                Qualifier.AbilityImplementation("Console", "F"),
+                generics = Seq(gp("F")),
+                args = Seq(arg("arg0", ty("F")))
+              )
+            )
+          )
+        )
+      )
+    ).modules
+
+    moduleNamed(modules, "Console").items.filter(_.kind == DocItem.Kind.TypeLike) shouldBe Seq.empty
+  }
+
   it should "keep the lowest layer's doc and warn that a higher layer's duplicate doc is ignored" in {
     val m      = ModuleName(Seq("eliot", "lang"), "Function")
     val result = DocModelBuilder.build(
