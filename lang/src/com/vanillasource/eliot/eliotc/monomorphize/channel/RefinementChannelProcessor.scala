@@ -48,10 +48,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * *downstream* of type formation (they flow into checks and codegen, never back into a type), so the channel can run
   * entirely over the checker's output with zero risk to the checker's invariants. See the design doc §3.
   *
-  * The arithmetic is recognised at the platform's native leaves (`eliot.lang.Int::nativeAdd`/`nativeSubtract`/
-  * `nativeMultiply`); a merge is recognised by the callee's `^Meta` companion, never by naming a branch construct
-  * (`docs/generic-refinement-merges.md`). A backend using other leaf names simply gets no narrowing there — a bignum
-  * layout, sound but wide, never wrong.
+  * A transfer and a merge are recognised the *same* way: solely by the callee declaring a `^Meta` companion
+  * (`metaCompanionFqn`), never by naming a native leaf or a branch construct (`docs/generic-refinement-merges.md`).
+  * The companion's body may itself route through ability instances (a transfer's `Numeric[Interval]`, a merge's
+  * `Meta.join`); the post-monomorphize linker-executor ([[EscalatingReducer]]) resolves those through each instance's
+  * own monomorphization, so the former "a transfer must bottom out at natives" restriction is repealed
+  * (`docs/refinement-channel-transfer-reduction.md`). A callee with no `^Meta` companion simply gets no narrowing
+  * there — a bignum layout, sound but wide, never wrong.
   */
 class RefinementChannelProcessor
     extends TransformationProcessor[MonomorphicValue.Key, RefinementTable.Key](key =>

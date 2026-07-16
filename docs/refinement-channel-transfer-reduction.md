@@ -1,6 +1,7 @@
 # The Refinement Channel's Transfer Reduction: Link Monomorphized Callees (the Compiler Platform's Missing `used` Step)
 
-Status: **PLAN (2026-07-16).** Converts the same-day investigation writeup ("why `^Meta` transfers must bottom
+Status: **COMPLETE (2026-07-16).** All six steps landed (§5); the "transfers must bottom out at natives" rule is
+repealed. Converts the same-day investigation writeup ("why `^Meta` transfers must bottom
 out at natives") into a plan that *repeals* that rule. The investigation's evidence is retained (§1–§2); the
 diagnosis is sharpened by the 2026-07-16 architecture review (§3): the "natives only" restriction is not a
 property of the evaluator or of the monomorphizer — it is a **linking bug**. The channel evaluates compile-time
@@ -270,10 +271,20 @@ currently-reachable silent-accept): the compiler-track `def x: BigInteger = <lit
 abstract-ability hardening is defense-in-depth for a path the linker fix makes unreachable — and `reducibleStuck`
 is shared with the in-checker read-back, so changing it risks the checker for no live gain.
 
-### Step 6 — sweep and bump
+### Step 6 — sweep and bump — **DONE (2026-07-16)**
 
-Update the stale rule statements (this doc's referrers, the `eliot-layers`/channel-adjacent comments citing
-"only natives re-fire transitively"), and bump `CACHE_VERSION` (channel results change for previously-⊤ nodes).
+Swept the channel-adjacent comments and bumped `CACHE_VERSION` 28 → 29 (Step 4 makes previously-⊤ nodes narrow,
+so a pre-Step-4 persisted `RefinementTable` would serve stale ⊤ results). The sweep found the natives-only rule
+had already been retired everywhere the payoff touched: the `Int` vessels' comments (`Int.els`), the compiler
+overlay (`Interval.els`) and the `eliot-monomorphize` skill all already describe the unified `^Meta`-companion
+recognition and reference this doc's repeal. The one residual stale statement was `RefinementChannelProcessor`'s
+class doc, which still split recognition into "arithmetic recognised at the platform's native leaves" vs "a merge
+recognised by the `^Meta` companion" — rewritten so both are recognised uniformly by the `^Meta` companion (no leaf
+or branch construct named), with the companion body free to route through ability instances that the
+`EscalatingReducer` resolves. The remaining `native`/`bottom out` references (the `Numeric[BigInteger]` endpoint
+leaves in `StdlibNativesProcessor`/`Int.els`) are the genuine leaf bottom, not the repealed rule, and stay. The
+`eliot-layers` skill carries no transfer/channel content. (Orthogonal, left alone: many files reference a
+`docs/bounds-as-refinements.md` that does not exist — a pre-existing broken-link issue unrelated to this rule.)
 
 ## 6. Non-goals / deferred
 
