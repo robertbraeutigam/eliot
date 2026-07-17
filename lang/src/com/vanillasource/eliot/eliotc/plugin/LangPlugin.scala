@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.file.FileContentReader
-import com.vanillasource.eliot.eliotc.source.scan.{FilesystemMount, PathScanner, SourceMount}
+import com.vanillasource.eliot.eliotc.source.scan.{FilesystemMount, PathScanner, PoolModulesProcessor, SourceMount}
 import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
 import scopt.{OParser, OParserBuilder}
 
@@ -40,6 +40,18 @@ class LangPlugin extends CompilerPlugin {
   )
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] = {
+    // There is a single list of source roots (`pathKey` — the positional `<path>` program plus every `--path` layer).
+    // Both pools are derived from it: every root is a runtime mount, and *for the compiler pool only* each root's
+    // sibling `eliot-compiler/` overlay is added on top. `PathScanner` scans the runtime mounts for a runtime request;
+    // for a compiler request it scans the runtime mounts *and* the overlay mounts, tagging the overlays so the merge
+    // prefers an overlay definition over the platform's (the compiler-as-platform override). So the compiler track sees
+    // the whole runtime track and borrows what no layer overrides, while a layer's own `eliot-compiler/` contribution
+    // wins; user type-level code is checked in both tracks because the program root is in the same list. Roots become
+    // mounts through the (substitutable) factory; plugins may contribute extra runtime mounts — both settled in
+    // configure(), which completes before any initialize.
+    val compilerMounts = allRoots(configuration).map(root => mountFactory(configuration)(eliotCompilerOverlay(root)))
+    val runtimeMounts  = allRoots(configuration).map(mountFactory(configuration)) ++
+      configuration.getOrElse(PathScanner.extraRuntimeMountsKey, Seq.empty)
     StateT
       .modify(superProcessor =>
         SequentialCompilerProcessors(
@@ -49,20 +61,11 @@ class LangPlugin extends CompilerPlugin {
             FileStatProcessor(),
             FileContentReader(),
             SourceContentReader(),
-            // There is a single list of source roots (`pathKey` — the positional `<path>` program plus every `--path`
-            // layer). Both pools are derived from it: every root is a runtime mount, and *for the compiler pool only*
-            // each root's sibling `eliot-compiler/` overlay is added on top. `PathScanner` scans the runtime mounts for a
-            // runtime request; for a compiler request it scans the runtime mounts *and* the overlay mounts, tagging the
-            // overlays so the merge prefers an overlay definition over the platform's (the compiler-as-platform
-            // override). So the compiler track sees the whole runtime track and borrows what no layer overrides, while a
-            // layer's own `eliot-compiler/` contribution wins; user type-level code is checked in both tracks because the
-            // program root is in the same list. Roots become mounts through the (substitutable) factory; plugins may
-            // contribute extra runtime mounts — both settled in configure(), which completes before any initialize.
-            PathScanner(
-              allRoots(configuration).map(root => mountFactory(configuration)(eliotCompilerOverlay(root))),
-              allRoots(configuration).map(mountFactory(configuration)) ++
-                configuration.getOrElse(PathScanner.extraRuntimeMountsKey, Seq.empty)
-            )
+            PathScanner(compilerMounts, runtimeMounts),
+            // The whole-pool module enumeration behind the `namedValues` reflection. Mount-dependent, so — like
+            // `PathScanner` — it lives here rather than in the mount-free `LangProcessors` list; it is only demanded
+            // when a body actually reflects.
+            PoolModulesProcessor(compilerMounts, runtimeMounts)
           ) ++ LangProcessors(extraNativeBindingLabels =
             // The native-binding merger built inside LangProcessors must consult every native contributor that other
             // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before

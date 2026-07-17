@@ -19,5 +19,9 @@ final class SyntheticMainMount extends SourceMount {
   override def resolve(path: Path): CompilerIO[Option[URI]] =
     Option.when(path == SyntheticMainSourceProcessor.sourcePath)(SyntheticMainSourceProcessor.sourceUri).pure[CompilerIO]
 
+  /** The single synthesized module this mount serves. */
+  override def enumerate: CompilerIO[Seq[Path]] =
+    Seq(SyntheticMainSourceProcessor.sourcePath).pure[CompilerIO]
+
   override def toString: String = s"SyntheticMainMount(${SyntheticMainSourceProcessor.sourceUri})"
 }

@@ -17,6 +17,17 @@ case class ModuleName(packages: Seq[String], name: String) {
 }
 
 object ModuleName {
+
+  /** The inverse of [[ModuleName.toPath]]: reads a module-relative `.els` source path (e.g. `eliot/lang/String.els`)
+    * back into the module it names (`eliot.lang.String`). Used by
+    * [[com.vanillasource.eliot.eliotc.source.scan.PoolModulesProcessor]] to turn a mount's enumerated file paths into
+    * module names.
+    */
+  def fromPath(path: Path): ModuleName = {
+    val segments = (0 until path.getNameCount).map(path.getName(_).toString)
+    ModuleName(segments.init, segments.last.stripSuffix(".els"))
+  }
+
   def fromImportStatement(importStatement: ImportStatement): ModuleName =
     ModuleName(importStatement.packageNames.map(_.value), importStatement.moduleName.value)
 

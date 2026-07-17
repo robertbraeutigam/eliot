@@ -20,6 +20,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor
+import com.vanillasource.eliot.eliotc.namedvalues.processor.{NamedValuesIndexProcessor, NamedValuesRewriteProcessor}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   BindingMergerProcessor,
@@ -87,6 +88,8 @@ object LangProcessors {
     BlockDesugaringProcessor(),
     MatchDesugaringProcessor(),
     OperatorResolverProcessor(),
+    NamedValuesIndexProcessor(),
+    NamedValuesRewriteProcessor(),
     RecursionCheckProcessor(),
     EffectCheckProcessor(),
     EffectDischargeSummaryProcessor(),

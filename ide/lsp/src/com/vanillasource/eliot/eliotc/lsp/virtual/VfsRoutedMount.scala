@@ -27,5 +27,11 @@ final class VfsRoutedMount(root: Path) extends SourceMount {
     }
   }
 
+  /** Enumerates the on-disk tree under `root` (the saved files), reusing the plain filesystem walk. A never-saved new
+    * buffer that exists only as an editor overlay is not listed — an LSP-only completeness edge, harmless because the
+    * whole-pool enumeration serves the compiler's `namedValues` reflection, which the language server does not run.
+    */
+  override def enumerate: CompilerIO[Seq[Path]] = filesystem.enumerate
+
   override def toString: String = s"VfsRoutedMount($root)"
 }
