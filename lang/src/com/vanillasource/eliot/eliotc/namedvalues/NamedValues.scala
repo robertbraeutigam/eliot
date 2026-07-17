@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   *     `java.util.List` (immutable by contract).
   */
 object NamedValues {
-  val reflectModule: ModuleName = ModuleName(Seq("eliot", "lang"), "Reflect")
+  val reflectModule: ModuleName = ModuleName(ModuleName.compilerPackage, "Reflect")
 
   val namedValuesFQN: ValueFQN =
     ValueFQN(reflectModule, QualifiedName("namedValues", Qualifier.Default))

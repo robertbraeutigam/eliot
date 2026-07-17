@@ -1,0 +1,4 @@
+/**
+ * A third plugin, in its own module, registering another `contribution`. See [[PluginRegistry]].
+ */
+def contribution: Int = 30

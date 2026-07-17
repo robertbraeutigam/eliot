@@ -1,0 +1,6 @@
+/**
+ * A plugin module. It registers a value into the program's `contribution` registry simply by declaring one under that
+ * name — no central list edits, no imports from the registry. [[PluginRegistry]] gathers every `contribution` across
+ * the program at compile time with `namedValues`.
+ */
+def contribution: Int = 10

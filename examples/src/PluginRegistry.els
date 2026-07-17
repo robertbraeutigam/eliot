@@ -1,0 +1,19 @@
+import eliot.effect.Console
+import eliot.collection.List
+import eliot.compiler.Reflect
+
+/**
+ * Gathers every `contribution` declared anywhere in the program — here `PluginA`, `PluginB` and `PluginC`, each in its
+ * own module — with compile-time reflection, and sums them.
+ *
+ * `namedValues[Int]("contribution")` reifies to the list of all top-level values named `contribution`, so adding a new
+ * plugin module with its own `def contribution: Int` extends the total with no change here. Prints `60`.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m PluginRegistry
+ * java -jar target/PluginRegistry.jar
+ * ```
+ */
+def total: Int = foldLeft(namedValues[Int]("contribution"), 0, e -> acc -> add(e, acc))
+
+def main: IO[Unit] = printLine(show(total))

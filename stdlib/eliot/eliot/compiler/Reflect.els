@@ -1,0 +1,22 @@
+import eliot.collection.List
+
+/**
+ * Compile-time reflection over the top-level values of a program.
+ *
+ * `namedValues[V](name)` reifies, at compile time, to the list of **every top-level value named `name`** in the
+ * program's source pool — across all modules — as a `List[V]`. It is the building block for registries and instance
+ * tables gathered from many modules without a central list anyone must remember to edit: each module simply declares a
+ * value under the agreed name, and the collection finds it.
+ *
+ * ```eliot
+ * // Each plugin module declares `def contribution: Int = ...`; this gathers them all.
+ * def total: Int = foldLeft(namedValues[Int]("contribution"), 0, e -> acc -> add(e, acc))
+ * ```
+ *
+ * `name` must be a literal `String` — it drives a compile-time rewrite, so a computed name is a hard error rather than
+ * an empty list. `V` is not a filter but a *claim*: the collection asserts each gathered value has type `V`, and the
+ * ordinary type checker enforces it, so a same-named value that is not a `V` is a compile error pointing at the call.
+ * The result is ordered deterministically (by the values' qualified names). A nullary `def` matches; a value that takes
+ * arguments has a function type, not `V`, so it is naturally excluded.
+ */
+def namedValues[V](name: String): List[V]
