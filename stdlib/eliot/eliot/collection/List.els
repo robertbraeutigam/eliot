@@ -1,0 +1,33 @@
+/**
+ * An immutable, ordered sequence of `A` values.
+ *
+ * `List` is abstract in the base layer — it commits to no representation. A platform provides one: the JVM layer maps
+ * it to a native `java.util.List` (so lists pass to and from Java library methods directly), immutable by contract —
+ * `append` builds a fresh list and there is no mutator in this API.
+ *
+ * Build with `empty` and `append`, consume with `fold`:
+ *
+ * ```eliot
+ * def digits: List[Int] = append(append(append(empty, 1), 2), 3)
+ * def total(list: List[Int]): Int = foldLeft(list, 0, e -> acc -> add(e, acc))
+ * ```
+ */
+type List[A]
+
+/**
+ * The empty list.
+ */
+def empty[A]: List[A]
+
+/**
+ * A new list holding every element of `list` followed by `element`. `list` itself is unchanged.
+ */
+def append[A](list: List[A], element: A): List[A]
+
+/**
+ * Reduce `list` to a single value: starting from `initial`, combine each element into the accumulator from front to
+ * back — `foldLeft(append(append(empty, a), b), z, combine)` is `combine(b)(combine(a)(z))`.
+ *
+ * `combine` is curried: it takes an element, then the accumulator, and yields the next accumulator.
+ */
+def foldLeft[A, B](list: List[A], initial: B, combine: Function[A, Function[B, B]]): B

@@ -19,8 +19,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 /** The `namedValues` reflection rewrite (Option A — a syntactic residual-expression transformation, sufficient because
   * `namedValues` is only used in *runtime* position). It recognises every applied `namedValues[V](name)` in a value's
   * operator-resolved runtime body and replaces it with the fully-resolved builder chain
-  * `prepend(ref(fqn₁), prepend(ref(fqn₂), … empty[V]))` over the sorted [[NamedValuesIndex]] entries, carrying the
-  * call's `[V]` type argument onto `prepend`/`empty` so the checker enforces the element-type claim by definitional
+  * `append(append(empty[V], ref(fqn₁)), ref(fqn₂))` over the sorted [[NamedValuesIndex]] entries, carrying the
+  * call's `[V]` type argument onto `append`/`empty` so the checker enforces the element-type claim by definitional
   * equality.
   *
   * Placed after `OperatorResolverProcessor` (FQNs and application structure are final) and before
@@ -88,12 +88,13 @@ class NamedValuesRewriteProcessor
       compilerError(name.as(s"Could not enumerate values named '${name.value}' in the source pool."))
     ).map { index =>
       // The whole chain is attributed to the call's `name` position, so a downstream element-type-claim mismatch points
-      // at the `namedValues(...)` call rather than at synthesized code.
+      // at the `namedValues(...)` call rather than at synthesized code. Built front-to-back with `append`, so the list
+      // order is the index's canonical FQN order.
       val empty: OperatorResolvedExpression = ValueReference(name.as(NamedValues.listEmptyFQN), typeArgs)
-      index.fqns.foldRight(empty) { (fqn, tail) =>
-        val head    = ValueReference(name.as(fqn))
-        val prepend = ValueReference(name.as(NamedValues.listPrependFQN), typeArgs)
-        FunctionApplication(name.as(FunctionApplication(name.as(prepend), name.as(head))), name.as(tail))
+      index.fqns.foldLeft(empty) { (acc, fqn) =>
+        val element = ValueReference(name.as(fqn))
+        val append  = ValueReference(name.as(NamedValues.listAppendFQN), typeArgs)
+        FunctionApplication(name.as(FunctionApplication(name.as(append), name.as(acc))), name.as(element))
       }
     }
 }

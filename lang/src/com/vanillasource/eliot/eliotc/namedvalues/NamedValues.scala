@@ -6,9 +6,9 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   *
   *   - [[namedValuesFQN]] is the intrinsic itself (`def namedValues[V](name: String): List[V]`), an abstract body-less
   *     signature the rewrite replaces at every applied call site, so it never needs a native implementation.
-  *   - [[listEmptyFQN]] / [[listPrependFQN]] are the `List` builders the emitted chain targets
-  *     (`prepend(ref₁, prepend(ref₂, … empty))`). `List` itself is a separate prerequisite (`eliot.collection`); the
-  *     rewrite only names its builders, so `namedValues` can be exercised at the fact level before `List` lands.
+  *   - [[listEmptyFQN]] / [[listAppendFQN]] are the `eliot.collection.List` builders the emitted chain targets
+  *     (`append(append(empty, ref₁), ref₂)`, front-to-back). `List` is represented on the JVM as a native
+  *     `java.util.List` (immutable by contract).
   */
 object NamedValues {
   val reflectModule: ModuleName = ModuleName(Seq("eliot", "lang"), "Reflect")
@@ -21,6 +21,6 @@ object NamedValues {
   val listEmptyFQN: ValueFQN =
     ValueFQN(listModule, QualifiedName("empty", Qualifier.Default))
 
-  val listPrependFQN: ValueFQN =
-    ValueFQN(listModule, QualifiedName("prepend", Qualifier.Default))
+  val listAppendFQN: ValueFQN =
+    ValueFQN(listModule, QualifiedName("append", Qualifier.Default))
 }

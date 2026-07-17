@@ -649,11 +649,19 @@ object ExpressionCodeGenerator {
       uncurriedMaybe            <- getFactIfProduced(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, directArgs.length)).liftToTypes
       resultClasses             <- uncurriedMaybe match
                           case Some(uncurriedValue) =>
-                            val returnType = valueType(uncurriedValue.returnType)
-                            val methodName =
+                            // A generic native (e.g. `eliot.collection.List::append`) is emitted once, erased. The
+                            // front-end monomorphizes generics per element type, so a call site would otherwise link to a
+                            // per-instantiation mangled method (`append$Int`) that is never emitted; instead every
+                            // instantiation resolves to that one method by its plain name + erased signature (the
+                            // erased `Object` return is downcast to the concrete type below, as for any generic return).
+                            val genericNativeSig = NativeImplementation.genericNativeSignatures.get(calledVfqn)
+                            val returnType       =
+                              genericNativeSig.map(_.returnType).getOrElse(valueType(uncurriedValue.returnType))
+                            val methodName       =
                               if (
-                                DataClassGenerator
-                                  .isConstructor(calledVfqn) || DataClassGenerator.isTypeConstructor(calledVfqn)
+                                genericNativeSig.isDefined ||
+                                DataClassGenerator.isConstructor(calledVfqn) ||
+                                DataClassGenerator.isTypeConstructor(calledVfqn)
                               )
                                 calledVfqn.name.name
                               else
@@ -667,7 +675,9 @@ object ExpressionCodeGenerator {
                                   getFactOrAbort(OperatorResolvedValue.Key(calledVfqn)).liftToTypes
                                     .map(DataClassGenerator.erasePolymorphicFields(_, uncurriedValue.parameters))
                                 else uncurriedValue.parameters.pure[CompilationTypesIO]
-                              parameterTypes = parameters.map(p => valueType(p.parameterType))
+                              parameterTypes = genericNativeSig
+                                                 .map(_.parameterTypes)
+                                                 .getOrElse(parameters.map(p => valueType(p.parameterType)))
                               // Each direct argument crosses a parameter boundary, which the refinement channel treats as
                               // ⊤ — a bignum (`docs/bounds-as-refinements.md` §7 Q4, "⊤ at parameter/return boundaries").
                               // So a channel-narrowed integer argument is widened back to a bignum before the call.

@@ -15,6 +15,12 @@ object NativeType {
   def systemLangType(typeName: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, typeName), QualifiedName(typeName, Qualifier.Default))
 
+  /** A type in the `eliot.collection` package (e.g. `List`), whose runtime representation is a native JVM collection
+    * rather than an Eliot `data` type — so Eliot values interoperate with the JDK/Java libraries directly.
+    */
+  def systemCollectionType(typeName: String): ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "collection"), typeName), QualifiedName(typeName, Qualifier.Default))
+
   // JVM representation types live in the jvm-layer `eliot.lang.Int` module (see jvm `Int.els`, alongside the opaque
   // `Int` body that selects among them), so unlike `systemLangType` the module name is fixed (`Int`) and only the
   // value name varies. `Qualifier.Default` matches the qualifier that type FQNs carry by the time they reach this map
@@ -39,6 +45,10 @@ object NativeType {
       (systemLangType("Unit"), eliot_lang_Unit),
       (systemLangType("Any"), eliot_lang_Any),
       (systemLangType("BigInteger"), eliot_lang_BigInteger),
+      // `eliot.collection.List` is represented as a native `java.util.List` (not an Eliot `data` type), so lists pass to
+      // and from Java library methods directly. It is immutable by contract: the `empty`/`append` natives build fresh
+      // lists and the Eliot API exposes no mutators.
+      (systemCollectionType("List"), eliot_collection_List),
       // The fixed set of JVM representation types `Int[MIN, MAX]` can lower to (see jvm `Int.els`). These five entries
       // are the entire backend "type knowledge" of integer widths; all width *policy* (which range picks which) lives
       // in Eliot's opaque `Int` body (Phase 2) and the unfold pass (Phase 3).
@@ -141,5 +151,9 @@ object NativeType {
 
   private def eliot_lang_Function: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[java.util.function.Function[?, ?]]
+  }
+
+  private def eliot_collection_List: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.util.List[?]]
   }
 }

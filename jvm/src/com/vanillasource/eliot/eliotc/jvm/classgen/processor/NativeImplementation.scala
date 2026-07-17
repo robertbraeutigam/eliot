@@ -4,11 +4,11 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Visibility
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangType
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemCollectionType, systemLangType}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemFunctionValue, systemUnitValue}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValue, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import org.objectweb.asm.{Label, Opcodes}
 
@@ -33,9 +33,33 @@ object NativeImplementation {
       (systemEffectValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
       (systemEffectValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
       (systemEffectValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
-      (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit)
+      (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit),
+      (collectionValueFQN("List", "empty"), eliot_collection_List_empty),
+      (collectionValueFQN("List", "append"), eliot_collection_List_append),
+      (collectionValueFQN("List", "foldLeft"), eliot_collection_List_foldLeft)
     )
   )
+
+  /** The erased JVM signature (all type-parameter positions collapsed to `Any`/`Object`, `List[A]` to `java.util.List`)
+    * a *generic* native is emitted with and, crucially, *called through*. A generic operation is monomorphized per
+    * element type by the front-end, so its call sites would otherwise link to per-instantiation mangled methods
+    * (`append$Int`, `append$String`); instead these ops are emitted once, erased, and every call site resolves to that
+    * single method by the plain name + this signature (see [[ExpressionCodeGenerator]]). One source of truth: the same
+    * signature builds the method (definition) and the `INVOKESTATIC` descriptor (call).
+    */
+  case class GenericNativeSignature(parameterTypes: Seq[ValueFQN], returnType: ValueFQN)
+
+  private val listType: ValueFQN = systemCollectionType("List")
+
+  val genericNativeSignatures: Map[ValueFQN, GenericNativeSignature] = Map(
+    collectionValueFQN("List", "empty")  -> GenericNativeSignature(Seq.empty, listType),
+    collectionValueFQN("List", "append") -> GenericNativeSignature(Seq(listType, systemAnyValue), listType),
+    collectionValueFQN("List", "foldLeft") ->
+      GenericNativeSignature(Seq(listType, systemAnyValue, systemFunctionValue), systemAnyValue)
+  )
+
+  private def collectionValueFQN(moduleName: String, valueName: String): ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "collection"), moduleName), QualifiedName(valueName, Qualifier.Default))
 
   /** Natives attached *directly* to an ability-implementation method, rather than to a plain `Default`-qualified leaf
     * keyed in [[implementations]]. An impl method's FQN carries a per-module index assigned during resolution, so it
@@ -133,6 +157,123 @@ object NativeImplementation {
             )
           }
         }
+  }
+
+  /** `empty[A]: List[A]` — a fresh empty list. A new `ArrayList` (mutated only by `append`, which always copies, so
+    * every list Eliot hands out is used immutably).
+    */
+  private def eliot_collection_List_empty: NativeImplementation = new NativeImplementation {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
+      val sig = genericNativeSignatures(collectionValueFQN("List", "empty"))
+      classGenerator
+        .createMethod[CompilerIO](JvmIdentifier("empty"), sig.parameterTypes, sig.returnType)
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            methodVisitor.visitTypeInsn(Opcodes.NEW, "java/util/ArrayList")
+            methodVisitor.visitInsn(Opcodes.DUP)
+            methodVisitor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/util/ArrayList", "<init>", "()V", false)
+          }
+        }
+    }
+  }
+
+  /** `append[A](list: List[A], element: A): List[A]` — a new list = `list` with `element` at the end. Copies `list`
+    * into a fresh `ArrayList` (so the input is never mutated — value semantics), appends, and returns it. O(n) per call;
+    * the interim construction cost is accepted until a uniqueness optimization can build in place.
+    */
+  private def eliot_collection_List_append: NativeImplementation = new NativeImplementation {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
+      val sig = genericNativeSignatures(collectionValueFQN("List", "append"))
+      classGenerator
+        .createMethod[CompilerIO](JvmIdentifier("append"), sig.parameterTypes, sig.returnType)
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            methodVisitor.visitTypeInsn(Opcodes.NEW, "java/util/ArrayList")
+            methodVisitor.visitInsn(Opcodes.DUP)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)                                // the source list
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKESPECIAL,
+              "java/util/ArrayList",
+              "<init>",
+              "(Ljava/util/Collection;)V",
+              false
+            )
+            methodVisitor.visitInsn(Opcodes.DUP)                                        // keep the copy to return
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 1)                                // the element
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/util/ArrayList",
+              "add",
+              "(Ljava/lang/Object;)Z",
+              false
+            )
+            methodVisitor.visitInsn(Opcodes.POP)                                        // discard the boolean
+          }
+        }
+    }
+  }
+
+  /** `fold[A, B](list: List[A], initial: B, combine: A -> B -> B): B` — a left fold, front to back:
+    * `acc = initial; for (e in list) acc = combine(e)(acc)`. The curried `combine` is a `java.util.function.Function`
+    * returning a `Function`. Only touches JDK interfaces (`List`/`Iterator`/`Function`), so the erased body serves every
+    * instantiation.
+    */
+  private def eliot_collection_List_foldLeft: NativeImplementation = new NativeImplementation {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
+      val sig = genericNativeSignatures(collectionValueFQN("List", "foldLeft"))
+      classGenerator
+        .createMethod[CompilerIO](JvmIdentifier("foldLeft"), sig.parameterTypes, sig.returnType)
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            val loop = new Label()
+            val done = new Label()
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 1)                                // initial
+            methodVisitor.visitVarInsn(Opcodes.ASTORE, 3)                               // acc = initial
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)                                // list
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEINTERFACE,
+              "java/util/List",
+              "iterator",
+              "()Ljava/util/Iterator;",
+              true
+            )
+            methodVisitor.visitVarInsn(Opcodes.ASTORE, 4)                               // it = list.iterator()
+            methodVisitor.visitLabel(loop)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 4)
+            methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, "java/util/Iterator", "hasNext", "()Z", true)
+            methodVisitor.visitJumpInsn(Opcodes.IFEQ, done)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 2)                                // combine
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 4)
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEINTERFACE,
+              "java/util/Iterator",
+              "next",
+              "()Ljava/lang/Object;",
+              true
+            )
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEINTERFACE,
+              "java/util/function/Function",
+              "apply",
+              "(Ljava/lang/Object;)Ljava/lang/Object;",
+              true
+            )                                                                          // combine.apply(element)
+            methodVisitor.visitTypeInsn(Opcodes.CHECKCAST, "java/util/function/Function")
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 3)                                // acc
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEINTERFACE,
+              "java/util/function/Function",
+              "apply",
+              "(Ljava/lang/Object;)Ljava/lang/Object;",
+              true
+            )                                                                          // .apply(acc)
+            methodVisitor.visitVarInsn(Opcodes.ASTORE, 3)                               // acc = newAcc
+            methodVisitor.visitJumpInsn(Opcodes.GOTO, loop)
+            methodVisitor.visitLabel(done)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 3)                                // return acc
+          }
+        }
+    }
   }
 
   private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {

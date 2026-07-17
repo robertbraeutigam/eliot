@@ -28,12 +28,12 @@ class NamedValuesRewriteProcessorTest extends ProcessorTest(NamedValuesRewritePr
   private def namedValuesCall(nameArg: OperatorResolvedExpression): OperatorResolvedExpression =
     FunctionApplication(sourced(ref(NamedValues.namedValuesFQN, Seq(typeArg))), sourced(nameArg))
 
-  /** The chain the rewrite is expected to emit: `prepend[Test](fqn₁, prepend[Test](fqn₂, … empty[Test]))`. */
+  /** The chain the rewrite is expected to emit: `append[Test](append[Test](… empty[Test], fqn₁), fqn₂)`. */
   private def expectedChain(fqns: Seq[ValueFQN]): OperatorResolvedExpression =
-    fqns.foldRight(ref(NamedValues.listEmptyFQN, Seq(typeArg))) { (fqn, tail) =>
+    fqns.foldLeft(ref(NamedValues.listEmptyFQN, Seq(typeArg))) { (acc, fqn) =>
       FunctionApplication(
-        sourced(FunctionApplication(sourced(ref(NamedValues.listPrependFQN, Seq(typeArg))), sourced(ref(fqn)))),
-        sourced(tail)
+        sourced(FunctionApplication(sourced(ref(NamedValues.listAppendFQN, Seq(typeArg))), sourced(acc))),
+        sourced(ref(fqn))
       )
     }
 
