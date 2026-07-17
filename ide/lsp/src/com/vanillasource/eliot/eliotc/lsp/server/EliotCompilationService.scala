@@ -119,9 +119,10 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
       rootsRef.get.filter(file.startsWith).maxByOption(_.getNameCount)
     } catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => None }
 
-  /** All Eliot source roots the latest [[startWorkspace]] discovered (layer/library roots + application roots). The one
-    * containing a given `main` is its build root; the rest are the dependency roots the "Run main" build must put on the
-    * path (since none of them is bundled). Empty until the first workspace is started.
+  /** All runtime source roots the latest [[startWorkspace]] used — listed in `eliot.paths` ([[WorkspacePaths]]) or, in
+    * its absence, recovered by [[SourceRootDiscovery]] (layer/library roots + application roots). The one containing a
+    * given `main` is its build root; the rest are the dependency roots the "Run main" build must put on the path (since
+    * none of them is bundled). Empty until the first workspace is started.
     */
   def sourceRoots: Seq[Path] = rootsRef.get
 
@@ -129,26 +130,35 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     * compile.
     *
     * The abstract base, the standard library and the platform layers are *not* bundled with the server; they are
-    * ordinary dependencies that arrive on the path alongside the user's own code — the editor's workspace folders today,
-    * downloaded packages once a build system exists. An editor hands over the *project folder*, not the source roots
-    * within it, so [[SourceRootDiscovery]] recovers the actual roots (the `eliot/` layer roots and the `.els`-bearing
-    * application roots) beneath it. Every discovered root feeds the runtime pool via `LangPlugin.pathKey`, and its
-    * `eliot-compiler/` sibling the compile-time pool (added by `LangPlugin`). The whole-workspace driver ([[LspPlugin]])
-    * recognises library modules by their reserved `eliot.*` package and leaves them undiagnosed.
+    * ordinary dependencies that arrive on the path alongside the user's own code — downloaded packages once a build
+    * system exists. Until then the roots are found in one of two ways. If a workspace root holds an `eliot.paths` file
+    * ([[WorkspacePaths]]), that file is *authoritative*: it lists every runtime root (the project's own sources — no
+    * assumed `src/` — plus the layer `eliot/` roots) and, separately, every explicit compile-time overlay root, so a
+    * project can sit directly under `src/` with no `eliot-compiler/` sibling to derive. Otherwise [[SourceRootDiscovery]]
+    * recovers the roots by convention from the folder the editor handed over (the `eliot/` layer roots and `.els`-bearing
+    * application roots beneath it) — the case that keeps opening the compiler repo itself working.
+    *
+    * The runtime roots feed the runtime pool via `LangPlugin.pathKey` (each also contributing its derived
+    * `eliot-compiler/` sibling to the compile-time pool); any explicit overlay roots feed it via
+    * `LangPlugin.compilerPathKey`. The whole-workspace driver ([[LspPlugin]]) recognises library modules by their
+    * reserved `eliot.*` package and leaves them undiagnosed, so listing a dependency root does not diagnose it.
     */
   def startWorkspace(workspaceRoots: Seq[Path]): Unit = {
-    val roots         = SourceRootDiscovery.discover(workspaceRoots)
-    rootsRef.set(roots)
+    val configured    = WorkspacePaths.load(workspaceRoots)
+    val runtimeRoots  = configured.map(_.runtimeRoots).getOrElse(SourceRootDiscovery.discover(workspaceRoots))
+    val compilerRoots = configured.map(_.compilerRoots).getOrElse(Seq.empty)
+    rootsRef.set(runtimeRoots)
     val lspPlugin     = LspPlugin(vfs)
     val configuration = Configuration()
       .set(Compiler.targetPathKey, workspaceRoots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
-      .set(LangPlugin.pathKey, roots)
+      .set(LangPlugin.pathKey, runtimeRoots)
+      .set(LangPlugin.compilerPathKey, compilerRoots)
     val started       = (for {
       session <- CompilationSession.create(
                    lspPlugin,
                    Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
                    configuration,
-                   roots.map(_.toString).toList
+                   (runtimeRoots ++ compilerRoots).map(_.toString).toList
                  )
       handle  <- CompilationServer.start(session, publishResult).allocated
     } yield handle).unsafeRunSync()(using runtime)

@@ -5,7 +5,13 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
-import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{allRoots, eliotCompilerOverlay, mountFactory, pathKey}
+import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
+  allRoots,
+  compilerRoots,
+  eliotCompilerOverlay,
+  mountFactory,
+  pathKey
+}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
@@ -49,8 +55,14 @@ class LangPlugin extends CompilerPlugin {
     // wins; user type-level code is checked in both tracks because the program root is in the same list. Roots become
     // mounts through the (substitutable) factory; plugins may contribute extra runtime mounts — both settled in
     // configure(), which completes before any initialize.
-    val compilerMounts = allRoots(configuration).map(root => mountFactory(configuration)(eliotCompilerOverlay(root)))
-    val runtimeMounts  = allRoots(configuration).map(mountFactory(configuration)) ++
+    //
+    // A tool that drives the compiler programmatically (the LSP) may additionally set `compilerPathKey` with
+    // compile-time overlay roots listed *explicitly* — for a layout whose overlay is not the `eliot-compiler/` sibling
+    // of a runtime root, so the sibling derivation cannot find it. Those roots are added to the compiler pool on top of
+    // the derived siblings (deduplicated). The CLI never sets this key, so `eliotc` stays fully `--path`-parameterised.
+    val compilerRootPaths = (allRoots(configuration).map(eliotCompilerOverlay) ++ compilerRoots(configuration)).distinct
+    val compilerMounts    = compilerRootPaths.map(mountFactory(configuration))
+    val runtimeMounts     = allRoots(configuration).map(mountFactory(configuration)) ++
       configuration.getOrElse(PathScanner.extraRuntimeMountsKey, Seq.empty)
     StateT
       .modify(superProcessor =>
@@ -86,6 +98,17 @@ object LangPlugin {
 
   /** All configured source roots, in order. */
   def allRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(pathKey, Seq.empty)
+
+  /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
+    * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly
+    * like a derived `eliot-compiler/` sibling ([[eliotCompilerOverlay]]). This is the escape hatch for a project layout
+    * whose overlay is not that sibling (e.g. a Mill-style tree with sources directly under `src/`), where the derivation
+    * finds nothing. Empty for the CLI, which keeps deriving siblings from its `--path` runtime roots only.
+    */
+  val compilerPathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("compilerPaths")
+
+  /** All explicit compile-time overlay roots, in order (see [[compilerPathKey]]). */
+  def compilerRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(compilerPathKey, Seq.empty)
 
   /** A root's **compile-time overlay**: the sibling directory `eliot-compiler/` beside its `eliot/` source root. This
     * is a layer's opt-in compiler-platform contribution; it is scanned only for the compiler pool, where it
