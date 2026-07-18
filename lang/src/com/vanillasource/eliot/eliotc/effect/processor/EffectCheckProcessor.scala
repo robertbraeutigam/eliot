@@ -20,12 +20,15 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   *
   *   - the **declared-effects subset check** ([[DeclaredEffectChecker]]): a `{E...}`-carrier body must declare every
   *     user-facing effect it performs — which is also what propagates `Inf` to callers;
-  *   - the **"declared pure but result is effectful" fail-safe**: a value with a nullary/pure return (`Unit`, `String`)
-  *     whose body is nevertheless carrier-headed is rejected here with a friendly message rather than a raw
-  *     monomorphization mismatch. The message is **discharge-aware** ([[purelyDeclaredMessage]], Step 6): a genuinely
-  *     undischarged effect is reported as "performs an effect", a *fully discharged* result (its residual still rides a
-  *     carrier — discharge-to-a-pure-value has no Identity carrier) as "result rides an effect carrier", never
-  *     mislabelling the latter as performing an effect.
+  *   - the **"declared pure but result is effectful" fail-safe** ([[purelyDeclaredMessage]]): a value with a
+  *     nullary/pure return (`Unit`, `String`) whose body performs a *genuine, undischarged* effect, or whose residual
+  *     result rides a *caller-chosen ambient* carrier, is rejected here with a friendly message rather than a raw
+  *     monomorphization mismatch. A *fully discharged* residual on a value with no ambient carrier is **not** an error
+  *     anymore: it proceeds to the checker, whose pure-boundary Id defaulting
+  *     ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.tryIdDefault]]) solves the residual carrier to
+  *     the identity carrier `Id` and unwraps it with `runId` — so `def sign(f: Bool): String = if(f, "+") else "-"`
+  *     compiles. A residual that cannot resolve at `Id` (a mismatching payload) still hard-errors at monomorphization
+  *     — deferred, never silent.
   *
   * Both are fed by one [[EffectUsageCollector]] walk (the accounting half of the former desugarer). The body passes
   * through untransformed; a value failing a check never produces its [[EffectCheckedValue]], so it never reaches
@@ -84,22 +87,28 @@ class EffectCheckProcessor
     for {
       usage <- collector.collect(context.inner, context.env, context.carrierEffects)
       _     <- effectChecker.verify(value, carrier, usage.usedEffects)
-      _     <- if (usage.effectful && !canHostEffects) compilerError(value.name.as(purelyDeclaredMessage(usage)))
+      _     <- if (usage.effectful && !canHostEffects && (usage.usedEffects.nonEmpty || carrier.nonEmpty))
+                 compilerError(value.name.as(purelyDeclaredMessage(usage)))
                else ().pure[CompilerIO]
     } yield ()
   }
 
-  /** The "declared pure but result is effectful" message, made **discharge-aware** (discharge-aware effect accounting,
-    * Step 6). Both cases are hard errors — a nullary/pure return cannot host a carrier-headed result, and neither
-    * monomorphizes (discharge-to-a-pure-value has no Identity carrier) — but the wording must be honest:
+  /** The "declared pure but result is effectful" message, **discharge- and Id-aware** (Step 6, updated by the
+    * Id-carrier work). The check fires for an effectful result under a pure return only when the checker's
+    * pure-boundary Id defaulting could never legitimize it:
     *
     *   - a body performing a *genuine, undischarged* effect (`usedEffects` non-empty — `printLine(readLine)` under a
     *     `String` return) is told it performs one; whereas
-    *   - a body whose effects are *fully discharged* yet whose result still rides the residual carrier (`usedEffects`
-    *     empty — a discharged `if(f,"A") else "B"` returned as a bare `String`, or a bare `pure` wrap) must **not** be
-    *     mislabelled as performing an effect; it is told its result rides a carrier the pure return cannot be.
+    *   - a value with an *ambient carrier binder* (a `{E...}`-typed parameter — a handler like
+    *     `def getOr(x: {Abort} String, d: String): String = x else d`) whose residual result rides that caller-chosen
+    *     carrier is told its result rides a carrier the pure return cannot be: the carrier is fixed by each caller, so
+    *     it can never default to `Id`, and letting it through would only trade this friendly definition-site error for
+    *     an opaque quote error at the use site.
     *
-    * The actionable fix is the same in both: return an effect carrier (`IO[...]`) or declare a `{ ... }` set.
+    * A fully-discharged residual on a value with NO ambient carrier (`usedEffects` empty, no carrier binder — a
+    * discharged `if(f,"A") else "B"` under a bare `String` return) is deliberately not an error: the checker's Id
+    * defaulting ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.tryIdDefault]]) solves the residual
+    * carrier to the identity carrier and unwraps it with `runId`.
     */
   private def purelyDeclaredMessage(usage: EffectUsageCollector.Usage): String =
     if (usage.usedEffects.nonEmpty)

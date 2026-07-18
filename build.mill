@@ -60,7 +60,7 @@ object `package` extends Module {
      // The abstract base (lang + stdlib) and the jvm target layer are passed as ordinary filesystem source roots — each
      // layer module's `eliot/` source root (its `eliotSource` task) — via the single repeatable `--path`. Each `--path`
      // root serves the runtime pool directly and, for the compile-time pool, contributes its sibling `eliot-compiler/`
-     // overlay (per-layer, opt-in; only `stdlib` ships one today). So there is no separate compiler path and no monolithic
+     // overlay (per-layer, opt-in; `stdlib` and `lang` ship one today). So there is no separate compiler path and no monolithic
      // compiler module: the compiler platform is assembled from each layer's own `eliot-compiler/` contribution, borrowing
      // the rest of the runtime track. The user's positional `<path>` (their program) folds into the same `--path` pool.
      // Referencing the modules' `eliotSource()` tasks (rather than string-building from the workspace root) hands the build
@@ -121,9 +121,9 @@ object `package` extends Module {
      * A layer *may* also ship a sibling `eliot-compiler/` root: its **compile-time (compiler platform) contribution**,
      * the redefinitions/instances the NbE type checker uses that its runtime `eliot/` sources can't express (a `data`
      * carrier reaching a bytecode leaf, a checking-only ability instance). The compiler pool scans the whole runtime
-     * track *plus* each root's `eliot-compiler/` sibling (override-preferred); only `stdlib` ships one today (`Either`,
-     * `Option`, the guard combinators). The `--path <root>/eliot` argument carries both — the sibling is derived from it
-     * at runtime — so no separate compiler path or compiler module is needed.
+     * track *plus* each root's `eliot-compiler/` sibling (override-preferred); `stdlib` ships one (`Either`, `Option`,
+     * the guard combinators), and so does `lang` (the compile-time `Id` carrier). The `--path <root>/eliot` argument
+     * carries both — the sibling is derived from it at runtime — so no separate compiler path or compiler module is needed.
      */
    trait EliotLayerModule extends DefaultScalaModule {
      def eliotSource: T[PathRef] = Task.Source("eliot")

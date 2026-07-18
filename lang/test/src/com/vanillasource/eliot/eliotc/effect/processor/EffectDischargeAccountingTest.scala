@@ -178,20 +178,18 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
   }
 
   // ── Fail-safe reconciliation (Step 6) ───────────────────────────────────────────────────────────────────────────
-  // The "declared pure but result is effectful" fail-safe is discharge-aware. A genuinely undischarged effect keeps the
+  // The "declared pure but performs effects" fail-safe is discharge-aware. A genuinely undischarged effect keeps the
   // "performs an effect" wording (pinned in EffectCheckProcessorTest / MonomorphicTypeCheckTest); a *fully discharged*
-  // body whose residual result still rides a carrier under a pure return must NOT be mislabelled as performing an
-  // effect — it still errors (discharge-to-a-pure-value has no Identity carrier), with an honest message instead.
+  // body whose residual result still rides a carrier under a pure return is NOT an effect-phase error at all — it
+  // proceeds to the checker, whose pure-boundary Id defaulting solves the residual carrier to the identity carrier
+  // `Id` and unwraps it with `runId` (`EffectLifter.tryIdDefault`; end-to-end coverage in the jvm
+  // `ExamplesIntegrationTest` pure-`if..else` cases). A residual that cannot resolve at `Id` still hard-errors at
+  // monomorphization — deferred, never silent.
 
-  "fail-safe reconciliation (Step 6)" should "not mislabel a fully-discharged pure-return body as performing an effect" in {
+  "fail-safe reconciliation (Step 6)" should "accept a fully-discharged pure-return body (the checker Id-defaults it)" in {
     runEffectCheckErrors(
       "import eliot.effect.Discharge\ndef demo: String = discharge(emit)"
-    ).asserting(
-      _.map(_.message) should contain(
-        "This value's result rides an effect carrier but its declared return type is pure; return an effect carrier " +
-          "such as IO[...] instead."
-      )
-    )
+    ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "still flag a genuinely undischarged effect under a pure return as performing an effect" in {

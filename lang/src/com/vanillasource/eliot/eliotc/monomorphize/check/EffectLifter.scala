@@ -21,8 +21,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * [[mustPureWrapBeforeUnify]] pre-arms consult them first), and both verify their elaboration by *speculative*
   * unification (payload against expected), committing only on success. The bind-lift arm is consulted only from
   * argument-position resolution (the spine slots and the immediately-applied-lambda `let` rule), never from a return
-  * boundary — stripping a carrier at a return boundary would silently drop the effect, so those remain hard
-  * mismatches.
+  * boundary — stripping a carrier at a return boundary would silently drop the effect. A return boundary instead gets
+  * the [[tryIdDefault]] arm: a *still-flex* residual carrier there defaults to the identity carrier `Id` (sound
+  * because `Id` has no `Suspend` instance — see the method doc); anything else remains a hard mismatch.
   *
   * What counts as an effect carrier (the head of `C[T']` after forcing):
   *   - a metavariable whose [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]
@@ -57,6 +58,11 @@ class EffectLifter(
     doUnify: (SemValue, SemValue, Sourced[String]) => CheckIO[Unit]
 ) {
   import EffectLifter.*
+
+  /** The identity carrier `Id`, in the same canonical [[VTopDef]] form the compiler track pins `Either` carriers with
+    * — the value [[tryIdDefault]] solves a pure boundary's still-flex residual carrier to.
+    */
+  private val idCarrier: SemValue = VTopDef(WellKnownTypes.idFQN, None, Spine.SNil)
 
   /** Split a type into its effect-carrier head and payload — `Some((C, T'))` iff the forced type is `C[T']` for an
     * effect carrier `C` (a role-flagged instantiation meta head, or a head in [[CheckState.ambientCarriers]]) applied
@@ -218,6 +224,58 @@ class EffectLifter(
                                 }
             } yield result
         }
+    }
+
+  /** The pure-boundary Id-defaulting arm (return boundaries and the pushed-down `let` expectation only — never an
+    * argument slot, where the bind-lift arm propagates the carrier to the enclosing context instead): an actual
+    * `?G[T']` headed by a *bare, still-flex* effect-carrier metavariable meeting a rigid pure expectation is the
+    * doomed-postponement shape ([[mustLiftBeforeUnify]]) — pattern unification can never solve it (`λa.a` and
+    * `λ_.T'` both satisfy it), and before this arm existed it committed the exact mismatch. When the payload `T'`
+    * *speculatively unifies* with the expectation (committed only on success), the carrier is instead solved to the
+    * identity carrier `Id` and the term wrapped in `runId`, so a fully-discharged body (`if(c,"a") else "b"`) meets a
+    * pure declared return directly.
+    *
+    * Soundness rests on `Id` having no `Suspend` instance: every genuinely side-effecting native enters carriers
+    * through `Suspend`, so a body whose carrier can resolve at `Id` provably went through pure control effects only
+    * (`Abort`/`Throw`/`State`), and `runId` is a total, effect-free projection — unlike stripping a real carrier,
+    * nothing is dropped. A carrier that picked up a non-`Id`-implementable ability constraint fails loudly at
+    * `resolve-abilities` (no `Suspend[Id]`/`Console[Id]` instance exists), never silently. Returns [[None]] when the
+    * actual is not headed by a bare flex carrier meta or the payload does not fit — the caller then commits the
+    * ordinary mismatch.
+    */
+  def tryIdDefault(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      actual: SemValue,
+      expected: SemValue
+  ): CheckIO[Option[SemExpression]] =
+    effectCarrierSplit(actual).flatMap {
+      case Some((carrier @ VMeta(_, Spine.SNil), payload)) =>
+        for {
+          forcedExpected <- force(expected)
+          state          <- get
+          result         <- state.unifier.tryUnify(payload, forcedExpected, tm.as("Type mismatch.")) match {
+                              case UnifyResult.Unified(unified) =>
+                                for {
+                                  _ <- modify(_.withUnifier(unified))
+                                  _ <- doUnify(carrier, idCarrier, tm.as("Pure-boundary carrier `Id`."))
+                                } yield {
+                                  val runIdRef = SemExpression(
+                                    VPi(Evaluator.applyValue(idCarrier, forcedExpected), _ => forcedExpected),
+                                    SemExpression
+                                      .ValueReference(tm.as(WellKnownTypes.runIdFQN), Seq(forcedExpected))
+                                  )
+                                  Some(
+                                    SemExpression(
+                                      forcedExpected,
+                                      SemExpression.FunctionApplication(tm.as(runIdRef), tm.as(expr))
+                                    )
+                                  )
+                                }
+                              case UnifyResult.Contradiction(_) => pure(None)
+                            }
+        } yield result
+      case _                                               => pure(None)
     }
 
   /** Fold the recorded binds around the spine core, innermost last-bind-first: the bind nearest the core selects the

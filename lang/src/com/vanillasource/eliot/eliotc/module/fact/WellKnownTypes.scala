@@ -55,6 +55,24 @@ object WellKnownTypes {
   val boolTrueFQN: ValueFQN  = ValueFQN(boolModule, QualifiedName("true", Qualifier.Default))
   val boolFalseFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("false", Qualifier.Default))
 
+  private val idModule: ModuleName = ModuleName(defaultSystemPackage, "Id")
+
+  /** The identity carrier `Id[A]` — the carrier that realizes the *empty* effect row. Abstract in the lang layer's
+    * own `eliot/` root (`type Id[A]` — beside `Bool`/`Option`, since the compiler references it by fixed FQN),
+    * concrete per platform (`data Id[A](runId: A)` in the jvm layer and lang's `eliot-compiler/` overlay). The
+    * checker's pure-boundary defaulting ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.tryIdDefault]])
+    * solves a fully-discharged body's still-flex residual carrier to this type, so `if..else` and the other dischargers
+    * work in a pure function. Deliberately has NO `Suspend` instance: a genuinely side-effecting native can never
+    * instantiate at `Id`, so only pure control effects (`Abort`/`Throw`/`State`) ever run on it.
+    */
+  val idFQN: ValueFQN = ValueFQN(idModule, QualifiedName("Id", Qualifier.Type))
+
+  /** `runId[A](obj: Id[A]): A` — the total, pure projection out of [[idFQN]] (a plain `data` field accessor at
+    * runtime). The checker inserts it at a pure return boundary after solving the residual carrier to `Id`; unlike
+    * running any real carrier, unwrapping `Id` performs nothing, so the insertion never drops an effect.
+    */
+  val runIdFQN: ValueFQN = ValueFQN(idModule, QualifiedName("runId", Qualifier.Default))
+
   private val eitherModule: ModuleName = ModuleName(defaultSystemPackage, "Either")
 
   /** The `Either[E, A]` type constructor — the discharge carrier of the `Throw[E]` effect (`runThrow` reflects a

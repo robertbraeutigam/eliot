@@ -1,0 +1,17 @@
+import eliot.effect.Effect
+
+data Id[A](runId: A)
+
+/**
+ * The compile-time identity carrier: the self-sufficient copy the NbE checker reduces through when a compile-time
+ * body's fully-discharged residual carrier defaults to `Id` at a pure boundary. Structurally identical to the jvm
+ * runtime `Id`; kept in the compiler overlay so a layer never depends on a sibling runtime target for it. As on the
+ * runtime side, deliberately NO `Suspend[Id]` instance exists.
+ */
+implement Effect[Id] {
+   def pure[A](a: A): Id[A] = Id(a)
+
+   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
+
+   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
+}
