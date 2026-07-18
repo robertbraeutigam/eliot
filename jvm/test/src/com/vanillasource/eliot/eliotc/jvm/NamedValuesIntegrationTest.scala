@@ -31,7 +31,8 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
     Map(
       "Test" ->
         (registryPrelude + extra +
-          """def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
+          """import eliot.jvm.IO
+def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
             |def main: IO[Unit] = printLine(show(total))""".stripMargin)
     )
 
@@ -54,7 +55,8 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
       Map(
         "Test" ->
           (registryPrelude +
-            """def total: Int = namedValues[Int]("noSuchName").foldLeft(0, e -> acc -> add(e, acc))
+            """import eliot.jvm.IO
+def total: Int = namedValues[Int]("noSuchName").foldLeft(0, e -> acc -> add(e, acc))
               |def main: IO[Unit] = printLine(show(total))""".stripMargin)
       )
     ).asserting(_ shouldBe "0")
@@ -65,7 +67,8 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
       Map(
         "Test" ->
           (registryPrelude +
-            """def dynamicName: String = "contribution"
+            """import eliot.jvm.IO
+def dynamicName: String = "contribution"
               |def total: Int = namedValues[Int](dynamicName).foldLeft(0, e -> acc -> add(e, acc))
               |def main: IO[Unit] = printLine(show(total))""".stripMargin)
       )

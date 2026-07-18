@@ -26,7 +26,7 @@ class CarrierBookkeepingTest
   import CarrierBookkeepingTest.*
 
   private val ioFQN               =
-    ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "IO"), QualifiedName("IO", Qualifier.Type))
+    ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("IO", Qualifier.Type))
   private val ioType: GroundValue = GroundValue.Structure(ioFQN, Seq.empty, GroundValue.Type)
 
   private val consoleValue = "import eliot.effect.Console\ndef echo: {Console} Unit = printLine(\"x\")"

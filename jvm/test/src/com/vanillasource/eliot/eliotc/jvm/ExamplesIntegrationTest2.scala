@@ -14,7 +14,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     // identities) whose patterns unify, so the definition-time overlap lint rejects the pair. (Two *identical*
     // `Display[Database]` would instead be the same identity and collide as a duplicate name.)
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |ability Display[A] {
         |   def display(a: A): String
@@ -37,7 +38,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // discharge edge, not in the `{Abort} String` signature. `main` pins the residual carrier `G := IO`.
   "the Abort effect" should "discharge a completed computation to Some via runAbort" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
         |
@@ -51,7 +53,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // carrier is refined to `AbortCarrier[G]` by partial-application injectivity at the `runAbort` call.
   it should "discharge an aborted computation to None via runAbort" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
         |
@@ -66,7 +69,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // `None`. Proves the constrained-HKT instance + base-Suspend-lift path end to end.
   "a {Console, Abort} program" should "run Console through the AbortCarrier[IO] stack via the Suspend lift, then short-circuit" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
         |
@@ -82,7 +86,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // structural-discharge pattern generalises to a two-type-parameter effect and a two-constructor result.
   "the Throw effect" should "discharge a completed computation to Right via runThrow" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Throw
         |
@@ -94,7 +99,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
 
   it should "discharge a failed computation to Left, carrying the typed error" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Throw
         |
@@ -110,7 +116,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // adjacency-sensitive call parser keeps separate from a call.
   it should "discharge-and-recover in one step via a single import and infix catch" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
@@ -131,7 +138,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // outer `NetError` catch recovers to its reason. This is the `examples/src/EffectsTwoThrows.els` probe end to end.
   "two distinct Throw error types in one row" should "compile via the guarded self-lift and catch each by its type" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |data NetError(netReason: String)
@@ -152,7 +160,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     // by the second catch — exercising the lift routing a *foreign* error inward (off the diagonal) and then its own
     // native discharge.
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |data NetError(netReason: String)
@@ -174,7 +183,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // implementations" ambiguity — and the single `catch` recovers the raised error.
   "two same-typed throws composed on one carrier" should "resolve to the native instance (the lift declines)" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def raiseFirst: {Throw[String]} String = raise("first failed")
@@ -190,7 +200,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`AbortCarrier` named.
   "the Abort effect's else" should "discharge-and-default in one step via a single import and infix else" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def safe: {Abort} String = "config-value"
@@ -212,6 +223,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   "if..else used at two effect-carrier nesting depths" should "not collapse into one mangled JVM method" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
@@ -230,6 +242,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   "if..else with effectful branches" should "run only the selected branch's effect" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
@@ -246,7 +259,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // `else if` chain, a block `val` holding the discharged branch, and a genuinely runtime condition (from stdin).
   "if..else in a pure function" should "discharge to the Id carrier and unwrap automatically" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def sign(flag: Bool): String = if(flag, "+") else "-"
@@ -276,7 +290,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // the defaulting can never smuggle real I/O.
   "catch and runStateToPair in a pure function" should "discharge to pure values via the Id carrier" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.State
         |
@@ -297,7 +312,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // degenerately unified `F[A] := String` and miscompiled to a runtime VerifyError.
   "a pure value into a generic effect-carrier parameter" should "auto-lift via pure" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |def echo[F[_] ~ Effect, A](value: F[A]): F[A] = value
@@ -311,7 +327,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // print the already-computed pure results.
   "a carrier-polymorphic {Abort} program" should "run under a pure Id test carrier with no IO and discharge to Option" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.Abort
         |
@@ -341,7 +358,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
   "the State effect" should "thread state through a {State} computation and discharge to a Pair via runStateToPair" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
         |
@@ -359,7 +377,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `state`/`putState`).
   "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
         |
@@ -386,7 +405,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // final state is "after".
   "the projecting State discharges" should "keep only the value, or only the final state" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
         |
@@ -413,7 +433,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // from `Off` the final state is `On`.
   "the derived updateState" should "read the state, apply the function, and write the result back" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
         |
@@ -448,7 +469,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
   "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Suspend lift" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
         |
@@ -492,7 +514,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   "ordering at the discharge edge" should "let state survive an abort when State is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
-        """import eliot.effect.Console
+        """import eliot.jvm.IO
+import eliot.effect.Console
           |def stateSurvives: Pair[Option[String], String] =
           |   runId(runStateToPair(runAbort(modifyThenAbort), "initial"))
           |
@@ -508,7 +531,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   it should "discard state on an abort when Abort is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
-        """import eliot.effect.Console
+        """import eliot.jvm.IO
+import eliot.effect.Console
           |def stateDiscarded: Option[Pair[String, String]] =
           |   runId(runAbort(runStateToPair(modifyThenAbort, "initial")))
           |
@@ -522,7 +546,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // with a discarded binder, so the steps are sequenced through the carrier automatically, in order.
   "a block of statements" should "sequence effectful steps in order" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def main: IO[Unit] = {
         |  printLine("first")
         |  printLine("second")
@@ -535,7 +560,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // block lowers to `flatMap(line -> printLine(line), readLine)`.
   "a val binding an effectful result" should "bind the carried value and use it" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def echo: {Console} Unit = {
         |  val line = readLine
         |  printLine(line)
@@ -550,7 +576,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // lambda `let` form: the block lowers to `(msg -> …)(greeting)`, with `greeting` a pure value, not a carried action.
   "a non-effectful val binding" should "bind a plain value usable multiple times" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def greeting: String = "Hi"
         |
         |def main: IO[Unit] = {
@@ -565,7 +592,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // effectful one threads through `flatMap` — both in the same lowered tower.
   it should "interleave a pure binding with an effectful one" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def main: IO[Unit] = {
         |  val label = "echo:"
         |  val line = readLine
@@ -581,7 +609,8 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   // effectful statement; `old` is the result expression.
   "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
         |

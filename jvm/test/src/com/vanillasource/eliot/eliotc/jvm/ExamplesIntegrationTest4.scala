@@ -13,7 +13,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // value, across magnitudes.
   "plain integers" should "carry a literal at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def widened: Int = 7
         |
         |def main: IO[Unit] = printLine(show(widened))""".stripMargin
@@ -24,7 +25,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     // `Counter`'s bare `Int` field generalizes the type to `Counter[lo, hi]`; the accessor `n` (a match under the hood)
     // recovers the field. Exercises construct + accessor + handleCases end-to-end at runtime.
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Counter(n: Int)
         |
         |def main: IO[Unit] = printLine(show(n(Counter(42))))""".stripMargin
@@ -33,7 +35,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
 
   it should "round-trip a record field through an explicit match (W2)" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Counter(n: Int)
         |
         |def field(c: Counter): Int = c match { case Counter(x) -> x }
@@ -46,7 +49,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
     // `First -> 5` and `Second -> 15` meet at a runtime-chosen `Int` result. (Before the flip the arms had distinct
     // singleton types `Int[5, 5]`/`Int[15, 15]` joined to `Int[5, 15]`; now they are all plain `Int`.)
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Choice = First | Second
         |
         |def choose(c: Choice): Int = c match {
@@ -63,7 +67,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // force the Type namespace (a bare `Counter` is the value constructor `Int -> Counter`).
   it should "type-level match over a record (W2 follow-up)" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Counter(n: Int)
         |
         |def describe(t: Type): String = t match {
@@ -77,7 +82,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
 
   it should "run an arithmetic result at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def total: Int = 3 + 4
         |
         |def main: IO[Unit] = printLine(show(total))""".stripMargin
@@ -87,7 +93,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // W3: a bare `Int` return. `double(x) = x + x` returns a plain `Int`; the caller runs it.
   it should "run a bare Int return computed from the body (W3)" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def double(x: Int): Int = x + x
         |
         |def main: IO[Unit] = printLine(show(double(21)))""".stripMargin
@@ -96,7 +103,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
 
   it should "calculate a bare data return from the body and run it (W3)" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Counter(n: Int)
         |
         |def mk(v: Int): Counter = Counter(v)
@@ -111,7 +119,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // analysis; until then these assert only the runtime value.)
   "integer arithmetic" should "carry a value beyond 16 bits" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def big: Int = 70000
         |
         |def main: IO[Unit] = printLine(show(big))""".stripMargin
@@ -120,7 +129,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
 
   it should "compute a product that overflows 16 bits" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def product: Int = 1000 * 1000
         |
         |def main: IO[Unit] = printLine(show(product))""".stripMargin
@@ -130,7 +140,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // One program doing add/subtract/multiply over operands of very different magnitudes, all as plain `Int`.
   it should "compute the right result across magnitudes in one program" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def byteSum: Int = 100 + 100
         |def shortDiff: Int = 500 - 300
         |def intProduct: Int = 1000 * 1000
@@ -147,7 +158,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
 
   it should "carry a value beyond 32 bits" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def huge: Int = 5000000000
         |
         |def main: IO[Unit] = printLine(show(huge))""".stripMargin
@@ -158,7 +170,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // dispatch to the same monomorphized method.
   "generic instantiation" should "run a generic Int function at two call sites" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def id(x: Int): Int = x
         |def a: Int = 3
         |def b: Int = 5
@@ -169,7 +182,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
 
   it should "run a generic Int function at two very different magnitudes" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def id(x: Int): Int = x
         |def a: Int = 3
         |def big: Int = 5000000000
@@ -182,7 +196,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // backend lowers into nested single-argument closures. Extracting the *first* field exercises the outer closure.
   "multi-field data" should "extract the first field of a two-field constructor" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Duo(a: String, b: String)
         |
         |def firstOf(p: Duo): String = p match {
@@ -197,7 +212,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // across the peeled frames.
   it should "extract the second field of a two-field constructor" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Duo(a: String, b: String)
         |
         |def secondOf(p: Duo): String = p match {
@@ -212,7 +228,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // levels of nesting resolve their parameters correctly.
   it should "extract the middle field of a three-field constructor" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Triple(a: String, b: String, c: String)
         |
         |def middle(t: Triple): String = t match {
@@ -228,7 +245,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // closure class would declare the field `s` twice — a `ClassFormatError: Duplicate field name` at load time.
   it should "generate a closure that captures the same variable twice" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def firstOf(a: String, b: String): String = a
         |
         |def make(s: String): Function[Unit, String] = ignore -> firstOf(s, s)
@@ -240,7 +258,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // A two-field `Int` round-trip: matching the fields out and summing them, over the peeled closures.
   it should "match out two integer fields and sum them" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data IntPair(small: Int, large: Int)
         |
         |def sum(p: IntPair): Int = p match {
@@ -258,7 +277,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // `NoSuchMethodError`). This is the generic-multi-field codegen bug that previously blocked two-field generic data.
   it should "construct and match a generic two-field constructor at two distinct instantiations" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Box[A](item: A)
         |
         |data Duo[A, B](fst: A, snd: B)
@@ -277,7 +297,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // through the auto-generated single-constructor field accessor (`value`), i.e. the pattern-match codegen path.
   it should "construct and access a generic constructor mixing a concrete and a polymorphic field" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Tagged[A](tag: String, value: A)
         |
         |def main: IO[Unit] = printLine(value(value(Tagged("outer", Tagged("inner", "deep")))))""".stripMargin
@@ -291,7 +312,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // (constructor name = type name) always coincided and were never affected.
   it should "construct and match a single-constructor union whose constructor name differs from the type" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Color = Red
         |
         |def name(c: Color): String = c match {
@@ -307,7 +329,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // auto-generated `item` accessor.
   it should "construct and access a generic single-constructor union whose constructor name differs from the type" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Box[A] = Wrap(item: A)
         |
         |def main: IO[Unit] = printLine(item(Wrap("wrapped")))""".stripMargin
@@ -319,7 +342,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // Nested calls to the same ability method resolve independently: `add(a, add(b, c))`.
   "the Numeric ability" should "add ints across nested calls" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -336,7 +360,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // contracts / `where` clauses land — bounds-as-refinements Step 8.) A once-rejected `add` now runs.
   it should "no longer reject a result that would exceed a former range bound" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def a: Int = 30
         |def b: Int = 20
@@ -351,7 +376,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // monomorphized callee. For `Int` the result is again `Int`.
   it should "run a generic function over a Numeric constraint" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def plus[T ~ Numeric[T]](x: T, y: T): T = add(x, y)
         |
@@ -367,7 +393,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // Generic arithmetic composed, with a generic call feeding another.
   it should "compose generic Numeric functions" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def plus[T ~ Numeric[T]](x: T, y: T): T = add(x, y)
         |def times[T ~ Numeric[T]](x: T, y: T): T = multiply(x, y)
@@ -384,7 +411,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // Interval addition is endpoint-wise: `[0, 1] + [1, 2] = [1, 3]`.
   "the Interval type" should "add intervals endpoint-wise" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def a: Interval[Int] = Interval(0, 1)
         |def b: Interval[Int] = Interval(1, 2)
@@ -402,7 +430,8 @@ class ExamplesIntegrationTest4 extends FullIntegrationTest {
   // min/max of the four corner products at runtime (via the `Compare[Int]` ordering leaf).
   it should "subtract and multiply intervals endpoint-wise" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def a: Interval[Int] = Interval(0, 1)
         |def b: Interval[Int] = Interval(1, 2)

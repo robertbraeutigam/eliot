@@ -12,6 +12,7 @@ class ListIntegrationTest extends FullIntegrationTest {
   "a list of ints" should "build with append and reduce with foldLeft" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -26,6 +27,7 @@ class ListIntegrationTest extends FullIntegrationTest {
   "a list of strings" should "build and fold at a different element type through the same erased natives" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -42,6 +44,7 @@ class ListIntegrationTest extends FullIntegrationTest {
     // order: append(append(append(empty, 1), 2), 3) folds to 123, not 321.
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -56,6 +59,7 @@ class ListIntegrationTest extends FullIntegrationTest {
   "foldLeft over the empty list" should "return the initial value untouched" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -70,6 +74,7 @@ class ListIntegrationTest extends FullIntegrationTest {
   "a list" should "report its length via a counting foldLeft" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -84,6 +89,7 @@ class ListIntegrationTest extends FullIntegrationTest {
   "foreach" should "run an effectful action per element, front to back, propagating its effects to the caller" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -100,6 +106,7 @@ class ListIntegrationTest extends FullIntegrationTest {
     // accumulate both elements and the sums would differ; because it copies, sum(two)=1+2=3 and sum(three)=1+3=4, so 7.
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |

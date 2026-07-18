@@ -11,7 +11,8 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
 
   "a Combine-joined generic slot" should "run with each contributor widened to the join" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def pick[A](a: A, b: A): A = a
         |
@@ -21,7 +22,8 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
 
   "a picked second argument" should "run and return that argument" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def pick[A](a: A, b: A): A = b
         |
@@ -33,7 +35,8 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
 
   "an integer literal as an effect-discharge fallback" should "run widened into the discharged slot" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.effect.Abort
         |

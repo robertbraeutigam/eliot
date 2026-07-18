@@ -12,7 +12,8 @@ class OverApplicationIntegrationTest extends FullIntegrationTest {
 
   "an accessor result" should "be applicable by juxtaposition" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |data Wrapper(unwrap: Function[String, String])
         |
@@ -24,7 +25,8 @@ class OverApplicationIntegrationTest extends FullIntegrationTest {
 
   "a def whose body computes a function" should "be applicable directly" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def compose[A, B, C](f: B => C, g: A => B): A => C = a -> f(g(a))
         |
@@ -38,7 +40,8 @@ class OverApplicationIntegrationTest extends FullIntegrationTest {
 
   "a curried field" should "absorb several over-applied arguments in one spine" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |data Curried(pick: String => String => String)
         |

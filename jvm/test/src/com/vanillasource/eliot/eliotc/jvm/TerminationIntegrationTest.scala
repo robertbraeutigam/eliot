@@ -21,7 +21,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a data type referencing itself left of an arrow" should "be rejected as not strictly positive" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Loop(f: Function[Loop, String])
         |
         |def main: IO[Unit] = printLine("unreachable")""".stripMargin
@@ -30,7 +31,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a data type referencing itself covariantly (structural recursion)" should "compile and run" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Tree(left: Tree, right: Tree)
         |
         |def main: IO[Unit] = printLine("ok")""".stripMargin
@@ -39,7 +41,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a directly self-recursive value" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def loop(x: String): String = loop(x)
         |
         |def main: IO[Unit] = printLine(loop("unreachable"))""".stripMargin
@@ -48,7 +51,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a mutually-recursive pair of values" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def ping(x: String): String = pong(x)
         |def pong(x: String): String = ping(x)
         |
@@ -61,7 +65,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // recursive `def` is — a fail-safe property (a recursive alias cannot terminate the type-level reduction it drives).
   "a directly self-recursive type alias" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |type Foo = Foo
         |def useFoo(x: Foo): Foo = x
         |
@@ -71,7 +76,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a mutually-recursive pair of type aliases" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |type A = B
         |type B = A
         |def useA(x: A): A = x
@@ -89,7 +95,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // ability-method-vs-implementation-method distinction.)
   "the monad-transformer lifting pattern (an Abort carrier over IO)" should "not be mistaken for recursion" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def lookup: {Abort} String = abort
@@ -100,7 +107,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a deep non-recursive helper chain" should "compile and run" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def a(x: String): String = b(x)
         |def b(x: String): String = c(x)
         |def c(x: String): String = x
@@ -116,7 +124,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // rides the ordinary effect pipeline, it is not a special termination lattice.
   "a {Console} value that calls forever without declaring Inf" should "be rejected (Inf propagation)" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def bad: {Console} Unit = forever(printLine("x"))
@@ -130,7 +139,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // it and confirms the step ran many times (not just once).
   "an IO main built from forever over a terminating step" should "run the step endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def main: IO[Unit] = forever(printLine("tick"))""".stripMargin,
@@ -142,7 +152,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // effect set resolves to the concrete `IO` carrier (the `Inf[IO]` and `Console[IO]` instances) and runs end-to-end.
   "a carrier-polymorphic {Inf, Console} super-loop pinned to IO at main" should "run endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def serve: {Inf, Console} Unit = forever(printLine("serving"))
@@ -159,7 +170,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // definition is byte-for-byte the one used in the `Inf` case below — only the supplied step differs.
   "a higher-order combinator over a terminating step" should "itself terminate" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
         |def main: IO[Unit] = runStep(_ -> printLine("done"))""".stripMargin
@@ -171,7 +183,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // (Nystrom's function-coloring win), because `Inf` is a carrier effect, not a separate lattice slot.
   "the same higher-order combinator over an Inf step" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
@@ -186,7 +199,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // courier for the carrier-typed value, it does not launder the effect.
   "an Inf action stored in data then run through its accessor" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |data Box[F[_]](action: F[Unit])
@@ -203,7 +217,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // and runs end-to-end.
   "an {Inf, Console} driver over a {Console} step" should "union both effects and loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)
@@ -217,7 +232,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // `{Console}` (omitting `Inf`) is rejected — calling `forever` performs `Inf`, which must be declared.
   "a driver that calls forever while declaring only {Console}" should "be rejected (Inf not declared)" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Console} Unit = forever(step)

@@ -27,8 +27,8 @@ import scala.jdk.CollectionConverters.*
   */
 class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val imports = """import eliot.effect.Console"""
-  private val line1   = """def greeting: IO[Unit] = printLine("Hello World!")"""
-  private val line2   = """def main: IO[Unit] = greeting"""
+  private val line1   = """def greeting: {Console} Unit = printLine("Hello World!")"""
+  private val line2   = """def main: {Console} Unit = greeting"""
   private val source  = s"$imports\n$line1\n$line2"
 
   // `printLine` is import-required (`Console` is in `eliot.effect`, not auto-imported), so the import on line 1 pushes the

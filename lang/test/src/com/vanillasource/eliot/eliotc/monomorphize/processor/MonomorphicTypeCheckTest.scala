@@ -699,7 +699,7 @@ class MonomorphicTypeCheckTest
   }
 
   it should "let a bare Int parameter coexist with a fully-applied IO return" in {
-    runW1("def store(x: Int): IO[Unit]\ndef main(b: Int[0, 255]): IO[Unit] = store(b)")
+    runW1("import eliot.jvm.IO\ndef store(x: Int): IO[Unit]\ndef main(b: Int[0, 255]): IO[Unit] = store(b)")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -712,7 +712,7 @@ class MonomorphicTypeCheckTest
 
   it should "still reject a bare reference to an unmarked (non-auto) parameterized type" in {
     // `IO`'s parameter is not `auto`, so bare `IO` is not saturated and the ordinary check rejects the call.
-    runW1("type Bool\ndef bad(x: IO): Bool\ndef main(thing: IO[Unit]): Bool = bad(thing)")
+    runW1("import eliot.jvm.IO\ntype Bool\ndef bad(x: IO): Bool\ndef main(thing: IO[Unit]): Bool = bad(thing)")
       .asserting(_.nonEmpty shouldBe true)
   }
 
@@ -1245,7 +1245,7 @@ class MonomorphicTypeCheckTest
 
   it should "store an annotated carrier-typed let binder instead of binding it" in {
     liftedBody(
-      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
+      "import eliot.jvm.IO\nimport eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
     ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap"))
   }
 
@@ -1276,7 +1276,7 @@ class MonomorphicTypeCheckTest
   }
 
   private val ioFQN            =
-    ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "IO"), QualifiedName("IO", Qualifier.Type))
+    ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("IO", Qualifier.Type))
   private val ioCarrier: GroundValue = GroundValue.Structure(ioFQN, Seq.empty, GroundValue.Type)
 
   // The `Effect`/`Console` stubs carry trivial `implement … [IO]` instances (bodies delegating to an abstract
@@ -1291,7 +1291,7 @@ class MonomorphicTypeCheckTest
     "Function" ->
       "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)",
     "Console"  ->
-      ("ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}\n" +
+      ("import eliot.jvm.IO\nability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}\n" +
         "def stubConsoleIO[A]: IO[A]\n" +
         "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}")
   ) ++ Seq(

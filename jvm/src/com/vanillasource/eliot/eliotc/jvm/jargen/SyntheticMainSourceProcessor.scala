@@ -11,9 +11,12 @@ import java.net.URI
 import java.nio.file.Path
 
 /** Serves the source of the synthesized entry-point module (`main.els`): a `main` that runs the configured user
-  * `main`'s `IO` value. The content is a pure function of the configured main FQN, so the fact is an ordinary
-  * generated leaf under incremental compilation — regenerated each run and validated by the equality cutoff, never
-  * accepted blindly.
+  * `main` on the JVM carrier `IO`. This is where the platform *binds the carrier*: the idiomatic user `main` declares
+  * an effect set (`def main: {Console} Unit`, desugared to an inferable carrier `F[Unit]`), and `block`'s expected
+  * type `IO[A]` instantiates that carrier to `IO` by ordinary unification — the user program never names `IO`. A
+  * deliberately JVM-pinned `main: IO[Unit]` (with `import eliot.jvm.IO`) fits the same wrapper unchanged. The content
+  * is a pure function of the configured main FQN, so the fact is an ordinary generated leaf under incremental
+  * compilation — regenerated each run and validated by the equality cutoff, never accepted blindly.
   *
   * This processor owns the [[SyntheticMainSourceProcessor.syntheticScheme]] namespace of
   * [[com.vanillasource.eliot.eliotc.source.content.SourceContent]]; its mount counterpart
@@ -43,6 +46,7 @@ object SyntheticMainSourceProcessor {
 
   private def mainSource(mainVfqn: ValueFQN): String =
     s"""
+       |import eliot.jvm.IO
        |def main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name.name}), unit)
        |""".stripMargin
 }

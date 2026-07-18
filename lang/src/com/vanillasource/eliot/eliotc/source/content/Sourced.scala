@@ -133,7 +133,9 @@ object Sourced extends Logging {
       CompilerError(
         message.value,
         description,
-        message.uri.getPath,
+        // An opaque URI (e.g. the synthesized `eliot-synthetic:main.els` entry point) has no path; fall back to its
+        // scheme-specific part so the error names the module instead of printing "null".
+        Option(message.uri.getPath).getOrElse(message.uri.getSchemeSpecificPart),
         content,
         message.range
       )

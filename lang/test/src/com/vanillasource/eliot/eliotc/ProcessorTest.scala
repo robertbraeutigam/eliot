@@ -47,7 +47,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("BigInteger", "type BigInteger"),
     SystemImport("Unit", "type Unit"),
     SystemImport("String", "type String"),
-    SystemImport("IO", "type IO"),
+    SystemImport("IO", "type IO", Seq("eliot", "jvm")),
     SystemImport("PatternMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("TypeMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("Int", ProcessorTest.intStubContent),
@@ -279,15 +279,16 @@ object ProcessorTest {
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: F[X]\n}"
 
   /** The *legacy* ambient prelude a self-contained checker/monomorphize unit test relies on: value application
-    * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`/`IO`), and the Phase-6 literal desugar's
+    * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`), and the Phase-6 literal desugar's
     * `Int`/`Runtime`. Production auto-imports the *whole* `eliot.lang` prelude (see `ModuleName.defaultSystemModules`),
     * but these bespoke tests build the rest of their type world (`Bool`/`Option`/`Either`/`Numeric`/`Compare`/…) inline
     * or via explicit stubs that would otherwise double-import (shadow) against the full prelude. They therefore pin this
-    * smaller set — exactly the pre-expansion `defaultSystemModules` — so their hand-built environments stand unchanged.
-    * The expanded auto-import is exercised end-to-end by the examples + the jvm `ExamplesIntegrationTest`s.
+    * smaller set so their hand-built environments stand unchanged. (`IO` is not ambient anywhere anymore — the carrier
+    * is the platform-owned `eliot.jvm.IO`, import-required.) The expanded auto-import is exercised end-to-end by the
+    * examples + the jvm `ExamplesIntegrationTest`s.
     */
   val coreAmbientModules: Seq[ModuleName] =
-    Seq("Function", "Unit", "String", "BigInteger", "IO", "Int", "Runtime")
+    Seq("Function", "Unit", "String", "BigInteger", "Int", "Runtime")
       .map(ModuleName(ModuleName.defaultSystemPackage, _))
 
   /** [[coreAmbientModules]] minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int`/`integerLiteral` as a

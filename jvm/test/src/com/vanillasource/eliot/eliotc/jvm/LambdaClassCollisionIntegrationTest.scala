@@ -15,7 +15,8 @@ class LambdaClassCollisionIntegrationTest extends FullIntegrationTest {
 
   "two impls of one ability, each with a capturing lambda, in one module" should "not collide their lambda classes" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |ability Wrap[A] {
         |  def wrap(a: A): Function[Unit, String]
         |}

@@ -9,7 +9,8 @@ package com.vanillasource.eliot.eliotc.jvm
 class GuardLiteralReductionTest extends FullIntegrationTest {
   "a user constant from a value-position literal in a where guard" should "reduce and discharge the guard" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def myLo: BigInteger = 0
         |def myHi: BigInteger = 100
         |def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =

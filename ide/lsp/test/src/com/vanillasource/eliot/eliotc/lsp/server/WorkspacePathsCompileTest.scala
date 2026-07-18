@@ -29,7 +29,8 @@ class WorkspacePathsCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matc
   // No `main`: the whole-workspace driver saturates (resolves + type-checks) every declared name, which is what proves
   // the layers resolve. It deliberately does not declare `main` — monomorphizing one in the backend-less LSP compile is
   // "first step only, no error recovery" (see LspPlugin) and emits internal-error facts unrelated to path resolution.
-  private val program = """import eliot.effect.Console
+  private val program = """import eliot.jvm.IO
+import eliot.effect.Console
                           |def greeting: IO[Unit] = printLine("Hello World!")""".stripMargin
 
   private val eliotPaths = Seq(

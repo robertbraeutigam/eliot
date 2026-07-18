@@ -28,7 +28,7 @@ import scala.jdk.CollectionConverters.*
   */
 class TypeHintRangeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val line1  = """import eliot.effect.Console"""
-  private val line2  = """def main: IO[Unit] = printLine(show(42))"""
+  private val line2  = """def main: {Console} Unit = printLine(show(42))"""
   private val source = s"$line1\n$line2"
 
   private val literalPosition  = Position(2, line2.indexOf("42") + 1)   // inside the `42` literal

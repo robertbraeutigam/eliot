@@ -7,7 +7,8 @@ package com.vanillasource.eliot.eliotc.jvm
 class ExamplesIntegrationTest1 extends FullIntegrationTest {
 
   "hello world" should "print a string" in {
-    compileAndRun("""import eliot.effect.Console
+    compileAndRun("""import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
@@ -20,7 +21,8 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // in turn discharges `Suspend[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
   "console effect" should "read a line and echo it through the Console -> Suspend -> IO layering" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
@@ -34,7 +36,8 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Suspend[IO]`), so the original HelloWorld
   // keeps working unchanged.
   it should "still print a literal via the Console effect at a concrete IO main" in {
-    compileAndRun("""import eliot.effect.Console
+    compileAndRun("""import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
@@ -43,7 +46,8 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // infers `F := IO` and resolves both effect operations through the layering.
   it should "run a carrier-polymorphic {Console} function pinned to IO at the call site" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |def greet: {Console} Unit = flatMap(ignore -> printLine("b"), printLine("a"))
@@ -55,7 +59,8 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // The `private` leaf native behind `printLine` is unreachable from application code: naming it across the module
   // boundary is refused by the resolver (the fail-safe that keeps untracked I/O impossible).
   "the private I/O leaf" should "be unreachable from application code" in {
-    compileForErrors("""def main: IO[Unit] = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
+    compileForErrors("""import eliot.jvm.IO
+def main: IO[Unit] = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
       .asserting(_ should include("Name is private."))
   }
 
@@ -65,7 +70,8 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // a plain `String`; the checker's effect lift binds it, producing `flatMap(x -> printLine(x), readLine)`, with the
   // carrier pinned to `IO` by `main`'s return. No `import eliot.effect.Effect`, no hand-written `flatMap`.
   "effect auto-lift" should "sequence a direct-style printLine(readLine) at a concrete IO main" in {
-    compileAndRun("""import eliot.effect.Console
+    compileAndRun("""import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
       .asserting(_ shouldBe "echoed line")
   }
@@ -73,7 +79,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // The same direct-style body in a carrier-polymorphic `{Console}` business function, pinned to `IO` at the call site.
   it should "sequence a direct-style {Console} business function pinned to IO" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def echo: {Console} Unit = printLine(readLine)
         |
         |def main: IO[Unit] = echo""".stripMargin,
@@ -85,7 +92,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // runs exactly as before, proving auto-lift does not double-bind a stored effect action.
   it should "leave already-monadic flatMap code unchanged" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
@@ -101,7 +109,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // `a: A` would corrupt the carrier). This is the idiomatic subject-last spelling of the hand-written `flatMap` above.
   it should "chain an ability method on an abstract carrier via the dot operator" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |def echo: {Console} Unit = readLine.flatMap(line -> printLine(line))
@@ -116,7 +125,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // restores the ordinary bind decision rather than blanket-suppressing it for every dotted subject.
   it should "bind an effectful subject dotted into a plain-value function" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def shout(s: String): String = s
         |
@@ -136,7 +146,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // parameter*. `.`'s flex `a: A` slot defers, `f` rigidifies `A := String`, and the deferred slot bind-lifts.
   it should "bind an effectful subject dotted into a function-typed parameter" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |def call(f: String => String): {Console} Unit = printLine(readLine.f)
         |
@@ -149,7 +160,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // flex slot into `flatMap`'s carrier storage (no bind) — proving the decision is type-directed, not `.`-specific.
   it should "chain an ability method through a user-defined pipe operator" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
@@ -165,7 +177,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // not operator plumbing.
   it should "chain an ability method through a non-infix pipe function" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |def pipe[A, B](a: A, f: A => B): B = f(a)
@@ -181,7 +194,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // flex slot rigidifies and the subject is sequenced.
   it should "bind an effectful subject piped into a concrete slot" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |
         |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
         |
@@ -198,7 +212,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // and monomorphization rejected it; under the type-directed lift it binds like any carrier-headed argument.
   it should "bind author-written machinery flowing into a pure slot" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |
         |def echo: {Console} Unit = printLine(pure("lifted"))
@@ -211,7 +226,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // effect-check phase, not silently miscompiled.
   "an effectful body under a pure return" should "be rejected" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def helper: String = printLine(readLine)
         |
         |def main: IO[Unit] = printLine(helper)""".stripMargin
@@ -224,7 +240,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // business function pinned to `IO` at the call site runs through the JVM `Log` instance.
   "log effect" should "emit a tagged diagnostic line through the Log -> Suspend -> IO layering" in {
     compileAndRun(
-      """import eliot.effect.Log
+      """import eliot.jvm.IO
+import eliot.effect.Log
         |def announce: {Log} Unit = log("starting up")
         |
         |def main: IO[Unit] = announce""".stripMargin
@@ -235,7 +252,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // one carrier `F`, auto-lifted into a single `flatMap` chain.
   "multiple effects in one signature" should "carrier-unify Log and Console in a direct-style body" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Log
         |def echoLog: {Log, Console} Unit = log(readLine)
         |
@@ -248,7 +266,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // function from a `{Console}`-only function leaks `Log`, rejected at the definition with a precise message.
   "an undeclared effect" should "be rejected with a precise propagation error" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Log
         |def doLog: {Log} Unit = log("hi")
         |
@@ -262,7 +281,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // end to end. `dependency` reads the environment; the Database is injected at the discharge site by `provide`.
   "a multi-effect Dep/Log/Console program" should "compile and run end to end" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Log
         |import eliot.effect.Dep
         |import eliot.effect.Effect
@@ -283,7 +303,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
   // supplied by its own chained `.provide` (fully discharged to a pure result — the flex-flex carrier-alias case).
   "two distinct-typed Deps" should "each resolve dependency to its own value in one body" in {
     val program =
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Dep
         |import eliot.effect.Effect
         |
@@ -299,7 +320,8 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
 
   it should "resolve the second distinct Dep to its own value" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Dep
         |import eliot.effect.Effect
         |

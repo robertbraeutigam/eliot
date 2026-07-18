@@ -24,7 +24,8 @@ import scala.jdk.CollectionConverters.*
   * keying, and that names the user never typed (ambient stdlib types) are offered while out-of-scope words are not.
   */
 class CompletionIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val source = """import eliot.effect.Console
+  private val source = """import eliot.jvm.IO
+import eliot.effect.Console
                          |def main: IO[Unit] = printLine("Hello World!")""".stripMargin
 
   "completion" should "offer an in-scope stdlib name the file calls" in {

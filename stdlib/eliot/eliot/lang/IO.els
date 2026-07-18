@@ -1,7 +1,0 @@
-/**
- * A side-effecting computation that produces a value of type `A` when it is run.
- *
- * The carrier an effectful program ultimately commits to: a `main` typed `IO[Unit]` performs the
- * program's effects when run.
- */
-type IO[A]

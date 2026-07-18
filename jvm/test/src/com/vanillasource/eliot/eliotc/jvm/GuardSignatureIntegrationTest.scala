@@ -20,7 +20,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a satisfied inline `if..else..raise` guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
@@ -32,7 +33,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "an unsatisfied inline `if..else..raise` guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
@@ -44,7 +46,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a bare `raise(msg)` guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def unavailable: raise("not available") = "x"
@@ -58,7 +61,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
   // effect lift elaborates their `{Throw[String]}` path per instantiation and the signature still reduces to
   // `Right`/`Left` for the discharge. Proves the compile-time reduction is not special-cased to the `if`/`else` shape.
   private val pipedGuard: String =
-    """import eliot.effect.Console
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
       |import eliot.effect.Throw
       |import eliot.effect.Abort
       |
@@ -89,7 +93,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a satisfied `MIN > 0` inline guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
@@ -101,7 +106,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "an unsatisfied `MIN > 0` inline guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
@@ -113,7 +119,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a satisfied `N < 10` inline guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |

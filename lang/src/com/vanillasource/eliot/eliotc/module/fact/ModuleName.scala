@@ -92,7 +92,6 @@ object ModuleName {
     "Function",
     "Int",
     "Interval",
-    "IO",
     "Numeric",
     "Option",
     "Pair",

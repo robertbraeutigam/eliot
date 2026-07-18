@@ -10,7 +10,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   // method-style chain can be written across lines inside a block.
   "a leading-dot chain split across block lines" should "merge into one expression" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Box[A](content: A)
         |
         |def map[A, B](f: Function[A, B], box: Box[A]): Box[B] = Box(f(content(box)))
@@ -31,7 +32,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   // block; pinned here so the shipped example cannot silently regress.
   "a {Console, State} interaction in block form (the Blocks example)" should "run end to end" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |import eliot.effect.Effect
         |import eliot.effect.State
         |
@@ -57,7 +59,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   // A nested block as a `val`'s right-hand side: both blocks lower, the inner producing the bound value.
   "a nested block" should "compute the inner block's value and bind it" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def main: IO[Unit] = {
         |  val x = {
         |    val inner = "deep"
@@ -72,7 +75,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
   // silent miscompile.
   "a block ending in a binding" should "be rejected" in {
     compileForErrors(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def main: IO[Unit] = {
         |  printLine("x")
         |  val leftover = "oops"
@@ -82,7 +86,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |ability Display[A] {
         |   def display(a: A): String
         |}
@@ -99,7 +104,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "ability constraint" should "pass ability through generic function" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |ability Display[A] {
         |   def display(a: A): String
         |}
@@ -118,7 +124,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "ability derive" should "derive implementation for generic type" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |ability Display[A] {
         |  def display(a: A): String
         |}
@@ -139,7 +146,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "generic types" should "support type-level integer parameters" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def hello[I: BigInteger]: String = "Hello World!"
         |
         |def main: IO[Unit] = printLine(hello[1])""".stripMargin
@@ -148,7 +156,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "pattern matching" should "match data constructors and extract values" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Maybe[A] = Nothing | Just(value: A)
         |
         |def describe(m: Maybe[String]): String = m match {
@@ -162,7 +171,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "operators" should "evaluate infix operators with correct associativity" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |def main: IO[Unit] = printLine(content(Cell("Hello") | Cell("World") | Cell("!")))
         |
         |data Cell(content: String)
@@ -174,7 +184,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "handle with" should "support multiple data types with pattern matching" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Something = Else | Other
         |
         |data Greeting = Hello | Goodbye
@@ -197,7 +208,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "monomorph check" should "handle dependent type integer arithmetic" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Box[I: BigInteger](content: String)
         |
         |def someFunction[I: BigInteger](arg: String): Box[I + 1] = Box[3](arg)
@@ -208,7 +220,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "function as type" should "use type-level computation for types" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Box[A](content: A)
         |
         |def stringBox: Type = Box[String]
@@ -221,7 +234,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "type values" should "match on type-level values" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Person[NAME: String](content: String)
         |
         |data Box[A](a: A)
@@ -237,7 +251,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "dot operator" should "support method-style chaining" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
         |data Box[A](content: A)
         |
         |def filter[A](expr: String, box: Box[A]): Box[A] = box
@@ -256,7 +271,8 @@ class ExamplesIntegrationTest3 extends FullIntegrationTest {
 
   "unicode" should "support unicode operator names" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(<===>)
         |
         |def <===>: String = "Hello World!"""".stripMargin
@@ -265,28 +281,32 @@ def main: IO[Unit] = printLine(<===>)
 
   "integer addition" should "compute and print a sum at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(show(3 + 4))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
   "integer subtraction" should "compute and print a difference at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(show(10 - 4))""".stripMargin
     ).asserting(_ shouldBe "6")
   }
 
   "integer arithmetic" should "respect operator precedence at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(show(2 + 3 * 4))""".stripMargin
     ).asserting(_ shouldBe "14")
   }
 
   it should "compute a negative result at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(show(3 - 10))""".stripMargin
     ).asserting(_ shouldBe "-7")
   }
@@ -296,7 +316,8 @@ def main: IO[Unit] = printLine(show(3 - 10))""".stripMargin
   // representation and the emission reboxes there.
   it should "carry a byte-operand sum into a wider result representation at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(show(100 + 100))""".stripMargin
     ).asserting(_ shouldBe "200")
   }
@@ -306,7 +327,8 @@ def main: IO[Unit] = printLine(show(100 + 100))""".stripMargin
   // — no separate narrowing step.
   it should "narrow a short-operand difference into a byte result at runtime" in {
     compileAndRun(
-      """import eliot.effect.Console
+      """import eliot.jvm.IO
+import eliot.effect.Console
 def main: IO[Unit] = printLine(show(1000 - 999))""".stripMargin
     ).asserting(_ shouldBe "1")
   }

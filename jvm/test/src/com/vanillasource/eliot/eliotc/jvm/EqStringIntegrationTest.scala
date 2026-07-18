@@ -13,6 +13,7 @@ class EqStringIntegrationTest extends FullIntegrationTest {
   "a runtime string comparison" should "select the matching branch via the JVM String.equals native" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
@@ -24,6 +25,7 @@ class EqStringIntegrationTest extends FullIntegrationTest {
   it should "select the else branch when the runtime string differs" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
@@ -35,6 +37,7 @@ class EqStringIntegrationTest extends FullIntegrationTest {
   "a compile-time string comparison of two literals" should "constant-fold on the compiler track" in {
     compileAndRun(
       """
+        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |

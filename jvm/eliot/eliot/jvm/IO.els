@@ -1,6 +1,13 @@
 import eliot.effect.Effect
 import eliot.effect.Suspend
 
+/**
+ * The JVM platform's effect carrier: a deferred computation as a thunk.
+ *
+ * A platform detail, not a base concept — application code declares effect sets (`{Console} Unit`) and never names a
+ * carrier; the synthesized entry point instantiates `main`'s carrier to `IO` and runs the thunk. Import this module
+ * only in JVM-platform code that must name the carrier (effect instances, or a deliberately JVM-pinned `main`).
+ */
 data IO[A](block: Function[Unit, A])
 
 /**

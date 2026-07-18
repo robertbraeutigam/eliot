@@ -16,7 +16,7 @@ class WhereOnDefIntegrationTest extends FullIntegrationTest {
        |""".stripMargin
 
   private val useByte =
-    "import eliot.effect.Console\n" + withinByte +
+    "import eliot.jvm.IO\nimport eliot.effect.Console\n" + withinByte +
       "def useByte(x: Int): Int where withinByte(range(x)) = x\n"
 
   "a where precondition" should "accept a call whose argument range provably fits" in {
@@ -53,7 +53,7 @@ class WhereOnDefIntegrationTest extends FullIntegrationTest {
 
   it should "reject a partial application of a where-bearing def passed as a value" in {
     compileForErrors(
-      "import eliot.effect.Console\n" + withinByte +
+      "import eliot.jvm.IO\nimport eliot.effect.Console\n" + withinByte +
         "def clampFirst(a: Int, b: Int): Int where withinByte(range(a)) = a\n" +
         "def apply1(g: Int => Int): Int = g(5)\n" +
         "def main: IO[Unit] = printLine(show(apply1(clampFirst(200))))"

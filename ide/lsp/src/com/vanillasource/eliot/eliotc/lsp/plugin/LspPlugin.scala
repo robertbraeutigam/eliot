@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
 import com.vanillasource.eliot.eliotc.ast.fact.SourceAST
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.lsp.mainroot.{LspMainRootMount, LspMainRootSourceProcessor}
 import com.vanillasource.eliot.eliotc.lsp.virtual.{
   VfsRoutedMount,
   VfsSourceContentProcessor,
@@ -53,14 +54,24 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 
   /** Route source roots through the buffer overlay: every filesystem mount the scan builds becomes a
     * [[VfsRoutedMount]]. All `configure()`s run before any `initialize`, so [[LangPlugin]] sees the substituted
-    * factory when it builds the `PathScanner`.
+    * factory when it builds the `PathScanner`. Also mounts the synthesized per-module monomorphization roots
+    * ([[LspMainRootMount]]) the type-hint driver roots at.
     */
   override def configure(): StateT[IO, Configuration, Unit] =
-    StateT.modify(_.set(PathScanner.mountFactoryKey, root => new VfsRoutedMount(root)))
+    StateT.modify(configuration =>
+      configuration
+        .set(PathScanner.mountFactoryKey, root => new VfsRoutedMount(root))
+        .updatedWith(
+          PathScanner.extraRuntimeMountsKey,
+          mounts => (mounts.getOrElse(Seq.empty) :+ new LspMainRootMount).some
+        )
+    )
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
     StateT.modify(superProcessor =>
-      SequentialCompilerProcessors(Seq(superProcessor, VfsStatProcessor(vfs), VfsSourceContentProcessor(vfs)))
+      SequentialCompilerProcessors(
+        Seq(superProcessor, VfsStatProcessor(vfs), VfsSourceContentProcessor(vfs), LspMainRootSourceProcessor())
+      )
     )
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
@@ -129,13 +140,17 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
   /** Drive whole-program monomorphization from a file's own `main`, so its reachable code is type-checked at concrete
     * types and the per-node ground types behind hover type hints exist.
     *
-    * [[UsedNames]] walks the reachable monomorphic graph from the root, forcing a
+    * The root is not the module's `main` itself — the idiomatic `main` declares an effect set and is therefore
+    * carrier-generic — but the module's synthesized `lspmain.*` wrapper ([[LspMainRootSourceProcessor]]), which binds
+    * the carrier to `eliot.jvm.IO` exactly as the jvm target's entry point does. [[UsedNames]] walks the reachable
+    * monomorphic graph from that root, forcing a
     * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] (carrying per-node ground types) for every
     * reachable instantiation — exactly the facts the type-hint index reads. The trigger is **per file**: each
     * `examples/` source is its own module with its own `main`, so every such file becomes an independent
     * monomorphization root. Modules without a `main` (libraries) are left to use-site verification, as a batch build
-    * would. A `main` that fails to monomorphize simply yields no [[UsedNames]] fact; whatever did monomorphize is still
-    * cached, so hints degrade rather than disappear.
+    * would. A wrapper that fails to monomorphize (a broken `main`, or a workspace without the jvm layer on its path)
+    * simply yields no [[UsedNames]] fact; whatever did monomorphize is still cached, so hints degrade rather than
+    * disappear.
     */
   private def monomorphizeMain(
       compilation: CompilationProcess,
@@ -144,7 +159,7 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
   ): IO[Unit] = {
     val mainName = QualifiedName("main", Qualifier.Default)
     compilation
-      .getFact(UsedNames.Key(ValueFQN(moduleName, mainName)))
+      .getFact(UsedNames.Key(LspMainRootSourceProcessor.wrapperVfqn(moduleName)))
       .flatMap(_.traverse_(demandRefinementTables(compilation, _)))
       .whenA(names.names.contains(mainName))
   }
