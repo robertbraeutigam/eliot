@@ -16,7 +16,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def numbers: List[Int] = append(append(empty, 42), 8)
         |
-        |def total(list: List[Int]): Int = foldLeft(list, 0, e -> acc -> add(e, acc))
+        |def total(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(e, acc))
         |
         |def main: IO[Unit] = printLine(show(total(numbers)))""".stripMargin
     ).asserting(_ shouldBe "50")
@@ -30,7 +30,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def words: List[String] = append(append(empty, "first"), "last")
         |
-        |def lastOr(list: List[String], start: String): String = foldLeft(list, start, e -> acc -> e)
+        |def lastOr(list: List[String], start: String): String = list.foldLeft(start, e -> acc -> e)
         |
         |def main: IO[Unit] = printLine(lastOr(words, "none"))""".stripMargin
     ).asserting(_ shouldBe "last")
@@ -46,7 +46,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def digits: List[Int] = append(append(append(empty, 1), 2), 3)
         |
-        |def toNumber(list: List[Int]): Int = foldLeft(list, 0, e -> acc -> add(multiply(acc, 10), e))
+        |def toNumber(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(multiply(acc, 10), e))
         |
         |def main: IO[Unit] = printLine(show(toNumber(digits)))""".stripMargin
     ).asserting(_ shouldBe "123")
@@ -60,7 +60,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def emptyInts: List[Int] = empty
         |
-        |def sumFrom(list: List[Int], start: Int): Int = foldLeft(list, start, e -> acc -> add(e, acc))
+        |def sumFrom(list: List[Int], start: Int): Int = list.foldLeft(start, e -> acc -> add(e, acc))
         |
         |def main: IO[Unit] = printLine(show(sumFrom(emptyInts, 7)))""".stripMargin
     ).asserting(_ shouldBe "7")
@@ -74,7 +74,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def items: List[String] = append(append(append(empty, "a"), "b"), "c")
         |
-        |def size(list: List[String]): Int = foldLeft(list, 0, e -> acc -> add(acc, 1))
+        |def size(list: List[String]): Int = list.foldLeft(0, e -> acc -> add(acc, 1))
         |
         |def main: IO[Unit] = printLine(show(size(items)))""".stripMargin
     ).asserting(_ shouldBe "3")
@@ -92,7 +92,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |def two: List[Int] = append(base, 2)
         |def three: List[Int] = append(base, 3)
         |
-        |def sum(list: List[Int]): Int = foldLeft(list, 0, e -> acc -> add(e, acc))
+        |def sum(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(e, acc))
         |
         |def main: IO[Unit] = printLine(show(add(sum(two), sum(three))))""".stripMargin
     ).asserting(_ shouldBe "7")

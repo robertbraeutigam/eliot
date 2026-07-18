@@ -10,7 +10,7 @@ import eliot.collection.List
  *
  * ```eliot
  * // Each plugin module declares `def contribution: Int = ...`; this gathers them all.
- * def total: Int = foldLeft(namedValues[Int]("contribution"), 0, e -> acc -> add(e, acc))
+ * def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
  * ```
  *
  * `name` must be a literal `String` — it drives a compile-time rewrite, so a computed name is a hard error rather than

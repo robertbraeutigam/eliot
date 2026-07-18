@@ -31,7 +31,7 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
     Map(
       "Test" ->
         (registryPrelude + extra +
-          """def total: Int = foldLeft(namedValues[Int]("contribution"), 0, e -> acc -> add(e, acc))
+          """def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
             |def main: IO[Unit] = printLine(show(total))""".stripMargin)
     )
 
@@ -54,7 +54,7 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
       Map(
         "Test" ->
           (registryPrelude +
-            """def total: Int = foldLeft(namedValues[Int]("noSuchName"), 0, e -> acc -> add(e, acc))
+            """def total: Int = namedValues[Int]("noSuchName").foldLeft(0, e -> acc -> add(e, acc))
               |def main: IO[Unit] = printLine(show(total))""".stripMargin)
       )
     ).asserting(_ shouldBe "0")
@@ -66,7 +66,7 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
         "Test" ->
           (registryPrelude +
             """def dynamicName: String = "contribution"
-              |def total: Int = foldLeft(namedValues[Int](dynamicName), 0, e -> acc -> add(e, acc))
+              |def total: Int = namedValues[Int](dynamicName).foldLeft(0, e -> acc -> add(e, acc))
               |def main: IO[Unit] = printLine(show(total))""".stripMargin)
       )
     ).asserting(_.mkString("\n") should include("requires a literal String name"))

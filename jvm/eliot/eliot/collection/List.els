@@ -1,0 +1,11 @@
+type List[A]
+
+/**
+ * The list-first fold primitive behind `foldLeft`. `private` so user code folds only through the dot-chainable
+ * `foldLeft`; kept list-first (and thus always called fully applied) because the backend emits it as a single erased
+ * generic native, which cannot be partially applied. Implemented by the backend.
+ */
+private def foldLeftInternal[A, B](list: List[A], initial: B, combine: Function[A, Function[B, B]]): B
+
+def foldLeft[A, B](initial: B, combine: Function[A, Function[B, B]], list: List[A]): B =
+  foldLeftInternal(list, initial, combine)

@@ -36,7 +36,7 @@ object NativeImplementation {
       (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit),
       (collectionValueFQN("List", "empty"), eliot_collection_List_empty),
       (collectionValueFQN("List", "append"), eliot_collection_List_append),
-      (collectionValueFQN("List", "foldLeft"), eliot_collection_List_foldLeft)
+      (collectionValueFQN("List", "foldLeftInternal"), eliot_collection_List_foldLeftInternal)
     )
   )
 
@@ -54,7 +54,7 @@ object NativeImplementation {
   val genericNativeSignatures: Map[ValueFQN, GenericNativeSignature] = Map(
     collectionValueFQN("List", "empty")  -> GenericNativeSignature(Seq.empty, listType),
     collectionValueFQN("List", "append") -> GenericNativeSignature(Seq(listType, systemAnyValue), listType),
-    collectionValueFQN("List", "foldLeft") ->
+    collectionValueFQN("List", "foldLeftInternal") ->
       GenericNativeSignature(Seq(listType, systemAnyValue, systemFunctionValue), systemAnyValue)
   )
 
@@ -213,16 +213,18 @@ object NativeImplementation {
     }
   }
 
-  /** `fold[A, B](list: List[A], initial: B, combine: A -> B -> B): B` — a left fold, front to back:
-    * `acc = initial; for (e in list) acc = combine(e)(acc)`. The curried `combine` is a `java.util.function.Function`
+  /** `foldLeftInternal[A, B](list: List[A], initial: B, combine: A -> B -> B): B` — a left fold, front to back:
+    * `acc = initial; for (e in list) acc = combine(e)(acc)`. The list-first primitive behind the dot-chainable
+    * `List.foldLeft` wrapper (which reorders to `foldLeftInternal(list, initial, combine)`); kept list-first here so it
+    * is always called fully applied, never partially. The curried `combine` is a `java.util.function.Function`
     * returning a `Function`. Only touches JDK interfaces (`List`/`Iterator`/`Function`), so the erased body serves every
     * instantiation.
     */
-  private def eliot_collection_List_foldLeft: NativeImplementation = new NativeImplementation {
+  private def eliot_collection_List_foldLeftInternal: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
-      val sig = genericNativeSignatures(collectionValueFQN("List", "foldLeft"))
+      val sig = genericNativeSignatures(collectionValueFQN("List", "foldLeftInternal"))
       classGenerator
-        .createMethod[CompilerIO](JvmIdentifier("foldLeft"), sig.parameterTypes, sig.returnType)
+        .createMethod[CompilerIO](JvmIdentifier("foldLeftInternal"), sig.parameterTypes, sig.returnType)
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             val loop = new Label()

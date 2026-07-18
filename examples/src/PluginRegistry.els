@@ -14,6 +14,6 @@ import eliot.compiler.Reflect
  * java -jar target/PluginRegistry.jar
  * ```
  */
-def total: Int = foldLeft(namedValues[Int]("contribution"), 0, e -> acc -> add(e, acc))
+def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
 
 def main: IO[Unit] = printLine(show(total))
