@@ -13,15 +13,16 @@ go, what must resolve where, and the mechanical traps.
 
 A module `eliot.lang.X` maps to `<layer>/eliot/eliot/lang/X.els` (path = `ModuleName.toPath`). The same name
 in several layers/roots is **merged**. There is **no standalone `compiler` Mill module** — a layer's compile-time
-contribution is a sibling `eliot-compiler/` root next to its `eliot/` root (today `stdlib` — `Either`/`Option`/guards —
-and `lang` — the compile-time `Id` carrier — ship one).
+contribution is a sibling `eliot-compiler/` root next to its `eliot/` root (today `stdlib` — `Either`/`Option`, the
+compile-time `AbortCarrier` for return guards, the `Interval` refinement instances — and `lang` — the compile-time
+`Id` carrier — ship one).
 
 | Layer / root | Holds | On which pool |
 |-------|-------|---------------|
-| `lang/eliot` | core compiler (Scala) **and** compiler-machinery `.els` (`eliot.compiler[.internal].{PatternMatch,TypeMatch,Coerce,Combine,Type}`, the `Eq[Type]` instance) | **both** |
+| `lang/eliot` | core compiler (Scala) **and** compiler-owned `.els` (`eliot.compiler.{Meta,Reflect,Type}`, `eliot.compiler.internal.{PatternMatch,TypeMatch}`, the `Eq[Type]` instance, `Bool`'s `true`/`false`, `Id`, `eliot.collection.List`) | **both** |
 | `stdlib/eliot` | the platform-independent base: abstract `type`s, body-less `def` signatures, `ability` decls, pure platform-independent bodies/instances | **both** |
-| `jvm/eliot` | the runtime platform: concrete `data`, `def` bodies, native leaves, ability `implement`s, value-converting instances | runtime only (**borrowed** into the compiler pool) |
-| `stdlib/eliot-compiler` | the compile-time overlay: `data`/instances the NbE checker must *evaluate at compile time* that **aren't borrowable** — the self-sufficient `Either`/`Option` carriers, guard bodies, and the compile-time `Effect`/`Throw` instances | compiler only (**override**) |
+| `jvm/eliot` | the runtime platform: concrete `data`, `def` bodies, native leaves, ability `implement`s, carrier cross-lift instances | runtime only (**borrowed** into the compiler pool) |
+| `stdlib/eliot-compiler` | the compile-time overlay: `data`/instances the NbE checker must *evaluate at compile time* that **aren't borrowable** — the self-sufficient `Either`/`Option` carriers, the compile-time `AbortCarrier` (reduces `if..else raise` return guards), the `Interval` `Meta`/`Numeric` instances, and the compile-time `Effect`/`Throw` instances | compiler only (**override**) |
 
 ## The two pools — the operational key
 
@@ -56,14 +57,14 @@ an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the releva
 | abstract `type X` (or `type X = alias`) | **stdlib** | so any signature can mention `X` on both pools |
 | concrete `data X` (representation + ctor) | **jvm** (runtime); **+ `stdlib/eliot-compiler`** only if the checker needs a *self-sufficient* compile-time carrier (e.g. `Either`) | never stdlib base |
 | field accessor / `foldX` eliminator | with the `data` (jvm; + `stdlib/eliot-compiler` for a self-sufficient carrier) | pure ones are **borrowed** at compile time — add a copy only for self-sufficiency, an abstract twin only if a non-borrowable name is referenced |
-| pure body, same on every target (composition over abstract/native ops, type-level arithmetic) | **stdlib** | e.g. `catch`, `fitsIn`, Function `.` |
+| pure body, same on every target (composition over abstract/native ops) | **stdlib** | e.g. `catch`, `else`, `updateState`, Function `.` |
 | native leaf (backend/compiler supplies the body: bytecode op, arbitrary-precision arith, `printLineInternal`) | **jvm** (runtime) / Scala `*NativesProcessor` (compiler leaves) | the layer "bottom" |
-| representation-dependent body (width dispatch, layout choice) | **jvm** | e.g. `Int`'s `+`/`-`/`*` bodies, the `opaque type Int` |
+| representation-dependent body (layout/carrier choice) | **jvm** | e.g. `printLine = IO(_ -> printLineInternal(s))` (commits to the jvm `IO` representation) |
 | `ability X` | **stdlib** | re-declared (copied) in any layer file hosting an `implement X` — see duplication below |
 | `implement X[T]` with a runtime/value payload | with `T`'s `data` (jvm) or `X`'s module | body needs `T`'s ctor, which lives with the `data` |
-| pure **type-level** `implement` (no runtime payload) | **stdlib** | e.g. `Combine[Int,Int]` |
+| pure compile-time-only `implement` (no runtime payload) | **stdlib** | e.g. `Meta[Unit]` in `Unit.els` |
 | **body-less** `implement X[T]` (methods are native leaves attached per-platform) | **stdlib** (base) | representation-free *declaration*, so it lives once and both pools borrow it; each platform attaches the leaf (jvm backend + `*NativesProcessor`). e.g. `Eq[String]` in `String.els`, `Compare[BigInteger]`/`Numeric[BigInteger]` — even though value-level |
-| value-converting `implement` **with an Eliot body** | **jvm** | e.g. `Coerce[Int,Int]` (its body does `nativeWiden`) |
+| effect/carrier `implement` **with an Eliot body** | **jvm** | e.g. the carrier cross-lifts (`Throw[E2, ThrowCarrier[E1, G]] where E1 != E2`) |
 | something the compiler must evaluate at compile time, expressible in Eliot | **borrow** it if pure & already on the path; else the owning layer's **`eliot-compiler/`** (base names → `stdlib/eliot-compiler`) | not Scala `SemValue`s — the one NbE evaluator runs it |
 
 ### Ability module vs. type module — which of the two allowed homes
@@ -72,18 +73,17 @@ An `implement X[T]` may sit with ability `X` *or* with type `T` (the coherence r
 type's module.** The organizing principle:
 
 - **The ability's module holds the ability declaration + the convenience/feature functions built *on top of*
-  it** — the derived combinators every implementation inherits for free (e.g. `Compare`'s `min`/`max` fold over
-  `lessThanOrEqual`; `BigInteger`'s `multiplyMin`/`multiplyMax` derive over `Arithmetic.multiply`). These are
-  generic over the ability, not tied to any one instance.
+  it** — the derived combinators every implementation inherits for free (e.g. `Compare`'s `<`/`>`/`min`/`max`
+  derive over `lessThanOrEqual`; `Numeric`'s `+`/`-`/`*` operators delegate to `add`/`subtract`/`multiply`).
+  These are generic over the ability, not tied to any one instance.
 - **A data type's module holds *that type's* implementations of the various abilities it supports** — `Int`'s
-  `implement Arithmetic[Int,Int]` and `Combine[Int,Int]` live in `Int.els`; `BigInteger`'s
-  `implement Arithmetic[BigInteger,BigInteger]` lives in `BigInteger.els`. This keeps each ability module
+  `implement Numeric[Int]`/`Show[Int]`/`Compare[Int]` live in `Int.els`; `BigInteger`'s
+  `implement Numeric[BigInteger]`/`Compare[BigInteger]` live in `BigInteger.els`. This keeps each ability module
   instance-agnostic and each type module the one place to see everything that type can do.
 
 Put an instance in the **ability's** module only when it genuinely can't colocate with the type — a
 carrier-*generic* instance (`implement[F[_] ~ Suspend] Console[F]`, no single concrete `T`), or an instance for a
-bare abstract type declared in another layer. (Historical wart now fixed: `implement Arithmetic[BigInteger,…]`
-used to sit in `Arithmetic.els` while `Int`'s sat correctly in `Int.els` — moved to `BigInteger.els`.)
+bare abstract type declared in another layer.
 
 ## The merge, mechanically
 
@@ -104,10 +104,10 @@ exactly like plain names: put the associated types + abstract method signatures 
 platform layer. Both `implement` blocks must spell the **same pattern with the same generic names** (character-exact, so
 their keys and signatures match — the usual merge discipline). Per member: `type Assoc = …` concrete in the base +
 `type Assoc` abstract in the platform → merges to the base's; `def m(…): Assoc` abstract in the base + `def m(…): Assoc =
-body` concrete in the platform → merges to the platform's. `Arithmetic[Int, Int]` is the worked example (base owns the
-result-bound formulas, jvm owns the width-dispatch bodies). A **bare** associated-type reference inside a method
-signature (`def add(…): AddResult`) auto-resolves to the concrete type (the resolver applies the impl generics) — you do
-*not* write `AddResult[L1,H1,L2,H2]`. Two *identical* patterns in one file are the **same** identity → a duplicate-name
+body` concrete in the platform → merges to the platform's. `Numeric[Interval[T]]` is the worked example (base owns the
+body-less method signatures, jvm owns the endpoint-wise bodies). A **bare** associated-type reference inside a method
+signature (`def m(…): Assoc`) auto-resolves to the concrete type (the resolver applies the impl generics) — you do
+*not* re-apply the impl generics to it. Two *identical* patterns in one file are the **same** identity → a duplicate-name
 error, not two instances; distinct-but-unifiable patterns are what the overlap lint checks.
 
 ## Mechanical gotchas
@@ -124,8 +124,8 @@ error, not two instances; distinct-but-unifiable patterns are what the overlap l
   merge verifies the copies agree. This is correct — do **not** "fix" it by widening the resolver across
   sibling files. (Likewise an `implement` that uses a carrier's ctor must sit with that carrier's `data`.)
 - **stdlib's real rule is "no platform *representation*," not "no bodies."** Pure platform-independent bodies
-  (`catch`/`orElse`, `fitsIn`, `.`) and pure type-level instances belong in stdlib. What stdlib must never
-  carry: `data`, native leaves, or representation-dependent bodies.
+  (`catch`/`else`, `updateState`, `.`) and pure compile-time-only instances belong in stdlib. What stdlib must
+  never carry: `data`, native leaves, or representation-dependent bodies.
 - **Carrier↔effect import cycles are fine** (no cyclic facts). Two ability `implement`s sharing a method name
   in one module collide their generated lambda classes at JAR time — keep each carrier's instances in its own
   module ([[gotcha_lambda_class_collision_same_module]]). Never bundle layers into one fat/assembly jar — it

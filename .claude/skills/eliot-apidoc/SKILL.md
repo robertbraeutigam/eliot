@@ -14,7 +14,7 @@ The apidoc backend (`apidoc` Mill module) turns `/** ... */` comments into a sta
 ## Syntax & where a comment attaches
 
 - Only `/** ... */` is a doc comment. `//` and `/* ... */` are ignored; `/**/` is an empty block, not a doc.
-- It attaches to the **nearest declaration that follows it**. Put it immediately before the declaration — above any `infix`/`prefix`/`postfix`/`private`/`opaque` modifiers (it documents the whole declaration). If several comments precede one declaration, the closest wins; a trailing comment with nothing after it is dropped.
+- It attaches to the **nearest declaration that follows it**. Put it immediately before the declaration — above any `infix`/`prefix`/`postfix`/`private` modifiers (it documents the whole declaration). If several comments precede one declaration, the closest wins; a trailing comment with nothing after it is dropped.
 - Document each `def`, `type`, `data`, `ability`, and each **ability method** with its own comment.
 - **Not yet rendered** (don't rely on these): module-level docs (a top-of-file comment attaches to the *first declaration*, not the module — so it shows under that declaration); per-`implement` docs (document the `ability` and the type instead); per-constructor / per-field docs (document at the `data` level).
 - Leading-star margins are stripped Scaladoc-style — align each continuation line with a space, a `*`, and a space, then indent code under it normally.
@@ -23,7 +23,7 @@ The apidoc backend (`apidoc` Mill module) turns `/** ... */` comments into a sta
 
 The full signature is generated from the code and shown above your prose, syntax-highlighted. Do **not** repeat any of it:
 
-- name, generic parameters (with bounds, `auto`, and `~` constraints), value parameters **and their types**, return type **including effect rows** like `{Throw[String]} A`, fixity/precedence, `private`/`opaque`, and `data` constructors;
+- name, generic parameters (with bounds, `auto`, and `~` constraints), value parameters **and their types**, return type **including effect rows** like `{Throw[String]} A`, fixity/precedence, `private`, and `data` constructors;
 - which platforms implement the name (shown as `abstract` / `implemented on: jvm, compiler` badges) and an ability's implementors (gathered workspace-wide).
 
 So there is no `@param`/`@return`/`@tparam`: describe *meaning*, referencing a parameter by name in backticks (e.g. `` `step` ``) only when it adds something the type doesn't.
@@ -76,7 +76,7 @@ but *non-trivial* scenario that shows the definition in use, carrying its own ex
 - **Use `=>`, never `Function`.** Write function types as `A => B` (right-associative, so
   `A => B => C` is `A => (B => C)`) and lambdas as `x -> body`. Do not write `Function[A, B]` in an example.
 - **Prefer the dot / infix operator for an OO reading.** Where a function chains on a subject, write
-  `subject.f(a).g(b)` or the infix `value orElse default`, not the inside-out `g(b, f(a, subject))` —
+  `subject.f(a).g(b)` or the infix `value else default`, not the inside-out `g(b, f(a, subject))` —
   it reads in run order and is the idiomatic surface (the subject is the *last* parameter).
 - **Scaffold with signature-only stubs.** To keep an example self-contained, declare the supporting API
   as a body-less signature and then show the interesting function that uses it — the reader sees a
@@ -100,10 +100,11 @@ Shown indented so the literal comment markup is visible; in real source the exam
      * }
      *
      * // Always returns a String: the abort is absorbed by the fallback.
-     * def portWithDefault: String = setting("port") orElse "8080"
+     * def portWithDefault: String = setting("port") else "8080"
      * ```
      */
-    def orElse[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: A): G[A]
+    infix right
+    def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: G[A]): {-Abort} G[A]
 
 ## Template
 
