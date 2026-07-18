@@ -57,8 +57,9 @@ object WellKnownTypes {
 
   private val idModule: ModuleName = ModuleName(defaultSystemPackage, "Id")
 
-  /** The identity carrier `Id[A]` — the carrier that realizes the *empty* effect row. Abstract in the base layer
-    * (`type Id[A]`), concrete per platform (`data Id[A](runId: A)` in the jvm layer and the compile-time overlay). The
+  /** The identity carrier `Id[A]` — the carrier that realizes the *empty* effect row. Abstract in the lang layer's
+    * own `eliot/` root (`type Id[A]` — beside `Bool`/`Option`, since the compiler references it by fixed FQN),
+    * concrete per platform (`data Id[A](runId: A)` in the jvm layer and lang's `eliot-compiler/` overlay). The
     * checker's pure-boundary defaulting ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.tryIdDefault]])
     * solves a fully-discharged body's still-flex residual carrier to this type, so `if..else` and the other dischargers
     * work in a pure function. Deliberately has NO `Suspend` instance: a genuinely side-effecting native can never

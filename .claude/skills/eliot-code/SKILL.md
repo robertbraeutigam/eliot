@@ -392,7 +392,7 @@ the carrier type (see the discharge combinators above); prefer the `{…}` row e
 - **`main` is concrete**: `def main: IO[Unit] = …` — the one place the carrier is pinned to `IO`.
   Keep business logic carrier-polymorphic (`{Console} Unit`, not `IO[Unit]`) so it runs on the
   production carrier *and* a pure test carrier (`import eliot.lang.Id`, then
-  `runId(runAbort(logic))` tests with no I/O — the stdlib `Id` is the identity carrier).
+  `runId(runAbort(logic))` tests with no I/O — `Id` is the built-in identity carrier).
 - **The row wraps the plain value type, never a carrier**: `{Inf, Console} Unit`, NOT
   `{Inf} IO[Unit]` (that means `F[IO[Unit]]` — "Cannot resolve type."). A non-terminating program
   (verified pattern): `def serve: {Inf, Console} Unit = forever { printLine("tick") }` and

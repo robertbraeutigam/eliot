@@ -13,7 +13,8 @@ go, what must resolve where, and the mechanical traps.
 
 A module `eliot.lang.X` maps to `<layer>/eliot/eliot/lang/X.els` (path = `ModuleName.toPath`). The same name
 in several layers/roots is **merged**. There is **no standalone `compiler` Mill module** — a layer's compile-time
-contribution is a sibling `eliot-compiler/` root next to its `eliot/` root (today only `stdlib` ships one).
+contribution is a sibling `eliot-compiler/` root next to its `eliot/` root (today `stdlib` — `Either`/`Option`/guards —
+and `lang` — the compile-time `Id` carrier — ship one).
 
 | Layer / root | Holds | On which pool |
 |-------|-------|---------------|

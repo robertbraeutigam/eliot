@@ -167,8 +167,9 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    own body fails a check. Only the argument-union is subtracted, never the callee's own `effectAbilities`, so a handler
    whose result still declares `{E}` correctly re-propagates it. Subtraction only ever makes the check *more permissive*;
    monomorphization stays the sound backstop, so a genuine leak is still rejected. **Discharge-to-a-pure-value works**:
-   the stdlib ships the **identity carrier `Id`** (`eliot.lang.Id` — abstract `type Id[A]`/`def runId` in the base,
-   `data Id[A](runId: A)` + `implement Effect[Id]` in jvm and the `stdlib/eliot-compiler` overlay; deliberately NO
+   the **identity carrier `Id`** (`eliot.lang.Id` — abstract `type Id[A]`/`def runId` in the *lang* layer's `eliot/`
+   root, since the checker inserts it by fixed FQN; `data Id[A](runId: A)` + `implement Effect[Id]` in jvm and the
+   `lang/eliot-compiler` overlay; deliberately NO
    `Suspend[Id]`, so real I/O can never run on it — only the pure control effects `Abort`/`Throw`/`State` can), and the
    checker's **pure-boundary Id defaulting** (`EffectLifter.tryIdDefault`, consulted from the return-boundary ladder and
    the `let` expectation in `Checker`) solves a fully-discharged body's still-flex residual carrier to `Id` and unwraps
@@ -317,11 +318,14 @@ native-leaf boundary as the fail-safe (a body reaching a bytecode leaf stalls lo
 may **not** borrow is a *sibling target* (jvm) that might be absent: so a layer's compile-time track must be
 **self-sufficient** from the base + its own `eliot-compiler/`. Roots reach the compiler via a **single repeatable
 `--path <root>/eliot`** (no separate `--compiler-path`/`--runtime-path`, no `compiler` Mill module); `LangPlugin` derives
-each root's `eliot-compiler/` sibling for the compiler pool (`LangPlugin.eliotCompilerOverlay`). Only **`stdlib`** ships
-an overlay today: `stdlib/eliot-compiler/eliot/lang/` holds the self-sufficient compile-time `Either`
+each root's `eliot-compiler/` sibling for the compiler pool (`LangPlugin.eliotCompilerOverlay`). Two roots ship an
+overlay today: `stdlib/eliot-compiler/eliot/lang/` holds the self-sufficient compile-time `Either`
 (concrete `data Either` + `foldEither` + `implement Effect[Either[String]]`/`Throw[String, Either[String]]`), `Option`
 (`data Option` + `foldOption`, needed by the guards), and the guard combinator bodies (`Guard.els`) — with abstract
-`type Either[E, A]`/`type Option[A]` in the `stdlib` base and the runtime `jvm` `Either`/`Option` structurally identical.
+`type Either[E, A]`/`type Option[A]` in the `stdlib` base and the runtime `jvm` `Either`/`Option` structurally identical;
+and `lang/eliot-compiler/eliot/lang/` holds the compile-time `Id` (concrete `data Id` + `implement Effect[Id]`, the
+identity carrier the checker's pure-boundary defaulting inserts — lang owns `Id`'s abstract declaration, so lang's
+overlay carries its compile-time concrete).
 Anything the compiler needs that is pure and already on the path (`Pair`, base bodies) is **borrowed**, not duplicated.
 `CompilerNativesProcessor` (contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`)
 reads that pool. The compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`, `typeEquals`) are Scala native

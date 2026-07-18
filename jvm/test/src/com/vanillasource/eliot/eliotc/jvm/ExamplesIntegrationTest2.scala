@@ -241,7 +241,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
   }
 
   // Pure-boundary Id defaulting (the identity carrier): a fully-discharged `if..else` meets a PURE declared return
-  // directly — the residual carrier defaults to the stdlib `Id` and the checker unwraps it with `runId`
+  // directly — the residual carrier defaults to the built-in `Id` (the lang layer's identity carrier) and the checker unwraps it with `runId`
   // (`EffectLifter.tryIdDefault`), so branching needs no carrier in the signature. Exercises the direct return, an
   // `else if` chain, a block `val` holding the discharged branch, and a genuinely runtime condition (from stdin).
   "if..else in a pure function" should "discharge to the Id carrier and unwrap automatically" in {
