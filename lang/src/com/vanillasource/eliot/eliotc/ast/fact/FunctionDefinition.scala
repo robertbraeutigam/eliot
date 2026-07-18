@@ -137,8 +137,10 @@ object FunctionDefinition {
       _                   <- symbol(":")
       typeExpression      <- sourced(Expression.typeRunParser)
       // The return-position transfer brace `: T {expr, …}` (bounds-as-refinements §4.2). `typeRunParser`'s type-atom
-      // run stops at `{` (a `{` is not a type-atom start — that leading-brace position is the effect-set sugar), so the
-      // brace sits unconsumed here, between the return type and the optional `= body`. Absent for an ordinary def.
+      // run tries a `{` as the effect-set sugar but backtracks off a transfer brace (its entries are arbitrary
+      // expressions, not ability references, and no type atom follows the closing `}` — only `=`, `where`, or the next
+      // definition can), so the brace sits unconsumed here, between the return type and the optional `= body`. Absent
+      // for an ordinary def.
       returnMeta          <- optionalBracketedCommaSeparatedItems("{", sourced(component[Expression]), "}")
       // The `where <predicate>` refinement precondition (bounds-as-refinements §4.3). `where` is a hard keyword, so the
       // return-type run above stops cleanly at it (as it does at `infix`/`def`); the predicate is a `typeRunParser` run

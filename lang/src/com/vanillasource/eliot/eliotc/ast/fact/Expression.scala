@@ -232,7 +232,9 @@ object Expression {
   /** Parses the effect-set sugar `{ Eff (, Eff)* } <type atom>`, e.g. `{Suspend} String`, `{State[Account], Abort} A`,
     * or the discharge form `{-Abort} G[A]`. Each brace entry is an ability reference (the same shape as a `~` ability
     * constraint) optionally prefixed by `-` to mark it discharged. The braces must be non-empty (an empty effect set is
-    * just the plain type). See [[EffectfulType]].
+    * just the plain type). The set covers exactly the one type atom that follows, and is itself a type-run atom
+    * ([[typeRunAtom]]), so it also reads nested in a run — most usefully in an arrow codomain, typing an effectful
+    * callback: `action: A => {Console} Unit`. See [[EffectfulType]].
     */
   private lazy val effectfulTypeParser: Parser[Sourced[Token], Expression] = for {
     entries    <- bracketedCommaSeparatedItems("{", signedEffectParser, "}")
@@ -270,9 +272,17 @@ object Expression {
     }
 
   /** Type atoms for the type positions (the single per-atom parser [[typeRunParser]] consumes a greedy *run* of these).
-    * Identical to [[typeAtom]] (both adjacency-sensitive); kept as a distinct name for readability at the run site. */
+    * [[typeAtom]] (adjacency-sensitive, shared with value positions) extended with the effect-set sugar `{…} A`
+    * ([[effectfulTypeParser]]): in a type run a `{` can only start an effect set (blocks are excluded from the type
+    * surface), so the set is an ordinary atom — at the head of the run (`{Console} Unit`) or nested after an infix type
+    * operator (`action: A => {Console} Unit`). The attempt is atomic: a `{…}` that is *not* an effect set — the
+    * return-position transfer brace `: T {range(a) + …}`, an `implement` body after a `where` guard — backtracks cleanly
+    * (its entries are not ability references, and no type atom ever follows a non-row brace: only `=`, `where`, a
+    * definition keyword, or a closing delimiter can), leaving the `{` for the enclosing parser.
+    */
   private lazy val typeRunAtom: Parser[Sourced[Token], Expression] =
-    parenthesizedExprParser.atomic() or
+    effectfulTypeParser.atomic() or
+      parenthesizedExprParser.atomic() or
       adjacentCallParser or
       integerLiteralParser or
       stringLiteralParser
@@ -288,12 +298,13 @@ object Expression {
     * next definition, because every definition-introducing token (`def`/`type`/`implement`/…/`private`/`opaque`) is a
     * hard keyword and those delimiters are reserved symbols — none is a type-atom start (see [[Primitives.isUserOperator]]
     * and [[FunctionDefinition]]'s keyword note). So inside a `[…]`/`(…)` list it stops at the `,` separator and the
-    * closing bracket, and a lambda-parameter annotation stops at the `->`. The leading effect-set sugar `{…} A` is still
-    * supported. Lambdas, `match`, and `{…}` blocks are deliberately excluded: they are not part of the type-atom surface
-    * and a `{` would be ambiguous with the effect set.
+    * closing bracket, and a lambda-parameter annotation stops at the `->`. The effect-set sugar `{…} A` is an ordinary
+    * type-run atom (see [[typeRunAtom]]), so it appears at the head of the run (`{Console} Unit`) or nested after an
+    * infix type operator (`A => {Console} Unit`). Lambdas, `match`, and `{…}` blocks are deliberately excluded: they are
+    * not part of the type-atom surface, which is what frees a type-position `{` to mean an effect set.
     */
   lazy val typeRunParser: Parser[Sourced[Token], Expression] =
-    effectfulTypeParser or sourced(typeRunAtom).atLeastOnce().map {
+    sourced(typeRunAtom).atLeastOnce().map {
       case Seq(single) => single.value
       case parts       => FlatExpression(parts)
     }

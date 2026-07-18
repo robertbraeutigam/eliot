@@ -41,6 +41,12 @@ class EffectCheckProcessorTest extends ProcessorTest(LangProcessors()*) {
       .asserting(_ shouldBe Seq.empty)
   }
 
+  it should "share one carrier through a nested effect set in an arrow codomain (effectful-callback combinator)" in {
+    runEffectCheckErrors(
+      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef ok: {Console} Unit = twice(printLine)\ndef twice(action: String => {Effect} Unit): {Effect} Unit = {\naction(\"a\")\naction(\"b\")\n}"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // The Effect ability stub (matching `stdlib/.../Effect.els`), so a snippet naming the machinery resolves.
   private val effectStub =
     SystemImport(

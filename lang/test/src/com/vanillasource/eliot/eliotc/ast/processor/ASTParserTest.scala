@@ -731,6 +731,34 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  // --- effect-set sugar as a type-run atom: head and nested occurrences, and the non-row `{` backtrack ---
+
+  "the effect-set sugar" should "parse at the head of a return type" in {
+    runEngineForFunctionReturnTypes("def f: {Console} Unit = a").asserting(
+      _.collect { case ("f", Expression.EffectfulType(effects, _, _)) => effects.size } shouldBe Seq(1)
+    )
+  }
+
+  it should "parse nested in an arrow codomain as the run's last atom" in {
+    runEngineForFunctionArgTypes("def f(action: A => {Console} Unit): Unit = a").asserting(
+      _.collect { case ("f", Expression.FlatExpression(parts)) => parts.last.value.getClass.getSimpleName } shouldBe Seq("EffectfulType")
+    )
+  }
+
+  it should "backtrack off a return-position transfer brace, leaving it to returnMeta" in {
+    runEngineForFunctionReturnMetaCounts("def add(a: Int, b: Int): Int {range(a) + range(b)} = a").asserting(
+      _ shouldBe Seq(("add", 1))
+    )
+  }
+
+  it should "backtrack off an implement body's brace after a where guard" in {
+    runEngineForErrors("implement Show[A] where a { def show: String = a }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "still reject an empty effect set" in {
+    runEngineForErrors("def f: {} Unit = a").asserting(_.size should be > 0)
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 
@@ -840,6 +868,30 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
           functions.map(f => (f.name.value.name, f.typeDefinition.value))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionArgTypes(source: String): IO[Seq[(String, Expression)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.flatMap(f => f.args.map(a => (f.name.value.name, a.typeExpression.value)))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionReturnMetaCounts(source: String): IO[Seq[(String, Int)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.returnMeta.size))
         }
         .toSeq
         .flatten

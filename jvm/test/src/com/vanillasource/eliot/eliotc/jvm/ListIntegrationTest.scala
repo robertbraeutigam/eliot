@@ -4,7 +4,8 @@ package com.vanillasource.eliot.eliotc.jvm
   * `empty`/`append`/`foldLeft` operations are *generic* natives: emitted once, erased, and resolved from every
   * monomorphic call site by plain name + erased signature ([[NativeImplementation.genericNativeSignatures]],
   * [[ExpressionCodeGenerator]]). The cases exercise distinct element types (`Int`, `String`) to show the one erased
-  * method set serves every instantiation, plus ordering, the empty list, and append's value semantics.
+  * method set serves every instantiation, plus ordering, the empty list, and append's value semantics. `foreach` — the
+  * stdlib-layer derived effectful consumer over `foldLeft` — is exercised through a `{Console}` caller.
   */
 class ListIntegrationTest extends FullIntegrationTest {
 
@@ -78,6 +79,20 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def main: IO[Unit] = printLine(show(size(items)))""".stripMargin
     ).asserting(_ shouldBe "3")
+  }
+
+  "foreach" should "run an effectful action per element, front to back, propagating its effects to the caller" in {
+    compileAndRun(
+      """
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(append(empty, 1), 2), 3)
+        |
+        |def printAll(list: List[Int]): {Console} Unit = list.foreach(e -> printLine(show(e)))
+        |
+        |def main: IO[Unit] = printAll(digits)""".stripMargin
+    ).asserting(_ shouldBe "1\n2\n3")
   }
 
   "append" should "not mutate its source list (value semantics)" in {

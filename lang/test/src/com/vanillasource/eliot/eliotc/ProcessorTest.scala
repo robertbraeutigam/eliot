@@ -39,7 +39,10 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     * this list.
     */
   val systemImports = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
+    SystemImport(
+      "Function",
+      "type Function[A, B]\ninfix right type =>[A, B] = Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"
+    ),
     SystemImport("Type", "type Type", ModuleName.compilerPackage),
     SystemImport("BigInteger", "type BigInteger"),
     SystemImport("Unit", "type Unit"),
