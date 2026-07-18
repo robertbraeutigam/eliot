@@ -338,10 +338,15 @@ def else[G[_] ~ Effect, A](computation: AbortCarrier[G, A], fallback: G[A]): {-A
 ```
 
 Callers then subtract `E` automatically, so a body that fully discharges `E` need not declare it (see
-the "fully-discharged effect" bullet below). A discharger's result **must** be a carrier-headed
-residual (`G[A]`, `IO[A]`, `{E'} A`) — discharge-to-a-pure-value is unsupported (no Identity carrier),
-so `def getOr(…): String = x else d` is rejected ("result rides an effect carrier…"); return `G[A]`
-and let the caller pin it. User handlers need no `{-E}` at all — the compiler *infers* discharge from
+the "fully-discharged effect" bullet below). A discharger's result is a carrier-headed residual
+(`G[A]`, `IO[A]`, `{E'} A`). In a **pure position** a fully-discharged computation just works: the
+leftover carrier defaults to the identity carrier `Id` (`eliot.lang.Id`) and unwraps automatically —
+`def port: String = setting("port") else "8080"` and `def sign(f: Bool): String = if(f, "+") else "-"`
+compile with no carrier in sight. The one shape that must still return `G[A]`, never a bare pure type,
+is a handler whose effectful input arrives via a **declared carrier-typed parameter**
+(`def getOr(x: {Abort} String, d: String): String = x else d` is rejected with "result rides an effect
+carrier…") — that carrier is caller-chosen, so it cannot default to `Id`; return `G[A]` and let the
+caller pin it. User handlers need no `{-E}` at all — the compiler *infers* discharge from
 the body (`def orDefault[G[_] ~ Effect, A](x: AbortCarrier[G, A], d: G[A]): G[A] = x else d` is seen
 to discharge `Abort`).
 
@@ -386,8 +391,8 @@ the carrier type (see the discharge combinators above); prefer the `{…}` row e
   application code never names them.
 - **`main` is concrete**: `def main: IO[Unit] = …` — the one place the carrier is pinned to `IO`.
   Keep business logic carrier-polymorphic (`{Console} Unit`, not `IO[Unit]`) so it runs on the
-  production carrier *and* a pure test carrier (define an `Id` `data` + `Effect[Id]` instance, then
-  `runId(runAbort(logic))` tests with no I/O).
+  production carrier *and* a pure test carrier (`import eliot.lang.Id`, then
+  `runId(runAbort(logic))` tests with no I/O — the stdlib `Id` is the identity carrier).
 - **The row wraps the plain value type, never a carrier**: `{Inf, Console} Unit`, NOT
   `{Inf} IO[Unit]` (that means `F[IO[Unit]]` — "Cannot resolve type."). A non-terminating program
   (verified pattern): `def serve: {Inf, Console} Unit = forever { printLine("tick") }` and

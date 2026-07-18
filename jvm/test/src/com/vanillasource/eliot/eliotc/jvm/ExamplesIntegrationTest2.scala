@@ -240,6 +240,59 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "then\nelse")
   }
 
+  // Pure-boundary Id defaulting (the identity carrier): a fully-discharged `if..else` meets a PURE declared return
+  // directly — the residual carrier defaults to the stdlib `Id` and the checker unwraps it with `runId`
+  // (`EffectLifter.tryIdDefault`), so branching needs no carrier in the signature. Exercises the direct return, an
+  // `else if` chain, a block `val` holding the discharged branch, and a genuinely runtime condition (from stdin).
+  "if..else in a pure function" should "discharge to the Id carrier and unwrap automatically" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Abort
+        |
+        |def sign(flag: Bool): String = if(flag, "+") else "-"
+        |
+        |def chain(a: Bool, b: Bool): String = if(a, "first") else if(b, "second") else "third"
+        |
+        |def viaBlock(flag: Bool): String = {
+        |   val label = if(flag, "yes") else "no"
+        |   label
+        |}
+        |
+        |def main: IO[Unit] = {
+        |   printLine(sign(true))
+        |   printLine(sign(false))
+        |   printLine(chain(false, true))
+        |   val runtimeFlag = readLine == "y"
+        |   printLine(sign(runtimeFlag))
+        |   printLine(viaBlock(runtimeFlag))
+        |}""".stripMargin,
+      stdin = "y\n"
+    ).asserting(_ shouldBe "+\n-\nsecond\n+\nyes")
+  }
+
+  // The other pure control effects discharge to a pure return the same way: `catch` fully discharges `{Throw}` and
+  // `runStateToPair` fully discharges `{State}`, so both results land in bare pure types via the Id defaulting. No
+  // `Suspend[Id]` instance exists, so a genuinely side-effecting body under a pure return still fails to resolve —
+  // the defaulting can never smuggle real I/O.
+  "catch and runStateToPair in a pure function" should "discharge to pure values via the Id carrier" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |import eliot.effect.Throw
+        |import eliot.effect.State
+        |
+        |def parsed(raw: String): {Throw[String]} String = raise("unparseable")
+        |
+        |def recovered: String = parsed("x") catch (err -> err)
+        |
+        |def counted: Pair[String, String] = runStateToPair(state, "initial")
+        |
+        |def main: IO[Unit] = {
+        |   printLine(recovered)
+        |   printLine(counted.first)
+        |}""".stripMargin
+    ).asserting(_ shouldBe "unparseable\ninitial")
+  }
+
   // A bare pure value supplied to a generic effect-carrier parameter `F[A]` auto-lifts via `pure` — previously it
   // degenerately unified `F[A] := String` and miscompiled to a runtime VerifyError.
   "a pure value into a generic effect-carrier parameter" should "auto-lift via pure" in {

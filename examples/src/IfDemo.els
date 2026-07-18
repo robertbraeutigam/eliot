@@ -31,6 +31,17 @@ def demo(flag: Bool): {Console} Unit = {
    } else printLine("6. plain else")
 }
 
+// `if..else` needs no effect row at all: in a PURE function the fully-discharged branch's leftover carrier defaults to
+// the identity carrier `Id` and unwraps automatically (`runId` is inserted by the compiler), so branching code looks
+// exactly like it would in any other language — a plain `String` in, a plain `String` out.
+def sign(flag: Bool): String = if(flag, "+") else "-"
+
+// The same in an if..else if..else chain, and through a block `val` holding the discharged branch.
+def describe(a: Bool, b: Bool): String = {
+   val category = if(a, "first") else if(b, "second") else "third"
+   category
+}
+
 // `fold` is the raw two-armed eliminator that `if` is built on: `if(cond, v)` is exactly `fold(cond, v, abort)`, and
 // `else` discharges that abort. The differences: `fold` takes BOTH arms explicitly and both must already be the SAME
 // type (a bare `A` slot does not auto-lift a pure arm the way `if`'s carrier-typed arm does), and `fold` adds no
@@ -54,6 +65,8 @@ def main: IO[Unit] = {
    printLine("========== constant: true ==========")
    demo(true)
    foldForms(true)
+   printLine(sign(true))
+   printLine(describe(false, true))
 
    // With a runtime value. An effectful condition — `readLine == "yes"` : IO[Bool] — is direct-style lifted (run)
    // in the rigid `Bool` slot of BOTH `if` and `fold`, exactly like `printLine(readLine)`. We sequence it once into

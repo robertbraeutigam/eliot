@@ -205,9 +205,9 @@ class Checker(
 
   /** Check-mode resolution at a *return boundary* (a lambda body against its codomain, a def body against its declared
     * return): the shared [[resolveGuardedLadder]] with the bind-lift arm *disabled* — stripping an effect carrier at a
-    * return boundary would silently drop the effect, so the doomed lift shape commits the exact mismatch instead. The
-    * ladder can therefore only ever produce a [[SlotOutcome.Resolved]] here; a [[SlotOutcome.Bound]] is unreachable by
-    * construction.
+    * return boundary would silently drop the effect, so the doomed lift shape gets the pure-boundary Id defaulting
+    * ([[EffectLifter.tryIdDefault]]) and commits the exact mismatch when that does not apply. The ladder can therefore
+    * only ever produce a [[SlotOutcome.Resolved]] here; a [[SlotOutcome.Bound]] is unreachable by construction.
     */
   private def checkAgainst(
       tm: Sourced[OperatorResolvedExpression],
@@ -269,7 +269,9 @@ class Checker(
     *   - `true` (argument slot): the **bind-lift arm** is consulted — as a pre-arm and in the failure ladder —
     *     and can produce a [[SlotOutcome.Bound]].
     *   - `false` (return boundary): the bind-lift arm is omitted (stripping a carrier there would silently drop the
-    *     effect); the doomed `mustLiftBeforeUnify` shape instead commits the exact mismatch eagerly.
+    *     effect); the doomed `mustLiftBeforeUnify` shape instead tries the pure-boundary Id defaulting
+    *     ([[EffectLifter.tryIdDefault]] — a fully-discharged residual carrier solves to `Id` and unwraps via `runId`)
+    *     and commits the exact mismatch eagerly when that does not apply.
     *
     * The pure-wrap arm fires on both.
     */
@@ -322,14 +324,26 @@ class Checker(
                                        case (_, Some(wrapped), _)         =>
                                          pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
                                        case (_, _, true)                  =>
-                                         commitMismatch(instantiated, expected, tm, updatedExpr)
+                                         // Pure-boundary Id defaulting: a fully-discharged body's residual carrier is
+                                         // still a flex meta here (`?G[String]` against `String`), which no unification
+                                         // could ever solve. Default it to the identity carrier and unwrap with
+                                         // `runId` ([[EffectLifter.tryIdDefault]]); only when the payload does not fit
+                                         // the declared return commit the exact mismatch as before.
+                                         lifter.tryIdDefault(tm, updatedExpr, instantiated, expected).flatMap {
+                                           case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+                                           case None          => commitMismatch(instantiated, expected, tm, updatedExpr)
+                                         }
                                        case (_, _, false)                 =>
                                          resolveFailureLadder(tm, updatedExpr, instantiated, expected, allowBindLift)
                                      }
     } yield out
 
   /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: try the bind-lift
-    * arm (argument positions only, `allowBindLift`), then the pure-wrap arm, and finally commit the exact mismatch.
+    * arm (argument positions only, `allowBindLift`), then the pure-wrap arm, then — at return boundaries only — the
+    * pure-boundary Id defaulting ([[EffectLifter.tryIdDefault]]: an applied-arity expectation such as
+    * `?G[Pair[S,S]] ~ Pair[String,String]` is not the doomed pre-arm shape, so unification first tries the injective
+    * decomposition `?G := Pair[String]` and contradicts on the payload; the fitting solution is `?G := Id`), and
+    * finally commit the exact mismatch.
     */
   private def resolveFailureLadder(
       tm: Sourced[OperatorResolvedExpression],
@@ -347,7 +361,12 @@ class Checker(
           case None                  =>
             lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
               case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-              case None          => commitMismatch(instantiated, expected, tm, updatedExpr)
+              case None          =>
+                (if (allowBindLift) pure(Option.empty[SemExpression])
+                 else lifter.tryIdDefault(tm, updatedExpr, instantiated, expected)).flatMap {
+                  case Some(unwrapped) => pure(SlotOutcome.Resolved(unwrapped): SlotOutcome)
+                  case None            => commitMismatch(instantiated, expected, tm, updatedExpr)
+                }
             }
         }
     }
@@ -861,17 +880,37 @@ class Checker(
                                     bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
                                     (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
                                     resolved                   <- expected match {
-                                                                    // Plain definitional equality: on a contradiction
-                                                                    // commit a single Expected/Actual mismatch rather
-                                                                    // than the unifier's per-type-argument spine errors.
+                                                                    // Definitional equality with the pure-boundary Id
+                                                                    // defaulting as the fallback: a `let` whose wrapped
+                                                                    // carrier is still a flex meta against a rigid pure
+                                                                    // expectation (`?G[String]` ~ `String` — a block
+                                                                    // ending in a fully-discharged computation inside a
+                                                                    // pure def) is the doomed shape unification can only
+                                                                    // postpone (skip it), and an applied-arity
+                                                                    // expectation contradicts on the injective
+                                                                    // decomposition — both then default the carrier to
+                                                                    // `Id` and unwrap ([[EffectLifter.tryIdDefault]]).
+                                                                    // Otherwise commit a single Expected/Actual
+                                                                    // mismatch rather than the unifier's
+                                                                    // per-type-argument spine errors.
                                                                     case Some(exp) =>
-                                                                      tryUnifyCommitting(wrappedType, exp, body.as("Type mismatch.")).flatMap {
-                                                                        case true  => pure((wrappedExpr, exp))
-                                                                        case false =>
-                                                                          modify(st =>
-                                                                            st.withUnifier(st.unifier.addMismatch(wrappedType, exp, body.as("Type mismatch.")))
-                                                                          ).as((wrappedExpr, exp))
-                                                                      }
+                                                                      lifter
+                                                                        .mustLiftBeforeUnify(wrappedType, exp)
+                                                                        .flatMap {
+                                                                          case true  => pure(false)
+                                                                          case false => tryUnifyCommitting(wrappedType, exp, body.as("Type mismatch."))
+                                                                        }
+                                                                        .flatMap {
+                                                                          case true  => pure((wrappedExpr, exp))
+                                                                          case false =>
+                                                                            lifter.tryIdDefault(body, wrappedExpr, wrappedType, exp).flatMap {
+                                                                              case Some(unwrapped) => pure((unwrapped, exp))
+                                                                              case None            =>
+                                                                                modify(st =>
+                                                                                  st.withUnifier(st.unifier.addMismatch(wrappedType, exp, body.as("Type mismatch.")))
+                                                                                ).as((wrappedExpr, exp))
+                                                                            }
+                                                                        }
                                                                     case None      => pure((wrappedExpr, wrappedType))
                                                                   }
                                   } yield resolved

@@ -1,0 +1,24 @@
+/**
+ * The identity carrier: an `Id[A]` is just an `A`, wrapped so it can stand where an effect carrier is expected.
+ *
+ * `Id` is the carrier that realises the *empty* effect row. When a computation's effects are all discharged inline
+ * (`if(flag, "+") else "-"` — the `else` discharges the `if`'s `Abort`) inside a function whose declared return is a
+ * plain pure type, the compiler resolves the leftover carrier to `Id` and unwraps it with `runId` automatically — so
+ * such code needs no annotation and no carrier ever appears in the signature. It is also the natural carrier for
+ * running carrier-polymorphic logic purely, e.g. in tests: `logic.runAbort.runId`.
+ *
+ * `Id` deliberately has NO `Suspend` instance: real side-effecting operations (`printLine`, `readLine`, ...) enter
+ * carriers through `Suspend`, so they can never run on `Id` — only the pure control effects (`Abort`, `Throw`,
+ * `State`) can. That is what makes the automatic unwrap safe.
+ *
+ * ```eliot
+ * // The Abort of each if is discharged by its else; the leftover carrier resolves to Id and unwraps.
+ * def sign(n: Int): String = if(n > 0) "+" else if(n < 0) "-" else "0"
+ * ```
+ */
+type Id[A]
+
+/**
+ * Unwrap an `Id[A]` to its value. Total and pure — unlike running any real carrier, this performs nothing.
+ */
+def runId[A](obj: Id[A]): A

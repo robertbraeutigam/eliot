@@ -56,8 +56,10 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): {-Abort} G[Option[A]]
  * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
  * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback` instead,
  * never exposing `Option`. The fallback is itself a `G`-computation, so it may be a pure value (auto-lifted with `pure`)
- * or effectful; the result stays in the carrier `G` — the `Abort` layer is discharged, any other effects remain. Binds
- * right-associatively, so `if(..) else if(..) else default` nests as expected.
+ * or effectful; the result stays in the carrier `G` — the `Abort` layer is discharged, any other effects remain. In a
+ * pure position (a bare pure declared return, with no other effect in sight) the leftover carrier defaults to the
+ * identity carrier `Id` and unwraps automatically, so a fully-discharged computation drops straight into pure code.
+ * Binds right-associatively, so `if(..) else if(..) else default` nests as expected.
  *
  * ```eliot
  * // Get a setting for a key; aborts if the setting does not exist.
@@ -65,6 +67,9 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): {-Abort} G[Option[A]]
  *
  * // Discharged at the use site, inside an effectful context.
  * def main: IO[Unit] = printLine(setting("host") else "localhost")
+ *
+ * // Discharged into a PURE function: the leftover carrier defaults to Id and unwraps.
+ * def port: String = setting("port") else "8080"
  * ```
  */
 infix right
