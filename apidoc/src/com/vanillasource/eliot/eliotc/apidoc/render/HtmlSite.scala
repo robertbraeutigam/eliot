@@ -28,12 +28,6 @@ object HtmlSite {
 
   private def escape(text: String): String = EliotHighlighter.escape(text)
 
-  /** The Eliot website homepage. The sidebar wordmark links here so the logo returns to the main site (the usual
-    * "logo = home" affordance), while the "apidoc" tag still links to this doc set's own index. Absolute, so the link
-    * is correct whether the docs are published under eliotlang.github.io/apidoc/ or a local build is opened on its own.
-    */
-  private val homeUrl = "https://eliotlang.github.io/"
-
   private def page(title: String, sidebar: String, content: String): String =
     s"""<!doctype html>
        |<html lang="en">
@@ -116,7 +110,7 @@ object HtmlSite {
   private def renderSidebar(modules: Seq[DocModule], active: Option[String]): String = {
     val tree = buildForest(modules.map(m => ((m.name.packages :+ m.name.name).toList, m)), "")
     s"""<nav class="sidebar">
-       |<div class="brandbar"><a class="brand" href="$homeUrl">eliot<span class="eliot-cursor"></span></a><a class="tag" href="index.html">apidoc</a></div>
+       |<div class="brandbar"><a class="brand" href="/">eliot<span class="eliot-cursor"></span></a><a class="tag" href="index.html">apidoc</a></div>
        |<input class="search" type="search" placeholder="Filter modules…" oninput="filterModules(this.value)" aria-label="Filter modules">
        |<ul class="tree" id="tree">
        |${renderForest(tree, active)}
