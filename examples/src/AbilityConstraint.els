@@ -11,4 +11,4 @@ implement Display[Hello] {
 
 def displayAnything[A ~ Display](thing: A): String = display(thing)
 
-def main: IO[Unit] = printLine(displayAnything(Hello("World")))
+def main: {Console} Unit = printLine(displayAnything(Hello("World")))

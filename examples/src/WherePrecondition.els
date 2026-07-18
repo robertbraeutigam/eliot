@@ -14,4 +14,4 @@ def withinByte(i: Interval[BigInteger]): Bool =
  */
 def asByte(x: Int): Int where withinByte(range(x)) = x
 
-def main: IO[Unit] = printLine(show(asByte(100)))
+def main: {Console} Unit = printLine(show(asByte(100)))

@@ -6,4 +6,4 @@ def describe(m: Maybe[String]): String = m match {
   case Just(v) -> v
 }
 
-def main: IO[Unit] = printLine(describe(Just("hello")))
+def main: {Console} Unit = printLine(describe(Just("hello")))

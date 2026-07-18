@@ -16,4 +16,4 @@ import eliot.compiler.Reflect
  */
 def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
 
-def main: IO[Unit] = printLine(show(total))
+def main: {Console} Unit = printLine(show(total))

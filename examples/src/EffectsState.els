@@ -23,7 +23,7 @@ def swap(next: String): {State[String]} String = {
 // (returned-old-value, final-state) started from "first".
 def demo: Pair[String, String] = runId(runStateToPair(swap("second"), "first"))
 
-def main: IO[Unit] = {
+def main: {Console} Unit = {
    printLine(demo.first)
    printLine(demo.second)
 }

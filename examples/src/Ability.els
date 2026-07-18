@@ -9,4 +9,4 @@ implement Display[Hello] {
    def display(a: Hello): String = "Hello World!"
 }
 
-def main: IO[Unit] = printLine(display(Hello("World")))
+def main: {Console} Unit = printLine(display(Hello("World")))

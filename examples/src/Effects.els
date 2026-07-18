@@ -4,7 +4,8 @@ import eliot.effect.Console
  *
  * `readLine` yields a plain `String` and `printLine` consumes one, yet both perform `Console`. Writing
  * `printLine(readLine)` directly works because effectful calls are sequenced for you — no explicit `flatMap`,
- * `import`, or lift. `echo` stays carrier-polymorphic (`{Console}`); `main` commits it to the runnable `IO`.
+ * `import`, or lift. Everything stays carrier-polymorphic, `main` included — the platform's synthesized entry
+ * point binds the runnable carrier; no carrier type ever appears in the program.
  *
  * ```sh
  * ./mill examples.run jvm exe-jar examples/src/ -m Effects
@@ -13,4 +14,4 @@ import eliot.effect.Console
  */
 def echo: {Console} Unit = printLine(readLine)
 
-def main: IO[Unit] = echo
+def main: {Console} Unit = echo

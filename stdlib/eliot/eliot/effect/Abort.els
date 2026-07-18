@@ -66,7 +66,7 @@ def runAbort[G[_], A](obj: AbortCarrier[G, A]): {-Abort} G[Option[A]]
  * def setting(key: String): {Abort} String
  *
  * // Discharged at the use site, inside an effectful context.
- * def main: IO[Unit] = printLine(setting("host") else "localhost")
+ * def main: {Console} Unit = printLine(setting("host") else "localhost")
  *
  * // Discharged into a PURE function: the leftover carrier defaults to Id and unwraps.
  * def port: String = setting("port") else "8080"

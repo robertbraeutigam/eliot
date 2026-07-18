@@ -227,8 +227,10 @@ exercise your leaf at runtime, drive it from an effect** (`readLine == "yes"`), 
   on the stack; don't emit your own `RETURN`.
 - **FQN qualifier**: `systemLangType`/`langInt`/`langBool` build `Qualifier.Default` FQNs (what reaches the backend
   and `NativeType`); `WellKnownTypes` type FQNs are `Qualifier.Type`. Match Default for backend maps.
-- **`.els` imports**: only `Function/Unit/String/BigInteger/IO/Int/Runtime` + `Type` are ambient; `Bool`, `Eq`,
-  every effect need an explicit `import`. A missing import shows as "Name not defined" (with a cascade onto callers).
+- **`.els` imports**: the `eliot.lang` prelude (`ModuleName.defaultSystemModules`: `BigInteger`/`Bool`/`Compare`/
+  `Either`/`Eq`/`Function`/`Int`/`Interval`/`Numeric`/`Option`/`Pair`/`Runtime`/`Show`/`String`/`Unit`) + `Type` are
+  ambient; every effect — and the jvm carrier `eliot.jvm.IO` — needs an explicit `import`. A missing import shows as
+  "Name not defined" (with a cascade onto callers).
 - **A leaf is only emitted if `used` reaches it** — an unreferenced native produces no method; test through a real
   call from `main`.
 

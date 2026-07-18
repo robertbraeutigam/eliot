@@ -59,7 +59,7 @@ an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the releva
 | field accessor / `foldX` eliminator | with the `data` (jvm; + `stdlib/eliot-compiler` for a self-sufficient carrier) | pure ones are **borrowed** at compile time — add a copy only for self-sufficiency, an abstract twin only if a non-borrowable name is referenced |
 | pure body, same on every target (composition over abstract/native ops) | **stdlib** | e.g. `catch`, `else`, `updateState`, Function `.` |
 | native leaf (backend/compiler supplies the body: bytecode op, arbitrary-precision arith, `printLineInternal`) | **jvm** (runtime) / Scala `*NativesProcessor` (compiler leaves) | the layer "bottom" |
-| representation-dependent body (layout/carrier choice) | **jvm** | e.g. `printLine = IO(_ -> printLineInternal(s))` (commits to the jvm `IO` representation) |
+| representation-dependent body (layout/carrier choice) | **jvm** | e.g. the `Suspend[IO]` instance (commits to the jvm carrier `eliot.jvm.IO` — a jvm-package module, not a base name; user code never imports it) |
 | `ability X` | **stdlib** | re-declared (copied) in any layer file hosting an `implement X` — see duplication below |
 | `implement X[T]` with a runtime/value payload | with `T`'s `data` (jvm) or `X`'s module | body needs `T`'s ctor, which lives with the `data` |
 | pure compile-time-only `implement` (no runtime payload) | **stdlib** | e.g. `Meta[Unit]` in `Unit.els` |

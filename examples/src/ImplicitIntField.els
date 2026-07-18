@@ -5,4 +5,4 @@ import eliot.effect.Console
  */
 data Counter(n: Int)
 
-def main: IO[Unit] = printLine(show(Counter(42).n))
+def main: {Console} Unit = printLine(show(Counter(42).n))

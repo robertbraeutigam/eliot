@@ -1,5 +1,5 @@
 import eliot.effect.Console
-def main: IO[Unit] = printLine(<===>)
+def main: {Console} Unit = printLine(<===>)
 
 def <===>: String = "Hello World!"
 

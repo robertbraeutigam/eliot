@@ -16,11 +16,9 @@ import eliot.effect.Effect
  * // Lookup something from a database
  * def lookup(key: String): {Dep[Configuration], DBIO} Row = dependency.query("select ...")
  *
- * // Provide the dependency in main
- * def main: IO[Unit] = printLine(
- *    lookup("42")
- *      .provide(Database("jdbc://app-db"))
- *      .rowText
+ * // Provide the dependency in main (a direct call — a dot-chained discharger is not credited)
+ * def main: {Console} Unit = printLine(
+ *    provide(Database("jdbc://app-db"), lookup("42")).rowText
  * )
  * ```
  */
@@ -54,15 +52,17 @@ def runDepCarrier[X, G[_], A](obj: DepCarrier[X, G, A]): X => G[A]
  * Discharge the `Dep[X]` effect by supplying the environment value `x`: every `dependency` read of type `X`
  * in `computation` sees `x`, and the residual carrier `G` (still carrying any other effects) is returned.
  *
+ * Call it directly on the computation expression (`provide(x, logic)`) — a discharge is credited to the
+ * caller's effect accounting only at a direct call, so nest two `provide`s for two dependency types rather
+ * than dot-chaining them.
+ *
  * ```eliot
  * // Some logic using two distinct dependencies
  * def logic: {Dep[Database], Dep[Topic]} Unit = ...
  *
- * // Main providing both dependencies to run logic
- * def main: IO[Unit] =
- *    describe
- *      .provide(Database("jdbc://app-db"))
- *      .provide(Topic("events"))
+ * // Main providing both dependencies to run logic; each provide peels one Dep from the row
+ * def main: {Console} Unit =
+ *    provide(Topic("events"), provide(Database("jdbc://app-db"), logic))
  * ```
  */
-def provide[X, G[_], A](x: X, computation: DepCarrier[X, G, A]): G[A] = runDepCarrier(computation)(x)
+def provide[X, G[_], A](x: X, computation: DepCarrier[X, G, A]): {-Dep[X]} G[A] = runDepCarrier(computation)(x)

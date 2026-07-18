@@ -33,7 +33,7 @@ def stateSurvives: Pair[Option[String], String] =
 def stateDiscarded: Option[Pair[String, String]] =
    runId(runAbort(runStateToPair(modifyThenAbort, "initial")))
 
-def main: IO[Unit] = {
+def main: {Console} Unit = {
    printLine(foldOption(stateSurvives.first, "<no value>", s -> s))
    printLine(stateSurvives.second)
    printLine(foldOption(stateDiscarded, "<no state>", p -> p.second))

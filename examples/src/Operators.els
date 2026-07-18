@@ -1,5 +1,5 @@
 import eliot.effect.Console
-def main: IO[Unit] = printLine(content(Cell("Hello") | Cell("World") | Cell("!")))
+def main: {Console} Unit = printLine(content(Cell("Hello") | Cell("World") | Cell("!")))
 
 data Cell(content: String)
 

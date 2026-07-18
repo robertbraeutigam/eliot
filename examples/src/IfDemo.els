@@ -59,7 +59,7 @@ def foldForms(flag: Bool): {Console} Unit = {
    printLine(fold(flag, "3. fold same-type arms: A", "3. fold same-type arms: B"))
 }
 
-def main: IO[Unit] = {
+def main: {Console} Unit = {
    // With a compile-time constant: `demo(true)` / `foldForms(true)` may be reduced by the compiler. No `else` is
    // needed — both perform only `{Console}`, so they drop straight into the `IO` of `main`.
    printLine("========== constant: true ==========")

@@ -9,7 +9,7 @@ def sum: Interval[Int] = a + b
 def diff: Interval[Int] = a - b
 def prod: Interval[Int] = a * b
 
-def main: IO[Unit] = {
+def main: {Console} Unit = {
   printLine(show(sum.start))
   printLine(show(sum.end))
   printLine(show(diff.start))

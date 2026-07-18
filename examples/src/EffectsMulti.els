@@ -29,4 +29,4 @@ def run: {Dep[Database], Log, Console} Unit = {
 
 // The database dependency is injected at the discharge site with `provide`, which hands the value to every
 // `dependency` read and leaves the residual carrier IO. `run` itself never names a concrete Database.
-def main: IO[Unit] = run.provide(Database("jdbc://app-db"))
+def main: {Console, Log} Unit = provide(Database("jdbc://app-db"), run)

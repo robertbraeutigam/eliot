@@ -19,7 +19,7 @@ def denied: {Abort} String = abort
 def testAllowed: Option[String] = runId(runAbort(allowed))
 def testDenied: Option[String] = runId(runAbort(denied))
 
-def main: IO[Unit] = {
+def main: {Console} Unit = {
    printLine(foldOption(testAllowed, "DENIED", s -> s))
    printLine(foldOption(testDenied, "DENIED", s -> s))
 }

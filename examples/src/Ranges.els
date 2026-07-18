@@ -8,4 +8,4 @@ def count: Int = 7
 
 def total: Int = count + count + count
 
-def main: IO[Unit] = printLine(show(total))
+def main: {Console} Unit = printLine(show(total))

@@ -252,7 +252,8 @@ type-level `Combine[Int,Int]` join). What it must never contain is `data` (a cho
 leaf, or any representation-dependent body.
 
 - `type Int[MIN: BigInteger, MAX: BigInteger]` — an abstract type; no value constructor, no chosen width.
-- `def printLine(s: String): IO[Unit]` — an abstract function; signature only, no implementation.
+- `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function; signature only, no
+  implementation.
 - `type Byte = Int[-128, 127]` — a `type` *with* a body is just an alias; still platform-neutral.
 
 A `type X = ...` (alias) and a body-less `type X` differ only by the presence of a body; a `data X(...)`
@@ -265,9 +266,13 @@ abstract↔concrete merge, and its signature-match gotchas — use the **`eliot-
 **Layers = redefinition, not inheritance.** A platform "implements" an abstract definition by simply
 *defining the same name again*, in its own root path, with a body. There is no `extends`, `override`
 keyword, or instance mechanism — co-located definitions of the same qualified name across root paths are
-**merged**, preferring the concrete one. Example: base declares `type IO[A]` and `def printLine(...): IO[Unit]`
-(abstract); the `jvm` layer redefines `data IO[A](block: Function[Unit, A])` and
-`def printLine(s) = IO(_ -> printLineInternal(s))` (concrete). The compiler unifies them into a single value.
+**merged**, preferring the concrete one. Example: the base declares `type List[A]` and body-less
+`def foldLeft(...)` (abstract); the `jvm` layer re-declares the same names concretely (backed by its
+`java.util.List` native). The compiler unifies them into a single value. (The carrier itself is NOT such a
+merge anymore: there is no base `IO` at all — the concrete `data IO[A](block: ...)` is the platform-owned
+`eliot.jvm.IO`, outside the prelude, and user programs never name it. `main` declares an effect row
+(`def main: {Console} Unit`); the jvm target's synthesized entry point instantiates `main`'s inferable
+carrier to `IO` by ordinary unification and runs the thunk — see `SyntheticMainSourceProcessor`.)
 
 **Layers *mix*, they do not *stack*; every file must stand on its own.** Name resolution is per-file (a file's
 dictionary is its own declarations + imports, never names declared in a *sibling* file of the same module). So when one

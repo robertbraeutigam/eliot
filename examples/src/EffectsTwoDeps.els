@@ -14,10 +14,10 @@ def describe: {Dep[Database], Dep[Topic], Console} Unit = {
 }
 
 // The "filling in" happens at the discharge site: each dependency is supplied by its own `provide`. Two
-// distinct types => two chained `.provide`s, each peeling one Dep layer (the reader counterpart of two chained
-// `catch`es). The first `.provide` supplies the Database, the second the Topic; what remains is IO[Unit].
-def main: IO[Unit] =
-   describe
-     .provide(Database("jdbc://app-db"))
-     .provide(Topic("events"))
+// distinct types => two nested `provide`s, each peeling one Dep layer (the reader counterpart of two chained
+// `catch`es). The inner `provide` supplies the Database, the outer the Topic; only `{Console}` remains. The
+// discharger must receive the computation as a direct call for its discharge to be credited, so the two
+// `provide`s nest rather than dot-chain.
+def main: {Console} Unit =
+   provide(Topic("events"), provide(Database("jdbc://app-db"), describe))
 
