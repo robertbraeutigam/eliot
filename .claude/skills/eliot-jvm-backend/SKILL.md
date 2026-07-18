@@ -237,8 +237,8 @@ exercise your leaf at runtime, drive it from an effect** (`readLine == "yes"`), 
 - **eliot-layers** — where the `.els` (abstract vs jvm vs eliot-compiler) goes and why; the merge and its
   signature traps. Do placement there *first*.
 - **eliot-monomorphize** — the checker/`SemValue`/`VNative` side of the compile-time reductions.
-- **eliot-code** — `.els` surface syntax; that pure computation folds is the *Types-Are-Values* + *Total by
-  Default* cornerstones in CLAUDE.md.
+- **eliot-code** (global skill) — `.els` surface syntax; that pure computation folds is the *Types-Are-Values* +
+  *Total by Default* cornerstones in CLAUDE.md.
 - Memories: [[project_compiler_as_platform]] (two tracks, native-leaf boundary),
   [[feedback_minimize_scala_decompose_in_eliot]] (keep Scala thin — most impls are Eliot, not bytecode),
   [[gotcha_suspend_base_effect_ability]].
