@@ -7,3 +7,5 @@ ide/lsp/dist
 ide/intellij/.gradle
 ide/intellij/build
 ide/intellij/.intellijPlatform
+settings.local.json
+
