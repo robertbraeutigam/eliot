@@ -618,6 +618,78 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  // Effect-set sugar in a constructor field type is lifted onto the *data type's* generic parameters (as an inferable
+  // carrier) before the data is split into functions, so the carrier has a home on the type constructor — not just the
+  // value constructor. `data Box(body: {E} Unit)` is thus identical to `data Box[auto F[_] ~ E](body: F[Unit])`.
+  "effect-set sugar on data" should "lift the carrier onto the type constructor as a higher-kinded param" in {
+    namedValue("data Box(body: {Suspend} Unit)", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
+      nv.signature.value.structure shouldBe App(App(Ref("Function", T), carrierKind), Ref("Type", T))
+    }
+  }
+
+  it should "lift the carrier onto the value constructor and rewrite the field to F[..]" in {
+    namedValue("data Box(body: {Suspend} Unit)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
+      nv.signature.value.structure shouldBe Lambda(
+        "F",
+        carrierKind,
+        App(
+          App(Ref("Function", T), App(Ref("F", T), Ref("Unit", T))),
+          App(Ref("Box", Qualifier.Type), Ref("F", T))
+        )
+      )
+    }
+  }
+
+  it should "mark the synthesized data carrier inferable" in {
+    namedValue("data Box(body: {Suspend} Unit)", QualifiedName("Box", Qualifier.Default))
+      .asserting(_.inferableArity shouldBe 1)
+  }
+
+  it should "constrain the data carrier by the field's effect" in {
+    namedValue("data Box(body: {Suspend} Unit)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Suspend", Seq(Ref("F", T)))))
+    }
+  }
+
+  it should "lift the carrier through the field accessor too" in {
+    namedValue("data Box(body: {Suspend} Unit)", QualifiedName("body", Qualifier.Default)).asserting { nv =>
+      nv.signature.value.structure shouldBe Lambda(
+        "F",
+        carrierKind,
+        App(App(Ref("Function", T), App(Ref("Box", Qualifier.Type), Ref("F", T))), App(Ref("F", T), Ref("Unit", T)))
+      )
+    }
+  }
+
+  it should "prepend the carrier before an existing generic parameter and thread both through" in {
+    namedValue("data Box[A](body: {State[Account]} A)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
+      nv.signature.value.structure shouldBe Lambda(
+        "F",
+        carrierKind,
+        Lambda(
+          "A",
+          Ref("Type", T),
+          App(
+            App(Ref("Function", T), App(Ref("F", T), Ref("A", T))),
+            App(App(Ref("Box", Qualifier.Type), Ref("F", T)), Ref("A", T))
+          )
+        )
+      )
+    }
+  }
+
+  it should "append the carrier as the final argument of a parameterized effect" in {
+    namedValue("data Box(body: {State[Account]} Unit)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("State", Seq(Ref("Account", T), Ref("F", T)))))
+    }
+  }
+
+  it should "leave a data type with no effectful fields untouched" in {
+    namedValue("data Box(value: A)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
+      nv.signature.value.structure shouldBe App(App(Ref("Function", T), Ref("A", T)), Ref("Box", Qualifier.Type))
+    }
+  }
+
   "flat expressions" should "pass through as FlatExpression in core" in {
     namedValue("def f: T = b + c").asserting { nv =>
       nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("b"), Ref("+"), Ref("c"))))
@@ -722,6 +794,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       case FlatExpression(parts)                    => Flat(parts.map(_.value.structure))
     }
   }
+
+  // The kind of a `[F[_]]` carrier: Function[Type, Type].
+  private def carrierKind: ExprStructure = App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T))
 
   private def constraintShapes(nv: NamedValue): Map[String, Seq[(String, Seq[ExprStructure])]] =
     nv.paramConstraints.view

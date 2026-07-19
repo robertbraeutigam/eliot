@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{FunctionDefinition, GenericParameter}
+import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, FunctionDefinition, GenericParameter}
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -29,6 +29,51 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * `Abort` as discharged.
   */
 object EffectSugarDesugarer {
+
+  /** Rewrite a `data` definition: collapse the *positive* `{…}` effect-sets in its constructor field types onto one
+    * shared inferable carrier `F[_]` **lifted onto the data type's own generic parameters**, and rewrite every field
+    * `{…} A` to `F[A]`. Returns the definition unchanged when no field carries an effect.
+    *
+    * This must run *before* [[DataDefinitionDesugarer]] splits the data into its type-constructor, value-constructor,
+    * and accessor functions: those all thread `genericParameters` through uniformly, so lifting the carrier here gives
+    * `F` a home on the *type* (`data TestCase(body: {Throw[E]} Unit)` ⤳ `data TestCase[auto F[_] ~ Throw[E]](body:
+    * F[Unit])`). Desugaring the split functions instead would only add `F` to the value constructor, leaving the type
+    * constructor nullary and `F` an unbound free variable — the field references a carrier the type cannot record.
+    *
+    * The carrier is `auto` (inferable), so use sites keep writing the bare type name; the carrier is inferred exactly
+    * like any other `auto` generic. Negatives (`{-E}`) are not meaningful on a stored field (discharge is a *function*'s
+    * behaviour, not a value's shape); a negatives-only field simply passes its inner type through, introducing no
+    * carrier — same rule the function path uses.
+    */
+  def desugar(data: DataDefinition): DataDefinition = {
+    val fieldExprs = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression.value))
+    val positives  = fieldExprs.flatMap(collectEffects(_.effects)).distinctBy(constraintKey)
+    val negatives  = fieldExprs.flatMap(collectEffects(_.negativeEffects)).distinctBy(constraintKey)
+
+    if (positives.isEmpty && negatives.isEmpty) data
+    else {
+      val anchor         = data.name
+      val carrierNameOpt =
+        Option.when(positives.nonEmpty)(freshName("F", data.genericParameters.map(_.name.value).toSet))
+      val carrierParam   = carrierNameOpt.map { carrierName =>
+        val carrierRef = anchor.as(typeExpr(anchor.as(carrierName)))
+        GenericParameter(
+          anchor.as(carrierName),
+          anchor.as(functionKind(anchor)),
+          positives.map(e => GenericParameter.AbilityConstraint(e.abilityName, e.typeParameters :+ carrierRef)),
+          inferable = true
+        )
+      }
+      val rewriteExpr    = rewrite(carrierNameOpt)
+
+      data.copy(
+        genericParameters = carrierParam.toSeq ++ data.genericParameters,
+        constructors = data.constructors.map(_.map { ctor =>
+          ctor.copy(fields = ctor.fields.map(field => field.copy(typeExpression = rewriteExpr(field.typeExpression))))
+        })
+      )
+    }
+  }
 
   /** Rewrite a single function definition: collapse its *positive* `{…}` effect-sets onto one carrier and record its
     * *negative* members as discharged. Returns the function unchanged when it carries no effects of either sign.

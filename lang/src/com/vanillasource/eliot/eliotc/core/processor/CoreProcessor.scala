@@ -32,8 +32,12 @@ class CoreProcessor
     // Each data definition's synthetic PatternMatch/TypeMatch implementations are keyed by the data type's name (a
     // stable per-module identity), so no cross-cutting index bookkeeping is needed — they cannot collide with each
     // other or with user implementations (which are keyed by their own `(ability, pattern)`).
+    // Effect-set sugar in a constructor field type (`data TestCase(body: {Throw[E]} Unit)`) is lifted onto the data
+    // type's own generic parameters as an inferable carrier *before* the split into functions, so the carrier has a
+    // home on the type constructor (see EffectSugarDesugarer.desugar(DataDefinition)). Splitting first would leave the
+    // carrier bound only on the value constructor, making it an unresolvable free variable at every use site.
     val desugaredFromData: Seq[(FunctionDefinition, RoleHint)] =
-      sourceAstData.typeDefinitions.flatMap(DataDefinitionDesugarer.desugar)
+      sourceAstData.typeDefinitions.map(EffectSugarDesugarer.desugar).flatMap(DataDefinitionDesugarer.desugar)
     // Meta-slot brace on a type declaration (`type Int {range: …}`) → the type's `^Meta` constructor
     // (bounds-as-refinements §4.2, Step 4a). Type aliases are `FunctionDefinition`s, so this runs over them.
     val desugaredMetaConstructors: Seq[(FunctionDefinition, RoleHint)] =
