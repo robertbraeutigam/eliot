@@ -6,8 +6,10 @@ import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Desugars the effect-set sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]) in a function signature into ordinary
-  * higher-kinded-constrained generics, by one uniform rule:
+/** Desugars the effect-row sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]), in its two forms.
+  *
+  * **Open rows** (`{E1, E2} A`, no tail) in a function signature become ordinary higher-kinded-constrained generics, by
+  * one uniform rule:
   *
   *   - introduce **one** shared inferable higher-kinded carrier `F[_]` per signature (marked `auto`, so it counts
   *     toward `inferableArity` and is omittable at use sites),
@@ -21,36 +23,49 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * bodies must already be in monadic form; the rewrite still descends into the body so no [[Expression.EffectfulType]]
   * survives.
   *
+  * **Pinned rows** (`{E1, E2 | T} A`, docs/effect-row-tails.md) are not constraints at all but *concrete types*: the
+  * canonical carrier stack realizing exactly those effects over the base `T`. The rewrite is pure type application —
+  * `{Throw[E], State[S] | Id} A` ⤳ `ThrowCarrier[E, StateCarrier[S, Id], A]` — with each entry's carrier named by the
+  * `<Ability>Carrier` convention (colocated with its ability, so it resolves wherever the ability does), entries
+  * nesting left-to-right (leftmost = outermost = discharged first), and no generic parameter introduced. This is the
+  * one sanctioned spelling of a carrier stack: a stored (`data`-field) row must be pinned, and the discharger
+  * signatures in the stdlib are written in it. An effect without a colocated `<Ability>Carrier` type (e.g. a
+  * Suspend-riding one like `Console`) fails loudly at resolve time when pinned.
+  *
   * **Negative members `-E`** (discharge-aware effect accounting, docs/effect-discharge-accounting.md) are handled
   * separately: they introduce no carrier constraint and are recorded (as bare ability names) in the function's
   * [[FunctionDefinition.dischargedEffects]]. A `{…} A` node made only of negatives introduces no carrier and passes its
   * inner type through unchanged (`{-Abort} G[A]` ⤳ `G[A]`) — this is how the explicit-carrier discharger primitives
   * annotate the effect they reify away. A mixed `{Console, -Abort} A` still wraps in the (Console) carrier and records
-  * `Abort` as discharged.
+  * `Abort` as discharged. Negatives are rejected inside pinned rows ([[rowErrors]]).
   */
 object EffectSugarDesugarer {
 
-  /** Rewrite a `data` definition: collapse the *positive* `{…}` effect-sets in its constructor field types onto one
-    * shared inferable carrier `F[_]` **lifted onto the data type's own generic parameters**, and rewrite every field
-    * `{…} A` to `F[A]`. Returns the definition unchanged when no field carries an effect.
+  /** Rewrite a `data` definition's constructor field rows. The sanctioned form for a stored row is the **pinned** one
+    * (`data TestCase(body: {Throw[E] | Id} Unit)`): a stored value must commit to one concrete representation, and a
+    * pinned row *is* that representation spelled in effect vocabulary — the field rewrites to the canonical carrier
+    * stack (`ThrowCarrier[E, Id, Unit]`) with no generic parameter introduced, keeping the data type itself
+    * non-generic. An *open* positive row in a field is a user error (reported via [[rowErrors]]); as error recovery it
+    * still lowers by the pre-pinned-rows rule — one shared inferable carrier `F[_]` **lifted onto the data type's own
+    * generic parameters**, every field `{…} A` rewritten to `F[A]` — so downstream phases see a well-formed value.
+    * Returns the definition unchanged when no field carries an effect row.
     *
     * This must run *before* [[DataDefinitionDesugarer]] splits the data into its type-constructor, value-constructor,
-    * and accessor functions: those all thread `genericParameters` through uniformly, so lifting the carrier here gives
-    * `F` a home on the *type* (`data TestCase(body: {Throw[E]} Unit)` ⤳ `data TestCase[auto F[_] ~ Throw[E]](body:
-    * F[Unit])`). Desugaring the split functions instead would only add `F` to the value constructor, leaving the type
-    * constructor nullary and `F` an unbound free variable — the field references a carrier the type cannot record.
-    *
-    * The carrier is `auto` (inferable), so use sites keep writing the bare type name; the carrier is inferred exactly
-    * like any other `auto` generic. Negatives (`{-E}`) are not meaningful on a stored field (discharge is a *function*'s
-    * behaviour, not a value's shape); a negatives-only field simply passes its inner type through, introducing no
-    * carrier — same rule the function path uses.
+    * and accessor functions: those all thread `genericParameters` through uniformly, so a recovery-lifted carrier has a
+    * home on the *type*. Desugaring the split functions instead would only add `F` to the value constructor, leaving
+    * the type constructor nullary and `F` an unbound free variable — the field references a carrier the type cannot
+    * record. Negatives (`{-E}`) are not meaningful on a stored field (discharge is a *function*'s behaviour, not a
+    * value's shape); a negatives-only field simply passes its inner type through, introducing no carrier — same rule
+    * the function path uses.
     */
   def desugar(data: DataDefinition): DataDefinition = {
-    val fieldExprs = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression.value))
-    val positives  = fieldExprs.flatMap(collectEffects(_.effects)).distinctBy(constraintKey)
-    val negatives  = fieldExprs.flatMap(collectEffects(_.negativeEffects)).distinctBy(constraintKey)
+    val fieldExprs = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression))
+    val rows       = fieldExprs.flatMap(collectRows).map(_.value)
+    val openRows   = rows.filter(_.tail.isEmpty)
+    val positives  = openRows.flatMap(_.effects).distinctBy(constraintKey)
+    val negatives  = openRows.flatMap(_.negativeEffects).distinctBy(constraintKey)
 
-    if (positives.isEmpty && negatives.isEmpty) data
+    if (rows.isEmpty) data
     else {
       val anchor         = data.name
       val carrierNameOpt =
@@ -85,12 +100,13 @@ object EffectSugarDesugarer {
       function.args.map(_.typeExpression) ++
         function.genericParameters.map(_.typeRestriction) :+
         function.typeDefinition
-    val allExprs       = signatureExprs.map(_.value) ++ function.body.toSeq.map(_.value)
-    val positives      = allExprs.flatMap(collectEffects(_.effects)).distinctBy(constraintKey)
-    val negatives      = allExprs.flatMap(collectEffects(_.negativeEffects)).distinctBy(constraintKey)
+    val rows           = (signatureExprs ++ function.body.toSeq).flatMap(collectRows).map(_.value)
+    val openRows       = rows.filter(_.tail.isEmpty)
+    val positives      = openRows.flatMap(_.effects).distinctBy(constraintKey)
+    val negatives      = openRows.flatMap(_.negativeEffects).distinctBy(constraintKey)
     val discharged     = negatives.map(_.abilityName).distinctBy(_.value)
 
-    if (positives.isEmpty && negatives.isEmpty) function
+    if (rows.isEmpty) function
     else {
       val anchor         = function.name
       val carrierNameOpt = Option.when(positives.nonEmpty)(freshName("F", function.genericParameters.map(_.name.value).toSet))
@@ -117,42 +133,43 @@ object EffectSugarDesugarer {
     }
   }
 
-  /** Collects, in source order, one sign's ability members of every `{…}` within the expression — `select` picks the
-    * positive (`_.effects`) or negative (`_.negativeEffects`) side.
-    */
-  private def collectEffects(
-      select: EffectfulType => Seq[GenericParameter.AbilityConstraint]
-  )(expr: Expression): Seq[GenericParameter.AbilityConstraint] = expr match {
-    case et @ EffectfulType(_, _, resultType)         => select(et) ++ collectEffects(select)(resultType.value)
-    case FunctionApplication(_, _, genericArgs, args) =>
-      genericArgs.getOrElse(Seq.empty).flatMap(e => collectEffects(select)(e.value)) ++ args.flatMap(e =>
-        collectEffects(select)(e.value)
-      )
-    case FunctionLiteral(parameters, body)            =>
-      parameters.flatMap(_.typeExpression.toSeq.flatMap(e => collectEffects(select)(e.value))) ++ collectEffects(select)(body.value)
-    case FlatExpression(parts)                        => parts.flatMap(e => collectEffects(select)(e.value))
-    case MatchExpression(scrutinee, cases)            =>
-      collectEffects(select)(scrutinee.value) ++ cases.flatMap(c => collectEffects(select)(c.body.value))
-    case BlockExpression(lines)                       =>
-      lines.flatMap(l =>
-        l.binder.flatMap(_.typeExpression).toSeq.flatMap(t => collectEffects(select)(t.value)) ++
-          collectEffects(select)(l.expression.value)
-      )
-    case _: IntegerLiteral | _: StringLiteral         => Seq.empty
-  }
-
-  /** Rewrites the effect-sets of an expression: a `{…} A` node with any *positive* member becomes `F[A]` (the carrier
-    * is always present then — a positive anywhere in the signature introduced it); a *negatives-only* node passes its
-    * inner type through unchanged (the discharge was already recorded, no carrier to wrap in). Descends through the
-    * whole expression so no [[EffectfulType]] survives.
+  /** Rewrites the effect-rows of an expression: an *open* `{…} A` node with any positive member becomes `F[A]` (the
+    * carrier is always present then — a positive anywhere in the signature introduced it); a *pinned* node
+    * (`{Throw[E], State[S] | Id} A`) becomes its canonical carrier stack `ThrowCarrier[E, StateCarrier[S, Id], A]` —
+    * each entry's carrier named by the `<Ability>Carrier` convention (colocated with the ability, so it resolves
+    * wherever the ability does), entries nesting left-to-right (leftmost outermost), the base after `|` at the bottom,
+    * and the result type as the outermost layer's final argument; a *negatives-only* node passes its inner type through
+    * unchanged (the discharge was already recorded, no carrier to wrap in). Descends through the whole expression so no
+    * [[EffectfulType]] survives.
     */
   private def rewrite(carrierName: Option[String])(expr: Sourced[Expression]): Sourced[Expression] = expr.value match {
-    case EffectfulType(effects, _, resultType) if effects.nonEmpty =>
+    case EffectfulType(effects, _, resultType, Some(tail)) if effects.nonEmpty =>
+      val rewrittenTail = rewrite(carrierName)(tail)
+      val innerStack    = effects.drop(1).foldRight(rewrittenTail) { (e, acc) =>
+        e.abilityName.as(
+          FunctionApplication(
+            None,
+            e.abilityName.map(_ + "Carrier"),
+            Some(e.typeParameters.map(rewrite(carrierName)) :+ acc),
+            Seq.empty
+          )
+        )
+      }
+      val head          = effects.head
+      expr.as(
+        FunctionApplication(
+          None,
+          head.abilityName.map(_ + "Carrier"),
+          Some(head.typeParameters.map(rewrite(carrierName)) :+ innerStack :+ rewrite(carrierName)(resultType)),
+          Seq.empty
+        )
+      )
+    case EffectfulType(effects, _, resultType, None) if effects.nonEmpty       =>
       val name = carrierName.getOrElse(
         throw IllegalStateException(s"A positive effect set introduced no carrier: ${expr.value.show}")
       )
       expr.as(FunctionApplication(None, expr.as(name), Some(Seq(rewrite(carrierName)(resultType))), Seq.empty))
-    case EffectfulType(_, _, resultType)                           =>
+    case EffectfulType(_, _, resultType, _)                                    =>
       rewrite(carrierName)(resultType)
     case FunctionApplication(moduleName, name, genericArgs, args)  =>
       expr.as(
@@ -187,6 +204,51 @@ object EffectSugarDesugarer {
         )
       }))
     case _: IntegerLiteral | _: StringLiteral                      => expr
+  }
+
+  /** User-facing errors for ill-formed effect rows in a function definition: a *negative* member inside a pinned row
+    * (`{-Abort | G} A`) — a discharge is a function's behaviour, not a type's shape.
+    */
+  def rowErrors(function: FunctionDefinition): Seq[Sourced[String]] = {
+    val exprs = function.args.map(_.typeExpression) ++
+      function.genericParameters.map(_.typeRestriction) ++
+      Seq(function.typeDefinition) ++ function.body.toSeq
+    exprs.flatMap(collectRows).flatMap(pinnedNegativeError)
+  }
+
+  /** User-facing errors for effect rows in a `data` definition's constructor fields: negative members in pinned rows,
+    * and *open* positive rows — a stored value must commit to one concrete representation, so its row must name the
+    * base carrier it is realized over.
+    */
+  def rowErrors(data: DataDefinition): Seq[Sourced[String]] = {
+    val rows = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression)).flatMap(collectRows)
+    rows.flatMap(pinnedNegativeError) ++
+      rows.collect {
+        case row if row.value.tail.isEmpty && row.value.effects.nonEmpty =>
+          row.as("A stored effect row must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`.")
+      }
+  }
+
+  private def pinnedNegativeError(row: Sourced[EffectfulType]): Option[Sourced[String]] =
+    Option.when(row.value.tail.isDefined && row.value.negativeEffects.nonEmpty)(
+      row.as("Negative effects cannot appear in a pinned effect row.")
+    )
+
+  /** Collects, in source order, every effect-row node within the expression, with its source position. */
+  private def collectRows(expr: Sourced[Expression]): Seq[Sourced[EffectfulType]] = expr.value match {
+    case et @ EffectfulType(effects, negatives, resultType, tail) =>
+      (expr.as(et) +: (effects ++ negatives).flatMap(_.typeParameters.flatMap(collectRows))) ++
+        collectRows(resultType) ++ tail.toSeq.flatMap(collectRows)
+    case FunctionApplication(_, _, genericArgs, args)             =>
+      genericArgs.getOrElse(Seq.empty).flatMap(collectRows) ++ args.flatMap(collectRows)
+    case FunctionLiteral(parameters, body)                        =>
+      parameters.flatMap(_.typeExpression.toSeq.flatMap(collectRows)) ++ collectRows(body)
+    case FlatExpression(parts)                                    => parts.flatMap(collectRows)
+    case MatchExpression(scrutinee, cases)                        =>
+      collectRows(scrutinee) ++ cases.flatMap(c => collectRows(c.body))
+    case BlockExpression(lines)                                   =>
+      lines.flatMap(l => l.binder.flatMap(_.typeExpression).toSeq.flatMap(collectRows) ++ collectRows(l.expression))
+    case _: IntegerLiteral | _: StringLiteral                     => Seq.empty
   }
 
   private def constraintKey(ac: GenericParameter.AbilityConstraint): String =

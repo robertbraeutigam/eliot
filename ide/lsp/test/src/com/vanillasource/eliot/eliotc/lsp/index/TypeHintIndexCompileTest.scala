@@ -26,17 +26,20 @@ import scala.jdk.CollectionConverters.*
   * reference whose type is the value's signature.
   */
 class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val imports = """import eliot.effect.Console"""
-  private val line1   = """def greeting: {Console} Unit = printLine("Hello World!")"""
-  private val line2   = """def main: {Console} Unit = greeting"""
-  private val source  = s"$imports\n$line1\n$line2"
+  private val imports     = "import eliot.effect.Console\nimport eliot.effect.Throw"
+  private val line1       = """def greeting: {Console} Unit = printLine("Hello World!")"""
+  private val guardedLine = """def guarded: {Throw[String]} String = raise("nope")"""
+  private val mainLine    = """   greeting"""
+  private val catchLine   = """   printLine(guarded catch (e -> e))"""
+  private val source      = s"$imports\n$line1\n$guardedLine\ndef main: {Console} Unit = {\n$mainLine\n$catchLine\n}"
 
-  // `printLine` is import-required (`Console` is in `eliot.effect`, not auto-imported), so the import on line 1 pushes the
-  // two defs to lines 2 and 3.
-  private val stringPosition   = Position(2, line1.indexOf("Hello") + 1)   // inside the "Hello World!" literal
-  private val printLinePosition  = Position(2, line1.indexOf("printLine") + 4) // well inside the `printLine` reference
-  private val greetingPosition = Position(3, line2.indexOf("greeting") + 2) // inside the `greeting` reference in `main`
-  private val keywordPosition  = Position(2, 1)                             // the `def` keyword — no expression node
+  // `printLine`/`raise` are import-required (`Console`/`Throw` live in `eliot.effect`, not auto-imported), so the two
+  // import lines push `greeting` to line 3, `guarded` to line 4 and `main`'s block body to lines 6–7.
+  private val stringPosition    = Position(3, line1.indexOf("Hello") + 1)       // inside the "Hello World!" literal
+  private val printLinePosition = Position(3, line1.indexOf("printLine") + 4)   // well inside the `printLine` reference
+  private val greetingPosition  = Position(6, mainLine.indexOf("greeting") + 2) // inside the `greeting` reference in `main`
+  private val guardedPosition   = Position(7, catchLine.indexOf("guarded") + 2) // inside the `guarded` reference under `catch`
+  private val keywordPosition   = Position(3, 1)                                // the `def` keyword — no expression node
 
   "type hints" should "report the concrete type of a string literal" in {
     renderedTypesAt(stringPosition).asserting(_ shouldBe Seq("String"))
@@ -46,8 +49,14 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
     renderedTypesAt(printLinePosition).asserting(_ shouldBe Seq("String -> IO[Unit]"))
   }
 
+  // The reference sits on a block statement line, so the block's lowering (a tower of immediately-applied lambdas)
+  // contributes co-located application nodes; the value's own hint is among them.
   it should "report a whole value's type at a reference to it" in {
-    renderedTypesAt(greetingPosition).asserting(_ shouldBe Seq("IO[Unit]"))
+    renderedTypesAt(greetingPosition).asserting(_ should contain("IO[Unit]"))
+  }
+
+  it should "render a concrete carrier stack as its pinned effect row" in {
+    renderedTypesAt(guardedPosition).asserting(_ shouldBe Seq("{Throw[String] | IO} String"))
   }
 
   it should "report nothing where there is no expression node" in {

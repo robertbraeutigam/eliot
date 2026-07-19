@@ -183,6 +183,15 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    (`EffectCheckProcessor.purelyDeclaredMessage`, Step 6): a genuine undischarged effect is reported as "performs an
    effect", an ambient-carrier-riding result under a pure return as "result rides an effect carrier", and a
    fully-discharged residual with no ambient carrier is *accepted* (the checker Id-defaults it).
+   Effect rows may also be **pinned** (`{Throw[E] | Id} A`, `docs/effect-row-tails.md`): a tail after `|` makes the row
+   a *concrete type* — the canonical carrier stack over the base, built in core by the `<Ability>Carrier` naming
+   convention (`EffectSugarDesugarer`), entries leftmost-outermost = discharge order, no carrier generic minted. Stored
+   (`data`-field) rows MUST be pinned (open field rows error; the old carrier-lift lowering survives only as error
+   recovery); the stdlib discharger signatures are spelled with pinned rows (`runThrow(obj: {Throw[E] | G} A)` — desugars
+   pre-merge to the identical structure the jvm-generated accessor has, so `signatureEquality` holds); negatives cannot
+   be pinned; LSP hover renders a concrete carrier stack back as its pinned row (`GroundValueRenderer`). Suspend-riding
+   effects (`Console`) have no canonical carrier and so cannot be pinned (v1; the designed extension is an abstract
+   platform base `Suspended` — see the doc).
 10. ability: Checks and returns a type-specific ability implementation.
 11. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.) Also hosts the **effect auto-lift** (`check/EffectLifter`): the bind/`pure` decision for an effectful term in a pure position is check-mode elaboration per concrete instantiation — undecidable from declared signatures alone — with flex argument slots deferred until later arguments rigidify them (Phase A/B in `Checker.inferSpine`).
 12. used: Collects all the used value names starting at a given "main".

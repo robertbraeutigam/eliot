@@ -46,7 +46,7 @@ type DepCarrier[X, G[_], A]
  * accessor of the carrier; the platform layer supplies the body. Discharge the effect with `provide`, which
  * hands an environment value to this function.
  */
-def runDepCarrier[X, G[_], A](obj: DepCarrier[X, G, A]): X => G[A]
+def runDepCarrier[X, G[_], A](obj: {Dep[X] | G} A): X => G[A]
 
 /**
  * Discharge the `Dep[X]` effect by supplying the environment value `x`: every `dependency` read of type `X`
@@ -65,4 +65,4 @@ def runDepCarrier[X, G[_], A](obj: DepCarrier[X, G, A]): X => G[A]
  *    provide(Topic("events"), provide(Database("jdbc://app-db"), logic))
  * ```
  */
-def provide[X, G[_], A](x: X, computation: DepCarrier[X, G, A]): {-Dep[X]} G[A] = runDepCarrier(computation)(x)
+def provide[X, G[_], A](x: X, computation: {Dep[X] | G} A): {-Dep[X]} G[A] = runDepCarrier(computation)(x)
