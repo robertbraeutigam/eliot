@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.termination.processor
 import cats.{Id, Monad}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.namedvalues.fact.NamedValuesRewrittenValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.foldValueReferences
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -72,9 +73,17 @@ class RecursionChecker {
 
   /** The body callees of an already-resolved value, or the empty set when it is body-less (a native) or cannot be
     * resolved (conservative: a leaf, so the search just stops there).
+    *
+    * Reads the *rewritten* fact (not the raw [[OperatorResolvedValue]]) so a callee's `namedValues` reflection is
+    * expanded into concrete reference edges here too — exactly as it already is for the root value under check. Reading
+    * the pre-rewrite fact would leave `namedValues` a body-less dead-end on every transitive node, letting a mutual
+    * cycle whose back-path runs through a second reflection (`f = namedValues("bar")`, `g = namedValues("foo")`) slip
+    * the gate. A value whose rewrite aborted (a `namedValues` error) produces no fact and is treated as a leaf, which is
+    * safe: that value already failed and never reaches monomorphization.
     */
   private def calleesOf(fqn: ValueFQN, platform: Platform): CompilerIO[Set[ValueFQN]] =
-    getFactIfProduced(OperatorResolvedValue.Key(fqn, platform)).map(_.fold(Set.empty[ValueFQN])(directCallees))
+    getFactIfProduced(NamedValuesRewrittenValue.Key(fqn, platform))
+      .map(_.fold(Set.empty[ValueFQN])(rewritten => directCallees(rewritten.value)))
 
   /** Every distinct [[ValueFQN]] referenced in a value's runtime body — head positions, arguments and type arguments
     * alike (the resolved value-reference graph). The type signature is deliberately excluded.
