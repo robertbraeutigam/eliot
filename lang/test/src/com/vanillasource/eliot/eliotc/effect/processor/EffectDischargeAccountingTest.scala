@@ -18,17 +18,14 @@ import com.vanillasource.eliot.eliotc.plugin.LangProcessors
   */
 class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
 
-  // Minimal effect machinery so a snippet naming the carrier resolves (mirrors `stdlib/.../Effect.els`).
+  // Minimal effect machinery so a snippet naming the carrier resolves (mirrors `stdlib/.../carrier/Effect.els` —
+  // the machinery lives in the import-required `eliot.carrier` package, not the ambient `eliot.effect`).
   private val effectStub =
     SystemImport(
       "Effect",
       "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}",
-      ModuleName.effectPackage
+      ModuleName.carrierPackage
     )
-
-  // The `Inf` opt-out effect (import-required), so a `{Inf}` snippet resolves and the "never discharged" case can name it.
-  private val infStub =
-    SystemImport("Inf", "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}", ModuleName.effectPackage)
 
   // A synthetic discharger surface: `emit` performs `MyE`; `emitBoth` performs `MyE` *and* `Log`; `discharge` is an
   // (abstract) discharger *declaring* `{-MyE}`, so a direct call subtracts `MyE` from its argument's effects.
@@ -41,7 +38,7 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
   private val dischargeStub =
     SystemImport(
       "Discharge",
-      "import eliot.effect.Effect\n" +
+      "import eliot.carrier.Effect\n" +
         "import eliot.effect.Log\n" +
         "import eliot.effect.Inf\n" +
         "ability MyE[F[_]] {\ndef emit: F[Unit]\n}\n" +
@@ -62,7 +59,7 @@ class EffectDischargeAccountingTest extends ProcessorTest(LangProcessors()*) {
       ModuleName.effectPackage
     )
 
-  private val allImports = systemImports :+ effectStub :+ infStub :+ dischargeStub
+  private val allImports = systemImports :+ effectStub :+ dischargeStub
 
   "discharge accounting" should "subtract a discharged effect so an honest {Console} passes" in {
     runEffectCheckErrors(

@@ -42,15 +42,24 @@ object ModuleName {
 
   val defaultSystemPackage = Seq("eliot", "lang")
 
-  /** The package for the effect surface and its machinery: the abilities a user writes in a `{...}` set
-    * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), the sequencing machinery (`Effect`/`Suspend`), and each
-    * effect's carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`). Nothing here is auto-imported —
-    * unlike the `eliot.lang` prelude (see [[defaultSystemModules]]), every effect is import-required or resolved by FQN,
-    * so a file that prints declares `import eliot.effect.Console`. The `Effect` ability's FQN is read by
-    * [[com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery]]; the `Console`/`Log`/`Inf` native leaves by the
-    * jvm `NativeImplementation`.
+  /** The package for the user-facing effect vocabulary: the abilities a user writes in a `{...}` row
+    * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), their operations and dischargers, and each effect's
+    * carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`/`DepCarrier` — needed ambiently so pinned
+    * rows resolve). The whole package is **ambient**: every module here is auto-imported (see
+    * [[effectSystemModules]]) in the weak prelude tier, so a file that prints just calls `printLine` with no import.
+    * The sequencing machinery deliberately does NOT live here — see [[carrierPackage]]. The `Console`/`Log`/`Inf`
+    * native leaves are read by the jvm `NativeImplementation`.
     */
   val effectPackage = Seq("eliot", "effect")
+
+  /** The package for the carrier machinery beneath the effect system: the `Effect` ability (`pure`/`map`/`flatMap` —
+    * what a carrier must implement) and `Suspend` (the platform side-effect embedding every fine effect rides).
+    * Deliberately a separate, **import-required** package — unlike [[effectPackage]] it is NOT ambient, so everyday
+    * names like `map`/`pure`/`flatMap` never pollute user scope: only carrier/handler authors write
+    * `import eliot.carrier.Effect`. The `Effect` ability's FQN is read by
+    * [[com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery]] (by name) and [[WellKnownTypes]] (by FQN).
+    */
+  val carrierPackage = Seq("eliot", "carrier")
 
   /** The package for compiler-coordinated abilities that the checker resolves by name but that are kept out of the
     * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
@@ -72,17 +81,31 @@ object ModuleName {
   val compilerInternalPackage = compilerPackage :+ "internal"
 
   val systemFunctionModuleName: ModuleName = ModuleName(defaultSystemPackage, "Function")
-  // TODO: Unit is no longer here, so we shouldn't refer to it...
-  // This is used to determine what to automatically import, but this should work differently.
+  /** The ambient modules of [[effectPackage]] — the whole package, kept in sync with the `.els` files under
+    * `stdlib/eliot/eliot/effect/`. Auto-imported alongside the `eliot.lang` prelude (see [[defaultSystemModules]]),
+    * in the same weak tier: a file-local declaration or an explicit import of the same name silently wins
+    * (`ModuleValueProcessor`), so ambient names like `log`/`state` can always be taken back.
+    */
+  val effectSystemModules = Seq(
+    "Abort",
+    "Console",
+    "Dep",
+    "Inf",
+    "Log",
+    "State",
+    "Throw"
+  ).map(ModuleName(effectPackage, _))
+
   // NOTE: anything added here is auto-imported into every module, so the test harness must provide a matching stub
-  // (see ProcessorTest's default systemImports). Anything auto-imported must NOT also be imported explicitly by user
-  // code — that would double-import and shadow ("Imported names shadow other imported names").
-  // The whole `eliot.lang` prelude (the `java.lang` analogue) is auto-imported: every module living directly under the
-  // `eliot.lang` package is ambient in every file. Everything in a domain package — including every effect in
-  // `eliot.effect` (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/…) and the machinery (`Effect`/`Suspend`) — stays
-  // import-required: a file that prints declares `import eliot.effect.Console`. `Int`/`Runtime` are among the prelude
-  // because every value-position integer literal `n` is rewritten to `integerLiteral[n] : Int[n, n]`
-  // (`CoreExpressionConverter`), so they must resolve with no import anyway.
+  // (see ProcessorTest's default systemImports). Auto-imports are a *weak* tier (see ModuleValueProcessor): a module
+  // also imported explicitly is deduplicated (the explicit import stands), and an ambient name colliding with a local
+  // declaration or an explicitly imported name is silently dropped — the prelude can grow without breaking user code.
+  // The prelude (the `java.lang` analogue) is: every module living directly under the `eliot.lang` package, plus the
+  // whole `eliot.effect` package ([[effectSystemModules]] — the effect vocabulary is core language experience; even
+  // `if..else` is `Abort`-based). The carrier machinery (`Effect`/`Suspend` in [[carrierPackage]]) and the other
+  // domain packages stay import-required. `Int`/`Runtime` are among the prelude because every value-position integer
+  // literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so they must resolve with
+  // no import anyway.
   val defaultSystemModules                 = Seq(
     "BigInteger",
     "Bool",
@@ -99,7 +122,7 @@ object ModuleName {
     "Show",
     "String",
     "Unit"
-  ).map(ModuleName(defaultSystemPackage, _))
+  ).map(ModuleName(defaultSystemPackage, _)) ++ effectSystemModules
   // `PatternMatch`/`TypeMatch` are intentionally NOT here: they are desugaring machinery in the
   // `eliot.compiler.internal` package that user code never names. Compiler-generated `implement` markers reference them
   // by fixed FQN (`ValueResolver.compilerInternalAbilities`), so they need no import.

@@ -23,7 +23,7 @@ def main: IO[Unit] = printLine("Hello World!")""")
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
         |
@@ -48,7 +48,7 @@ def main: IO[Unit] = printLine("Hello World!")""")
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |def greet: {Console} Unit = flatMap(ignore -> printLine("b"), printLine("a"))
         |
@@ -68,7 +68,7 @@ def main: IO[Unit] = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
 
   // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `printLine`, which expects
   // a plain `String`; the checker's effect lift binds it, producing `flatMap(x -> printLine(x), readLine)`, with the
-  // carrier pinned to `IO` by `main`'s return. No `import eliot.effect.Effect`, no hand-written `flatMap`.
+  // carrier pinned to `IO` by `main`'s return. No `import eliot.carrier.Effect`, no hand-written `flatMap`.
   "effect auto-lift" should "sequence a direct-style printLine(readLine) at a concrete IO main" in {
     compileAndRun("""import eliot.jvm.IO
 import eliot.effect.Console
@@ -94,7 +94,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
         |
@@ -111,7 +111,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |def echo: {Console} Unit = readLine.flatMap(line -> printLine(line))
         |
@@ -162,7 +162,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
         |
@@ -179,7 +179,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |def pipe[A, B](a: A, f: A => B): B = f(a)
         |
@@ -214,7 +214,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |def echo: {Console} Unit = printLine(pure("lifted"))
         |
@@ -285,7 +285,7 @@ import eliot.effect.Console
 import eliot.effect.Console
         |import eliot.effect.Log
         |import eliot.effect.Dep
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |data Database(url: String)
         |
@@ -306,7 +306,7 @@ import eliot.effect.Console
       """import eliot.jvm.IO
 import eliot.effect.Console
         |import eliot.effect.Dep
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -323,7 +323,7 @@ import eliot.effect.Console
       """import eliot.jvm.IO
 import eliot.effect.Console
         |import eliot.effect.Dep
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)

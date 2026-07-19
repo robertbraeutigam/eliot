@@ -1,4 +1,3 @@
-import eliot.effect.Console
 data Box[A](content: A)
 
 // A `match` in a type/signature position is an ordinary type-level expression: it is desugared and

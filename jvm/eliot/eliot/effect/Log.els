@@ -1,4 +1,4 @@
-import eliot.effect.Suspend
+import eliot.carrier.Suspend
 
 ability Log[F[_]] {
    def log(s: String): F[Unit]

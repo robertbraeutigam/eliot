@@ -1,4 +1,3 @@
-import eliot.effect.Console
 /**
  * An `Int` data field. `Int` is a single type (a value's range is meta-information in the refinement channel, not a type
  * parameter), so `Counter` has no type parameters; `Counter(42).n` recovers the field. Prints `42`.

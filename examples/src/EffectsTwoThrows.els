@@ -1,5 +1,3 @@
-import eliot.effect.Console
-import eliot.effect.Throw
 
 data NetError(netReason: String)
 data ParseError(parseReason: String)

@@ -43,7 +43,7 @@ class EffectCheckProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   it should "share one carrier through a nested effect set in an arrow codomain (effectful-callback combinator)" in {
     runEffectCheckErrors(
-      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef ok: {Console} Unit = twice(printLine)\ndef twice(action: String => {Effect} Unit): {Effect} Unit = {\naction(\"a\")\naction(\"b\")\n}"
+      "import eliot.effect.Console\nimport eliot.carrier.Effect\ndef ok: {Console} Unit = twice(printLine)\ndef twice(action: String => {Effect} Unit): {Effect} Unit = {\naction(\"a\")\naction(\"b\")\n}"
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -52,7 +52,7 @@ class EffectCheckProcessorTest extends ProcessorTest(LangProcessors()*) {
     SystemImport(
       "Effect",
       "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}",
-      ModuleName.effectPackage
+      ModuleName.carrierPackage
     )
   // The Inf effect ability stub (matching `stdlib/.../Inf.els`), import-required (not ambient), so the propagation
   // cases above can name `forever` and `{Inf}`.

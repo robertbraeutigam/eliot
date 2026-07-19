@@ -1,6 +1,4 @@
-import eliot.effect.Console
-import eliot.effect.Effect
-import eliot.effect.Abort
+import eliot.carrier.Effect
 
 // A pure "test" carrier: the identity monad. It performs no I/O — running an Id computation just unwraps the value.
 data Id[A](runId: A)

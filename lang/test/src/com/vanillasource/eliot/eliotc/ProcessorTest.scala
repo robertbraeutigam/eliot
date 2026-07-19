@@ -67,7 +67,11 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Interval", "type Interval[T]"),
     SystemImport("Console", ProcessorTest.consoleStubContent, ModuleName.effectPackage),
     SystemImport("Log", ProcessorTest.logStubContent, ModuleName.effectPackage),
-    SystemImport("Dep", ProcessorTest.depStubContent, ModuleName.effectPackage)
+    SystemImport("Dep", ProcessorTest.depStubContent, ModuleName.effectPackage),
+    SystemImport("Abort", ProcessorTest.abortStubContent, ModuleName.effectPackage),
+    SystemImport("Throw", ProcessorTest.throwStubContent, ModuleName.effectPackage),
+    SystemImport("State", ProcessorTest.stateStubContent, ModuleName.effectPackage),
+    SystemImport("Inf", ProcessorTest.infStubContent, ModuleName.effectPackage)
   )
 
   /** The canonical [[systemImports]] with the named modules' content replaced — existing entries keep their package (so
@@ -261,22 +265,31 @@ object ProcessorTest {
   val typeMatchAbilityStub: String    =
     "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
 
-  /** `Console` effect stub, mirroring `stdlib/eliot/eliot/effect/Console.els`. Import-required (in `effectPackage`, not
-    * ambient), registered so a snippet that does `import eliot.effect.Console` resolves. The concrete JVM instance
-    * lives in the real jvm layer, not here.
+  /** `Console` effect stub, mirroring `stdlib/eliot/eliot/effect/Console.els`. The whole `eliot.effect` package is
+    * ambient (auto-imported in the weak prelude tier), so every full-prelude test carries this. The concrete JVM
+    * instance lives in the real jvm layer, not here.
     */
   val consoleStubContent: String =
     "ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}"
 
-  /** `Log` effect stub, mirroring `stdlib/eliot/eliot/effect/Log.els`. Import-required (in `effectPackage`); the
+  /** `Log` effect stub, mirroring `stdlib/eliot/eliot/effect/Log.els` (ambient — see [[consoleStubContent]]); the
     * concrete JVM instance lives in the real jvm layer.
     */
   val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): F[Unit]\n}"
 
-  /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els`. Import-required (in `effectPackage`); this is
+  /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els` (ambient — see [[consoleStubContent]]); this is
     * just the reader `ability` (the `ask`) — the concrete carrier + `provide` discharge live in the jvm layer.
     */
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: F[X]\n}"
+
+  /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/eliot/effect/` abilities (ambient —
+    * see [[consoleStubContent]]): the bare ability head + operations, no carriers or dischargers. Tests exercising a
+    * discharge enrich the module via `ambientStubsWith`.
+    */
+  val abortStubContent: String = "ability Abort[F[_]] {\ndef abort[A]: F[A]\n}"
+  val throwStubContent: String = "ability Throw[E, F[_]] {\ndef raise[A](err: E): F[A]\n}"
+  val stateStubContent: String = "ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}"
+  val infStubContent: String   = "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}"
 
   /** The *legacy* ambient prelude a self-contained checker/monomorphize unit test relies on: value application
     * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`), and the Phase-6 literal desugar's

@@ -1,4 +1,3 @@
-import eliot.effect.Console
 
 data Box[I: BigInteger](content: String)
 

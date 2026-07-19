@@ -1,4 +1,3 @@
-import eliot.effect.Console
 
 def byteMin: BigInteger = -128
 def byteMax: BigInteger = 127

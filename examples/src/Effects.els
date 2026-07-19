@@ -1,4 +1,3 @@
-import eliot.effect.Console
 /**
  * Direct-style I/O with the `{Console}` effect.
  *

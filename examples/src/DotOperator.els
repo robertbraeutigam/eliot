@@ -1,4 +1,3 @@
-import eliot.effect.Console
 data Box[A](content: A)
 
 def filter[A](expr: String, box: Box[A]): Box[A] = box

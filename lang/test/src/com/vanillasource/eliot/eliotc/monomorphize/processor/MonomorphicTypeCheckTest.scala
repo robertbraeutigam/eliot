@@ -1161,7 +1161,7 @@ class MonomorphicTypeCheckTest
 
   it should "leave already-monadic flatMap code unchanged (no double bind)" in {
     liftedBody(
-      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = flatMap(s -> printLine(s), readLine)"
+      "import eliot.effect.Console\nimport eliot.carrier.Effect\ndef echo: {Console} Unit = flatMap(s -> printLine(s), readLine)"
     ).asserting(_.count(_ == "flatMap") shouldBe 1)
   }
 
@@ -1245,7 +1245,7 @@ class MonomorphicTypeCheckTest
 
   it should "store an annotated carrier-typed let binder instead of binding it" in {
     liftedBody(
-      "import eliot.jvm.IO\nimport eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
+      "import eliot.jvm.IO\nimport eliot.effect.Console\nimport eliot.carrier.Effect\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
     ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap"))
   }
 
@@ -1293,21 +1293,20 @@ class MonomorphicTypeCheckTest
     "Console"  ->
       ("import eliot.jvm.IO\nability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}\n" +
         "def stubConsoleIO[A]: IO[A]\n" +
-        "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}")
+        "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}"),
+    // Overrides the canonical ambient `State` stub (same module, richer content) — appending a second `State`
+    // SystemImport would double-register the module path.
+    "State"    ->
+      ("ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}\n" +
+        "def stubStateIO[A]: IO[A]\n" +
+        "implement[S] State[S, IO] {\ndef state: IO[S] = stubStateIO\ndef putState(s: S): IO[Unit] = stubStateIO\n}")
   ) ++ Seq(
     SystemImport(
       "Effect",
       "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}\n" +
         "def stubEffectIO[A]: IO[A]\n" +
         "implement Effect[IO] {\ndef flatMap[A, B](f: Function[A, IO[B]], fa: IO[A]): IO[B] = stubEffectIO\ndef pure[A](a: A): IO[A] = stubEffectIO\ndef map[A, B](f: Function[A, B], fa: IO[A]): IO[B] = stubEffectIO\n}",
-      ModuleName.effectPackage
-    ),
-    SystemImport(
-      "State",
-      "ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}\n" +
-        "def stubStateIO[A]: IO[A]\n" +
-        "implement[S] State[S, IO] {\ndef state: IO[S] = stubStateIO\ndef putState(s: S): IO[Unit] = stubStateIO\n}",
-      ModuleName.effectPackage
+      ModuleName.carrierPackage
     )
   )
 

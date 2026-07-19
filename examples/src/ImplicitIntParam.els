@@ -1,4 +1,3 @@
-import eliot.effect.Console
 /**
  * An `Int` parameter. `Int` is a single type (a value's range is meta-information in the refinement channel, not a type
  * parameter), so `describe` simply takes an `Int` and renders it. `describe(42)` prints `42`.

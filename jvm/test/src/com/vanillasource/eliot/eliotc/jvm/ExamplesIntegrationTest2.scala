@@ -40,7 +40,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.Abort
         |
         |def safe: {Abort} String = "config-value"
@@ -55,7 +55,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.Abort
         |
         |def giveUp: {Abort} String = abort
@@ -71,7 +71,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.Abort
         |
         |def andThen[A](first: Unit, second: A): A = second
@@ -88,7 +88,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
@@ -101,7 +101,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.Throw
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
@@ -314,7 +314,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |
         |def echo[F[_] ~ Effect, A](value: F[A]): F[A] = value
         |
@@ -329,7 +329,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.Abort
         |
         |data Id[A](runId: A)
@@ -360,7 +360,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.State
         |
         |def swap(next: String): {State[String]} String =
@@ -379,7 +379,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.State
         |
         |data Id[A](runId: A)
@@ -407,7 +407,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.State
         |
         |data Id[A](runId: A)
@@ -435,7 +435,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.State
         |
         |data Id[A](runId: A)
@@ -471,7 +471,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.State
         |
         |def step: {State[String], Console} String =
@@ -491,7 +491,7 @@ import eliot.effect.Console
   // effect set and decided only by the order the `run*` calls are nested, via the n² cross-lifting instances
   // `State[AbortCarrier[G]]` (in `AbortCarrier`) and `Abort[StateCarrier[S, G]]` (in `StateCarrier`). Run on a pure `Id` carrier.
   private val orderingPrelude =
-    """import eliot.effect.Effect
+    """import eliot.carrier.Effect
       |import eliot.effect.State
       |import eliot.effect.Abort
       |
@@ -611,7 +611,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.State
         |
         |def swap(next: String): {State[String]} String = {

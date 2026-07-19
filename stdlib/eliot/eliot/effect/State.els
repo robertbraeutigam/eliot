@@ -1,4 +1,4 @@
-import eliot.effect.Effect
+import eliot.carrier.Effect
 
 /**
  * The state effect: a computation that threads a state of type `S`, reading and replacing it.

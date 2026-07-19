@@ -1,4 +1,3 @@
-import eliot.effect.Console
 data Something = Else | Other
 
 data Greeting = Hello | Goodbye

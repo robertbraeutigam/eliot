@@ -1,5 +1,3 @@
-import eliot.effect.Console
-import eliot.effect.Throw
 
 // A parser that fails with a typed error on bad input. `parseOk` succeeds; `parseBad` raises.
 def parseOk: {Throw[String]} String = "parsed-value"

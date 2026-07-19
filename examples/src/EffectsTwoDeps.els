@@ -1,6 +1,4 @@
-import eliot.effect.Dep
-import eliot.effect.Console
-import eliot.effect.Effect
+import eliot.carrier.Effect
 
 data Database(url: String)
 data Topic(name: String)

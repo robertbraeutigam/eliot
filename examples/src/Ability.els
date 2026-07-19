@@ -1,4 +1,3 @@
-import eliot.effect.Console
 ability Display[A] {
    def display(a: A): String
 }

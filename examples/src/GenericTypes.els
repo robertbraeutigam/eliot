@@ -1,4 +1,3 @@
-import eliot.effect.Console
 def hello[I: BigInteger]: String = "Hello World!"
 
 def main: {Console} Unit = printLine(hello[1])

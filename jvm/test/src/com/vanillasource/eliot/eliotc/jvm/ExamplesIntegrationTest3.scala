@@ -34,7 +34,7 @@ import eliot.effect.Console
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |import eliot.effect.Effect
+        |import eliot.carrier.Effect
         |import eliot.effect.State
         |
         |def swap(next: String): {State[String]} String = {

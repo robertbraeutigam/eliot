@@ -1,6 +1,4 @@
-import eliot.effect.Console
-import eliot.effect.Effect
-import eliot.effect.State
+import eliot.carrier.Effect
 
 // A pure carrier: the identity monad. Running a `{State}` program on it threads the state with no I/O at all.
 data Id[A](runId: A)

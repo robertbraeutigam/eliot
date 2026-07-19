@@ -1,4 +1,4 @@
-import eliot.effect.Effect
+import eliot.carrier.Effect
 
 // Merge copies of the base declarations this file builds on (name resolution is per-file). They must stay
 // character-exact with the lang layer's eliot.collection.List, which also carries their documentation.

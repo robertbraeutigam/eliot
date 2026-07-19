@@ -18,9 +18,9 @@ object WellKnownTypes {
   val functionCarrierFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Default))
 
-  private val effectModule: ModuleName = ModuleName(effectPackage, "Effect")
+  private val effectModule: ModuleName = ModuleName(ModuleName.carrierPackage, "Effect")
 
-  /** The `Effect` ability's `flatMap` (`eliot.effect.Effect`) — the sequencing combinator of the internal effect
+  /** The `Effect` ability's `flatMap` (`eliot.carrier.Effect`) — the sequencing combinator of the internal effect
     * machinery, inserted by the effect auto-lift and never named by users. Defined here (rather than as
     * `EffectMachinery` privates) so the effect phase and the checker-side effect lift share one definition.
     */

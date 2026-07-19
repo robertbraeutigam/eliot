@@ -1,5 +1,3 @@
-import eliot.effect.Console
-import eliot.effect.Abort
 
 // `if` is an ordinary function: `if(cond, value)` yields `value`, or short-circuits via the `Abort` effect, which the
 // infix `else` (from `eliot.effect.Abort`) discharges with the alternative. Because the branch is a carrier value, it

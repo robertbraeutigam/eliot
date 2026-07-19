@@ -1,4 +1,3 @@
-import eliot.effect.Console
 /**
  * An `Int` return. `Int` is a single type (a value's range is meta-information in the refinement channel, not a type
  * parameter), so `double(x) = x + x` simply returns an `Int`. The call `double(21)` prints `42`.

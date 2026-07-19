@@ -1,4 +1,3 @@
-import eliot.effect.Console
 import eliot.collection.List
 import eliot.compiler.Reflect
 

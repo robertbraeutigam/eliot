@@ -1,2 +1,1 @@
-import eliot.effect.Console
 def main: {Console} Unit = printLine("Hello World!")

@@ -1,4 +1,3 @@
-import eliot.effect.Console
 
 data Choice = First | Second
 

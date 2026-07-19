@@ -1,5 +1,3 @@
-import eliot.effect.Console
-import eliot.effect.Abort
 
 // A config lookup that succeeds. Returning a value takes the pure path; calling `abort` would short-circuit.
 def safe: {Abort} String = "config-value"

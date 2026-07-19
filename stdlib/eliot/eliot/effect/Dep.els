@@ -1,4 +1,4 @@
-import eliot.effect.Effect
+import eliot.carrier.Effect
 
 /**
  * The dependency effect (a reader): read-only access to an environment value of type `X` that is

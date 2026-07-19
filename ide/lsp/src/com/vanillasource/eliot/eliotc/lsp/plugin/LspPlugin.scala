@@ -239,12 +239,12 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 object LspPlugin {
   private val eliotExtension = ".els"
 
-  /** The reserved Eliot library packages (`eliot.lang`, `eliot.effect`, `eliot.compiler`), each as its directory
-    * sequence. The whole-workspace driver treats any file whose path contains one of these as a library dependency
-    * rather than a user module (see [[LspPlugin.isLibraryModule]]). Derived from [[ModuleName]] so a new reserved
-    * package is picked up here without a second list to keep in sync. `eliot.compiler.internal` needs no separate entry —
-    * `eliot.compiler` already matches it as a sub-path.
+  /** The reserved Eliot library packages (`eliot.lang`, `eliot.effect`, `eliot.carrier`, `eliot.compiler`), each as
+    * its directory sequence. The whole-workspace driver treats any file whose path contains one of these as a library
+    * dependency rather than a user module (see [[LspPlugin.isLibraryModule]]). Derived from [[ModuleName]] so a new
+    * reserved package is picked up here without a second list to keep in sync. `eliot.compiler.internal` needs no
+    * separate entry — `eliot.compiler` already matches it as a sub-path.
     */
   private val libraryPackages: Seq[Seq[String]] =
-    Seq(ModuleName.defaultSystemPackage, ModuleName.effectPackage, ModuleName.compilerPackage)
+    Seq(ModuleName.defaultSystemPackage, ModuleName.effectPackage, ModuleName.carrierPackage, ModuleName.compilerPackage)
 }

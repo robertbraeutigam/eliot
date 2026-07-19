@@ -1,4 +1,3 @@
-import eliot.effect.Console
 /**
  * Integer arithmetic. Every integer is a plain `Int` (a value's range is meta-information in the refinement channel),
  * and `+`/`-`/`*` compute over it, with `*` binding tighter than `+`/`-`. Prints `14`.

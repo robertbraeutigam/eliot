@@ -30,7 +30,7 @@ class CompilerAbortCarrierTest extends ProcessorTest(LangProcessors(systemModule
   // A faithful copy of `stdlib/eliot-compiler/eliot/effect/Abort.els`'s shape: the concrete carrier plus the two
   // compile-time ability instances (the shipped file is exercised end-to-end by the LSP/jvm suites).
   private val carrier =
-    """import eliot.effect.Effect
+    """import eliot.carrier.Effect
       |import eliot.lang.Option
       |
       |ability Abort[F[_]] {

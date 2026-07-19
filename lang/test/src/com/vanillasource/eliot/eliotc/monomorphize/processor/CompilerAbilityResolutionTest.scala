@@ -59,7 +59,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
       // (ability-guards §2.3), so Bool must be in the pool — as it always is in a real compiler layer.
       compilerScan(Seq("eliot", "lang"), "Bool", "type Bool\ndef true: Bool\ndef false: Bool") ++
       compilerScan(
-        Seq("eliot", "effect"),
+        Seq("eliot", "carrier"),
         "Effect",
         "import eliot.lang.Function\nability Effect[F[_]] {\n  def flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\n  def pure[A](a: A): F[A]\n  def map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}"
       ) ++
@@ -73,7 +73,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
         "Either",
         """import eliot.lang.Function
           |import eliot.lang.String
-          |import eliot.effect.Effect
+          |import eliot.carrier.Effect
           |import eliot.effect.Throw
           |
           |data Either[E, A] = Left(error: E) | Right(value: A)
@@ -102,7 +102,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
         """import eliot.lang.Function
           |import eliot.lang.String
           |import eliot.lang.Either
-          |import eliot.effect.Effect
+          |import eliot.carrier.Effect
           |import eliot.effect.Throw
           |
           |def raiseConst: Either[String, String] = raise("boom")

@@ -24,13 +24,24 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
     for {
       coreAST        <- getFactOrAbort(CoreAST.Key(key.uri))
       moduleNames    <- getFactOrAbort(ModuleNames.Key(key.uri))
-      importedModules =
-        extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
-      importResult   <- extractImportedNames(importedModules, moduleNames.names.value.keySet, key.platform)
+      sourcedImports  = coreAST.ast.as(coreAST.ast.value.importStatements)
+      explicitImports = sourcedImports.value
+                          .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
+      // The auto-imported prelude is a *weak* tier: a module the file also imports explicitly is dropped here (the
+      // explicit import stands alone), and in extractSystemNames an ambient name colliding with a local declaration
+      // or an explicitly imported name is silently skipped — locals and explicit imports always win, so the prelude
+      // can grow without breaking existing code. Explicit imports keep the strict shadowing errors below.
+      ambientModules  = systemModules.filter(m => m =!= key.vfqn.moduleName && !explicitImports.exists(_.value === m))
+      importResult   <- extractImportedNames(explicitImports, moduleNames.names.value.keySet, key.platform)
+      systemResult   <- extractSystemNames(
+                          ambientModules.map(sourcedImports.as(_)),
+                          moduleNames.names.value.keySet ++ importResult.dictionary.keySet,
+                          key.platform
+                        )
       localDictionary = moduleNames.names.value.collect { case (name, _) =>
                           (name, ValueFQN(key.vfqn.moduleName, name))
                         }
-      dictionary      = importResult.dictionary ++ localDictionary
+      dictionary      = systemResult.dictionary ++ importResult.dictionary ++ localDictionary
       namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.qualifiedName.value -> nv).toMap
       _              <- moduleNames.names.value.keys.toSeq
                           .flatMap(name => namedValuesMap.get(name).map(nv => (name, nv)))
@@ -41,7 +52,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                                 ValueFQN(key.vfqn.moduleName, name),
                                 dictionary,
                                 namedValue,
-                                importResult.privateNames,
+                                systemResult.privateNames ++ importResult.privateNames,
                                 key.platform
                               )
                             )
@@ -49,14 +60,39 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                           .sequence_
     } yield ()
 
-  private def extractImportedModules(
-      moduleName: ModuleName,
-      sourcedImports: Sourced[Seq[com.vanillasource.eliot.eliotc.ast.fact.ImportStatement]],
-      systemModules: Seq[ModuleName]
-  ): Seq[Sourced[ModuleName]] =
-    sourcedImports.value
-      .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
-      .prependedAll(systemModules.filter(_ =!= moduleName).map(sourcedImports.as(_)))
+  /** The weak prelude tier: collects the auto-imported modules' names, silently skipping any name already taken by a
+    * local declaration, an explicitly imported name, or an earlier system module (first wins, in [[ModuleName]] list
+    * order). No shadowing errors — ambient names must always be reclaimable by user code. A system module that cannot
+    * be found still errors: the prelude is part of the layer contract, and its absence is a build-environment bug to
+    * surface loudly, never skip.
+    */
+  private def extractSystemNames(
+      systemModules: Seq[Sourced[ModuleName]],
+      takenNames: Set[QualifiedName],
+      platform: Platform
+  ): CompilerIO[ImportResult] =
+    systemModules.foldLeftM(ImportResult(Map.empty, Map.empty)) { (acc, m) =>
+      for {
+        maybeModuleNames <- getFactIfProduced(UnifiedModuleNames.Key(m.value, platform))
+        result           <- maybeModuleNames match {
+                              case Some(moduleNames) =>
+                                val free = (name: QualifiedName) =>
+                                  !takenNames.contains(name) && !acc.dictionary.contains(name) && !acc.privateNames.contains(name)
+                                ImportResult(
+                                  acc.dictionary ++ moduleNames.names.collect {
+                                    case (name, Visibility.Public) if free(name) =>
+                                      (name, ValueFQN(moduleNames.moduleName, name))
+                                  },
+                                  acc.privateNames ++ moduleNames.names.collect {
+                                    case (name, Visibility.Private) if free(name) =>
+                                      (name, ValueFQN(moduleNames.moduleName, name))
+                                  }
+                                ).pure[CompilerIO]
+                              case None              =>
+                                compilerError(m.as(s"Could not find imported module: `${m.value.show}`")).as(acc)
+                            }
+      } yield result
+    }
 
   private def extractImportedNames(
       importedModules: Seq[Sourced[ModuleName]],

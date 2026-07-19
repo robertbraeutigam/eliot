@@ -1,5 +1,5 @@
-import eliot.effect.Effect
-import eliot.effect.Suspend
+import eliot.carrier.Effect
+import eliot.carrier.Suspend
 import eliot.effect.Abort
 
 // Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name

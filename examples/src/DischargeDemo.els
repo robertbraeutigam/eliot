@@ -1,5 +1,3 @@
-import eliot.effect.Console
-import eliot.effect.Abort
 
 // Discharge-aware effect accounting (docs/effect-discharge-accounting.md): `demo` fully discharges the `{Abort}` of its
 // internal `if..else`, so it honestly declares only `{Console}` — the phantom `Abort` false positive is gone. Before
