@@ -192,6 +192,13 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    be pinned; LSP hover renders a concrete carrier stack back as its pinned row (`GroundValueRenderer`). Suspend-riding
    effects (`Console`) have no canonical carrier and so cannot be pinned (v1; the designed extension is an abstract
    platform base `Suspended` — see the doc).
+   The whole `eliot.effect` package is **ambient** (auto-imported): `ModuleName.effectSystemModules` joins the
+   `eliot.lang` prelude in `defaultSystemModules`, in a *weak* tier (`ModuleValueProcessor`) — an explicitly imported
+   module is deduplicated and an ambient name colliding with a local declaration or explicit import is silently
+   dropped (locals always win; the prelude can grow without breaking code), while explicit imports keep the strict
+   shadowing errors. The carrier machinery moved to the **import-required `eliot.carrier` package**
+   (`stdlib/eliot/eliot/carrier/Effect.els`/`Suspend.els`) so `map`/`flatMap`/`pure`/`suspend` never enter user scope;
+   `WellKnownTypes.effectModule` points there, `EffectMachinery` matches by bare name and is unaffected.
 10. ability: Checks and returns a type-specific ability implementation.
 11. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.) Also hosts the **effect auto-lift** (`check/EffectLifter`): the bind/`pure` decision for an effectful term in a pure position is check-mode elaboration per concrete instantiation — undecidable from declared signatures alone — with flex argument slots deferred until later arguments rigidify them (Phase A/B in `Checker.inferSpine`).
 12. used: Collects all the used value names starting at a given "main".
@@ -407,7 +414,7 @@ knot; guarded by `termination/PurityGuardTest`). With a recursion-free typed cor
 default** (System T, not PCF) — modulo the already-accepted `Type:Type`/Girard residual the Cornerstone does not close.
 
 The one opt-out is **`Inf`**, modelled as an ordinary effect *ability* (`stdlib/.../Inf.els`:
-`ability Inf[F[_]] { def forever(step: F[Unit]): F[Unit] }`, import-required) rather than a bespoke termination
+`ability Inf[F[_]] { def forever(step: F[Unit]): F[Unit] }`, ambient like all of `eliot.effect`) rather than a bespoke termination
 lattice — there is **no `Terminating` token**; termination is simply `Inf`'s *absence* from the effect row. Because a
 recursion-free core cannot itself diverge, `Inf` can **only originate on a native** (`forever`), and it propagates to
 callers for free through the *existing* `used ⊆ declared` effect subset check — a `{Console}`-only function calling
