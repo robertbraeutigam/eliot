@@ -884,7 +884,16 @@ class Checker(
                                   // result then resolves against the expected type (with coercion) at the let level.
                                   for {
                                     _                          <- modify(_.bindValueParam(paramName.value, payload))
-                                    (bodyExpr, bodyType)       <- infer(body)
+                                    // Instantiate the inferred continuation's polytype (like the argument at the top of
+                                    // this method): a bare polymorphic nullary reference in tail position (`state :
+                                    // [S, F] F[S]`) must get its `[?S, ?F]` implicit type args here, or it reaches
+                                    // monomorphization with none and its ability resolves at empty arguments. This is
+                                    // instantiation, not the pushed-down carrier check the comment above warns against —
+                                    // it peels leading polytype binders to fresh metas, leaving a monotype tail
+                                    // (`?F[?S]`) the `bindWrap` below then classifies (an effect-carrier-headed tail
+                                    // correctly selects `flatMap`; a bound-var / applied monotype tail is a peel no-op).
+                                    (bodyExpr0, bodyType0)     <- infer(body)
+                                    (bodyExpr, bodyType)       <- instantiatePolymorphic(bodyExpr0, bodyType0)
                                     bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
                                     (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
                                     resolved                   <- expected match {

@@ -15,13 +15,19 @@
   (`State`/`Throw`/`Abort`) fails earlier at `AbilityResolver` ("No ability implementation … State") — sound but
   cryptic. `Inf` is why the residual check is load-bearing, not merely nicer: without it an undeclared `Inf` would
   *compile*.
-- **Step 2 blocker found.** Dot-chained discharge inside an effect-declaring body
-  (`printLine(counter.runStateToValue("init"))` under `{Console}`) does **not** yet monomorphize even with the pre-mono
-  gate off: it fails at ability resolution with `No ability implementation found for ability 'State' with type arguments
-  []` — the discharge carrier (`StateCarrier[String, IO]`) is not inferred when threaded through `.` in a non-pure
-  context (it *does* work at a pure/`Id`-defaulting boundary). So Step 2 is not just "flip the gate": the checker must
-  first infer that discharge carrier. This is a checker-inference fix (carrier solving through the `.` combinator in an
-  effect-declaring context), tracked as a prerequisite below.
+- **Step 2 prerequisite — found and fixed.** Discharge inside an effect-declaring body
+  (`printLine(runStateToValue("init", counter))` / the `.` form, under `{Console}`) did **not** monomorphize even with
+  the pre-mono gate off: it failed at ability resolution with `No ability implementation found for ability 'State' with
+  type arguments []`. Root cause (isolated, not `.`-specific — the direct form failed identically): a bare polymorphic
+  **nullary** reference in tail position (`counter`'s block result `state : [S, F] F[S]`) was `infer`red but never
+  instantiated in `typeImmediateLambda`'s effectful `let` branch, so its `[?S, ?F]` implicit type args were never
+  allocated and its ability resolved at empty arguments (and it was even wrongly classified pure→`map` instead of
+  effectful→`flatMap`). Fix: instantiate the inferred continuation there, exactly as the `let` argument already is
+  (`Checker.typeImmediateLambda`). With it, both the direct and dot forms compile and run at mono (verified with the
+  gate temporarily neutered). A **separate, pre-existing** issue remains out of scope: the *non-effectful* `let` branch
+  (expected `None`) also infers a polytype tail without instantiating — a block ending in a bare polymorphic nullary in
+  argument position (`useIt({ val x = "a"; none })`) fails with "Function not implemented"; unrelated to effects, not
+  touched here.
 
 ## Summary
 
@@ -85,14 +91,10 @@ firing here is a bug to fix before proceeding.
 
 ### Step 2 — Flip the authority
 
-**Prerequisite (found in Step 1):** the checker must infer the discharge carrier for a discharge threaded through `.`
-in an effect-declaring context — today `printLine(counter.runStateToValue(s0))` under `{Console}` fails at ability
-resolution (`State` with `[]`) because `StateCarrier[String, IO]` is never solved. It works at a pure/`Id`-defaulting
-boundary but not against a concrete ambient carrier. Fix this in the checker's carrier inference (likely the
-`inferSpine` Phase-B pass-through / the flex-flex carrier-application rule that already fixed `x.provide(a).provide(b)`)
-before flipping the gate, or the flip trades pre-mono's "performs State" for mono's cryptic "No instance".
+**Prerequisite — done** (see Progress): `Checker.typeImmediateLambda` now instantiates the inferred `let` continuation,
+so discharge against a concrete ambient carrier monomorphizes (both direct and dot forms verified with the gate off).
 
-Then re-point `SaturatedValueProcessor` from `EffectCheckedValue.Key` to `RecursionCheckedValue.Key`
+Re-point `SaturatedValueProcessor` from `EffectCheckedValue.Key` to `RecursionCheckedValue.Key`
 (drop the effect gate). Now every recursion-valid body reaches mono and the residual check is the
 sole authority. Add/convert fixtures:
 
