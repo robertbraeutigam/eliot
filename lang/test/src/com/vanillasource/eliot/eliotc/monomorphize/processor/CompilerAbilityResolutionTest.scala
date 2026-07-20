@@ -206,7 +206,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
 
   // Increment E — the guard combinators on the effect path. The shipped `eliot.lang.Guard` spells a bare rejection as a
   // plain `raise(msg)` (from `eliot.effect.Throw`) over the explicit `Either` carrier, and `orError(o, msg) =
-  // foldOption(o, raise(msg), pure)` builds on it. The compiler backend reduces the generic `raise` in a combinator here
+  // foldOption(raise(msg), pure, o)` builds on it. The compiler backend reduces the generic `raise` in a combinator here
   // ⤳ the concrete `Either::raise`; the full `orError` (with `foldOption` + the runtime-track consumption of the reduced
   // native) is exercised end-to-end in `GuardSignatureIntegrationTest`.
 

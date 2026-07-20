@@ -45,7 +45,7 @@ import eliot.effect.Console
         |
         |def safe: {Abort} String = "config-value"
         |
-        |def main: IO[Unit] = flatMap(o -> printLine(foldOption(o, "<absent>", s -> s)), runAbort(safe))""".stripMargin
+        |def main: IO[Unit] = flatMap(o -> printLine(foldOption("<absent>", s -> s, o)), runAbort(safe))""".stripMargin
     ).asserting(_ shouldBe "config-value")
   }
 
@@ -60,7 +60,7 @@ import eliot.effect.Console
         |
         |def giveUp: {Abort} String = abort
         |
-        |def main: IO[Unit] = flatMap(o -> printLine(foldOption(o, "gave up!", s -> s)), runAbort(giveUp))""".stripMargin
+        |def main: IO[Unit] = flatMap(o -> printLine(foldOption("gave up!", s -> s, o)), runAbort(giveUp))""".stripMargin
     ).asserting(_ shouldBe "gave up!")
   }
 
@@ -78,7 +78,7 @@ import eliot.effect.Console
         |
         |def loud: {Console, Abort} String = andThen(printLine("trying"), abort)
         |
-        |def main: IO[Unit] = flatMap(o -> printLine(foldOption(o, "stopped", s -> s)), runAbort(loud))""".stripMargin
+        |def main: IO[Unit] = flatMap(o -> printLine(foldOption("stopped", s -> s, o)), runAbort(loud))""".stripMargin
     ).asserting(_ shouldBe "trying\nstopped")
   }
 
@@ -347,8 +347,8 @@ import eliot.effect.Console
         |def testDenied: Option[String] = runId(runAbort(denied))
         |
         |def main: IO[Unit] = flatMap(
-        |   ignored -> printLine(foldOption(testDenied, "DENIED", s -> s)),
-        |   printLine(foldOption(testAllowed, "DENIED", s -> s)))""".stripMargin
+        |   ignored -> printLine(foldOption("DENIED", s -> s, testDenied)),
+        |   printLine(foldOption("DENIED", s -> s, testAllowed)))""".stripMargin
     ).asserting(_ shouldBe "granted\nDENIED")
   }
 
@@ -596,7 +596,7 @@ import eliot.effect.Console
           |
           |def main: IO[Unit] = flatMap(
           |   ignored -> printLine(second(stateSurvives)),
-          |   printLine(foldOption(first(stateSurvives), "<no value>", s -> s)))""".stripMargin
+          |   printLine(foldOption("<no value>", s -> s, first(stateSurvives))))""".stripMargin
     ).asserting(_ shouldBe "<no value>\nmodified")
   }
 
@@ -611,7 +611,7 @@ import eliot.effect.Console
           |def stateDiscarded: Option[Pair[String, String]] =
           |   runId(runAbort(runStateToPair("initial", modifyThenAbort)))
           |
-          |def main: IO[Unit] = printLine(foldOption(stateDiscarded, "<no state>", p -> second(p)))""".stripMargin
+          |def main: IO[Unit] = printLine(foldOption("<no state>", p -> second(p), stateDiscarded))""".stripMargin
     ).asserting(_ shouldBe "<no state>")
   }
 

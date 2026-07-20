@@ -4,3 +4,12 @@ type Option[A]
  * The absent case of `Option`.
  */
 def none[A]: Option[A]
+
+/**
+ * Eliminate an `Option`: return `ifNone` when `o` is `None`, or `ifSome(value)` when it is `Some(value)`.
+ *
+ * ```eliot
+ * def label(o: Option[String]): String = o.foldOption("absent", s -> s)
+ * ```
+ */
+def foldOption[A, B](ifNone: B, ifSome: Function[A, B], o: Option[A]): B

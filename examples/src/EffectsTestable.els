@@ -18,6 +18,6 @@ def testAllowed: Option[String] = runId(runAbort(allowed))
 def testDenied: Option[String] = runId(runAbort(denied))
 
 def main: {Console} Unit = {
-   printLine(foldOption(testAllowed, "DENIED", s -> s))
-   printLine(foldOption(testDenied, "DENIED", s -> s))
+   printLine(testAllowed.foldOption("DENIED", s -> s))
+   printLine(testDenied.foldOption("DENIED", s -> s))
 }

@@ -75,4 +75,4 @@ def runAbort[G[_], A](obj: {Abort | G} A): G[Option[A]]
  */
 infix right
 def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: G[A]): G[A] =
-   flatMap(o -> foldOption(o, fallback, a -> pure(a)), runAbort(computation))
+   flatMap(o -> foldOption(fallback, a -> pure(a), o), runAbort(computation))

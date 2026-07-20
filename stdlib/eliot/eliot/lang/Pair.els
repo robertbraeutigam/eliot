@@ -2,3 +2,12 @@
  * An ordered pair of two independently-typed values: a `first` of type `A` and a `second` of type `B`.
  */
 type Pair[A, B]
+
+/**
+ * Eliminate a `Pair`: apply the curried `f` to its `first` and `second` components.
+ *
+ * ```eliot
+ * def sum(p: Pair[Int, Int]): Int = p.foldPair(a -> b -> a + b)
+ * ```
+ */
+def foldPair[A, B, C](f: Function[A, Function[B, C]], p: Pair[A, B]): C

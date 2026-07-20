@@ -1,5 +1,5 @@
 data Pair[A, B](first: A, second: B)
 
-def foldPair[A, B, C](p: Pair[A, B], f: Function[A, Function[B, C]]): C = p match {
+def foldPair[A, B, C](f: Function[A, Function[B, C]], p: Pair[A, B]): C = p match {
    case Pair(a, b) -> f(a)(b)
 }
