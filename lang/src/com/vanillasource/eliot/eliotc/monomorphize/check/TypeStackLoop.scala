@@ -507,7 +507,7 @@ class TypeStackLoop(
 
   /** Record the value-under-check's own *ambient* effect-carrier heads into [[CheckState.ambientCarriers]]. The
     * carrier binders are the signature's higher-kinded, ability-constrained binders (the M1 `{E...}` carrier — the
-    * same `carrierBinders ∩ paramConstraints` filter the effect phase's ambient read uses, which excludes a bare
+    * same `carrierBinders ∩ paramConstraints` filter the residual check's ambient read uses, which excludes a bare
     * generic `C[_, _]`). Each is looked up in ρ — where [[establishSignature]] bound an explicit argument's concrete
     * value and a leftover binder's instantiation meta — and recorded by its forced head: a
     * [[CheckState.CarrierHead.TopDef]] FQN for a concrete instantiation (`IO`), a [[CheckState.CarrierHead.Meta]] id

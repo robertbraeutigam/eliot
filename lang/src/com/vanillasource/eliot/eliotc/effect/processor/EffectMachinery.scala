@@ -6,8 +6,9 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN}
   * are inserted by the compiler (their `flatMap`/`pure`/`map` references are spliced by fully-qualified name — see
   * [[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.effectFlatMapFQN]] — by the checker's
   * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]]) and monomorphization pins the carrier and
-  * erases the whole tower. [[isMachineryAbility]] tells the effect accounting that an `Effect`/`Suspend` call is compiler
-  * machinery, so it never counts as a user-facing effect (`effectAbilitiesOf`). The construction half (the former
+  * erases the whole tower. [[isMachineryAbility]] tells the monomorphize-phase effect accounting
+  * ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]) that an `Effect`/`Suspend` call is
+  * compiler machinery, so it never counts as a user-facing effect. The construction half (the former
   * `pureWrap`/`sequence` ORE builders) moved into the lifter with the auto-lift itself.
   */
 object EffectMachinery {

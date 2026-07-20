@@ -1,8 +1,27 @@
 # Effect accounting in the monomorphize phase (plan)
 
-**Status:** Steps 1–2 landed; Steps 3–5 planned.
+**Status:** Steps 1–3 landed; Steps 4–5 planned.
 
 ## Progress
+
+- **Step 3 — done.** Deleted the pre-mono `effect/` verification phase: `EffectCheckProcessor`,
+  `DeclaredEffectChecker`, `EffectUsageCollector`, `EffectAccounting`, `CalleeSignatures`,
+  `EffectDischargeSummaryProcessor`, and the `EffectDischargeSummary` / `EffectCheckedValue` facts, and dropped the two
+  processors from `LangProcessors` (the value chain is now `RecursionCheckedValue → SaturatedValue`, no effect gate
+  between them). The `effect/` package now holds only the two helpers the mono residual read reuses:
+  - **`EffectMachinery`** — kept whole (`isMachineryAbility`, `abilityNameOf`; both used by `EffectResidualChecker`).
+  - **`EffectCarriers`** — kept `isHktBinder` / `carrierBinders` / `declaredEffects` (used by `TypeStackLoop` and
+    `EffectResidualChecker`); deleted `carrierHead` / `carrierHeaded`, which only the retired
+    `EffectUsageCollector`/`EffectAccounting`/`CalleeSignatures` consumed.
+  - **`Effect`/`Suspend` machinery FQNs** in `WellKnownTypes` (`effectFlatMapFQN`/`effectMapFQN`/`effectPureFQN`) are
+    untouched — the `EffectLifter` uses them.
+  - **Tests.** Deleted `EffectCheckProcessorTest` and `EffectDischargeAccountingTest` — both drove the now-gone
+    `EffectCheckedValue` / `EffectDischargeSummary` facts. Their diagnostics (declared-pure, `Log` subset, `Inf`
+    propagation) are already pinned end-to-end through the *mono* path by the jvm `ExamplesIntegrationTest1` and
+    `TerminationIntegrationTest`, so no coverage was lost; the stale `EffectCheckProcessorTest` cross-reference in
+    `MonomorphicTypeCheckTest` now points at `TerminationIntegrationTest`.
+  - **Not touched (Step 4).** The `dischargedEffects` field and `-E` surface syntax remain — the field is now
+    unconsumed (comment updated to say so). Full suite green (lang/jvm/eliotc/ide.lsp), all modules compile.
 
 - **Step 2 — done.** `SaturatedValueProcessor` now keys off `RecursionCheckedValue` (the pre-mono effect gate is
   dropped); the monomorphize-phase `EffectResidualChecker` is the sole effect authority. Two things the gate flip forced,

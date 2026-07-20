@@ -1249,8 +1249,8 @@ class MonomorphicTypeCheckTest
     ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap"))
   }
 
-  // Fail-safes: a non-carrier constructor never lifts; the friendly effect-phase diagnostics stay; a return boundary
-  // never strips a carrier. (The `Inf` subset rejection is pinned verbatim in `EffectCheckProcessorTest`.)
+  // Fail-safes: a non-carrier constructor never lifts; the friendly residual-check diagnostics stay; a return boundary
+  // never strips a carrier. (The `Inf` subset rejection is pinned end-to-end in the jvm `TerminationIntegrationTest`.)
 
   it should "reject a non-carrier constructor argument with a plain mismatch (no lift)" in {
     // The mismatch anchors at the argument's application node, spanning the whole `box("x")` construction.

@@ -53,8 +53,8 @@ class CarrierKindChecker(
     * applied. An ordinary `[A]` binder (kind `Type`) is left untagged — solving it to a proper type is correct.
     *
     * Every higher-kinded binder's meta is also flagged as an *effect carrier*
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]). This is the effect
-    * phase's *callee-side* carrier notion (`EffectCarriers.carrierBinders`, deliberately unfiltered): an effectful
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]). This is the
+    * *callee-side* carrier notion (`EffectCarriers.carrierBinders`, deliberately unfiltered): an effectful
     * result rides *any* of the callee's own HKT binders — including a deliberately unconstrained one like `runStateToPair`'s
     * `G[_]` (the effect-transparent discharge combinators return `G[...]` with no ability constraint, and a `val`
     * binding such a result must still sequence it). The `carrierBinders ∩ paramConstraints` filter applies only to a

@@ -1,12 +1,6 @@
 package com.vanillasource.eliot.eliotc.effect.processor
 
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
-  ParameterReference,
-  SignatureView,
-  asArrow,
-  spine
-}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{SignatureView, asArrow}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 
@@ -24,8 +18,10 @@ object EffectCarriers {
   /** The higher-kinded binder names of a signature — the binders an effectful result can ride (`F` in `F[Unit]`). This
     * is the *callee* notion of a carrier: an ability method's return rides its ability's binder (`printLine : F[Unit]`)
     * even though that binder carries no constraint on the method itself, so no constraint is required here. A *value's
-    * own* ambient effect carriers are the further-filtered subset whose binder is ability-constrained — see the
-    * `paramConstraints` filter in [[EffectCheckProcessor]], which excludes a bare generic `C[_, _]`.
+    * own* ambient effect carriers are the further-filtered subset whose binder is ability-constrained — the
+    * `carrierBinders ∩ paramConstraints` filter the monomorphize-phase residual check applies (see
+    * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]), which excludes a bare generic
+    * `C[_, _]`.
     */
   def carrierBinders(view: SignatureView): Set[String] =
     view.binders.filter(isHktBinder).map(_.name.value).toSet
@@ -41,18 +37,4 @@ object EffectCarriers {
     carriers
       .flatMap(c => paramConstraints.getOrElse(c, Seq.empty).map(_.abilityFQN))
       .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
-
-  /** The carrier binder heading a type expression, if it is headed by one of `carrier` (e.g. `F` for `F[String]`).
-    * `None` for any other head. This is the effect-provenance primitive: a value parameter whose type is headed by an
-    * ability-constrained carrier binder carries that binder's declared effects (discharge-aware accounting, Step 3).
-    */
-  def carrierHead(tpe: OperatorResolvedExpression, carrier: Set[String]): Option[String] =
-    spine(tpe)._1 match {
-      case ParameterReference(n) if carrier.contains(n.value) => Some(n.value)
-      case _                                                  => None
-    }
-
-  /** Whether a type expression is headed by one of `carrier` (a carrier-typed value, e.g. `F[String]`). */
-  def carrierHeaded(tpe: OperatorResolvedExpression, carrier: Set[String]): Boolean =
-    carrierHead(tpe, carrier).isDefined
 }

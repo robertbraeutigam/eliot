@@ -10,12 +10,13 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   * it free of body-level recursion as a [[RecursionCheckedValue]].
   *
   * It is a standalone phase in the value chain, placed after `NamedValuesRewriteProcessor` (so the `namedValues`
-  * reflection has already expanded into the reference graph this checker walks) and before `EffectCheckProcessor`
-  * (whose sole input is repointed to this fact). A recursive value has a
+  * reflection has already expanded into the reference graph this checker walks) and before
+  * `SaturatedValueProcessor` (whose sole input is this fact — the former pre-mono effect gate that once sat between
+  * them was retired when effect verification moved into the monomorphize phase). A recursive value has a
   * [[com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError]] reported against it, which trips
-  * `registerFactIfClear` so the [[RecursionCheckedValue]] is never registered — and because the effect checks (and
-  * therefore saturation, monomorphization and codegen) reads only this fact, the recursive value never gets any
-  * further. The certified value is carried through untouched; the signature, body and every other field are unchanged.
+  * `registerFactIfClear` so the [[RecursionCheckedValue]] is never registered — and because saturation (and therefore
+  * monomorphization and codegen) reads only this fact, the recursive value never gets any further. The certified value
+  * is carried through untouched; the signature, body and every other field are unchanged.
   */
 class RecursionCheckProcessor
     extends TransformationProcessor[NamedValuesRewrittenValue.Key, RecursionCheckedValue.Key](key =>
