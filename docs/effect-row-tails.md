@@ -65,7 +65,7 @@ There is no `-E` syntax. A discharger's consumed effect vanishes *structurally* 
 monomorphize-phase residual check (it lands on an inner transformer carrier, absent from the
 caller's ambient), so a discharger's return type is just the plain output carrier — no negative
 member to spell, and nothing to reject inside a pinned row. (This replaced the earlier `{-E}`
-annotation; see `docs/effect-accounting-in-monomorphize.md`.)
+annotation; see the effect section of `.claude/CLAUDE.md`.)
 
 ### Stdlib sweep
 

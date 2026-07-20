@@ -376,7 +376,7 @@ class TypeStackLoop(
       _ <- checker.carriers.verifyCarrierKinds
       _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
       _ <- modify(s => s.withUnifier(s.unifier.drain()))
-      // Exact effect verification (docs/effect-accounting-in-monomorphize.md, Step 2): a value's residual effects (those
+      // Exact effect verification: a value's residual effects (those
       // demanded on its own ambient carrier) must be declared. Runs here — after the drain solved every reference's
       // carrier argument, before `defaultUnsolvedMetas` collapses an abstract ambient carrier to `Type`. Passed the
       // checked body only for a value mono; a signature twin passes `None` (its arrow-chain has no runtime effects).

@@ -150,8 +150,8 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    effects). Effect **verification no longer lives here**: the entire pre-mono `effect/` phase (`EffectCheckProcessor`,
    `DeclaredEffectChecker`, `EffectUsageCollector`, `EffectAccounting`, `CalleeSignatures`,
    `EffectDischargeSummaryProcessor`, the `EffectCheckedValue`/`EffectDischargeSummary` facts) was deleted, and with it
-   the `-E` negative-row syntax and the `dischargedEffects` field on the whole fact chain
-   (`docs/effect-accounting-in-monomorphize.md`, **COMPLETE**). Verification moved into the **monomorphize checker**
+   the `-E` negative-row syntax and the `dischargedEffects` field on the whole fact chain. Verification moved into
+   the **monomorphize checker**
    (`monomorphize/check/EffectResidualChecker`, run from `TypeStackLoop.runPostDrainResolution` for each value mono):
    compute the value's **residual effect set** — the abilities demanded on its *own ambient carrier* — and require
    `residual ⊆ declared`. `Inf` rides the ambient like any effect, so the same subset test propagates it (load-bearing:

@@ -5,7 +5,7 @@
 
 // Every form of if..else, all driven by the single `flag` parameter. `demo` declares only `{Console}`: every `if`'s
 // `{Abort}` is fully discharged by its matching `else`, so the monomorphize-phase residual check
-// (docs/effect-accounting-in-monomorphize.md) keeps the phantom `Abort` out of the declared set.
+// keeps the phantom `Abort` out of the declared set.
 def demo(flag: Bool): {Console} Unit = {
    // 1. A pure value chosen by an if..else, then printed.
    printLine(if(flag, "1. pure value: ON") else "1. pure value: OFF")

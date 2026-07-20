@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 /** Exact effect *verification* in the checker — the monomorphize-phase replacement for the now-deleted pre-mono
-  * declared-effect phase (docs/effect-accounting-in-monomorphize.md, Steps 2–3). It computes the value-under-check's
+  * declared-effect phase. It computes the value-under-check's
   * **residual effect set** — the effect abilities demanded on the value's *own ambient carrier* — and requires it to be
   * a subset of what the value declares.
   *

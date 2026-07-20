@@ -428,7 +428,7 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "before\nafter")
   }
 
-  // Effect-accounting migration Step 2 (docs/effect-accounting-in-monomorphize.md): a `{State}` computation discharged
+  // Effect-accounting migration: a `{State}` computation discharged
   // via a DOT-chained `runStateToValue` inside a `{Console}`-declaring body compiles and runs. The pre-mono accounting
   // rejected this (a dot-chained discharger was not credited — "performs the effect 'State'"); the monomorphize-phase
   // residual check verifies exactly, so the discharged `State` (its ability method on the inner `StateCarrier`, not the

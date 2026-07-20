@@ -74,7 +74,7 @@ class Checker(
     */
   private[check] val lifter: EffectLifter = new EffectLifter(force, doUnify)
 
-  /** Exact effect *verification* (docs/effect-accounting-in-monomorphize.md): the monomorphize-phase subset check that
+  /** Exact effect *verification*: the monomorphize-phase subset check that
     * a value's residual effects (those demanded on its own ambient carrier) are declared — the sole authority, having
     * replaced the now-deleted pre-mono declared-effect phase. A non-equality *verification* concern, kept out of this
     * checker's definitional-equality core. Called from [[TypeStackLoop.runPostDrainResolution]] after the final drain.
