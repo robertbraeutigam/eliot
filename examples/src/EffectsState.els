@@ -19,7 +19,7 @@ def swap(next: String): {State[String]} String = {
 
 // Discharge under the PURE Id carrier (G := Id): the state logic runs with no IO, yielding a plain Pair of
 // (returned-old-value, final-state) started from "first".
-def demo: Pair[String, String] = runId(runStateToPair(swap("second"), "first"))
+def demo: Pair[String, String] = runId(swap("second").runStateToPair("first"))
 
 def main: {Console} Unit = {
    printLine(demo.first)

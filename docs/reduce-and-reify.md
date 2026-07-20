@@ -67,7 +67,7 @@ implement Dep[Database, IO] { def dependency = pure(Database("jdbc://…")) }  -
 | effect | ask | discharge |
 |---|---|---|
 | `Throw[E]` | `raise` | `runThrow(prog)` → `Either` |
-| `State[S]` | `state`/`putState` | `runStateToPair(prog, initial)` |
+| `State[S]` | `state`/`putState` | `runStateToPair(initial, prog)` |
 | `Abort` | `abort` | `orElse(prog, fallback)` |
 | **`Dep[X]`** | `dependency` | **`implement Dep[X, IO] { … }`** ← outlier |
 

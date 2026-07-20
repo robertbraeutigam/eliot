@@ -299,7 +299,7 @@ import eliot.effect.Console
         |
         |def recovered: String = parsed("x") catch (err -> err)
         |
-        |def counted: Pair[String, String] = runStateToPair(state, "initial")
+        |def counted: Pair[String, String] = runStateToPair("initial", state)
         |
         |def main: IO[Unit] = {
         |   printLine(recovered)
@@ -366,7 +366,7 @@ import eliot.effect.Console
         |def swap(next: String): {State[String]} String =
         |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
         |
-        |def prog: IO[Pair[String, String]] = runStateToPair(swap("after"), "before")
+        |def prog: IO[Pair[String, String]] = runStateToPair("before", swap("after"))
         |
         |def main: IO[Unit] = flatMap(p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))), prog)""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
@@ -393,7 +393,7 @@ import eliot.effect.Console
         |def swap(next: String): {State[String]} String =
         |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
         |
-        |def demo: Pair[String, String] = runId(runStateToPair(swap("second"), "first"))
+        |def demo: Pair[String, String] = runId(runStateToPair("first", swap("second")))
         |
         |def main: IO[Unit] = flatMap(ignored -> printLine(second(demo)), printLine(first(demo)))""".stripMargin
     ).asserting(_ shouldBe "first\nsecond")
@@ -421,8 +421,8 @@ import eliot.effect.Console
         |def swap(next: String): {State[String]} String =
         |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
         |
-        |def onlyValue: String = runId(runStateToValue(swap("after"), "before"))
-        |def onlyState: String = runId(runStateToFinalState(swap("after"), "before"))
+        |def onlyValue: String = runId(runStateToValue("before", swap("after")))
+        |def onlyState: String = runId(runStateToFinalState("before", swap("after")))
         |
         |def main: IO[Unit] = flatMap(ignored -> printLine(onlyState), printLine(onlyValue))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
@@ -459,7 +459,7 @@ import eliot.effect.Console
         |}
         |
         |def switch: {State[Toggle]} Unit = updateState(t -> flip(t))
-        |def result: Toggle = runId(runStateToFinalState(switch, Off))
+        |def result: Toggle = runId(runStateToFinalState(Off, switch))
         |
         |def main: IO[Unit] = printLine(describe(result))""".stripMargin
     ).asserting(_ shouldBe "on")
@@ -481,7 +481,7 @@ import eliot.effect.Console
         |
         |def main: IO[Unit] = flatMap(
         |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
-        |   runStateToPair(step, "start"))""".stripMargin
+        |   runStateToPair("start", step))""".stripMargin
     ).asserting(_ shouldBe "running step\nstart\ndone")
   }
 
@@ -517,7 +517,7 @@ import eliot.effect.Console
         """import eliot.jvm.IO
 import eliot.effect.Console
           |def stateSurvives: Pair[Option[String], String] =
-          |   runId(runStateToPair(runAbort(modifyThenAbort), "initial"))
+          |   runId(runStateToPair("initial", runAbort(modifyThenAbort)))
           |
           |def main: IO[Unit] = flatMap(
           |   ignored -> printLine(second(stateSurvives)),
@@ -534,7 +534,7 @@ import eliot.effect.Console
         """import eliot.jvm.IO
 import eliot.effect.Console
           |def stateDiscarded: Option[Pair[String, String]] =
-          |   runId(runAbort(runStateToPair(modifyThenAbort, "initial")))
+          |   runId(runAbort(runStateToPair("initial", modifyThenAbort)))
           |
           |def main: IO[Unit] = printLine(foldOption(stateDiscarded, "<no state>", p -> second(p)))""".stripMargin
     ).asserting(_ shouldBe "<no state>")
@@ -622,7 +622,7 @@ import eliot.effect.Console
         |
         |def main: IO[Unit] = flatMap(
         |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
-        |   runStateToPair(swap("after"), "before"))""".stripMargin
+        |   runStateToPair("before", swap("after")))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 }

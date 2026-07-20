@@ -49,7 +49,7 @@ import eliot.effect.Console
         |}
         |
         |def main: IO[Unit] = {
-        |  val result = runStateToPair(nextPort else 8080, "<none>")
+        |  val result = runStateToPair("<none>", nextPort else 8080)
         |  printLine(show(result.first))
         |}""".stripMargin,
       stdin = "not-a-number\n"

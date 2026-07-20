@@ -74,7 +74,7 @@ carrier data-type names are gone from all `def` signatures:
 def runThrow[E, G[_], A](obj: {Throw[E] | G} A): {-Throw[E]} G[Either[E, A]]
 def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): {-Throw[E]} G[A]
 def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: G[A]): {-Abort} G[A]
-def runStateToPair[S, G[_], A](p: {State[S] | G} A, initial: S): {-State[S]} G[Pair[A, S]]
+def runStateToPair[S, G[_], A](initial: S, p: {State[S] | G} A): {-State[S]} G[Pair[A, S]]
 def provide[X, G[_], A](x: X, computation: {Dep[X] | G} A): {-Dep[X]} G[A]
 ```
 

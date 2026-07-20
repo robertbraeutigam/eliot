@@ -42,7 +42,7 @@ implement[G[_] ~ Effect] Abort[AbortCarrier[G]] {
 
 /**
  * Cross-lift: `State[S]` rides through the `AbortCarrier` layer (one cell of the n² mtl lifting matrix). When a
- * `{State[S], Abort}` program discharges `Abort` *first* (`runStateToPair(runAbort(p), s0)`), the carrier is refined to
+ * `{State[S], Abort}` program discharges `Abort` *first* (`runStateToPair(s0, runAbort(p))`), the carrier is refined to
  * `AbortCarrier[G]` with `G` still carrying `State`, so the residual `state`/`putState` must run at `AbortCarrier[G]`.
  * They delegate to the inner `G`'s state and wrap the result in `Some` — state is never *absent* here; only the eventual
  * `abort` makes the discharged *value* `None`. Because `AbortCarrier` sits *outside* the (inner) `StateCarrier`, the

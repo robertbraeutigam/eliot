@@ -45,7 +45,7 @@ implement[S, G[_] ~ Effect] State[S, StateCarrier[S, G]] {
 /**
  * Cross-lift: `Abort` rides through the `StateCarrier` layer (the order-sensitive counterpart to `State[S,
  * AbortCarrier[G]]` in `Abort`). When a `{State[S], Abort}` program discharges `State` *first*
- * (`runAbort(runStateToPair(p, s0))`), the carrier is refined to `StateCarrier[S, G]` with `G` still carrying `Abort`, so the
+ * (`runAbort(runStateToPair(s0, p))`), the carrier is refined to `StateCarrier[S, G]` with `G` still carrying `Abort`, so the
  * residual `abort` must run at `StateCarrier[S, G]`. It delegates to the inner `G`'s `abort` for any paired result,
  * ignoring the incoming state `s` — so the abort discards the threaded state. Because `StateCarrier` sits *outside* the
  * (inner) `AbortCarrier`, the abort tears down the whole pair: discharging in this order yields `Option[Pair[A, S]]`
