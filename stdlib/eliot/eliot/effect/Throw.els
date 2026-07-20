@@ -64,4 +64,4 @@ def runThrow[E, G[_], A](obj: {Throw[E] | G} A): G[Either[E, A]]
  */
 infix left
 def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): G[A] =
-   map(e -> foldEither(e, onError, a -> a), runThrow(computation))
+   map(e -> foldEither(onError, a -> a, e), runThrow(computation))

@@ -6,3 +6,12 @@
  * `Right` holding its result or a `Left` holding the error that was raised. Consume one with `foldEither`.
  */
 type Either[E, A]
+
+/**
+ * Eliminate an `Either`: apply `ifLeft` to a `Left`'s error, or `ifRight` to a `Right`'s value.
+ *
+ * ```eliot
+ * def message(e: Either[String, Int]): String = e.foldEither(err -> err, n -> show(n))
+ * ```
+ */
+def foldEither[E, A, B](ifLeft: Function[E, B], ifRight: Function[A, B], e: Either[E, A]): B

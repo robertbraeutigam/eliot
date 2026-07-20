@@ -40,7 +40,7 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
       |
       |data Either[E, A] = Left(error: E) | Right(value: A)
       |
-      |def foldEither[E, A, B](e: Either[E, A], ifLeft: Function[E, B], ifRight: Function[A, B]): B = e match {
+      |def foldEither[E, A, B](ifLeft: Function[E, B], ifRight: Function[A, B], e: Either[E, A]): B = e match {
       |   case Left(err) -> ifLeft(err)
       |   case Right(v) -> ifRight(v)
       |}
@@ -48,9 +48,9 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
       |implement Effect[Either[String]] {
       |   def pure[A](a: A): Either[String, A] = Right(a)
       |   def flatMap[A, B](f: Function[A, Either[String, B]], fa: Either[String, A]): Either[String, B] =
-      |      foldEither(fa, err -> Left(err), a -> f(a))
+      |      foldEither(err -> Left(err), a -> f(a), fa)
       |   def map[A, B](f: Function[A, B], fa: Either[String, A]): Either[String, B] =
-      |      foldEither(fa, err -> Left(err), a -> Right(f(a)))
+      |      foldEither(err -> Left(err), a -> Right(f(a)), fa)
       |}
       |
       |implement Throw[String, Either[String]] {

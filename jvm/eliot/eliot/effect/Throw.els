@@ -18,9 +18,9 @@ data ThrowCarrier[E, G[_], A](runThrow: G[Either[E, A]])
 implement[E, G[_] ~ Effect] Effect[ThrowCarrier[E, G]] {
    def pure[A](a: A): ThrowCarrier[E, G, A] = ThrowCarrier(pure(Right(a)))
    def flatMap[A, B](f: Function[A, ThrowCarrier[E, G, B]], fa: ThrowCarrier[E, G, A]): ThrowCarrier[E, G, B] =
-      ThrowCarrier(flatMap(e -> foldEither(e, err -> pure(Left(err)), a -> runThrow(f(a))), runThrow(fa)))
+      ThrowCarrier(flatMap(e -> foldEither(err -> pure(Left(err)), a -> runThrow(f(a)), e), runThrow(fa)))
    def map[A, B](f: Function[A, B], fa: ThrowCarrier[E, G, A]): ThrowCarrier[E, G, B] =
-      ThrowCarrier(map(e -> foldEither(e, err -> Left(err), a -> Right(f(a))), runThrow(fa)))
+      ThrowCarrier(map(e -> foldEither(err -> Left(err), a -> Right(f(a)), e), runThrow(fa)))
 }
 
 /**

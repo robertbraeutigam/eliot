@@ -93,7 +93,7 @@ import eliot.effect.Console
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |
-        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(e, err -> err, v -> v)), runThrow(parseOk))""".stripMargin
+        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseOk))""".stripMargin
     ).asserting(_ shouldBe "parsed-value")
   }
 
@@ -106,7 +106,7 @@ import eliot.effect.Console
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
-        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(e, err -> err, v -> v)), runThrow(parseBad))""".stripMargin
+        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseBad))""".stripMargin
     ).asserting(_ shouldBe "malformed input")
   }
 
