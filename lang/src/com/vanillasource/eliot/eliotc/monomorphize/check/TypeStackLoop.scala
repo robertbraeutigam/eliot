@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
@@ -505,33 +505,85 @@ class TypeStackLoop(
           pure((instantiated, Option.empty[SemValue.VMeta]))
       }
 
-  /** Record the value-under-check's own *ambient* effect-carrier heads into [[CheckState.ambientCarriers]]. The
-    * carrier binders are the signature's higher-kinded, ability-constrained binders (the M1 `{E...}` carrier — the
-    * same `carrierBinders ∩ paramConstraints` filter the residual check's ambient read uses, which excludes a bare
-    * generic `C[_, _]`). Each is looked up in ρ — where [[establishSignature]] bound an explicit argument's concrete
-    * value and a leftover binder's instantiation meta — and recorded by its forced head: a
-    * [[CheckState.CarrierHead.TopDef]] FQN for a concrete instantiation (`IO`), a [[CheckState.CarrierHead.Meta]] id
-    * for a peeled one. Any other head shape is not a carrier and is skipped. Read by the checker-side effect lift.
+  /** Record the value-under-check's own *ambient* effect-carrier heads into [[CheckState.ambientCarriers]], from its two
+    * possible spellings of a carrier — an *open* effect row (a carrier binder) and a *pinned* one (a concrete carrier
+    * stack in the return type). Read by the checker-side effect lift ([[EffectLifter.effectCarrierSplit]]).
+    *
+    *   - **Open-row carriers** ([[recordBinderCarriers]]): the signature's higher-kinded, ability-constrained binders
+    *     (the M1 `{E...}` carrier — the same `carrierBinders ∩ paramConstraints` filter the residual check's ambient
+    *     read uses, excluding a bare generic `C[_, _]`), looked up in ρ and recorded by their forced head.
+    *   - **Pinned-row / concrete carriers** ([[recordConcreteReturnCarrier]]): a value whose *return type* is itself a
+    *     concrete carrier stack (a pinned row `{State[S] | Id} A` ⤳ `StateCarrier[S, Id, A]`, or an explicit
+    *     `IO[Unit]`) declares no `[F[_] ~ E]` binder, yet that carrier *is* its ambient — without recording it a block
+    *     of such statements would not sequence (each statement's concrete carrier head is unrecognised, so no `flatMap`
+    *     is inserted and every statement but the last is silently dropped).
     */
   private def recordAmbientCarriers(resolvedValue: OperatorResolvedValue): CheckIO[Unit] = {
     val view         = SignatureView.of(resolvedValue.signature)
     val carrierNames = EffectCarriers.carrierBinders(view).filter(resolvedValue.paramConstraints.contains)
-    if (carrierNames.isEmpty) pure(())
-    else
-      for {
-        state <- get
-        heads  = carrierNames.flatMap(name =>
-                   state.rho
-                     .lookupByName(name)
-                     .map(value => Evaluator.force(value, state.unifier.metaStore))
-                     .collect {
-                       case VTopDef(fqn, _, _) => CheckState.CarrierHead.TopDef(fqn)
-                       case VMeta(id, _)       => CheckState.CarrierHead.Meta(id.value)
-                     }
-                 )
-        _     <- modify(_.recordAmbientCarriers(heads))
-      } yield ()
+    // A value carries its ambient one way or the other: an *open* row via a carrier binder (whose return then forces to
+    // that binder's meta, so [[recordConcreteReturnCarrier]] would find nothing anyway), or a *pinned* / concrete-carrier
+    // return with no binder. Dispatching on `carrierNames` keeps them exclusive and skips the return eval for open rows.
+    if (carrierNames.nonEmpty) recordBinderCarriers(carrierNames)
+    else recordConcreteReturnCarrier(view)
   }
+
+  /** Record the open-effect-row ambient carriers: the value's higher-kinded, ability-constrained binders, each looked
+    * up in ρ — where [[establishSignature]] bound an explicit argument's concrete value and a leftover binder's
+    * instantiation meta — and recorded by its forced head (a [[CheckState.CarrierHead.TopDef]] FQN for a concrete
+    * instantiation like `IO`, a [[CheckState.CarrierHead.Meta]] id for a peeled one). Any other head shape is skipped.
+    */
+  private def recordBinderCarriers(carrierNames: Set[String]): CheckIO[Unit] =
+    for {
+      state <- get
+      heads  = carrierNames.flatMap(name =>
+                 state.rho
+                   .lookupByName(name)
+                   .map(value => Evaluator.force(value, state.unifier.metaStore))
+                   .collect {
+                     case VTopDef(fqn, _, _) => CheckState.CarrierHead.TopDef(fqn)
+                     case VMeta(id, _)       => CheckState.CarrierHead.Meta(id.value)
+                   }
+               )
+      _     <- modify(_.recordAmbientCarriers(heads))
+    } yield ()
+
+  /** Record the pinned-row / concrete-carrier ambient: evaluate the value's return type in the current ρ, and if it
+    * forces to a **carrier-headed** concrete application `C[a.., R]` — the carrier `C[a..]` having an `Effect` instance,
+    * the one authority on "is this constructor a carrier" — record `C`'s head. A plain container return (`List[X]`,
+    * `Pair[A, B]`) has no `Effect[List]`/`Effect[Pair[A]]` instance and records nothing, so block sequencing is enabled
+    * for pinned effect rows without misclassifying data. Open-row returns force to a carrier *meta* (not a `VTopDef`)
+    * and are handled by [[recordBinderCarriers]], so they fall through here. A non-ground carrier (unsolved metas /
+    * leftover binders at a partial-arity mono) cannot be resolved and is skipped — the fail-safe default of not
+    * recording, never a wrong classification.
+    */
+  private def recordConcreteReturnCarrier(view: SignatureView): CheckIO[Unit] =
+    for {
+      returnSv <- checker.evalExpr(view.returnType.value)
+      forced   <- checker.force(returnSv)
+      _        <- forced match {
+                    case VTopDef(fqn, cached, Spine.SApp(prefix, _)) =>
+                      isEffectCarrierConstructor(VTopDef(fqn, cached, prefix)).flatMap {
+                        case true  => modify(_.recordAmbientCarriers(Set(CheckState.CarrierHead.TopDef(fqn))))
+                        case false => pure(())
+                      }
+                    case _                                           => pure(())
+                  }
+    } yield ()
+
+  /** Whether a type constructor (partially applied to its carrier prefix) is an effect carrier — decided by whether an
+    * `Effect[carrier]` instance resolves on this track's platform, the same authority the effect machinery uses. A
+    * carrier that cannot be quoted to ground (residual metas) yields `false`.
+    */
+  private def isEffectCarrierConstructor(carrier: SemValue): CheckIO[Boolean] =
+    for {
+      store  <- inspect(_.unifier.metaStore)
+      result <- Quoter.quote(0, carrier, store) match {
+                  case Right(ground) =>
+                    liftF(resolveAbility(WellKnownTypes.effectFlatMapFQN, Seq(ground))).map(_.isDefined)
+                  case Left(_)       => pure(false)
+                }
+    } yield result
 
   /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both
     * sides. The semantic values are re-forced through the final metastore so any metas that were solved after the error

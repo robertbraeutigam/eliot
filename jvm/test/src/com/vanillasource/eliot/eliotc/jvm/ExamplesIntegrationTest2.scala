@@ -514,6 +514,32 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "ada\nbob")
   }
 
+  // Regression: a BLOCK of statements whose type is a PINNED effect row (`{State[List[String]] | Id} Unit` — the
+  // concrete `StateCarrier[List[String], Id, Unit]` stack, not an open-row carrier binder) must SEQUENCE, threading the
+  // state through every statement. Before the fix, the concrete carrier head was unrecognised (a pinned-row value
+  // records no `[F[_] ~ E]` binder), so block lowering never inserted `flatMap` and silently dropped every statement
+  // but the last (only `bob` survived). Recording the return's `Effect`-instanced carrier head as ambient fixes it.
+  "a block of pinned-row State statements" should "sequence, threading the state through all of them" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.lang.Id
+        |import eliot.effect.State
+        |import eliot.collection.List
+        |
+        |def pushName(n: String): {State[List[String]] | Id} Unit =
+        |   updateState(names -> append(names, n))
+        |
+        |def collectNames: {State[List[String]] | Id} Unit = {
+        |   pushName("ada")
+        |   pushName("bob")
+        |}
+        |
+        |def main: IO[Unit] =
+        |   foreach(printLine, runId(runStateToFinalState(emptyList, collectNames)))""".stripMargin
+    ).asserting(_ shouldBe "ada\nbob")
+  }
+
   // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Suspend[StateCarrier[S, G]]` base lift
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
   "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Suspend lift" in {
