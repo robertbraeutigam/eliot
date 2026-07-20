@@ -70,7 +70,8 @@ object NativeImplementation {
     * native. `Eq[String]::equals` is realised as `String.equals`; further runtime ability leaves are added here.
     */
   val abilityImplementations: Seq[(String, String, String, JvmIdentifier => NativeImplementation)] = Seq(
-    ("Eq", "equals", "String", eliot_lang_Eq_String_equals)
+    ("Eq", "equals", "String", eliot_lang_Eq_String_equals),
+    ("Combine", "combine", "String", eliot_lang_Combine_String_combine)
   )
 
   private def systemLangValueFQN(moduleName: String, valueName: String): ValueFQN =
@@ -153,6 +154,35 @@ object NativeImplementation {
               "java/lang/Boolean",
               "valueOf",
               "(Z)Ljava/lang/Boolean;",
+              false
+            )
+          }
+        }
+  }
+
+  /** `Combine[String]::combine(a: String, b: String): String` — the string-concatenation leaf behind the runtime
+    * `Combine[String]` instance (`stdlib/.../String.els`, body-less). Realised as `a.concat(b)`. Emitted under the
+    * impl method's mangled `methodName` (passed in) so call sites resolving the `++` operator on strings bind to it.
+    * Pure (`impure = false`), so it may be `public`. Its compile-time counterpart is `StdlibNativesProcessor`'s
+    * `Combine[String]` native.
+    */
+  private def eliot_lang_Combine_String_combine(methodName: JvmIdentifier): NativeImplementation = new NativeImplementation {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] =
+      classGenerator
+        .createMethod[CompilerIO](
+          methodName,
+          Seq(systemLangType("String"), systemLangType("String")),
+          systemLangType("String")
+        )
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 1)
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/lang/String",
+              "concat",
+              "(Ljava/lang/String;)Ljava/lang/String;",
               false
             )
           }

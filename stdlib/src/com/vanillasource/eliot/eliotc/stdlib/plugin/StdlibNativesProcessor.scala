@@ -16,8 +16,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
   * reason about — the compile-time arithmetic the refinement channel's `Interval` domain runs ([[BigInteger]]'s `Numeric`
   * ability `add`/`subtract`/`multiply`), the boolean operators (`&&`/`||`/`!`) and the `Bool` eliminator
-  * `fold`, string equality (attached to the `Eq[String]::equals` impl method), and the [[BigInteger]] ordering comparison behind
-  * `Compare[BigInteger]` — and `None` for every other name.
+  * `fold`, string equality and concatenation (attached to the `Eq[String]::equals` and `Combine[String]::combine` impl
+  * methods), and the [[BigInteger]] ordering comparison behind `Compare[BigInteger]` — and `None` for every other name.
   *
   * These are ordinary library functions; the compiler only seeds the NbE evaluator with a native reduction rule so that,
   * e.g., `add(2, 3)` reduces to `5` during type checking. Each native reduces only when its arguments are concrete,
@@ -148,11 +148,15 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     ImplementationMarkerUtils.isImplementationMethodFor(vfqn, "Eq", "equals", "String", Platform.Compiler).flatMap {
       case true  => stringEqualsNative(vfqn).some.pure[CompilerIO]
       case false =>
-        abilityImplNatives.toList
-          .traverse { case (ability, method, dispatchType, native) =>
-            ImplementationMarkerUtils.isImplementationMethodFor(vfqn, ability, method, dispatchType).map(Option.when(_)(native))
-          }
-          .map(_.flatten.headOption)
+        ImplementationMarkerUtils.isImplementationMethodFor(vfqn, "Combine", "combine", "String", Platform.Compiler).flatMap {
+          case true  => stringCombineNative(vfqn).some.pure[CompilerIO]
+          case false =>
+            abilityImplNatives.toList
+              .traverse { case (ability, method, dispatchType, native) =>
+                ImplementationMarkerUtils.isImplementationMethodFor(vfqn, ability, method, dispatchType).map(Option.when(_)(native))
+              }
+              .map(_.flatten.headOption)
+        }
     }
 
   /** The `(ability, method, dispatch type) -> native` table backing [[abilityImplNativeFor]]. Each native is the same
@@ -263,6 +267,22 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private def stringEqualsResult(implFqn: ValueFQN, a: SemValue, b: SemValue): SemValue = (a, b) match {
     case (VConst(GroundValue.Direct(x: String, _)), VConst(GroundValue.Direct(y: String, _))) =>
       if (x === y) Evaluator.trueValue else Evaluator.falseValue
+    case _                                                                                    =>
+      stuck(implFqn, a, b)
+  }
+
+  /** The `Combine[String]::combine` leaf — the compile-time counterpart of the jvm `String.concat` native. Reduces to
+    * the concrete concatenated string when both arguments are concrete strings (carrying the first operand's ground
+    * type), otherwise stays stuck on the impl-method FQN `implFqn` (a runtime string, e.g. a `readLine` result, keeps
+    * the `++` a residual call to that method for the backend to emit, and re-fires through `implFqn`'s binding once the
+    * operands concretise). This is what lets a literal-only `"a" ++ "b"` fold to `"ab"` during type checking.
+    */
+  private def stringCombineNative(implFqn: ValueFQN): SemValue =
+    VNative(stringType, a => VNative(stringType, b => stringCombineResult(implFqn, a, b)))
+
+  private def stringCombineResult(implFqn: ValueFQN, a: SemValue, b: SemValue): SemValue = (a, b) match {
+    case (VConst(GroundValue.Direct(x: String, t)), VConst(GroundValue.Direct(y: String, _))) =>
+      VConst(GroundValue.Direct(x + y, t))
     case _                                                                                    =>
       stuck(implFqn, a, b)
   }

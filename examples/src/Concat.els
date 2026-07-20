@@ -1,0 +1,11 @@
+/**
+ * Exercises the `++` string-concatenation operator (backed by `Combine[String]`) at runtime. The middle operand
+ * comes from `readLine`, so the concatenation cannot fold at compile time and must run through the JVM
+ * `String.concat` leaf.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m Concat
+ * echo world | java -jar target/Concat.jar
+ * ```
+ */
+def main: {Console} Unit = printLine("Hello, " ++ readLine ++ "!")

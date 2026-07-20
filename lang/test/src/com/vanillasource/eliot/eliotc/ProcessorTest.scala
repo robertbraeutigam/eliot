@@ -61,6 +61,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Compare", ProcessorTest.compareAbilityStubContent),
     SystemImport("Show", ProcessorTest.showAbilityStubContent),
     SystemImport("Eq", ProcessorTest.eqAbilityStubContent),
+    SystemImport("Combine", ProcessorTest.combineAbilityStubContent),
     SystemImport("Option", ProcessorTest.optionStubContent),
     SystemImport("Either", "type Either[E, A]"),
     SystemImport("Pair", "type Pair[A, B]"),
@@ -198,6 +199,12 @@ object ProcessorTest {
 
   val eqAbilityStubContent: String = "ability Eq[A] { def equals(a: A, b: A): Bool }"
 
+  /** The `Combine` ability stub, mirroring the real `eliot.lang.Combine` (a semigroup — the `++` operator delegates to
+    * `combine`). Minimal: the ability head with its single primitive; the `String` reduction is supplied by
+    * `StdlibNativesProcessor`/the jvm backend under the `Combine[String]::combine` impl method, and tests exercising
+    * the `++` operator itself enrich this module via [[ambientStubsWith]]. */
+  val combineAbilityStubContent: String = "ability Combine[A] { def combine(a: A, b: A): A }"
+
   val optionStubContent: String = "type Option[A]\ndef none[A]: Option[A]"
 
   /** The `Compare` ability stub, mirroring the real `eliot.lang.Compare`: `lessThanOrEqual` is the single primitive (its
@@ -230,7 +237,7 @@ object ProcessorTest {
   /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal `n`
     * is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
     * auto-imported) and the test harness must register matching stubs. These minimal versions only declare the abstract
-    * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/`Combine`/arithmetic environment lives in the
+    * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/arithmetic environment lives in the
     * `Int` tests' own import lists.
     */
   /** The package holding desugaring machinery relocated out of the `eliot.lang` prelude (`PatternMatch`/`TypeMatch`).
@@ -240,10 +247,10 @@ object ProcessorTest {
     */
   val compilerInternalPackage: Seq[String] = ModuleName.compilerInternalPackage
 
-  /** The package holding the compiler-coordinated abilities the checker resolves by FQN — `Coerce` (check-mode
-    * widening) and `Combine` (covariant join). Re-exported so the `Int` tests can register those stubs at the FQN
-    * `WellKnownTypes` loads. Deliberately *not* in the bare ambient prelude: a type-mismatch test resolves `coerceFQN`,
-    * which must find no module (clean mismatch) unless the test opts into the full `Int` environment.
+  /** The package holding the compiler-coordinated ability the checker resolves by FQN — `Coerce` (check-mode
+    * widening). Re-exported so the `Int` tests can register that stub at the FQN `WellKnownTypes` loads. Deliberately
+    * *not* in the bare ambient prelude: a type-mismatch test resolves `coerceFQN`, which must find no module (clean
+    * mismatch) unless the test opts into the full `Int` environment.
     */
   val compilerPackage: Seq[String] = ModuleName.compilerPackage
 

@@ -1,0 +1,16 @@
+/**
+ * Combining two values of the same type `A` into one — a semigroup-style operation. It is not always
+ * concatenation: appending text, merging two accumulated statistics, unioning two sets are all `combine`. A type
+ * provides one `Combine[A]` implementation; generic code combines any `A` for which one is in scope through the
+ * infix `++`.
+ */
+ability Combine[A] {
+   def combine(a: A, b: A): A
+}
+
+/**
+ * Infix `++` — combine over any type with a `Combine[T]` implementation, delegating to `combine`. Binds looser
+ * than the arithmetic operators, so `a + b ++ c` reads as `(a + b) ++ c`.
+ */
+infix left below +
+def ++[T ~ Combine[T]](left: T, right: T): T = combine(left, right)

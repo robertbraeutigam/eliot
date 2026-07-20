@@ -65,7 +65,7 @@ object ModuleName {
     * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
     * [[defaultSystemModules]]). These are *open* extension points — user/library types may add instances — so they
     * remain ordinarily importable (`import eliot.compiler.Coerce`), unlike the closed desugaring machinery in
-    * [[compilerInternalPackage]]. Holds `Coerce` (check-mode widening), `Combine` (covariant join), and `Type` (the
+    * [[compilerInternalPackage]]. Holds `Coerce` (check-mode widening) and `Type` (the
     * type of every type — the resolver maps the bare name `Type` straight to its FQN, so it needs no auto-import and
     * the surface `[]`/kind sugar covers every ordinary use); the checker reaches their FQNs via
     * [[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes]].
@@ -109,6 +109,7 @@ object ModuleName {
   val defaultSystemModules                 = Seq(
     "BigInteger",
     "Bool",
+    "Combine",
     "Compare",
     "Either",
     "Eq",
