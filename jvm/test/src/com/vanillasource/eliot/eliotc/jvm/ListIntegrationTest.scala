@@ -71,6 +71,21 @@ class ListIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "7")
   }
 
+  "emptyList" should "produce a usable empty list, foldable and appendable" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def justOne: List[Int] = append(emptyList, 9)
+        |
+        |def sum(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(e, acc))
+        |
+        |def main: IO[Unit] = printLine(show(sum(justOne)))""".stripMargin
+    ).asserting(_ shouldBe "9")
+  }
+
   "a list" should "report its length via a counting foldLeft" in {
     compileAndRun(
       """

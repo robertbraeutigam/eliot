@@ -20,3 +20,8 @@ def foldLeft[A, B](initial: B, combine: Function[A, Function[B, B]], list: List[
  */
 def foreach[A](action: A => {Effect} Unit, list: List[A]): {Effect} Unit =
    list.foldLeft(pure(unit), e -> acc -> acc.flatMap(_ -> action(e)))
+
+/**
+ * An empty list of some item type.
+ */
+def emptyList[A]: List[A]
