@@ -374,6 +374,11 @@ class TypeStackLoop(
       _ <- checker.carriers.verifyCarrierKinds
       _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
       _ <- modify(s => s.withUnifier(s.unifier.drain()))
+      // Exact effect verification (docs/effect-accounting-in-monomorphize.md, Step 1): a value's residual effects (those
+      // demanded on its own ambient carrier) must be declared. Runs here — after the drain solved every ability
+      // reference's carrier argument, before `defaultUnsolvedMetas` collapses an abstract ambient carrier to `Type`. Not
+      // for a signature twin (its arrow-chain "body" has no runtime effects).
+      _ <- if (signatureOnly) pure(()) else checker.effectResidual.check(abilityRefs, resolvedValue)
       _ <- defaultUnsolvedMetas
       // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality obligation the check
       // never discharged. Flush the queue to hard mismatch errors (triaging benign, now-defaulted constraints away
