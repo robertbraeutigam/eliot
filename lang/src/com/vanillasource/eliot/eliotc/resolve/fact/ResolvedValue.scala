@@ -17,9 +17,7 @@ case class ResolvedValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    platform: Platform = Platform.Runtime,
-    // The ability FQNs this value discharges (the negative `{…, -E}` members), resolved from names by `ValueResolver`.
-    dischargedEffects: Seq[AbilityFQN] = Seq.empty
+    platform: Platform = Platform.Runtime
 ) extends CompilerFact {
   override def key(): CompilerFactKey[ResolvedValue] = ResolvedValue.Key(vfqn, platform)
 }

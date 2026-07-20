@@ -641,11 +641,6 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "reject a negative member in a pinned row" in {
-    coreErrors("def f(x: {-Abort | G} Unit): Unit = y")
-      .asserting(_ should contain("Negative effects cannot appear in a pinned effect row."))
-  }
-
   // A stored row must commit to one concrete representation, so a `data` field row must be pinned — the field then
   // rewrites to the concrete stack and the data type itself stays non-generic.
   "effect rows on data fields" should "keep the type constructor nullary when the field row is pinned" in {

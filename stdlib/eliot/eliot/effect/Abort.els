@@ -46,11 +46,12 @@ type AbortCarrier[G[_], A]
 /**
  * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed, `None` if it
  * aborted. Any other effects remain in the carrier `G`. This is the single accessor of `AbortCarrier` — the platform
- * layer supplies its body (its jvm implementation is the *generated* `AbortCarrier` data-field accessor, which cannot
- * spell `{-Abort}`; the annotation here rides onto it through the layer merge — see docs/effect-discharge-accounting.md).
- * Consume the result with `foldOption`, or reach for `else` to supply a fallback in one step without ever naming `Option`.
+ * layer supplies its body (its jvm implementation is the *generated* `AbortCarrier` data-field accessor). Discharge is
+ * read structurally at monomorphization from the `{Abort | G}` input against the plain `G` output, so no annotation is
+ * needed. Consume the result with `foldOption`, or reach for `else` to supply a fallback in one step without ever
+ * naming `Option`.
  */
-def runAbort[G[_], A](obj: {Abort | G} A): {-Abort} G[Option[A]]
+def runAbort[G[_], A](obj: {Abort | G} A): G[Option[A]]
 
 /**
  * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
@@ -73,5 +74,5 @@ def runAbort[G[_], A](obj: {Abort | G} A): {-Abort} G[Option[A]]
  * ```
  */
 infix right
-def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: G[A]): {-Abort} G[A] =
+def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: G[A]): G[A] =
    flatMap(o -> foldOption(o, fallback, a -> pure(a)), runAbort(computation))

@@ -41,11 +41,12 @@ type ThrowCarrier[E, G[_], A]
 /**
  * Discharge the `Throw[E]` effect, materialising it as an `Either[E, A]`: `Right(a)` if the computation completed,
  * `Left(err)` if it failed. Any other effects remain in the carrier `G`. This is the single accessor of `ThrowCarrier`
- * — the platform layer supplies its body (the *generated* `ThrowCarrier` data-field accessor, which cannot spell
- * `{-Throw[E]}`; the annotation here rides onto it through the layer merge). Consume the result with `foldEither`, or
- * reach for `catch` to recover in one step without ever naming `Either`.
+ * — the platform layer supplies its body (the *generated* `ThrowCarrier` data-field accessor). Discharge is read
+ * structurally at monomorphization from the `{Throw[E] | G}` input against the plain `G` output, so no annotation is
+ * needed. Consume the result with `foldEither`, or reach for `catch` to recover in one step without ever naming
+ * `Either`.
  */
-def runThrow[E, G[_], A](obj: {Throw[E] | G} A): {-Throw[E]} G[Either[E, A]]
+def runThrow[E, G[_], A](obj: {Throw[E] | G} A): G[Either[E, A]]
 
 /**
  * Run a `{Throw[E]}` computation, recovering any raised error to a value of the *same* type as the success with
@@ -62,5 +63,5 @@ def runThrow[E, G[_], A](obj: {Throw[E] | G} A): {-Throw[E]} G[Either[E, A]]
  * On success it yields the computed value; on `raise(err)` it yields `onError(err)`.
  */
 infix left
-def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): {-Throw[E]} G[A] =
+def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): G[A] =
    map(e -> foldEither(e, onError, a -> a), runThrow(computation))

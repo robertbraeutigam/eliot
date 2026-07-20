@@ -52,7 +52,6 @@ class ValueResolver
       resolvedSignature   <- withLocalScope(resolveExpression(namedValue.signature.value, false)).map(namedValue.signature.as)
       resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
-      resolvedDischarged  <- namedValue.dischargedEffects.traverse(resolveAbilityName)
       resolvedPrecedence  <- resolvePrecedenceDeclarations(namedValue.precedence)
       _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedSignature.value.show}")
       _                   <- debug[ScopedIO](
@@ -68,8 +67,7 @@ class ValueResolver
       resolvedPrecedence,
       namedValue.inferableArity,
       namedValue.roleHint,
-      key.platform,
-      resolvedDischarged
+      key.platform
     )
 
     resolveProgram.runA(scope)

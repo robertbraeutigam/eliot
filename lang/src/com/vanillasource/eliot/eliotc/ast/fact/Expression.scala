@@ -46,30 +46,23 @@ object Expression {
 
   /** The effect-row sugar `{ E1, E2, … } A` written in a type position, in two forms distinguished by `tail`:
     *
-    * **Open row** (`tail == None`) — `{Console} A`: the unordered set of effects the computation carries, over a
-    * caller-chosen carrier. Effects come in two signs, split at parse time:
-    *
-    *   - `effects` — the **positive** members `Ei` a computation *performs*; the ordinary sugar. Pure,
-    *     type-information-free — they never survive past the core processor, where
-    *     [[core.processor.EffectSugarDesugarer]] collapses every positive `{…} A` occurrence in a signature to `F[A]`
-    *     under one shared inferable carrier `F[_]` (each becoming an `F ~ Ei` constraint).
-    *   - `negativeEffects` — the **negative** members `-Ei` a computation *discharges* (discharge-aware effect
-    *     accounting, docs/effect-discharge-accounting.md). They introduce no carrier constraint; the desugarer records
-    *     them in the value's `dischargedEffects` instead. A negatives-only set (`{-Abort} G[A]`) introduces no carrier at
-    *     all and passes its inner type through unchanged — this is how the explicit-carrier discharger primitives
-    *     (`else`, `catch`, …) annotate the effect they reify away.
+    * **Open row** (`tail == None`) — `{Console} A`: the unordered set of `effects` the computation *performs*, over a
+    * caller-chosen carrier. Pure, type-information-free — they never survive past the core processor, where
+    * [[core.processor.EffectSugarDesugarer]] collapses every `{…} A` occurrence in a signature to `F[A]` under one
+    * shared inferable carrier `F[_]` (each becoming an `F ~ Ei` constraint).
     *
     * **Pinned row** (`tail == Some(base)`) — `{Throw[E] | G} A`: a *concrete type*, the canonical carrier stack
     * realizing exactly these effects over the base `tail`. Entries are **ordered** (leftmost = outermost = discharged
     * first) and each must be backed by a canonical carrier named by convention `<Ability>Carrier`, colocated with the
     * ability: the desugarer rewrites `{Throw[E], State[S] | Id} A` to `ThrowCarrier[E, StateCarrier[S, Id], A]`. No
-    * generic parameter is introduced — a pinned row is just type-application spelled in effect vocabulary. Negative
-    * members are meaningless in a pinned row and are rejected (a discharge is a function's behaviour, not a type's
-    * shape).
+    * generic parameter is introduced — a pinned row is just type-application spelled in effect vocabulary.
+    *
+    * Discharge is no longer annotated on the row: a discharger's effect vanishes structurally at the monomorphize-phase
+    * residual check (it lands on an inner transformer carrier, absent from the caller's ambient), so there is no
+    * negative `-E` member.
     */
   case class EffectfulType(
       effects: Seq[GenericParameter.AbilityConstraint],
-      negativeEffects: Seq[GenericParameter.AbilityConstraint],
       resultType: Sourced[Expression],
       tail: Option[Sourced[Expression]]
   ) extends Expression
@@ -111,8 +104,8 @@ object Expression {
     case FlatExpression(parts)                                                                => parts.map(_.value.show).mkString(" ")
     case MatchExpression(scrutinee, cases)                                                    =>
       s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
-    case EffectfulType(effects, negativeEffects, resultType, tail)                             =>
-      val members = effects.map(showAbilityConstraint) ++ negativeEffects.map("-" + showAbilityConstraint(_))
+    case EffectfulType(effects, resultType, tail)                                             =>
+      val members = effects.map(showAbilityConstraint)
       val tailStr = tail.fold("")(t => s" | ${t.value.show}")
       s"{${members.mkString(", ")}$tailStr} ${resultType.value.show}"
     case BlockExpression(lines)                                                               =>
@@ -233,34 +226,20 @@ object Expression {
       case None        => FlatExpression(parts)
     }
 
-  /** Parses one brace entry of the effect-set sugar: an ability reference optionally prefixed by `-`, marking it a
-    * *negative* (discharged) member. `Abort` is positive; `-Abort` / `-Throw[E]` is negative.
-    */
-  private lazy val signedEffectParser: Parser[Sourced[Token], (Boolean, GenericParameter.AbilityConstraint)] = for {
-    negative <- symbol("-").as(true).optional().map(_.getOrElse(false))
-    ability  <- component[GenericParameter.AbilityConstraint]
-  } yield (negative, ability)
-
   /** Parses the effect-row sugar `{ Eff (, Eff)* [| tail] } <type atom>`, e.g. `{Suspend} String`, `{State[Account],
-    * Abort} A`, the discharge form `{-Abort} G[A]`, or the *pinned* form `{Throw[E] | Id} A` naming the base carrier
-    * after `|`. Each brace entry is an ability reference (the same shape as a `~` ability constraint) optionally
-    * prefixed by `-` to mark it discharged. The braces must be non-empty (an empty effect set is just the plain type).
-    * The row covers exactly the one type atom that follows, and is itself a type-run atom ([[typeRunAtom]]), so it also
-    * reads nested in a run — most usefully in an arrow codomain, typing an effectful callback: `action: A => {Console}
-    * Unit`. See [[EffectfulType]].
+    * Abort} A`, or the *pinned* form `{Throw[E] | Id} A` naming the base carrier after `|`. Each brace entry is an
+    * ability reference (the same shape as a `~` ability constraint). The braces must be non-empty (an empty effect set
+    * is just the plain type). The row covers exactly the one type atom that follows, and is itself a type-run atom
+    * ([[typeRunAtom]]), so it also reads nested in a run — most usefully in an arrow codomain, typing an effectful
+    * callback: `action: A => {Console} Unit`. See [[EffectfulType]].
     */
   private lazy val effectfulTypeParser: Parser[Sourced[Token], Expression] = for {
     _          <- symbol("{")
-    entries    <- signedEffectParser.atLeastOnceSeparatedBy(symbol(","))
+    entries    <- component[GenericParameter.AbilityConstraint].atLeastOnceSeparatedBy(symbol(","))
     tail       <- (symbol("|") *> sourced(typeRunParser)).optional()
     _          <- symbol("}")
     resultType <- sourced(typeAtom)
-  } yield EffectfulType(
-    entries.collect { case (false, ability) => ability },
-    entries.collect { case (true, ability) => ability },
-    resultType,
-    tail
-  )
+  } yield EffectfulType(entries, resultType, tail)
 
   /** A named reference with an optional generic argument list `[…]` (always attached) and a value-argument list `(…)`
     * attached *only* when its `(` is adjacent to the preceding token (no intervening whitespace). The one call parser

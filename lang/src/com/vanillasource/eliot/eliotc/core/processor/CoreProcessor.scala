@@ -65,11 +65,10 @@ class CoreProcessor
     // contravariant position of a constructor field (the negative-recursive-datatype route to `Y`). See
     // StrictPositivityChecker. Errors are reported here but the CoreAST is still produced so other checks proceed.
     val positivityErrors = sourceAstData.typeDefinitions.flatMap(StrictPositivityChecker.check)
-    // Ill-formed effect rows: a negative member in a pinned row anywhere, and an *open* row in a stored (`data`-field)
-    // position — a stored value must commit to a concrete carrier, so its row must be pinned (`{Throw[E] | Id} A`).
-    // Reported here, with the definitions still lowered (see EffectSugarDesugarer) so other checks proceed.
-    val rowErrors        = sourceAstData.typeDefinitions.flatMap(EffectSugarDesugarer.rowErrors) ++
-      sourceAstData.functionDefinitions.flatMap(EffectSugarDesugarer.rowErrors)
+    // Ill-formed effect rows: an *open* row in a stored (`data`-field) position — a stored value must commit to a
+    // concrete carrier, so its row must be pinned (`{Throw[E] | Id} A`). Reported here, with the definitions still
+    // lowered (see EffectSugarDesugarer) so other checks proceed.
+    val rowErrors        = sourceAstData.typeDefinitions.flatMap(EffectSugarDesugarer.rowErrors)
 
     (positivityErrors ++ rowErrors).traverse_(message => Sourced.compilerError(message)) >>
       debug[CompilerIO](
@@ -126,8 +125,7 @@ class CoreProcessor
         precedence,
         function.visibility,
         roleHint,
-        inferableArity,
-        function.dischargedEffects
+        inferableArity
       )
     )
   }

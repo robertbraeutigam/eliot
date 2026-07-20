@@ -24,13 +24,6 @@ case class FunctionDefinition(
     // in `ASTParser` and consumed only by the apidoc tooling; never read by the compiler proper, never part of
     // `signatureEquality` (layers may document the same name differently), and dropped at the core boundary.
     doc: Option[Sourced[String]] = None,
-    // The effect abilities this definition *discharges* — the negative `{…, -E}` members of its effect set
-    // (docs/effect-discharge-accounting.md). Populated by `EffectSugarDesugarer` from the signature's `EffectfulType`
-    // negatives (as bare ability names, resolved to `AbilityFQN` in the resolve phase); empty for every ordinary
-    // definition. Rides the fact chain to `OperatorResolvedValue`, where the effect accounting subtracts it from a
-    // caller's used-effect set. Included in `signatureEquality` so a layer may not silently disagree with the abstract
-    // declaration about what it discharges.
-    dischargedEffects: Seq[Sourced[String]] = Seq.empty,
     // The named meta *slots* of a type declared with a `{slots}` brace (bounds-as-refinements §4.2), e.g.
     // `type Int {range: Interval[BigInteger, BigInteger]}` carries one slot `range: Interval[…]`. Each slot is
     // name+domain, so an `ArgumentDefinition` is the right shape. Populated only by `TypeAliasDefinition`; empty for

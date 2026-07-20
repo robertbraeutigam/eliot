@@ -46,8 +46,7 @@ class BlockDesugaringProcessor
       resolvedValue.precedence,
       resolvedValue.inferableArity,
       resolvedValue.roleHint,
-      resolvedValue.platform,
-      resolvedValue.dischargedEffects
+      resolvedValue.platform
     )
   }
 

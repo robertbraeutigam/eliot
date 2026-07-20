@@ -41,8 +41,7 @@ class MatchDesugaringProcessor
       blockDesugaredValue.precedence,
       blockDesugaredValue.inferableArity,
       blockDesugaredValue.roleHint,
-      blockDesugaredValue.platform,
-      blockDesugaredValue.dischargedEffects
+      blockDesugaredValue.platform
     )
 
   private def convertParamConstraints(

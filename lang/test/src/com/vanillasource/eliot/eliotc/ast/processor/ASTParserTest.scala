@@ -735,7 +735,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   "the effect-set sugar" should "parse at the head of a return type" in {
     runEngineForFunctionReturnTypes("def f: {Console} Unit = a").asserting(
-      _.collect { case ("f", Expression.EffectfulType(effects, _, _, _)) => effects.size } shouldBe Seq(1)
+      _.collect { case ("f", Expression.EffectfulType(effects, _, _)) => effects.size } shouldBe Seq(1)
     )
   }
 
@@ -747,7 +747,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "parse a pinned row's base after the pipe" in {
     runEngineForFunctionReturnTypes("def f: {Throw[Error] | Id} Unit = a").asserting(
-      _.collect { case ("f", Expression.EffectfulType(effects, _, _, tail)) =>
+      _.collect { case ("f", Expression.EffectfulType(effects, _, tail)) =>
         (effects.size, tail.map(_.value.show))
       } shouldBe Seq((1, Some("Id")))
     )
@@ -755,13 +755,13 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "parse an open row with no pipe as tail-less" in {
     runEngineForFunctionReturnTypes("def f: {Console} Unit = a").asserting(
-      _.collect { case ("f", Expression.EffectfulType(_, _, _, tail)) => tail } shouldBe Seq(None)
+      _.collect { case ("f", Expression.EffectfulType(_, _, tail)) => tail } shouldBe Seq(None)
     )
   }
 
   it should "parse an applied pinned base like StateCarrier[S, Id]" in {
     runEngineForFunctionReturnTypes("def f: {Throw[Error] | StateCarrier[S, Id]} Unit = a").asserting(
-      _.collect { case ("f", Expression.EffectfulType(_, _, _, tail)) => tail.map(_.value.show) } shouldBe
+      _.collect { case ("f", Expression.EffectfulType(_, _, tail)) => tail.map(_.value.show) } shouldBe
         Seq(Some("StateCarrier[S, Id]"))
     )
   }

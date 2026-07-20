@@ -56,8 +56,8 @@ object ImplementBlock {
             // generic parameters, always-public visibility); everything else forwards by default. A *positional* rebuild
             // was the bug class here: it silently dropped every field it did not restate — the refinement-channel
             // companions (`returnMeta`/`whereClause`, a transfer brace or `where` precondition vanishing rather than
-            // being demanded at the call site — bounds-as-refinements §4.2/§4.3), plus `doc`, `dischargedEffects`,
-            // `fixity`, `precedence` — and every future `FunctionDefinition` field would re-open it. `f.copy` closes it.
+            // being demanded at the call site — bounds-as-refinements §4.2/§4.3), plus `doc`, `fixity`, `precedence` —
+            // and every future `FunctionDefinition` field would re-open it. `f.copy` closes it.
             f.copy(
               name = f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey))),
               genericParameters = genericParameters ++ f.genericParameters,

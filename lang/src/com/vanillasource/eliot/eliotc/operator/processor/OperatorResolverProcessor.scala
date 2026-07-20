@@ -32,8 +32,7 @@ class OperatorResolverProcessor
       resolvedConstraints,
       desugaredValue.inferableArity,
       desugaredValue.roleHint,
-      platform = desugaredValue.platform,
-      dischargedEffects = desugaredValue.dischargedEffects
+      platform = desugaredValue.platform
     )
   }
 

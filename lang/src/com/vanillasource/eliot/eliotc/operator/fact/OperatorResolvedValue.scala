@@ -16,13 +16,7 @@ case class OperatorResolvedValue(
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    platform: Platform = Platform.Runtime,
-    // The ability FQNs this value discharges (the negative `{…, -E}` members). This fed the retired pre-mono
-    // discharge accounting; the monomorphize-phase residual check now reads discharge structurally (an effect on an
-    // inner transformer carrier is simply absent from the ambient residual), so the field is currently unconsumed and
-    // is scheduled for removal along with the `-E` surface syntax (effect-accounting-in-monomorphize.md, Step 4).
-    // Empty for every ordinary value; populated only for the discharger primitives (`else`, `catch`, `runStateTo…`).
-    dischargedEffects: Seq[AbilityFQN] = Seq.empty
+    platform: Platform = Platform.Runtime
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn, platform)
 }
