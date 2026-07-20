@@ -1,8 +1,31 @@
 # Effect accounting in the monomorphize phase (plan)
 
-**Status:** Step 1 landed; Steps 2–5 planned.
+**Status:** Steps 1–2 landed; Steps 3–5 planned.
 
 ## Progress
+
+- **Step 2 — done.** `SaturatedValueProcessor` now keys off `RecursionCheckedValue` (the pre-mono effect gate is
+  dropped); the monomorphize-phase `EffectResidualChecker` is the sole effect authority. Two things the gate flip forced,
+  beyond the plan's sketch:
+  - **Transitive propagation** (soundness). The initial residual check only saw *direct* ability methods, so a leak
+    *through a called value* (`caller : {Console} = doLog`, `doLog : {Log}`) compiled silently — and `Log[IO]` resolves,
+    so ability resolution did not catch it either (the same would let an undeclared `Inf` through, breaking termination
+    soundness). Fixed by walking *all* value references and reading each callee's declared effects
+    (`EffectCarriers.declaredEffects` off its `OperatorResolvedValue`), counted iff its carrier rides the ambient — so a
+    discharged callee (carrier = inner `StateCarrier`, not the ambient) still drops out. No `-E`, no discharge summary.
+  - **Declared-pure fail-safe.** The subset check skips a carrier-less value, so `def helper: String =
+    printLine(readLine)` degraded to a raw `Type mismatch` exposing the internal `$bad-apply` marker. Restored the
+    friendly "performs an effect but is declared pure" message as the residual checker's ambient-carrier-less branch,
+    discharge-aware by construction: it fires only for a nullary (can't-host-effects) return whose body-check left a
+    committed mismatch *and* performs an effect — so a fully-discharged `sign(f) = if(f,"+") else "-"` (reconciled to
+    `Id`, no mismatch) is accepted.
+  - Fallout: 3 fixtures. The transitive-leak test now passes via the residual check; the two declared-pure tests via the
+    restored message (one needed its harness to monomorphize the carrier-less value at *no* type args, not `[ioCarrier]`
+    — previously masked by the pre-mono gate). `Blocks.els` + a new integration test now exercise dot-chained discharge
+    in a `{Console}` body. Full suite green.
+  - Diagnostics division of labour is unchanged from Step 1: `Console`/`Log`/`Inf` leaks get the friendly residual
+    message; `State`/`Throw`/`Abort` leaks still fall to `AbilityResolver`'s "No ability implementation" (sound, cryptic).
+    `EffectCheckProcessor` still exists but is now dead (its fact undemanded) — deleted in Step 3.
 
 - **Step 1 — done.** `monomorphize/check/EffectResidualChecker` computes the residual (effect abilities whose
   ability-reference carrier argument forces to an ambient-carrier head, machinery excluded) and errors on

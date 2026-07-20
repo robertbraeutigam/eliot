@@ -428,6 +428,28 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "before\nafter")
   }
 
+  // Effect-accounting migration Step 2 (docs/effect-accounting-in-monomorphize.md): a `{State}` computation discharged
+  // via a DOT-chained `runStateToValue` inside a `{Console}`-declaring body compiles and runs. The pre-mono accounting
+  // rejected this (a dot-chained discharger was not credited — "performs the effect 'State'"); the monomorphize-phase
+  // residual check verifies exactly, so the discharged `State` (its ability method on the inner `StateCarrier`, not the
+  // ambient carrier) is absent from `show`'s `{Console}` residual.
+  "a dot-chained State discharge inside a {Console} body" should "compile and run, the State absent from the residual" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.effect.State
+        |
+        |def counter: {State[String]} String = {
+        |  putState("done")
+        |  state
+        |}
+        |
+        |def show: {Console} Unit = printLine(counter.runStateToValue("init"))
+        |
+        |def main: IO[Unit] = show""".stripMargin
+    ).asserting(_ shouldBe "done")
+  }
+
   // The derived `updateState(f)` = `putState(f(state))`: it reads the current state, applies `f`, and writes it back,
   // all via the effect auto-lift (no explicit flatMap). `flip` genuinely reads the current state (it matches on it), so
   // from `Off` the final state is `On`.

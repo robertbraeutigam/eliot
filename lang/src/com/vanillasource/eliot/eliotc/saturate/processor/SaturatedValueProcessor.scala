@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.saturate.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
-import com.vanillasource.eliot.eliotc.effect.fact.EffectCheckedValue
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleName,
   QualifiedName,
@@ -26,6 +25,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.Qualifier as ResolveQualifier
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
 
 /** Saturates parameter-position bare references to omittable (`auto`-marked) type constructors (implicit-generics,
   * W1).
@@ -50,16 +50,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * A value with no parameter-position bare omittable reference passes its [[OperatorResolvedValue]] through unchanged.
   */
 class SaturatedValueProcessor
-    extends TransformationProcessor[EffectCheckedValue.Key, SaturatedValue.Key](key =>
-      EffectCheckedValue.Key(key.vfqn, key.platform)
+    extends TransformationProcessor[RecursionCheckedValue.Key, SaturatedValue.Key](key =>
+      RecursionCheckedValue.Key(key.vfqn, key.platform)
     ) {
 
   override protected def generateFromKeyAndFact(
       key: SaturatedValue.Key,
-      effectChecked: EffectCheckedValue
+      recursionChecked: RecursionCheckedValue
   ): CompilerIO[SaturatedValue] = {
-    given Platform = effectChecked.value.platform
-    val value      = effectChecked.value
+    given Platform = recursionChecked.value.platform
+    val value      = recursionChecked.value
     dataSaturate(value).flatMap {
       case Some(rewritten) => rewritten.pure[CompilerIO]
       case None            => saturate(value)

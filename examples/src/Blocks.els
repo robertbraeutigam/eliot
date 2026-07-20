@@ -27,8 +27,9 @@ def rename(next: String): {Console, State[String]} Unit = {
 }
 
 // `main` is itself a block ending in an expression. The first binding is a plain (non-effectful) `val` that captures
-// the runtime carrier produced by `runStateToPair`; the rest sequence through it.
+// the runtime carrier produced by discharging `State`. The discharger reads as a dot chain — `rename("after")` fills
+// `runStateToPair`'s final argument — inside a `{Console}`-declaring body; only `State` is discharged, `Console` rides on.
 def main: {Console} Unit = {
-  val outcome = runStateToPair("before", rename("after"))
+  val outcome = rename("after").runStateToPair("before")
   printLine(outcome.second)
 }

@@ -1260,7 +1260,9 @@ class MonomorphicTypeCheckTest
   }
 
   it should "keep the friendly declared-pure diagnostic for an effectful body under a pure return" in {
-    liftedErrors("import eliot.effect.Console\ndef echo: String = printLine(readLine)")
+    // `echo` has no carrier binder (a pure `String` return), so it monomorphizes at no type arguments — the
+    // declared-pure fail-safe now runs in the checker (its ambient-carrier-less branch), not the pre-mono phase.
+    liftedErrors("import eliot.effect.Console\ndef echo: String = printLine(readLine)", typeArgs = Seq.empty)
       .asserting(
         _ should contain(
           "This value performs an effect but is declared pure; declare an effect set with { ... } or return an effect carrier." at "echo"
@@ -1329,10 +1331,14 @@ class MonomorphicTypeCheckTest
     )
 
   /** The build errors of checking the named value at the stub `IO` carrier. */
-  private def liftedErrors(source: String, name: String = "echo"): IO[Seq[TestError]] =
+  private def liftedErrors(
+      source: String,
+      name: String = "echo",
+      typeArgs: Seq[GroundValue] = Seq(ioCarrier)
+  ): IO[Seq[TestError]] =
     runGenerator(
       source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq(ioCarrier)),
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
       effectLiftImports
     ).map(result => toTestErrors(result._1))
 

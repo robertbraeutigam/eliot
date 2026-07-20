@@ -50,7 +50,7 @@ import eliot.effect.Console
         |}
         |
         |def main: IO[Unit] = {
-        |  val outcome = runStateToPair("before", rename("after"))
+        |  val outcome = rename("after").runStateToPair("before")
         |  printLine(second(outcome))
         |}""".stripMargin
     ).asserting(_ shouldBe "renaming the account...\nbefore\nafter")

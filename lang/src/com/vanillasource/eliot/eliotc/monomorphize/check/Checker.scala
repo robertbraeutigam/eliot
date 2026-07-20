@@ -80,7 +80,7 @@ class Checker(
     * definitional-equality core. Called from [[TypeStackLoop.runPostDrainResolution]] after the final drain. See
     * [[EffectResidualChecker]].
     */
-  private[check] val effectResidual: EffectResidualChecker = new EffectResidualChecker(force)
+  private[check] val effectResidual: EffectResidualChecker = new EffectResidualChecker(force, platform)
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =

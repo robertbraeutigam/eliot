@@ -135,7 +135,7 @@ class TypeStackLoop(
 
       // Post-drain resolution + quoter assembly (shared with the signature twin): drain-and-resolve every metavariable,
       // abort on any unification error, then build the `PostDrainQuoter` over the drain-resolved impl bindings.
-      quoter    <- drainAndBuildQuoter(resolvedValue, abilityRefs, returnMeta, monoEnv)
+      quoter    <- drainAndBuildQuoter(resolvedValue, abilityRefs, returnMeta, monoEnv, runtime)
       groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.signature))
       // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
       // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
@@ -181,7 +181,7 @@ class TypeStackLoop(
       // carrier meta is created by the check, so both are present to pin to the compile-time `Either[String]` now.
       _                    <- track.pinCarriers(checker, resolvedValue)
       abilityRefs           = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
-      quoter               <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
+      quoter               <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv, None)
       // The signature's ground read-back. Reduce the **raw** evaluated arrow chain first (renormalising natives as it
       // quotes): this settles an ordinary type, a bare `{Throw[String]}` carrier return, a type-level `match` (whose
       // pattern binder the match reduction binds — the check would freeze it to a neutral), a W3 under-applied hole,
@@ -335,10 +335,11 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue,
       abilityRefs: Seq[AbilityRef],
       returnMeta: Option[SemValue.VMeta],
-      monoEnv: Env
+      monoEnv: Env,
+      residualBody: Option[Sourced[SemExpression]]
   ): CheckIO[PostDrainQuoter] =
     for {
-      _            <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
+      _            <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta, residualBody)
       state        <- get
       _            <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
       _            <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
@@ -367,18 +368,19 @@ class TypeStackLoop(
   private def runPostDrainResolution(
       resolvedValue: OperatorResolvedValue,
       abilityRefs: Seq[AbilityRef],
-      returnMeta: Option[SemValue.VMeta]
+      returnMeta: Option[SemValue.VMeta],
+      residualBody: Option[Sourced[SemExpression]]
   ): CheckIO[Unit] =
     for {
       _ <- resolveAbilitiesToFixedPoint(abilityRefs, resolvedValue.paramConstraints)
       _ <- checker.carriers.verifyCarrierKinds
       _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
       _ <- modify(s => s.withUnifier(s.unifier.drain()))
-      // Exact effect verification (docs/effect-accounting-in-monomorphize.md, Step 1): a value's residual effects (those
-      // demanded on its own ambient carrier) must be declared. Runs here — after the drain solved every ability
-      // reference's carrier argument, before `defaultUnsolvedMetas` collapses an abstract ambient carrier to `Type`. Not
-      // for a signature twin (its arrow-chain "body" has no runtime effects).
-      _ <- if (signatureOnly) pure(()) else checker.effectResidual.check(abilityRefs, resolvedValue)
+      // Exact effect verification (docs/effect-accounting-in-monomorphize.md, Step 2): a value's residual effects (those
+      // demanded on its own ambient carrier) must be declared. Runs here — after the drain solved every reference's
+      // carrier argument, before `defaultUnsolvedMetas` collapses an abstract ambient carrier to `Type`. Passed the
+      // checked body only for a value mono; a signature twin passes `None` (its arrow-chain has no runtime effects).
+      _ <- residualBody.traverse_(body => checker.effectResidual.check(body, resolvedValue))
       _ <- defaultUnsolvedMetas
       // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality obligation the check
       // never discharged. Flush the queue to hard mismatch errors (triaging benign, now-defaulted constraints away
