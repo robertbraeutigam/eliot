@@ -290,8 +290,12 @@ comments):
 
 - **Saturation** (`resolveAbilitiesToFixedPoint`): drain the unifier — so the resolver sees every solution the previous
   round injected — then try to resolve the still-unresolved ability references; loop while any reference newly resolves.
-- **Finalization** (once): carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`) and the
-  calculated-return fail-safe. A finalization step can commit new solutions (the kind check unifies a solution's kind
+- **Finalization** (once): carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`), the
+  calculated-return fail-safe, and **effect verification** (`EffectResidualChecker`, value monos only, not the
+  signature twin): compute the value's residual effect set — the abilities demanded on its own ambient carrier — and
+  require `residual ⊆ declared`. Runs here, after ability resolution and the final drain but before defaulting, so a
+  reference's carrier argument is solved to the ambient (concrete `IO` or a still-abstract carrier meta) with the
+  ambient identity intact. A finalization step can commit new solutions (the kind check unifies a solution's kind
   against its expectation), so the runner drains once more before defaulting.
 - **Finalizer** (`defaultUnsolvedMetas`): every still-unsolved meta defaults to `VType` — what remains unsolved after
   the fixed point is an unconstrained (phantom) instantiation.
@@ -325,6 +329,7 @@ boundary), and invoked from named hook points:
 |---|---|---|
 | `check/CalculatedReturnResolver` — `checker.calcReturns` (D7 + W2b) | non-local inference (fill a bare return from the callee's mono body) **and** effectful-guard discharge | `Checker.infer`/`applyInferred`; `TypeStackLoop` `installReturnMeta` / `dischargeGuardedSignature` |
 | `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` post-drain → `verifyCarrierKinds` |
+| `check/EffectResidualChecker` — `checker.effectResidual` | effect *verification* (docs/effect-accounting-in-monomorphize.md): the residual `⊆` declared subset check (`Inf` included) + the declared-pure fail-safe. Discharge falls out structurally — a discharged effect rides an inner transformer carrier, not the ambient, so it is simply absent from the residual. This replaced the deleted pre-mono `effect/` phase; there is no `-E` syntax or discharge summary | `TypeStackLoop.runPostDrainResolution` post-drain (value monos only) |
 | `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain → `resolveAbilities` |
 | `check/EffectLifter` — `checker.lifter` | the effect auto-lift (docs/effect-lift-in-checker.md): the bind-lift / pure-wrap ladder arms + their doomed-postponement pre-arms, `effectCarrierSplit` (flagged metas + re-forced `ambientCarriers` heads), and the `Effect.flatMap`/`map`/`pure` `SemExpression` splices (`[C, T', R]` type args; `$eff$N` binders off `CheckState.liftCounter`; `bindWrap` unifies the bind's carrier with the core's) | the one shared `Checker.resolveLadder`/`resolveFailureLadder`, with the bind-lift arm gated by `allowBindLift` (`true` only at argument slots — a return boundary never strips a carrier, so it passes `false` and the doomed shape commits the eager mismatch) and pure-wrap on both; `typeImmediateLambda` (the let-bind rule: effectful bound value ⟹ sequence, with the continuation *inferred*, never checked against the carrier expectation); `inferSpine` → `wrapBinds` |
 

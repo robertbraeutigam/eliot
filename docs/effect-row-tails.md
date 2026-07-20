@@ -59,23 +59,25 @@ data TestCase(name: String, body: {Throw[AssertionError] | Id} Unit)
 `namedValues[TestCase]` works bare, constructors take direct-style bodies, and the ordinary
 dischargers consume the field (`runId(runThrow(body(tc)))`).
 
-### Negatives cannot be pinned
+### No discharge markers
 
-`{-Abort | G} A` is rejected ("Negative effects cannot appear in a pinned effect row.") — a
-discharge marker describes a function's behaviour, not a type's shape. Discharger signatures keep
-the negatives-only row on their *return* type (`{-Abort} G[A]`), unchanged.
+There is no `-E` syntax. A discharger's consumed effect vanishes *structurally* at the
+monomorphize-phase residual check (it lands on an inner transformer carrier, absent from the
+caller's ambient), so a discharger's return type is just the plain output carrier — no negative
+member to spell, and nothing to reject inside a pinned row. (This replaced the earlier `{-E}`
+annotation; see `docs/effect-accounting-in-monomorphize.md`.)
 
 ### Stdlib sweep
 
-Every discharger signature now spells its input as a pinned row over its generic base — the
-carrier data-type names are gone from all `def` signatures:
+Every discharger signature spells its *input* as a pinned row over its generic base (the carrier
+data-type names are gone from all `def` signatures) and its *output* as the plain carrier:
 
 ```eliot
-def runThrow[E, G[_], A](obj: {Throw[E] | G} A): {-Throw[E]} G[Either[E, A]]
-def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): {-Throw[E]} G[A]
-def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: G[A]): {-Abort} G[A]
-def runStateToPair[S, G[_], A](initial: S, p: {State[S] | G} A): {-State[S]} G[Pair[A, S]]
-def provide[X, G[_], A](x: X, computation: {Dep[X] | G} A): {-Dep[X]} G[A]
+def runThrow[E, G[_], A](obj: {Throw[E] | G} A): G[Either[E, A]]
+def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): G[A]
+def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: G[A]): G[A]
+def runStateToPair[S, G[_], A](initial: S, p: {State[S] | G} A): G[Pair[A, S]]
+def provide[X, G[_], A](x: X, computation: {Dep[X] | G} A): G[A]
 ```
 
 The `type XxxCarrier` declarations and the platform layer's `data` + instances are untouched —

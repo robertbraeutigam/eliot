@@ -1,8 +1,28 @@
 # Effect accounting in the monomorphize phase (plan)
 
-**Status:** Steps 1–3 landed; Steps 4–5 planned.
+**Status:** COMPLETE — Steps 1–5 landed. The monomorphize-phase `EffectResidualChecker` is the sole effect authority;
+the pre-mono `effect/` verification phase, the `-E` syntax, and the `dischargedEffects` field are all gone.
 
 ## Progress
+
+- **Step 5 — done.** Docs/skills/examples updated. `docs/effect-row-tails.md` drops the `-E` output markers (pinned
+  positive rows unchanged); the effect section (item 9) of `.claude/CLAUDE.md` is rewritten around the residual check;
+  `.claude/skills/eliot-monomorphize/SKILL.md` gains the `EffectResidualChecker` collaborator + its post-drain step;
+  the eliot-code skill drops the "discharge only via a direct call" caveat (dot-chaining now works) and the `{…, -E}`
+  authoring paragraph; the `IfDemo`/`DischargeDemo` examples repoint to this doc. Note: `docs/effect-discharge-accounting.md`
+  and `docs/effect-lift-in-checker.md` (which the plan named as fold-in targets) had already been removed from `docs/`
+  before this work, so there was nothing to retire or fold — their surviving conceptual content lives in item 9 and
+  this file.
+- **Step 4 — done.** Deleted the discharge machinery and the `-E` syntax. `EffectfulType.negativeEffects` and the `-`
+  parser branch are gone (a brace entry is now just an ability reference); `EffectSugarDesugarer` no longer records
+  negatives, has no "negatives-only pass-through" case, and no pinned-negative row error; the `dischargedEffects` field
+  is removed from the whole fact chain (`FunctionDefinition` → `NamedValue` → `MatchDesugaredValue` →
+  `BlockDesugaredValue` → `ResolvedValue` → `OperatorResolvedValue`) and every processor that threaded it, plus the
+  layer-merge union in `UnifiedModuleValueProcessor`. The stdlib discharger signatures dropped their `{-E}` **output**
+  markers (kept the `{E | G}` input rows). Verified the two invariants held: the raw-accessor merge
+  (`runStateCarrier`/`runThrow`/`runAbort` abstract-vs-generated) now matches on the plain structure, and the
+  compiler-track `Either`/`Throw` discharge (`CalculatedReturnResolver`) recognises the carrier by `Left`/`Right` FQN,
+  never `-E`. Full suite green; `DischargeDemo` builds and runs (declares only `{Console}`).
 
 - **Step 3 — done.** Deleted the pre-mono `effect/` verification phase: `EffectCheckProcessor`,
   `DeclaredEffectChecker`, `EffectUsageCollector`, `EffectAccounting`, `CalleeSignatures`,

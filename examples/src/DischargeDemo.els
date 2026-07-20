@@ -1,7 +1,7 @@
 
-// Discharge-aware effect accounting (docs/effect-discharge-accounting.md): `demo` fully discharges the `{Abort}` of its
-// internal `if..else`, so it honestly declares only `{Console}` — the phantom `Abort` false positive is gone. Before
-// the fix this required declaring `{Console, Abort}`.
+// Discharge falls out at the monomorphize-phase residual check (docs/effect-accounting-in-monomorphize.md): `demo`
+// fully discharges the `{Abort}` of its internal `if..else`, so it honestly declares only `{Console}` — the phantom
+// `Abort` false positive is gone. Before the fix this required declaring `{Console, Abort}`.
 def demo(flag: Bool): {Console} Unit = printLine(if(flag, "discharged: ON") else "discharged: OFF")
 
 def main: {Console} Unit = {

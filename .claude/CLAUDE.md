@@ -145,53 +145,48 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 6. resolve: Resolve all identifiers to fully qualified names or parameters.
 7. matchdesugar: Desugar pattern-match expressions into function applications. Checks exhaustiveness and handles nested patterns, multiple cases, constructor patterns, and wildcards.
 8. operator: Resolve infix operators with proper precedence and associativity. Transforms flat expressions into correctly structured function applications.
-9. effect: Definition-local effect *verification* only (`EffectCheckProcessor`, fed by the `EffectUsageCollector`
-   accounting walk): the declared-effects subset check (which is also what propagates `Inf`) and the "declared pure but
-   performs effects" fail-safe. The body auto-lift itself is NOT here — it is type-directed elaboration in the
-   monomorphize checker (see below and `docs/effect-lift-in-checker.md`). The accounting walk is **discharge-aware**
-   (`docs/effect-discharge-accounting.md`, **COMPLETE**): an effect set may carry *negative* members `{…, -E}`
-   spelled with a leading `-`, meaning the value *discharges* `E`. `EffectSugarDesugarer` records negatives (no carrier
-   constraint; a negatives-only set is a pure pass-through) in a `dischargedEffects` field that rides the same fact chain
-   as `opaque` (resolved to `AbilityFQN` in resolve; part of `NamedValue.signatureEquality`) onto `OperatorResolvedValue`;
-   `EffectUsageCollector` subtracts a callee's discharged effects from its argument-effect union at a direct call, so a
-   body that fully discharges an internal effect (e.g. `printLine(if(f,"a") else "b")`) need not declare it — the former
-   phantom-`Abort` false positive. A callee's discharge is its `EffectDischargeSummary` fact (Step 3), unifying
-   **declared** (the `{…, -E}` members on all eight stdlib dischargers — `else`/`catch`/`runStateTo…` directly, and the
-   raw `data`-accessor trio `runAbort`/`runThrow`/`runStateCarrier` via the layer-merge *union* of `dischargedEffects`
-   in `UnifiedModuleValueProcessor`, kept out of `NamedValue.signatureEquality` since a generated accessor can't spell
-   the marker, a both-non-empty disagreement erroring) with **inferred** (a user handler discharges an effect that
-   entered via a carrier-typed parameter and did not *survive* its body — the collector's `survivingParamEffects`
-   provenance).
-   `EffectDischargeSummaryProcessor` is single-owner recursive over callee summaries (a DAG, since Eliot has no
-   recursion), kept separate from `EffectCheckProcessor` so a caller reads a handler's discharge even if the handler's
-   own body fails a check. Only the argument-union is subtracted, never the callee's own `effectAbilities`, so a handler
-   whose result still declares `{E}` correctly re-propagates it. Subtraction only ever makes the check *more permissive*;
-   monomorphization stays the sound backstop, so a genuine leak is still rejected. **Discharge-to-a-pure-value works**:
-   the **identity carrier `Id`** (`eliot.lang.Id` — abstract `type Id[A]`/`def runId` in the *lang* layer's `eliot/`
-   root, since the checker inserts it by fixed FQN; `data Id[A](runId: A)` + `implement Effect[Id]` in jvm and the
-   `lang/eliot-compiler` overlay; deliberately NO
-   `Suspend[Id]`, so real I/O can never run on it — only the pure control effects `Abort`/`Throw`/`State` can), and the
-   checker's **pure-boundary Id defaulting** (`EffectLifter.tryIdDefault`, consulted from the return-boundary ladder and
-   the `let` expectation in `Checker`) solves a fully-discharged body's still-flex residual carrier to `Id` and unwraps
-   it with an inserted `runId` — so `def sign(f: Bool): String = if(f, "+") else "-"` (and `catch`/`runStateTo…` under
-   pure returns, chains, block `val`s) just works. Remaining boundary cases, **documented limitations, not bugs**: a
-   discharger consumes the *carrier*, so it must receive the effectful call **directly** (`printLine(x else "d")`),
-   never a `val`-bound binder — a `val x = <effectful>` sequences the carrier away via `flatMap` (Step 5); and a
-   handler whose effects enter via a **declared carrier-typed parameter** (`def getOr(x: {Abort} String, d: String)`)
-   must still return a carrier-headed type (`G[A]`), not a bare pure type — that carrier is caller-chosen and can never
-   default to `Id`. The "declared pure but result is effectful" fail-safe is accordingly **discharge- and Id-aware**
-   (`EffectCheckProcessor.purelyDeclaredMessage`, Step 6): a genuine undischarged effect is reported as "performs an
-   effect", an ambient-carrier-riding result under a pure return as "result rides an effect carrier", and a
-   fully-discharged residual with no ambient carrier is *accepted* (the checker Id-defaults it).
+9. effect: A tiny package holding only two helpers — `EffectMachinery` (recognises the `Effect`/`Suspend` machinery
+   abilities the user never names) and `EffectCarriers` (finds a signature's carrier binders and their declared
+   effects). Effect **verification no longer lives here**: the entire pre-mono `effect/` phase (`EffectCheckProcessor`,
+   `DeclaredEffectChecker`, `EffectUsageCollector`, `EffectAccounting`, `CalleeSignatures`,
+   `EffectDischargeSummaryProcessor`, the `EffectCheckedValue`/`EffectDischargeSummary` facts) was deleted, and with it
+   the `-E` negative-row syntax and the `dischargedEffects` field on the whole fact chain
+   (`docs/effect-accounting-in-monomorphize.md`, **COMPLETE**). Verification moved into the **monomorphize checker**
+   (`monomorphize/check/EffectResidualChecker`, run from `TypeStackLoop.runPostDrainResolution` for each value mono):
+   compute the value's **residual effect set** — the abilities demanded on its *own ambient carrier* — and require
+   `residual ⊆ declared`. `Inf` rides the ambient like any effect, so the same subset test propagates it (load-bearing:
+   `Inf[IO]` resolves, so without this an undeclared `Inf` would compile). The friendly diagnostic ("performs the
+   effect 'X' but does not declare it") is emitted for `Console`/`Log`/`Inf` leaks whose instance resolves at the base
+   carrier; `State`/`Throw`/`Abort` leaks fail earlier at `AbilityResolver` (sound, cryptic). **Discharge falls out
+   structurally, with no annotation**: a discharger's consumed effect lands on an *inner transformer carrier*
+   (`StateCarrier[S, G]`, not the caller's ambient `G`), so it is simply absent from the residual — which is why
+   dot-chained and wrapper-reached discharge (`p.runStateToValue(s0)` inside a `{Console}` body) now just compiles, and
+   why there is nothing to spell as `-E`. **Discharge-to-a-pure-value works**: the **identity carrier `Id`**
+   (`eliot.lang.Id` — abstract `type Id[A]`/`def runId` in the *lang* layer's `eliot/` root, since the checker inserts
+   it by fixed FQN; `data Id[A](runId: A)` + `implement Effect[Id]` in jvm and the `lang/eliot-compiler` overlay;
+   deliberately NO `Suspend[Id]`, so real I/O can never run on it — only the pure control effects `Abort`/`Throw`/`State`
+   can), and the checker's **pure-boundary Id defaulting** (`EffectLifter.tryIdDefault`, consulted from the
+   return-boundary ladder and the `let` expectation in `Checker`) solves a fully-discharged body's still-flex residual
+   carrier to `Id` and unwraps it with an inserted `runId` — so `def sign(f: Bool): String = if(f, "+") else "-"` (and
+   `catch`/`runStateTo…` under pure returns, chains, block `val`s) just works. Remaining boundary cases, **documented
+   limitations, not bugs**: a discharger consumes the *carrier*, so it must receive the effectful call as an expression
+   (`printLine(x else "d")`), never a `val`-bound binder — a `val x = <effectful>` sequences the carrier away via
+   `flatMap`; and a handler whose effects enter via a **declared carrier-typed parameter**
+   (`def getOr(x: {Abort} String, d: String)`) must still return a carrier-headed type (`G[A]`), not a bare pure type —
+   that carrier is caller-chosen and can never default to `Id`. The "declared pure but performs effects" fail-safe
+   (`EffectResidualChecker.checkDeclaredPure`) is discharge- and Id-aware: a genuine undischarged effect under a pure
+   nullary return is reported ("performs an effect but is declared pure"), while a fully-discharged residual (which
+   Id-defaults with no committed mismatch) is accepted.
    Effect rows may also be **pinned** (`{Throw[E] | Id} A`, `docs/effect-row-tails.md`): a tail after `|` makes the row
    a *concrete type* — the canonical carrier stack over the base, built in core by the `<Ability>Carrier` naming
    convention (`EffectSugarDesugarer`), entries leftmost-outermost = discharge order, no carrier generic minted. Stored
    (`data`-field) rows MUST be pinned (open field rows error; the old carrier-lift lowering survives only as error
-   recovery); the stdlib discharger signatures are spelled with pinned rows (`runThrow(obj: {Throw[E] | G} A)` — desugars
-   pre-merge to the identical structure the jvm-generated accessor has, so `signatureEquality` holds); negatives cannot
-   be pinned; LSP hover renders a concrete carrier stack back as its pinned row (`GroundValueRenderer`). Suspend-riding
-   effects (`Console`) have no canonical carrier and so cannot be pinned (v1; the designed extension is an abstract
-   platform base `Suspended` — see the doc).
+   recovery); the stdlib discharger signatures spell their **input** as a pinned row and their **output** as the plain
+   carrier (`runThrow(obj: {Throw[E] | G} A): G[Either[E, A]]` — the pinned input desugars in core to the identical
+   structure the jvm-generated data-field accessor has, so `signatureEquality` holds across the merge); LSP hover
+   renders a concrete carrier stack back as its pinned row (`GroundValueRenderer`). Suspend-riding effects (`Console`)
+   have no canonical carrier and so cannot be pinned (v1; the designed extension is an abstract platform base
+   `Suspended` — see the doc).
    The whole `eliot.effect` package is **ambient** (auto-imported): `ModuleName.effectSystemModules` joins the
    `eliot.lang` prelude in `defaultSystemModules`, in a *weak* tier (`ModuleValueProcessor`) — an explicitly imported
    module is deduplicated and an ambient name colliding with a local declaration or explicit import is silently
