@@ -487,6 +487,33 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "on")
   }
 
+  // Regression: a COMPOUND state type `State[List[String]]`. The `updateState`/`state` carrier meta `?F[?S]` meets the
+  // state slot `S = List[String]` — an equal-arity data-constructor application — so before the effect lifter's
+  // equal-arity guard it spuriously unified `?F := List`, `?S := String` and resolved the `State` ability at
+  // `[String, List]` ("No ability implementation found for ability 'State' with type arguments [String, List]").
+  // The lift now fires because the enclosing value has an ambient carrier and the payload is a flex meta, threading the
+  // list state correctly (both names survive).
+  "the derived updateState over a compound List state" should "resolve the State ability at the whole list type" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.lang.Id
+        |import eliot.effect.State
+        |import eliot.collection.List
+        |
+        |def pushName(n: String): {State[List[String]]} Unit =
+        |   updateState(names -> append(names, n))
+        |
+        |def collectNames: {State[List[String]]} Unit = {
+        |   pushName("ada")
+        |   pushName("bob")
+        |}
+        |
+        |def main: IO[Unit] =
+        |   foreach(printLine, runId(runStateToFinalState(emptyList, collectNames)))""".stripMargin
+    ).asserting(_ shouldBe "ada\nbob")
+  }
+
   // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Suspend[StateCarrier[S, G]]` base lift
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
   "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Suspend lift" in {

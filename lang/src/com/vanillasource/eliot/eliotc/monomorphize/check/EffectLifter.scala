@@ -104,18 +104,83 @@ class EffectLifter(
     }
 
   /** Whether the resolution ladder must consult the bind-lift arm *before* attempting definitional equality: the
-    * argument is carrier-headed on a *metavariable* carrier and the expected side is a rigid head applied to fewer
-    * arguments — the shape `?F[T'] ~ H r..` with `arity(H) < arity(?F's spine)` (e.g. `?F[String] ~ String`), which
-    * pattern unification can only *postpone*, never solve (no injective `F` exists — the same unsatisfiability shape
-    * `CarrierKindChecker.verifyCarrierKinds` reports post-drain). Waiting for a unification failure would mask the
-    * lift behind that doomed postponement, so the lift arm is consulted first. A *concrete*
-    * carrier head (`IO[String]` against `String`) mismatches properly, so it takes the ordinary failure path.
+    * argument is carrier-headed on a *metavariable* carrier and the expected side is a rigid head against which plain
+    * unification would produce a wrong result. Two such shapes exist:
+    *
+    *   - **Under-applied** — `?F[T'] ~ H r..` with `arity(H) < arity(?F's spine)` (e.g. `?F[String] ~ String`), which
+    *     pattern unification can only *postpone*, never solve (no injective `F` exists — the same unsatisfiability shape
+    *     `CarrierKindChecker.verifyCarrierKinds` reports post-drain). Waiting for a unification failure would mask the
+    *     lift behind that doomed postponement. This arm is unconditional (as it always was): a `VType` return position
+    *     is excluded by `allowType = false`, an already-recognized carrier expected is never under-applied.
+    *   - **Equal-arity spurious success** — `?F[?S] ~ H[r]` where `H` is a fully-applied data-type constructor of the
+    *     *same* arity as the carrier application ([[equalArityNonCarrier]]). Here unification does *not* fail: it binds
+    *     the carrier meta to the data constructor (`?F := List`, `?S := r`), silently swapping the effect carrier for a
+    *     container (e.g. `State[List[X]]`'s `state : ?F[?S]` flowing into an `S = List[X]` slot, which would otherwise
+    *     resolve the `State` ability at `[X, List]` instead of `[List[X], StateCarrier..]`). This arm is tightly guarded
+    *     (see [[equalArityNonCarrier]]) — flex payload, ambient carrier present, expected not a recognized carrier —
+    *     because unlike the under-applied shape a concrete-carrier expected (`?C[?B] ~ IO[Unit]` at a `main : IO[Unit]`
+    *     boundary) unifies *correctly* to `?C := IO`, and that carrier is exactly the *unrecognized* concrete kind the
+    *     ambient guard keeps clear of.
+    *
+    * A *concrete* carrier head (`IO[String]` against `String`) mismatches properly, so it takes the ordinary failure
+    * path.
     */
   def mustLiftBeforeUnify(actual: SemValue, expected: SemValue): CheckIO[Boolean] =
     effectCarrierSplit(actual).flatMap {
-      case Some((VMeta(_, prefix), _)) => force(expected).map(underApplied(_, prefix.toList.length + 1, allowType = false))
-      case _                           => pure(false)
+      case Some((VMeta(_, prefix), payload)) =>
+        val arity = prefix.toList.length + 1
+        force(expected).flatMap { forcedExpected =>
+          if (underApplied(forcedExpected, arity, allowType = false)) pure(true)
+          else
+            for {
+              state         <- get
+              expectedSplit <- effectCarrierSplit(expected)
+              forcedPayload <- force(payload)
+            } yield state.ambientCarriers.nonEmpty &&
+              expectedSplit.isEmpty &&
+              isFlexMeta(forcedPayload) &&
+              equalArityNonCarrier(forcedExpected, arity)
+        }
+      case _                                 => pure(false)
     }
+
+  /** The *equal-arity spurious-success* shape (companion to [[underApplied]]): a rigid **type constructor** head (a
+    * body-less `VTopDef` — `List`, `Pair`) applied to *exactly* as many arguments as the flex effect-carrier meta
+    * application (`?F[?S] ~ List[X]`, both arity 1). Unlike an under-applied head this DOES unify — by binding the whole
+    * carrier meta to the data constructor and its flex payload to the argument (`?F := List`, `?S := X`), a miscompile
+    * that silently swaps the effect carrier for a container (`State[List[X]]`'s `state : ?F[?S]` flowing into an
+    * `S = List[X]` slot resolves the `State` ability at `[X, List]` instead of `[List[X], StateCarrier..]`) — so the
+    * bind-lift arm must be consulted first here too.
+    *
+    * Three [[mustLiftBeforeUnify]] guards keep this arm from stealing a legitimate carrier unification, since the
+    * expected being a genuine effect carrier is *not* syntactically distinguishable from a plain container here (`IO` and
+    * `List` are both `VTopDef` constructors):
+    *   - **Ambient carrier present.** The lift binds the effect onto the value-under-check's own ambient carrier, so it
+    *     only makes sense inside an effect-polymorphic value ([[CheckState.ambientCarriers]] non-empty). A value with a
+    *     *concrete* return and no ambient (`main : IO[Unit]`, `demo : Pair[..]`) has nothing to lift into — its body's
+    *     carrier meta must unify with the concrete expected (`?C := IO`, `?G := Id`), never lift. This is the load-bearing
+    *     guard against the concrete-but-*unrecognized* carrier (`IO`/user `Id`, absent from `ambientCarriers`).
+    *   - **Flex payload only.** When the payload is *concrete* (`wrap : ?F[String]` — a higher-kinded ability's dispatch
+    *     parameter), `?F[String] ~ Box[String]` unifies correctly to `?F := Box`. Only a flex payload lets unification
+    *     *steal* the expected's inner structure into `?S`, the spurious case.
+    *   - **Equal arity only.** An *over-applied* head (`?F[Unit] ~ StateCarrier[S, Id, Unit]`, arity 1 vs 3) unifies
+    *     *correctly* by partial application — `?F := StateCarrier[S, Id]`, the carrier taking the leading prefix and the
+    *     last argument the payload — which is how a pinned carrier stack feeds an open-row result.
+    *
+    * A *recognized* carrier expected (ambient/role-flagged) is additionally excluded by the `effectCarrierSplit(expected)`
+    * guard; `VType` and bound-variable (`VNeutral`) heads are left to [[underApplied]] (arity strictly less), so the
+    * return-boundary discharge and effectful-signatures kind acceptance are unaffected.
+    */
+  private def equalArityNonCarrier(rigid: SemValue, arity: Int): Boolean = rigid match {
+    case VTopDef(_, None, spine) => spine.toList.length == arity
+    case _                       => false
+  }
+
+  /** A bare, still-unsolved metavariable — the payload the equal-arity [[equalArityNonCarrier]] lift arm requires. */
+  private def isFlexMeta(sv: SemValue): Boolean = sv match {
+    case VMeta(_, Spine.SNil) => true
+    case _                    => false
+  }
 
   /** The pure-wrap dual of [[mustLiftBeforeUnify]]: the *expected* side is headed by an effect-carrier *metavariable*
     * and the pure actual is a rigid head applied to fewer arguments (`String ~ ?F[Unit]`), which unification can only
