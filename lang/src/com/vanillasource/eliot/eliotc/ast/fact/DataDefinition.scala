@@ -34,7 +34,7 @@ object DataDefinition {
       name                 <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters    <- component[Seq[GenericParameter]]
       constructorsOrFields <-
-        ((symbol("=") >> component[DataConstructor].atLeastOnceSeparatedBy(symbol("|"))) xor
+        ((symbol("=") >> symbol("|").optional() >> component[DataConstructor].atLeastOnceSeparatedBy(symbol("|"))) xor
           bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")")).optional()
     } yield {
       val constructors = constructorsOrFields.map {

@@ -238,6 +238,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("data Color = Red | Green | Blue").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept a union data definition with a leading pipe before the first constructor" in {
+    runEngineForErrors("data Color =\n  | Red\n  | Green\n  | Blue").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "accept a single constructor with = syntax" in {
     runEngineForErrors("data Box[A] = Box(value: A)").asserting(_ shouldBe Seq.empty)
   }
