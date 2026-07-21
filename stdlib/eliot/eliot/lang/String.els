@@ -6,4 +6,5 @@ implement Eq[String] {
 
 implement Combine[String] {
    def combine(a: String, b: String): String
+   def empty: String = ""
 }

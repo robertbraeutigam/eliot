@@ -1,11 +1,18 @@
 /**
- * Combining two values of the same type `A` into one — a semigroup-style operation. It is not always
- * concatenation: appending text, merging two accumulated statistics, unioning two sets are all `combine`. A type
- * provides one `Combine[A]` implementation; generic code combines any `A` for which one is in scope through the
- * infix `++`.
+ * Combining values of the same type `A` — a monoid. `combine` joins two values (it is not always concatenation:
+ * appending text, merging two accumulated statistics, unioning two sets are all `combine`), and `empty` is the
+ * identity that `combine` leaves the other operand unchanged by (`combine(x, empty) == x == combine(empty, x)`). A
+ * type provides one `Combine[A]` implementation; generic code combines any `A` for which one is in scope through the
+ * infix `++`, and starts an accumulation from `empty`.
  */
 ability Combine[A] {
    def combine(a: A, b: A): A
+
+   /**
+    * The identity element: combining it with any `x` yields `x` unchanged. The neutral starting point for folding a
+    * sequence of `A` values together — an empty string, an empty list, a zero.
+    */
+   def empty: A
 }
 
 /**

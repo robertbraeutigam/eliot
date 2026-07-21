@@ -44,8 +44,8 @@ object ModuleName {
 
   /** The package for the user-facing effect vocabulary: the abilities a user writes in a `{...}` row
     * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), their operations and dischargers, and each effect's
-    * carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`/`DepCarrier` — needed ambiently so pinned
-    * rows resolve). The whole package is **ambient**: every module here is auto-imported (see
+    * carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`/`DepCarrier`/`WriterCarrier` — needed
+    * ambiently so pinned rows resolve). The whole package is **ambient**: every module here is auto-imported (see
     * [[effectSystemModules]]) in the weak prelude tier, so a file that prints just calls `printLine` with no import.
     * The sequencing machinery deliberately does NOT live here — see [[carrierPackage]]. The `Console`/`Log`/`Inf`
     * native leaves are read by the jvm `NativeImplementation`.
@@ -93,7 +93,8 @@ object ModuleName {
     "Inf",
     "Log",
     "State",
-    "Throw"
+    "Throw",
+    "Writer"
   ).map(ModuleName(effectPackage, _))
 
   // NOTE: anything added here is auto-imported into every module, so the test harness must provide a matching stub

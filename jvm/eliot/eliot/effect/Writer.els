@@ -1,0 +1,39 @@
+import eliot.carrier.Effect
+import eliot.carrier.Suspend
+
+// Re-declared here so the colocated `WriterCarrier` instances below can resolve the `Writer` ability — name
+// resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
+ability Writer[W, F[_]] {
+   def tell(w: W): F[Unit]
+}
+
+data WriterCarrier[W, G[_], A](runWriterCarrier: G[Pair[A, W]])
+
+/**
+ * `WriterCarrier[W, G]` is an effect carrier whenever its base `G` is and `W` is a monoid (`Combine[W]`): `pure`
+ * produces the value with an `empty` log; `flatMap` runs the first computation, runs the continuation, and joins their
+ * logs with `combine` — the `Writer` semantics; `map` transforms the result and leaves the log untouched.
+ */
+implement[W ~ Combine[W], G[_] ~ Effect] Effect[WriterCarrier[W, G]] {
+   def pure[A](a: A): WriterCarrier[W, G, A] = WriterCarrier(pure(Pair(a, empty)))
+   def flatMap[A, B](f: A => WriterCarrier[W, G, B], fa: WriterCarrier[W, G, A]): WriterCarrier[W, G, B] =
+      WriterCarrier(flatMap(pa -> map(pb -> Pair(first(pb), combine(second(pa), second(pb))), runWriterCarrier(f(first(pa)))), runWriterCarrier(fa)))
+   def map[A, B](f: A => B, fa: WriterCarrier[W, G, A]): WriterCarrier[W, G, B] =
+      WriterCarrier(map(p -> Pair(f(first(p)), second(p)), runWriterCarrier(fa)))
+}
+
+/**
+ * The base-effect lift: `WriterCarrier[W, G]` is `Suspend` whenever `G` is, running the inner suspend action and pairing
+ * its result with an `empty` log. Carries every `Suspend`-keyed fine effect through the `WriterCarrier` layer.
+ */
+implement[W ~ Combine[W], G[_] ~ Suspend & Effect] Suspend[WriterCarrier[W, G]] {
+   def suspend[A](thunk: Unit => A): WriterCarrier[W, G, A] = WriterCarrier(map(a -> Pair(a, empty), suspend(thunk)))
+}
+
+/**
+ * The `Writer` instance: `tell(w)` yields `unit` and records `w` as this step's log; the sequencing above joins the
+ * per-step logs with the `Combine[W]` monoid.
+ */
+implement[W, G[_] ~ Effect] Writer[W, WriterCarrier[W, G]] {
+   def tell(w: W): WriterCarrier[W, G, Unit] = WriterCarrier(pure(Pair(unit, w)))
+}

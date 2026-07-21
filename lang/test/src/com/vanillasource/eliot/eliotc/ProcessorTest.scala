@@ -72,7 +72,8 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Abort", ProcessorTest.abortStubContent, ModuleName.effectPackage),
     SystemImport("Throw", ProcessorTest.throwStubContent, ModuleName.effectPackage),
     SystemImport("State", ProcessorTest.stateStubContent, ModuleName.effectPackage),
-    SystemImport("Inf", ProcessorTest.infStubContent, ModuleName.effectPackage)
+    SystemImport("Inf", ProcessorTest.infStubContent, ModuleName.effectPackage),
+    SystemImport("Writer", ProcessorTest.writerStubContent, ModuleName.effectPackage)
   )
 
   /** The canonical [[systemImports]] with the named modules' content replaced — existing entries keep their package (so
@@ -199,11 +200,11 @@ object ProcessorTest {
 
   val eqAbilityStubContent: String = "ability Eq[A] { def equals(a: A, b: A): Bool }"
 
-  /** The `Combine` ability stub, mirroring the real `eliot.lang.Combine` (a semigroup — the `++` operator delegates to
-    * `combine`). Minimal: the ability head with its single primitive; the `String` reduction is supplied by
-    * `StdlibNativesProcessor`/the jvm backend under the `Combine[String]::combine` impl method, and tests exercising
-    * the `++` operator itself enrich this module via [[ambientStubsWith]]. */
-  val combineAbilityStubContent: String = "ability Combine[A] { def combine(a: A, b: A): A }"
+  /** The `Combine` ability stub, mirroring the real `eliot.lang.Combine` (a monoid — the `++` operator delegates to
+    * `combine`, and `empty` is the identity). Minimal: the ability head with its two primitives; the `String` reduction
+    * is supplied by `StdlibNativesProcessor`/the jvm backend under the `Combine[String]::combine` impl method, and tests
+    * exercising the `++` operator itself enrich this module via [[ambientStubsWith]]. */
+  val combineAbilityStubContent: String = "ability Combine[A] { def combine(a: A, b: A): A\n def empty: A }"
 
   val optionStubContent: String = "type Option[A]\ndef none[A]: Option[A]"
 
@@ -297,6 +298,7 @@ object ProcessorTest {
   val throwStubContent: String = "ability Throw[E, F[_]] {\ndef raise[A](err: E): F[A]\n}"
   val stateStubContent: String = "ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}"
   val infStubContent: String   = "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}"
+  val writerStubContent: String = "ability Writer[W, F[_]] {\ndef tell(w: W): F[Unit]\n}"
 
   /** The *legacy* ambient prelude a self-contained checker/monomorphize unit test relies on: value application
     * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`), and the Phase-6 literal desugar's

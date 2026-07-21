@@ -510,7 +510,7 @@ import eliot.effect.Console
         |}
         |
         |def main: IO[Unit] =
-        |   foreach(printLine, runId(runStateToFinalState(emptyList, collectNames)))""".stripMargin
+        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
 
@@ -536,7 +536,7 @@ import eliot.effect.Console
         |}
         |
         |def main: IO[Unit] =
-        |   foreach(printLine, runId(runStateToFinalState(emptyList, collectNames)))""".stripMargin
+        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
 

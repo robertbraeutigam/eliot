@@ -4,6 +4,10 @@ import eliot.carrier.Effect
 // character-exact with the lang layer's eliot.collection.List, which also carries their documentation.
 type List[A]
 
+def empty[A]: List[A]
+
+def append[A](list: List[A], element: A): List[A]
+
 def foldLeft[A, B](initial: B, combine: Function[A, Function[B, B]], list: List[A]): B
 
 /**
@@ -22,6 +26,11 @@ def foreach[A](action: A => {Effect} Unit, list: List[A]): {Effect} Unit =
    list.foldLeft(pure(unit), e -> acc -> acc.flatMap(_ -> action(e)))
 
 /**
- * An empty list of some item type.
+ * `List` is a monoid under concatenation: `combine` appends the elements of the second list after the first (a
+ * platform-independent fold, identical on every target), and `empty` is the empty list. This makes `List` usable as
+ * the accumulated log of a `Writer` effect, and lets `++` concatenate lists.
  */
-def emptyList[A]: List[A]
+implement[A] Combine[List[A]] {
+   def combine(a: List[A], b: List[A]): List[A] = b.foldLeft(a, e -> acc -> append(acc, e))
+   def empty: List[A] = empty
+}

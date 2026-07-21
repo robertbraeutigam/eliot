@@ -35,7 +35,6 @@ object NativeImplementation {
       (systemEffectValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
       (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit),
       (collectionValueFQN("List", "empty"), eliot_collection_List_empty),
-      (collectionValueFQN("List", "emptyList"), eliot_collection_List_emptyList),
       (collectionValueFQN("List", "append"), eliot_collection_List_append),
       (collectionValueFQN("List", "foldLeftInternal"), eliot_collection_List_foldLeftInternal)
     )
@@ -54,7 +53,6 @@ object NativeImplementation {
 
   val genericNativeSignatures: Map[ValueFQN, GenericNativeSignature] = Map(
     collectionValueFQN("List", "empty")     -> GenericNativeSignature(Seq.empty, listType),
-    collectionValueFQN("List", "emptyList") -> GenericNativeSignature(Seq.empty, listType),
     collectionValueFQN("List", "append")    -> GenericNativeSignature(Seq(listType, systemAnyValue), listType),
     collectionValueFQN("List", "foldLeftInternal") ->
       GenericNativeSignature(Seq(listType, systemAnyValue, systemFunctionValue), systemAnyValue)
@@ -199,26 +197,6 @@ object NativeImplementation {
       val sig = genericNativeSignatures(collectionValueFQN("List", "empty"))
       classGenerator
         .createMethod[CompilerIO](JvmIdentifier("empty"), sig.parameterTypes, sig.returnType)
-        .use { methodGenerator =>
-          methodGenerator.runNative { methodVisitor =>
-            methodVisitor.visitTypeInsn(Opcodes.NEW, "java/util/ArrayList")
-            methodVisitor.visitInsn(Opcodes.DUP)
-            methodVisitor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/util/ArrayList", "<init>", "()V", false)
-          }
-        }
-    }
-  }
-
-  /** `emptyList[A]: List[A]` — the public stdlib name for a fresh empty list. Structurally the same leaf as `empty` (a
-    * new `ArrayList`, immutable by contract since `append` always copies); kept as its own native so the public
-    * `eliot.collection.List` surface does not depend on the lang-layer `empty` primitive (which exists for the
-    * `namedValues` reflection lowering).
-    */
-  private def eliot_collection_List_emptyList: NativeImplementation = new NativeImplementation {
-    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
-      val sig = genericNativeSignatures(collectionValueFQN("List", "emptyList"))
-      classGenerator
-        .createMethod[CompilerIO](JvmIdentifier("emptyList"), sig.parameterTypes, sig.returnType)
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitTypeInsn(Opcodes.NEW, "java/util/ArrayList")
