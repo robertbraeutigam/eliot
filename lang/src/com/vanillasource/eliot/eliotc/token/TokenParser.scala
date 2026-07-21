@@ -9,11 +9,40 @@ import parsley.position.pos
 import parsley.token.Lexer
 import parsley.token.descriptions.*
 import parsley.token.descriptions.numeric.NumericDesc
-import parsley.token.descriptions.text.TextDesc
+import parsley.token.descriptions.text.{EscapeDesc, NumberOfDigits, NumericEscape, TextDesc}
 import parsley.token.predicate.Basic
 import parsley.{Parsley, character}
 
 class TokenParser(sourced: Sourced[?]) {
+  /** Escape sequences allowed inside string literals: the usual one-character control escapes (including `\e` for the
+    * ESC / `0x1B` character), the self-escaping delimiters `\\`, `\"`, `\'`, and a Java-style four-hex-digit unicode
+    * escape `\uXXXX`. Astral-plane characters are written as a UTF-16 surrogate pair of `\u` escapes, matching Java.
+    */
+  private val textDesc = TextDesc.plain.copy(
+    escapeSequences = EscapeDesc(
+      escBegin = '\\',
+      literals = Set('\\', '"', '\''),
+      singleMap = Map(
+        '0' -> 0x00, // null
+        'a' -> 0x07, // alert / bell
+        'b' -> 0x08, // backspace
+        't' -> 0x09, // horizontal tab
+        'n' -> 0x0a, // line feed
+        'v' -> 0x0b, // vertical tab
+        'f' -> 0x0c, // form feed
+        'r' -> 0x0d, // carriage return
+        'e' -> 0x1b  // escape
+      ),
+      multiMap = Map.empty,
+      decimalEscape = NumericEscape.Illegal,
+      hexadecimalEscape = NumericEscape.Supported(prefix = Some('u'), numDigits = NumberOfDigits.Exactly(4), maxValue = 0xffff),
+      octalEscape = NumericEscape.Illegal,
+      binaryEscape = NumericEscape.Illegal,
+      emptyEscape = None,
+      gapsSupported = false
+    )
+  )
+
   private val lexer = new Lexer(
     LexicalDesc(
       NameDesc(
@@ -29,7 +58,7 @@ class TokenParser(sourced: Sourced[?]) {
         caseSensitive = true
       ),
       NumericDesc.plain,
-      TextDesc.plain,
+      textDesc,
       SpaceDesc(
         commentStart = "/*",
         commentEnd = "*/",

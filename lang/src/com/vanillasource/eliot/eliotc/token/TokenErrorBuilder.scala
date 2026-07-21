@@ -27,7 +27,7 @@ class TokenErrorBuilder(val sourced: Sourced[?]) extends ErrorBuilder[Sourced[St
       line: LineInfo
   ): ErrorInfoLines = DefaultErrorBuilder.vanillaError(unexpected, expected, reasons, line)
 
-  def specialisedError(msgs: Messages, line: LineInfo): ErrorInfoLines = ???
+  def specialisedError(msgs: Messages, line: LineInfo): ErrorInfoLines = DefaultErrorBuilder.specialisedError(msgs, line)
 
   type ExpectedItems = Option[String]
   type Messages      = Seq[Message]
