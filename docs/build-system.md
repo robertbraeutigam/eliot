@@ -393,18 +393,26 @@ a later nicety, not v1), read the pin, check the local cache, download on miss, 
 `exec java -jar launcher.jar "$@"`.
 
 **The pin file** (`.eliot-version`, mill's pattern) is a third file, distinct from `eliot.lock`
-— the lockfile is tool output, per-configuration, and does not exist before the first resolve:
+— the lockfile is tool output, per-configuration, and does not exist before the first resolve.
+It is one line:
 
 ```
-version v0.6.2
-sha256  9f2c…
-repo    repo1.maven.org/maven2        -- optional override, for mirrors/airgap
+v0.6.2
 ```
 
-No Maven coordinates in it: the launcher's group:artifact is fixed forever, and Maven repo URLs
-are deterministic (`<repo>/<group-path>/<artifact>/<ver>/<artifact>-<ver>.jar`), so the script
-constructs the URL by string concatenation and fetches — no POM logic in shell. The sha256 gives
-the download the same integrity discipline as everything else in the design.
+optionally followed by `sha256 <hex>`. No Maven coordinates: the launcher's group:artifact is
+fixed forever, and Maven repo URLs are deterministic
+(`<repo>/<group-path>/<artifact>/<ver>/<artifact>-<ver>.jar`), so the script constructs the URL
+by string concatenation and fetches — no POM logic in shell. **No repo line either**: where to
+fetch from is an *environment* property, not a project property (the same repo builds inside
+and outside a firewall) — the wrapper honors an env-var mirror override, per the design's rule
+that mirrors are consumer config, never committed content. The optional hash (Gradle's
+`distributionSha256Sum` precedent; the wrapper checks with `sha256sum -c` before executing) is
+near-redundant for the default HTTPS-from-Central fetch, but earns its keep exactly when the
+env var redirects to unvetted infrastructure: the launcher is the root of trust, executing
+before any verification machinery exists, and a committed, reviewed hash is what a poisoned
+mirror cannot substitute past. The committed side pins *what*; the environment chooses *where
+from*.
 
 **The launcher is a single self-contained jar, written in Eliot.** The jvm backend's `exe-jar`
 output is already exactly that artifact shape, so self-hosting the build tool and satisfying the
