@@ -44,9 +44,9 @@ class TokenErrorBuilder(val sourced: Sourced[?]) extends ErrorBuilder[Sourced[St
 
   def expected(alts: ExpectedItems): ExpectedLine = DefaultErrorBuilder.expected(alts)
 
-  def reason(reason: String): Message = ???
+  def reason(reason: String): Message = reason
 
-  def message(msg: String): Message = ???
+  def message(msg: String): Message = msg
 
   def lineInfo(
       line: String,
