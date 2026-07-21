@@ -8,3 +8,11 @@ implement Combine[String] {
    def combine(a: String, b: String): String
    def empty: String = ""
 }
+
+/**
+ * A string's canonical rendering is the string itself — `show` on a `String` is the identity, with no added
+ * quoting or escaping.
+ */
+implement Show[String] {
+   def show(value: String): String = value
+}
