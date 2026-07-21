@@ -1,8 +1,8 @@
 # The Eliot Build System: Git-Native Packages, Declarative Descriptor, Standard Verbs
 
 Status: **DESIGN** — no implementation yet. Records the design discussion of 2026-07-21.
-Descriptor *syntax* is deliberately not designed here; this document fixes the model, the
-semantics, and the contents.
+Fixes the model, the semantics, the descriptor contents, and the descriptor syntax
+(`eliot.pkg`).
 
 ## The core decision: a descriptor, not build-as-code
 
@@ -122,7 +122,8 @@ none central:
 Contents test: **does the resolver or compiler act on it?** Human-facing prose lives in the
 README (rendered from git, the Go move); legal text in LICENSE. Deliberately absent: package
 name (identity is the URL), the package's own version (the tag carries it — no bump-commit
-ritual, no file/tag disagreement), authors, description.
+ritual, no file/tag disagreement), authors, description, and a toolchain-version directive
+(the toolchain is a dependency — see below).
 
 What remains:
 
@@ -135,14 +136,120 @@ What remains:
   Go's nested-modules mess, and break the one-parse LSP story.
 - **Build configurations** (see below): name, additional dependencies, backend-plugin invocation
   + parameters (main module, artifact kind, output).
-- **Toolchain minimum** (`eliot >= 0.x`) — the Go `go 1.21` / Cargo `rust-version` lesson: a
-  package written for a newer compiler must fail with "needs a newer Eliot", not parse errors.
 - **Plugin binaries** (Maven coordinates — transitional, see below), only in packages that ship
   compiler plugins.
 
-Whatever the eventual syntax, the load-bearing property: **inert data, parseable without the
-compiler**. Types-are-values will tempt an Eliot-expression descriptor; resist — that is
-build-as-code through the back door, re-coupling every tool to the evaluator.
+The load-bearing property of the format: **inert data, parseable without the compiler**.
+Types-are-values will tempt an Eliot-expression descriptor; resist — that is build-as-code
+through the back door, re-coupling every tool to the evaluator.
+
+## Descriptor syntax: `eliot.pkg`
+
+A **custom line-oriented format**, not a general-purpose one (TOML/JSON/YAML):
+
+- **The tool edits the file.** MVS workflows (`eliot get`-style commands raising minimums,
+  adding dep lines) machine-edit it, and it lives in git — one clause per line survives
+  programmatic edits, diffs, and three-way merges. Nested TOML tables do neither well.
+- **The domain is small enough to own.** Seven-ish clause kinds; a tiny grammar makes illegal
+  states unrepresentable instead of validating a generic tree after parsing. go.mod proved the
+  approach (and is the most readable manifest in the industry for it).
+- **It should feel like Eliot** — `--` comments, lowercase keywords, the language's restraint.
+  This is still inert data: "parseable without the compiler" is about *no evaluation* and a
+  trivially specified grammar, not about borrowing someone else's format. The spec plus the
+  resolver library are the reference parser; a TextMate grammar ships in `ide/textmate/`.
+
+Files: **`eliot.pkg`** (repo root) and **`eliot.lock`** (tool-written) — naming consistent with
+the `eliot.paths` precedent this system retires.
+
+### Invariants — the format teaches the model
+
+1. **No version operators exist.** Every version token is a minimum (MVS), spelled exactly as
+   the git tag (`v1.2`). There is no `>=` to write and no range to express — the syntax cannot
+   state what the resolver doesn't do. The one exact pin in the system (plugin jars) rides
+   inside the Maven coordinate string, which is exact by nature; the invariant holds without
+   exception.
+2. **Dependency URLs are scheme-less** (`github.com/x/foo`) — normalization by construction (no
+   `https://` vs `ssh://` spellings to unify; transports are resolver config), and it frees `//`
+   unambiguously as the **module selector**: `github.com/eliot-lang/eliot//stdlib`. A bare
+   `//name` is a sibling module of this repo.
+3. **Comments are `--`**, like the language.
+4. A file is a sequence of clauses — `keyword args…`, optionally followed by a `{ … }` block of
+   sub-clauses. That is the whole grammar. **Unknown clauses are fatal** with an upgrade hint
+   ("this descriptor needs a newer eliot") — this is how the format evolves without a
+   format-version field (see the toolchain section).
+
+### Clause reference
+
+```
+dep github.com/x/foo v1.3                    -- base dep: all exported modules of that repo
+dep github.com/eliot-lang/eliot//stdlib v1.2 -- module-selected dep
+
+module lang {                                -- multi-module repos only
+  internal                                   -- not exported (default: exported)
+  dep //other-module                         -- intra-repo sibling
+  dep github.com/x/bar v2                    -- module-scoped dep
+  plugin com.vanillasource:eliot-lang:0.5.0  -- ships a compiler plugin (Maven coord, exact)
+}
+
+test {                                       -- test scope (also allowed inside module)
+  dep github.com/eliot-lang/eliot-test v1
+  dep github.com/eliot-lang/eliot//jvm v1    -- the host-runnable platform layer
+}
+
+artifact hello {                             -- a build configuration
+  dep github.com/eliot-lang/eliot//jvm v1    -- platform layers live HERE, per artifact
+  backend {                                  -- params schema-validated by the plugin
+    kind exe-jar
+    main HelloWorld
+  }
+}
+
+replace github.com/x/foo with ../foo-local   -- root-only; path or URL
+```
+
+- `backend` names no platform: the backend is located among the artifact's deps (the packages
+  declaring `plugin`). With exactly one candidate no URL is needed; with several, disambiguate:
+  `backend github.com/…//jvm { … }`. Its parameters are free-form keys validated against the
+  plugin's declared schema — the typed-plugin-config promise, enforced at parse time.
+- **No `module` clause** = the repo is one anonymous exported module with `src/`, `test/`,
+  `compiler/` at the root — the zero-config common case.
+- Modules of one repo version together (tags are repo-wide): selector lines into the same repo
+  at different minimums simply both feed MVS. Per-module versioning does not exist.
+
+### Examples
+
+A minimal library — fully explicit, satisfying the "src resolves against declared deps alone"
+lint literally (nothing ambient, including the language itself):
+
+```
+dep github.com/eliot-lang/eliot//stdlib v1
+dep github.com/somelib/collections v1.3
+```
+
+An application targeting two platforms:
+
+```
+dep github.com/somelib/sensor-api v2
+
+artifact controller-jvm {
+  dep github.com/eliot-lang/eliot//jvm v1
+  dep github.com/somelib/sensor-api-jvm v2
+  backend { kind exe-jar, main Controller }
+}
+
+artifact controller-attiny {
+  dep github.com/vendor/eliot-avr v1
+  dep github.com/somelib/sensor-api-avr v2
+  backend { kind flash-image, main Controller, mcu attiny85 }
+}
+```
+
+The dogfood — the eliot repo itself: `module lang { plugin … }`, `module stdlib { dep //lang }`,
+`module jvm { dep //stdlib, plugin … }`, `module examples { internal, dep //jvm }`.
+
+The lockfile uses the same clause style, machine-written: `lock <url> <tag> <commit>
+<tree-hash>` per resolved dependency per artifact, `lock-jar <coord> <sha256>` for plugin
+binaries. Its exact format is tool-owned output, not hand-polished here.
 
 ## Standard layout: one base plus conditional overlays
 
@@ -237,10 +344,44 @@ is a confined pragmatism, not a model change:
 - **Marked transitional**: when the compiler is self-hosted, plugins become Eliot source in
   ordinary git packages and this clause retires.
 
-Free win from the same channel: the toolchain itself is a JVM artifact, and the descriptor
-already carries a toolchain minimum — so the `eliot` command can self-provision the pinned
-compiler version per project (the Gradle-wrapper/Mill-bootstrap pattern). Same resolver, same
-lockfile discipline.
+## The toolchain is a dependency
+
+There is **no toolchain-version directive** (`eliot >= 0.x` was considered and dropped). Go and
+Cargo carry one (`go 1.21`, `rust-version`) because their toolchain is *ambient* — installed
+out-of-band, so the manifest can only document a constraint against something it doesn't
+control. Here the toolchain is a package like any other: the eliot repo's modules ship the base
+layers as sources and the compiler binaries as exact-pinned `plugin` coordinates. The dependency
+line does everything the directive pretended to:
+
+- `dep github.com/eliot-lang/eliot//stdlib v1.5` states the requirement; MVS unifies it across
+  the graph; the lockfile pins the outcome — sources *and* compiler jars, since the selected
+  tag's descriptor pins its own plugin coordinates. Base sources and compiler binaries cannot
+  skew.
+- The failure the directive guarded ("package built for a newer compiler dies with parse
+  errors") **self-heals** instead: a dependency requiring eliot v1.5 raises the minimum, the
+  launcher fetches the v1.5 compiler jars, and the right compiler compiles it. There is no
+  "installed compiler" to be too old — only a resolved one.
+
+Bootstrap — something must parse the descriptor and run the resolver before any resolution
+exists — is the mill-wrapper split:
+
+- **A dumb committed wrapper pins the launcher**: a small script plus a one-line version pin in
+  the repo (mill's `.mill-version` pattern). Not the lockfile — that is tool output,
+  per-configuration, and does not exist before the first resolve.
+- **Everything smart rides the dependency graph**: lang compiler, backends, base layers,
+  exact-pinned via the lockfile. The launcher is only descriptor parser + resolver + artifact
+  fetcher + classpath assembler + verb dispatch — boring by design, changing rarely.
+
+Two consequences:
+
+1. **The language falls under the branch-compat contract.** As an ordinary MVS'd dependency, a
+   minor tag on the eliot repo's v1 branch must be backward compatible — language and
+   base-library evolution within a major is non-breaking, machine-checked by the same
+   `compat-check` as everyone else's; a breaking language change is a new major branch.
+2. **Descriptor-format evolution** is the one residual the directive used to cover (go.mod's
+   `go` line also gates format features): handled by unknown-clause-is-fatal-with-hint, and a
+   repo adopting a new clause commits the wrapper/launcher version that understands it —
+   self-consistent by construction.
 
 ## IDE integration: a project-model query, not BSP
 
@@ -256,8 +397,6 @@ download cache so CLI and LSP do not race. This retires the `eliot.paths` stopga
 
 - **Major-version coexistence** in one program (resolver error today; Go-style identity split if
   ecosystem migrations ever demand it).
-- **Descriptor syntax** — everything above is contents/semantics; the concrete format (and the
-  dependency-module-selector spelling) is undesigned.
 - **Availability endgame** — immutable proxy + checksum transparency log, only if the ecosystem
   outgrows lockfile-verified mirrors.
 - **Plugin classpath isolation** — if the resolve-together policy bites.
