@@ -188,7 +188,9 @@ module lang {                                -- multi-module repos only
   internal                                   -- not exported (default: exported)
   dep //other-module                         -- intra-repo sibling
   dep github.com/x/bar v2                    -- module-scoped dep
-  plugin com.vanillasource:eliot-lang:0.5.0  -- ships a compiler plugin (Maven coord, exact)
+  plugin com.vanillasource:eliot-lang:0.5.0 { -- ships a compiler plugin (Maven coord, exact)
+    jar org.ow2.asm:asm:9.9 sha256 9f2c…     -- flat transitive closure, author-computed
+  }
 }
 
 test {                                       -- test scope (also allowed inside module)
@@ -213,6 +215,9 @@ replace github.com/x/foo with ../foo-local   -- root-only; path or URL
   plugin's declared schema — the typed-plugin-config promise, enforced at parse time.
 - **No `module` clause** = the repo is one anonymous exported module with `src/`, `test/`,
   `compiler/` at the root — the zero-config common case.
+- `plugin` carries the plugin's **full flat jar closure** as `jar` sub-clauses (exact coordinate
+  + SHA-256), computed by the author at release time — the consumer's launcher fetches and
+  verifies without ever resolving a POM (see the plugin-binaries section).
 - Modules of one repo version together (tags are repo-wide): selector lines into the same repo
   at different minimums simply both feed MVS. Per-module versioning does not exist.
 
@@ -332,15 +337,24 @@ is a confined pragmatism, not a model change:
   write Maven coordinates; plugin loading flows transparently through the dependency graph.
 - **Why not jars-in-git**: no dependency metadata — `JvmPlugin` needs ASM, and bare jars force
   fat/shaded jars, which this project already knows break plugin loading (`META-INF/services`
-  collapse; `package.sh` exists to enforce per-module jars). Maven coordinates give the
-  transitive closure via POMs, resolved by coursier into separate jars — the discipline already
-  required. Building plugins from source collapses into the same thing plus an embedded Scala
-  build.
+  collapse; `package.sh` exists to enforce per-module jars). Maven's POM metadata is what makes
+  the transitive closure computable at all; separate jars on a classpath are the discipline
+  already required. Building plugins from source collapses into the same thing plus an embedded
+  Scala build.
+- **Resolution happens author-side, at release time — never in the build path.** The
+  plugin-shipping package's descriptor lists the plugin's **full flat jar closure**: exact
+  coordinate + SHA-256 per jar (`jar` sub-clauses of `plugin`), computed once by the author
+  (shelling to coursier is fine transitionally; plugin authors have dev environments). The
+  consumer's launcher never walks a POM: it unions the flat lists across plugin-shipping deps,
+  conflict-checks, fetches deterministic URLs, verifies hashes. Same philosophy as the rest of
+  the design — resolve at author/lock time, fetch at build time — and it keeps the launcher's
+  Maven story as dumb as the wrapper's (load-bearing for the Eliot-written launcher, below).
 - **Exact pins, not minimums** — plugin jars are toolchain components, outside MVS. The lockfile
-  records coordinates + SHA-256 per jar. Maven Central's immutability plus hash-locking covers
-  availability and trust; mirrors are resolver config, same shape as git mirrors.
-- **v1 conflict policy**: resolve all plugins' coordinates together; surface version conflicts as
-  errors. Per-plugin classloader isolation stays in the back pocket, not built speculatively.
+  additionally records the jar hashes (`lock-jar`), one integrity record for everything. Maven
+  Central's immutability plus hash-locking covers availability and trust; mirrors are resolver
+  config, same shape as git mirrors.
+- **v1 conflict policy**: union all plugins' flat closures; surface version conflicts as errors.
+  Per-plugin classloader isolation stays in the back pocket, not built speculatively.
 - **Marked transitional**: when the compiler is self-hosted, plugins become Eliot source in
   ordinary git packages and this clause retires.
 
@@ -362,15 +376,61 @@ line does everything the directive pretended to:
   launcher fetches the v1.5 compiler jars, and the right compiler compiles it. There is no
   "installed compiler" to be too old — only a resolved one.
 
-Bootstrap — something must parse the descriptor and run the resolver before any resolution
-exists — is the mill-wrapper split:
+### Bootstrap: wrapper → pin → launcher
 
-- **A dumb committed wrapper pins the launcher**: a small script plus a one-line version pin in
-  the repo (mill's `.mill-version` pattern). Not the lockfile — that is tool output,
-  per-configuration, and does not exist before the first resolve.
-- **Everything smart rides the dependency graph**: lang compiler, backends, base layers,
-  exact-pinned via the lockfile. The launcher is only descriptor parser + resolver + artifact
-  fetcher + classpath assembler + verb dispatch — boring by design, changing rarely.
+Something must parse the descriptor and run the resolver before any resolution exists. The
+split: a dumb committed wrapper pins the launcher; everything smart rides the dependency graph
+(lang compiler, backends, base layers — exact-pinned via the lockfile). The launcher is only:
+descriptor parser + resolver + artifact fetcher + classpath assembler + verb dispatch — boring
+by design, changing rarely.
+
+**The wrapper script is version-free and byte-identical in every repo** — all variance lives in
+the pin file, so "grab the script from anywhere" is literally true. No hardcoded fallback
+version: a baked-in default drifts, and "no pin → latest" silently breaks reproducibility. The
+pin file is required; the script errors helpfully without it (`eliot init` writes both). The
+script's whole job: find a JRE (`JAVA_HOME`/PATH, clear error if absent — JRE *provisioning* is
+a later nicety, not v1), read the pin, check the local cache, download on miss, verify,
+`exec java -jar launcher.jar "$@"`.
+
+**The pin file** (`.eliot-version`, mill's pattern) is a third file, distinct from `eliot.lock`
+— the lockfile is tool output, per-configuration, and does not exist before the first resolve:
+
+```
+version v0.6.2
+sha256  9f2c…
+repo    repo1.maven.org/maven2        -- optional override, for mirrors/airgap
+```
+
+No Maven coordinates in it: the launcher's group:artifact is fixed forever, and Maven repo URLs
+are deterministic (`<repo>/<group-path>/<artifact>/<ver>/<artifact>-<ver>.jar`), so the script
+constructs the URL by string concatenation and fetches — no POM logic in shell. The sha256 gives
+the download the same integrity discipline as everything else in the design.
+
+**The launcher is a single self-contained jar, written in Eliot.** The jvm backend's `exe-jar`
+output is already exactly that artifact shape, so self-hosting the build tool and satisfying the
+dumb-script constraint are the same act. No fat-jar/ServiceLoader hazard: that gotcha is about
+collapsing *compiler-plugin* jars, which stay separate (fetched later, by the launcher);
+generated Eliot bytecode carries no `META-INF/services` files to collapse. The bootstrap chain
+is the standard compiler one: launcher v0 is built by mill and published; thereafter launcher
+vN−1 builds launcher vN.
+
+What the Eliot-written launcher demands is a set of jvm-layer effects/natives that do not exist
+yet — file IO, process spawning, HTTP GET, sha256 — and that is a feature, not an obstacle: the
+build tool is the forcing function for the effect system and stdlib the way `namedValues` was
+for reflection — a real, fully effectful program we control. Process spawn is the load-bearing
+capability: the launcher **shells out to `git`** (Go's original choice; no embedded git
+library) and **spawns the compiler as a second `java` process** with the assembled classpath —
+dynamic jar loading from Eliot would need a bespoke native, while spawn is needed for git
+anyway and keeps the compiler's classpath isolated from the launcher's.
+
+**The full sequence**: script finds JRE → reads pin → fetches/caches/verifies launcher jar →
+execs it. Launcher parses `eliot.pkg` (+ `eliot.lock` if present) → MVS over git tags (shelling
+`git ls-remote`/`fetch`, honoring `replace`, verifying content hashes) → unions the plugin jar
+closures (the flat lists above), fetches deterministic URLs, verifies hashes → assembles the compiler
+classpath as separate jars → spawns the compiler per artifact → the backend emits. Stated
+honestly: a JVM is required to *build* on every platform, MCU projects included, until a native
+backend can one day emit a native launcher — a transitional cost already accepted by hosting
+plugins on the JVM.
 
 Two consequences:
 
