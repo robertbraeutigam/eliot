@@ -208,6 +208,25 @@ class OperatorResolverProcessorTest
     }
   }
 
+  it should "resolve a below-apply operator tighter than an unrelated floating operator" in {
+    runEngineForValue(
+      "data T\ninfix left def +(x: T, y: T): T\ninfix left below apply def *(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"
+    ).asserting {
+      case Some(FunApp(FunApp(ValRef(plus), ValRef(a)), FunApp(FunApp(ValRef(times), ValRef(b)), ValRef(c)))) =>
+        (plus, times, a, b, c) shouldBe (vfqn("+"), vfqn("*"), vfqn("a"), vfqn("b"), vfqn("c"))
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
+  // Robert's nuance: `+` is transitively tied into apply's island (`+ above p`, `p below apply`), so even though
+  // `p` never appears in the expression, `+` and `*` are *both* anchored and keep no relative ordering — the pair
+  // must still error rather than the below-apply `*` winning by default.
+  it should "error when a below-apply operator meets one only transitively connected to apply" in {
+    runEngineForErrors(
+      "data T\ninfix left below apply def *(x: T, y: T): T\ninfix left below apply def p(x: T, y: T): T\ninfix left above(p) def +(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"
+    ).asserting(_ shouldBe Seq("Operators '*' and '+' have no defined relative precedence." at "*"))
+  }
+
   it should "error on two operators both below apply without relative precedence" in {
     runEngineForErrors(
       "data T\ninfix left below apply def +(x: T, y: T): T\ninfix left below apply def *(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"
