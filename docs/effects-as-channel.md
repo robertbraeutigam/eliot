@@ -52,6 +52,19 @@ remaining ambiguity all lives in the one place carriers still exist — inside t
 
 ## 3. The design at a glance
 
+The user-facing model fits in three sentences, and everything below exists to make them true:
+
+1. **Types ignore effects.** `{Console} List[T]` type-checks exactly as `List[T]`, everywhere —
+   chain it, fold it, match on it. (`something.foldLeft(…)` on a `{Console} List[T]`-returning
+   `something` just works; today it needs a `val` workaround.)
+2. **Effects run where they are written.** An effectful expression performs its effects at its
+   position, joining the enclosing definition's ambient row; the compiler checks performed ⊆
+   declared — with effect-vocabulary diagnostics, never type errors.
+3. **Pinned means captured.** The one crossing point between the two worlds: a position whose
+   *declared* type is a pinned row (`{… | base}`) captures the computation as a value instead of
+   running it. Open rows never capture. Capture positions are therefore always visible in a
+   signature, never inferred.
+
 The two row forms, which today differ only in desugar strategy, become two genuinely different
 things:
 
@@ -121,10 +134,18 @@ therefore simply absent from the caller's derived row. The stdlib discharger sig
 (`runThrow`, `catch`, `else`, `runStateToPair`, `provide`, the Writer dischargers) are unchanged,
 and the pinned-row/accessor merge story (`docs/effect-row-tails.md`) is untouched.
 
-**Parameters with open rows** (`def getOr(x: {Abort} String, d: String)`) become "a computation
-over the ambient": reified at the call over the caller's ambient base, first-class inside the
-body. The current limitation — such a handler must return a carrier-headed type, because a
-caller-chosen carrier can never default to `Id` — dissolves: the weaver knows the stack.
+**Open rows on by-value parameters are rejected.** `def getOr(x: {Abort} String, d: String)`
+would be a third semantics: under strict evaluation the argument's effects run at the *call
+site*, so the row could neither run "inside" the callee nor capture. To keep the model at one
+rule (*open = runs here, pinned = captured*), the desugar rejects it — mirroring the stored-row
+rule for `data` fields — with the fix in the message: pin the tail for capture
+(`x: {Abort | G} String`, the spelling every stdlib discharger and eliot-test's `expect` already
+use) or drop the row. Rows on *function-typed* parameter positions (`action: A => {Effect}
+Unit`) are unaffected — they describe the function's own row and flow through the transparency
+rules above. The current carrier-parameter limitation ("such a handler must return a
+carrier-headed type") becomes visible arithmetic instead of a checker artifact: capture over
+`Id` can return pure; capture over a generic tail returns what the tail still carries — spelled
+in the signature either way.
 
 ## 5. Row accounting and verification (per mono key)
 
@@ -182,7 +203,12 @@ today, over concrete terms:
 - **Evaluation order** becomes a one-place spec commitment. v1 preserves today's order (the
   resolved application's argument order, as the checker's bind insertion produces now); moving to
   source order (the weaver has `Sourced` positions) is a recorded follow-up decision, not an
-  accident.
+  accident. The same commitment fixes *argument strictness*: an effectful argument to a
+  non-capture position runs at the call site, before the callee — delayed effects are always
+  spelled, as a function or a pinned capture. Today's implicit suspension of an effectful
+  argument into a bare carrier-typed slot has no counterpart; the only such slots in real code
+  are the dischargers' pinned parameters, which remain capture positions (§4 rejects the
+  open-row parameter form outright).
 
 Pipeline placement (`LangProcessors`): after `MonomorphicTypeCheckProcessor` /
 `RefinementChannelProcessor`, before `UsedNamesProcessor` and `MonomorphicUncurryingProcessor`.
@@ -291,7 +317,7 @@ tracks are green.
    rest of the signature).
 2. Whether `reify` needs surface syntax for users (the design says no — declared-type-directed
    insertion covers every current use; an explicit form could be added later for clarity).
-3. Whether parameter-row reification defaults the base to the caller's ambient stack or its pure
-   prefix (`Id`) when the pinned entries cover the whole row — observable only through
-   first-class capture of `Suspend`-riding effects, which v1 forbids anyway.
+3. Parameter-row reification base — RESOLVED by the §4 rule: open rows never capture, so a
+   captured computation's base is always spelled by its pinned tail (`Id` or a generic `G`);
+   there is nothing to default.
 4. Evaluation order: keep resolved-argument order or move to source order (v1 keeps; §6).
