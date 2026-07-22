@@ -328,6 +328,21 @@ Notes:
 - **`Append` is an open option, not a mode** (the Rust `OpenOptions` lesson): `openAppend`
   yields a plain `File[Write]`.
 - **EOF is `None`**, never an error (survey lesson 5).
+- **Termination and unbounded sources (pipes).** A path may name a FIFO, device or other
+  stream-shaped object (`/dev/zero`, a pipe) whose content is unbounded — folding it is
+  unbounded work, i.e. genuine `Inf`-class divergence. Marking the file folds `{Inf}` for that
+  possibility would erase the totality signal for the overwhelmingly common case, and leaving
+  it unchecked would be a silent divergence hole; the resolution is that the folds and
+  whole-file reads carry a **finiteness precondition the platform enforces**: the path must
+  resolve to a *regular file* (whose extent is finite at any instant — a checkable property),
+  and anything stream-shaped raises `IoError` at open, through the `Throw[IoError]` already in
+  the row. That is what licenses their `Inf`-free signatures: fold is *reserved* for sources
+  whose finiteness the platform can verify. A platform wanting the termination argument
+  airtight even against a concurrent appender outrunning the reader may snapshot the size at
+  open and read at most that extent. Stream-shaped sources are consumed through a separate,
+  honestly-`Inf` API later (§11). The boundary `Inf` does *not* police: a single **blocking**
+  read (an empty-but-open FIFO, `Console.readLine`) is the environment withholding a response
+  from one step, not unbounded work — blocking has never been `Inf`.
 - **Mode guards sit on the ability methods themselves.** `where` on ability methods is
   syntactically the ordinary def `where` (ability bodies reuse the full def parser) but is an
   unverified corner (§12); the fallback is mode-exact signatures (`writeText` on `File[Write]`
@@ -452,6 +467,13 @@ the build system can do anything useful with `walk`'s result.
 - **Directory capabilities** (Eio/WASI model): a `Dir` value as scoping capability,
   `openBeneath(dir, rel)`; slots under the same ability later. The effect row already covers
   the coarse grain today.
+- **Unbounded/stream sources** (pipes, sockets, character devices): rejected by the file folds
+  (§7), because their termination is an environmental promise (writers eventually close), not a
+  checkable property. Their consumption API is honestly `Inf`-shaped: a `foldStream` variant
+  marked `{Inf}` ("EOF is trusted, not verifiable" — `Inf` originating on a native, exactly its
+  design), and/or pull + `forever` for sources with no EOF at all. Likely a distinct `Stream`
+  handle from its own open. The general principle this cements: **fold for platform-verifiably
+  finite sources, `Inf` for the rest.**
 - **Handler-streams** (Effekt model): a file as a *discharger* of a line-stream effect
   (`{Lines} A` run by a file) — strictly more composable than folds; wants the general
   user-defined-handler story, not file-specific design.
