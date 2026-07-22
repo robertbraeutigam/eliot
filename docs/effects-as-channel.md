@@ -176,6 +176,20 @@ This replaces `EffectResidualChecker` (including its declared-pure fail-safe) wi
 simpler logic: no ambient-head re-forcing, no carrier-argument inspection — the channel *is* the
 ground truth. The fact it produces is also the LSP's hover source for rows.
 
+**Exactness (held property).** The accounting is exact in the same sense the in-mono residual
+check is exact: computed per concrete instantiation of the whole program, never from
+declarations-before-instantiation — the deleted pre-mono phase's inexactness is *not*
+reintroduced. Its inputs are syntactically complete: an effect enters a body only through an
+ability-method reference or a callee's declared row (transparent markers expanded at the
+concrete arguments of each monomorphic call), and leaves only through a declared capture
+position — there is no semantic recognition step (ambient-head forcing, carrier-instance
+matching) to mis-fire, which is where the current machinery has already silently dropped
+effects once (the pinned-row block-sequencing bug). Granularity is unchanged and intended:
+declaration-level per instantiation (a declared effect counts on every path) — the static
+effect contract itself, not an approximation. The weaver is the second net (a row-non-empty
+term it cannot weave cannot reach codegen), and Phase 2's shadow gate turns this whole claim
+into a tested equivalence with the current exact checker rather than an assertion.
+
 ## 6. The weaver (per weave key)
 
 A second post-mono processor performs the direct-style → monadic elaboration the checker does
