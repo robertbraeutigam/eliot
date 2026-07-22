@@ -1,8 +1,56 @@
 # Effects as a Channel: Full Separation of Effects from Type Checking
 
-Status: **DESIGN** — no implementation. The carrier-based elaboration in `monomorphize/check`
-(`EffectLifter`, `EffectResidualChecker`, ambient-carrier tracking) is current until the flip in
-Phase 4 below.
+Status: **DESIGN + Phases 1–2 landed** (dark plumbing + shadow accounting). The carrier-based
+elaboration in `monomorphize/check` (`EffectLifter`, `EffectResidualChecker`, ambient-carrier
+tracking) is still the live path and drives compilation unchanged until the flip in Phase 4 below;
+the channel now runs *beside* it, inert (Phase 1) and shadow-compared (Phase 2). Implementation
+status is tracked per-phase in §10; the concrete landed state is summarised in §0 immediately below.
+
+## 0. Implementation state (handover)
+
+Two of the five migration phases (§10) are implemented and committed on `master`; the live compiler
+behaviour is unchanged (the channel is dark/shadow). Concretely:
+
+- **Phase 1 (dark plumbing) — done.** A generic `EffectRow[C]` (`ast/fact/EffectRow.scala`) captures a
+  signature's **open** rows, position-attributed (`returnEffects` = the value's own ambient row;
+  `parameterEffects` = per-value-parameter callback rows). `EffectSugarDesugarer.desugar(function)`
+  populates it from the open rows *before* the carrier rewrite erases the `{…}` nodes (open rows only —
+  body rows and generic-bound rows excluded; pinned rows never populate it). It is threaded down the
+  value fact chain exactly like `paramConstraints`, converting the entry type at each hop:
+  `FunctionDefinition → NamedValue → ResolvedValue → BlockDesugaredValue → MatchDesugaredValue →
+  OperatorResolvedValue` (the termination/saturate/namedvalues wrappers carry it for free). It is **not**
+  on `MonomorphicValue` — accounting reads the declared row by `vfqn` from the `OperatorResolvedValue`,
+  per the refinement-channel precedent. It is never part of any `signatureEquality` (the desugared
+  signature still carries the character-exact merge check while both paths coexist).
+
+- **Phase 2 (shadow accounting) — done, verified byte-identical.** The channel-sourced verdict is
+  computed **inside `EffectResidualChecker`** at its existing verdict point, not (yet) as a standalone
+  post-mono processor — a deliberate deviation from §5/§6's "new processor" so the shadow sees the *same
+  value at the same moment with the same ambient/body and both verdicts*, isolating the one variable
+  Phase 2 de-risks: sourcing declared rows from the channel vs. the carrier-binder constraints. The
+  ability-method handling and the ambient-ride/discharge filtering are borrowed unchanged (their
+  post-mono reconstruction is Phase 3's job). `channelEffectsOf`/`channelDeclaredFor` read rows from
+  `effectRow`; `shadowCompareSubset`/`shadowCompareVerdict` `warn` (marker `EFFECT-CHANNEL-SHADOW`) on a
+  verdict divergence and `debug` on a set-only difference — never acting on the channel verdict.
+  Verified **zero verdict divergences** across `lang.test`, `jvm.test`, all example mains, and the
+  eliot-test suite.
+
+  The one **rule the shadow surfaced** (§11 anticipated exactly this): a **carrier-machinery ability
+  implementation** — the `implement Effect/Suspend/Throw/State/Abort/Writer[…Carrier]` methods, e.g.
+  `Abort` lifted through a `StateCarrier`, which *are what the `{…}` sugar desugars to* and so cannot use
+  the sugar — declares its effect through its carrier constraint (`[G[_] ~ Throw[E2]]`), a source the
+  open-row channel does not capture. The channel treats these as an explicit exception
+  (`channelDeclaredFor`: for a `Qualifier.AbilityImplementation` value the row is read the current,
+  carrier-constraint way). This keeps the shadow byte-identical for machinery while the channel is
+  validated for all ordinary code, and it is the rule Phase 3+'s real accounting must also honour for
+  these impls. (Note: such an impl's module is generally *not* the ability's module — the four cases
+  found were cross-carrier lifts like `eliot.effect.State::abort^Abort#StateCarrier` — so a naive
+  ability-FQN reconstruction from the value's own module is wrong; reading `EffectCarriers.declaredEffects`
+  avoids it.)
+
+- **Phases 3–5 — not started.** The gated new path, the flip/deletions, and follow-ups remain as
+  designed below. Phase 1's `EffectRow` and Phase 2's shadow are the substrate they build on; the shadow
+  (and the entire `EffectResidualChecker`) is deleted at Phase 4.
 
 ## 1. The problem
 
@@ -149,6 +197,12 @@ in the signature either way.
 
 ## 5. Row accounting and verification (per mono key)
 
+*Implementation note (§0): the standalone post-mono processor described here is Phase 3 work — it is
+where the channel becomes the **real** verification path. Phase 2 (landed) proves the row logic first
+by computing the channel verdict inside `EffectResidualChecker` and shadow-comparing it, so the
+accounting semantics below are already validated byte-identical against the current checker before any
+processor is built.*
+
 A new post-mono processor (template: `RefinementChannelProcessor`) computes each mono'd value's
 **derived row** by a bottom-up walk of the checked body:
 
@@ -283,15 +337,20 @@ The flip is wide, so the plan follows the gated-flip playbook (signature-unifica
 build the new path dark, shadow-verify semantics, gate the flip on a flag, delete only after both
 tracks are green.
 
-- **Phase 1 — channel plumbing, dark.** `EffectSugarDesugarer` records the structured declared
-  row + row positions as new signature metadata *while still* performing today's carrier desugar.
-  Metadata forwards through the fact chain to mono facts. Zero behaviour change; lands
-  independently.
-- **Phase 2 — shadow accounting.** The row-accounting processor (§5) computes derived rows from
-  the channel and *compares its verdicts* against `EffectResidualChecker` across the full lang +
-  jvm + eliot-test + examples suites, logging divergences. Every divergence is a semantics we did
-  not understand — resolved before anything flips. Deliverable: byte-identical accept/reject
-  behaviour in shadow mode.
+- **Phase 1 — channel plumbing, dark. ✅ Done** (see §0). `EffectSugarDesugarer` records the
+  structured declared row + row positions (`EffectRow[C]`, `ast/fact/EffectRow.scala`) as new
+  signature metadata *while still* performing today's carrier desugar. Metadata forwards through the
+  fact chain (mirroring `paramConstraints`, stopping at `OperatorResolvedValue`, which the mono
+  phase's input carries). Zero behaviour change; landed independently.
+- **Phase 2 — shadow accounting. ✅ Done, byte-identical** (see §0). Realised *inside*
+  `EffectResidualChecker` rather than as the standalone post-mono processor of §5 (a deliberate
+  choice — the tightest possible shadow, comparing both verdicts on identical inputs; the standalone
+  processor is built in Phase 3 where it becomes the real path). It computes the derived row from the
+  channel and compares its accept/reject verdict against the current carrier-constraint verdict,
+  logging divergences (marker `EFFECT-CHANNEL-SHADOW`). Verified byte-identical across the full lang +
+  jvm + eliot-test + examples suites; the one divergence class it surfaced (carrier-machinery ability
+  impls) is now an explicit, documented exception (§0, §11). Deliverable met: byte-identical
+  accept/reject in shadow mode.
 - **Phase 3 — the gated new path.** A compiler flag (`effect-channel`) switches the desugar to
   strip open rows, disables the lifter arms, and enables the weaver. Grown in slices, each with
   its tests green under the flag while the default path stays untouched:
@@ -326,9 +385,13 @@ tracks are green.
 
 ## 12. Open questions
 
-1. Exact metadata shape on the fact chain (row entries + positions) — one field or two, and its
-   `signatureEquality` treatment in the layer merge (rows must merge character-exact like the
-   rest of the signature).
+1. Exact metadata shape on the fact chain (row entries + positions) — RESOLVED by Phase 1: **one**
+   generic field `EffectRow[C]` (`returnEffects` + `parameterEffects`, entries in the phase's
+   ability-constraint representation), converted at each hop like `paramConstraints`. It is
+   **excluded from `signatureEquality`** while both paths coexist — the desugared carrier signature
+   still carries the character-exact merge check, so the raw row would be redundant there. When the
+   carrier desugar is removed at Phase 4 the row *becomes* the merge-checked signature surface, so
+   `signatureEquality` must then be taught to compare it character-exact (open item for the flip).
 2. Whether `reify` needs surface syntax for users (the design says no — declared-type-directed
    insertion covers every current use; an explicit form could be added later for clarity).
 3. Parameter-row reification base — RESOLVED by the §4 rule: open rows never capture, so a
