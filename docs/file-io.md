@@ -343,6 +343,18 @@ Notes:
   honestly-`Inf` API later (§11). The boundary `Inf` does *not* police: a single **blocking**
   read (an empty-but-open FIFO, `Console.readLine`) is the environment withholding a response
   from one step, not unbounded work — blocking has never been `Inf`.
+- **"But the size has no compile-time bound" — deliberately out of scope for `Inf`.**
+  `Inf`-absence is the *qualitative* totality claim — every run finishes — not a bound on the
+  work: a `List`'s length and a `BigInteger`'s magnitude are just as statically unknowable, and
+  folding them is the ordinary System T shape of Eliot totality (unknown-but-finite input,
+  input-dependent runtime). `Inf` marks the qualitatively different case, *possibly-infinite*
+  (a pipe has no instant at which its content is complete). Quantitative bounds on work/size
+  are the separate deferred resource-bounds feature, whose Eliot-native home is the refinement
+  channel (`Int {range}` → `List`-size trajectory); and because a file's size is fundamentally
+  not static knowledge, bounded reads there must take the bound as *data*
+  (`readFileAtMost(limit, path)`, raising on exceed — a runtime-checked precondition), never
+  pretend to a static one. Until then, the fold shape is itself the practical answer on small
+  targets: a bounded accumulator consumes an arbitrarily large file in constant space.
 - **Mode guards sit on the ability methods themselves.** `where` on ability methods is
   syntactically the ordinary def `where` (ability bodies reuse the full def parser) but is an
   unverified corner (§12); the fallback is mode-exact signatures (`writeText` on `File[Write]`
@@ -480,6 +492,10 @@ the build system can do anything useful with `walk`'s result.
 - **Path refinements in the channel** (`absolute`/`normalized` meta + `where` preconditions on
   ops that need them) — the meta-information instinct, applied where it fits (quantities and
   value properties), while modes stay phantom types (capabilities). §6.
+- **Resource-bounded reads** (embedded targets): `readFileAtMost(limit, path)`-style ops that
+  turn the statically-unknowable file size into a runtime-checked precondition, and — once the
+  channel tracks container sizes — a returned `String`/`List` carrying `size ≤ limit` meta.
+  Ties into the deferred language-wide WCET/resource-bounds work.
 - **Seek/random access**, file times, permissions, symlinks, temp files, rename/copy — ordinary
   additive ability growth, none design-blocking.
 - `CodePoint`/text utilities probably migrate to a future `eliot.text` alongside the library
