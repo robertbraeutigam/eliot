@@ -1,0 +1,126 @@
+import eliot.carrier.Effect
+import eliot.file.Path
+import eliot.collection.List
+
+/**
+ * Why a filesystem operation failed — the error the `FileSystem` operations `raise` through `Throw[IoError]`.
+ *
+ * Representation is platform-owned; v1 carries a human-readable message (see `message`). Recover from one with the
+ * ordinary `catch`, or materialise the whole outcome with `runThrow` — no file-specific error machinery, because
+ * `Throw[IoError]` already is it.
+ */
+type IoError
+
+/**
+ * The human-readable description of `e`.
+ */
+def message(e: IoError): String
+
+/**
+ * An `IoError` renders as its message.
+ */
+implement Show[IoError] {
+   def show(value: IoError): String = message(value)
+}
+
+/**
+ * The filesystem effect: reading, writing, folding over, and inspecting files and directories.
+ *
+ * Every operation runs on a carrier `F` and may fail with an `IoError` — the instance requires `Throw[IoError]` of its
+ * carrier, so a filesystem program's row reads `{FileSystem, Throw[IoError]}`. Failure and access are separate row
+ * entries: `catch` discharges the `Throw[IoError]` while `{FileSystem}` keeps riding to `main` (just as `{Console}`
+ * does). A target without a filesystem simply ships no `FileSystem` instance, so any `{FileSystem}` program fails
+ * ability resolution for that target — the layer system is the capability.
+ *
+ * There are no file handles and no `open`/`close`: the whole surface is whole-file and fold operations that open and
+ * close internally, so nothing can leak.
+ *
+ * Bind a `List`-returning result (`readLines`, `listDirectory`, `walk`) to a `val` before consuming it — fold or map a
+ * `val`, not the call directly — and recover with `runThrow` rather than an effectful `catch` handler:
+ *
+ * ```eliot
+ * def descriptor(root: Path): {FileSystem, Throw[IoError]} Int = {
+ *    val entries = readLines(root / "eliot.pkg")
+ *    entries.foldLeft(0, e -> acc -> add(acc, 1))
+ * }
+ * ```
+ */
+ability FileSystem[F[_]] {
+   /**
+    * Read the entire contents of the regular file at `path` as a single `String`.
+    */
+   def readFile(path: Path): F[String]
+
+   /**
+    * Write `content` to `path`, creating the file or truncating an existing one.
+    */
+   def writeFile(content: String, path: Path): F[Unit]
+
+   /**
+    * Append `content` to `path`, creating the file if it does not exist.
+    */
+   def appendFile(content: String, path: Path): F[Unit]
+
+   /**
+    * Fold over the lines of the regular file at `path`, front to back, in constant space: starting from `initial`,
+    * combine each line into the accumulator with `step`. The platform-owned loop — a total language expresses every
+    * iteration as a native, and a file is no different.
+    */
+   def foldLines[B](initial: B, step: B => String => B, path: Path): F[B]
+
+   /**
+    * Fold over the Unicode code points of the regular file at `path`, front to back, in constant space. A code point is
+    * an `Int` in `[0, 1114111]`; the platform decodes the file's bytes.
+    */
+   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): F[B]
+
+   /**
+    * Read the regular file at `path` as a list of its lines, in order. The whole-file counterpart of `foldLines`.
+    */
+   def readLines(path: Path): F[List[String]]
+
+   /**
+    * `true` when something exists at `path`.
+    */
+   def exists(path: Path): F[Bool]
+
+   /**
+    * `true` when `path` exists and is a directory.
+    */
+   def isDirectory(path: Path): F[Bool]
+
+   /**
+    * The immediate entries of the directory at `path` (not recursive), each as a full `Path`.
+    */
+   def listDirectory(path: Path): F[List[Path]]
+
+   /**
+    * Every file under `path`, depth-first — the recursive tree walk. A native by necessity: tree descent is unbounded
+    * iteration, inexpressible in user Eliot.
+    */
+   def walk(path: Path): F[List[Path]]
+
+   /**
+    * Create the directory at `path` and every missing parent. A no-op when it already exists.
+    */
+   def createDirectories(path: Path): F[Unit]
+
+   /**
+    * Delete the file or empty directory at `path`.
+    */
+   def delete(path: Path): F[Unit]
+}
+
+/**
+ * Run `action` on every line of the regular file at `path`, front to back, keeping only its effects — the `foreach` of
+ * files. Reads the file with `readLines`, then replays the lines through `List.foreach`; the action's effects join the
+ * caller's row.
+ *
+ * ```eliot
+ * def echoFile(p: Path): {Console, FileSystem, Throw[IoError]} Unit = foreachLine(printLine, p)
+ * ```
+ */
+def foreachLine(action: String => {Effect} Unit, path: Path): {FileSystem, Throw[IoError]} Unit = {
+   val lines = readLines(path)
+   lines.foreach(action)
+}

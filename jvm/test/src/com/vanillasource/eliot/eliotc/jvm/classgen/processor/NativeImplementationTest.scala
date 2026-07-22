@@ -26,11 +26,17 @@ class NativeImplementationTest extends AnyFlatSpec with Matchers {
   }
 
   "the registered must-be-private leaf natives" should "all be marked impure" in {
-    // The I/O leaves (`printLineInternal`/`readLineInternal`/`logInternal`) plus the unbounded-loop divergence leaf
-    // (`foreverInternal`, the `Inf` effect): each is reachable only through its public ability, so each must be private.
+    // The console/log I/O leaves and the unbounded-loop divergence leaf (`foreverInternal`, the `Inf` effect), plus the
+    // `eliot.file` filesystem leaves: each is reachable only through its public ability, so each must be private. The
+    // `eliot.file` *pure* helpers (the `Path` inspectors, the result-holder readers) are not impure and are excluded.
     val impureNames = NativeImplementation.implementations.collect {
       case (vfqn, impl) if impl.impure => vfqn.name.name
     }.toSet
-    impureNames shouldBe Set("printLineInternal", "readLineInternal", "logInternal", "foreverInternal")
+    impureNames shouldBe Set(
+      "printLineInternal", "readLineInternal", "logInternal", "foreverInternal",
+      "readFileInternal", "readLinesInternal", "writeFileInternal", "appendFileInternal",
+      "existsInternal", "isDirectoryInternal", "listDirectoryInternal", "walkInternal",
+      "createDirectoriesInternal", "deleteInternal", "foldLinesInternal", "foldCodePointsInternal"
+    )
   }
 }

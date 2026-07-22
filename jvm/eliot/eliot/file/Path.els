@@ -1,0 +1,65 @@
+// Merge copy of the base declaration (name resolution is per-file). The merge verifies it agrees with the abstract
+// `type Path` in the stdlib layer, which also carries its documentation.
+type Path
+
+/**
+ * The `Path` factory: normalises `s` in `java.nio.file` syntax. Implemented by the backend (`java.nio.file.Path`).
+ */
+def path(s: String): Path = pathInternal(s)
+
+/**
+ * Join a single relative `segment` onto `base`, then normalise. Implemented by the backend.
+ */
+infix left above +
+def /(base: Path, segment: String): Path = slashInternal(base, segment)
+
+def parent(p: Path): Option[Path] =
+   fold(isNull(parentInternal(p)), None, Some(parentInternal(p)))
+
+def fileName(p: Path): Option[String] =
+   fold(isNull(fileNameInternal(p)), None, Some(fileNameInternal(p)))
+
+def extension(p: Path): Option[String] =
+   fold(isNull(extensionInternal(p)), None, Some(extensionInternal(p)))
+
+def isAbsolute(p: Path): Bool = isAbsoluteInternal(p)
+
+// The Eq[Path] / Show[Path] instances live (body-less) in the base layer; the backend fills their methods with the
+// runtime ability-impl natives (`java.nio.file.Path.equals` / `.toString`), exactly as it does for Eq[String].
+
+/**
+ * `java.nio.file.Path.of(s).normalize()`. Implemented by the backend.
+ */
+private def pathInternal(s: String): Path
+
+/**
+ * `base.resolve(segment).normalize()`. Implemented by the backend.
+ */
+private def slashInternal(base: Path, segment: String): Path
+
+/**
+ * `p.getParent()`, `null` if absent. Implemented by the backend.
+ */
+private def parentInternal(p: Path): Path
+
+/**
+ * `p.getFileName().toString()`, `null` if absent. Implemented by the backend.
+ */
+private def fileNameInternal(p: Path): String
+
+/**
+ * The extension of `p`'s file name (after the last `.`, without the dot), `null` if none. Implemented by the backend.
+ */
+private def extensionInternal(p: Path): String
+
+/**
+ * `p.isAbsolute()`. Implemented by the backend.
+ */
+private def isAbsoluteInternal(p: Path): Bool
+
+/**
+ * `true` when `x` is the null reference. The single leaf that lets the pure wrappers above turn a nullable native
+ * result into an `Option` in ordinary Eliot, rather than constructing the `Option` in bytecode. Implemented by the
+ * backend.
+ */
+private def isNull[A](x: A): Bool

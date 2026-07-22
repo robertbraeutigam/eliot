@@ -1,8 +1,44 @@
 # File I/O and Paths (`eliot.file`) — Design
 
-Status: PROPOSAL (no implementation yet). Driven by the build system's needs (read `eliot.pkg`
+Status: PARTIALLY IMPLEMENTED. Driven by the build system's needs (read `eliot.pkg`
 per line/character, write the lockfile, scan source trees), but designed as the general-purpose
 file API of the stdlib.
+
+## Implementation status (what shipped)
+
+The **whole-file, fold, and metadata/directory surface** is implemented and tested end-to-end on
+the jvm backend (`stdlib/eliot/eliot/file/{Path,File}.els` abstract, `jvm/eliot/eliot/file/{Path,File}.els`
+concrete, `jvm/.../FileNatives.scala` leaves, `FileIoIntegrationTest`):
+
+- The pure `Path` algebra (§4): `path`, `/`, `parent`, `fileName`, `extension`, `isAbsolute`,
+  `Eq[Path]`, `Show[Path]`, backed by `java.nio.file.Path`.
+- `IoError` + `message` + `Show[IoError]` (§5), and the `orRaise` bridge added to `eliot.effect.Throw`.
+- The `FileSystem` ability (§7) **minus handles**: `readFile`/`writeFile`/`appendFile`,
+  `foldLines`/`foldCodePoints`, `readLines` (promoted from a derived def to an ability method),
+  `exists`/`isDirectory`/`listDirectory`/`walk`/`createDirectories`/`delete`, plus the derived
+  `foreachLine`.
+
+**Deliberately not implemented** (per the reduced scope this pass was asked for): the access-mode
+phantom types (`Read`/`Write`/`ReadWrite`, §6), the `Bracket` carrier ability (§8), and the file
+**handle** surface (`File[M]`, the `with*File` bracket methods, `readLine`/`readCodePoint`/`writeText`).
+
+Two mechanisms differ from the design as written, forced by the current checker:
+
+- **The `FileSystem` ability header is unconstrained** (`FileSystem[F[_]]`, like `Console`) rather
+  than carrying `F[_] ~ Throw[IoError]` (§7/§12.1, unverified). The `Throw[IoError]` requirement is
+  carried on the *instance* constraint instead, so use-site ability resolution still forces a
+  `{FileSystem, Throw[IoError]}` row — soundly, if more cryptically on omission.
+- **Natives never construct Eliot `data` in bytecode.** The `Path` inspectors return a nullable and
+  the wrappers build the `Option` in Eliot via a leaf `isNull`; the effectful ops catch their
+  exception into a two-slot `Object[]` result holder (`IoResult`), and the instance raises
+  `IoError` / returns the value in ordinary Eliot. The `§9` question is settled this way rather than
+  by emitting factory calls.
+
+Two **library idioms** the current effect-lifter forces on callers (documented on the ability):
+bind a `List`-returning result (`readLines`/`listDirectory`/`walk`) to a `val` before folding it —
+dot-chaining a fold directly onto an effectful `F[List[..]]` mis-infers the carrier to `List` — and
+recover with `runThrow` + `foldEither` (naming the error type) rather than an effectful `catch`
+handler. Both are effect-lifter limitations, not `eliot.file` ones.
 
 ## 1. Requirements
 

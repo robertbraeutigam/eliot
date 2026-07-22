@@ -21,6 +21,13 @@ object NativeType {
   def systemCollectionType(typeName: String): ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "collection"), typeName), QualifiedName(typeName, Qualifier.Default))
 
+  /** A type in the `eliot.file` package, represented by a native JVM type rather than an Eliot `data` type. `moduleName`
+    * and `typeName` differ for the private `File.IoResult` holder (module `File`, type `IoResult`); they coincide for
+    * `Path.Path`.
+    */
+  def systemFileType(moduleName: String, typeName: String): ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "file"), moduleName), QualifiedName(typeName, Qualifier.Default))
+
   // JVM representation types live in the jvm-layer `eliot.lang.Int` module (see jvm `Int.els`, alongside the opaque
   // `Int` body that selects among them), so unlike `systemLangType` the module name is fixed (`Int`) and only the
   // value name varies. `Qualifier.Default` matches the qualifier that type FQNs carry by the time they reach this map
@@ -49,6 +56,10 @@ object NativeType {
       // and from Java library methods directly. It is immutable by contract: the `empty`/`append` natives build fresh
       // lists and the Eliot API exposes no mutators.
       (systemCollectionType("List"), eliot_collection_List),
+      // `eliot.file.Path` is a native `java.nio.file.Path`; the private `eliot.file.File.IoResult` holder is a two-slot
+      // `Object[]` (error message at 0, value at 1) so a leaf file native never constructs an Eliot `data` value.
+      (systemFileType("Path", "Path"), eliot_file_Path),
+      (systemFileType("File", "IoResult"), eliot_file_IoResult),
       // The fixed set of JVM representation types `Int[MIN, MAX]` can lower to (see jvm `Int.els`). These five entries
       // are the entire backend "type knowledge" of integer widths; all width *policy* (which range picks which) lives
       // in Eliot's opaque `Int` body (Phase 2) and the unfold pass (Phase 3).
@@ -155,5 +166,14 @@ object NativeType {
 
   private def eliot_collection_List: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[java.util.List[?]]
+  }
+
+  private def eliot_file_Path: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.nio.file.Path]
+  }
+
+  // The `IoResult` holder is a two-slot `Object[]`: slot 0 the error message (or null), slot 1 the value (or null).
+  private def eliot_file_IoResult: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[Array[Object]]
   }
 }

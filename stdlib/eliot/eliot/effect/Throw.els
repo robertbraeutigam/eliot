@@ -49,6 +49,16 @@ type ThrowCarrier[E, G[_], A]
 def runThrow[E, G[_], A](obj: {Throw[E] | G} A): G[Either[E, A]]
 
 /**
+ * Reflect an `Either` into the `Throw[E]` effect: yield the `Right`'s value, or `raise` the `Left`'s error. The bridge
+ * from an error-as-value result (as a native leaf produces) into the effect, and the inverse of `runThrow`.
+ *
+ * ```eliot
+ * def parsed(input: String): {Throw[String]} Tree = orRaise(tryParse(input))
+ * ```
+ */
+def orRaise[E, A](e: Either[E, A]): {Throw[E]} A = foldEither(err -> raise(err), a -> a, e)
+
+/**
  * Run a `{Throw[E]}` computation, recovering any raised error to a value of the *same* type as the success with
  * `onError`. The everyday way to discharge `Throw` — reads like an exception handler and never exposes `Either`:
  *

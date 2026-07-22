@@ -1,0 +1,62 @@
+/**
+ * A filesystem path — an abstract, platform-owned handle to a location in the filesystem.
+ *
+ * `Path` is the *pure* half of the file API: building, inspecting and comparing paths performs no I/O and needs no
+ * effect. The representation is chosen by the platform (the JVM layer backs it with `java.nio.file.Path`), which also
+ * solves the non-UTF-8 filename problem — a platform stores OS-native bytes and only converts at the `String` boundary
+ * (`path`/`show`). Everything that actually touches the filesystem lives behind the `FileSystem` effect in
+ * `eliot.file.File`.
+ *
+ * ```eliot
+ * def descriptor(root: Path): Path = root / "eliot.pkg"
+ * ```
+ */
+type Path
+
+/**
+ * Parse `s` in the platform's path syntax. Total — any string denotes a path — and lexically normalized on construction
+ * (redundant separators collapsed), without resolving `..` against the filesystem.
+ */
+def path(s: String): Path
+
+/**
+ * Extend `base` with a single relative `segment`: `root / "src" / "Main.els"`. Binds tighter than the arithmetic and
+ * comparison operators and associates to the left, so a chain reads left to right.
+ */
+infix left above +
+def /(base: Path, segment: String): Path
+
+/**
+ * The parent of `p`, or `none` if `p` has no parent (a root or a bare file name).
+ */
+def parent(p: Path): Option[Path]
+
+/**
+ * The final component of `p` (the file or directory name), or `none` if `p` is a root.
+ */
+def fileName(p: Path): Option[String]
+
+/**
+ * The extension of `p`'s file name — the part after its last `.`, without the dot — or `none` if the name has no
+ * extension. `path("Main.els").extension` is `Some("els")`.
+ */
+def extension(p: Path): Option[String]
+
+/**
+ * `true` when `p` is absolute (anchored at a filesystem root), `false` when it is relative.
+ */
+def isAbsolute(p: Path): Bool
+
+/**
+ * Two paths are equal when they denote the same normalized location, compared component by component.
+ */
+implement Eq[Path] {
+   def equals(a: Path, b: Path): Bool
+}
+
+/**
+ * Render `p` in the platform's path syntax — the inverse of `path`.
+ */
+implement Show[Path] {
+   def show(value: Path): String
+}
