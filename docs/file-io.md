@@ -53,11 +53,13 @@ Lessons this design adopts:
 3. **One path type.** Rust's `Path`/`PathBuf` borrow split is right *for Rust* and a permanent
    ergonomics complaint; a value-semantic language should ship one type (Swift did). Also: bolt
    the good API on late and you keep two forever (Java `File` vs NIO). → one `Path`, now.
-4. **Wrap a total `Either` core with an effectful convenience surface.** Unison's split —
-   builtins return `Either Failure a`, the ergonomic layer raises via an ability — is exactly
-   Eliot's `Either`/`Throw` pair. Koka independently confirms the two-axis row: *access*
-   (`fsys`) and *failure* (`exn`) are separate effects. → ability ops return
-   `Either[IoError, _]`; the public surface declares `{FileSystem, Throw[IoError]}`.
+4. **A total `Either` core under an effectful convenience surface.** Unison's split —
+   builtins return `Either Failure a`, the ergonomic layer raises via an ability — is the right
+   layering, and Eliot *already owns it*: `Throw` is realised over `Either`, and
+   `runThrow`/`catch` are the total core. So the ability raises directly and no `Either`
+   tier is encoded in the API — `runThrow(readFile(p))` is the "try" form, derived for free.
+   Koka independently confirms the two-axis row: *access* (`fsys`) and *failure* (`exn`) are
+   separate effects → `{FileSystem, Throw[IoError]}`.
 5. **EOF must be option-shaped, not error-shaped.** Go's `io.EOF` sentinel and Java's `-1` are
    perennial bug sources; iterator/option-typed termination isn't. → `readLine` yields
    `Option[String]`, `None` = end of file.
@@ -86,9 +88,10 @@ Lessons this design adopts:
 - One effect ability **`FileSystem`**, riding `Suspend` exactly like `Console`. (The ability is
   named `FileSystem`, not `File`, because it also covers directories and metadata — and the name
   `File` is taken by the handle type. A row reads `{FileSystem, Throw[IoError]}`.)
-- Ability ops are a **total `try*` core** returning `F[Either[IoError, A]]`; the **public
-  surface** are derived defs that raise, so user code reads direct-style and recovers with the
-  ordinary `catch`. No new error machinery — file failures are just `Throw[IoError]`.
+- The ability's carrier parameter is bound **`F[_] ~ Throw[IoError]`**: every operation raises
+  on the same carrier, directly — no error-encoding tier in the API. Recovery is the ordinary
+  `catch`, and `Either`-style results are *derived* (`runThrow(readFile(p))`), not declared.
+  No new error machinery — file failures are just `Throw[IoError]`.
 - Handles are **`File[M]`** with phantom access-mode markers `Read` / `Write` / `ReadWrite`,
   enforced by compile-evaluated `where` guards (§6). Whole-file and fold ops never expose a
   handle at all and are the primary API.
@@ -169,8 +172,9 @@ is additive later — worth doing before the build system relies on distinguishi
 `eliot.pkg` here" from genuine I/O failure, or that distinction gets an `exists` pre-check
 instead.
 
-One small stdlib addition to `eliot.effect.Throw`, the general `Either`→`Throw` bridge the
-surface layer is built from:
+One small stdlib addition to `eliot.effect.Throw`, the general `Either`→`Throw` bridge —
+platform instances use it to reflect native results into the effect (§9), and it is generally
+useful:
 
 ```eliot
 /** Reflect an `Either` into the `Throw` effect: yield the `Right`, `raise` the `Left`. */
@@ -223,7 +227,7 @@ Operations then guard instead of doubling the API (the `in_channel`/`out_channel
 wrapping (no coercions inserted, no runtime cost):
 
 ```eliot
-def readLine[M](file: File[M]): {FileSystem, Throw[IoError]} Option[String] where canRead[M] = ...
+def readLine[M](file: File[M]): F[Option[String]] where canRead[M]      // ability method, see §7
 ```
 
 A `File[ReadWrite]` passes both `readLine` and `writeText` directly; a `File[Write]` at
@@ -253,103 +257,108 @@ phantom parameter is the design.
 
 ## 7. The `FileSystem` effect
 
-The try-core (ability methods, total, `Either`-returning — Unison's layering). Subject-last
-parameter order throughout, per the dot-chain rule.
+The ability *itself* demands failure capacity of its carrier — its parameter is bound
+`F[_] ~ Throw[IoError]` — so every operation raises on the same carrier and the API encodes no
+error tier of its own. (Mechanically: an ability header's generic parameters are parsed by the
+same binder component as any def's, `~`-constraints included, and are prepended to every
+method — so calling any op demands `Throw[IoError]` on the ambient carrier through the
+ordinary constraint path, exactly like `catch`'s `G[_] ~ Effect`. A row using the ability
+therefore reads `{FileSystem, Throw[IoError]}`, and the bound makes that contract
+platform-invariant: no instance can opt out of typed failure.)
+
+The ability methods ARE the public API — the `Console` model. Subject-last parameter order
+throughout, per the dot-chain rule.
 
 ```eliot
-ability FileSystem[F[_]] {
+ability FileSystem[F[_] ~ Throw[IoError]] {
    // Whole-file (primary API — no handle, nothing to close, nothing to leak)
-   def tryReadFile(path: Path): F[Either[IoError, String]]
-   def tryWriteFile(content: String, path: Path): F[Either[IoError, Unit]]
-   def tryAppendFile(content: String, path: Path): F[Either[IoError, Unit]]
+   def readFile(path: Path): F[String]
+   def writeFile(content: String, path: Path): F[Unit]
+   def appendFile(content: String, path: Path): F[Unit]
 
    // Streaming folds — the platform-owned loops (the `foldLeft` precedent: in a total
    // language every iteration is a native; a file is no different)
-   def tryFoldLines[B](initial: B, step: B => String => B, path: Path): F[Either[IoError, B]]
-   def tryFoldCodePoints[B](initial: B, step: B => Int => B, path: Path): F[Either[IoError, B]]
+   def foldLines[B](initial: B, step: B => String => B, path: Path): F[B]
+   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): F[B]
 
    // Metadata & directories
-   def tryExists(path: Path): F[Either[IoError, Bool]]
-   def tryIsDirectory(path: Path): F[Either[IoError, Bool]]
-   def tryListDirectory(path: Path): F[Either[IoError, List[Path]]]
+   def exists(path: Path): F[Bool]
+   def isDirectory(path: Path): F[Bool]
+   def listDirectory(path: Path): F[List[Path]]
    /** Every file under `path`, depth-first. A native by necessity: tree descent is
      * unbounded iteration, inexpressible in user Eliot — the build system's source scan. */
-   def tryWalk(path: Path): F[Either[IoError, List[Path]]]
-   def tryCreateDirectories(path: Path): F[Either[IoError, Unit]]
-   def tryDelete(path: Path): F[Either[IoError, Unit]]
+   def walk(path: Path): F[List[Path]]
+   def createDirectories(path: Path): F[Unit]
+   def delete(path: Path): F[Unit]
 
    // Handles (the low-level tier; prefer with*File / whole-file ops)
-   def tryOpenRead(path: Path): F[Either[IoError, File[Read]]]
-   def tryOpenWrite(path: Path): F[Either[IoError, File[Write]]]        // create-or-truncate
-   def tryOpenAppend(path: Path): F[Either[IoError, File[Write]]]       // create-or-append
-   def tryOpenReadWrite(path: Path): F[Either[IoError, File[ReadWrite]]]
-   def tryReadLine[M](file: File[M]): F[Either[IoError, Option[String]]]      // None = EOF
-   def tryReadCodePoint[M](file: File[M]): F[Either[IoError, Option[Int]]]    // None = EOF
-   def tryWriteText[M](text: String, file: File[M]): F[Either[IoError, Unit]]
-   def close[M](file: File[M]): F[Unit]                                  // errors deliberately not raised
+   def openRead(path: Path): F[File[Read]]
+   def openWrite(path: Path): F[File[Write]]          // create-or-truncate
+   def openAppend(path: Path): F[File[Write]]         // create-or-append
+   def openReadWrite(path: Path): F[File[ReadWrite]]
+   def readLine[M](file: File[M]): F[Option[String]] where canRead[M]       // None = EOF
+   def readCodePoint[M](file: File[M]): F[Option[Int]] where canRead[M]     // None = EOF
+   def writeText[M](text: String, file: File[M]): F[Unit] where canWrite[M]
+   def close[M](file: File[M]): F[Unit]               // close errors deliberately not raised
 }
 ```
 
 Notes:
 
+- **`Either`-style recovery needs no dedicated API** — it falls out of the effect system.
+  `Throw` is *realised over* `Either`, so the total core Unison encodes as a separate builtin
+  layer is, in Eliot, just discharge:
+
+  ```eliot
+  readFile(p) catch (e -> fallback)                 // recover in place
+  runThrow(readFile(p))  : {FileSystem} Either[IoError, String]   // the "try" form, derived
+  ```
+
+  A build tool aggregating errors instead of failing fast writes `runThrow` at the granularity
+  it wants. An earlier draft of this design carried a parallel `try*` method set returning
+  `F[Either[IoError, A]]` (Unison's layering, transplanted literally); it was deleted as
+  redundant — Eliot's discharge machinery *is* that layer.
 - **Per-character = codepoints as range-refined `Int`.** No new `Char` type: a codepoint is
   `Int {Interval(0, 1114111)}` — the refinement channel used exactly as intended (and the
   platform-independence feedback applied: representation derived from the range, a
   microcontroller target packs it as it likes). The `Int`s above should carry that meta on the
   signatures once parameter-position metas are verified; until then the range is documented.
   Decoding (UTF-8/UTF-16 → codepoint) is the platform's job. Binary/byte reads are deferred
-  until something needs them (§10) — v1 is a *text* API.
-- **`Append` is an open option, not a mode** (the Rust `OpenOptions` lesson): `tryOpenAppend`
+  until something needs them (§11) — v1 is a *text* API.
+- **`Append` is an open option, not a mode** (the Rust `OpenOptions` lesson): `openAppend`
   yields a plain `File[Write]`.
 - **EOF is `None`**, never an error (survey lesson 5).
-- **Modes on the try-core are unguarded** (`tryReadLine[M]`): guards live on the public surface
-  below. If `where` on ability methods proves workable they can be added here too; until then a
-  misuse *through the raw try-core* surfaces as a runtime `Left(IoError)` from the platform —
-  loud, fail-safe, and invisible to users of the guarded surface.
+- **Mode guards sit on the ability methods themselves.** `where` on ability methods is
+  syntactically the ordinary def `where` (ability bodies reuse the full def parser) but is an
+  unverified corner (§12); the fallback is mode-exact signatures (`writeText` on `File[Write]`
+  only) + the explicit `asRead`/`asWrite` narrowing of §6 — same model, slightly noisier call
+  sites.
+- **Diagnostics caveat**: forgetting `Throw[IoError]` in a row fails soundly but cryptically
+  today (the known `Throw`-leak UX at `AbilityResolver`), not with the friendly
+  "performs the effect" message `Console`-class leaks get. Pre-existing condition, not new to
+  this design; noted as an eventual diagnostics improvement.
 
-The public surface (derived defs in the same module — this is what user code calls):
+The small derived surface (plain defs in the same module — everything else above is already
+directly callable):
 
 ```eliot
-def readFile(path: Path): {FileSystem, Throw[IoError]} String = orRaise(tryReadFile(path))
-
-def writeFile(content: String, path: Path): {FileSystem, Throw[IoError]} Unit = orRaise(tryWriteFile(content, path))
-
-def appendFile(content: String, path: Path): {FileSystem, Throw[IoError]} Unit = orRaise(tryAppendFile(content, path))
-
-def foldLines[B](initial: B, step: B => String => B, path: Path): {FileSystem, Throw[IoError]} B =
-   orRaise(tryFoldLines(initial, step, path))
-
 def readLines(path: Path): {FileSystem, Throw[IoError]} List[String] =
    foldLines(empty, acc -> line -> acc.append(line), path)
 
 /** Run `action` on every line, front to back, keeping only its effects (the `foreach` of files). */
 def foreachLine(action: String => {Effect} Unit, path: Path): {FileSystem, Throw[IoError]} Unit
 
-def exists(path: Path): {FileSystem, Throw[IoError]} Bool = orRaise(tryExists(path))
-def isDirectory(path: Path): {FileSystem, Throw[IoError]} Bool = orRaise(tryIsDirectory(path))
-def listDirectory(path: Path): {FileSystem, Throw[IoError]} List[Path] = orRaise(tryListDirectory(path))
-def walk(path: Path): {FileSystem, Throw[IoError]} List[Path] = orRaise(tryWalk(path))
-def createDirectories(path: Path): {FileSystem, Throw[IoError]} Unit = orRaise(tryCreateDirectories(path))
-def delete(path: Path): {FileSystem, Throw[IoError]} Unit = orRaise(tryDelete(path))
-
-def readLine[M](file: File[M]): {FileSystem, Throw[IoError]} Option[String] where canRead[M] = orRaise(tryReadLine(file))
-def readCodePoint[M](file: File[M]): {FileSystem, Throw[IoError]} Option[Int] where canRead[M] = orRaise(tryReadCodePoint(file))
-def writeText[M](text: String, file: File[M]): {FileSystem, Throw[IoError]} Unit where canWrite[M] = orRaise(tryWriteText(text, file))
-
-/** Open `path` for reading, run `use`, close. The sanctioned handle API. */
+/** Open `path`, run `use`, close. The sanctioned handle API. */
 def withReadFile[A](use: File[Read] => {Effect} A, path: Path): {FileSystem, Throw[IoError]} A
 def withWriteFile[A](use: File[Write] => {Effect} A, path: Path): {FileSystem, Throw[IoError]} A
 ```
 
-The `try*` core stays public: code that prefers `Either`-style (a build tool aggregating errors
-rather than failing fast) uses it directly; everyone else gets direct style plus the ordinary
-`catch` for recovery. Failure and access are separate row entries (`Koka`'s `<fsys, exn>`
-validated split), so `catch` discharges `Throw[IoError]` while `{FileSystem}` keeps riding to
-`main` like `Console` does.
-
-`foreachLine` and the `with*File` brackets have Eliot bodies built from the try-core + `Effect`
-machinery (the `foreach`/`catch` precedents); their exact elaboration through the effect lifter
-is an implementation detail to be settled with tests, not part of the design surface.
+Failure and access are separate row entries (Koka's `<fsys, exn>` validated split), so `catch`
+discharges `Throw[IoError]` while `{FileSystem}` keeps riding to `main` like `Console` does.
+`foreachLine` and the `with*File` brackets have Eliot bodies built from `foldLines`/handles +
+the `Effect` machinery (the `foreach`/`catch` precedents); their exact elaboration through the
+effect lifter is an implementation detail to be settled with tests, not part of the design
+surface.
 
 ## 8. Resource safety (v1 stance)
 
@@ -362,10 +371,10 @@ is an implementation detail to be settled with tests, not part of the design sur
   shape: Effekt-style, the discharger runs the finalizer; needs design, tracked in §10).
   A leaked handle on jvm is eventually collected; on a microcontroller target this matters and
   is the forcing function for the real story.
-- `close` returns `F[Unit]`, not an `Either`: surfacing close errors (the Rust drop regret)
-  matters for *write* flushing, and the honest v1 answer is that `tryWriteFile`/`tryAppendFile`
-  flush-and-close internally and report; explicit-handle writers who care can `writeText` +
-  `close` and later get a `tryClose` variant if a real need appears.
+- `close` deliberately does not raise: surfacing close errors (the Rust drop regret) matters
+  for *write* flushing, and the honest v1 answer is that `writeFile`/`appendFile` flush-and-close
+  internally and report failures like any other op; explicit-handle writers who care can later
+  get a raising `closeFlushed` variant if a real need appears.
 - **No linearity yet**: a handle can escape `withReadFile` in a closure or record. Accepted v1
   gap — loud at worst (use-after-close is a runtime `IoError`/`raise`, never silent
   corruption). The planned linearity/uniqueness work (`docs/in-place-mutation.md`) is the
@@ -379,13 +388,17 @@ is an implementation detail to be settled with tests, not part of the design sur
   `data IoError(message: String)`.
 - Concrete `Path` ops delegate to `private` body-less leaf natives backed by
   `java.nio.file.Path` (erased-generic natives where needed, the `java.util.List` mechanism).
-- One instance, generic over the carrier — never pinned to `IO`:
+- One instance, generic over the carrier — never pinned to `IO`. The leaf natives still speak
+  `Either` (a native cannot `raise`); the instance reflects that into the effect immediately
+  with `orRaise`, so the encoding never escapes the platform layer:
 
 ```eliot
-implement[F[_] ~ Suspend] FileSystem[F] {
-   def tryReadFile(path: Path): F[Either[IoError, String]] = suspend(_ -> tryReadFileInternal(path))
+implement[F[_] ~ Suspend & Throw[IoError] & Effect] FileSystem[F] {
+   def readFile(path: Path): F[String] = suspend(_ -> readFileInternal(path)).flatMap(orRaise)
    ...
 }
+
+private def readFileInternal(path: Path): Either[IoError, String]      // implemented by the backend
 ```
 
 - **Implementation question to settle first**: leaf natives that return `Either[IoError, A]` /
@@ -432,7 +445,7 @@ the build system can do anything useful with `walk`'s result.
 
 - **Error kinds** on `IoError` (NotFound / PermissionDenied / AlreadyExists / …) — additive;
   wanted by the build system fairly soon (see §5).
-- **Binary I/O**: `tryFoldBytes` / byte writes with `Int {Interval(0, 255)}` elements — same
+- **Binary I/O**: `foldBytes` / byte writes with `Int {Interval(0, 255)}` elements — same
   shape as codepoints, added when a consumer exists.
 - **Finalizers / Resource** for close-on-raise (§8) — the general "bracket as effect
   discharge" design.
@@ -455,12 +468,19 @@ the build system can do anything useful with `walk`'s result.
 Things this design *assumes* and the implementation must confirm (with tests), roughly in risk
 order:
 
-1. `where canRead[M]` on a def, with `M` a generic parameter and `==` over abstract marker
-   types (`Eq[Type]` structural equality) — the `where E1 != E2` mechanism, on defs.
-2. Effect elaboration of `orRaise(tryX(...))` — an effectful argument into a `{Throw}`-raising
-   function (the lifter's bind/pure ladder; the `catch` body is the existing precedent).
-3. Backend construction of `Either`/`Option` results from leaf natives (§9).
-4. `foreachLine`/`with*File` bodies through the lifter (build-the-action-chain, `foreach`
+1. The ability-header carrier bound `F[_] ~ Throw[IoError]`, end-to-end. Syntax is confirmed
+   (`AbilityBlock` parses header generics with the same constrained-binder component as defs
+   and prepends them to every method, so call sites demand the constraint through the ordinary
+   `~` path); to verify: the synthetic ability marker, instance-conformance checking against a
+   constrained header, and that an undeclared `Throw[IoError]` fails at every use (soundly,
+   even if cryptically).
+2. `where canRead[M]` guards **on ability methods**, with `M` generic and `==` over abstract
+   marker types (`Eq[Type]` structural equality — the `where E1 != E2` mechanism). Fallback if
+   this corner is unimplemented: mode-exact method signatures + `asRead`/`asWrite` (§6/§7).
+3. Instance bodies through the effect machinery: `suspend(...).flatMap(orRaise)` — raising from
+   within an implement body on the constrained carrier (the `catch` body is the precedent).
+4. Backend construction of `Either`/`Option` results from leaf natives (§9).
+5. `foreachLine`/`with*File` bodies through the lifter (build-the-action-chain, `foreach`
    precedent).
-5. Erased-generic native for `File[M]` and the `Path` natives (the `List` mechanism, new leaf
+6. Erased-generic native for `File[M]` and the `Path` natives (the `List` mechanism, new leaf
    set).
