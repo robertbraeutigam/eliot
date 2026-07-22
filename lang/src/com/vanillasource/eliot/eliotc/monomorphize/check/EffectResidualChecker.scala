@@ -1,13 +1,16 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{SignatureView, spine}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
@@ -35,7 +38,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * defaulting — so a reference's carrier argument is solved to the ambient carrier (concrete `IO`, or a still abstract
   * carrier meta) while the ambient carrier's identity is intact. Runs only for a value mono, never a signature twin.
   */
-class EffectResidualChecker(force: SemValue => CheckIO[SemValue], platform: Platform) {
+class EffectResidualChecker(force: SemValue => CheckIO[SemValue], platform: Platform) extends Logging {
 
   /** Verify a value's effects against its declared signature. A value *with* an ambient effect carrier (a `{E...}` row)
     * runs the subset check; a value with **none** (a pure or concrete-carrier return) runs the declared-pure fail-safe.
@@ -54,11 +57,18 @@ class EffectResidualChecker(force: SemValue => CheckIO[SemValue], platform: Plat
       carrierNames: Set[String]
   ): CheckIO[Unit] =
     for {
-      ambientHeads <- effectiveAmbientHeads
-      residual     <- residualEffects(collectValueRefs(body.value), ambientHeads)
-      declared      = EffectCarriers.declaredEffects(carrierNames, resolvedValue.paramConstraints)
-      undeclared    = residual.diff(declared)
-      _            <- if (undeclared.isEmpty) pure(()) else reportUndeclared(resolvedValue, undeclared)
+      ambientHeads   <- effectiveAmbientHeads
+      refs            = collectValueRefs(body.value)
+      residual       <- residualEffects(refs, ambientHeads, effectsOf)
+      declared        = EffectCarriers.declaredEffects(carrierNames, resolvedValue.paramConstraints)
+      // Effects-as-channel Phase 2 (shadow): the same subset test sourced from the declared-effect *channel* instead of
+      // the carrier-binder constraints — the value's own row from its `effectRow`, each callee's from *its* `effectRow`.
+      // Verdicts are compared, never acted on (§10). See [[shadowCompareSubset]].
+      channelResidual <- residualEffects(refs, ambientHeads, channelEffectsOf)
+      channelDeclared  = channelDeclaredFor(resolvedValue)
+      _              <- shadowCompareSubset(resolvedValue, residual, declared, channelResidual, channelDeclared)
+      undeclared      = residual.diff(declared)
+      _              <- if (undeclared.isEmpty) pure(()) else reportUndeclared(resolvedValue, undeclared)
     } yield ()
 
   /** The "declared pure but performs effects" fail-safe. A value with no ambient carrier whose *return type cannot host
@@ -76,27 +86,36 @@ class EffectResidualChecker(force: SemValue => CheckIO[SemValue], platform: Plat
     if (spine(view.returnType.value)._2.nonEmpty) pure(()) // an applied return can legitimately host the effect carrier
     else
       for {
-        mismatched <- inspect(_.unifier.errors.nonEmpty)
-        effectful  <- if (!mismatched) pure(false) else bodyPerformsEffect(body.value)
-        _          <- if (effectful) reportDeclaredPure(resolvedValue) else pure(())
+        mismatched       <- inspect(_.unifier.errors.nonEmpty)
+        effectful        <- if (!mismatched) pure(false) else bodyPerformsEffect(body.value, effectsOf)
+        // Effects-as-channel Phase 2 (shadow): the same "performs an effect" read sourced from the channel.
+        channelEffectful <- if (!mismatched) pure(false) else bodyPerformsEffect(body.value, channelEffectsOf)
+        _                <- shadowCompareVerdict(resolvedValue, "declared-pure", effectful, channelEffectful)
+        _                <- if (effectful) reportDeclaredPure(resolvedValue) else pure(())
       } yield ()
 
   /** Whether any reference in the body performs (or propagates) a non-machinery effect — the ambient-independent read
-    * used by the declared-pure fail-safe (a pure value has no ambient carrier to filter against).
+    * used by the declared-pure fail-safe (a pure value has no ambient carrier to filter against). The `effectsOfFn`
+    * source is parameterized so the Phase-2 shadow can run the same read off the channel.
     */
-  private def bodyPerformsEffect(expr: SemExpression): CheckIO[Boolean] =
-    collectValueRefs(expr).toList.traverse(ref => effectsOf(ref._1.value)).map(_.exists(_.nonEmpty))
+  private def bodyPerformsEffect(
+      expr: SemExpression,
+      effectsOfFn: ValueFQN => CheckIO[Set[AbilityFQN]]
+  ): CheckIO[Boolean] =
+    collectValueRefs(expr).toList.traverse(ref => effectsOfFn(ref._1.value)).map(_.exists(_.nonEmpty))
 
   /** The effect abilities demanded on the ambient carrier: each value reference whose contributed effects are non-empty
-    * and one of whose type arguments forces to an ambient-carrier head.
+    * and one of whose type arguments forces to an ambient-carrier head. The `effectsOfFn` source is parameterized so the
+    * Phase-2 shadow reuses the identical ambient-ride walk with channel-sourced per-reference effects.
     */
   private def residualEffects(
       refs: Seq[(Sourced[ValueFQN], Seq[SemValue])],
-      ambientHeads: Set[CheckState.CarrierHead]
+      ambientHeads: Set[CheckState.CarrierHead],
+      effectsOfFn: ValueFQN => CheckIO[Set[AbilityFQN]]
   ): CheckIO[Set[AbilityFQN]] =
     refs.toList.foldLeftM(Set.empty[AbilityFQN]) { case (acc, (vfqn, typeArgs)) =>
       for {
-        effects <- effectsOf(vfqn.value)
+        effects <- effectsOfFn(vfqn.value)
         rides   <- if (effects.isEmpty) pure(false) else ridesAmbient(typeArgs, ambientHeads)
       } yield if (rides) acc ++ effects else acc
     }
@@ -121,6 +140,44 @@ class EffectResidualChecker(force: SemValue => CheckIO[SemValue], platform: Plat
           case None      => Set.empty
         }
     }
+
+  /** The Phase-2 shadow's channel-sourced counterpart of [[effectsOf]]: identical for an ability method (recognised by
+    * its qualifier, machinery excluded), but for an *ordinary* callee it reads the declared row from that callee's
+    * effect-channel metadata (`effectRow`, populated by the desugarer in Phase 1) instead of re-deriving it from the
+    * callee's carrier-binder constraints. Comparing the two across the suites is what validates the channel as a
+    * faithful substitute for the carrier constraints (§10 Phase 2).
+    */
+  private def channelEffectsOf(vfqn: ValueFQN): CheckIO[Set[AbilityFQN]] =
+    EffectMachinery.abilityNameOf(vfqn) match {
+      case Some(name) if EffectMachinery.isMachineryAbility(name) => pure(Set.empty)
+      case Some(name)                                             => pure(Set(AbilityFQN(vfqn.moduleName, name)))
+      case None                                                   =>
+        liftF(getFactIfProduced(OperatorResolvedValue.Key(vfqn, platform))).map {
+          case Some(orv) => channelDeclaredFor(orv)
+          case None      => Set.empty
+        }
+    }
+
+  /** The channel declared row of a value: its open-row channel entries, plus — for a **carrier-machinery ability
+    * implementation** — the abilities carried on its constraint binders. Those impls (`Effect`/`Suspend`/`Throw`/`State`
+    * … over a carrier stack, e.g. `Abort` lifted through a `StateCarrier`) are exactly what the `{…}` sugar desugars
+    * *to*, so they cannot themselves be written with the sugar; they declare their effect through the carrier
+    * constraint. This is the one expected exception the effect channel does not describe (docs/effects-as-channel.md §11:
+    * a rule the shadow surfaces) — so for an ability implementation the row is read the current, carrier-constraint way,
+    * keeping the shadow byte-identical for machinery while the channel is still validated for all ordinary code.
+    */
+  private def channelDeclaredFor(resolvedValue: OperatorResolvedValue): Set[AbilityFQN] = {
+    val fromChannel = EffectResidualChecker.channelDeclaredEffects(resolvedValue.effectRow)
+    resolvedValue.vfqn.name.qualifier match {
+      case _: Qualifier.AbilityImplementation =>
+        val view = SignatureView.of(resolvedValue.signature)
+        fromChannel ++ EffectCarriers.declaredEffects(
+          EffectCarriers.carrierBinders(view).filter(resolvedValue.paramConstraints.contains),
+          resolvedValue.paramConstraints
+        )
+      case _                                  => fromChannel
+    }
+  }
 
   /** Whether any of a reference's type arguments forces to a head in the ambient-carrier set. */
   private def ridesAmbient(typeArgs: Seq[SemValue], ambientHeads: Set[CheckState.CarrierHead]): CheckIO[Boolean] =
@@ -155,6 +212,64 @@ class EffectResidualChecker(force: SemValue => CheckIO[SemValue], platform: Plat
       case _                                                   => Seq.empty
     }
 
+  /** Effects-as-channel Phase 2 shadow (§10): compare the subset check's accept/reject verdict as decided by the current
+    * carrier-constraint sources against the verdict the declared-effect *channel* would give, and log any divergence. The
+    * channel verdict is never acted on — the current path still drives compilation, so this is behaviour-neutral. A
+    * verdict divergence is a `warn` (the deliverable is byte-identical accept/reject); a set-only divergence that leaves
+    * the verdict intact is a `debug`, kept for insight while the channel and the constraints are grown together.
+    */
+  private def shadowCompareSubset(
+      resolvedValue: OperatorResolvedValue,
+      residual: Set[AbilityFQN],
+      declared: Set[AbilityFQN],
+      channelResidual: Set[AbilityFQN],
+      channelDeclared: Set[AbilityFQN]
+  ): CheckIO[Unit] = {
+    val currentReject = residual.diff(declared).nonEmpty
+    val channelReject = channelResidual.diff(channelDeclared).nonEmpty
+    if (currentReject != channelReject)
+      liftF(
+        warn[CompilerIO](
+          s"${EffectResidualChecker.shadowMarker} verdict differs for ${resolvedValue.vfqn.show}: " +
+            s"current=${verdictLabel(currentReject)} channel=${verdictLabel(channelReject)}; " +
+            s"declared[current=${abilitySet(declared)} channel=${abilitySet(channelDeclared)}] " +
+            s"residual[current=${abilitySet(residual)} channel=${abilitySet(channelResidual)}]"
+        )
+      )
+    else if (residual != channelResidual || declared != channelDeclared)
+      liftF(
+        debug[CompilerIO](
+          s"${EffectResidualChecker.shadowMarker} sets differ (verdict agrees) for ${resolvedValue.vfqn.show}: " +
+            s"declared[current=${abilitySet(declared)} channel=${abilitySet(channelDeclared)}] " +
+            s"residual[current=${abilitySet(residual)} channel=${abilitySet(channelResidual)}]"
+        )
+      )
+    else pure(())
+  }
+
+  /** The declared-pure fail-safe's shadow: the current and channel "performs an effect" booleans decide identical
+    * accept/reject (`true` = reject). Logs a `warn` on divergence, as [[shadowCompareSubset]] does.
+    */
+  private def shadowCompareVerdict(
+      resolvedValue: OperatorResolvedValue,
+      site: String,
+      currentReject: Boolean,
+      channelReject: Boolean
+  ): CheckIO[Unit] =
+    if (currentReject != channelReject)
+      liftF(
+        warn[CompilerIO](
+          s"${EffectResidualChecker.shadowMarker} verdict differs ($site) for ${resolvedValue.vfqn.show}: " +
+            s"current=${verdictLabel(currentReject)} channel=${verdictLabel(channelReject)}"
+        )
+      )
+    else pure(())
+
+  private def verdictLabel(reject: Boolean): String = if (reject) "reject" else "accept"
+
+  private def abilitySet(abilities: Set[AbilityFQN]): String =
+    abilities.toSeq.map(_.abilityName).sorted.mkString("{", ",", "}")
+
   private def reportDeclaredPure(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
     liftF(
       compilerError(
@@ -178,4 +293,24 @@ class EffectResidualChecker(force: SemValue => CheckIO[SemValue], platform: Plat
       ) >> abort[Unit]
     )
   }
+}
+
+object EffectResidualChecker {
+
+  /** The distinctive prefix on every effects-as-channel Phase 2 shadow log line, so a suite run can be grepped for
+    * `derived ⊆ declared` divergences between the current carrier-constraint verdict and the channel verdict. Removed
+    * with the whole checker at Phase 4.
+    */
+  val shadowMarker: String = "EFFECT-CHANNEL-SHADOW"
+
+  /** The declared effect abilities read straight from the effect channel: the union of a signature's open-row entries
+    * over every position (return + effect-transparent parameters), with the machinery abilities (`Effect`/`Suspend`)
+    * removed — the channel analogue of [[EffectCarriers.declaredEffects]]. Pure (no checker state), so it is the
+    * unit-testable core of the Phase-2 channel-declared computation.
+    */
+  private[check] def channelDeclaredEffects(effectRow: EffectRow[ResolvedAbilityConstraint]): Set[AbilityFQN] =
+    (effectRow.returnEffects ++ effectRow.parameterEffects.flatMap(_.effects))
+      .map(_.abilityFQN)
+      .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
+      .toSet
 }
