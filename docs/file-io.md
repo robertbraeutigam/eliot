@@ -71,9 +71,12 @@ Lessons this design adopts:
 7. **For a total language, iteration lives in the platform.** The viable shapes without user
    recursion: fold-natives, or Effekt-style "the file is a handler for a stream effect".
    → fold-natives now (the `List.foldLeft` precedent); handler-streams noted as future work.
-8. **Bracket beats drop.** Rust's close-on-drop silently swallows close errors; effect languages
-   naturally bracket (Effekt closes in handler `finalize`). → `withReadFile`/`withWriteFile`
-   as the sanctioned handle API; explicit `close` surfaces errors.
+8. **Bracket beats drop — and optional brackets beat nothing, but not by much.** Rust's
+   close-on-drop silently swallows close errors; Go's `defer` is a convention; effect languages
+   naturally bracket (Effekt closes in handler `finalize`), and every ecosystem's *recommended*
+   path is already a block (`with`, try-with-resources, `withFile`, Eio's `with_open_in`).
+   → Eliot goes one step further: `with*File` is the **only** handle API — `open`/`close` are
+   not public at all, and the guarantee is a per-carrier law (§8).
 9. **Capability scoping (Eio: a path = (directory capability, relative string); WASI preopens)**
    is the one design here that materially improves security posture. Eliot's effect row already
    gives the coarse grain ("touches the filesystem at all"); per-directory capabilities are
@@ -94,7 +97,8 @@ Lessons this design adopts:
   No new error machinery — file failures are just `Throw[IoError]`.
 - Handles are **`File[M]`** with phantom access-mode markers `Read` / `Write` / `ReadWrite`,
   enforced by compile-evaluated `where` guards (§6). Whole-file and fold ops never expose a
-  handle at all and are the primary API.
+  handle at all and are the primary API; a handle exists **only inside a `with*File` bracket**
+  — there is no public `open` or `close` (§8).
 - A target without a filesystem simply ships no `FileSystem` instance: any `{FileSystem}`
   program fails ability resolution at monomorphization for that target. No capability
   configuration needed — the layer system is the capability.
@@ -195,8 +199,9 @@ channel deliberately *not* used for modes. The reasoning, then the design:
   tracking). A `File {mode}` meta would silently stop protecting the moment a handle is stored
   in a record — exactly the kind of gap that must not exist. Phantom parameters ride the
   ordinary type system through every position, today, with zero compiler work.
-- The channel's real advantage — branch *joins* (`if(c, openRead(p), openReadWrite(p))` joining
-  to `Read`) — is marginal for files and recoverable by explicit narrowing (`asRead`, below).
+- The channel's real advantage — branch *joins* (a `File[Read]` and a `File[ReadWrite]` from
+  the two arms of an `if` joining to `Read`) — is marginal for files and recoverable by
+  explicit narrowing (`asRead`, below).
 - What genuinely belongs in the channel later: *value-shaped* path/file refinements
   (absolute/normalized, tracked file size), per §4/§10. Mode is capability-shaped, not
   value-shaped. This is the general split this design proposes: **capabilities → types,
@@ -291,15 +296,15 @@ ability FileSystem[F[_] ~ Throw[IoError]] {
    def createDirectories(path: Path): F[Unit]
    def delete(path: Path): F[Unit]
 
-   // Handles (the low-level tier; prefer with*File / whole-file ops)
-   def openRead(path: Path): F[File[Read]]
-   def openWrite(path: Path): F[File[Write]]          // create-or-truncate
-   def openAppend(path: Path): F[File[Write]]         // create-or-append
-   def openReadWrite(path: Path): F[File[ReadWrite]]
+   // Handles — bracket-only. The with* methods are the SOLE introducers of a File[M]; there
+   // is no public open or close, and release is guaranteed by the instance (§8).
+   def withReadFile[A](use: File[Read] => F[A], path: Path): F[A]
+   def withWriteFile[A](use: File[Write] => F[A], path: Path): F[A]        // create-or-truncate
+   def withAppendFile[A](use: File[Write] => F[A], path: Path): F[A]       // create-or-append
+   def withReadWriteFile[A](use: File[ReadWrite] => F[A], path: Path): F[A]
    def readLine[M](file: File[M]): F[Option[String]] where canRead[M]       // None = EOF
    def readCodePoint[M](file: File[M]): F[Option[Int]] where canRead[M]     // None = EOF
    def writeText[M](text: String, file: File[M]): F[Unit] where canWrite[M]
-   def close[M](file: File[M]): F[Unit]               // close errors deliberately not raised
 }
 ```
 
@@ -325,8 +330,8 @@ Notes:
   signatures once parameter-position metas are verified; until then the range is documented.
   Decoding (UTF-8/UTF-16 → codepoint) is the platform's job. Binary/byte reads are deferred
   until something needs them (§11) — v1 is a *text* API.
-- **`Append` is an open option, not a mode** (the Rust `OpenOptions` lesson): `openAppend`
-  yields a plain `File[Write]`.
+- **`Append` is an open option, not a mode** (the Rust `OpenOptions` lesson): `withAppendFile`
+  hands its body a plain `File[Write]`.
 - **EOF is `None`**, never an error (survey lesson 5).
 - **Termination and unbounded sources (pipes).** A path may name a FIFO, device or other
   stream-shaped object (`/dev/zero`, a pipe) whose content is unbounded — folding it is
@@ -374,38 +379,70 @@ def readLines(path: Path): {FileSystem, Throw[IoError]} List[String] =
 
 /** Run `action` on every line, front to back, keeping only its effects (the `foreach` of files). */
 def foreachLine(action: String => {Effect} Unit, path: Path): {FileSystem, Throw[IoError]} Unit
-
-/** Open `path`, run `use`, close. The sanctioned handle API. */
-def withReadFile[A](use: File[Read] => {Effect} A, path: Path): {FileSystem, Throw[IoError]} A
-def withWriteFile[A](use: File[Write] => {Effect} A, path: Path): {FileSystem, Throw[IoError]} A
 ```
 
 Failure and access are separate row entries (Koka's `<fsys, exn>` validated split), so `catch`
 discharges `Throw[IoError]` while `{FileSystem}` keeps riding to `main` like `Console` does.
-`foreachLine` and the `with*File` brackets have Eliot bodies built from `foldLines`/handles +
-the `Effect` machinery (the `foreach`/`catch` precedents); their exact elaboration through the
-effect lifter is an implementation detail to be settled with tests, not part of the design
-surface.
+`foreachLine` has an Eliot body built from `foldLines` + the `Effect` machinery (the
+`foreach`/`catch` precedents); its exact elaboration through the effect lifter is an
+implementation detail to be settled with tests, not part of the design surface.
 
-## 8. Resource safety (v1 stance)
+## 8. Resource safety: bracket-only handles, guaranteed release
+
+Design line: **the API must not offer an easy way to write a bad program.** An exposed
+`open`/`close` pair is exactly that — every caller is one forgotten (or `raise`-skipped)
+`close` away from a leak. So open/close are simply not in the API:
 
 - The **primary API is handle-free**: `readFile`, `readLines`, `foldLines`, `writeFile` — the
   native opens and closes internally; nothing can leak. This mirrors where every surveyed
   ecosystem actually pushes users (`fs::read_to_string`, `os.ReadFile`, `Path.read_text`).
-- Handle code goes through `withReadFile`/`withWriteFile` brackets. v1 guarantees close on
-  normal completion; **close-on-`raise` (finalizers) is a known limitation** — a `use` body
-  that raises leaks the handle until a general finalizer/`Resource` story exists (the natural
-  shape: Effekt-style, the discharger runs the finalizer; needs design, tracked in §10).
-  A leaked handle on jvm is eventually collected; on a microcontroller target this matters and
-  is the forcing function for the real story.
-- `close` deliberately does not raise: surfacing close errors (the Rust drop regret) matters
-  for *write* flushing, and the honest v1 answer is that `writeFile`/`appendFile` flush-and-close
-  internally and report failures like any other op; explicit-handle writers who care can later
-  get a raising `closeFlushed` variant if a real need appears.
-- **No linearity yet**: a handle can escape `withReadFile` in a closure or record. Accepted v1
-  gap — loud at worst (use-after-close is a runtime `IoError`/`raise`, never silent
-  corruption). The planned linearity/uniqueness work (`docs/in-place-mutation.md`) is the
-  eventual closer; only experimental Haskell `linear-base` ships this anywhere today.
+- A handle exists **only inside a `with*File` block**: the ability's `with*` methods are the
+  sole introducers of a `File[M]`, and there is no user-visible `close`. This is the
+  cats-effect `Resource` guarantee in Eliot shape — the bracket *is* the construct, and it is
+  not optional.
+
+The guarantee rests on one new carrier ability in `eliot.carrier` (a peer of
+`Effect`/`Suspend`: import-required machinery that application code never names):
+
+```eliot
+ability Bracket[F[_]] {
+   /** Run `fa`, then `finalizer` — exactly once, on success and on every failure channel.
+     * `fa`'s failure takes precedence over a failure of the finalizer. */
+   def guarantee[A](finalizer: F[Unit], fa: F[A]): F[A]
+}
+```
+
+Why this is *easy* in Eliot where cats-effect needs the heavy `MonadCancel` apparatus: Eliot
+carriers have **no exceptions, no async, no cancellation — every failure channel is a value**
+(`Throw` is realised over `Either`, `Abort` over `Option`). "Run the finalizer even on
+failure" is then plain sequencing past that value: `ThrowCarrier`'s instance runs `fa` to its
+inner `G[Either[E, A]]`, sequences the finalizer, and re-emits the `Either` — a two-line
+instance, lawful by construction. Platform layers add a `Bracket` instance beside each
+carrier's `Effect`/`Suspend` instances: a trivial base case on `IO` (which has no failure
+channel of its own) plus one inductive lift per transformer — the established
+`Suspend`-lift pattern. Close errors on the success path surface as an ordinary raised
+`IoError` (the Rust close-on-drop regret addressed); under the precedence law they are
+suppressed only when the body already failed.
+
+The platform's `with*File` implements the bracket once, inside the instance — open (a
+`private` leaf native) → `guarantee(close, use(handle))` — so user code cannot get between
+open and close, structurally.
+
+What this deliberately does **not** claim: a `use` body can still *smuggle* the handle out (in
+its result, a closure, a record) and touch it after the block. Without linearity no bracket
+construct prevents that — **including cats-effect's `Resource`**, where `r.use(IO.pure)` leaks
+the closed resource identically. The difference from an open/close world: the *easy* bad
+program (forgetting close, losing it to a `raise`) is now inexpressible rather than
+discouraged, and the remaining bad program requires deliberate effort and fails **loudly**
+(use-after-close raises `IoError`, never silent corruption). The planned uniqueness/linearity
+work (`docs/in-place-mutation.md`) closes even that: a linear `File[M]` makes escape a compile
+error, and this API is forward-compatible with it (the `use` binder becomes the linear one —
+no signature changes).
+
+Composition: two simultaneous files nest (`withReadFile(in -> withWriteFile(out -> …, dst), src)`).
+If flat many-resource composition is ever needed, the Eliot-native extension is a **scope
+effect** (§11), not a `Resource` datatype — a monad-in-monad is exactly what Eliot's row
+system exists to avoid.
 
 ## 9. Platform layer (jvm) and testing
 
@@ -420,13 +457,22 @@ surface.
   with `orRaise`, so the encoding never escapes the platform layer:
 
 ```eliot
-implement[F[_] ~ Suspend & Throw[IoError] & Effect] FileSystem[F] {
+implement[F[_] ~ Suspend & Throw[IoError] & Bracket & Effect] FileSystem[F] {
    def readFile(path: Path): F[String] = suspend(_ -> readFileInternal(path)).flatMap(orRaise)
+
+   def withReadFile[A](use: File[Read] => F[A], path: Path): F[A] =
+      suspend(_ -> openReadInternal(path)).flatMap(orRaise)
+         .flatMap(f -> guarantee(suspend(_ -> closeInternal(f)).flatMap(orRaise), use(f)))
    ...
 }
 
 private def readFileInternal(path: Path): Either[IoError, String]      // implemented by the backend
+private def openReadInternal(path: Path): Either[IoError, File[Read]]  // implemented by the backend
+private def closeInternal[M](file: File[M]): Either[IoError, Unit]     // implemented by the backend
 ```
+
+The jvm carrier files (`IO.els`, `Throw.els`, `State.els`, …) each gain their `Bracket`
+instance beside the existing `Effect`/`Suspend` ones (§8).
 
 - **Implementation question to settle first**: leaf natives that return `Either[IoError, A]` /
   `Option[A]` must construct Eliot data values from backend code. Options: (a) the backend
@@ -474,8 +520,10 @@ the build system can do anything useful with `walk`'s result.
   wanted by the build system fairly soon (see §5).
 - **Binary I/O**: `foldBytes` / byte writes with `Int {Interval(0, 255)}` elements — same
   shape as codepoints, added when a consumer exists.
-- **Finalizers / Resource** for close-on-raise (§8) — the general "bracket as effect
-  discharge" design.
+- **Scope effect** for flat many-resource composition: a `{Scope}` row entry + a `scoped`
+  discharger that closes every acquisition made in the block at exit, in reverse order —
+  Eio's `Switch` in effect-row form, superseding nested `with*File` pyramids if they ever
+  hurt. Correctness is already covered by `Bracket` (§8); this is ergonomics only.
 - **Directory capabilities** (Eio/WASI model): a `Dir` value as scoping capability,
   `openBeneath(dir, rel)`; slots under the same ability later. The effect row already covers
   the coarse grain today.
@@ -515,10 +563,13 @@ order:
 2. `where canRead[M]` guards **on ability methods**, with `M` generic and `==` over abstract
    marker types (`Eq[Type]` structural equality — the `where E1 != E2` mechanism). Fallback if
    this corner is unimplemented: mode-exact method signatures + `asRead`/`asWrite` (§6/§7).
-3. Instance bodies through the effect machinery: `suspend(...).flatMap(orRaise)` — raising from
+3. The `Bracket` machinery end-to-end: higher-order ability methods (`use: File[Read] => F[A]`
+   as a method parameter), the per-carrier `guarantee` instances, and the precedence law
+   holding through stacked carriers (`ThrowCarrier` over `IO` first — finalizer runs on both
+   `Left` and `Right`, body failure wins over finalizer failure).
+4. Instance bodies through the effect machinery: `suspend(...).flatMap(orRaise)` — raising from
    within an implement body on the constrained carrier (the `catch` body is the precedent).
-4. Backend construction of `Either`/`Option` results from leaf natives (§9).
-5. `foreachLine`/`with*File` bodies through the lifter (build-the-action-chain, `foreach`
-   precedent).
-6. Erased-generic native for `File[M]` and the `Path` natives (the `List` mechanism, new leaf
+5. Backend construction of `Either`/`Option` results from leaf natives (§9).
+6. `foreachLine` through the lifter (build-the-action-chain, `foreach` precedent).
+7. Erased-generic native for `File[M]` and the `Path` natives (the `List` mechanism, new leaf
    set).
