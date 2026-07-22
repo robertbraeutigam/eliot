@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   allRoots,
   compilerRoots,
+  effectChannelKey,
   eliotCompilerOverlay,
   mountFactory,
   pathKey
@@ -42,6 +43,16 @@ class LangPlugin extends CompilerPlugin {
         "an additional source root (a layer's `eliot/` dir). Each root is scanned for the runtime pool; for the " +
           "compile-time pool its sibling `eliot-compiler/` overlay is added on top (override-preferred). Repeatable; " +
           "this is the option form of the positional `<path>`, usable after a subcommand."
+      ),
+    // Effects-as-channel Phase 3 (docs/effects-as-channel.md §10): the gated new path. When set, the desugar strips
+    // open effect rows to their payload and erases the carrier from effect abilities, so the checker is effect-blind;
+    // verification and elaboration move downstream (built in later slices). Off by default — the whole current
+    // carrier-based path is unchanged unless this flag is given.
+    opt[Unit]("effect-channel")
+      .action((_, config) => config.set(effectChannelKey, true))
+      .text(
+        "EXPERIMENTAL: strip effect rows out of the type language (effects-as-channel). The checker becomes " +
+          "effect-blind; effect verification and elaboration happen after monomorphization. Off by default."
       )
   )
 
@@ -78,11 +89,13 @@ class LangPlugin extends CompilerPlugin {
             // `PathScanner` — it lives here rather than in the mount-free `LangProcessors` list; it is only demanded
             // when a body actually reflects.
             PoolModulesProcessor(compilerMounts, runtimeMounts)
-          ) ++ LangProcessors(extraNativeBindingLabels =
-            // The native-binding merger built inside LangProcessors must consult every native contributor that other
-            // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
-            // initialize, so the roster is already final here.
-            configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq
+          ) ++ LangProcessors(
+            extraNativeBindingLabels =
+              // The native-binding merger built inside LangProcessors must consult every native contributor that other
+              // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
+              // initialize, so the roster is already final here.
+              configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
+            effectChannel = configuration.getOrElse(effectChannelKey, false)
           )
         )
       )
@@ -98,6 +111,13 @@ object LangPlugin {
 
   /** All configured source roots, in order. */
   def allRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(pathKey, Seq.empty)
+
+  /** The effects-as-channel gated-path flag (`--effect-channel`, docs/effects-as-channel.md §10 Phase 3). When set, the
+    * desugar strips open effect rows to their payload and erases the carrier from effect abilities, making the checker
+    * effect-blind; effect verification and elaboration move to post-monomorphization processors (grown in later slices).
+    * Absent (the default) leaves the entire current carrier-based effect path unchanged.
+    */
+  val effectChannelKey: Configuration.Key[Boolean] = namedKey[Boolean]("effectChannel")
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly

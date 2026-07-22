@@ -34,7 +34,11 @@ class Checker(
     // must **not** fire there — reading `CompilerMonomorphicValue(Function@Signature, …)` while computing exactly that
     // fact is a demand cycle. The flip therefore fires only for body checks (a runtime/compiler *value* mono), whose
     // callees are other values; the twin those bodies read then computes its signature in place, bottoming the demand.
-    signatureOnly: Boolean = false
+    signatureOnly: Boolean = false,
+    // Effects-as-channel Phase 3 (docs/effects-as-channel.md §10): the effect-blind checker. Threaded to
+    // [[AbilityResolver]] so effect-ability method references (whose carrier the desugar erased) are left unresolved for
+    // the downstream weaver rather than aborting as failed demands. Off by default — the carrier-based path is unchanged.
+    effectChannel: Boolean = false
 ) {
 
   /** The track's platform — fact keys read it off the [[track]] rather than threading a bare [[Platform]]. */
@@ -63,7 +67,7 @@ class Checker(
     * [[AbilityResolver]].
     */
   private[check] val abilityResolver: AbilityResolver =
-    new AbilityResolver(resolveAbility, platform)
+    new AbilityResolver(resolveAbility, platform, effectChannel)
 
   /** The type-directed effect auto-lift (docs/effect-lift-in-checker.md): the check-mode elaboration arms of the
     * resolution ladder (bind-lift at argument positions, pure-wrap against an

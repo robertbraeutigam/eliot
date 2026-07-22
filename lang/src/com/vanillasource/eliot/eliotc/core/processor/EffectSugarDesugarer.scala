@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, EffectRow, FunctionDefinition, GenericParameter}
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars the effect-row sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]), in its two forms.
@@ -53,7 +54,12 @@ object EffectSugarDesugarer {
     * the type constructor nullary and `F` an unbound free variable — the field references a carrier the type cannot
     * record.
     */
-  def desugar(data: DataDefinition): DataDefinition = {
+  def desugar(data: DataDefinition, effectChannel: Boolean): DataDefinition = {
+    // Effects-as-channel (docs/effects-as-channel.md §4): a *pinned* field row is an ordinary concrete carrier stack and
+    // desugars identically in both paths, and an *open* field row is a user error either way (the stored-row rule
+    // stays). So the data-field desugar is unchanged under the flag; only the recovery lowering of the (already
+    // erroneous) open field row differs, and we keep it as-is to stay a well-formed value downstream.
+    val _ = effectChannel
     val fieldExprs = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression))
     val rows       = fieldExprs.flatMap(collectRows).map(_.value)
     val openRows   = rows.filter(_.tail.isEmpty)
@@ -73,7 +79,7 @@ object EffectSugarDesugarer {
           inferable = true
         )
       }
-      val rewriteExpr    = rewrite(carrierNameOpt)
+      val rewriteExpr    = rewrite(carrierNameOpt, stripOpen = false)
 
       data.copy(
         genericParameters = carrierParam.toSeq ++ data.genericParameters,
@@ -88,7 +94,14 @@ object EffectSugarDesugarer {
     * unchanged when it carries no effect rows. Synthetic functions (e.g. data-desugared ones) never carry `{…}`, so
     * applying this uniformly to every function is a no-op for them.
     */
-  def desugar(function: FunctionDefinition): FunctionDefinition = {
+  def desugar(function: FunctionDefinition, effectChannel: Boolean): FunctionDefinition =
+    if (effectChannel) desugarChannel(function) else desugarCarrier(function)
+
+  /** The default (carrier) desugar: collapse the signature's open `{…}` rows onto one inferable higher-kinded carrier
+    * generic `F[_]`, adding one `F ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`. This
+    * is the pre-effects-as-channel behaviour; unchanged unless `--effect-channel` is given.
+    */
+  private def desugarCarrier(function: FunctionDefinition): FunctionDefinition = {
     val signatureExprs =
       function.args.map(_.typeExpression) ++
         function.genericParameters.map(_.typeRestriction) :+
@@ -110,7 +123,7 @@ object EffectSugarDesugarer {
           inferable = true
         )
       }
-      val rewriteExpr    = rewrite(carrierNameOpt)
+      val rewriteExpr    = rewrite(carrierNameOpt, stripOpen = false)
 
       function.copy(
         genericParameters = carrierParam.toSeq ++ function.genericParameters.map(gp =>
@@ -120,9 +133,104 @@ object EffectSugarDesugarer {
         typeDefinition = rewriteExpr(function.typeDefinition),
         body = function.body.map(rewriteExpr),
         // Effects-as-channel Phase 1 (dark): record the open rows, position-attributed, before the rewrite above erases
-        // the `{…}` nodes. Inert — nothing reads it yet; see [[EffectRow]].
+        // the `{…}` nodes. Inert on this path — nothing reads it yet; see [[EffectRow]].
         effectRow = declaredEffectRow(function)
       )
+    }
+  }
+
+  /** The effects-as-channel desugar (docs/effects-as-channel.md §4, Phase 3, `--effect-channel`): make the signature
+    * **effect-blind**. Two flag-gated transforms:
+    *
+    *   - **Strip open rows to payload.** An open `{E1, E2} A` rewrites to `A` — no carrier generic is minted and no
+    *     `F ~ Ei` constraint is added; the declared row is preserved out-of-band in [[EffectRow]] ([[declaredEffectRow]],
+    *     computed from the *original* signature so parameter positions align). A *pinned* row (`{Throw[E] | Id} A`) still
+    *     desugars to its canonical carrier stack — it is an ordinary concrete type (the reification boundary), unchanged.
+    *   - **Erase the effect-ability carrier.** An effect-ability *method* (`Console[F[_]].printLine : F[Unit]`) has its
+    *     higher-kinded carrier binder dropped and every `F[X]` in its signature rewritten to the payload `X`, so the
+    *     checker sees `printLine : String -> Unit`. The synthetic ability *marker* (the value named after the ability)
+    *     is left untouched: its retained carrier binder is the queryable "this is an effect ability" signal the
+    *     ability resolver and the downstream accounting/weaver read (see [[eraseAbilityCarrier]]).
+    */
+  private def desugarChannel(function: FunctionDefinition): FunctionDefinition = {
+    val erased      = eraseAbilityCarrier(function)
+    val rewriteExpr = rewrite(None, stripOpen = true)
+    erased.copy(
+      genericParameters =
+        erased.genericParameters.map(gp => gp.copy(typeRestriction = rewriteExpr(gp.typeRestriction))),
+      args = erased.args.map(arg => arg.copy(typeExpression = rewriteExpr(arg.typeExpression))),
+      typeDefinition = rewriteExpr(erased.typeDefinition),
+      body = erased.body.map(rewriteExpr),
+      effectRow = declaredEffectRow(function)
+    )
+  }
+
+  /** Carrier-erase an effect-ability *method* (effects-as-channel Phase 3): if `function` is a `Qualifier.Ability`
+    * method carrying a higher-kinded carrier binder (`F[_]`), drop that binder and rewrite every `F[X]` in its
+    * signature and body to the payload `X`. The synthetic ability *marker* (local name equal to the ability name) and
+    * every non-ability function are returned unchanged — the marker deliberately keeps its carrier as the "effect
+    * ability" signal downstream code queries.
+    */
+  private def eraseAbilityCarrier(function: FunctionDefinition): FunctionDefinition =
+    abilityCarrierName(function) match {
+      case Some(carrier) =>
+        val eraseExpr = eraseCarrierApplications(carrier)
+        function.copy(
+          genericParameters = function.genericParameters.filterNot(_.name.value === carrier),
+          args = function.args.map(arg => arg.copy(typeExpression = eraseExpr(arg.typeExpression))),
+          typeDefinition = eraseExpr(function.typeDefinition),
+          body = function.body.map(eraseExpr)
+        )
+      case None          => function
+    }
+
+  /** The higher-kinded carrier binder name of an effect-ability *method*, else `None`. A method is a `Qualifier.Ability`
+    * value whose local name differs from the ability's own name (which is the synthetic marker); its carrier is the sole
+    * higher-kinded (arrow-kinded, `F[_]`) generic binder. A first-order ability method (`Show[A].show`, no `F[_]`) has
+    * no such binder and is left alone.
+    */
+  private def abilityCarrierName(function: FunctionDefinition): Option[String] =
+    function.name.value.qualifier match {
+      case Qualifier.Ability(abilityName) if function.name.value.name =!= abilityName =>
+        function.genericParameters.find(isHigherKindedBinder).map(_.name.value)
+      case _                                                                          => None
+    }
+
+  /** Whether a generic binder is higher-kinded (a carrier), i.e. its kind restriction is an arrow `Function[_, _]`. */
+  private def isHigherKindedBinder(gp: GenericParameter): Boolean = gp.typeRestriction.value match {
+    case FunctionApplication(_, name, Some(_), _) => name.value === "Function"
+    case _                                        => false
+  }
+
+  /** Rewrite every application of the carrier `carrier[X]` down to its payload `X`, descending through the whole
+    * expression: `F[Unit]` becomes `Unit`, `A => F[B]` becomes `A => B`. A bare (unapplied) carrier reference does not
+    * occur in a carrier-headed ability signature, so none is expected; it is left untouched if present.
+    */
+  private def eraseCarrierApplications(carrier: String)(expr: Sourced[Expression]): Sourced[Expression] = {
+    val recurse = eraseCarrierApplications(carrier)
+    expr.value match {
+      case FunctionApplication(_, name, Some(genArgs), _) if name.value === carrier && genArgs.nonEmpty =>
+        recurse(genArgs.last)
+      case FunctionApplication(moduleName, name, genArgs, args)                                          =>
+        expr.as(FunctionApplication(moduleName, name, genArgs.map(_.map(recurse)), args.map(recurse)))
+      case FunctionLiteral(parameters, body)                                                             =>
+        expr.as(
+          FunctionLiteral(parameters.map(p => p.copy(typeExpression = p.typeExpression.map(recurse))), recurse(body))
+        )
+      case FlatExpression(parts)                                                                         =>
+        expr.as(FlatExpression(parts.map(recurse)))
+      case EffectfulType(effects, resultType, tail)                                                      =>
+        expr.as(EffectfulType(effects, recurse(resultType), tail.map(recurse)))
+      case MatchExpression(scrutinee, cases)                                                             =>
+        expr.as(MatchExpression(recurse(scrutinee), cases.map(c => c.copy(body = recurse(c.body)))))
+      case BlockExpression(lines)                                                                        =>
+        expr.as(BlockExpression(lines.map { line =>
+          line.copy(
+            binder = line.binder.map(b => b.copy(typeExpression = b.typeExpression.map(recurse))),
+            expression = recurse(line.expression)
+          )
+        }))
+      case _: IntegerLiteral | _: StringLiteral                                                          => expr
     }
   }
 
@@ -152,68 +260,60 @@ object EffectSugarDesugarer {
     * nesting left-to-right (leftmost outermost), the base after `|` at the bottom, and the result type as the outermost
     * layer's final argument. Descends through the whole expression so no [[EffectfulType]] survives.
     */
-  private def rewrite(carrierName: Option[String])(expr: Sourced[Expression]): Sourced[Expression] = expr.value match {
-    case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty =>
-      val rewrittenTail = rewrite(carrierName)(tail)
-      val innerStack    = effects.drop(1).foldRight(rewrittenTail) { (e, acc) =>
-        e.abilityName.as(
+  private def rewrite(carrierName: Option[String], stripOpen: Boolean)(expr: Sourced[Expression]): Sourced[Expression] = {
+    val recurse = rewrite(carrierName, stripOpen)
+    expr.value match {
+      case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty =>
+        val rewrittenTail = recurse(tail)
+        val innerStack    = effects.drop(1).foldRight(rewrittenTail) { (e, acc) =>
+          e.abilityName.as(
+            FunctionApplication(
+              None,
+              e.abilityName.map(_ + "Carrier"),
+              Some(e.typeParameters.map(recurse) :+ acc),
+              Seq.empty
+            )
+          )
+        }
+        val head          = effects.head
+        expr.as(
           FunctionApplication(
             None,
-            e.abilityName.map(_ + "Carrier"),
-            Some(e.typeParameters.map(rewrite(carrierName)) :+ acc),
+            head.abilityName.map(_ + "Carrier"),
+            Some(head.typeParameters.map(recurse) :+ innerStack :+ recurse(resultType)),
             Seq.empty
           )
         )
-      }
-      val head          = effects.head
-      expr.as(
-        FunctionApplication(
-          None,
-          head.abilityName.map(_ + "Carrier"),
-          Some(head.typeParameters.map(rewrite(carrierName)) :+ innerStack :+ rewrite(carrierName)(resultType)),
-          Seq.empty
+      case EffectfulType(_, resultType, None) if stripOpen                    =>
+        // Effects-as-channel (Phase 3): an open row has no carrier — it is stripped to its payload, the declared row
+        // preserved separately in [[EffectRow]].
+        recurse(resultType)
+      case EffectfulType(effects, resultType, None) if effects.nonEmpty       =>
+        val name = carrierName.getOrElse(
+          throw IllegalStateException(s"An effect set introduced no carrier: ${expr.value.show}")
         )
-      )
-    case EffectfulType(effects, resultType, None) if effects.nonEmpty       =>
-      val name = carrierName.getOrElse(
-        throw IllegalStateException(s"An effect set introduced no carrier: ${expr.value.show}")
-      )
-      expr.as(FunctionApplication(None, expr.as(name), Some(Seq(rewrite(carrierName)(resultType))), Seq.empty))
-    case EffectfulType(_, resultType, _)                                    =>
-      rewrite(carrierName)(resultType)
-    case FunctionApplication(moduleName, name, genericArgs, args)  =>
-      expr.as(
-        FunctionApplication(
-          moduleName,
-          name,
-          genericArgs.map(_.map(rewrite(carrierName))),
-          args.map(rewrite(carrierName))
+        expr.as(FunctionApplication(None, expr.as(name), Some(Seq(recurse(resultType))), Seq.empty))
+      case EffectfulType(_, resultType, _)                                    =>
+        recurse(resultType)
+      case FunctionApplication(moduleName, name, genericArgs, args)           =>
+        expr.as(FunctionApplication(moduleName, name, genericArgs.map(_.map(recurse)), args.map(recurse)))
+      case FunctionLiteral(parameters, body)                                  =>
+        expr.as(
+          FunctionLiteral(parameters.map(p => p.copy(typeExpression = p.typeExpression.map(recurse))), recurse(body))
         )
-      )
-    case FunctionLiteral(parameters, body)                         =>
-      expr.as(
-        FunctionLiteral(
-          parameters.map(p => p.copy(typeExpression = p.typeExpression.map(rewrite(carrierName)))),
-          rewrite(carrierName)(body)
-        )
-      )
-    case FlatExpression(parts)                                     =>
-      expr.as(FlatExpression(parts.map(rewrite(carrierName))))
-    case MatchExpression(scrutinee, cases)                         =>
-      expr.as(
-        MatchExpression(
-          rewrite(carrierName)(scrutinee),
-          cases.map(c => c.copy(body = rewrite(carrierName)(c.body)))
-        )
-      )
-    case BlockExpression(lines)                                    =>
-      expr.as(BlockExpression(lines.map { line =>
-        line.copy(
-          binder = line.binder.map(b => b.copy(typeExpression = b.typeExpression.map(rewrite(carrierName)))),
-          expression = rewrite(carrierName)(line.expression)
-        )
-      }))
-    case _: IntegerLiteral | _: StringLiteral                      => expr
+      case FlatExpression(parts)                                              =>
+        expr.as(FlatExpression(parts.map(recurse)))
+      case MatchExpression(scrutinee, cases)                                  =>
+        expr.as(MatchExpression(recurse(scrutinee), cases.map(c => c.copy(body = recurse(c.body)))))
+      case BlockExpression(lines)                                             =>
+        expr.as(BlockExpression(lines.map { line =>
+          line.copy(
+            binder = line.binder.map(b => b.copy(typeExpression = b.typeExpression.map(recurse))),
+            expression = recurse(line.expression)
+          )
+        }))
+      case _: IntegerLiteral | _: StringLiteral                              => expr
+    }
   }
 
   /** User-facing errors for effect rows in a `data` definition's constructor fields: an *open* row — a stored value

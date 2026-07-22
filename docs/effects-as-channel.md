@@ -48,9 +48,28 @@ behaviour is unchanged (the channel is dark/shadow). Concretely:
   ability-FQN reconstruction from the value's own module is wrong; reading `EffectCarriers.declaredEffects`
   avoids it.)
 
-- **Phases 3–5 — not started.** The gated new path, the flip/deletions, and follow-ups remain as
-  designed below. Phase 1's `EffectRow` and Phase 2's shadow are the substrate they build on; the shadow
-  (and the entire `EffectResidualChecker`) is deleted at Phase 4.
+- **Phase 3 — foundation landed; accounting + weaver pending.** The `--effect-channel` flag exists
+  (`LangPlugin.effectChannelKey`, threaded to `CoreProcessor` and both mono processors → `Checker` →
+  `AbilityResolver`). Under it the desugar is **effect-blind**: `EffectSugarDesugarer.desugarChannel` strips
+  open rows to payload (no carrier minted) and *carrier-erases effect-ability methods* — an ability with a
+  higher-kinded `F[_]` carrier has its methods' carrier dropped and every `F[X]` rewritten to `X`
+  (`Console[F].printLine : F[Unit]` ⤳ `printLine : String -> Unit`), while the ability **marker keeps its
+  carrier** as the queryable "this is an effect ability" signal (every HKT ability in the tree is an effect
+  ability; the first-order ones — `Eq`/`Show`/`Numeric`/`Combine`/`Meta`/… — are untouched). `AbilityResolver`
+  then **leaves effect-ability references unresolved** under the flag (recognised via the marker's HKT binder),
+  so the quoter emits them abstract instead of aborting on the (correct) `NoImplementation`; first-order
+  ability demands still resolve/error as before. Net: an effectful program **monomorphizes effect-blind**, its
+  effect operations surviving as abstract ability-method references. Verified: default suites byte-identical
+  (flag off); flag-on `EffectChannelDesugarTest` (Console + Abort mono effect-blind, the op stays an abstract
+  `Ability` ref, a first-order `Show` with no instance still errors). **Known gap, flag-gated:** the §5
+  accounting (verification) and §6 weaver (codegen) are *not built yet*, so under the flag an undeclared effect
+  is not yet rejected and codegen does not run — the flag is developer-only until those land (per the fail-safe
+  rule the flag can never become default before §5 lands). The `EffectLifter`/`EffectResidualChecker` are inert
+  under the flag (no carriers to recognise) but not yet explicitly disabled.
+
+- **Phases 3 (accounting/weaver) – 5 — not started.** The standalone §5 accounting processor, the §6 weaver,
+  the flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and Phase 2's shadow are
+  the substrate they build on; the shadow (and the entire `EffectResidualChecker`) is deleted at Phase 4.
 
 ## 1. The problem
 
@@ -354,6 +373,11 @@ tracks are green.
 - **Phase 3 — the gated new path.** A compiler flag (`effect-channel`) switches the desugar to
   strip open rows, disables the lifter arms, and enables the weaver. Grown in slices, each with
   its tests green under the flag while the default path stays untouched:
+  - **3-foundation (landed).** Flag plumbing + the effect-blind desugar (strip open rows to payload;
+    carrier-erase effect-ability methods, marker keeps its carrier as the effect signal) + the resolver
+    leaving effect-ability refs abstract. Effectful programs now *monomorphize* effect-blind (effect ops
+    survive as abstract ability refs); see §0. The lifter is inert under the flag; verification (§5) and the
+    weaver (§6) are the remaining 3a work below.
   - **3a** ambient `Suspend`-riding effects only: bind insertion, base assignment at the
     synthetic main. HelloWorld/Console examples green.
   - **3b** control effects, reify points, dischargers, weave keys threaded through

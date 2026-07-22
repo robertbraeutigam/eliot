@@ -60,6 +60,10 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     the default; tests that declare local versions of ambient names pass a narrower set, e.g.
   *     `systemModulesWithoutInt`, or `Seq.empty`);
   *   - `maxNestedRepeats` — the `UsedNamesProcessor` non-convergence backstop bound.
+  *   - `effectChannel` — the effects-as-channel gated path (docs/effects-as-channel.md §10 Phase 3). When true, the
+  *     [[com.vanillasource.eliot.eliotc.core.processor.CoreProcessor]]'s desugar strips open effect rows to their
+  *     payload and erases the carrier from effect abilities, making the checker effect-blind. Off by default; the whole
+  *     current carrier-based effect path is unchanged unless it is set.
   *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
   *     this base one (e.g. stdlib's arithmetic natives,
   *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
@@ -72,11 +76,12 @@ object LangProcessors {
   def apply(
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
-      extraNativeBindingLabels: Seq[String] = Seq.empty
+      extraNativeBindingLabels: Seq[String] = Seq.empty,
+      effectChannel: Boolean = false
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
-    CoreProcessor(),
+    CoreProcessor(effectChannel),
     ModuleNamesProcessor(),
     ModuleValueProcessor(systemModules),
     UnifiedModuleNamesProcessor(),
@@ -103,8 +108,8 @@ object LangProcessors {
       ContributedBinding.langNativeLabels ++ extraNativeBindingLabels,
       ContributedBinding.userLabels
     ),
-    MonomorphicTypeCheckProcessor(),
-    CompilerMonomorphicTypeCheckProcessor(),
+    MonomorphicTypeCheckProcessor(effectChannel),
+    CompilerMonomorphicTypeCheckProcessor(effectChannel),
     RefinementChannelProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),

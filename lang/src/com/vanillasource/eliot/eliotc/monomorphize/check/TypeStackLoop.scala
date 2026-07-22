@@ -43,11 +43,13 @@ class TypeStackLoop(
     // args)`), fed in **mandatorily** by the processor (C1/C2). [[establishSignature]] binds the type arguments (leftover
     // binders to fresh metas, re-inflating the twin's `Param`s) and re-inflates it — the one way a value mono obtains its
     // signature. `None` only for a signature twin computing itself (`signatureOnly`, which does not read it).
-    injectedSignature: Option[GroundValue] = None
+    injectedSignature: Option[GroundValue] = None,
+    // Effects-as-channel Phase 3 (docs/effects-as-channel.md §10): the effect-blind checker, forwarded to [[Checker]].
+    effectChannel: Boolean = false
 ) {
   import TypeStackLoop.AbilityRef
 
-  private val checker = new Checker(fetchBinding, resolveAbility, track, signatureOnly)
+  private val checker = new Checker(fetchBinding, resolveAbility, track, signatureOnly, effectChannel)
 
   def process(
       typeArguments: Seq[GroundValue],
@@ -625,9 +627,10 @@ object TypeStackLoop {
       reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
       (_, _) => none[SemValue].pure[CompilerIO],
       signatureOnly: Boolean = false,
-      injectedSignature: Option[GroundValue] = None
+      injectedSignature: Option[GroundValue] = None,
+      effectChannel: Boolean = false
   ): CompilerIO[Result] =
-    new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance, signatureOnly, injectedSignature)
+    new TypeStackLoop(fetchBinding, resolveAbility, track, reduceInstance, signatureOnly, injectedSignature, effectChannel)
       .process(typeArguments, resolvedValue)
 
   private type AbilityRef = AbilityResolver.AbilityRef

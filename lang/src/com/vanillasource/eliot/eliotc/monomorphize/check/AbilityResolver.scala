@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
+import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -35,7 +36,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class AbilityResolver(
     resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
-    platform: Platform
+    platform: Platform,
+    // Effects-as-channel Phase 3 (docs/effects-as-channel.md §10). When set, the checker is effect-blind: effect
+    // abilities have had their carrier erased at desugar, so their method calls carry no carrier and resolve to no
+    // instance during checking. Such references are deliberately left *unresolved* (the downstream weaver assigns a
+    // carrier and resolves them), so this pass skips them rather than treating the empty resolution as a failed demand.
+    effectChannel: Boolean = false
 ) {
   import AbilityResolver.AbilityRef
 
@@ -68,7 +74,14 @@ class AbilityResolver(
     for {
       state      <- get
       unresolved  = allRefs.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
-      progressed <- unresolved.foldLeftM(false) { (acc, ref) =>
+      // Effects-as-channel Phase 3: with the checker effect-blind, an effect ability's carrier is erased, so its method
+      // calls resolve to no instance during checking and must be left unresolved (the weaver assigns a carrier and
+      // resolves them downstream). Skip them here so the empty resolution is not reported as a failed demand; the
+      // quoter then emits them as abstract references. Ordinary (first-order) abilities still resolve as usual.
+      resolvable <- if (effectChannel)
+                      unresolved.toList.filterA { case (ref, _) => isEffectAbilityRef(ref).map(!_) }
+                    else unresolved.toList.pure[CheckIO]
+      progressed <- resolvable.foldLeftM(false) { (acc, ref) =>
                       tryResolveOne(ref, paramConstraints).map(_ || acc)
                     }
     } yield progressed
@@ -179,6 +192,24 @@ class AbilityResolver(
     * type args down to the ability-level prefix for the impl query. Falls back to `Int.MaxValue` (slice nothing) if the
     * marker has no resolvable signature, preserving prior behaviour rather than mis-slicing.
     */
+  /** Whether `ref` names a method of an **effect ability** — an ability declared with a higher-kinded carrier binder.
+    * Read off the ability *marker*'s signature (which retains its carrier binder even under the effect-channel flag, so
+    * it is the queryable effect signal): the ability is an effect ability iff its marker has a higher-kinded binder. A
+    * first-order ability (`Show[A]`, `Eq[A]`) has none and resolves normally. Used only under the effect-channel flag to
+    * decide which references to leave unresolved for the weaver.
+    */
+  private def isEffectAbilityRef(ref: Sourced[ValueFQN]): CheckIO[Boolean] =
+    ref.value.name.qualifier match {
+      case Qualifier.Ability(abilityName) =>
+        val markerFqn = ValueFQN(ref.value.moduleName, QualifiedName(abilityName, ref.value.name.qualifier))
+        liftF(getFactIfProduced(OperatorResolvedValue.Key(markerFqn, platform))).map {
+          case Some(orv) =>
+            OperatorResolvedExpression.SignatureView.of(orv.signature).binders.exists(EffectCarriers.isHktBinder)
+          case None      => false
+        }
+      case _                              => pure(false)
+    }
+
   private def abilityArity(methodVfqn: ValueFQN, abilityName: String): CheckIO[Int] = {
     val markerFqn = ValueFQN(methodVfqn.moduleName, QualifiedName(abilityName, methodVfqn.name.qualifier))
     liftF(getFactIfProduced(OperatorResolvedValue.Key(markerFqn, platform))).map {
