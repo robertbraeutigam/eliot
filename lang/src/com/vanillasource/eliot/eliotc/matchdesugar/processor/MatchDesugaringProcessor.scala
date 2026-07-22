@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
@@ -41,20 +42,32 @@ class MatchDesugaringProcessor
       blockDesugaredValue.precedence,
       blockDesugaredValue.inferableArity,
       blockDesugaredValue.roleHint,
-      blockDesugaredValue.platform
+      blockDesugaredValue.platform,
+      convertEffectRow(blockDesugaredValue.effectRow)
     )
 
   private def convertParamConstraints(
       constraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
   ): Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]] =
     constraints.map { (key, cs) =>
-      key -> cs.map(c =>
-        MatchDesugaredValue.ResolvedAbilityConstraint(
-          c.abilityFQN,
-          c.typeArgs.map(MatchDesugaredExpression.fromExpression)
-        )
-      )
+      key -> cs.map(convertConstraint)
     }
+
+  /** Convert the effects-as-channel declared row (Phase 1, dark), re-expressing each entry exactly as
+    * [[convertParamConstraints]] does, positions preserved.
+    */
+  private def convertEffectRow(
+      effectRow: EffectRow[ResolvedValue.ResolvedAbilityConstraint]
+  ): EffectRow[MatchDesugaredValue.ResolvedAbilityConstraint] =
+    effectRow.map(convertConstraint)
+
+  private def convertConstraint(
+      c: ResolvedValue.ResolvedAbilityConstraint
+  ): MatchDesugaredValue.ResolvedAbilityConstraint =
+    MatchDesugaredValue.ResolvedAbilityConstraint(
+      c.abilityFQN,
+      c.typeArgs.map(MatchDesugaredExpression.fromExpression)
+    )
 
   private def desugarExpression(expr: Expression, platform: Platform): CompilerIO[Expression] =
     expr match {

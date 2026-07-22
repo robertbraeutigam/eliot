@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.operator.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.Fixity
+import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity}
 import TokenClassifier.AnnotatedPart
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -24,6 +24,7 @@ class OperatorResolverProcessor
       resolvedRuntime     <- desugaredValue.runtime.traverse(expr => resolveInExpression(expr.value).map(expr.as))
       resolvedSignature   <- resolveInExpression(desugaredValue.signature.value).map(desugaredValue.signature.as)
       resolvedConstraints <- resolveParamConstraints(desugaredValue.paramConstraints)
+      resolvedEffectRow   <- resolveEffectRow(desugaredValue.effectRow)
     } yield OperatorResolvedValue(
       desugaredValue.vfqn,
       desugaredValue.name,
@@ -32,7 +33,8 @@ class OperatorResolverProcessor
       resolvedConstraints,
       desugaredValue.inferableArity,
       desugaredValue.roleHint,
-      platform = desugaredValue.platform
+      platform = desugaredValue.platform,
+      effectRow = resolvedEffectRow
     )
   }
 
@@ -88,9 +90,20 @@ class OperatorResolverProcessor
   )(using Platform): CompilerIO[Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]] =
     constraints.toSeq
       .traverse { (key, cs) =>
-        cs.traverse(c =>
-          c.typeArgs.traverse(resolveInExpression).map(OperatorResolvedValue.ResolvedAbilityConstraint(c.abilityFQN, _))
-        ).map(key -> _)
+        cs.traverse(resolveConstraint).map(key -> _)
       }
       .map(_.toMap)
+
+  /** Resolve the effects-as-channel declared row (Phase 1, dark), re-expressing each entry exactly as
+    * [[resolveParamConstraints]] does, positions preserved.
+    */
+  private def resolveEffectRow(
+      effectRow: EffectRow[MatchDesugaredValue.ResolvedAbilityConstraint]
+  )(using Platform): CompilerIO[EffectRow[OperatorResolvedValue.ResolvedAbilityConstraint]] =
+    effectRow.traverse(resolveConstraint)
+
+  private def resolveConstraint(
+      c: MatchDesugaredValue.ResolvedAbilityConstraint
+  )(using Platform): CompilerIO[OperatorResolvedValue.ResolvedAbilityConstraint] =
+    c.typeArgs.traverse(resolveInExpression).map(OperatorResolvedValue.ResolvedAbilityConstraint(c.abilityFQN, _))
 }

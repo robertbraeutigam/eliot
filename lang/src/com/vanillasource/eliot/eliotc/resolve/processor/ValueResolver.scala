@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{PrecedenceDeclaration as AstPrecedenceDeclaration, Visibility}
+import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, PrecedenceDeclaration as AstPrecedenceDeclaration, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{
   NamedValue,
@@ -52,6 +52,7 @@ class ValueResolver
       resolvedSignature   <- withLocalScope(resolveExpression(namedValue.signature.value, false)).map(namedValue.signature.as)
       resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
+      resolvedEffectRow   <- resolveEffectRow(namedValue.effectRow)
       resolvedPrecedence  <- resolvePrecedenceDeclarations(namedValue.precedence)
       _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedSignature.value.show}")
       _                   <- debug[ScopedIO](
@@ -67,7 +68,8 @@ class ValueResolver
       resolvedPrecedence,
       namedValue.inferableArity,
       namedValue.roleHint,
-      key.platform
+      key.platform,
+      resolvedEffectRow
     )
 
     resolveProgram.runA(scope)
@@ -101,6 +103,19 @@ class ValueResolver
           case Some(abilityFQN) => abilityFQN.pure[ScopedIO]
           case None             => compilerAbort(name.as(s"Ability not found.")).liftToScoped
         }
+    }
+
+  /** Resolve the effects-as-channel declared row (Phase 1, dark): each entry's ability name and type-arguments are
+    * resolved exactly as [[resolveParamConstraints]] resolves a constraint, positions preserved.
+    */
+  private def resolveEffectRow(
+      effectRow: EffectRow[NamedValue.CoreAbilityConstraint]
+  ): ScopedIO[EffectRow[ResolvedValue.ResolvedAbilityConstraint]] =
+    effectRow.traverse { c =>
+      for {
+        abilityFQN   <- resolveAbilityName(c.abilityName)
+        resolvedArgs <- c.typeArgs.traverse(resolveExpression(_, false))
+      } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
     }
 
   private def resolveParamConstraints(

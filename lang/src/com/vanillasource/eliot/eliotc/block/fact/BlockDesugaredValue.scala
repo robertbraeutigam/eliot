@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.block.fact
 
-import com.vanillasource.eliot.eliotc.ast.fact.Fixity
+import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity}
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -23,7 +23,10 @@ case class BlockDesugaredValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    platform: Platform = Platform.Runtime
+    platform: Platform = Platform.Runtime,
+    // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — carried through unchanged from
+    // [[ResolvedValue]] (block desugaring does not touch signatures), reusing the resolve entry representation.
+    effectRow: EffectRow[ResolvedValue.ResolvedAbilityConstraint] = EffectRow.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[BlockDesugaredValue] = BlockDesugaredValue.Key(vfqn, platform)
 }

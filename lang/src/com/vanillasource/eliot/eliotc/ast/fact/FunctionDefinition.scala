@@ -42,7 +42,12 @@ case class FunctionDefinition(
     // when a def carries a `where`; empty otherwise. Consumed at the core boundary by `MetaWhereDesugarer`, which emits
     // the def's `^Where` companion (a `T$Meta… -> Bool` function in `Qualifier.Meta`) the refinement channel evaluates
     // at each call site to demand the precondition; then dropped (never part of `NamedValue`/`signatureEquality`).
-    whereClause: Option[Sourced[Expression]] = None
+    whereClause: Option[Sourced[Expression]] = None,
+    // The effects-as-channel **declared effect row** (docs/effects-as-channel.md §4, Phase 1): the open effect rows of
+    // this signature, position-attributed, captured by `EffectSugarDesugarer.desugar` before the carrier rewrite erases
+    // them. Unlike the fields above it is *not* dropped at the core boundary — it forwards down the value fact chain to
+    // the monomorphize phase (see [[EffectRow]]). Dark/inert in Phase 1 and never part of `signatureEquality`.
+    effectRow: EffectRow[GenericParameter.AbilityConstraint] = EffectRow.empty
 )
 
 object FunctionDefinition {

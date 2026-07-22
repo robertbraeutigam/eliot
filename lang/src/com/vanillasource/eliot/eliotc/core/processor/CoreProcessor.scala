@@ -115,6 +115,14 @@ class CoreProcessor
       .takeWhile(identity)
       .size
     val precedence   = function.precedence.map(convertPrecedenceDeclaration)
+    // Effects-as-channel Phase 1 (dark): forward the declared row, converting each entry's ability type-arguments
+    // ast→core exactly as `constraints` above does.
+    val effectRow    = function.effectRow.map(c =>
+      NamedValue.CoreAbilityConstraint(
+        c.abilityName,
+        c.typeParameters.map(te => convertExpression(te, typeContext = true).value)
+      )
+    )
     Seq(
       NamedValue(
         function.name,
@@ -125,7 +133,8 @@ class CoreProcessor
         precedence,
         function.visibility,
         roleHint,
-        inferableArity
+        inferableArity,
+        effectRow
       )
     )
   }

@@ -335,6 +335,34 @@ class OperatorResolverProcessorTest
     }
   }
 
+  // --- effects-as-channel Phase 1: the declared row is recorded as inert signature metadata (docs/effects-as-channel.md
+  // §4). The carrier desugar still runs (asserted above), and *in parallel* the open rows are captured, position-
+  // attributed, on `OperatorResolvedValue.effectRow`. ---
+
+  "the effect channel metadata" should "record open rows by position, resolved to ability FQNs" in {
+    val source =
+      "data Str\ndata Unt\nability Suspend[F[_]] { def delay(value: Str): F[Str] }\n" +
+        "def sugar(x: {Suspend} Str): {Suspend} Unt"
+    runEngineForResolvedValue(source, "sugar").asserting { sugar =>
+      (effectRowReturn(sugar), effectRowParameters(sugar)) shouldBe (Seq("Suspend"), Seq((0, Seq("Suspend"))))
+    }
+  }
+
+  it should "stay empty for the hand-written carrier form (only the `{…}` sugar feeds the channel)" in {
+    val source =
+      "data Str\ndata Unt\nability Suspend[F[_]] { def delay(value: Str): F[Str] }\n" +
+        "def hand[F[_] ~ Suspend](x: F[Str]): F[Unt]"
+    runEngineForResolvedValue(source, "hand").asserting { hand =>
+      (effectRowReturn(hand), effectRowParameters(hand)) shouldBe (Seq.empty, Seq.empty)
+    }
+  }
+
+  private def effectRowReturn(rv: OperatorResolvedValue): Seq[String] =
+    rv.effectRow.returnEffects.map(_.abilityFQN.abilityName)
+
+  private def effectRowParameters(rv: OperatorResolvedValue): Seq[(Int, Seq[String])] =
+    rv.effectRow.parameterEffects.map(pe => (pe.parameterIndex, pe.effects.map(_.abilityFQN.abilityName)))
+
   private def signatureShow(rv: OperatorResolvedValue): String =
     rv.signature.value.show
 

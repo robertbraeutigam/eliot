@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, FunctionDefinition, GenericParameter}
+import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, EffectRow, FunctionDefinition, GenericParameter}
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -118,10 +118,32 @@ object EffectSugarDesugarer {
         ),
         args = function.args.map(arg => arg.copy(typeExpression = rewriteExpr(arg.typeExpression))),
         typeDefinition = rewriteExpr(function.typeDefinition),
-        body = function.body.map(rewriteExpr)
+        body = function.body.map(rewriteExpr),
+        // Effects-as-channel Phase 1 (dark): record the open rows, position-attributed, before the rewrite above erases
+        // the `{…}` nodes. Inert — nothing reads it yet; see [[EffectRow]].
+        effectRow = declaredEffectRow(function)
       )
     }
   }
+
+  /** The effects-as-channel **declared row** (docs/effects-as-channel.md §4, Phase 1): the *open* effect-row entries at
+    * each signature position of `function`, captured before [[rewrite]] collapses the `{…}` nodes onto the carrier.
+    * Return-position rows are the value's own ambient row; each value parameter carrying an open row (an effectful
+    * callback like `action: A => {Effect} Unit`) is recorded with its positional index. Body rows and
+    * generic-parameter-bound rows are deliberately excluded — the declared row is the value's public signature only.
+    */
+  private def declaredEffectRow(function: FunctionDefinition): EffectRow[GenericParameter.AbilityConstraint] =
+    EffectRow(
+      openRowEntries(function.typeDefinition),
+      function.args.zipWithIndex.flatMap { case (arg, index) =>
+        val entries = openRowEntries(arg.typeExpression)
+        Option.when(entries.nonEmpty)(EffectRow.ParameterEffects(index, entries))
+      }
+    )
+
+  /** The distinct *open*-row (`tail == None`) ability entries anywhere within one signature-position expression. */
+  private def openRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
+    collectRows(expr).map(_.value).filter(_.tail.isEmpty).flatMap(_.effects).distinctBy(constraintKey)
 
   /** Rewrites the effect-rows of an expression: an *open* `{…} A` node becomes `F[A]` (the carrier is always present
     * then — a row anywhere in the signature introduced it); a *pinned* node (`{Throw[E], State[S] | Id} A`) becomes its

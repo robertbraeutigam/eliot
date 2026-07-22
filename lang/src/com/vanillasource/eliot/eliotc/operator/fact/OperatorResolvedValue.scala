@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.operator.fact
 
+import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -16,7 +17,12 @@ case class OperatorResolvedValue(
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    platform: Platform = Platform.Runtime
+    platform: Platform = Platform.Runtime,
+    // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from
+    // [[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue]] with its entry type-arguments resolved to
+    // [[OperatorResolvedExpression]]. Carried unchanged through the termination/saturate wrappers to the monomorphize
+    // phase. Inert; never part of `signatureEquality`.
+    effectRow: EffectRow[OperatorResolvedValue.ResolvedAbilityConstraint] = EffectRow.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn, platform)
 }

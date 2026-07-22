@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.fact
 
-import com.vanillasource.eliot.eliotc.ast.fact.Fixity
+import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity}
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -18,7 +18,10 @@ case class MatchDesugaredValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
-    platform: Platform = Platform.Runtime
+    platform: Platform = Platform.Runtime,
+    // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from
+    // [[BlockDesugaredValue]] with its entry type-arguments re-expressed as [[MatchDesugaredExpression]]. Inert.
+    effectRow: EffectRow[MatchDesugaredValue.ResolvedAbilityConstraint] = EffectRow.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[MatchDesugaredValue] = MatchDesugaredValue.Key(vfqn, platform)
 }

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.core.fact
 
 import cats.{Eq, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{Fixity, Visibility}
+import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact
 import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEquality
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
@@ -38,7 +38,11 @@ case class NamedValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     visibility: Visibility = Visibility.Public,
     roleHint: RoleHint = RoleHint.NoHint,
-    inferableArity: Int = 0
+    inferableArity: Int = 0,
+    // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from the
+    // [[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition]] beside `paramConstraints`, its entries converted to
+    // [[NamedValue.CoreAbilityConstraint]]. Inert; never part of `signatureEquality`.
+    effectRow: EffectRow[NamedValue.CoreAbilityConstraint] = EffectRow.empty
 )
 
 object NamedValue {
