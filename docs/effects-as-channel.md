@@ -42,16 +42,27 @@ pure wiring. Still isolation-tested, still not called by the `Checker` — defau
 below) is threaded end-to-end — `LangPlugin` CLI flag + `uniformCarrierKey` → `LangProcessors` → both mono checkers
 (runtime + compiler) → `TypeStackLoop` → `Checker`, which now **constructs `UniformCarrierChecker`** beside
 `EffectLifter` (`new UniformCarrierChecker(force, lifter.effectCarrierSplit)`) — unconditionally but never called while
-the flag is off, so the default path is byte-identical (verified). **NEXT: U3a-2b(ii) the spine-loop wiring** — route
-`infer`'s pure-*value* leaves through `intoCarrierHeadedTerm`, `checkArgumentSlot` through `resolveArgumentSlot`, and
-the return boundary (`checkAgainst`) through `checkReturnBoundary`, each gated on `uniformCarrier` so flag-off stays
-byte-identical, growing toward flag-on byte-identical from the simplest programs. **Wiring finding (2026-07-23):**
-`intoCarrierHeadedTerm` must be applied to *terminal value* leaves only, **never a function-typed reference** — a
-`printLine` leaf (`String → …`) is not `VType` and not carrier-headed, so the bridge would wrongly wrap it
-`Id[String → …]`; only a fully-applied result carrier-heads. The isolation test exercises it on ground data types /
-`Id`-headed / effectful / `VType`, never a `VPi`, so the `infer` call site must itself restrict to non-`VPi` leaves.
-This is why the flip stays a coupled bundle even under `--uniform-carrier` (the three points must expect/produce
-carrier-headed judgments together) and is sliced further per-shape rather than landed at once. On the
+the flag is off, so the default path is byte-identical (verified). U3a-2b(ii) **wiring slice 1 LANDED (2026-07-23,
+`8fadd27f`)**: the **return boundary** is the first spine point routed through the bridge. Under `--uniform-carrier`,
+`checkAgainst` routes the *plain pure value* return case through `intoCarrierHeadedTerm` + `checkReturnBoundary`
+(inserting `pure@Id`/`runId` the Id-normalization stage then erases → byte-identical bytecode); every other shape
+falls back to the verbatim default ladder (`checkAgainstDefault`). The gate (`uniformReturnRoutable`) is deliberately
+tight — it routes only when *both* the declared return and the body's inferred type are plain, **non-carrier-headed**
+`VTopDef` value types (`uniformPlainValueType`) *and* the payload already fits by pure definitional equality (a
+non-committing speculative unify). This excludes: `Int` widening coercion (a def-equality miss), effect-carrier-headed
+returns (**routing one would self-solve its carrier meta `?F := ?F` → infinite loop** — a concrete finding), the
+guard/calc-return/W3 discharge and the §8 type-level boundary (all `VType`/carrier-headed), and function/polytype
+returns. Durable gate: `UniformCarrierByteIdenticalTest` (jvm.test) compiles a pure-value program **+ the whole base
+layer** with the flag off and on and asserts every generated class's bytes match — the *entire* base compiles
+byte-identically under the flag (every pure value return in lang/stdlib/jvm routes through the uniform boundary and
+Id-normalizes away). **NEXT: widen the gate** to `Int` coercion, then the **spine** (`checkArgumentSlot` →
+`resolveArgumentSlot` + `wrapBinds` + `finalizeAndMaterialize`) and **effect-carrier-headed returns** (which need the
+carrier-meta self-join guarded). **Wiring finding (2026-07-23):** `intoCarrierHeadedTerm` (and every heading site)
+must fire on *terminal value* leaves only, **never a function-typed (`VPi`) reference** — a `printLine` leaf
+(`String → …`) is not `VType` and not carrier-headed, so the bridge would wrongly wrap it `Id[String → …]`; only a
+fully-applied result carrier-heads. This is why the flip stays a coupled bundle even under `--uniform-carrier` (the
+points must expect/produce carrier-headed judgments together) and is sliced further per-shape rather than landed at
+once. On the
 `--effect-channel` gate the flip remains a **non-partitionable bundle** (finding, §0/§10): `desugarChannel` makes
 effectful programs *look pure*, so no per-value gate can grow the uniform path under `--effect-channel` without
 disturbing the kept effect-blind tests — that flip must land `desugarChannel`-removal + uniform-checker +
@@ -62,7 +73,7 @@ job is to **match** it (byte-identical gate). The **transitional `--uniform-carr
 `--effect-channel` lets the uniform checker grow on default carrier-desugared input, compared byte-identical,
 decoupled from the `desugarChannel`/accounting knot until U4 unifies the flags. Commit trail (on `master`): U2 spike
 `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a `455575bb`, U3a-2b(i)
-`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
+`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-wiring-1 `8fadd27f`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
 eliot-test 11/11).** The §13 fork
 raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
@@ -110,12 +121,13 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, at U3a-2b(ii)-infra (commit `dd61f027`). Green everywhere: `./mill lang.test`,
-`./mill jvm.test`, HelloWorld builds+runs
+**Where the tree is:** `master`, at U3a-2b(ii)-wiring-1 (commit `8fadd27f`). Green everywhere: `./mill lang.test`,
+`./mill jvm.test` (incl. the new `UniformCarrierByteIdenticalTest`), HelloWorld builds+runs
 (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
 and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
-then run `Runner.jar`). The default path is byte-identical to pre-U1; both `--effect-channel` and the new
-transitional `--uniform-carrier` gate are dormant (the uniform bridge is constructed but never called).
+then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The new
+transitional `--uniform-carrier` gate is **live for the plain pure value return** (routed through the uniform
+boundary and Id-normalized back to byte-identical) and falls back to the default path for every other shape.
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -204,11 +216,25 @@ transitional `--uniform-carrier` gate are dormant (the uniform bridge is constru
   - `Checker` constructs `private[check] val uniformChecker = new UniformCarrierChecker(force, lifter.effectCarrierSplit)`
     beside `EffectLifter` — unconditionally (cheap; two function refs) but never called while `uniformCarrier` is off,
     so `lang.test`/`jvm.test`/HelloWorld/eliot-test are all byte-identical.
+- **U3a-2b(ii) wiring slice 1 (the return boundary) — LANDED (2026-07-23, `8fadd27f`).** The first spine point routed
+  through the bridge. Under `--uniform-carrier`, `checkAgainst` routes the **plain pure value return** case through
+  `uniformReturnBoundary` (`intoCarrierHeadedTerm` the body + `checkReturnBoundary`), inserting `pure@Id`/`runId` the
+  Id-normalization stage erases → byte-identical bytecode; every other shape falls back to the verbatim
+  `checkAgainstDefault`. The gate `uniformReturnRoutable` routes only when both the declared return and the body's
+  inferred type are plain non-carrier-headed `VTopDef` value types (`uniformPlainValueType`) *and* the payload fits by
+  pure definitional equality (a non-committing speculative unify), so it excludes `Int` coercion, effect-carrier-headed
+  returns, guard/calc-return/W3 discharge, the §8 `VType` boundary, and function/polytype returns. **Concrete finding:
+  routing an effect-carrier-headed return (`?F[Unit]`) through `checkReturnBoundary` self-solves its carrier meta
+  (`?F := ?F`) → infinite loop, hence the non-carrier-headed gate.** Durable gate: `UniformCarrierByteIdenticalTest`
+  (jvm.test) compiles a pure-value program **+ the whole base layer** with the flag off and on and asserts every class's
+  bytes match (two full base compiles by design — the entire base compiles byte-identically under the flag).
 
-**Next: U3a-2b(ii) — the spine-loop wiring** (under the now-threaded `--uniform-carrier` gate). Route `infer`'s pure
-*value* leaves through `intoCarrierHeadedTerm`, `checkArgumentSlot` through `resolveArgumentSlot`, and the return
-boundary (`checkAgainst`) through `checkReturnBoundary`, each gated on `uniformCarrier` so flag-off stays
-byte-identical, growing toward flag-on byte-identical from the simplest programs. **Wiring finding (2026-07-23):**
+**Next: U3a-2b(ii) — widen the gate then the spine** (under `--uniform-carrier`). In order: (a) `Int` widening coercion
+at the boundary (reuse `RefinementSolver.unifyOrCoerce` in the uniform path); (b) the **spine** — `checkArgumentSlot`
+through `resolveArgumentSlot` + fold `Bind`s via `wrapBinds` + `finalizeAndMaterialize` at the value boundary, replacing
+Phase A/B; (c) **effect-carrier-headed returns** (guard the carrier-meta self-join — the finding above). Each gated on
+`uniformCarrier` so flag-off stays byte-identical, growing toward flag-on byte-identical from the simplest programs.
+**Wiring finding (2026-07-23):**
 `intoCarrierHeadedTerm` (and every heading site) must fire on **terminal value leaves only, never a function-typed
 (`VPi`) reference** — a `printLine` leaf (`String → …`) is not `VType` and not carrier-headed, so the bridge as
 written would wrongly wrap it `Id[String → …]`; only a fully-*applied* result carrier-heads. The `infer` call site
@@ -872,10 +898,17 @@ before anything leans on it), the foundation spike second, the checker refactor 
     threaded end-to-end (`LangPlugin` CLI flag/key → `LangProcessors` → both mono checkers → `TypeStackLoop` →
     `Checker`), and `Checker` **constructs `UniformCarrierChecker`** beside `EffectLifter` — unconditionally but never
     called while the flag is off, so the default path is byte-identical. Nothing routed through the bridge yet.
-    **NEXT is the U3a-2b(ii) spine-loop wiring** — route `infer`'s pure *value* leaves (non-`VPi` only — the wiring
-    finding, §0), `checkArgumentSlot`, and the return boundary through the bridge, gated on `uniformCarrier`,
-    matching the default path byte-identical from the simplest programs up. The coupled `desugarChannel`/accounting
-    deletion stays on the `--effect-channel` gate and is untangled at U4 (this transitional gate sidesteps it).
+    Nothing routed through the bridge yet.
+  - **U3a-2b(ii) wiring slice 1 (the return boundary) — LANDED (2026-07-23, `8fadd27f`).** `checkAgainst` routes the
+    **plain pure value return** case through the bridge (`intoCarrierHeadedTerm` + `checkReturnBoundary`), gated by
+    `uniformReturnRoutable` (both sides plain non-carrier-headed `VTopDef` value types + payload fits by pure
+    definitional equality); everything else falls back to `checkAgainstDefault`. Concrete finding: routing an
+    effect-carrier-headed return self-solves its carrier meta (`?F := ?F`) → loop, hence the non-carrier-headed gate.
+    Durable gate `UniformCarrierByteIdenticalTest` (jvm.test): the whole base + program compiles byte-identically with
+    the flag off vs on. **NEXT is widening**: (a) `Int` coercion at the boundary; (b) the spine (`checkArgumentSlot` →
+    `resolveArgumentSlot` + `wrapBinds` + `finalizeAndMaterialize`, replacing Phase A/B); (c) effect-carrier-headed
+    returns (guard the carrier-meta self-join). The coupled `desugarChannel`/accounting deletion stays on the
+    `--effect-channel` gate and is untangled at U4 (this transitional gate sidesteps it).
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
   assertion becomes a hard error; the Cornerstone amendment (§9 restatement) and the doc/skill
   sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections);
