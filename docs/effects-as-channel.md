@@ -1,8 +1,10 @@
 # Effects as a Channel, v2: Uniform Carriers (Id-Uniform) + a Verification Channel
 
 Status: **FOUNDATION RESOLVED (2026-07-23) — Variant A, carrier-everywhere / Id-uniform — with a
-reconstructed migration plan (U1–U5, §10). U1a LANDED (2026-07-23): the Id-normalization body
-rewrites + jvm newtype representation are on by default (§6, §10).** The §13 fork raised during the Phase-3
+reconstructed migration plan (U1–U5, §10). U1 LANDED (2026-07-23): the Id-normalization stage is
+on by default — U1a body rewrites + jvm newtype representation, U1b `Id[X] ⤳ X` type/key erasure
+(§6, §10). Remaining before U2: first-class-combinator eta-expansion (the last normalizer step).**
+The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -313,9 +315,18 @@ not a `getfield`, so it must itself be rewritten to `obj -> obj` (`IdNormalizer.
 Otherwise `used` keeps the whole `Id` pattern-match apparatus alive and a first-class `runId` reference
 (a dot-chain `x.runId`) runs it over an `Id` wrapper the newtype no longer allocates — a crash. With the
 accessor identity, `used` sees no `handleCases`, and the `Id` data class / `handleCases` / selector
-lambdas / `PatternMatch` singleton are never generated. Constructor/accessor call-site pass-through and
-key/type erasure (U1b) are the remaining hardening; today a residual `Id` reference is warned on (the
-fail-safe) and kept a no-op by the newtype.
+lambdas / `PatternMatch` singleton are never generated.
+
+**U1b landed (2026-07-23).** `IdNormalizer.eraseIdTypes`/`eraseIdInBody` erase every `Id`-headed type
+to its payload in signatures, node types, and reference type arguments; erasing the last of these
+shifts the callee's demanded mono key, so an `Id`-instantiation merges with its payload instantiation
+(`fold[Id[String]]` ≡ `fold[String]`). The WovenValue's *own* key is left as demanded (the
+`TransformationProcessor` requires produced-key = demanded-key, and the demand is already erased). A
+*bare* `Id` (the higher-kinded `G` of `AbortCarrier[Id, A]`) is left — it has no payload and survives
+to deeper stack lowering. The residue fail-safe now also flags a residual `Id[X]` *type*. The remaining
+work is the first-class-combinator eta-expansion (a bare `runId`/`pure`/`flatMap`/`map@Effect[Id]`
+reference ⤳ the identity function, §6 rewrite list): until it lands, those references warn (backstopped
+by the newtype + identity accessor); it is what makes the U4 assertion fully clean.
 
 **The MCU story.** With `Id` erased, pure code compiles to plain calls. For *effectful* MCU code,
 the carrier is compile-time bookkeeping the backend may lower away: post-mono, every carrier
@@ -432,6 +443,24 @@ before anything leans on it), the foundation spike second, the checker refactor 
     Verified: `lang.test`/`jvm.test` green, eliot-test 11/11 byte-identical, ~20 example mains run
     unchanged, `javap` shows no `Id$Id` class and no `new Id` anywhere. `IdNormalizerTest` covers the
     rewrites.
+  - **U1b — LANDED (2026-07-23).** `IdNormalizer.eraseIdTypes`/`eraseIdInBody` erase every `Id`-headed
+    type (`Id[X] ⤳ X`, recursively) in the value's **signature**, every body **node type** and
+    function-literal parameter type, and every value **reference's type arguments**. Erasing a
+    reference's type arguments is what *merges* an `Id`-instantiation with its payload instantiation:
+    the erased args become the callee's demanded mono key, so `fold[Id[String]]` and `fold[String]`
+    resolve to one demand and one generated method. The WovenValue's **own key** (`mv.typeArguments`)
+    is deliberately *not* erased in the processor — the `TransformationProcessor` contract requires the
+    produced fact's key to equal the demanded key, and that demand is already erased (it came from a
+    referencing body whose reference args were erased); so key merging falls out of the demand shift
+    rather than a key rewrite. A **bare** `Id` (unapplied, the higher-kinded `G` of
+    `AbortCarrier[Id, A]`) is left untouched — it has no payload to collapse to, its carrier already
+    erases to its own head, and it survives until deeper stack lowering (§6 "pinned stacks over `Id`
+    erase their base layer", a later step). The residue fail-safe now also flags a residual `Id[X]`
+    *type* (`hasResidualIdType`), not just a reference. Verified: `lang.test`/`jvm.test` green (no
+    mangled-name breakage — the surviving `$Id$` names are bare-`Id` carrier markers, unchanged),
+    eliot-test 11/11 byte-identical, IfDemo/examples report **zero** `Id`-type residue, only the
+    first-class *value*-reference residue remains (eta-expansion to identity is the last normalizer
+    step, deferred; backstopped by the newtype + identity accessor today).
 - **U2 — foundation spike.** Decide and prototype, recording results here: (a) the
   representation — carrier as ordinary outermost `SemValue` application (recommended) vs a
   judgment pair; how the ladder reads the split, multi-layer stack splitting

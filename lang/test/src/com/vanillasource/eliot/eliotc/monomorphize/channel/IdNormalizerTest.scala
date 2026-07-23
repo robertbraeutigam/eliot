@@ -107,4 +107,28 @@ class IdNormalizerTest extends AnyFlatSpec with Matchers {
     val runIdApp = app(ref(WellKnownTypes.runIdFQN, fnType(idType(stringType), stringType)), str, stringType).value.expression
     IdNormalizer.residualIdReferences(normalizedExpr(runIdApp)).shouldBe(Seq.empty)
   }
+
+  "U1b type erasure" should "erase a top-level Id[X] to its payload" in {
+    IdNormalizer.eraseIdTypes(idType(stringType)).shouldBe(stringType)
+  }
+
+  it should "erase a nested Id[X] inside another structure" in {
+    IdNormalizer.eraseIdTypes(fnType(stringType, idType(stringType))).shouldBe(fnType(stringType, stringType))
+  }
+
+  it should "leave a bare unapplied Id carrier untouched" in {
+    val bareId = GroundValue.Structure(WellKnownTypes.idFQN, Seq.empty, GroundValue.Type)
+    IdNormalizer.eraseIdTypes(bareId).shouldBe(bareId)
+  }
+
+  it should "erase Id-headed node types and reference type-arguments in a body" in {
+    val body    = app(ref(effectId("id"), fnType(idType(stringType), stringType)), str, idType(stringType))
+    val erased  = IdNormalizer.eraseIdInBody(at(body.value.expression))
+    IdNormalizer.hasResidualIdType(stringType, Some(erased)).shouldBe(false)
+  }
+
+  it should "detect a residual Id[X] type before erasure" in {
+    val body = app(ref(effectId("id"), fnType(idType(stringType), stringType)), str, idType(stringType))
+    IdNormalizer.hasResidualIdType(idType(stringType), Some(at(body.value.expression))).shouldBe(true)
+  }
 }

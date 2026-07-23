@@ -95,6 +95,51 @@ object IdNormalizer {
   ): Sourced[MonomorphicExpression] =
     node.map(me => MonomorphicExpression(me.expressionType, expression))
 
+  // ── U1b: type/key erasure (`Id[X] ⤳ X`, docs/effects-as-channel.md §6/§10) ───────────────────────────────────────
+  //
+  // After the body rewrites (U1a) an `Id[X]` node is representationally its payload; U1b makes that explicit in the
+  // *types* too — every `Id`-headed type erases to its payload, in node types, signatures, and the type arguments a
+  // callee is instantiated at. Because a reference's erased type arguments become the callee's demanded mono key, this
+  // is what *merges* an `Id`-instantiation with its payload instantiation (`fold[Id[String]]` and `fold[String]` become
+  // one demand, one generated method). Only a *bare* `Id` (unapplied, as a higher-kinded carrier argument like the `G`
+  // of `AbortCarrier[Id, A]`) is left — it has no payload to collapse to and its carrier already erases to its own head.
+
+  /** Erase every `Id`-headed type to its payload, recursively (`Id[X] ⤳ X`, `Box[Id[X]] ⤳ Box[X]`). A bare unapplied
+    * `Id` (no payload) is left unchanged.
+    */
+  def eraseIdTypes(gv: GroundValue): GroundValue =
+    gv match {
+      case GroundValue.Structure(name, arg +: _, _) if name == WellKnownTypes.idFQN => eraseIdTypes(arg)
+      case GroundValue.Structure(name, args, valueType)                             =>
+        GroundValue.Structure(name, args.map(eraseIdTypes), eraseIdTypes(valueType))
+      case GroundValue.Param(index, args, valueType)                                =>
+        GroundValue.Param(index, args.map(eraseIdTypes), eraseIdTypes(valueType))
+      case GroundValue.Direct(value, valueType)                                     =>
+        GroundValue.Direct(value, eraseIdTypes(valueType))
+      case GroundValue.Type                                                         => GroundValue.Type
+    }
+
+  /** Erase `Id`-headed types throughout a body: every node's `expressionType`, every function-literal parameter type,
+    * and every value reference's type arguments (which are the callee's demanded mono key — this is where the
+    * Id-instantiation merge happens).
+    */
+  def eraseIdInBody(body: Sourced[MonomorphicExpression.Expression]): Sourced[MonomorphicExpression.Expression] =
+    eraseIdInNode(body.map(MonomorphicExpression(GroundValue.Type, _))).map(_.expression)
+
+  private def eraseIdInNode(node: Sourced[MonomorphicExpression]): Sourced[MonomorphicExpression] =
+    node.map { me =>
+      val erased = me.expression match {
+        case MonomorphicExpression.FunctionApplication(target, argument)      =>
+          MonomorphicExpression.FunctionApplication(eraseIdInNode(target), eraseIdInNode(argument))
+        case MonomorphicExpression.FunctionLiteral(name, parameterType, inner) =>
+          MonomorphicExpression.FunctionLiteral(name, eraseIdTypes(parameterType), eraseIdInNode(inner))
+        case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)   =>
+          MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs.map(eraseIdTypes))
+        case other                                                            => other
+      }
+      MonomorphicExpression(eraseIdTypes(me.expressionType), erased)
+    }
+
   /** Any `Id`-machinery *references* still present in a (normalized) body — the residue the load-bearing fail-safe
     * reports (docs/effects-as-channel.md §6): a warning during U1 bring-up, a hard error from U4. A non-empty result
     * means a body shape [[normalize]] did not reach (e.g. a rare first-class combinator reference); the jvm newtype
@@ -103,6 +148,37 @@ object IdNormalizer {
     */
   def residualIdReferences(body: MonomorphicExpression.Expression): Seq[ValueFQN] =
     collectReferences(body).filter(isIdMachinery)
+
+  /** Whether any `Id`-headed type (`Id[X]`) survives in a value's signature or body after U1b type erasure — the type
+    * half of the residue fail-safe. A *bare* `Id` (unapplied carrier marker, e.g. the `G` of `AbortCarrier[Id, A]`) is
+    * not flagged: it has no payload to erase and legitimately survives until deeper stack lowering.
+    */
+  def hasResidualIdType(
+      signature: GroundValue,
+      body: Option[Sourced[MonomorphicExpression.Expression]]
+  ): Boolean =
+    typeHasIdHead(signature) || body.exists(b => bodyTypes(b.value).exists(typeHasIdHead))
+
+  private def typeHasIdHead(gv: GroundValue): Boolean =
+    gv match {
+      case GroundValue.Structure(name, arg +: _, _) if name == WellKnownTypes.idFQN => true
+      case GroundValue.Structure(_, args, valueType)                                => (args :+ valueType).exists(typeHasIdHead)
+      case GroundValue.Param(_, args, valueType)                                    => (args :+ valueType).exists(typeHasIdHead)
+      case GroundValue.Direct(_, valueType)                                         => typeHasIdHead(valueType)
+      case GroundValue.Type                                                         => false
+    }
+
+  private def bodyTypes(expr: MonomorphicExpression.Expression): Seq[GroundValue] =
+    expr match {
+      case MonomorphicExpression.FunctionApplication(target, argument)      =>
+        nodeTypes(target) ++ nodeTypes(argument)
+      case MonomorphicExpression.FunctionLiteral(_, parameterType, inner)   => parameterType +: nodeTypes(inner)
+      case MonomorphicExpression.MonomorphicValueReference(_, typeArguments) => typeArguments
+      case _                                                                => Seq.empty
+    }
+
+  private def nodeTypes(node: Sourced[MonomorphicExpression]): Seq[GroundValue] =
+    node.value.expressionType +: bodyTypes(node.value.expression)
 
   private def isIdMachinery(fqn: ValueFQN): Boolean =
     fqn == WellKnownTypes.runIdFQN || fqn == WellKnownTypes.idConstructorFQN ||

@@ -69,22 +69,34 @@ class WovenValueProcessor(
       case Some(carrier)                                 => weave(mv, carrier)
       case None                                          =>
         // Default path (effects-as-channel U1, on by default): the identity carrier `Id` and its machinery are erased
-        // from the body by [[IdNormalizer]] (docs/effects-as-channel.md §6), so pure code recovers its efficient shape
-        // and — with the jvm newtype representation of `Id` ([[GroundValue.carrierFQN]]) — no `Id` allocation ships.
-        // Signature and key are unchanged (type/key erasure is the U1b slice). The load-bearing fail-safe: any `Id`
-        // machinery the rewrites failed to reach is reported (a U1 warning, a hard error from U4).
-        val normalized = mv.runtime.map(IdNormalizer.normalizeValue(mv.vfqn, _))
-        warnIdResidue(mv.vfqn, normalized)
-          .as(WovenValue(mv.vfqn, mv.typeArguments, mv.name, mv.signature, normalized))
+        // (docs/effects-as-channel.md §6/§10). U1a — [[IdNormalizer.normalizeValue]] rewrites the body so pure code
+        // recovers its efficient shape and no `Id` allocation ships. U1b — `Id`-headed *types* erase to their payload
+        // in the signature and body (`eraseIdTypes`/`eraseIdInBody`); erasing a reference's type arguments shifts the
+        // callee's demanded mono key, which merges an `Id`-instantiation with its payload instantiation. The
+        // WovenValue's own key (`mv.typeArguments`) is left as demanded — it is set by the reference that demanded it,
+        // itself already erased. The load-bearing fail-safe: any `Id` machinery the rewrites failed to reach is
+        // reported (a U1 warning, a hard error from U4).
+        val normalized  = mv.runtime.map(body => IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, body)))
+        val erasedSig    = IdNormalizer.eraseIdTypes(mv.signature)
+        warnIdResidue(mv.vfqn, erasedSig, normalized)
+          .as(WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized))
     }
 
-  /** Warn on any `Id` machinery left in a normalized body (the effects-as-channel §6 residue fail-safe — a warning in
-    * U1, a hard build error from U4).
+  /** Warn on any `Id` residue left after normalization + erasure (the effects-as-channel §6 fail-safe — a warning in
+    * U1, a hard build error from U4): a surviving `Id`-machinery *reference* (a first-class combinator the U1a rewrites
+    * do not reach — kept safe by the newtype), or a surviving `Id[X]` *type* (a top-level carrier U1b erasure missed).
     */
-  private def warnIdResidue(vfqn: ValueFQN, body: Option[Sourced[MonomorphicExpression.Expression]]): CompilerIO[Unit] =
-    body.map(b => IdNormalizer.residualIdReferences(b.value)).filter(_.nonEmpty).traverse_ { residue =>
-      warn[CompilerIO](s"effects-as-channel: Id residue survived normalization in ${vfqn.show}: ${residue.map(_.show).mkString(", ")}")
-    }
+  private def warnIdResidue(
+      vfqn: ValueFQN,
+      signature: GroundValue,
+      body: Option[Sourced[MonomorphicExpression.Expression]]
+  ): CompilerIO[Unit] = {
+    val references = body.map(b => IdNormalizer.residualIdReferences(b.value)).getOrElse(Seq.empty)
+    val typeResidue = IdNormalizer.hasResidualIdType(signature, body)
+    warn[CompilerIO](
+      s"effects-as-channel: Id residue survived normalization in ${vfqn.show}: ${references.map(_.show).mkString(", ")}${if (typeResidue) " [Id-headed type]" else ""}"
+    ).whenA(references.nonEmpty || typeResidue)
+  }
 
   /** Weave the platform **entry point** (`main::main`, [[entryPoint]]): under the effect-blind checker its body is a
     * bare reference to the user `main`, typed pure `Unit`, but the woven user `main` is an `IO[Unit]` that must be *run*.
