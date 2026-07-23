@@ -245,11 +245,98 @@ class Checker(
       inferred: SemValue,
       expected: SemValue
   ): CheckIO[SemExpression] =
+    if (!uniformCarrier) checkAgainstDefault(tm, expr, inferred, expected)
+    else
+      uniformReturnRoutable(tm, inferred, expected).flatMap {
+        case true  => uniformReturnBoundary(tm, expr, expected)
+        case false => checkAgainstDefault(tm, expr, inferred, expected)
+      }
+
+  /** The default (carrier-based) return-boundary resolution: [[resolveGuardedLadder]] with the bind-lift arm disabled
+    * (see [[checkAgainst]]'s doc). Kept verbatim as the fallback for every boundary the U3a-2b(ii) uniform bridge does
+    * not yet cover — the live path when `uniformCarrier` is off, and under it for everything but the plain pure value
+    * return.
+    */
+  private def checkAgainstDefault(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      inferred: SemValue,
+      expected: SemValue
+  ): CheckIO[SemExpression] =
     resolveGuardedLadder(tm, expr, inferred, expected, allowBindLift = false).map {
       case SlotOutcome.Resolved(e) => e
       case other                   =>
         throw new IllegalStateException(s"Return-boundary resolution produced a non-Resolved outcome: $other")
     }
+
+  /** The uniform return boundary (docs/effects-as-channel.md §3, U3a-2b(ii)): bring the body carrier-headed
+    * ([[UniformCarrierChecker.intoCarrierHeadedTerm]] — a pure `T` value ⤳ `pure@Effect[Id](T)`) and resolve it against
+    * the declared return through the bridge ([[UniformCarrierChecker.checkReturnBoundary]] — join the carriers, unify the
+    * payloads, re-carry the pure body). For the plain pure case this slice routes here, every inserted `pure@Id`/`runId`
+    * is erased by the downstream Id-normalization stage, so the emitted body is byte-identical to the default path.
+    */
+  private def uniformReturnBoundary(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      expected: SemValue
+  ): CheckIO[SemExpression] =
+    for {
+      headed <- uniformChecker.intoCarrierHeadedTerm(expr, tm)
+      result <- uniformChecker.checkReturnBoundary(headed, headed.expressionType, expected, tm)
+    } yield result
+
+  /** Effects-as-channel U3a-2b(ii), first wiring slice (docs/effects-as-channel.md §10) — gated on [[uniformCarrier]]:
+    * whether a return boundary is the plain **pure runtime-value** case the uniform bridge covers today. True only when
+    * both the declared return and the body's inferred type are plain, non-carrier-headed value types
+    * ([[uniformPlainValueType]] — a `VTopDef` head that is not an effect carrier, i.e. not `VType`, not a function
+    * `VPi`/polytype `VLam`, not a carrier-meta application, not an ambient/role carrier) **and** the inferred payload
+    * already fits the declared return by pure definitional equality (a *non-committing* speculative unify; the real
+    * unification runs inside [[UniformCarrierChecker.checkReturnBoundary]]).
+    *
+    * Everything the narrow bridge does not yet cover falls back to [[checkAgainstDefault]] — `Int` widening coercion (a
+    * definitional-equality miss), effect-carrier-headed returns (routing one would self-solve its carrier meta), the
+    * guard / calculated-return / W3 discharge and the §8 type-level boundary (all `VType`-expected or carrier-headed),
+    * and function/polytype returns. So this slice grows the uniform path from the simplest programs while every other
+    * shape stays byte-identical to the default path.
+    */
+  private def uniformReturnRoutable(
+      tm: Sourced[OperatorResolvedExpression],
+      inferred: SemValue,
+      expected: SemValue
+  ): CheckIO[Boolean] =
+    for {
+      plainExpected <- uniformPlainValueType(expected)
+      plainInferred <- uniformPlainValueType(inferred)
+      routable      <- if (plainExpected && plainInferred) unifiesDefinitionally(inferred, expected, tm.as("Type mismatch."))
+                       else pure(false)
+    } yield routable
+
+  /** Whether `tpe` forces to a plain, non-carrier-headed **value** type the uniform boundary can safely re-carry: a
+    * `VTopDef`-headed type (`String`, `Int`, `List[..]`, `Unit`) that is not an effect carrier (`effectCarrierSplit`
+    * empty). Excludes `VType` (the §8 type-level boundary), functions/polytypes (`VPi`/`VLam` — only a fully-applied
+    * result carrier-heads, never a function value), and metavariable heads (a carrier meta or an unresolved type), all
+    * of which must stay on the default path in this slice.
+    */
+  private def uniformPlainValueType(tpe: SemValue): CheckIO[Boolean] =
+    for {
+      forced <- force(tpe)
+      split  <- lifter.effectCarrierSplit(forced)
+    } yield forced match {
+      case VTopDef(_, _, _) => split.isEmpty
+      case _                => false
+    }
+
+  /** Speculatively unify `actual` with `expected` by pure definitional equality, **without committing** — the routing
+    * probe for [[uniformReturnRoutable]] (the actual unification runs later inside the bridge). Distinct from
+    * [[tryUnifyCommitting]], which commits the solutions on success.
+    */
+  private def unifiesDefinitionally(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
+    inspect(s =>
+      s.unifier.tryUnify(actual, expected, context) match {
+        case UnifyResult.Unified(_)       => true
+        case UnifyResult.Contradiction(_) => false
+      }
+    )
 
   /** The check-mode resolution ladder shared by return boundaries ([[checkAgainst]]) and spine argument slots
     * ([[checkArgumentSlot]]), fronted by the W2b guard-kind acceptance. A value whose type is on the compile-time
