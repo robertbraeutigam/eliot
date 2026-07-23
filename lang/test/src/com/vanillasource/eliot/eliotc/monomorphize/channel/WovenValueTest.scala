@@ -52,6 +52,20 @@ class WovenValueTest
     woven(prelude + "def main: {Foo} Unit = op").asserting(_._1 shouldBe Seq.empty)
   }
 
+  it should "carrier-wrap only the return of a parameterized effectful function, not the whole arrow" in {
+    woven(prelude + "def shout(s: String): {Foo} Unit = op\ndef main: {Foo} Unit = shout(\"x\")", "shout")
+      .asserting(result => result._2.flatMap(_.signature.asFunctionType).map(_._2).collect {
+        case GroundValue.Structure(fqn, _, _) => fqn.name.name
+      } shouldBe Some("TestIO"))
+  }
+
+  it should "keep a parameterized effectful function's signature headed by the function type, not the carrier" in {
+    woven(prelude + "def shout(s: String): {Foo} Unit = op\ndef main: {Foo} Unit = shout(\"x\")", "shout")
+      .asserting(result => result._2.map(_.signature).collect {
+        case GroundValue.Structure(fqn, _, _) => fqn.name.name
+      } shouldBe Some("Function"))
+  }
+
   private def woven(source: String, name: String = "main"): IO[(Seq[TestError], Option[WovenValue])] = {
     val key = WovenValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty)
     runGenerator(source, key, systemImports).map { case (errors, facts) =>

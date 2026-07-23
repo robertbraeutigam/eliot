@@ -3,9 +3,10 @@
 Status: **DESIGN + Phases 1–2 landed + Phase 3 in progress behind `--effect-channel`** (dark plumbing
 → shadow accounting → the gated effect-blind path: desugar/checker, real accounting, weaver slice 1,
 codegen redirect to the woven fact, base-carrier wired, entry-point rework, **bind/`pure` insertion** —
-**sequenced `Console` programs (nested effectful args, blocks, effectful `val` bindings) compile and run
-end-to-end under the flag**; control effects, pure-strict-nested effects, and effectful conditionals are
-the next slices).
+**sequenced `Console` programs — nested effectful args/blocks/effectful `val` bindings, effects nested
+under a pure strict function (`printLine("a" ++ readLine)`), and parameterized effectful functions
+(`shout(s) = printLine(s)`) — compile and run end-to-end under the flag**; control effects and effectful
+conditionals are the next slices).
 The carrier-based elaboration in `monomorphize/check` (`EffectLifter`, `EffectResidualChecker`,
 ambient-carrier tracking) is still the live **default** path and drives compilation unchanged; the
 channel path exists only under the `--effect-channel` flag (developer-only until a program runs
@@ -19,9 +20,10 @@ Phases 1–2 (§10) and most of Phase 3 are implemented and committed on `master
 compiler behaviour is unchanged: Phases 1–2 are dark/shadow, and everything Phase 3 is gated behind
 `--effect-channel` (off by default). Under the flag the checker is effect-blind, the channel is the
 real verifier, and — as of the entry-point + bind/`pure` slices — **sequenced `Console` programs now
-run end-to-end** (nested effectful arguments, blocks, effectful `val` bindings). The flag stays
-developer-only until the *general* case is covered: control effects, effects nested under a pure
-strict function, and effectful conditionals are the remaining weaver slices. Concretely:
+run end-to-end** (nested effectful arguments, blocks, effectful `val` bindings, effects nested under a
+pure strict function, and parameterized effectful functions). The flag stays developer-only until the
+*general* case is covered: control effects and effectful conditionals are the remaining weaver slices.
+Concretely:
 
 - **Phase 1 (dark plumbing) — done.** A generic `EffectRow[C]` (`ast/fact/EffectRow.scala`) captures a
   signature's **open** rows, position-attributed (`returnEffects` = the value's own ambient row;
@@ -132,32 +134,41 @@ strict function, and effectful conditionals are the remaining weaver slices. Con
   woven run-boundary — `printLine` was resolved to `Console[IO]::printLine` inside the woven user main, which is why it
   returns an `IO`). Off the flag: HelloWorld runs, `lang.test`/`jvm.test` green.
 
-  The **bind/`pure` insertion is done for strict consumers** — the post-mono monadic translation that reintroduces the
-  sequencing the effect-blind checker drops. `WovenValueProcessor.weave` now monadifies an effectful value's body: an
-  effectful argument to a *strict* consumer is bound with `flatMap`, a pure value reaching the carrier is wrapped in
-  `pure`, both resolved at the base carrier's `Effect` instance exactly like a user effect operation
+  The **bind/`pure` insertion is done for every strict application** — the post-mono monadic translation that
+  reintroduces the sequencing the effect-blind checker drops. `WovenValueProcessor.weave` now monadifies an effectful
+  value's body: an effectful argument to a *strict* consumer is bound with `flatMap`, a pure value reaching the carrier
+  is wrapped in `pure`, both resolved at the base carrier's `Effect` instance exactly like a user effect operation
   (`WellKnownTypes.effectFlatMapFQN`/`effectPureFQN` → impl at `[IO]`). It is a CBV translation (a `StateT` counter mints
   fresh `$weave$N` binders): block-desugared applied lambdas sequence via `flatMap` reusing the lambda's binder;
-  effect-op/effectful-function-headed spines bind their effectful arguments left-to-right; each inserted node is stamped
-  its carrier-headed type so codegen descriptors line up. **Fail-safe scope:** only strict consumers are monadified — a
-  *pure-headed* spine (`concat`, and crucially the lazy `fold`/`if`) is left structural and `pure`-wrapped, so a
-  conditional's arms are never both eagerly run; an unhandled shape crashes at runtime, never silently computes the wrong
-  answer. Verified under the flag: `printLine(readLine)` echoes stdin, a two-statement `Console` block prints both lines,
-  `val name = readLine; printLine(name); printLine(name)` sequences and reuses the binding; HelloWorld unchanged. Off the
-  flag neutral (`weave` unreached): `lang.test`/`jvm.test` green.
+  a strict spine sequences its effectful arguments left-to-right **whether the effect is on the head *or* nested under a
+  pure strict head** (`printLine("a" ++ readLine)` — the pure-headed inner `concat(…, readLine)` is itself sequenced and
+  `pure`-wrapped), the routing keyed off `isEffectfulNode` (head OR argument) rather than the head alone; each inserted
+  node is stamped its carrier-headed type so codegen descriptors line up. **Parameterized effectful functions** work too:
+  `weaveMonadicBody` peels the body's leading parameter lambdas (a lambda value is pure — not monadified), monadifies only
+  the inner body, and `carrierReturn` wraps only the *return* type of the signature (`shout(s: String): {Console} Unit` ⤳
+  `String -> IO[Unit]`, never `IO[String -> Unit]`). **Fail-safe scope:** the one non-monadified strict shape is a **lazy
+  conditional head** (`fold`/`if`, `WellKnownTypes.boolFoldFQN`/`boolIfFQN`), whose arms are selected not all run — it is
+  left structural and `pure`-wrapped so a conditional's arms are never both eagerly run; an unhandled shape crashes at
+  runtime, never silently computes the wrong answer. Verified under the flag (byte-identical to the default path):
+  `printLine(readLine)` echoes stdin, a two-statement `Console` block prints both lines,
+  `val name = readLine; printLine(name); printLine(name)` sequences and reuses the binding, `Concat`
+  (`printLine("Hello, " ++ readLine ++ "!")`) prints `Hello, world!`, and multi-parameter effectful helpers
+  (`shoutTwice(a, b)`) run; an effectful `fold` still crashes (deferred), never runs both arms; HelloWorld unchanged. Off
+  the flag neutral (`weave` unreached): `lang.test`/`jvm.test` green.
 
   **Remaining under the flag (next slices):** **control effects** (`State`/`Throw`/`Abort` need the control-effect
-  carrier stacks — `weave key = mono key × stack`); **effects nested under a pure strict function**
-  (`printLine("a" ++ readLine)`) and **effectful conditionals** (both left structural today — a crash, not a wrong
-  answer). Also a **latent accounting leak**: the entry `main::main` references the effectful user main without a
+  carrier stacks — `weave key = mono key × stack`) and **effectful conditionals** (`fold`/`if` with effectful arms — left
+  structural today, a crash not a wrong answer — because each arm must be woven as a *suspended* carrier action and the
+  eliminator selects one; `if..else` additionally needs the `Abort` control effect). Also a **latent accounting leak**:
+  the entry `main::main` references the effectful user main without a
   declared row, so channel accounting would flag it `channel=reject` (the shadow already does) — harmless today (nothing
   demands `EffectAccounting` in a jar build), but when accounting is wired to auto-run the entry needs the
   discharge/reify subtraction or an explicit exemption (it is the run/discharge boundary). The flag stays developer-only
   until the whole reachable program is verified and woven end-to-end for the general case.
 
 - **Phase 3 remaining slices + Phases 4–5 — not started.** The weaver's remaining work for the *general* case
-  (control-effect carrier stacks and their weave-key threading; bind/`pure` insertion under a pure strict function;
-  effectful conditionals; precise node types on structurally-woven sub-terms), the later accounting slices
+  (control-effect carrier stacks and their weave-key threading; effectful conditionals — weaving `fold`/`if` arms as
+  suspended carrier actions; precise node types on structurally-woven sub-terms), the later accounting slices
   (transparent-parameter expansion, reify/discharge subtraction, the carrier-machinery-impl exception, the entry
   `main::main` exemption), the flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and
   Phase 2's shadow are the substrate they build on; the shadow (and the entire `EffectResidualChecker`) is deleted at
@@ -362,9 +373,11 @@ into a tested equivalence with the current exact checker rather than an assertio
 *Implementation note (§0): `monomorphize/channel/WovenValueProcessor` + the `WovenValue` fact are **built and
 running** for the Suspend-riding base carrier — carrier assignment + effect-operation resolution, the codegen
 re-key (`used`/`uncurry`/jvm read `WovenValue`), the base-carrier config, the run-boundary **entry point**, and
-**bind/`pure` insertion for strict consumers** (the direct-style → monadic elaboration below). Sequenced `Console`
-programs run end-to-end under the flag. Still later slices: control-effect weave-key stacks, bind/`pure` under a
-pure strict function, effectful conditionals, and precise node types on structurally-woven sub-terms; see §0.*
+**bind/`pure` insertion for every strict application** — including effects nested under a pure strict head
+(`printLine("a" ++ readLine)`) and parameterized effectful functions (leading parameter lambdas peeled, only the
+return type carrier-wrapped). Sequenced `Console` programs run end-to-end under the flag. Still later slices:
+control-effect weave-key stacks, effectful conditionals (weaving `fold`/`if` arms as suspended carrier actions),
+and precise node types on structurally-woven sub-terms; see §0.*
 
 A second post-mono processor performs the direct-style → monadic elaboration the checker does
 today, over concrete terms:
@@ -502,8 +515,16 @@ tracks are green.
     reaching the carrier, both resolved at the base carrier's `Effect` instance. Only strict consumers are monadified
     (pure-headed/lazy spines stay structural — the fail-safe). `printLine(readLine)`, multi-statement blocks, and
     effectful `val` bindings run; off-flag neutral. See §0/§6.
-  - **3a (remaining).** effects nested under a pure strict function (`printLine("a" ++ readLine)`), effectful
-    conditionals, and the entry accounting exemption once accounting is auto-run.
+  - **§6 nested-under-pure-strict + parameterized functions (landed).** The strict-spine routing keys off `isEffectfulNode`
+    (head OR argument), so an effect nested under a *pure strict* head is sequenced too (`printLine("a" ++ readLine)`; the
+    inner `concat(…, readLine)` is bound and `pure`-wrapped). `weaveMonadicBody` peels the body's leading parameter lambdas
+    (pure) and monadifies only the inner body, and `carrierReturn` wraps only the signature's *return* (`String -> IO[Unit]`,
+    not `IO[String -> Unit]`) — so any effectful function with parameters runs, not just nullary mains. The only strict shape
+    kept structural is the **lazy conditional head** (`fold`/`if`, `WellKnownTypes.boolFoldFQN`/`boolIfFQN`) — the fail-safe
+    that keeps effectful conditionals deferred (a crash, never both arms run). `Concat` prints `Hello, world!`;
+    multi-parameter helpers run byte-identically to the default path. See §0/§6.
+  - **3a (remaining).** effectful conditionals (weaving `fold`/`if` arms as suspended carrier actions), and the entry
+    accounting exemption once accounting is auto-run.
   - **3b** control effects, reify points, dischargers, weave keys threaded through
     `used`/`uncurry`/codegen (mangling gains the stack component).
   - **3c** higher-order: parameter rows, `Effect`-transparent positions (`foreach`), lambdas,

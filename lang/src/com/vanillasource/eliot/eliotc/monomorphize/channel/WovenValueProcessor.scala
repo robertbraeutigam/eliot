@@ -37,13 +37,14 @@ import scala.annotation.tailrec
   *
   * It also does **bind/`pure` insertion** for the effectful value's body — the post-mono monadic translation that
   * reintroduces the sequencing the effect-blind checker dropped (see the section comment on `resolveCombinators` below).
+  * This includes effects **nested under a pure strict function** (`printLine("a" ++ readLine)`): a strict spine is
+  * sequenced whether the effect is on its head or on an argument, and the pure-headed result is `pure`-wrapped.
   *
-  * Deferred to later slices (documented so the gaps are visible, not silent): bind/`pure` insertion under a *pure strict*
-  * function (`printLine("a" ++ readLine)`) and effectful conditionals (both left structural today — a runtime crash, not
-  * a silent wrong answer); precise carrier-headed node types on structurally-woven (non-monadified) sub-terms; control-
-  * effect carrier stacks (`weave key = mono key × stack`); and the multi-parameter effect abilities (`State[S, F]`),
-  * which this slice's single-carrier-argument query does not yet resolve (they are left abstract rather than
-  * mis-resolved).
+  * Deferred to later slices (documented so the gaps are visible, not silent): **effectful conditionals** (`fold`/`if`,
+  * left structural today — a runtime crash, not a silent wrong answer — because their arms are selected, not all run);
+  * precise carrier-headed node types on structurally-woven (non-monadified) sub-terms; control-effect carrier stacks
+  * (`weave key = mono key × stack`); and the multi-parameter effect abilities (`State[S, F]`), which this slice's
+  * single-carrier-argument query does not yet resolve (they are left abstract rather than mis-resolved).
   *
   * Off the flag, or when no base carrier is configured, the weave is the **identity** image of the `MonomorphicValue`
   * (the carrier path is unchanged).
@@ -108,7 +109,9 @@ class WovenValueProcessor(
                      case (true, Some(c)) => mv.runtime.traverse(body => weaveMonadicBody(body, mv.signature, c))
                      case _               => mv.runtime.traverse(body => weaveExpression(body.value, carrier).map(body.as))
                    }
-      signature  = if (effectful) carrierApplied(carrier, mv.signature) else mv.signature
+      // Only the *return* type is carrier-headed: a parameterized effectful function `shout(s: String): {Console} Unit`
+      // wovens to `String -> IO[Unit]`, not `IO[String -> Unit]`. Nullary values (arity 0) wrap their whole signature.
+      signature  = if (effectful) carrierReturn(mv.signature, mv.naturalArity.getOrElse(0), carrier) else mv.signature
     } yield WovenValue(mv.vfqn, mv.typeArguments, mv.name, signature, wovenBody)
 
   // ── Bind/`pure` insertion (the post-mono monadic translation, docs/effects-as-channel.md §6) ──────────────────────
@@ -121,11 +124,12 @@ class WovenValueProcessor(
   // exactly like a user effect operation.
   //
   // Scope (kept deliberately narrow so the fail-safe holds — an unhandled shape crashes at runtime, never silently
-  // computes the wrong answer): the translation monadifies only where the consumer is *strict* — an effect-operation or
-  // effectful-function application, and the block-desugared applied lambda (`val x = e; rest`). A **pure-headed** spine
-  // (`concat`, and crucially the lazy `fold`/`if`) is left structural and `pure`-wrapped, so a conditional's arms are
-  // never both eagerly run. Nested effectful terms under a pure strict function (`printLine("a" ++ readLine)`) and
-  // effectful conditionals are later slices.
+  // computes the wrong answer): the translation monadifies every *strict* (call-by-value) application — an
+  // effect-operation or effectful-function head, a **pure strict head with an effectful argument** (`concat`, so
+  // `printLine("a" ++ readLine)` sequences the nested `readLine`), and the block-desugared applied lambda
+  // (`val x = e; rest`). The only exception is a **lazy conditional** head (`fold`/`if`), whose arms are selected not
+  // all run: it is left structural and `pure`-wrapped so a conditional's arms are never both eagerly run. Effectful
+  // conditionals (weaving each arm as a suspended carrier action) are a later slice.
 
   /** The carrier's `Effect`-instance combinators (`flatMap`/`pure`) resolved at the base carrier — the same resolution a
     * user effect operation gets. `None` if the carrier has no `Effect` instance (then the body is left structural).
@@ -139,7 +143,51 @@ class WovenValueProcessor(
       signature: GroundValue,
       c: Combinators
   ): CompilerIO[Sourced[MonomorphicExpression.Expression]] =
-    weaveMonadic(body.map(MonomorphicExpression(signature, _)), c).runA(0).map(_.map(_.expression))
+    peelAndWeave(body, signature, c).runA(0).map(_.map(_.expression))
+
+  /** Peel the leading *parameter* lambdas of an effectful body — they are NOT monadified (a lambda value is pure; its
+    * effects happen on application) — descending the signature's arrows in lockstep to the return type. Monadify the
+    * inner body at that return type, then rebuild each lambda with a carrier-returning type, so a parameterized
+    * effectful function `s -> printLine(s)` wovens to `s -> IO[Unit]`. A nullary body (no leading lambda) is monadified
+    * directly, exactly as before.
+    */
+  private def peelAndWeave(
+      expr: Sourced[MonomorphicExpression.Expression],
+      returnType: GroundValue,
+      c: Combinators
+  ): Weave[Sourced[MonomorphicExpression]] =
+    expr.value match {
+      case MonomorphicExpression.FunctionLiteral(name, parameterType, inner) =>
+        peelAndWeave(inner.map(_.expression), functionCodomain(returnType), c).map { wovenInner =>
+          expr.as(
+            MonomorphicExpression(
+              functionType(parameterType, wovenInner.value.expressionType),
+              MonomorphicExpression.FunctionLiteral(name, parameterType, wovenInner)
+            )
+          )
+        }
+      case _                                                                 =>
+        weaveMonadic(expr.map(MonomorphicExpression(returnType, _)), c)
+    }
+
+  /** The codomain of a function type (`String -> Unit` ⤳ `Unit`); a non-function type is returned unchanged (defensive —
+    * a body with more leading lambdas than the signature has arrows keeps the residual type).
+    */
+  private def functionCodomain(t: GroundValue): GroundValue =
+    t.asFunctionType.map(_._2).getOrElse(t)
+
+  /** Wrap only the *return* type of an effectful value's signature in the carrier, walking `arity` parameter arrows in
+    * first: `String -> Unit` at arity 1 becomes `String -> IO[Unit]` (not `IO[String -> Unit]`). At arity 0 this is
+    * exactly [[carrierApplied]] (a nullary value's whole signature is its return). Fewer arrows than `arity` (defensive)
+    * wraps what remains.
+    */
+  private def carrierReturn(signature: GroundValue, arity: Int, carrier: ValueFQN): GroundValue =
+    if (arity <= 0) carrierApplied(carrier, signature)
+    else
+      signature.asFunctionType match {
+        case Some((parameterType, result)) => functionType(parameterType, carrierReturn(result, arity - 1, carrier))
+        case None                          => carrierApplied(carrier, signature)
+      }
 
   /** Translate a node standing in **monadic position** — its value flows into the carrier — into an expression of type
     * `carrier[payload]`, inserting `flatMap`/`pure`. Every result is stamped `carrier[nodePayload]` (the carrier-headed
@@ -151,10 +199,16 @@ class WovenValueProcessor(
         weaveBlock(node, target, argument, c)
       case MonomorphicExpression.FunctionApplication(_, _)                                     =>
         val (head, args) = flattenSpine(node)
-        liftW(headNodeEffectful(head)).flatMap {
-          case true  => sequenceSpine(node, head, args, c)
-          case false => pureWrap(node, c)
-        }
+        // A *lazy* conditional (`fold`/`if`) selects one arm at runtime, so its arms must NOT be eagerly sequenced;
+        // leave it structural (the fail-safe — effectful conditionals are a later slice). Every other spine is a strict
+        // (call-by-value) application: if it performs effects anywhere — an effectful head OR an effectful argument
+        // nested under a pure strict head (`printLine("a" ++ readLine)`) — sequence it left-to-right.
+        if (isLazyConditionalHead(head)) pureWrap(node, c)
+        else
+          liftW(isEffectfulNode(node)).flatMap {
+            case true  => sequenceSpine(node, head, args, c)
+            case false => pureWrap(node, c)
+          }
       case MonomorphicExpression.MonomorphicValueReference(vfqn, _)                            =>
         liftW(headEffectfulReturning(vfqn.value)).flatMap {
           case true  => liftW(weaveExpression(node.value.expression, c.carrier)).map(io(node, _, c))
@@ -339,6 +393,19 @@ class WovenValueProcessor(
     node.value.expression match {
       case MonomorphicExpression.FunctionLiteral(_, _, _) => true
       case _                                              => false
+    }
+
+  /** Whether a spine head is a *lazy conditional* eliminator (`fold`/`if`, [[WellKnownTypes.boolFoldFQN]] /
+    * [[WellKnownTypes.boolIfFQN]]) — the only value-level primitives whose arguments (the arms) are selected rather than
+    * all run. They must therefore not be eagerly sequenced like a strict function's effectful arguments; they are left
+    * structurally woven here (effectful conditionals — weaving each arm as a suspended carrier action — are a later
+    * slice). Every other value is strict (call-by-value), so its effectful arguments are correctly sequenced.
+    */
+  private def isLazyConditionalHead(head: Sourced[MonomorphicExpression]): Boolean =
+    head.value.expression match {
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, _) =>
+        vfqn.value == WellKnownTypes.boolFoldFQN || vfqn.value == WellKnownTypes.boolIfFQN
+      case _                                                        => false
     }
 
   @tailrec

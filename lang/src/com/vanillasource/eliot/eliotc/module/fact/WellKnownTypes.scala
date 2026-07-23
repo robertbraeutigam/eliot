@@ -55,6 +55,17 @@ object WellKnownTypes {
   val boolTrueFQN: ValueFQN  = ValueFQN(boolModule, QualifiedName("true", Qualifier.Default))
   val boolFalseFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("false", Qualifier.Default))
 
+  /** `fold[A](condition: Bool, whenTrue: A, whenFalse: A): A` — the two-armed `Bool` eliminator, and the one *lazy*
+    * value-level primitive: only the selected arm is ever run. The effects-as-channel weaver recognises it (and [[boolIfFQN]])
+    * by FQN so it does **not** eagerly sequence both arms the way it sequences a strict function's effectful arguments.
+    */
+  val boolFoldFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
+
+  /** `if[T](condition: Bool, value: {Abort} T): {Abort} T` — `fold(condition, value, abort)`; likewise lazy in its arm.
+    * Recognised by the effects-as-channel weaver alongside [[boolFoldFQN]] to keep conditional arms unsequenced.
+    */
+  val boolIfFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("if", Qualifier.Default))
+
   private val idModule: ModuleName = ModuleName(defaultSystemPackage, "Id")
 
   /** The identity carrier `Id[A]` — the carrier that realizes the *empty* effect row. Abstract in the lang layer's
