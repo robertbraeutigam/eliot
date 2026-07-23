@@ -14,6 +14,13 @@ end-to-end under it — see §0), and the flip in Phase 4 makes it the default a
 Implementation status is tracked per-phase in §10; the concrete landed state is summarised in §0
 immediately below.
 
+**Active foundation reconsideration (2026-07-23):** the effectful-conditional slice surfaced that the
+weaver's bind-vs-pass-through decision has no sound *name-agnostic* signal under pure erasure, forcing a
+choice between two carrier models — "erase then reconstruct" (the current path) vs "everything uniformly
+carriered, `Id` for pure, optimize `Id` away." This is weighed in **§13**; until it is decided, the two
+stopgaps the committed Phase-3 code carries (the `fold`/`if` FQN hardcode and body lambda-peeling) are
+known placeholders, not to be extended.
+
 ## 0. Implementation state (handover)
 
 Phases 1–2 (§10) and most of Phase 3 are implemented and committed on `master`. The **default**
@@ -567,3 +574,123 @@ tracks are green.
    captured computation's base is always spelled by its pinned tail (`Id` or a generic `G`);
    there is nothing to default.
 4. Evaluation order: keep resolved-argument order or move to source order (v1 keeps; §6).
+
+## 13. Carrier-everywhere (`Id`-uniform): an alternative foundation under evaluation
+
+**Status: under evaluation, not committed** (raised 2026-07-23, during the Phase-3 effectful-conditional
+slice). This section weighs an alternative to the §1–§6 "erase the carrier, then reconstruct it in the
+weaver" foundation against making the carrier *universal and uniform* instead. It is recorded before
+re-pointing the monomorphizer so it is not half-migrated toward one foundation and then the other.
+
+**Decision already taken here** (the granularity question of §5/§6): the effect information mono forwards is
+a **per-node** annotation — every `MonomorphicExpression` node carries the effect row it performs — not a
+per-value summary. Everything below assumes that per-node row exists; the question is only what carrier model
+sits on top of it.
+
+### 13.1 What forced the question
+
+The weaver's one hard decision, per argument at a call, is **bind vs pass-through**: `printLine(readLine)` must
+*run* `readLine` (an `IO[String]`) and hand `printLine` the `String` — a bind; `fold(cond, printLine("a"),
+printLine("b"))` must *carry* each arm as an `IO[Unit]` value and let the eliminator select one — a
+pass-through. The effect-blind mono erases the type-level difference (`IO[Unit]` and `String` both collapse to
+their payload), so the weaver has no local, principled signal for the decision. Two attempts confirmed the
+shape of the trap and were both rejected:
+
+- keying off the callee **FQN** (`fold`/`if`) — rejected: conditionals are user/platform-extensible, so no
+  fixed name set is sound;
+- keying off the callee **signature genericness** (a parameter that is a bare type variable is carrier-carrying
+  by parametricity) — sound in principle, but it re-derives, in the weaver, information the monomorphizer already
+  had and dropped; and a signature is itself a value-level computation (types-are-values), so a static parse of
+  it is fragile (it may `= anotherFunction`, not spell its arrows).
+
+Both are the same mistake — reconstructing, from the wrong side, information the erase step deliberately threw
+away. The fix is to stop erasing it: either forward it (the per-node row, decided above), or never remove the
+carrier at all (this section).
+
+### 13.2 The idea
+
+Give **every runtime value node a carrier**: `Id` when its row is empty ("pure"), the ambient effect-carrier
+stack when it is not. A pure `String` is an `Id[String]`; `readLine` is an `IO[String]`; `fold`'s arm is
+`F[Unit]` for whatever `F` its body rides. Then:
+
+- the weaver inserts `flatMap`/`pure`/`map` **unconditionally** over each node's carrier — there is no "is this
+  pure?" fork, no `pureWrap`-vs-sequence branch, no fail-safe-scoped special cases; the `Id` cases are
+  identities;
+- a following **`Id`-normalization pass** erases the overhead: `runId`, and `pure`/`flatMap`/`map` over `Id`,
+  are total local no-ops (we already own `Id`/`runId`, so the rewrite is mechanical and sound), and pure code
+  recovers its efficient shape.
+
+"Empty row ⇒ rides `Id`" is the same statement as the per-node row annotation: the row *is* the carrier, and
+`Id` is its unit.
+
+### 13.3 What it buys
+
+1. **Kills the pure/effectful branching.** The weaver becomes uniform sequencing; the current
+   `pureWrap`/sequence/`isEffectfulNode` forks — and their fail-safe gaps — collapse into one path.
+2. **May dissolve the original ambiguity, not just route around it.** `EffectLifter` needed heuristics because
+   `?F[String] ~ List[A]` is unanswerable structurally — `IO` and `List` are both ordinary constructors, so
+   "carrier or container?" has no local answer (its own doc admits it, §1). The pathology was **conditional**
+   lifting: deciding *whether* to lift. If every value is carriered with the carrier *always outermost*
+   (`Id[List[String]]` for a pure list — carrier `Id`, data `List[String]` inside), lifting is **universal and
+   unconditional** (Kleisli composition), and the decision that needed guards no longer exists. This is a
+   positive argument that carrier-everywhere is a cleaner *foundation* than erase-then-reconstruct, not merely a
+   convenience.
+3. **Aligns with the per-node-row choice** rather than competing with it.
+
+### 13.4 What it does not solve on its own
+
+A consuming native still consumes a payload. `printLine : String -> IO[Unit]` takes a real `String`, not an
+`IO[String]`; `fold`'s arm slot takes the carrier value untouched. Making everything `Id`/`F` does not erase
+that difference — it is inherent in what the callee does with the slot (**does this position want `F[X]` or
+`X`?**). What carrier-everywhere changes is that the question becomes a **structural type read** (`F[X]` vs `X`
+at the position) instead of the genericness/name reconstruction above — *provided the carrier is visible in the
+mono types at that position.* So the payoff hinges on **where the carrier lives**, which is the real fork:
+
+- **Variant A — carrier in the types (uniform checking).** The carrier is a real type flowing through mono,
+  `Id` for pure. `fold`'s arm is genuinely `IO[Unit]` in the mono output and `printLine`'s param genuinely
+  `String`; the weaver reads bind-vs-pass-through directly off the types — no rows consulted for it, no
+  genericness. The bind insertion (`printLine(readLine) ⟹ flatMap`) happens *during* checking — but
+  **unconditionally**, because every value is already carriered, so it is the mechanical Kleisli lift, not the
+  heuristic `EffectLifter` decision this redesign set out to delete. Cost: this is the *opposite* of the current
+  effect-blind cornerstone — carriers are back in checking (universal, not erased), so "types ignore effects"
+  (§3.1) is restated as "types carry effects uniformly, `Id` is the pure default," and the user-facing property
+  (a pure signature just chains/folds) must be re-shown to hold under uniform lifting rather than under erasure.
+- **Variant B — carrier assigned post-mono from rows (effect-blind checking kept).** Checking stays effect-blind
+  (§1–§3 unchanged); the carrier is assigned after mono from the per-node row. Keeps the cornerstone as written,
+  but the position question is **not** answered by types (both `fold`'s arm and `printLine`'s param are
+  payload-typed post-erasure), so it still needs the callee's parameter-position semantics forwarded alongside
+  the row — carrier-everywhere buys the *uniform sequencing* but not the *position read*.
+
+Variant A is the more radical and, if it holds, the more elegant: it turns the weaver into a near-trivial
+type-directed pass and retires the ambiguity at the root. Variant B is the incremental continuation of the
+committed Phase-3 path with the uniformity win layered on top.
+
+### 13.5 Caveats to hold onto (either variant)
+
+- **Type-level / compile-time code must not be `Id`-wrapped.** Types are values here; the compiler platform
+  *runs* type-level code at compile time, and `Id` is a *runtime* carrier. "Everything carriered" is scoped to
+  runtime value positions; the compile-time `Either`-carrier residue (§8) and the NbE evaluator stay
+  carrier-free, or they entangle. This is the sharpest constraint on the idea.
+- **The `Id`-normalization pass becomes load-bearing** — not an optimization. Pervasive `Id` wrapping is only
+  acceptable because it reliably optimizes away, so the pass is correctness-adjacent and needs its own totality
+  tests (every `runId`/`pure`/`flatMap`/`map`-over-`Id` collapses; nothing `Id`-shaped survives to codegen).
+- **`Inf` and control stacks** ride the carrier like any effect (no change), but the row must drive the carrier
+  so a pure body reached only through a terminating path never silently acquires `Inf`; automatic, but worth a
+  test.
+
+### 13.6 Recommendation / decision pending
+
+Lean toward **Variant A** as the eventual foundation — it both simplifies the weaver *and* dissolves the
+`EffectLifter` ambiguity that motivated the entire effects-as-channel effort — while acknowledging it re-opens
+the "carriers in checking" question the current design closed by erasure. Before re-pointing the monomorphizer,
+resolve: (a) does uniform lifting under Variant A demonstrably avoid every guard `EffectLifter` needed — spike
+the four historical failure cases from §1 (`?F[List[String]] ~ List[A]`, the `catch`-handler `Id`-default, the
+`if(c, None) else Some(x)` mis-default, the compound-state equal-arity mis-unify) under uniform-`Id`; (b) the
+exact `Id`/runtime boundary for the compile-time track (§8); (c) the `Id`-normalization pass's placement and
+test surface.
+
+Until that is settled, the committed Phase-3 path (effect-blind + per-node rows, i.e. Variant B) is the working
+base, and the two stopgaps it currently carries — the `fold`/`if` FQN hardcode (`isLazyConditionalHead`) and the
+body lambda-peeling (`weaveMonadicBody`/`peelAndWeave`, fragile for point-free parameterized defs) — are known
+placeholders using the rejected static/name approaches, to be **deleted** by whichever foundation lands, not
+extended.
