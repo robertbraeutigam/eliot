@@ -4,8 +4,14 @@ Status: **FOUNDATION RESOLVED (2026-07-23) — Variant A, carrier-everywhere / I
 reconstructed migration plan (U1–U5, §10). U1 COMPLETE (2026-07-23): the Id-normalization stage is
 on by default and leaves **no `Id` residue** — U1a body rewrites + jvm newtype representation, U1b
 `Id[X] ⤳ X` type/key erasure, and first-class-combinator eta-expansion (the last normalizer step:
-a bare `Id` combinator reference ⤳ the identity/apply lambda). §6, §10. Next: the U2 foundation
-spike.** The §13 fork raised during the Phase-3
+a bare `Id` combinator reference ⤳ the identity/apply lambda). §6, §10. U2 FOUNDATION SPIKE LANDED
+(2026-07-23): a self-contained, not-wired-in prototype (`lang/test/.../monomorphize/spike/`) with the
+four historical failure cases + the flagship effectful/mixed conditional green under one guard-free
+rule set; it produced two sharpenings now in §3 (`Id` is the lattice bottom *everywhere*; the ladder
+*classifies by the expected slot* rather than trying pass-through first — the surviving recognition is
+a positional effect-carrier tag on the expected binder), pinned the compile-time boundary (§8), and
+confirmed Id-free rendering + constant-factor perf. Next: U3 (the uniform checker behind
+`--effect-channel`).** The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -175,6 +181,32 @@ This is today's unify-first ladder with the guards deleted, and it is **spec, no
   declaration-level and conservative).
 - `val x = <effectful>` sequences (the block-desugared applied lambda binds) — unchanged.
 
+**U2-spike sharpening — the ladder classifies by the *expected slot*, it does not "try pass-through
+first."** The spike (§10, `lang/test/.../monomorphize/spike/`) found that a literal "whole-unify
+first, fall to bind on failure" ladder is **unsound**: `list.map(f)` on an effectful `list :
+?G[List[Int]]` meets `map`'s Functor slot `xs: F[A]`, and whole-unifying `?G[List[Int]] ~ F[A]`
+*succeeds spuriously* — it solves `F := ?G, A := List[Int]` (the effect stranded as the container,
+the element type wrong), the same premature solve the theft cases show. The fix is that the ladder
+reads the **expected slot's elaborated shape** and picks exactly one arm, with no speculative
+first-attempt:
+
+- **bare flex generic `?A`** (`fold`'s arm) ⇒ pass-through-whole (the suspended action is `?A`'s value);
+- **effect-carrier form** — headed by an *effect-carrier-tagged* binder `?G[…]` (the ambient / a
+  callee's `F ~ Effect` binder) **or** a known carrier constructor / pinned stack (`runMain`'s
+  `IO[A]`, a discharger's `{Throw[E] | G} A`) ⇒ pass-**join** (carrier joins, payload unifies, a pure
+  actual records a deferred `pure`);
+- **data / Functor / concrete `H[…]`** (`printLine`'s `String`, `map`'s `F[A]`, `List[A]`) ⇒ bind.
+
+The load-bearing distinction is effect-carrier form vs Functor/data form when both are structurally
+`Head[arg]`: `if`'s `?G[A]` and `map`'s `F[A]` are indistinguishable by shape and are told apart
+*only* by the **effect-carrier tag** on the head binder (ability-constrained to the effect machinery
+/ the value's ambient — today's `CarrierRole.effectCarrier` / `ambientCarriers`, but read on the
+**expected** side). This is the precise residue of "recognition": what **dies** is shape-based
+carrier detection of the *actual* (`EffectLifter.effectCarrierSplit`'s guards, `mustLift`,
+equal-arity, `underApplied`); what **survives** is a positional *tag on the expected binder*, set at
+elaboration, never a shape guess. The v1/§3-draft phrasing "unify `C[T]` with `S` whole … otherwise
+bind" is thus refined to "classify `S`, then apply the one arm."
+
 **Carrier solving is join-based; `Id` is the lattice bottom.** This is the load-bearing correction
 that dissolves the premature-commitment bug class rather than reproducing it. A carrier metavariable
 (a callee's carrier binder, the value's ambient) is never solved by whichever term touches it first:
@@ -195,6 +227,21 @@ decision-free**: once a meta solves, each recorded `Id`-side term gets its mecha
 (`pure` at the solved carrier — or nothing, if the meta solved to `Id`) inserted at post-drain;
 this replaces the `Checker`'s Phase A/B flex-slot *decision* deferral with the deferral of a
 no-decision insertion.
+
+**U2-spike sharpening — `Id` is the lattice bottom *everywhere*, never a concrete carrier value.**
+The spike's own bring-up reproduced the premature-commitment bug *inside the join solver* the moment
+a pure `Id[String]` actual split to a concrete carrier `CCon("Id")` instead of bottom: it was then
+treated as a real contribution and *committed* the ambient meta to `Id`, so the effectful sibling
+conflicted — exactly the historical failure, rebuilt. The invariant that dissolves it: the split of
+any `Id`-headed judgment yields the bottom carrier, and the carrier of a pure term is bottom, so a
+pure arm **contributes nothing** to the join. Consequences, now load-bearing: (1) a carrier meta
+"solved to `Id`" is indistinguishable from unsolved/bottom (join has no way to *commit* `Id`, which
+is the point); (2) the deferred pure-lift is recorded **only when the actual's carrier is bottom**
+(a pure arm), keyed on the *result* carrier — an already-effectful arm records nothing; (3)
+materialization is decision-free: `pure`/`flatMap` at the joined carrier, or *erased* if it defaulted
+to `Id`. All four historical cases plus the flagship mixed conditional (`if(c, readLine) else
+"default"` — the pure arm lifts to `pure@Effect[IO]` order-independently) are green in the spike
+under this one rule set, with **none** of the `EffectLifter` guards.
 
 **Scope of the invariant** (the sharpest constraint, held from v1 §13.5): the carrier attaches to
 **runtime term judgments** — never to the type language itself, never to type-level/compile-time
@@ -392,6 +439,16 @@ what is *never* carrier-wrapped is the type language itself — signature evalua
 `VType`-level computation. The U2 spike pins this boundary precisely before the checker refactor
 begins; entangling `Id` into type-level evaluation is the failure mode to guard against.
 
+**U2-spike confirmation.** The spike encodes the boundary as three green assertions: a type-level
+judgment (`Int[0,255] ~ Int[0,255]`) unifies by plain payload unification and **introduces no
+carrier metavariable**; `split` **refuses** a type-of-types (`VType`) judgment — a type-level term is
+not carrier-headed, so nothing can accidentally carry it; and the §8 `Either` discharge carrier is a
+**data** constructor (`isCarrierCon` false), joined nowhere as a runtime carrier — the compile-track
+`{Throw[String]}` discharge stays a type-level `Either` fold. The rule that keeps this sound is
+mechanical: the carrier machinery (`split`, `joinCarrier`, the ladder) is invoked **only on runtime
+term judgments**; the NbE/signature path never calls it. That is the invariant U3 must preserve as it
+threads the elaboration through the (shared) checker.
+
 ## 9. Held invariants and interactions
 
 - **The elaboration invariant**: every runtime term judgment is carrier-headed, carrier outermost,
@@ -480,6 +537,35 @@ before anything leans on it), the foundation spike second, the checker refactor 
   cases demonstrating no guards needed; (d) the compile-time boundary (§8); (e) error rendering
   without `Id`/carriers; (f) the compile-perf constant. Exit: decisions written into §3/§8, spike
   harness green.
+  - **LANDED (2026-07-23).** The spike is `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/`
+    `spike/UniformCarrierSpike.scala` (a minimal faithful model — `TCon`/`TMeta`/`TType` ↔
+    `VTopDef`/`VMeta`/`VType`; two-store solver making "a carrier meta can never be stolen by a
+    container" *structural*) + `UniformCarrierSpikeTest.scala` (the regression harness, green; U3's
+    acceptance cases). It is **not wired into the compiler** — the default path is byte-identical.
+    Results, folded into §3/§8:
+    - **(a) representation — CONFIRMED.** Carrier as an ordinary outermost application; `split` is
+      positional and total on runtime judgments (multi-arg stack = prefix + last argument, as
+      `effectCarrierSplit` already does). Occurs/kind: carrier metas and payload metas are kept apart
+      (in the real unifier by `carrierRoles` membership; the spike by two maps) — payload
+      occurs-check never touches a carrier meta, which is *why* the theft cases dissolve.
+    - **(b) join solver — CONFIRMED, with two sharpenings now in §3.** (i) `Id` is the lattice bottom
+      **everywhere** — the spike rebuilt the premature-commitment bug the instant a pure `Id[X]` split
+      to a concrete carrier; the pure-lift is recorded only for a bottom-carriered actual and
+      materialized decision-free. (ii) The ladder **classifies by the expected slot** (bare-generic /
+      effect-carrier-form / data-Functor-form), it does *not* "try pass-through first" — a literal
+      whole-unify-first ladder mis-solves `map`'s Functor slot. The one surviving recognition is the
+      effect-carrier **tag on the expected binder**, not shape detection of the actual.
+    - **(c) four cases — GREEN, no guards.** `?F[List[String]] ~ List[A]` (A := String, effect bound,
+      no theft), the equal-arity compound-state (`?S := List[X]`, carrier preserved), the
+      `catch`-handler default (join is order-independent), `if(c, None) else Some(x)` (element := Int,
+      carrier defaults to Id) — plus the flagship effectful/mixed conditional with no `fold`/`if`
+      hardcode, and the pre-uniform injectivity **theft** kept as an executable regression contrast.
+    - **(d) compile-time boundary — PINNED (§8):** type-level unify introduces no carrier; `split`
+      refuses a `VType` judgment; the `Either` discharge carrier is data, not a runtime carrier.
+    - **(e) error rendering — CONFIRMED:** `render` strips the carrier and shows payload only
+      (`Id[String]`, `IO[String]` → `String`); rows come from the channel; no `Id`/carrier/meta leaks.
+    - **(f) perf — CONSTANT:** one payload-unify per slot (linear), join is O(1) per contribution with
+      no fixpoint, materialization is one post-drain pass.
 - **U3 — the uniform checker behind `--effect-channel`.** First **delete** the superseded v1
   slices (§7 first list; the flag goes briefly inert — nothing user-visible is behind it). Then
   grow in slices, default path byte-identical throughout: (a) uniform judgments + the ladder +
@@ -521,13 +607,19 @@ before anything leans on it), the foundation spike second, the checker refactor 
 
 ## 12. Open questions
 
-1. **Representation details** (U2a): exact `SemValue` form of the invariant; how pure *signatures*
-   are brought into carrier-headed form (desugar rewrite vs check-time wrapping); occurs-check
-   with carrier metas.
-2. **The join lattice at discharge sites** (U2b/U3): inner transformer stacks are distinct
-   carriers from the ambient by construction — confirm the "two different non-`Id` carriers =
-   mismatch" rule needs no refinement for nested discharge (`StateCarrier[S, G]` under ambient
-   `G`).
+1. **Representation details** (U2a): the `SemValue` form is **resolved** (carrier as outermost
+   application; §3, spike-confirmed) and occurs-check with carrier metas is **resolved** (carrier and
+   payload metas are separate namespaces; the payload occurs-check never sees a carrier meta). One
+   sub-item **carries into U3a**: whether pure *signatures* are brought into carrier-headed form by a
+   desugar rewrite or by check-time wrapping — the spike models runtime *judgments* directly and does
+   not commit the signature-side mechanism; U3a decides it against the real `EffectSugarDesugarer` /
+   `Checker`.
+2. **The join lattice at discharge sites** (U2b/U3): the spike confirms "two different non-`Id`
+   carriers = mismatch" and the bottom/single-winner rules for the flat cases; **carries into U3**
+   as designed — nested discharge (`StateCarrier[S, G]` under ambient `G`) needs no refinement *in
+   principle* (the inner stack is a distinct carrier by construction, never joined with `G`), but the
+   spike does not exercise a real multi-layer discharge stack, so U3's compiler-track gate is where it
+   is proven on live code.
 3. **Evaluation order** (carried over, unchanged): v1 keeps resolved-argument order; source order
    is a recorded U5 decision.
 4. **`reify` surface syntax** (carried over, unchanged): declared-type-directed capture covers
