@@ -1,15 +1,22 @@
 # Effects as a Channel: Full Separation of Effects from Type Checking
 
-Status: **DESIGN + Phases 1–2 landed** (dark plumbing + shadow accounting). The carrier-based
-elaboration in `monomorphize/check` (`EffectLifter`, `EffectResidualChecker`, ambient-carrier
-tracking) is still the live path and drives compilation unchanged until the flip in Phase 4 below;
-the channel now runs *beside* it, inert (Phase 1) and shadow-compared (Phase 2). Implementation
-status is tracked per-phase in §10; the concrete landed state is summarised in §0 immediately below.
+Status: **DESIGN + Phases 1–2 landed + Phase 3 in progress behind `--effect-channel`** (dark plumbing
+→ shadow accounting → the gated effect-blind path: desugar/checker, real accounting, weaver slice 1).
+The carrier-based elaboration in `monomorphize/check` (`EffectLifter`, `EffectResidualChecker`,
+ambient-carrier tracking) is still the live **default** path and drives compilation unchanged; the
+channel path exists only under the `--effect-channel` flag (developer-only until a program runs
+end-to-end under it — see §0), and the flip in Phase 4 makes it the default and deletes the old path.
+Implementation status is tracked per-phase in §10; the concrete landed state is summarised in §0
+immediately below.
 
 ## 0. Implementation state (handover)
 
-Two of the five migration phases (§10) are implemented and committed on `master`; the live compiler
-behaviour is unchanged (the channel is dark/shadow). Concretely:
+Phases 1–2 (§10) and the first slices of Phase 3 are implemented and committed on `master`. The
+**default** compiler behaviour is unchanged: Phases 1–2 are dark/shadow, and everything Phase 3 is
+gated behind `--effect-channel` (off by default). Under the flag the checker is effect-blind and the
+channel is the real verifier, but no program runs end-to-end yet (the weaver's remaining slices —
+bind insertion, codegen redirect, entry-point — are pending), so the flag is developer-only.
+Concretely:
 
 - **Phase 1 (dark plumbing) — done.** A generic `EffectRow[C]` (`ast/fact/EffectRow.scala`) captures a
   signature's **open** rows, position-attributed (`returnEffects` = the value's own ambient row;
@@ -94,9 +101,12 @@ behaviour is unchanged (the channel is dark/shadow). Concretely:
   entry must run the *woven* main. Until those land the flag stays developer-only (per the fail-safe rule it can
   never become default before the whole reachable program is verified and woven end-to-end).
 
-- **Phases 3 (accounting/weaver) – 5 — not started.** The standalone §5 accounting processor, the §6 weaver,
-  the flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and Phase 2's shadow are
-  the substrate they build on; the shadow (and the entire `EffectResidualChecker`) is deleted at Phase 4.
+- **Phase 3 remaining slices + Phases 4–5 — not started.** The weaver's remaining work (bind/`pure` insertion,
+  precise woven node types, control-effect weave-key stacks, the codegen redirect, the base-carrier config, and
+  the entry-point rework — the path to a running program, above), the later accounting slices
+  (transparent-parameter expansion, reify/discharge subtraction, the carrier-machinery-impl exception), the
+  flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and Phase 2's shadow are the
+  substrate they build on; the shadow (and the entire `EffectResidualChecker`) is deleted at Phase 4.
 
 ## 1. The problem
 
@@ -408,12 +418,18 @@ tracks are green.
   strip open rows, disables the lifter arms, and enables the weaver. Grown in slices, each with
   its tests green under the flag while the default path stays untouched:
   - **3-foundation (landed).** Flag plumbing + the effect-blind desugar (strip open rows to payload;
-    carrier-erase effect-ability methods, marker keeps its carrier as the effect signal) + the resolver
-    leaving effect-ability refs abstract. Effectful programs now *monomorphize* effect-blind (effect ops
-    survive as abstract ability refs); see §0. The lifter is inert under the flag; verification (§5) and the
-    weaver (§6) are the remaining 3a work below.
-  - **3a** ambient `Suspend`-riding effects only: bind insertion, base assignment at the
-    synthetic main. HelloWorld/Console examples green.
+    carrier-erase *user* effect-ability methods, marker keeps its carrier as the effect signal; the
+    machinery `Effect`/`Suspend` kept non-erased) + the resolver leaving user-effect refs abstract.
+    Effectful programs now *monomorphize* effect-blind (effect ops survive as abstract ability refs); see §0.
+  - **§5 accounting (landed).** The standalone `EffectAccountingProcessor` — the real `derived ⊆ declared`
+    verifier under the flag (replaces the Phase-2 shadow); see §0/§5.
+  - **§6 weaver slice 1 (landed).** `WovenValueProcessor` — carrier assignment + effect-operation
+    resolution for the Suspend-riding base carrier (+ the conformance-check relaxation that unblocks it);
+    see §0/§6.
+  - **3a (remaining).** ambient `Suspend`-riding effects to a *running* program: `flatMap`/`pure`
+    insertion, precise woven node types, the codegen redirect (`MonomorphicValue`→`WovenValue`), the
+    base-carrier `Configuration` key (`JvmPlugin` → `eliot.jvm.IO`), and the entry-point rework (run the
+    woven `IO[Unit]` main). HelloWorld/Console examples green under the flag.
   - **3b** control effects, reify points, dischargers, weave keys threaded through
     `used`/`uncurry`/codegen (mangling gains the stack component).
   - **3c** higher-order: parameter rows, `Effect`-transparent positions (`foreach`), lambdas,
