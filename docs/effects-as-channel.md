@@ -1292,6 +1292,58 @@ before anything leans on it), the foundation spike second, the checker refactor 
   sequenced pure-handler catches on the *default* path — so it can only ship once the uniform
   `CarrierJoin` is the default carrier handling. Acceptance: `failUnit catch (err -> printLine(err))`
   runs, and `EffectsThrow` (two sequenced pure-handler catches) stays green.
+
+  **U4 execution plan (grounded in a full code map, 2026-07-23).** A code-state map (flag threading, the
+  remaining `--uniform-carrier` fallbacks, and deletion sizes) established the real dependency structure, which
+  is **not** "flip a switch": under `--uniform-carrier` the uniform bridge covers only narrow shapes and the
+  **default ladder does the bulk of the work**, so the big deletions are *coverage-gated*. The two live
+  `uniformCarrier` read sites are `Checker.checkAgainst:248` (return boundary) and `Checker.checkArgumentSlot:956`
+  (argument slots); everything else falls back to `checkAgainstDefault`/`defaultArgSlot`. Ordered slices:
+
+  1. **U4-a — complete uniform *coverage* (the gating prerequisite for every deletion).** Nothing that
+     legitimately runs on the runtime track may fall back to the default ladder. Genuine remaining gaps (the
+     rest are default *by design* and stay — see the note): (i) the **`Generic` arm** (`fold`'s bare-`A`),
+     which needs the **ride-up-vs-bind** decision (`occursInValue(metaId, retType)` → pass-through if the meta
+     rides the result, else bind — *not* the naive `PassWhole` that Id-wraps every generic argument, the dropped
+     finding); (ii) reshaping the **capture / mismatch** fallbacks (`defaultArgSlot`'s capture case,
+     `resolveGuardedLadder`/`resolveLadder`) into the uniform ladder so the carrier-stack/pinned "capture" is a
+     uniform outcome, not a default hand-off. *By-design default, not gaps* (§8): the whole **compile-time
+     track** (`platform != Runtime`, `Checker:309`), `VType`/guard/calc-return/W3, and **function/polytype
+     (`VPi`/`VLam`) returns** — heading fires on terminal value leaves only, never a `VPi`.
+  2. **U4-b — Bundle A: retire the superseded `--effect-channel` erasure path + re-point accounting** (the
+     U3-0b bundle, coupled — land together): delete `EffectSugarDesugarer.desugarChannel` (+`eraseAbilityCarrier`
+     /`abilityCarrierName`/`isHigherKindedBinder`/`eraseCarrierApplications` + the `stripOpen` arm),
+     `AbilityResolver`'s effect-ability abstain (`isEffectAbilityRef`, `:81-83`), the
+     `AbilityImplementationCheckProcessor` conformance relaxation (`isUserEffectAbility`, `:54`), and
+     `EffectChannelDesugarTest`; **re-point** `EffectAccountingProcessor.contributedEffects` (`:72-77`) from
+     abstract `Qualifier.Ability` reads to resolved impl refs (once the carrier path leaves ops *resolved*, not
+     abstract); **relocate** `EffectAccountingTest` off the lang track (no runtime carrier) to jvm, kept green by
+     the uniform checker binding the effect-poly value's carrier via the synthetic-main `runMain`. A trial delete
+     without the re-point reddened `EffectAccountingTest` (`Cannot resolve type.`) — do not separate them.
+  3. **U4-c — swap the verifier.** Make `EffectAccountingProcessor` the sole post-mono verifier and **delete
+     `EffectResidualChecker`** (`TypeStackLoop:388`) *including its Phase-2 shadow* (`channelEffectsOf`
+     /`channelDeclaredFor`/`shadowCompareSubset`/`shadowCompareVerdict`/`shadowMarker` — purely observational
+     today, so it is deleted *with* the checker, not before: cutting it early loses the channel-vs-constraint
+     regression net for zero payoff).
+  4. **U4-d — delete the default-path machinery** (now dead once coverage is complete): `EffectLifter`'s
+     recognition arms (`mustLiftBeforeUnify`/`mustPureWrapBeforeUnify`/equal-arity+guards/`underApplied`
+     /`isFlexMeta`, `~123-211`) and `tryIdDefault`-as-an-arm (`~295-316`); `CheckState.ambientCarriers`
+     +`recordAmbientCarriers` (+ its `TypeStackLoop` writers); the `Checker` **Phase A/B** deferral
+     (`SlotOutcome.Deferred`, `resolveDeferredSlot:772-815`, `assembleSpine`/`rebuildChain`) and the dead default
+     ladders (`checkAgainstDefault`/`resolveGuardedLadder`/`resolveLadder`/`resolveFailureLadder`/`defaultArgSlot`);
+     `CarrierKindChecker`'s carrier duties; the synthetic main's `apply(block, unit)` → `runMain`. The bind/`pure`
+     *mechanics* (`wrapBinds`/`bindWrap`/`tryPureWrap`/`pureWrapNode`/`$eff$N`) **survive** — the uniform ladder
+     reuses them.
+  5. **U4-e — make it the default + close out.** Remove the `uniformCarrier`/`effectChannel` flags and their
+     threading (LangPlugin/LangProcessors → both mono processors → `TypeStackLoop` → `Checker`/`AbilityResolver`);
+     land the **effectful-`catch`-handler stdlib delta** atomically (now the stacking cannot occur); turn the §6
+     Id-residue assertion into a hard error; the §9 Cornerstone amendment + doc/skill sweep; verify LSP rendering
+     `Id`-free.
+
+  Slices 1 and 2 are each multi-session; 3–5 are mechanical once 1 lands. Gate every slice with the existing
+  harness (`lang.test`/`jvm.test`, `UniformCarrierByteIdenticalTest`, HelloWorld, eliot-test 11/11, the 32 example
+  mains). The whole flip stays a coupled bundle *on `--effect-channel`* (§0 finding), which is why the
+  transitional `--uniform-carrier` gate carries slices 1–4 and only slice 5 unifies the flags.
 - **U5 — follow-ups unlocked.** Row-bearing diagnostics everywhere; the evaluation-order decision
   (resolved-argument order vs source order — v1 §6's recorded question, carried over);
   `Suspended` for first-class platform actions; the MCU lowering (§6: identity-carrier erasure +
