@@ -78,6 +78,20 @@ object WellKnownTypes {
     */
   val idFQN: ValueFQN = ValueFQN(idModule, QualifiedName("Id", Qualifier.Type))
 
+  /** The value *constructor* of [[idFQN]] — `Id(a): Id[A]` in the value namespace ([[Qualifier.Default]], vs the
+    * type-constructor [[idFQN]]). The effects-as-channel Id-normalization stage (docs/effects-as-channel.md §6)
+    * recognises an application of this constructor and erases it (`Id(e) ⤳ e`), since `Id` is the pure carrier and
+    * carries no representation. A compiler-owned insertion, so hardcoding its FQN is the ordinary well-known-types
+    * practice, not the unsound user-name hardcoding the v1 weaver's `fold`/`if` recognition was.
+    */
+  val idConstructorFQN: ValueFQN = ValueFQN(idModule, QualifiedName("Id", Qualifier.Default))
+
+  /** The module the identity carrier [[idFQN]] and its `Effect[Id]` instance live in (`eliot.lang.Id`). The
+    * Id-normalization stage recognises the `Effect[Id]` combinators (`pure`/`flatMap`/`map`) by this module plus the
+    * `Effect` ability qualifier, so it need not hardcode the instance's canonical pattern string.
+    */
+  val idModuleName: ModuleName = idModule
+
   /** `runId[A](obj: Id[A]): A` — the total, pure projection out of [[idFQN]] (a plain `data` field accessor at
     * runtime). The checker inserts it at a pure return boundary after solving the residual carrier to `Id`; unlike
     * running any real carrier, unwrapping `Id` performs nothing, so the insertion never drops an effect.

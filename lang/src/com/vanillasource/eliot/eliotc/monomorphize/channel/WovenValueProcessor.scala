@@ -68,7 +68,22 @@ class WovenValueProcessor(
       case Some(carrier) if entryPoint.contains(mv.vfqn) => weaveEntry(mv, carrier).pure[CompilerIO]
       case Some(carrier)                                 => weave(mv, carrier)
       case None                                          =>
-        WovenValue(mv.vfqn, mv.typeArguments, mv.name, mv.signature, mv.runtime).pure[CompilerIO]
+        // Default path (effects-as-channel U1, on by default): the identity carrier `Id` and its machinery are erased
+        // from the body by [[IdNormalizer]] (docs/effects-as-channel.md §6), so pure code recovers its efficient shape
+        // and — with the jvm newtype representation of `Id` ([[GroundValue.carrierFQN]]) — no `Id` allocation ships.
+        // Signature and key are unchanged (type/key erasure is the U1b slice). The load-bearing fail-safe: any `Id`
+        // machinery the rewrites failed to reach is reported (a U1 warning, a hard error from U4).
+        val normalized = mv.runtime.map(IdNormalizer.normalizeValue(mv.vfqn, _))
+        warnIdResidue(mv.vfqn, normalized)
+          .as(WovenValue(mv.vfqn, mv.typeArguments, mv.name, mv.signature, normalized))
+    }
+
+  /** Warn on any `Id` machinery left in a normalized body (the effects-as-channel §6 residue fail-safe — a warning in
+    * U1, a hard build error from U4).
+    */
+  private def warnIdResidue(vfqn: ValueFQN, body: Option[Sourced[MonomorphicExpression.Expression]]): CompilerIO[Unit] =
+    body.map(b => IdNormalizer.residualIdReferences(b.value)).filter(_.nonEmpty).traverse_ { residue =>
+      warn[CompilerIO](s"effects-as-channel: Id residue survived normalization in ${vfqn.show}: ${residue.map(_.show).mkString(", ")}")
     }
 
   /** Weave the platform **entry point** (`main::main`, [[entryPoint]]): under the effect-blind checker its body is a

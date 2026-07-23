@@ -88,8 +88,14 @@ object GroundValue {
       */
     def carrierFQN: ValueFQN =
       gv match {
-        case _ if gv.asFunctionType.isDefined => WellKnownTypes.functionCarrierFQN
-        case _                                =>
+        case _ if gv.asFunctionType.isDefined              => WellKnownTypes.functionCarrierFQN
+        // The identity carrier `Id` has a **newtype** representation (effects-as-channel §6, docs/effects-as-channel.md):
+        // `Id[A]` is representationally its payload `A`, so it erases to the payload's carrier and never ships as its own
+        // machine type. This is the belt-and-braces backing the Id-normalization body rewrites ([[IdNormalizer]]): any
+        // `Id` node the rewrites leave in place is representationally identical to its payload, so no cast or allocation
+        // is emitted. A bare unapplied `Id` (no payload) falls through to the ordinary erased head.
+        case Structure(name, arg +: _, _) if name === WellKnownTypes.idFQN => arg.carrierFQN
+        case _                                             =>
           gv.typeFQN match {
             case Some(name) if name =!= WellKnownTypes.typeFQN =>
               ValueFQN(name.moduleName, QualifiedName(name.name.name, Qualifier.Default))

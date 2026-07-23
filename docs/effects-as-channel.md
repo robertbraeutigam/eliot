@@ -1,7 +1,8 @@
 # Effects as a Channel, v2: Uniform Carriers (Id-Uniform) + a Verification Channel
 
 Status: **FOUNDATION RESOLVED (2026-07-23) — Variant A, carrier-everywhere / Id-uniform — with a
-reconstructed migration plan (U1–U5, §10).** The §13 fork raised during the Phase-3
+reconstructed migration plan (U1–U5, §10). U1a LANDED (2026-07-23): the Id-normalization body
+rewrites + jvm newtype representation are on by default (§6, §10).** The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -304,6 +305,18 @@ path — independent value now, proven machinery before the checker refactor lea
 `WovenValue`) is exactly the slot between checking and codegen this stage occupies. The processor
 sheds its monadification and becomes the normalizer (rename at U4).
 
+**Landed (U1a, 2026-07-23).** The rewrites live in `monomorphize/channel/IdNormalizer.scala`, invoked
+from `WovenValueProcessor`'s default branch, on by default; the newtype half is `GroundValue.carrierFQN`
+(`Id[X]` erases to `X`'s carrier). **One subtlety the bring-up surfaced and §6's rewrite list did not
+call out:** the `runId` *accessor's own body* is the Church-encoded `PatternMatch.handleCases` apparatus,
+not a `getfield`, so it must itself be rewritten to `obj -> obj` (`IdNormalizer.normalizeValue`).
+Otherwise `used` keeps the whole `Id` pattern-match apparatus alive and a first-class `runId` reference
+(a dot-chain `x.runId`) runs it over an `Id` wrapper the newtype no longer allocates — a crash. With the
+accessor identity, `used` sees no `handleCases`, and the `Id` data class / `handleCases` / selector
+lambdas / `PatternMatch` singleton are never generated. Constructor/accessor call-site pass-through and
+key/type erasure (U1b) are the remaining hardening; today a residual `Id` reference is warned on (the
+fail-safe) and kept a no-op by the newtype.
+
 **The MCU story.** With `Id` erased, pure code compiles to plain calls. For *effectful* MCU code,
 the carrier is compile-time bookkeeping the backend may lower away: post-mono, every carrier
 value's construction and run site is statically known, so straight-line effect sequences erase
@@ -399,6 +412,26 @@ before anything leans on it), the foundation spike second, the checker refactor 
   (`Id[X] ⤳ X` in `GroundValue`s and mono keys, merging Id-instantiations). Assertion lands as a
   warning. Gate: full suites + examples + eliot-test byte-behavioral; `javap` shows no `Id`
   allocation on the erased paths.
+  - **U1a — LANDED (2026-07-23).** `IdNormalizer` (`monomorphize/channel/IdNormalizer.scala`), called
+    from `WovenValueProcessor`'s default (non-flag) branch, applies the §6 body rewrites over every
+    monomorphic body: `runId(e) ⤳ e`, `Id(e) ⤳ e`, `pure@Effect[Id](e) ⤳ e`,
+    `flatMap@Effect[Id](f, m)`/`map@Effect[Id](f, m) ⤳ f(m)`. Recognition is by FQN
+    (`WellKnownTypes.runIdFQN`/`idConstructorFQN`; the `Effect[Id]` methods by their `Id` module +
+    `Effect` ability qualifier — sanctioned, compiler-owned machinery). **One extra rewrite proved
+    load-bearing, not optional:** the `runId` *accessor's own body* is the data-accessor
+    `PatternMatch.handleCases` apparatus, so `normalizeValue` rewrites it to `obj -> obj` — otherwise
+    `used` keeps pulling in the whole `Id` pattern-match machinery (the data class, `handleCases`, the
+    selector lambdas) and a **first-class** `runId` reference (from a dot-chain like
+    `suite.runWriterToLog.runId`) runs that apparatus over an `Id` wrapper the newtype no longer
+    allocates — a crash the eliot-test suite caught. **Newtype representation**: `GroundValue.carrierFQN`
+    erases `Id[X]` to its payload's carrier, so any `Id`-typed node the rewrites leave in place is
+    representationally its payload — no cast, no allocation (node *types* are otherwise left as `Id[X]`;
+    key/type erasure is U1b). **Fail-safe**: `WovenValueProcessor.warnIdResidue` warns on any surviving
+    `Id`-machinery *reference* (a warning in U1, a hard error from U4); first-class combinator references
+    still warn (their normalized bodies + the newtype keep them safe no-ops) until U1/U4 eta-expands them.
+    Verified: `lang.test`/`jvm.test` green, eliot-test 11/11 byte-identical, ~20 example mains run
+    unchanged, `javap` shows no `Id$Id` class and no `new Id` anywhere. `IdNormalizerTest` covers the
+    rewrites.
 - **U2 — foundation spike.** Decide and prototype, recording results here: (a) the
   representation — carrier as ordinary outermost `SemValue` application (recommended) vs a
   judgment pair; how the ladder reads the split, multi-layer stack splitting
