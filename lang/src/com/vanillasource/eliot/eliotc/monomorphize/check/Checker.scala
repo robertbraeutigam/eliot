@@ -293,11 +293,14 @@ class Checker(
     * already fits the declared return by pure definitional equality (a *non-committing* speculative unify; the real
     * unification runs inside [[UniformCarrierChecker.checkReturnBoundary]]).
     *
-    * Everything the narrow bridge does not yet cover falls back to [[checkAgainstDefault]] — `Int` widening coercion (a
-    * definitional-equality miss), effect-carrier-headed returns (routing one would self-solve its carrier meta), the
-    * guard / calculated-return / W3 discharge and the §8 type-level boundary (all `VType`-expected or carrier-headed),
-    * and function/polytype returns. So this slice grows the uniform path from the simplest programs while every other
-    * shape stays byte-identical to the default path.
+    * Everything the narrow bridge does not yet cover falls back to [[checkAgainstDefault]] — effect-carrier-headed
+    * returns (routing one would self-solve its carrier meta), the guard / calculated-return / W3 discharge and the §8
+    * type-level boundary (all `VType`-expected or carrier-headed), and function/polytype returns. A genuine
+    * definitional-equality *miss* also falls back, where the default path commits the ordinary mismatch: there is no
+    * `Int` widening coercion to reconcile a near-miss (that `Coerce` machinery was deleted when `Int` became nullary
+    * with its bounds in the separate refinement channel — `Int == Int` definitionally, bounds checked post-mono by
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor]], not here). So this slice grows
+    * the uniform path from the simplest programs while every other shape stays byte-identical to the default path.
     */
   private def uniformReturnRoutable(
       tm: Sourced[OperatorResolvedExpression],

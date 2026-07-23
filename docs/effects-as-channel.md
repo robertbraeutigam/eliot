@@ -49,13 +49,16 @@ the flag is off, so the default path is byte-identical (verified). U3a-2b(ii) **
 falls back to the verbatim default ladder (`checkAgainstDefault`). The gate (`uniformReturnRoutable`) is deliberately
 tight — it routes only when *both* the declared return and the body's inferred type are plain, **non-carrier-headed**
 `VTopDef` value types (`uniformPlainValueType`) *and* the payload already fits by pure definitional equality (a
-non-committing speculative unify). This excludes: `Int` widening coercion (a def-equality miss), effect-carrier-headed
-returns (**routing one would self-solve its carrier meta `?F := ?F` → infinite loop** — a concrete finding), the
-guard/calc-return/W3 discharge and the §8 type-level boundary (all `VType`/carrier-headed), and function/polytype
-returns. Durable gate: `UniformCarrierByteIdenticalTest` (jvm.test) compiles a pure-value program **+ the whole base
+non-committing speculative unify — pure definitional equality is exactly the right test now that `Int == Int` and its
+bounds live in the separate refinement channel, so `Int`-returning pure values *do* route). This falls back for:
+effect-carrier-headed returns (**routing one would self-solve its carrier meta `?F := ?F` → infinite loop** — a concrete
+finding), the guard/calc-return/W3 discharge and the §8 type-level boundary (all `VType`/carrier-headed), function/polytype
+returns, and any genuine definitional-equality *miss* (an ordinary mismatch the default path reports — there is **no**
+`Coerce`/widening machinery to reconcile a near-miss; it was deleted when `Int` became nullary, bounds-in-channel).
+Durable gate: `UniformCarrierByteIdenticalTest` (jvm.test) compiles a pure-value program **+ the whole base
 layer** with the flag off and on and asserts every generated class's bytes match — the *entire* base compiles
 byte-identically under the flag (every pure value return in lang/stdlib/jvm routes through the uniform boundary and
-Id-normalizes away). **NEXT: widen the gate** to `Int` coercion, then the **spine** (`checkArgumentSlot` →
+Id-normalizes away). **NEXT: the spine** (`checkArgumentSlot` →
 `resolveArgumentSlot` + `wrapBinds` + `finalizeAndMaterialize`) and **effect-carrier-headed returns** (which need the
 carrier-meta self-join guarded). **Wiring finding (2026-07-23):** `intoCarrierHeadedTerm` (and every heading site)
 must fire on *terminal value* leaves only, **never a function-typed (`VPi`) reference** — a `printLine` leaf
@@ -222,17 +225,19 @@ boundary and Id-normalized back to byte-identical) and falls back to the default
   Id-normalization stage erases → byte-identical bytecode; every other shape falls back to the verbatim
   `checkAgainstDefault`. The gate `uniformReturnRoutable` routes only when both the declared return and the body's
   inferred type are plain non-carrier-headed `VTopDef` value types (`uniformPlainValueType`) *and* the payload fits by
-  pure definitional equality (a non-committing speculative unify), so it excludes `Int` coercion, effect-carrier-headed
-  returns, guard/calc-return/W3 discharge, the §8 `VType` boundary, and function/polytype returns. **Concrete finding:
+  pure definitional equality (a non-committing speculative unify — the right test now that `Int == Int` with bounds in
+  the separate refinement channel, so `Int` returns route too). It falls back for effect-carrier-headed returns,
+  guard/calc-return/W3 discharge, the §8 `VType` boundary, function/polytype returns, and any genuine
+  definitional-equality miss (an ordinary mismatch — there is **no** `Coerce`/widening machinery, it was deleted when
+  `Int` became nullable-bounds-in-channel). **Concrete finding:
   routing an effect-carrier-headed return (`?F[Unit]`) through `checkReturnBoundary` self-solves its carrier meta
   (`?F := ?F`) → infinite loop, hence the non-carrier-headed gate.** Durable gate: `UniformCarrierByteIdenticalTest`
   (jvm.test) compiles a pure-value program **+ the whole base layer** with the flag off and on and asserts every class's
   bytes match (two full base compiles by design — the entire base compiles byte-identically under the flag).
 
-**Next: U3a-2b(ii) — widen the gate then the spine** (under `--uniform-carrier`). In order: (a) `Int` widening coercion
-at the boundary (reuse `RefinementSolver.unifyOrCoerce` in the uniform path); (b) the **spine** — `checkArgumentSlot`
+**Next: U3a-2b(ii) — the spine** (under `--uniform-carrier`). In order: (a) the **spine** — `checkArgumentSlot`
 through `resolveArgumentSlot` + fold `Bind`s via `wrapBinds` + `finalizeAndMaterialize` at the value boundary, replacing
-Phase A/B; (c) **effect-carrier-headed returns** (guard the carrier-meta self-join — the finding above). Each gated on
+Phase A/B; (b) **effect-carrier-headed returns** (guard the carrier-meta self-join — the finding above). Each gated on
 `uniformCarrier` so flag-off stays byte-identical, growing toward flag-on byte-identical from the simplest programs.
 **Wiring finding (2026-07-23):**
 `intoCarrierHeadedTerm` (and every heading site) must fire on **terminal value leaves only, never a function-typed
@@ -898,15 +903,15 @@ before anything leans on it), the foundation spike second, the checker refactor 
     threaded end-to-end (`LangPlugin` CLI flag/key → `LangProcessors` → both mono checkers → `TypeStackLoop` →
     `Checker`), and `Checker` **constructs `UniformCarrierChecker`** beside `EffectLifter` — unconditionally but never
     called while the flag is off, so the default path is byte-identical. Nothing routed through the bridge yet.
-    Nothing routed through the bridge yet.
   - **U3a-2b(ii) wiring slice 1 (the return boundary) — LANDED (2026-07-23, `8fadd27f`).** `checkAgainst` routes the
     **plain pure value return** case through the bridge (`intoCarrierHeadedTerm` + `checkReturnBoundary`), gated by
     `uniformReturnRoutable` (both sides plain non-carrier-headed `VTopDef` value types + payload fits by pure
     definitional equality); everything else falls back to `checkAgainstDefault`. Concrete finding: routing an
     effect-carrier-headed return self-solves its carrier meta (`?F := ?F`) → loop, hence the non-carrier-headed gate.
     Durable gate `UniformCarrierByteIdenticalTest` (jvm.test): the whole base + program compiles byte-identically with
-    the flag off vs on. **NEXT is widening**: (a) `Int` coercion at the boundary; (b) the spine (`checkArgumentSlot` →
-    `resolveArgumentSlot` + `wrapBinds` + `finalizeAndMaterialize`, replacing Phase A/B); (c) effect-carrier-headed
+    the flag off vs on (`Int` returns route too — `Int == Int` definitionally, no `Coerce` to reconcile; bounds stay in
+    the refinement channel). **NEXT**: (a) the spine (`checkArgumentSlot` →
+    `resolveArgumentSlot` + `wrapBinds` + `finalizeAndMaterialize`, replacing Phase A/B); (b) effect-carrier-headed
     returns (guard the carrier-meta self-join). The coupled `desugarChannel`/accounting deletion stays on the
     `--effect-channel` gate and is untangled at U4 (this transitional gate sidesteps it).
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
