@@ -15,12 +15,13 @@ immediately below.
 
 ## 0. Implementation state (handover)
 
-Phases 1–2 (§10) and the first slices of Phase 3 are implemented and committed on `master`. The
-**default** compiler behaviour is unchanged: Phases 1–2 are dark/shadow, and everything Phase 3 is
-gated behind `--effect-channel` (off by default). Under the flag the checker is effect-blind and the
-channel is the real verifier, but no program runs end-to-end yet (the weaver's remaining slices —
-bind insertion, codegen redirect, entry-point — are pending), so the flag is developer-only.
-Concretely:
+Phases 1–2 (§10) and most of Phase 3 are implemented and committed on `master`. The **default**
+compiler behaviour is unchanged: Phases 1–2 are dark/shadow, and everything Phase 3 is gated behind
+`--effect-channel` (off by default). Under the flag the checker is effect-blind, the channel is the
+real verifier, and — as of the entry-point + bind/`pure` slices — **sequenced `Console` programs now
+run end-to-end** (nested effectful arguments, blocks, effectful `val` bindings). The flag stays
+developer-only until the *general* case is covered: control effects, effects nested under a pure
+strict function, and effectful conditionals are the remaining weaver slices. Concretely:
 
 - **Phase 1 (dark plumbing) — done.** A generic `EffectRow[C]` (`ast/fact/EffectRow.scala`) captures a
   signature's **open** rows, position-attributed (`returnEffects` = the value's own ambient row;
@@ -59,9 +60,10 @@ Concretely:
   ability-FQN reconstruction from the value's own module is wrong; reading `EffectCarriers.declaredEffects`
   avoids it.)
 
-- **Phase 3 — foundation landed; accounting + weaver pending.** The `--effect-channel` flag exists
-  (`LangPlugin.effectChannelKey`, threaded to `CoreProcessor` and both mono processors → `Checker` →
-  `AbilityResolver`). Under it the desugar is **effect-blind**: `EffectSugarDesugarer.desugarChannel` strips
+- **Phase 3 — foundation + accounting + weaver (through bind/`pure` insertion) landed; running for
+  Suspend-riding `Console`.** The `--effect-channel` flag exists (`LangPlugin.effectChannelKey`, threaded to
+  `CoreProcessor` and both mono processors → `Checker` → `AbilityResolver`). Under it the desugar is
+  **effect-blind**: `EffectSugarDesugarer.desugarChannel` strips
   open rows to payload (no carrier minted) and *carrier-erases effect-ability methods* — an ability with a
   higher-kinded `F[_]` carrier has its methods' carrier dropped and every `F[X]` rewritten to `X`
   (`Console[F].printLine : F[Unit]` ⤳ `printLine : String -> Unit`), while the ability **marker keeps its
@@ -153,12 +155,13 @@ Concretely:
   discharge/reify subtraction or an explicit exemption (it is the run/discharge boundary). The flag stays developer-only
   until the whole reachable program is verified and woven end-to-end for the general case.
 
-- **Phase 3 remaining slices + Phases 4–5 — not started.** The weaver's remaining work (bind/`pure` insertion,
-  precise woven node types, control-effect weave-key stacks, and
-  the entry-point rework — the path to a running program, above), the later accounting slices
-  (transparent-parameter expansion, reify/discharge subtraction, the carrier-machinery-impl exception), the
-  flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and Phase 2's shadow are the
-  substrate they build on; the shadow (and the entire `EffectResidualChecker`) is deleted at Phase 4.
+- **Phase 3 remaining slices + Phases 4–5 — not started.** The weaver's remaining work for the *general* case
+  (control-effect carrier stacks and their weave-key threading; bind/`pure` insertion under a pure strict function;
+  effectful conditionals; precise node types on structurally-woven sub-terms), the later accounting slices
+  (transparent-parameter expansion, reify/discharge subtraction, the carrier-machinery-impl exception, the entry
+  `main::main` exemption), the flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and
+  Phase 2's shadow are the substrate they build on; the shadow (and the entire `EffectResidualChecker`) is deleted at
+  Phase 4.
 
 ## 1. The problem
 
@@ -356,10 +359,12 @@ into a tested equivalence with the current exact checker rather than an assertio
 
 ## 6. The weaver (per weave key)
 
-*Implementation note (§0): the **first slice is built** — `monomorphize/channel/WovenValueProcessor` + the
-`WovenValue` fact — doing carrier assignment and effect-operation resolution for the Suspend-riding base carrier
-(the "Carrier assignment" and instance-resolution parts below). `flatMap`/`pure` insertion, precise woven node
-types, control-effect weave-key stacks, the codegen re-key, and the entry-point rework are later slices; see §0.*
+*Implementation note (§0): `monomorphize/channel/WovenValueProcessor` + the `WovenValue` fact are **built and
+running** for the Suspend-riding base carrier — carrier assignment + effect-operation resolution, the codegen
+re-key (`used`/`uncurry`/jvm read `WovenValue`), the base-carrier config, the run-boundary **entry point**, and
+**bind/`pure` insertion for strict consumers** (the direct-style → monadic elaboration below). Sequenced `Console`
+programs run end-to-end under the flag. Still later slices: control-effect weave-key stacks, bind/`pure` under a
+pure strict function, effectful conditionals, and precise node types on structurally-woven sub-terms; see §0.*
 
 A second post-mono processor performs the direct-style → monadic elaboration the checker does
 today, over concrete terms:
@@ -486,7 +491,7 @@ tracks are green.
   - **§6 base-carrier config (landed).** `LangPlugin.baseCarrierKey` threads the platform's base carrier into
     `LangProcessors(baseCarrier = …)`; `JvmPlugin.configure` sets it to `eliot.jvm.IO::IO` under the flag. With
     it on, HelloWorld reaches and fails only at the entry point (`block(main)` wants `IO[Unit]`, effect-blind
-    `main` is `Unit`), isolating the last blocker; see §0/§6.
+    `main` is `Unit`), isolating the entry point as the last blocker (resolved by the next slice); see §0/§6.
   - **§6 entry-point rework (landed) — HelloWorld runs under the flag.** The run-boundary is built post-weave: the
     jvm layer ships `runMain[A](io: IO[A]): A = apply(block(io), unit)` (ordinary Eliot), the synthetic main becomes a
     bare user-main reference under the flag, and the weaver (`LangPlugin.entryPointKey`) wraps the entry's woven
