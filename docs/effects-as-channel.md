@@ -21,12 +21,19 @@ package (`Carrier` lattice + `split`, `CarrierJoin` join solver, `UniformLadder`
 ladder + deferred lift materialization), **not yet wired into the ~1000-line `Checker`** — so the default
 path stays byte-identical. Its 27-case regression suite (`CarrierMechanismTest`) is U3a's acceptance
 suite in real types, and the theft-contrast cases run the *real* `Unifier` to show the exact injectivity
-theft that splitting the carrier head off first avoids. **NEXT: U3a-2 — wire the `carrier/` mechanism
-into the `Checker` spine loop under `--effect-channel`** (replace Phase A/B + `EffectLifter.tryIdDefault`-as-an-arm
-with the ladder + join solver; the coupled `desugarChannel`/accounting deletion rides U3a/U3c). Commit
-trail (on `master`): U2 spike `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1
-carrier mechanism module; the tree is green (`lang.test`/`jvm.test`, HelloWorld, eliot-test 11/11).**
-The §13 fork raised during the Phase-3
+theft that splitting the carrier head off first avoids. U3a-2a LANDED (2026-07-23): the **checker-side
+bridge** `check/UniformCarrierChecker` — the §12-Q1 decision resolved to **check-time carrier-wrapping**
+(`intoCarrierHeaded`: a pure `T` ⤳ `Id[T]`, `VType` never wrapped), the expected-slot classifier reading
+the value's real carrier bookkeeping (`ambientCarriers`/`carrierRoles` via the reused `effectCarrierSplit`),
+and the CheckIO-threaded ladder + boundary finalize/materialize — built and **unit-tested in isolation**
+(`UniformCarrierCheckerTest`, like `EffectLifterTest`), **not yet constructed/called by the `Checker`** so the
+default path stays byte-identical (and clear of the `desugarChannel`/accounting knot). **NEXT: U3a-2b — the
+spine-loop flip**: construct `UniformCarrierChecker` in the `Checker`, route the spine slots through it (replace
+Phase A/B + `EffectLifter.tryIdDefault`-as-an-arm with the ladder + join solver, reusing `EffectLifter`'s
+`bindWrap`/`tryPureWrap` node mechanics for the materialised lift), untangling the coupled
+`desugarChannel`/accounting deletion together (U3a/U3c). Commit trail (on `master`): U2 spike `6fc17e99`,
+U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a checker-side bridge; the tree
+is green (`lang.test`/`jvm.test`, HelloWorld, eliot-test 11/11).** The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -112,9 +119,26 @@ then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-
     theft is demonstrated on production types, not a toy.
   - **Not wired into the `Checker`** — the default path is byte-identical (verified: `lang.test`/`jvm.test`
     green, HelloWorld builds+runs). This is the foundation U3a-2 (the checker wiring) consumes.
+- **U3a-2a (checker-side bridge) — LANDED.** `check/UniformCarrierChecker.scala` lifts the U3a-1 domain
+  mechanism into `CheckIO` (reading/writing `CheckState.unifier` like `EffectLifter`/`CarrierKindChecker`),
+  unit-tested in isolation via `check/UniformCarrierCheckerTest.scala` (the `EffectLifterTest` harness:
+  build a `CheckState`, run the `StateT`). It resolves **§12-Q1 to check-time carrier-wrapping**:
+  - `intoCarrierHeaded(tpe)` — a pure `T` ⤳ `Id[T]` (via `applyValue(Id, tpe)`); an already-carrier-headed
+    judgment (ambient/role carrier, or `Id`) or a `VType` (the §8 boundary — never wrapped) is left. The
+    recognition it needs is the *positional* read of the value's own bookkeeping, reusing
+    `EffectLifter.effectCarrierSplit`, not the undecidable "is an arbitrary type a carrier?".
+  - `classifyExpectedSlot(expected)` — `UniformLadder.classifyExpected` with the effect-carrier tag read on
+    the **expected** side from `ambientCarriers`/`carrierRoles`.
+  - `resolveSlot` / `finalizeAndMaterialize` — the `CheckIO`-threaded ladder over `CheckState.unifier`, and
+    the boundary rule (default every unsolved `carrierRoles` meta to `Id`, then materialise the deferred
+    lifts decision-free).
+  - **Not constructed/called by the `Checker` yet** — the default path is byte-identical (verified). This
+    deliberately avoids the `desugarChannel`/`EffectAccounting` coupling (U3-0b), which the *flip* must
+    untangle. Node *splicing* of a materialised lift is left for the flip (it reuses `EffectLifter`'s
+    `bindWrap`/`tryPureWrap` — reshape, not rebuild).
 
-**Next: U3a-2 — wire the `carrier/` mechanism into the `Checker` spine loop under `--effect-channel`.**
-The honest big step (§11). Start points and constraints:
+**Next: U3a-2b — the spine-loop flip.** Construct `UniformCarrierChecker` in the `Checker` and route the
+spine slots through it under `--effect-channel`. The honest big step (§11). Start points and constraints:
 - **Where it lives:** the checker chain `monomorphize/processor/MonomorphicTypeCheckProcessor` →
   `monomorphize/check/TypeStackLoop` → `monomorphize/check/Checker` (~1000 lines) + the unifier
   `monomorphize/unify/Unifier` + the domain `monomorphize/domain/SemValue`. The `effectChannel` flag is
@@ -735,6 +759,14 @@ before anything leans on it), the foundation spike second, the checker refactor 
     List[A]` whole-unified injectivity-decomposes to `?F := List, A := List[String]` (the theft), which
     the ladder avoids by `split`ting `?F` off so only `List[String] ~ List[A]` (⇒ `A := String`) reaches
     payload `unify`. **NEXT is U3a-2** — the checker wiring.
+  - **U3a-2a (checker-side bridge) — LANDED (2026-07-23).** `check/UniformCarrierChecker` lifts the U3a-1
+    domain mechanism into `CheckIO` and resolves **§12-Q1 to check-time carrier-wrapping** (`intoCarrierHeaded`:
+    pure `T` ⤳ `Id[T]`, `VType` never wrapped) + the expected-slot tag classifier + the boundary
+    finalize/materialize. Unit-tested in isolation (`UniformCarrierCheckerTest`, the `EffectLifterTest`
+    harness); **not constructed/called by the `Checker` yet**, so the default path is byte-identical and the
+    `desugarChannel`/accounting knot is untouched. Details in the §0 handover ("U3a-2a — LANDED"). **NEXT is
+    U3a-2b** — construct it in the `Checker` and route the spine slots through it, untangling the coupled
+    `desugarChannel`/accounting deletion together.
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
   assertion becomes a hard error; the Cornerstone amendment (§9 restatement) and the doc/skill
   sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections);
@@ -766,11 +798,15 @@ before anything leans on it), the foundation spike second, the checker refactor 
 
 1. **Representation details** (U2a): the `SemValue` form is **resolved** (carrier as outermost
    application; §3, spike-confirmed) and occurs-check with carrier metas is **resolved** (carrier and
-   payload metas are separate namespaces; the payload occurs-check never sees a carrier meta). One
-   sub-item **carries into U3a**: whether pure *signatures* are brought into carrier-headed form by a
-   desugar rewrite or by check-time wrapping — the spike models runtime *judgments* directly and does
-   not commit the signature-side mechanism; U3a decides it against the real `EffectSugarDesugarer` /
-   `Checker`.
+   payload metas are separate namespaces; the payload occurs-check never sees a carrier meta). The
+   sub-item that carried into U3a — whether pure *signatures/terms* are brought into carrier-headed form by
+   a desugar rewrite or by check-time wrapping — is **RESOLVED (U3a-2a): check-time wrapping**
+   (`UniformCarrierChecker.intoCarrierHeaded`, a pure `T` ⤳ `Id[T]` in the `Checker`). Chosen over a
+   `core`-phase desugar rewrite because it localises the uniform elaboration to the `Checker` (the flip's
+   home), leaves `EffectSugarDesugarer` and the surface untouched, and keeps clear of the `desugarChannel`
+   deletion; the "is it already carrier-headed?" read it needs is the positional read of the value's own
+   `ambientCarriers`/`carrierRoles` (via the reused `effectCarrierSplit`), never the undecidable
+   arbitrary-type carrier query.
 2. **The join lattice at discharge sites** (U2b/U3): the spike confirms "two different non-`Id`
    carriers = mismatch" and the bottom/single-winner rules for the flat cases; **carries into U3**
    as designed — nested discharge (`StateCarrier[S, G]` under ambient `G`) needs no refinement *in
