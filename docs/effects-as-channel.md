@@ -10,8 +10,15 @@ four historical failure cases + the flagship effectful/mixed conditional green u
 rule set; it produced two sharpenings now in §3 (`Id` is the lattice bottom *everywhere*; the ladder
 *classifies by the expected slot* rather than trying pass-through first — the surviving recognition is
 a positional effect-carrier tag on the expected binder), pinned the compile-time boundary (§8), and
-confirmed Id-free rendering + constant-factor perf. Next: U3 (the uniform checker behind
-`--effect-channel`).** The §13 fork raised during the Phase-3
+confirmed Id-free rendering + constant-factor perf. U3-0a LANDED (2026-07-23): the v1 weaver +
+entry-point rework + config keys deleted (`WovenValueProcessor` is now just the Id-normalizer);
+default path byte-identical. U3-0b finding (2026-07-23): the `desugarChannel` deletion is **not
+separable before U3a** — it couples through the kept `EffectAccounting` verifier to carrier-bound
+monomorphization of effect-polymorphic values, so the §7 "delete at U3 start" ordering is corrected
+to fold that deletion into U3a/U3c (§7, §10 U3-0b). **NEXT: U3a — the uniform-carrier checker under
+the flag.** Commit trail (on `master`): U2 spike `6fc17e99`, U3-0a `71c39704`, U3-sequencing
+correction `4ad8b333`; the tree is at U3-0a and green (`lang.test`/`jvm.test`, HelloWorld, eliot-test
+11/11).** The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -23,8 +30,10 @@ internal, uniform representation in between.
 
 The **default** compiler path (carrier desugar + `EffectLifter` + `EffectResidualChecker`) is still
 the live path and drives compilation unchanged until the U4 flip. The `--effect-channel` flag's
-landed effect-blind slices (v1 Phase 3) are **scheduled for deletion at U3 start** (§0, §7); the
-flag is retained as the gate under which the uniform checker grows.
+remaining landed effect-blind slices (v1 Phase 3: `desugarChannel`, the `AbilityResolver` abstain, the
+`AbilityImplementationCheck` relaxation) are **deferred for deletion into U3a/U3c** (§0, §7, §10
+U3-0b — not U3 start, as first planned); the flag is retained as the gate under which the uniform
+checker grows.
 
 ## 0. Where we are (handover)
 
@@ -43,15 +52,74 @@ project memory; here only what each piece *becomes*):
 | **Phase 1** — `EffectRow[C]` channel plumbing on the fact chain (`ast/fact/EffectRow.scala`, threaded `FunctionDefinition → … → OperatorResolvedValue`) | **KEEP.** The verification channel's input and the LSP's row source; needed by every variant. |
 | **Phase 2** — shadow accounting inside `EffectResidualChecker` (byte-identical verdicts; the carrier-machinery-impl exception) | **KEEP until U4** (deleted with `EffectResidualChecker`, as always planned). Its methodology — shadow, byte-identical gates — is the U3 acceptance harness; its ability-method handling is the template for re-pointing accounting (§5). |
 | **§5 accounting** — `monomorphize/channel/EffectAccountingProcessor` + `EffectAccounting` fact (`derived ⊆ declared`, friendly diagnostics) | **KEEP.** Still the post-mono verifier. One U3 slice re-points its derivation: under uniform checking effect ops arrive *resolved* (impl references), not abstract, so derivation reads ability-of-impl the way the Phase-2 shadow already does. |
-| **Phase 3 foundation** — effect-blind desugar (`desugarChannel`: strip open rows, carrier-erase user effect-ability methods), `AbilityResolver` abstain, ability↔impl conformance relaxation | **SUPERSEDED — delete at U3 start.** These implement erasure, the rejected foundation. |
+| **Phase 3 foundation** — effect-blind desugar (`desugarChannel`: strip open rows, carrier-erase user effect-ability methods), `AbilityResolver` abstain, ability↔impl conformance relaxation | **SUPERSEDED — delete DEFERRED into U3a/U3c** (was "U3 start"; corrected by the U3-0b finding, §10 U3-0b). These implement erasure, the rejected foundation, but the deletion couples to the kept `EffectAccounting` verifier — an effect-polymorphic value cannot monomorphize carrier-free once `desugarChannel` is gone, so it needs the uniform checker's carrier-bound mono first. Still flag-gated + dormant until then. |
 | **§6 weaver monadification** — `WovenValueProcessor.weave` (bind/`pure` insertion, `sequenceSpine`, `weaveBlock`, `peelAndWeave`, `pureWrap`, the `isLazyConditionalHead` `fold`/`if` FQN hardcode) | **DELETED (U3-0a, 2026-07-23).** Under uniform checking mono output is already monadic and resolved; there is nothing to weave. The whole weaver branch + both stopgaps (FQN hardcode, lambda-peeling) are gone; `WovenValueProcessor` is now just the Id-normalization stage. Reachable only via `baseCarrier = Some`, so the deletion was inert for the default path. |
 | **§6 codegen redirect** — `WovenValue` fact + `used`/`uncurry`/jvm reading `WovenValue.Key` instead of `MonomorphicValue.Key` | **KEEP.** The post-mono seam between checking and codegen — exactly where the **Id-normalization stage** (§6) plugs in. The redirect investment is preserved. |
 | **§6 entry-point rework** — jvm `runMain[A](io: IO[A]): A` in `IO.els`; synthetic main as bare ref under the flag; weaver-built run boundary; `LangPlugin.baseCarrierKey` / `entryPointKey` config | **SPLIT — weaver-boundary + config DELETED (U3-0a, 2026-07-23).** `runMain` itself: **KEPT** (ordinary Eliot, useful on both paths). The weaver-built boundary (`weaveEntry`/`runBoundary`), both config keys + their `JvmPlugin.withBaseCarrier`/`baseCarrierFQN` setters, and `SyntheticMainSourceProcessor`'s bare-ref branch are gone; the synthetic main is the sole `carrierMainSource` (`apply(block(main), unit)`) until U3b spells `runMain(<user main>)`. |
-| `--effect-channel` flag + `LangProcessors(effectChannel=…)` threading | **KEEP the gate, replace its meaning.** At U3 start the effect-blind behaviors behind it are deleted (flag briefly inert); the uniform checker then grows under the same flag. |
-| Tests: `EffectChannelDesugarTest`, `WovenValueTest` monadification cases | Deleted with their subjects at U3 start. `EffectAccountingTest`: kept, re-pointed with the derivation. |
+| `--effect-channel` flag + `LangProcessors(effectChannel=…)` threading | **KEEP the gate, replace its meaning.** As of U3-0a it is still threaded to `CoreProcessor`/`AbilityImplementationCheckProcessor`/the checker chain (`MonomorphicTypeCheckProcessor` → `TypeStackLoop` → `Checker` → `AbilityResolver`) + `EffectAccountingProcessor`, and still switches the surviving effect-blind behaviors (desugar/abstain/relaxation) on. Those come off in U3a/U3c; the uniform checker then grows under the same flag. |
+| Tests: `EffectChannelDesugarTest`, `WovenValueTest` monadification cases | `WovenValueTest`: **DELETED (U3-0a)** with the weaver. `EffectChannelDesugarTest`: **deferred to U3a/U3c** — deleted with `desugarChannel`. `EffectAccountingTest`: kept, re-pointed with the derivation in U3c — and it must **relocate off the lang track** (which has no runtime carrier — see §10 U3-0b) to a track with a concrete carrier (jvm), since an effect-polymorphic `main` cannot monomorphize on the carrier path without one. |
 
 Until U3 lands, the default path remains byte-identical to today; nothing user-visible changes
 before the U4 flip.
+
+### Handover snapshot (cold-start read this first)
+
+**Where the tree is:** `master`, at U3-0a (commit `71c39704`; doc-only sequencing correction
+`4ad8b333` on top). Green everywhere: `./mill lang.test`, `./mill jvm.test`, HelloWorld builds+runs
+(`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
+and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
+then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant.
+
+**Done:**
+- **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
+  `WovenValueProcessor` on by default. Body rewrites + newtype rep (U1a), `Id[X] ⤳ X` type/key
+  erasure (U1b), first-class-combinator eta-expansion. No `Id` residue anywhere. §6.
+- **U2 (foundation spike) — COMPLETE (green, not wired in).**
+  `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/spike/UniformCarrierSpike.scala`
+  (mechanism) + `UniformCarrierSpikeTest.scala` (26 cases). Two sharpenings folded into §3: `Id` is the
+  lattice bottom *everywhere*; the ladder *classifies by the expected slot* (the surviving recognition
+  is a positional effect-carrier tag on the expected binder, not shape detection of the actual). §3/§8
+  updated; §10 U2 has the full result list. These 26 cases become U3a's acceptance suite.
+- **U3-0a — LANDED.** The v1 weaver (`WovenValueProcessor.weave…`, `object Combinators`), the
+  entry-point rework (`weaveEntry`/`runBoundary`, `baseCarrierKey`/`entryPointKey`,
+  `JvmPlugin.withBaseCarrier`/`baseCarrierFQN`, `SyntheticMainSourceProcessor.effectChannelMainSource`),
+  and `WovenValueTest` are deleted. Safe because all of it was reachable only via `baseCarrier = Some`,
+  which nothing sets anymore.
+
+**Next: U3a — the uniform-carrier checker under `--effect-channel`.** The honest big step (§11). Start
+points and constraints:
+- **Where it lives:** the checker chain `monomorphize/processor/MonomorphicTypeCheckProcessor` →
+  `monomorphize/check/TypeStackLoop` → `monomorphize/check/Checker` (~1000 lines) + the unifier
+  `monomorphize/unify/Unifier` + the domain `monomorphize/domain/SemValue`. The `effectChannel` flag is
+  already threaded to all of these (currently inert) — branch on it to grow the uniform path while the
+  default path stays byte-identical.
+- **What to build** (from the spike, §3): uniform carrier-headed judgments; the classify-by-expected-slot
+  ladder (Generic / effect-carrier-form / data-Functor-form); the **join solver** (`Id` = lattice
+  bottom, one non-`Id` winner, conflict = mismatch, unsolved-at-boundary = `Id`) replacing
+  `EffectLifter.tryIdDefault`-as-an-arm and the `Checker`'s Phase A/B decision-deferral with *deferred,
+  decision-free* lift materialization. Keep the `EffectLifter` bind/`pure` insertion *mechanics*
+  (`wrapBinds`/`bindWrap`, the `$eff$N` splice) — reshape, don't rebuild.
+- **The coupled deletion rides here:** deleting `desugarChannel` + the `AbilityResolver` abstain + the
+  `AbilityImplementationCheck` relaxation + `EffectChannelDesugarTest` (the §7 leftovers) is only
+  possible once the uniform checker monomorphizes an effect-polymorphic value at a **bound carrier**
+  (the U3-0b finding, §10). Re-point `EffectAccountingProcessor.contributedEffects` to recover the
+  ability from a **resolved impl ref** (module-layer qualifier `AbilityImplementation(name, pattern)` —
+  recover the ability *FQN*, not just the name, or the module-precise `derived.diff(declared)` will
+  spuriously leak), and **relocate `EffectAccountingTest` to the jvm module** (only track with a
+  concrete runtime carrier `IO`; the lang track has none, and `Console` is `Suspend`-riding so can't
+  even resolve at the compile-track `Id`).
+- **The sharpest constraint (§8):** the carrier attaches to **runtime term judgments only** — never to
+  type-level/signature/NbE evaluation. The compile-track `Either` discharge (`CalculatedReturnResolver`)
+  stays carrier-free.
+- **Gate:** full `lang.test`/`jvm.test`, all example mains, eliot-test, and the 26 spike cases green
+  *under the flag* (incl. effectful + user-defined conditionals), byte-identical where behavior overlaps
+  the default path; compiler track green (guards + calculated returns). Default path byte-identical
+  throughout — the flag keeps it safe.
+
+**To be deleted only at the U4 flip (do NOT touch during U3a):** the `EffectLifter` recognition arms,
+`CheckState.ambientCarriers`, `EffectResidualChecker` + its Phase-2 shadow, `CarrierKindChecker`'s
+carrier duties. They are the *default* path and must stay live until the flag becomes the default (§7,
+second list).
 
 ## 1. The problem
 
@@ -730,7 +798,8 @@ the carrier in the types *is* the per-node signal, and the channel stays per-dec
 set out to delete; "types ignore effects" is restated as a user-surface property realized by
 uniformity rather than erasure (§2, §3). The compile-time track must stay out of the wrapping
 (§8) — the sharpest constraint. The checker refactor is wide (§11). The v1 erasure slices
-(effect-blind desugar, weaver monadification, both stopgaps) are deleted at U3 start; their
-byte-identical/flag discipline and their negative result are what earned this decision, and the
+(effect-blind desugar, weaver monadification, both stopgaps) are deleted across U3 as they separate —
+the weaver at U3-0a, the effect-blind desugar folded into U3a/U3c (§10 U3-0b), not all at U3 start;
+their byte-identical/flag discipline and their negative result are what earned this decision, and the
 durable v1 assets — the row channel, the accounting verifier, the `WovenValue` codegen seam,
 `runMain`, the shadow methodology — carry over intact (§0).
