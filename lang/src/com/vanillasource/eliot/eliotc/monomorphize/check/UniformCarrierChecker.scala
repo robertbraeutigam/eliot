@@ -1,11 +1,13 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.monomorphize.carrier.{Carrier, CarrierJoin, UniformLadder}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The **checker-side bridge** for the uniform-carrier foundation (docs/effects-as-channel.md §3, U3a) — it lifts the
@@ -112,4 +114,109 @@ class UniformCarrierChecker(
       finalized  = CarrierJoin.finalize(unifier, carrierIds)
       _         <- modify(_.withUnifier(finalized))
     } yield UniformLadder.materialize(finalized, lifts)
+
+  /** Resolve one application argument slot into an actual [[SemExpression]] outcome — the node-producing counterpart of
+    * the decision-only [[resolveSlot]], and the uniform successor of the checker's `checkArgumentSlot` ladder (a
+    * [[UniformCarrierChecker.UniformSlotOutcome]] mirrors the `SlotOutcome` the spine loop already threads). The
+    * classification picks the arm; the ladder runs the join + payload unification; then the node is built by **reusing**
+    * [[EffectLifter]]'s insertion mechanics (reshape, not rebuild):
+    *
+    *   - [[UniformLadder.ExpectedSlot.Generic]] ⇒ pass the whole carrier-headed action through unchanged (`fold`'s arm);
+    *   - [[UniformLadder.ExpectedSlot.CarrierSlot]] ⇒ pass-join; a **pure** (bottom-carriered) actual is re-carried into
+    *     the expected carrier via [[UniformCarrierChecker.carrierSlotLift]] (`pure@Effect[?G](runId(actual))`, whose
+    *     `?G` the join solves and the Id-normalizer erases when it defaults to `Id`), an already-effectful actual passes
+    *     through;
+    *   - [[UniformLadder.ExpectedSlot.PayloadSlot]] ⇒ **bind**: the slot receives a fresh `$eff$N` reference at the
+    *     payload and an [[EffectLifter.Bind]] is recorded for the spine's `wrapBinds` (a bind over a bottom `Id` carrier
+    *     erases at the Id-normalizer, so a pure actual into a pure slot costs nothing).
+    *
+    * `argType` is the actual's carrier-headed type (the elaboration invariant); the ladder never sees an un-split
+    * carrier because [[Carrier.split]] peels it off before any payload unification.
+    */
+  def resolveArgumentSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
+      argType: SemValue,
+      expected: SemValue
+  ): CheckIO[UniformCarrierChecker.UniformSlotOutcome] =
+    for {
+      slot          <- classifyExpectedSlot(expected)
+      unifier       <- inspect(_.unifier)
+      (updated, out) = UniformLadder.resolveSlot(unifier, argType, slot, arg.as("Type mismatch."))
+      _             <- modify(_.withUnifier(updated))
+      result        <- (slot, out) match {
+                         case (_, UniformLadder.Outcome.PassWhole)      =>
+                           pure(UniformCarrierChecker.UniformSlotOutcome.Passed(argExpr))
+                         case (UniformLadder.ExpectedSlot.CarrierSlot(cExpected, pExpected),
+                               UniformLadder.Outcome.PassJoin(Some(_)))  =>
+                           pure(
+                             UniformCarrierChecker.UniformSlotOutcome.Passed(
+                               UniformCarrierChecker.carrierSlotLift(Carrier.toSemValue(cExpected), pExpected, argExpr, arg)
+                             )
+                           )
+                         case (_, UniformLadder.Outcome.PassJoin(None)) =>
+                           pure(UniformCarrierChecker.UniformSlotOutcome.Passed(argExpr))
+                         case (UniformLadder.ExpectedSlot.PayloadSlot(shape), UniformLadder.Outcome.Bound(actualCarrier)) =>
+                           freshLiftName.map { name =>
+                             UniformCarrierChecker.UniformSlotOutcome.Bound(
+                               SemExpression(shape, SemExpression.ParameterReference(arg.as(name))),
+                               EffectLifter.Bind(name, arg, argExpr, argType, Carrier.toSemValue(actualCarrier), shape)
+                             )
+                           }
+                         case (s, o)                                    =>
+                           throw new IllegalStateException(s"uniform slot outcome mismatch: slot=$s outcome=$o")
+                       }
+    } yield result
+
+  /** The next fresh lift-binder name (`$eff$0`, `$eff$1`, …), threading [[CheckState.liftCounter]] — the same
+    * convention (and counter) [[EffectLifter]] uses, so uniform-path and default-path binders never collide.
+    */
+  private def freshLiftName: CheckIO[String] =
+    for {
+      n <- inspect(_.liftCounter)
+      _ <- modify(s => s.copy(liftCounter = n + 1))
+    } yield s"$$eff$$$n"
+}
+
+object UniformCarrierChecker {
+
+  /** The outcome of a node-producing argument-slot resolution ([[UniformCarrierChecker.resolveArgumentSlot]]) — the
+    * uniform mirror of the checker's `SlotOutcome`.
+    */
+  sealed trait UniformSlotOutcome {
+
+    /** The expression this slot contributes to the application: the (possibly re-carried) argument for [[Passed]], the
+      * fresh `$eff$N` reference for [[Bound]].
+      */
+    def slotExpr: SemExpression
+  }
+
+  object UniformSlotOutcome {
+
+    /** Generic pass-through or carrier-slot pass-join — the slot takes the argument (a pure carrier-slot actual
+      * re-carried via [[carrierSlotLift]]); no sequencing.
+      */
+    case class Passed(slotExpr: SemExpression) extends UniformSlotOutcome
+
+    /** Payload slot — the effect binds at the call site: the slot receives `slotExpr` (a fresh `$eff$N` reference) and
+      * `bind` is folded around the spine core by [[EffectLifter.wrapBinds]].
+      */
+    case class Bound(slotExpr: SemExpression, bind: EffectLifter.Bind) extends UniformSlotOutcome
+  }
+
+  /** Re-carry a **pure** (`Id`-headed) actual into an effect-carrier slot: `pure[carrier, payload](runId(argExpr))`,
+    * built entirely from [[EffectLifter]]'s extracted node mechanics. The `runId` projects the payload out of the pure
+    * `Id`-carried actual and `pure` re-wraps it at the expected `carrier` (a carrier meta the join solves, or a concrete
+    * carrier). When the carrier defaults to `Id` the whole thing (`pure@Effect[Id](runId(Id(x)))`) is erased by the
+    * Id-normalization stage — no machinery ships for a pure conditional. `carrier` is the carrier as a [[SemValue]]
+    * ([[Carrier.toSemValue]]).
+    */
+  def carrierSlotLift(carrier: SemValue, payload: SemValue, argExpr: SemExpression, source: Sourced[?]): SemExpression =
+    EffectLifter.pureWrapNode(
+      carrier,
+      payload,
+      Evaluator.applyValue(carrier, payload),
+      EffectLifter.runIdNode(payload, argExpr, source),
+      source
+    )
 }

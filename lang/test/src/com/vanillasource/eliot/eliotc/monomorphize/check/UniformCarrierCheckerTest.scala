@@ -10,6 +10,9 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+
+import scala.annotation.tailrec
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import org.scalatest.flatspec.AnyFlatSpec
@@ -38,6 +41,25 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
   private def applied(head: SemValue, args: SemValue*): SemValue = args.foldLeft(head)(Evaluator.applyValue)
   private def id(p: SemValue): SemValue                          = VTopDef(WellKnownTypes.idFQN, None, Spine.SNil :+ p)
   private def list(p: SemValue): SemValue                        = VTopDef(fqn("List"), None, Spine.SNil :+ p)
+
+  private val uri                                         = URI.create("Test.els")
+  private val anchor: Sourced[OperatorResolvedExpression] =
+    Sourced(uri, PositionRange.zero, OperatorResolvedExpression.StringLiteral(Sourced(uri, PositionRange.zero, "x")))
+  private def exprOf(tpe: SemValue): SemExpression        =
+    SemExpression(tpe, SemExpression.StringLiteral(Sourced(uri, PositionRange.zero, "x")))
+
+  @tailrec
+  private def headRef(se: SemExpression): SemExpression.ValueReference = se.expression match {
+    case SemExpression.FunctionApplication(target, _) => headRef(target.value)
+    case ref: SemExpression.ValueReference            => ref
+    case other                                        => fail(s"no head value reference in: $other")
+  }
+
+  /** The immediate argument expression of an application node (for peeking at a wrapped inner node). */
+  private def argOf(se: SemExpression): SemExpression = se.expression match {
+    case SemExpression.FunctionApplication(_, argument) => argument.value
+    case other                                          => fail(s"not an application: $other")
+  }
 
   private val lifter = new EffectLifter(
     sv => inspect(s => Evaluator.force(sv, s.unifier.metaStore)),
@@ -151,5 +173,63 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
       result   <- checker.finalizeAndMaterialize(lifts)
     } yield result
     run(flagged, program) shouldBe List(MaterializedLift(LiftKind.Pure, Carrier.Con(ioFQN, Nil)))
+  }
+
+  // --- carrierSlotLift (the pure-actual re-carry node, reusing EffectLifter mechanics) ---
+
+  "carrierSlotLift" should "wrap the actual in pure at the expected carrier, over a runId unwrap" in {
+    val node = UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor)
+    headRef(node).valueName.value shouldBe WellKnownTypes.effectPureFQN
+  }
+
+  it should "carry the [carrier, payload] type arguments on the pure reference" in {
+    headRef(UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor)).typeArguments shouldBe Seq(io, string)
+  }
+
+  it should "type the whole node at carrier[payload]" in {
+    UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor).expressionType shouldBe applied(io, string)
+  }
+
+  it should "unwrap the Id-carried actual with runId before re-wrapping" in {
+    headRef(argOf(UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor))).valueName.value shouldBe WellKnownTypes.runIdFQN
+  }
+
+  // --- resolveArgumentSlot (the node-producing slot resolution) ---
+
+  "resolveArgumentSlot at a Generic slot" should "pass the whole carrier-headed action through unchanged" in {
+    val (ids, st)  = stateWithMetas(1)
+    val outcome    = run(st, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), VMeta(ids.head, Spine.SNil)))
+    outcome shouldBe UniformCarrierChecker.UniformSlotOutcome.Passed(exprOf(applied(io, string)))
+  }
+
+  "resolveArgumentSlot at a carrier slot receiving an effectful actual" should "pass it through and join the carrier" in {
+    val slotType             = applied(io, string) // IO[String], an IO-ambient CarrierSlot
+    val (endState, outcome)  = runWithState(ambientIoState, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), slotType))
+    outcome shouldBe UniformCarrierChecker.UniformSlotOutcome.Passed(exprOf(applied(io, string)))
+    endState.unifier.errors shouldBe empty
+  }
+
+  "resolveArgumentSlot at a carrier slot receiving a pure actual" should "re-carry it with a pure lift at the ambient meta" in {
+    val (ids, st) = stateWithMetas(1)
+    val flagged   = st.recordEffectCarrier(ids.head)
+    val slotType  = applied(VMeta(ids.head, Spine.SNil), string) // ?G[String], an effect-carrier CarrierSlot
+    val outcome   = run(flagged, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), slotType))
+    headRef(outcome.slotExpr).valueName.value shouldBe WellKnownTypes.effectPureFQN
+  }
+
+  "resolveArgumentSlot at a payload slot receiving an effectful actual" should "bind at the call site" in {
+    val outcome = run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), string))
+    outcome match {
+      case UniformCarrierChecker.UniformSlotOutcome.Bound(slotExpr, bind) =>
+        (slotExpr.expressionType, bind.carrier, bind.payload, bind.name) shouldBe (string, io, string, "$eff$0")
+      case other                                                          => fail(s"expected a Bound outcome, got $other")
+    }
+  }
+
+  "resolveArgumentSlot at a payload slot receiving a pure actual" should "bind over the Id carrier (erased downstream)" in {
+    run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), string)) match {
+      case UniformCarrierChecker.UniformSlotOutcome.Bound(_, bind) => bind.carrier shouldBe EffectLifter.idCarrier
+      case other                                                   => fail(s"expected a Bound outcome, got $other")
+    }
   }
 }

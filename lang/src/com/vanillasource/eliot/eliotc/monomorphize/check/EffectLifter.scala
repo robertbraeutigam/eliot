@@ -59,11 +59,6 @@ class EffectLifter(
 ) {
   import EffectLifter.*
 
-  /** The identity carrier `Id`, in the same canonical [[VTopDef]] form the compiler track pins `Either` carriers with
-    * — the value [[tryIdDefault]] solves a pure boundary's still-flex residual carrier to.
-    */
-  private val idCarrier: SemValue = VTopDef(WellKnownTypes.idFQN, None, Spine.SNil)
-
   /** Split a type into its effect-carrier head and payload — `Some((C, T'))` iff the forced type is `C[T']` for an
     * effect carrier `C` (a role-flagged instantiation meta head, or a head in [[CheckState.ambientCarriers]]) applied
     * to a non-empty spine. This is the `isEffectCarrierHeaded` read of the design; the split form is what both arms
@@ -272,19 +267,8 @@ class EffectLifter(
               state          <- get
               result         <- state.unifier.tryUnify(actual, payload, tm.as("Type mismatch.")) match {
                                   case UnifyResult.Unified(unified) =>
-                                    modify(_.withUnifier(unified)).as {
-                                      val pureRef = SemExpression(
-                                        VPi(payload, _ => forcedExpected),
-                                        SemExpression
-                                          .ValueReference(tm.as(WellKnownTypes.effectPureFQN), Seq(carrier, payload))
-                                      )
-                                      Some(
-                                        SemExpression(
-                                          forcedExpected,
-                                          SemExpression.FunctionApplication(tm.as(pureRef), tm.as(expr))
-                                        )
-                                      )
-                                    }
+                                    modify(_.withUnifier(unified))
+                                      .as(Some(EffectLifter.pureWrapNode(carrier, payload, forcedExpected, expr, tm)))
                                   case UnifyResult.Contradiction(_) => pure(None)
                                 }
             } yield result
@@ -323,20 +307,8 @@ class EffectLifter(
                               case UnifyResult.Unified(unified) =>
                                 for {
                                   _ <- modify(_.withUnifier(unified))
-                                  _ <- doUnify(carrier, idCarrier, tm.as("Pure-boundary carrier `Id`."))
-                                } yield {
-                                  val runIdRef = SemExpression(
-                                    VPi(Evaluator.applyValue(idCarrier, forcedExpected), _ => forcedExpected),
-                                    SemExpression
-                                      .ValueReference(tm.as(WellKnownTypes.runIdFQN), Seq(forcedExpected))
-                                  )
-                                  Some(
-                                    SemExpression(
-                                      forcedExpected,
-                                      SemExpression.FunctionApplication(tm.as(runIdRef), tm.as(expr))
-                                    )
-                                  )
-                                }
+                                  _ <- doUnify(carrier, EffectLifter.idCarrier, tm.as("Pure-boundary carrier `Id`."))
+                                } yield Some(EffectLifter.runIdNode(forcedExpected, expr, tm))
                               case UnifyResult.Contradiction(_) => pure(None)
                             }
         } yield result
@@ -405,6 +377,45 @@ class EffectLifter(
 }
 
 object EffectLifter {
+
+  /** The identity carrier `Id`, in the canonical unapplied [[VTopDef]] form the compiler track pins `Either` carriers
+    * with — the value [[EffectLifter.tryIdDefault]] solves a pure boundary's still-flex residual carrier to, and the
+    * carrier of a pure term under uniform carriers (docs/effects-as-channel.md).
+    */
+  val idCarrier: SemValue = VTopDef(WellKnownTypes.idFQN, None, Spine.SNil)
+
+  /** Build an `Effect.pure` lift node — `pure[carrier, payload](expr) : resultType` (`resultType` = `carrier[payload]`)
+    * — reusing the [[Sourced]] position of `source` for every inserted node. Extracted from [[EffectLifter.tryPureWrap]]
+    * so the uniform-carrier checker ([[UniformCarrierChecker]]) reuses the exact same node mechanics (reshape, not
+    * rebuild); the default-path [[EffectLifter.tryPureWrap]] passes its already-forced `carrier[payload]` as
+    * `resultType`, the uniform path passes `Evaluator.applyValue(carrier, payload)` (definitionally the same value).
+    */
+  def pureWrapNode[S](
+      carrier: SemValue,
+      payload: SemValue,
+      resultType: SemValue,
+      expr: SemExpression,
+      source: Sourced[S]
+  ): SemExpression = {
+    val pureRef = SemExpression(
+      VPi(payload, _ => resultType),
+      SemExpression.ValueReference(source.as(WellKnownTypes.effectPureFQN), Seq(carrier, payload))
+    )
+    SemExpression(resultType, SemExpression.FunctionApplication(source.as(pureRef), source.as(expr)))
+  }
+
+  /** Build a `runId` unwrap node — `runId[payload](expr) : payload` — reusing the [[Sourced]] position of `source`.
+    * Extracted from [[EffectLifter.tryIdDefault]]; `expr` is an `Id[payload]`-carried term and the node projects out its
+    * payload (a total, effect-free projection). The uniform path composes it under [[EffectLifter.pureWrapNode]] to
+    * re-carry a pure `Id`-headed actual at a different (effect-carrier) expected slot.
+    */
+  def runIdNode[S](payload: SemValue, expr: SemExpression, source: Sourced[S]): SemExpression = {
+    val runIdRef = SemExpression(
+      VPi(Evaluator.applyValue(idCarrier, payload), _ => payload),
+      SemExpression.ValueReference(source.as(WellKnownTypes.runIdFQN), Seq(payload))
+    )
+    SemExpression(payload, SemExpression.FunctionApplication(source.as(runIdRef), source.as(expr)))
+  }
 
   /** One recorded effect bind: the fresh binder `name` standing for the action's payload in the spine core, the
     * effectful `action` expression with its carrier-headed `actionType` (`C[T']`), split into the `carrier` (`C`) and
