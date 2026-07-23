@@ -62,13 +62,15 @@ Id-normalizes away). **SINCE THEN (see §0 "Uniform-path coverage NOW" for the c
 argument→payload-slot case (pure args pass, effectful args bind — `527af90a`/`16a432f6`), **every value return**
 including effect-carrier-headed (`?F[Unit]`/`IO[Unit]`, runtime track — `b35bf80c`), and the **whole conditional
 surface** (`if`/`else`/`fold` — `IfDemo` byte-identical, `23eb785a`: return-boundary discharge-to-pure + discharger
-capture-vs-bind + `Platform.Runtime` arg-slot gate), and the **`if` CarrierSlot arm** (`5864f95f`: a pure `H[X]` actual
-pure-wraps before the default ladder's stealing equal-arity unify — the first *non-overlap* win, `if(c, None) else
-Some(x)` compiles where the default path rejects it) now route uniform, byte-identical where the default path succeeds;
-`CarrierJoin` guards the self-join (`ead5d631`). **NEXT: the GENERIC arm + the join-requiring cases.** `fold`'s bare-`A`
-`Generic` arm (pass-through-whole) and the historical cases that need the actual `CarrierJoin` lattice — a pure/effectful
-*sibling* in one call (compound-state equal-arity, effectful-`catch`-handler, the latter also needing the stdlib
-`onError: E => {Effect} A` delta) — still resolve on the default ladder. **The single-slot `if` arm needed no join and
+capture-vs-bind + `Platform.Runtime` arg-slot gate), the **`if` CarrierSlot arm** (`5864f95f`: a pure `H[X]` actual
+pure-wraps before the default ladder's stealing equal-arity unify — `if(c, None) else Some(x)` compiles where the default
+path rejects it), and the **payload slot decided by payload-fit** (`ba208c48`: an effectful value whose payload fits a
+data slot **binds** — the compound-state `items : {Console} List[String]` into `foldLeft`'s `List[A]`, another default
+rejection) now route uniform, byte-identical where the default path succeeds, with **two non-overlap wins** the default
+rejects; `CarrierJoin` guards the self-join (`ead5d631`). **NEXT: the GENERIC arm + the effectful-`catch`-handler.**
+`fold`'s bare-`A` `Generic` arm (pass-through-whole — byte-identical regularization) and the one remaining historical
+case needing the actual `CarrierJoin` lattice, the effectful-`catch`-handler (a pure/effectful *sibling* in one call, also
+needing the stdlib `onError: E => {Effect} A` delta), still resolve on the default ladder. **The single-slot `if` arm needed no join and
 no `finalize`** — the earlier "ability-constrained-carrier / `finalize`-defaults-to-`Id`" crux hypothesis was **wrong**;
 the real cause of the `if(f,"+")` `VerifyError` trial was the `carrierSlotLift` **double-wrap** (`pure(runId(pure@Id(…)))`
 mis-erased), fixed by reusing the clean single `tryPureWrap` node. **Wiring finding
@@ -136,24 +138,26 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, at U3a-2b(ii)-CarrierSlot-arm (commit `5864f95f`). Green everywhere:
+**Where the tree is:** `master`, at U3a-2b(ii)-compound-state (commit `ba208c48`). Green everywhere:
 `./mill lang.test`, `./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest` conditional-surface case +
-`UniformCarrierConditionalTest` — the first non-overlap compile-succeeds gate: `if(c, None) else Some(x)` rejected off,
-accepted on),
+`UniformCarrierConditionalTest` — the non-overlap compile-succeeds gate: `if(c, None) else Some(x)` *and* an effectful
+list into `foldLeft`'s `List[A]`, both rejected off, accepted on),
 HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
 and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
 then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The
 transitional `--uniform-carrier` gate is **live for every *value* return (pure re-carried via `Id`, effect-carrier
 passed through, and discharge-to-pure `Id`-defaulted + `runId`-unwrapped — runtime track), the whole
-argument→payload-slot case (pure args pass, effectful args bind, effectful-that-whole-unifies **captures**), and the
-whole conditional surface (`if`/`else`/`fold` — `IfDemo` byte-identical), and the `if` **CarrierSlot arm**
-(`value: {Abort} T` — a pure `H[X]` actual pure-wraps before the default ladder's stealing equal-arity unify, fixing
-`if(c, None) else Some(x)` which the default path rejects)** — all routed through the uniform boundary/ladder and
-Id-normalized back to byte-identical where the default path already succeeds; the compile-time track falls back to the
+argument→payload-slot case (bind-vs-capture by **payload-fit** — a payload that genuinely fits the domain binds, incl.
+the compound-state effectful-value-into-a-data-slot the default path rejects; a carrier-stack domain or a bare-flex
+payload captures), the whole conditional surface (`if`/`else`/`fold` — `IfDemo` byte-identical), and the `if`
+**CarrierSlot arm** (`value: {Abort} T` — a pure `H[X]` actual pure-wraps before the default ladder's stealing
+equal-arity unify, fixing `if(c, None) else Some(x)`)** — all routed through the uniform boundary/ladder and
+Id-normalized back to byte-identical where the default path already succeeds, and **two non-overlap wins** (`if(c, None)
+else Some(x)`, effectful-list-into-`List[A]`) that the default path rejects; the compile-time track falls back to the
 default path (the arg-slot routing is `Platform.Runtime`-gated). Remaining on the default ladder: `fold`'s bare-`A`
-**Generic** arm and the join-requiring historical cases (compound-state equal-arity, effectful-`catch`-handler) — the
-next step. `CarrierJoin` guards the carrier-meta self-join (a defensive prerequisite; the single-slot `if` arm needs no
-join, so it is still not yet triggered live).
+**Generic** arm (byte-identical regularization) and the one join-requiring historical case (effectful-`catch`-handler,
+needing a stdlib delta) — the next step. `CarrierJoin` guards the carrier-meta self-join (a defensive prerequisite; the
+single-slot `if` arm needs no join, so it is still not yet triggered live).
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -331,13 +335,26 @@ join, so it is still not yet triggered live).
   and this single-slot arm needs **no** `CarrierJoin`/`finalize`). Byte-identical everywhere it overlaps (`sign`/IfDemo/
   eliot-test 11/11 / 32-of-32 example mains, same 3 pre-existing flag-gaps, **no regressions**); new compile-succeeds gate
   `UniformCarrierConditionalTest` (rejected off, accepted on); `lang.test`/`jvm.test` green.
+- **U3a-2b(ii) compound-state (payload-fits-first) — LANDED (2026-07-23, `ba208c48`).** The second *non-overlap*
+  improvement: an effectful value into a data slot (`items : {Console} List[String]` into `foldLeft`'s `list : List[A]`),
+  which the **default path rejects** (the equal-arity unify steals `?F := List`, then `Effect[List]` has no instance —
+  the `val` workaround was required), now **binds** under the flag. `uniformPayloadSlot` decides bind-vs-capture by
+  whether the actual's **payload genuinely fits** the domain (checked *first*), not whether the *whole* actual
+  whole-unifies (the prior order): a carrier-stack/pinned domain's inner value never fits its outer carrier (⇒ capture —
+  a discharger's `AbortCarrier[G,A]`, `runMain`'s `IO[A]`), a data container's element type does (⇒ bind). A
+  **bare-flex payload `?A`** is guarded out of "fits" (`payloadFitsDomain`, `force`d to a `VMeta(_, SNil)` test) — it
+  absorbs any domain and strips the carrier, so it captures; this is what keeps a discharger's `raise(err) : ?F[?A]` into
+  `map`'s `fa : F[A]` a capture (and eliot-test byte-identical — the guard's absence reddened `Throw.els` with
+  `Effect[String, Id]`). Byte-identical everywhere it overlaps (eliot-test 11/11, sign/IfDemo, 32/32 mains, **no
+  regressions**); compound-state compile-succeeds cases added to `UniformCarrierConditionalTest` (rejected off, accepted
+  on — runs `loading...` then `start`); `lang.test`/`jvm.test` green.
 
 **Uniform-path coverage NOW (under `--uniform-carrier`, all byte-identical to the default path, runtime track):**
 
 | construct | routes uniform? | how |
 |---|---|---|
 | **value RETURN boundary** (`checkAgainst`) | **yes** — pure, effect-carrier, *and* discharge-to-pure | `uniformReturnBoundary` → `checkReturnBoundary`; pure re-carried via `Id` (erased), effect-carrier passed through, a fully-discharged flex `?G[T]` body under a pure return `Id`-defaulted + `runId`-unwrapped (tryIdDefault's successor). Gate `uniformReturnRoutable`/`uniformValueReturn`. |
-| **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — pure passes, effectful binds, effectful-that-whole-unifies **captures** | `uniformPayloadSlot`; pure passes (`runId`), effectful binds (`wrapBinds`→`flatMap`), an effectful actual whose *whole* carrier-headed type unifies the domain (a discharger's `{Abort\|G} A` ⤳ `AbortCarrier[G,A]` capture slot, a pinned/`runMain` `IO[A]`) defers to the default unify-first ladder (**capture**, never bind — binding would steal the domain into the flex payload). Gate `uniformPlainValueType(domain)` + `Platform.Runtime`. |
+| **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — bind-vs-capture by **payload-fit** | `uniformPayloadSlot`: if the actual's **payload genuinely fits** the domain ⇒ **bind** (`printLine(readLine)`; the compound-state `items : ?F[List[X]]` into `foldLeft`'s `List[A]` — `List[X]` fits `List[A]`, which the **default path rejects** by stealing `?F := List`), pure passes (`runId`). If the payload does **not** fit ⇒ `defaultArgSlot`: a **capture** (a carrier-stack/pinned domain whose inner value never fits its outer carrier — a discharger's `{Abort\|G} A` ⤳ `AbortCarrier[G,A]`, `runMain`'s `IO[A]`) or a mismatch. A **bare-flex payload `?A`** is guarded out of "fits" (`payloadFitsDomain`) — it absorbs any domain and strips the carrier, so it captures. Gate `uniformPlainValueType(domain)` + `Platform.Runtime`. |
 | **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface compiles byte-identically: return boundary + discharger capture route uniform; `fold`'s bare-`A` `Generic` arm still on the default `defaultArgSlot` ladder. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful on default | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the default path **rejects** (the pure arm steals the carrier `?G := Option`); an **effectful** actual stays on `defaultArgSlot` (its carrier unifies with `?G` correctly). Byte-identical where the default already pure-wraps (`sign`). |
 | **argument → GENERIC arm + the join-requiring cases** (`fold`'s bare-`A`; compound-state, catch-handler) | **no → default** | `defaultArgSlot`. The remaining arm-routing work; see "Next". |
@@ -385,11 +402,21 @@ this arm needs **no** `CarrierJoin`/`finalize` — `if`'s `value` is a single sl
 call. Byte-identical everywhere it overlaps (`sign`/IfDemo/eliot-test/32-example-mains all still byte-identical, no
 regressions); new compile-succeeds gate `UniformCarrierConditionalTest` (rejected off, accepted on).
 
-**Next: the GENERIC arm + the join-requiring cases.** `fold`'s bare-`A` `Generic` arm (pass-through-whole) still on the
-default ladder; and the remaining historical cases that need the actual `CarrierJoin` lattice (a pure/effectful
-*sibling* in one call): the compound-state equal-arity (`?F[?S] ~ List[X]`) and the effectful-`catch`-handler (which also
-needs the stdlib `onError: E => {Effect} A` parameter-row delta). Only *those* need the join solver + its
-ability-constrained-carrier care; the single-slot `if` arm did not. **Corrected understanding
+**Compound-state — LANDED (2026-07-23, `ba208c48`).** The second non-overlap win: an effectful value into a data slot
+(`items : {Console} List[String]` into `foldLeft`'s `list : List[A]`), which the **default path rejects** (the
+equal-arity unify steals `?F := List`, then `Effect[List]` has no instance — the `val` workaround was required), now
+**binds** under the flag. `uniformPayloadSlot` decides bind-vs-capture by whether the actual's **payload genuinely fits**
+the domain (checked *first*), not whether the *whole* actual whole-unifies (checked first, before) — a carrier-stack
+domain's inner value never fits its outer carrier (⇒ capture), a data container's element type does (⇒ bind). A
+**bare-flex payload `?A`** is guarded out of "fits" (`payloadFitsDomain`) — it absorbs any domain and strips the carrier
+(a discharger's `raise(err) : ?F[?A]` into `map`'s `fa : F[A]` has such a payload and must capture; this guard keeps
+eliot-test byte-identical). Byte-identical everywhere it overlaps (eliot-test 11/11, sign/IfDemo, 32/32 mains, no
+regressions); compound-state compile-succeeds cases in `UniformCarrierConditionalTest`.
+
+**Next: the GENERIC arm + the effectful-`catch`-handler.** `fold`'s bare-`A` `Generic` arm (pass-through-whole) still on
+the default ladder — byte-identical regularization (fold's arms already work on default). The one remaining historical
+failure needing the actual `CarrierJoin` lattice (a pure/effectful *sibling* in one call) is the effectful-`catch`-handler,
+which also needs the stdlib `onError: E => {Effect} A` parameter-row delta. **Corrected understanding
 (2026-07-23):** conditionals
 are ordinary functions — `fold[A](c: Bool, whenTrue: A, whenFalse: A): A` (bare-`A` arms ⇒ `Generic` slots, both arms
 must already match, no auto-lift) and `if[T](c: Bool, value: {Abort} T): {Abort} T = fold(c, value, abort)` (the arm is
@@ -1137,9 +1164,18 @@ before anything leans on it), the foundation spike second, the checker refactor 
     confused the outer `Effect`-instance resolution and mis-erased it (a `VerifyError` that broke `sign`; the crux was
     the double-wrap, not a `finalize`-to-`Id` issue — so the single-slot `if` arm needs no `CarrierJoin`/`finalize`).
     Byte-identical everywhere it overlaps; new compile-succeeds gate `UniformCarrierConditionalTest`.
-    **NEXT: the GENERIC (`fold`) arm + the join-requiring cases** — the compound-state equal-arity and the
-    effectful-`catch`-handler (a pure/effectful *sibling* in one call) that need the actual `CarrierJoin` lattice; the
-    latter also the stdlib `onError: E => {Effect} A` delta. Needs compile-succeeds tests, not byte-identical. The coupled
+  - **U3a-2b(ii) compound-state (payload-fits-first) — LANDED (2026-07-23, `ba208c48`).** The second *non-overlap*
+    improvement: an effectful value into a data slot (`items : {Console} List[String]` into `foldLeft`'s `list : List[A]`),
+    which the **default path rejects** (the equal-arity unify steals `?F := List`, then `Effect[List]` has no instance),
+    now **binds** under the flag. `uniformPayloadSlot` decides bind-vs-capture by whether the actual's **payload genuinely
+    fits** the domain (checked *first*, not the whole-unify): a carrier-stack domain's inner value never fits its outer
+    carrier (⇒ capture), a data container's element does (⇒ bind). A **bare-flex payload `?A`** is guarded out of "fits"
+    (`payloadFitsDomain`) — it absorbs any domain and strips the carrier (a discharger's `raise(err) : ?F[?A]` must
+    capture; the guard's absence reddened `Throw.els` with `Effect[String, Id]`). Byte-identical everywhere it overlaps
+    (eliot-test 11/11, no regressions); compound-state cases added to `UniformCarrierConditionalTest`.
+    **NEXT: the GENERIC (`fold`) arm + the effectful-`catch`-handler** — `fold`'s bare-`A` `Generic` arm (pass-through,
+    byte-identical regularization) and the one remaining join-requiring case (effectful-`catch`-handler: a pure/effectful
+    *sibling* in one call needing the `CarrierJoin` lattice + the stdlib `onError: E => {Effect} A` delta). The coupled
     `desugarChannel`/accounting deletion stays on the `--effect-channel` gate and is untangled at U4 (this transitional
     gate sidesteps it).
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
