@@ -70,13 +70,29 @@ behaviour is unchanged (the channel is dark/shadow). Concretely:
   each ordinary callee contributes its declared row (`OperatorResolvedValue.effectRow`), unioned — and requires
   `derived ⊆ declared`, aborting with the friendly "performs the effect 'X' but does not declare it" on a leak.
   It is the real verifier under the flag (replaces the Phase-2 shadow), verified by `EffectAccountingTest`
-  (derive/subset/propagate accept + undeclared-direct/undeclared-propagated reject). **Remaining gap,
-  flag-gated:** the §6 weaver (codegen) is not built, so there is no terminal demander under the flag yet — the
-  accounting is wired into `LangProcessors` and demanded per value by tests, but nothing auto-runs it across a
-  reachable program until the weaver's codegen driver (or a used-walk hook) demands it; and the transparent-
-  parameter expansion, reify/discharge subtraction, and carrier-machinery-impl exception (§0 Phase 2, §11) are
-  later slices. So the flag stays developer-only until §6 (per the fail-safe rule it can never become default
-  before the whole reachable program is verified end-to-end).
+  (derive/subset/propagate accept + undeclared-direct/undeclared-propagated reject). Transparent-parameter
+  expansion, reify/discharge subtraction, and the carrier-machinery-impl exception (§0 Phase 2, §11) are later
+  accounting slices.
+
+  The **§6 weaver's first slice is built** (`monomorphize/channel/WovenValueProcessor` + the `WovenValue` fact,
+  mirroring `MonomorphicValue`'s consumable shape): carrier assignment + effect-operation resolution for the
+  Suspend-riding base carrier. Two enabling changes: the carrier **machinery** (`Effect`/`Suspend`) is now kept
+  *non-erased* under the flag — only *user* effect abilities are carrier-erased — which is load-bearing (erasing
+  `Suspend` would break the `F ~ Suspend` guard `Console`'s instance carries) and lets effect-instance carrier
+  towers monomorphize normally, so the weaver only resolves *top-level* user operations rather than re-weaving
+  the tower; and the ability↔impl signature-conformance check is relaxed for a user effect ability under the flag
+  (ability carrier-erased `op: Unit`, instance not `op: F[Unit]` — conform by construction, the instance's own
+  mono still type-checks its body). The weaver walks the mono body, resolves each abstract user effect-operation
+  reference to its concrete instance method via `AbilityImplementation` at the base carrier (exactly as
+  `PostDrainQuoter.resolveIfAbility` does), and carrier-wraps an effectful value's signature; verified by
+  `WovenValueTest`. **Remaining for a *running* program under the flag (multi-part):** `flatMap`/`pure` insertion
+  (nested effectful args, blocks); precise carrier-headed node types on the woven body (kept as effect-blind
+  payload types here); control-effect carrier stacks (`weave key = mono key × stack`); the codegen redirect
+  (`used`/`uncurry` + one `ExpressionCodeGenerator` read swap `MonomorphicValue`→`WovenValue`); the base-carrier
+  `Configuration` key that `JvmPlugin` sets to `eliot.jvm.IO`; and the **entry-point rework** — the synthetic
+  main's `block(main)` needs `main : IO[Unit]`, but the effect-blind checker sees `main : Unit`, so the platform
+  entry must run the *woven* main. Until those land the flag stays developer-only (per the fail-safe rule it can
+  never become default before the whole reachable program is verified and woven end-to-end).
 
 - **Phases 3 (accounting/weaver) – 5 — not started.** The standalone §5 accounting processor, the §6 weaver,
   the flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and Phase 2's shadow are
@@ -277,6 +293,11 @@ term it cannot weave cannot reach codegen), and Phase 2's shadow gate turns this
 into a tested equivalence with the current exact checker rather than an assertion.
 
 ## 6. The weaver (per weave key)
+
+*Implementation note (§0): the **first slice is built** — `monomorphize/channel/WovenValueProcessor` + the
+`WovenValue` fact — doing carrier assignment and effect-operation resolution for the Suspend-riding base carrier
+(the "Carrier assignment" and instance-resolution parts below). `flatMap`/`pure` insertion, precise woven node
+types, control-effect weave-key stacks, the codegen re-key, and the entry-point rework are later slices; see §0.*
 
 A second post-mono processor performs the direct-style → monadic elaboration the checker does
 today, over concrete terms:
