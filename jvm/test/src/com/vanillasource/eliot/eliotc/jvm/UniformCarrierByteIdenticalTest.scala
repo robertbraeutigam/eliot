@@ -32,17 +32,51 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       |def main: {Console} Unit = printLine(label(readLine))
       |""".stripMargin
 
+  // Exercises the whole conditional surface (`if`/`else`/`fold` are ordinary functions, never hardcoded): a
+  // discharge-to-pure `if..else` whose residual carrier defaults to `Id` and unwraps with `runId` (`sign`), an
+  // effectful `if..else` whose `Abort` is discharged by `else` while `Console` rides the ambient (`report`), a
+  // multi-arm `fold` (both bare-`A` Generic arms, only the selected one run — `pick`), and a `val`-bound discharged
+  // chain (`describe`). Each must compile byte-identically off vs on: the `if`'s pure arm pure-wraps at the concrete
+  // `AbortCarrier` carrier (never defaulted to `Id`), the discharger's `computation` slot *captures* the effectful
+  // computation (never binds/sequences it), and every inserted `pure@Id`/`runId` erases.
+  private val conditionalSource =
+    """def sign(flag: Bool): String = if(flag, "+") else "-"
+      |
+      |def describe(a: Bool, b: Bool): String = {
+      |   val category = if(a, "first") else if(b, "second") else "third"
+      |   category
+      |}
+      |
+      |def report(flag: Bool): {Console} Unit = if(flag, printLine("on")) else printLine("off")
+      |
+      |def pick(flag: Bool): {Console} Unit = fold(flag, printLine("a"), printLine("b"))
+      |
+      |def main: {Console} Unit = {
+      |   printLine(sign(readLine == "yes"))
+      |   printLine(describe(readLine == "a", readLine == "b"))
+      |   report(readLine == "y")
+      |   pick(readLine == "z")
+      |}
+      |""".stripMargin
+
   "the --uniform-carrier gate" should "emit byte-identical classes to the default path (whole base + program)" in {
     (for {
-      off <- compileClasses(uniformCarrier = false)
-      on  <- compileClasses(uniformCarrier = true)
+      off <- compileClasses(source, uniformCarrier = false)
+      on  <- compileClasses(source, uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => on shouldBe off }
+  }
+
+  it should "emit byte-identical classes for the conditional surface (if/else/fold, discharge-to-pure, capture)" in {
+    (for {
+      off <- compileClasses(conditionalSource, uniformCarrier = false)
+      on  <- compileClasses(conditionalSource, uniformCarrier = true)
     } yield (off, on)).asserting { case (off, on) => on shouldBe off }
   }
 
   /** Compile the program (module `Test`) over the base layer roots, optionally under `--uniform-carrier`, and return each
     * generated class's name → bytes. A fresh session per call keeps the two runs independent.
     */
-  private def compileClasses(uniformCarrier: Boolean): IO[Map[String, Seq[Byte]]] =
+  private def compileClasses(source: String, uniformCarrier: Boolean): IO[Map[String, Seq[Byte]]] =
     for {
       sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-src"))
       targetDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-target"))

@@ -76,12 +76,23 @@ class UniformCarrierChecker(
 
   /** Check a value/lambda **body** against its declared return type (the uniform successor of the checker's
     * `checkAgainst` return boundary). The declared return is brought into carrier-headed form ([[intoCarrierHeaded]] —
-    * a pure return becomes `Id[T]`), then the body's carrier **joins** the return's and the payloads unify; a **pure**
-    * body is re-carried into the declared carrier via [[UniformCarrierChecker.carrierSlotLift]] (which erases when the
-    * carrier is `Id`, so a pure body against a pure return costs nothing). A genuinely effectful body against a pure
-    * (`Id`) declared return leaves its carrier meta to default to `Id`, where the effect operation's instance
-    * (`Console[Id]`, …) fails to resolve — the loud fail-safe, exactly as on the default path; the friendly
-    * "declared pure but performs an effect" diagnostic remains the post-mono accounting's job (§5).
+    * a pure return becomes `Id[T]`), then the body's carrier **joins** the return's and the payloads unify. Three
+    * shapes, told apart by the two carriers (`Carrier.resolve`d), with the payload unified in all of them:
+    *
+    *   - **pure body** (carrier resolves to `Id`/[[Carrier.Bottom]]) into any return: re-carried into the declared
+    *     carrier via [[UniformCarrierChecker.carrierSlotLift]] — `pure@Effect[cExpected](runId(body))`, which erases
+    *     when `cExpected` is `Id` (so a pure body into a pure return costs nothing), and lifts when it is a real carrier
+    *     (a pure body under a `{Console} T` declared return);
+    *   - **discharge-to-pure** — a still-flex carrier meta body (`?G[T]`, a fully-discharged computation whose residual
+    *     carrier `runAbort`/`runThrow` left unbound) meeting a **pure** (`Id`) declared return — the uniform successor
+    *     of [[EffectLifter.tryIdDefault]]: default the body carrier to `Id` ([[CarrierJoin.finalize]] over that one
+    *     meta) and unwrap the body with `runId` ([[EffectLifter.runIdNode]]), so `def sign(f: Bool): String = if(f, "+")
+    *     else "-"` drops straight into pure code (byte-identical to the default path's `tryIdDefault`). Sound because
+    *     `Id` has no `Suspend` instance: a body that genuinely performs I/O cannot resolve its effect operation at `Id`
+    *     and fails loudly at `resolve-abilities`, never silently;
+    *   - **effectful body into an effect-carrier (non-`Id`) return** (`main : {Console} Unit`'s body): the carriers
+    *     **join** and the body passes through unchanged (`?F` solved to the platform's `IO` at the entry, never
+    *     defaulted to `Id`).
     *
     * Both the return and the body are carrier-headed by the elaboration invariant, so [[Carrier.split]] is total here.
     */
@@ -92,17 +103,39 @@ class UniformCarrierChecker(
       source: Sourced[?]
   ): CheckIO[SemExpression] =
     for {
-      expected              <- intoCarrierHeaded(declaredReturn)
+      expected              <- intoCarrierHeaded(declaredReturn).flatMap(force)
       (cExpected, pExpected) = Carrier.split(expected)
-      (cBody, pBody)         = Carrier.split(bodyType)
+      (cBody, pBody)        <- force(bodyType).map(Carrier.split)
       unifier               <- inspect(_.unifier)
-      bodyIsPure             = CarrierJoin.resolve(unifier, cBody) == Carrier.Bottom
-      joined                 = CarrierJoin.joinToward(unifier, cBody, cExpected, source.as("Type mismatch."))
-      _                     <- modify(_.withUnifier(joined.unify(pBody, pExpected, source.as("Type mismatch."))))
-    } yield
-      if (bodyIsPure)
-        UniformCarrierChecker.carrierSlotLift(Carrier.toSemValue(cExpected), pExpected, bodyExpr, source)
-      else bodyExpr
+      resolvedBody           = CarrierJoin.resolve(unifier, cBody)
+      result                <- (cExpected, resolvedBody) match {
+                                 // Discharge-to-pure: an unsolved residual carrier meta meets a pure `Id` return. Default
+                                 // it to `Id` and unwrap with `runId` (tryIdDefault's uniform successor). A pure body
+                                 // (Bottom) is handled by the general arm below (carrierSlotLift over `Id` erases), so this
+                                 // arm is only the genuinely-flex `?G[T]` case.
+                                 case (Carrier.Bottom, Carrier.Var(id)) =>
+                                   modify(s =>
+                                     s.withUnifier(
+                                       CarrierJoin
+                                         .finalize(s.unifier, List(id))
+                                         .unify(pBody, pExpected, source.as("Type mismatch."))
+                                     )
+                                   ).as(EffectLifter.runIdNode(pExpected, bodyExpr, source))
+                                 case _                                 =>
+                                   val bodyIsPure = resolvedBody == Carrier.Bottom
+                                   modify(s =>
+                                     s.withUnifier(
+                                       CarrierJoin
+                                         .joinToward(s.unifier, cBody, cExpected, source.as("Type mismatch."))
+                                         .unify(pBody, pExpected, source.as("Type mismatch."))
+                                     )
+                                   ).as(
+                                     if (bodyIsPure)
+                                       UniformCarrierChecker.carrierSlotLift(Carrier.toSemValue(cExpected), pExpected, bodyExpr, source)
+                                     else bodyExpr
+                                   )
+                               }
+    } yield result
 
   /** Whether the forced outermost head of `tpe` is already an effect carrier (ambient / role-flagged, via
     * `effectCarrierSplit`) or the compiler-owned `Id`.
@@ -191,8 +224,9 @@ class UniformCarrierChecker(
   ): CheckIO[UniformCarrierChecker.UniformSlotOutcome] =
     for {
       slot          <- classifyExpectedSlot(expected)
+      forcedActual  <- force(argType)
       unifier       <- inspect(_.unifier)
-      (updated, out) = UniformLadder.resolveSlot(unifier, argType, slot, arg.as("Type mismatch."))
+      (updated, out) = UniformLadder.resolveSlot(unifier, forcedActual, slot, arg.as("Type mismatch."))
       _             <- modify(_.withUnifier(updated))
       result        <- (slot, out) match {
                          case (_, UniformLadder.Outcome.PassWhole)      =>

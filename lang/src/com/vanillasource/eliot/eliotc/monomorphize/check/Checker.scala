@@ -948,7 +948,11 @@ class Checker(
           forcedDomain       <- force(domain)
           // Under the transitional gate, a **plain payload** parameter domain (a concrete value type, never a flex meta)
           // routes through the uniform ladder; a flex/carrier domain keeps the default Phase-A logic (deferral + lift).
-          plainDomain        <- if (uniformCarrier) uniformPlainValueType(forcedDomain) else pure(false)
+          // Restricted to the **runtime** track, exactly as the return boundary is ([[uniformReturnRoutable]]): the §8
+          // boundary keeps the compile-time track (`eliot-compiler/` value bodies, the `Either` guard discharge)
+          // entirely on the default path — carrier-free — so it stays byte-identical.
+          plainDomain        <- if (uniformCarrier && platform == Platform.Runtime) uniformPlainValueType(forcedDomain)
+                                else pure(false)
           outcome            <- if (plainDomain) uniformPayloadSlot(arg, argExpr, argType, forcedDomain)
                                 else defaultArgSlot(arg, argExpr, argType, forcedDomain)
         } yield outcome
@@ -1007,15 +1011,26 @@ class Checker(
   ): CheckIO[SlotOutcome] =
     for {
       (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
-      payload                     <- uniformPayloadOf(instantiated)
-      outcome                     <- payload match {
-                                       case Some(p) =>
-                                         unifiesDefinitionally(p, domain, arg.as("Type mismatch.")).flatMap {
-                                           case true  => uniformArgumentSlot(arg, updatedExpr, domain)
-                                           case false => defaultArgSlot(arg, updatedExpr, instantiated, domain)
-                                         }
-                                       case None    => defaultArgSlot(arg, updatedExpr, instantiated, domain)
-                                     }
+      // Capture vs bind: an **effectful** (carrier-headed) actual whose *whole* carrier-headed type unifies with the
+      // domain is a **capture**, not a bind — the domain is itself a carrier form / pinned stack (a discharger's
+      // `computation: {Abort | G} A` ⤳ `AbortCarrier[G, A]`, `runMain`'s `IO[A]`, a pinned param), so the computation
+      // must be stored whole (`?G_if := AbortCarrier[G]`), never sequenced (`flatMap`). Binding it would let the domain
+      // be *stolen* into the actual's flex payload meta (`?T := AbortCarrier[..]`), inverting the carrier and leaking the
+      // discharged effect. The default (unify-first) ladder captures it correctly, so defer there. A *pure* actual
+      // whole-unifying a concrete domain is an ordinary direct pass (below), not a capture.
+      effectful                   <- lifter.effectCarrierSplit(instantiated).map(_.nonEmpty)
+      captures                    <- if (effectful) unifiesDefinitionally(instantiated, domain, arg.as("Type mismatch."))
+                                     else pure(false)
+      outcome                     <- if (captures) defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                     else
+                                       uniformPayloadOf(instantiated).flatMap {
+                                         case Some(p) =>
+                                           unifiesDefinitionally(p, domain, arg.as("Type mismatch.")).flatMap {
+                                             case true  => uniformArgumentSlot(arg, updatedExpr, domain)
+                                             case false => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                           }
+                                         case None    => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                       }
     } yield outcome
 
   /** The payload of a carrier-headed argument type, for the [[uniformPayloadSlot]] routing decision: the effect-carrier
