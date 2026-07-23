@@ -22,7 +22,7 @@ import java.nio.file.Path
   * [[com.vanillasource.eliot.eliotc.source.content.SourceContent]]; its mount counterpart
   * ([[SyntheticMainMount]]) makes the module reachable in the runtime scan pool under the same URI.
   */
-class SyntheticMainSourceProcessor(mainVfqn: ValueFQN, effectChannel: Boolean = false)
+class SyntheticMainSourceProcessor(mainVfqn: ValueFQN)
     extends SingleKeyTypeProcessor[SourceContent.Key] {
   import SyntheticMainSourceProcessor.*
 
@@ -30,7 +30,7 @@ class SyntheticMainSourceProcessor(mainVfqn: ValueFQN, effectChannel: Boolean = 
     if (key.uri != sourceUri) ().pure[CompilerIO]
     else
       registerFactIfClear(
-        SourceContent(sourceUri, Sourced(sourceUri, PositionRange.zero, mainSource(mainVfqn, effectChannel)))
+        SourceContent(sourceUri, Sourced(sourceUri, PositionRange.zero, carrierMainSource(mainVfqn)))
       )
 }
 
@@ -48,25 +48,12 @@ object SyntheticMainSourceProcessor {
   /** The synthesized entry-point value: `main::main`, what the jar's `Main-Class` bootstraps. */
   val syntheticMainVfqn: ValueFQN = ValueFQN(ModuleName(Seq(), "main"), QualifiedName("main", Qualifier.Default))
 
-  private def mainSource(mainVfqn: ValueFQN, effectChannel: Boolean): String =
-    if (effectChannel) effectChannelMainSource(mainVfqn) else carrierMainSource(mainVfqn)
-
-  /** The default (carrier-path) wrapper: `block`'s expected `IO[A]` binds the user `main`'s carrier to `IO` by
-    * unification, and `apply(_, unit)` forces the thunk, so the value runs the effects and returns `Unit`.
+  /** The carrier-path wrapper: `block`'s expected `IO[A]` binds the user `main`'s carrier to `IO` by unification, and
+    * `apply(_, unit)` forces the thunk, so the value runs the effects and returns `Unit`.
     */
   private def carrierMainSource(mainVfqn: ValueFQN): String =
     s"""
        |import eliot.jvm.IO
        |def main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name.name}), unit)
-       |""".stripMargin
-
-  /** The effect-channel wrapper: under the effect-blind checker the user `main` is typed `Unit`, so this is just a bare
-    * reference that type-checks trivially. The weaver recognises this value (by its FQN, `LangPlugin.entryPointKey`) and
-    * wraps its woven `IO[Unit]` reference in the carrier's run boundary (`eliot.jvm.IO::runMain`) — the run cannot be
-    * spelled here because the checker never sees the user `main` as an `IO` (docs/effects-as-channel.md §6).
-    */
-  private def effectChannelMainSource(mainVfqn: ValueFQN): String =
-    s"""
-       |def main: Unit = ${mainVfqn.moduleName.show}::${mainVfqn.name.name}
        |""".stripMargin
 }

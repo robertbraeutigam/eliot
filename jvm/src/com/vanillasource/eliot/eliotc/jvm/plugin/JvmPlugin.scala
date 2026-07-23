@@ -44,34 +44,18 @@ class JvmPlugin extends CompilerPlugin {
       )
   )
 
-  /** Mount the synthesized `main.els` entry-point module into the runtime scan pool, and — under the effect-channel
-    * flag — contribute this platform's **base effect carrier** (`eliot.jvm.IO`) so the effects-as-channel weaver can
-    * assign it (`LangPlugin.baseCarrierKey`; `LangPlugin` is platform-agnostic and never names a carrier itself). All
-    * `configure()`s run before any `initialize`, and the effect-channel flag is already parsed here, so `LangPlugin`
-    * sees both contributions when it builds the pipeline.
+  /** Mount the synthesized `main.els` entry-point module into the runtime scan pool. All `configure()`s run before any
+    * `initialize`, so `LangPlugin` sees this contribution when it builds the pipeline.
     */
   override def configure(): StateT[IO, Configuration, Unit] =
     StateT.modify(configuration =>
       if (configuration.contains(mainKey))
-        withBaseCarrier(
-          configuration.updatedWith(
-            PathScanner.extraRuntimeMountsKey,
-            mounts => (mounts.getOrElse(Seq.empty) :+ new SyntheticMainMount).some
-          )
+        configuration.updatedWith(
+          PathScanner.extraRuntimeMountsKey,
+          mounts => (mounts.getOrElse(Seq.empty) :+ new SyntheticMainMount).some
         )
       else configuration
     )
-
-  /** Contribute the jvm base effect carrier and the synthesized entry-point FQN when the effect-channel flag is on; a
-    * no-op otherwise (the default carrier path names its carrier by ordinary unification, and its synthetic main runs
-    * the carrier in Eliot source, so neither config is needed).
-    */
-  private def withBaseCarrier(configuration: Configuration): Configuration =
-    if (configuration.getOrElse(LangPlugin.effectChannelKey, false))
-      configuration
-        .set(LangPlugin.baseCarrierKey, JvmPlugin.baseCarrierFQN)
-        .set(LangPlugin.entryPointKey, SyntheticMainSourceProcessor.syntheticMainVfqn)
-    else configuration
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
     StateT
@@ -84,7 +68,7 @@ class JvmPlugin extends CompilerPlugin {
             JvmProgramGenerator(configuration.get(Compiler.targetPathKey).get)
           ) ++ configuration
             .get(mainKey)
-            .map(SyntheticMainSourceProcessor(_, configuration.getOrElse(LangPlugin.effectChannelKey, false)))
+            .map(SyntheticMainSourceProcessor(_))
             .toSeq
         )
       )
@@ -100,12 +84,4 @@ class JvmPlugin extends CompilerPlugin {
     compilation.getFact(GenerateExecutableJar.Key(configuration.get(mainKey).get)).void
 }
 
-object JvmPlugin {
-
-  /** This platform's base effect carrier as a type-constructor `ValueFQN`: `eliot.jvm.IO`'s `IO` (the `Qualifier.Type`
-    * namespace). Contributed to `LangPlugin.baseCarrierKey` under the effect-channel flag (see `configure`). There is no
-    * `WellKnownTypes` entry for `IO` — it is a jvm-platform detail, deliberately absent from the platform-agnostic lang
-    * layer — so the FQN is spelled here, the one place the backend names its carrier for the weaver.
-    */
-  val baseCarrierFQN: ValueFQN = ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("IO", Qualifier.Type))
-}
+object JvmPlugin

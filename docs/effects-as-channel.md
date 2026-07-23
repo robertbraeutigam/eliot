@@ -44,9 +44,9 @@ project memory; here only what each piece *becomes*):
 | **Phase 2** — shadow accounting inside `EffectResidualChecker` (byte-identical verdicts; the carrier-machinery-impl exception) | **KEEP until U4** (deleted with `EffectResidualChecker`, as always planned). Its methodology — shadow, byte-identical gates — is the U3 acceptance harness; its ability-method handling is the template for re-pointing accounting (§5). |
 | **§5 accounting** — `monomorphize/channel/EffectAccountingProcessor` + `EffectAccounting` fact (`derived ⊆ declared`, friendly diagnostics) | **KEEP.** Still the post-mono verifier. One U3 slice re-points its derivation: under uniform checking effect ops arrive *resolved* (impl references), not abstract, so derivation reads ability-of-impl the way the Phase-2 shadow already does. |
 | **Phase 3 foundation** — effect-blind desugar (`desugarChannel`: strip open rows, carrier-erase user effect-ability methods), `AbilityResolver` abstain, ability↔impl conformance relaxation | **SUPERSEDED — delete at U3 start.** These implement erasure, the rejected foundation. |
-| **§6 weaver monadification** — `WovenValueProcessor.weave` (bind/`pure` insertion, `sequenceSpine`, `weaveBlock`, `peelAndWeave`, `pureWrap`, the `isLazyConditionalHead` `fold`/`if` FQN hardcode) | **SUPERSEDED — delete at U3 start.** Under uniform checking, mono output is already monadic and resolved; there is nothing to weave. The two stopgaps (FQN hardcode, lambda-peeling) die with it, as recorded. |
+| **§6 weaver monadification** — `WovenValueProcessor.weave` (bind/`pure` insertion, `sequenceSpine`, `weaveBlock`, `peelAndWeave`, `pureWrap`, the `isLazyConditionalHead` `fold`/`if` FQN hardcode) | **DELETED (U3-0a, 2026-07-23).** Under uniform checking mono output is already monadic and resolved; there is nothing to weave. The whole weaver branch + both stopgaps (FQN hardcode, lambda-peeling) are gone; `WovenValueProcessor` is now just the Id-normalization stage. Reachable only via `baseCarrier = Some`, so the deletion was inert for the default path. |
 | **§6 codegen redirect** — `WovenValue` fact + `used`/`uncurry`/jvm reading `WovenValue.Key` instead of `MonomorphicValue.Key` | **KEEP.** The post-mono seam between checking and codegen — exactly where the **Id-normalization stage** (§6) plugs in. The redirect investment is preserved. |
-| **§6 entry-point rework** — jvm `runMain[A](io: IO[A]): A` in `IO.els`; synthetic main as bare ref under the flag; weaver-built run boundary; `LangPlugin.baseCarrierKey` / `entryPointKey` config | **SPLIT.** `runMain` itself: **KEEP** (ordinary Eliot, useful on both paths). The weaver-built boundary and both config keys: **delete at U3** — under uniform checking the synthetic main simply *spells* `runMain(<user main>)` as ordinary source, and the base carrier arrives through `runMain`'s `io: IO[A]` parameter by ordinary (now trustworthy) unification. The platform supplies its carrier as *code*, not config. |
+| **§6 entry-point rework** — jvm `runMain[A](io: IO[A]): A` in `IO.els`; synthetic main as bare ref under the flag; weaver-built run boundary; `LangPlugin.baseCarrierKey` / `entryPointKey` config | **SPLIT — weaver-boundary + config DELETED (U3-0a, 2026-07-23).** `runMain` itself: **KEPT** (ordinary Eliot, useful on both paths). The weaver-built boundary (`weaveEntry`/`runBoundary`), both config keys + their `JvmPlugin.withBaseCarrier`/`baseCarrierFQN` setters, and `SyntheticMainSourceProcessor`'s bare-ref branch are gone; the synthetic main is the sole `carrierMainSource` (`apply(block(main), unit)`) until U3b spells `runMain(<user main>)`. |
 | `--effect-channel` flag + `LangProcessors(effectChannel=…)` threading | **KEEP the gate, replace its meaning.** At U3 start the effect-blind behaviors behind it are deleted (flag briefly inert); the uniform checker then grows under the same flag. |
 | Tests: `EffectChannelDesugarTest`, `WovenValueTest` monadification cases | Deleted with their subjects at U3 start. `EffectAccountingTest`: kept, re-pointed with the derivation. |
 
@@ -578,6 +578,31 @@ before anything leans on it), the foundation spike second, the checker refactor 
   Note U3 is a *regularization*, not new semantics: control effects, dischargers, pinned rows,
   and higher-order effects already work on the default path and must simply stay green under
   uniform judgments — v1's remaining 3b–3e construction slices have no successor here.
+  - **U3-start deletion — split into two green sub-slices (the §7 first list is not a single
+    atomic delete).** The `EffectAccountingProcessor` verifier is **kept** (§0), and its one
+    test `EffectAccountingTest` drives the *whole* flag-on pipeline from source (`def main:
+    {Console} Unit = printLine(…)`), relying on the effect-blind `desugarChannel` to leave
+    `printLine` as an **abstract** ability ref for the derivation to read. Deleting `desugarChannel`
+    therefore turns that ref **resolved** (an impl ref) and reddens the kept test — which is exactly
+    what U3c's "re-point the derivation" fixes. So the deletion is ordered to keep every commit green:
+    - **U3-0a — LANDED (2026-07-23).** Delete the pieces nothing accounting depends on — reachable
+      only via `baseCarrier = Some`, which *only* `JvmPlugin.withBaseCarrier` set (under the flag),
+      so it is provably inert for the default path and every kept test. Deleted: the entire
+      `WovenValueProcessor` weaver branch (`weave`/`weaveEntry`/`sequenceSpine`/`weaveBlock`/
+      `peelAndWeave`/`pureWrap`/`finalApply`/`flatMapApply`/`weaveMonadic`/… and `object Combinators`)
+      — the processor is now **just the Id-normalization stage**; the entry-point rework (`weaveEntry`/
+      `runBoundary`/`runMainFQN`); `LangPlugin.baseCarrierKey`/`entryPointKey` + their `LangProcessors`
+      params + `JvmPlugin.withBaseCarrier`/`baseCarrierFQN`; `SyntheticMainSourceProcessor`'s
+      `effectChannelMainSource` bare-ref branch (leaving `carrierMainSource`); and `WovenValueTest`
+      (all cases exercised the weaver via `baseCarrier = Some`). The `--effect-channel` flag stays as
+      the gate, threaded to the checker + `EffectAccountingProcessor` only. Gate met: `lang.test`/
+      `jvm.test` green, HelloWorld builds+runs, eliot-test 11/11, and the kept flag-on suites
+      (`EffectAccountingTest`, `EffectChannelDesugarTest`) still green.
+    - **U3-0b — NEXT.** Delete `desugarChannel` + its helpers, `AbilityResolver`'s effect-ability
+      abstain, `AbilityImplementationCheckProcessor`'s conformance relaxation, and
+      `EffectChannelDesugarTest` — **together with** re-pointing `EffectAccountingProcessor`'s
+      derivation to recover the ability from a resolved impl ref (U3c's first half), so
+      `EffectAccountingTest` stays green through the flag going inert.
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
   assertion becomes a hard error; the Cornerstone amendment (§9 restatement) and the doc/skill
   sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections);

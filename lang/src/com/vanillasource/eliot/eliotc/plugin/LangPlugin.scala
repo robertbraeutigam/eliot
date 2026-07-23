@@ -4,15 +4,12 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   allRoots,
-  baseCarrierKey,
   compilerRoots,
   effectChannelKey,
   eliotCompilerOverlay,
-  entryPointKey,
   mountFactory,
   pathKey
 }
@@ -47,15 +44,14 @@ class LangPlugin extends CompilerPlugin {
           "compile-time pool its sibling `eliot-compiler/` overlay is added on top (override-preferred). Repeatable; " +
           "this is the option form of the positional `<path>`, usable after a subcommand."
       ),
-    // Effects-as-channel Phase 3 (docs/effects-as-channel.md §10): the gated new path. When set, the desugar strips
-    // open effect rows to their payload and erases the carrier from effect abilities, so the checker is effect-blind;
-    // verification and elaboration move downstream (built in later slices). Off by default — the whole current
-    // carrier-based path is unchanged unless this flag is given.
+    // Effects-as-channel (docs/effects-as-channel.md §10): the gate under which the uniform-carrier checker grows (U3).
+    // Currently inert — the v1 effect-blind slices behind it are deleted. Off by default; the live carrier-based path is
+    // unchanged.
     opt[Unit]("effect-channel")
       .action((_, config) => config.set(effectChannelKey, true))
       .text(
-        "EXPERIMENTAL: strip effect rows out of the type language (effects-as-channel). The checker becomes " +
-          "effect-blind; effect verification and elaboration happen after monomorphization. Off by default."
+        "EXPERIMENTAL: the effects-as-channel uniform-carrier path (docs/effects-as-channel.md). Currently inert; " +
+          "off by default."
       )
   )
 
@@ -98,16 +94,7 @@ class LangPlugin extends CompilerPlugin {
               // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
               // initialize, so the roster is already final here.
               configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
-            effectChannel = configuration.getOrElse(effectChannelKey, false),
-            // The platform's runtime base effect carrier (the jvm target's `eliot.jvm.IO`), contributed by that target's
-            // plugin in its configure() when the effect-channel flag is on, so the weaver can assign it and resolve
-            // effect operations at it. Absent (no effect-channel target, or the flag off) leaves the weave the identity
-            // image of each `MonomorphicValue`.
-            baseCarrier = configuration.get(baseCarrierKey),
-            // The platform's synthesized entry-point value (the jvm target's `main::main`), whose effect-blind body is a
-            // bare reference to the user `main`; the weaver wraps its woven `IO[Unit]` reference in the carrier's run
-            // boundary so the launcher runs it. Same provenance/lifecycle as `baseCarrier`.
-            entryPoint = configuration.get(entryPointKey)
+            effectChannel = configuration.getOrElse(effectChannelKey, false)
           )
         )
       )
@@ -124,31 +111,11 @@ object LangPlugin {
   /** All configured source roots, in order. */
   def allRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(pathKey, Seq.empty)
 
-  /** The effects-as-channel gated-path flag (`--effect-channel`, docs/effects-as-channel.md §10 Phase 3). When set, the
-    * desugar strips open effect rows to their payload and erases the carrier from effect abilities, making the checker
-    * effect-blind; effect verification and elaboration move to post-monomorphization processors (grown in later slices).
-    * Absent (the default) leaves the entire current carrier-based effect path unchanged.
+  /** The effects-as-channel gated-path flag (`--effect-channel`, docs/effects-as-channel.md §10). The gate under which
+    * the uniform-carrier checker grows (U3); currently inert (its v1 effect-blind slices are deleted). Threaded to the
+    * checker and the post-mono effect accounting. Absent (the default) is the live carrier-based path.
     */
   val effectChannelKey: Configuration.Key[Boolean] = namedKey[Boolean]("effectChannel")
-
-  /** The platform's runtime **base effect carrier** — the concrete `Suspend`-riding carrier the effects-as-channel
-    * weaver assigns as the ambient stack base and resolves effect operations at (the jvm target's `eliot.jvm.IO`). It is
-    * a *platform* fact, so it is contributed by the target's plugin (jvm) in its `configure()` — under the
-    * [[effectChannelKey]] flag — and read here, exactly the way [[effectChannelKey]] itself is threaded; `LangPlugin`,
-    * being platform-agnostic, never names a carrier. Absent (no effect-channel-capable target selected, or the flag off)
-    * leaves [[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValueProcessor]] the identity image of each
-    * `MonomorphicValue`.
-    */
-  val baseCarrierKey: Configuration.Key[ValueFQN] = namedKey[ValueFQN]("baseCarrier")
-
-  /** The platform's synthesized **entry-point** value (the jvm target's `main::main`). Under the effect-channel flag the
-    * effect-blind checker types this value's body — a bare reference to the user `main` — as pure `Unit`; the weaver
-    * recognises it (by this FQN) and wraps its woven `IO[Unit]` reference in the carrier's run boundary
-    * (`<baseCarrier module>::runMain`), so the platform launcher runs the effect instead of receiving a bare `IO`. A
-    * platform fact, contributed by the target's plugin (jvm) in its `configure()` under the flag, exactly like
-    * [[baseCarrierKey]]. Absent leaves the weaver with no entry to rewrite.
-    */
-  val entryPointKey: Configuration.Key[ValueFQN] = namedKey[ValueFQN]("entryPoint")
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly
