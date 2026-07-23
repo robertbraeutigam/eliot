@@ -58,8 +58,12 @@ object CarrierJoin {
     resolve(unifier, Carrier.Var(metaId)) match {
       case Carrier.Var(rep) =>
         resolve(unifier, contribution) match {
-          case Carrier.Bottom => unifier
-          case resolved       => solve(unifier, rep, resolved)
+          case Carrier.Bottom                 => unifier
+          // Self-join: the contribution resolves to the *same* representative meta (a carrier joined toward itself — a
+          // value's own ambient carrier meeting its declared return, `?F[Unit]` against `?F[Unit]`). Solving `rep := rep`
+          // would write a self-referential cycle into the store (`resolve` then loops forever); it is simply a no-op.
+          case Carrier.Var(cid) if cid == rep => unifier
+          case resolved                       => solve(unifier, rep, resolved)
         }
       case rep @ Carrier.Con(a, _) =>
         resolve(unifier, contribution) match {

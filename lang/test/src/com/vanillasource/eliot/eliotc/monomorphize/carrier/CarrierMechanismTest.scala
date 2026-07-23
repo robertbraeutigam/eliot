@@ -220,6 +220,12 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
     CarrierJoin.resolve(CarrierJoin.finalize(fresh, List(MetaId(0))), Carrier.Var(MetaId(0))) shouldBe Carrier.Bottom
   }
 
+  it should "treat a carrier meta joined toward ITSELF as a no-op (no self-referential cycle)" in {
+    // `?F` against `?F` — a value's own ambient carrier meeting its declared return. Solving `?F := ?F` would loop
+    // `resolve` forever; the self-join is a no-op, leaving the meta unsolved.
+    CarrierJoin.resolve(CarrierJoin.join(fresh, MetaId(0), Carrier.Var(MetaId(0)), ctx), Carrier.Var(MetaId(0))) shouldBe Carrier.Var(MetaId(0))
+  }
+
   it should "preserve a multi-layer stack prefix when joining it into a meta" in {
     // A StateCarrier[S, G] stack joined into a bare ambient meta keeps its [S, G] prefix (not dropped to Nil).
     val stack = Carrier.Con(stateFQN, List(con("S"), con("G")))
