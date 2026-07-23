@@ -58,9 +58,14 @@ returns, and any genuine definitional-equality *miss* (an ordinary mismatch the 
 Durable gate: `UniformCarrierByteIdenticalTest` (jvm.test) compiles a pure-value program **+ the whole base
 layer** with the flag off and on and asserts every generated class's bytes match — the *entire* base compiles
 byte-identically under the flag (every pure value return in lang/stdlib/jvm routes through the uniform boundary and
-Id-normalizes away). **NEXT: the spine** (`checkArgumentSlot` →
-`resolveArgumentSlot` + `wrapBinds` + `finalizeAndMaterialize`) and **effect-carrier-headed returns** (which need the
-carrier-meta self-join guarded). **Wiring finding (2026-07-23):** `intoCarrierHeadedTerm` (and every heading site)
+Id-normalizes away). **SINCE THEN (see §0 "Uniform-path coverage NOW" for the current, authoritative state):** the
+argument→payload-slot case (pure args pass, effectful args bind — `527af90a`/`16a432f6`) and **every value return**
+including effect-carrier-headed (`?F[Unit]`/`IO[Unit]`, runtime track — `b35bf80c`) now route uniform, all
+byte-identical; `CarrierJoin` guards the self-join (`ead5d631`). **NEXT: the conditionals** (carrier/generic argument
+slots) — the sole remaining fallback besides the compile-time track, and the first *non-overlap* step; its crux is the
+**ability-constrained-carrier finding** (§0/§10): the join solver must never default a `~ Abort`/`~ Console`-constrained
+carrier meta to `Id` (a trial that did so miscompiled `if(f,"+") else "-"` to a `VerifyError`). **Wiring finding
+(2026-07-23):** `intoCarrierHeadedTerm` (and every heading site)
 must fire on *terminal value* leaves only, **never a function-typed (`VPi`) reference** — a `printLine` leaf
 (`String → …`) is not `VType` and not carrier-headed, so the bridge would wrongly wrap it `Id[String → …]`; only a
 fully-applied result carrier-heads. This is why the flip stays a coupled bundle even under `--uniform-carrier` (the
@@ -262,6 +267,36 @@ self-join (a defensive prerequisite; the checker links distinct carrier metas by
   effectful args match by construction. Gate: `UniformCarrierByteIdenticalTest` program is now
   `label(readLine)` (effectful arg bound) + `label`'s pure value return; whole base + program byte-identical, and a probe
   confirmed the effectful `Bound` path is live (`carrier=?F, payload=String` for `readLine`).
+- **U3a-2b(ii) carrier-meta self-join guard — LANDED (2026-07-23, `ead5d631`).** `CarrierJoin.join` no-ops a carrier
+  joined toward *itself* (a contribution resolving to the same representative meta), which would else write a
+  self-referential cycle into the store and loop `resolve`. Isolation-tested; **defensive** — the checker links two
+  distinct carrier metas by union, so this exact self-join is not yet triggered live. Its companion is the
+  **miscompile finding** (see "Next"): the conditional `CarrierSlot` pure-arm routing was trialled and reverted because
+  it defaults an ability-constrained carrier to `Id`.
+- **U3a-2b(ii) effect-carrier-headed returns — LANDED (2026-07-23, `b35bf80c`).** `uniformReturnRoutable` broadened from
+  plain-pure-value returns to **any value return** (`uniformValueReturn` = `uniformPlainValueType` OR
+  `effectCarrierSplit` non-empty), **runtime track only** (§8 keeps the compile-track `Either` discharge carrier-free).
+  So `main : {Console} Unit`'s `?F[Unit]` and the synthetic entry's `IO[Unit]` now route through `checkReturnBoundary`
+  (an effectful body passes through unchanged — carriers join/union; a pure body re-carries via `pure@?F`, `?F` solved
+  at the entry to `IO`, never defaulted to `Id`). Byte-identical (whole-base test; probe-confirmed the `IO[Unit]` return
+  routes). This supersedes slice 1's "falls back for effect-carrier-headed returns".
+
+**Uniform-path coverage NOW (under `--uniform-carrier`, all byte-identical to the default path, runtime track):**
+
+| construct | routes uniform? | how |
+|---|---|---|
+| **value RETURN boundary** (`checkAgainst`) | **yes** — pure *and* effect-carrier | `uniformReturnBoundary` → `checkReturnBoundary`; pure re-carried via `Id` (erased), effect-carrier passed through. Gate `uniformReturnRoutable`/`uniformValueReturn`. |
+| **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — pure *and* effectful | `uniformPayloadSlot`; pure passes (`runId`), effectful binds (`wrapBinds`→`flatMap`). Gate `uniformPlainValueType(domain)`. |
+| **argument → CARRIER/GENERIC slot** (the conditional arms — `{Abort} T`, bare `A`) | **no → default** | `defaultArgSlot` (verbatim `EffectLifter`). The next step; see "Next". |
+| function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary. |
+
+Every routed case inserts `pure@Id`/`runId`/`flatMap@Id` that the Id-normalization stage erases, so the emitted bytecode
+equals the default's. **The wiring lives in `Checker.scala`** (the gated `uniform*` helpers + the `defaultArgSlot` /
+`checkAgainstDefault` verbatim fallbacks) + `UniformCarrierChecker.scala` (the bridge, incl. the pure-actual-passes fix)
++ `CarrierJoin.scala` (self-join guard); the durable gate is `jvm/test/.../UniformCarrierByteIdenticalTest.scala`
+(whole base + a `label(readLine)` program, flag off vs on, class-bytes equal). `finalizeAndMaterialize` is built but
+**uncalled** (it defaults unsolved carrier metas to `Id` — which the finding shows must *not* happen for
+ability-constrained metas; it is wired only when the conditionals land).
 
 **Next: U3a-2b(ii) — carrier/generic slots (the conditionals).** **Corrected understanding (2026-07-23):** conditionals
 are ordinary functions — `fold[A](c: Bool, whenTrue: A, whenFalse: A): A` (bare-`A` arms ⇒ `Generic` slots, both arms
