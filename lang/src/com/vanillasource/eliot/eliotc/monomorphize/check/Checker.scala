@@ -933,63 +933,98 @@ class Checker(
         for {
           (argExpr, argType) <- infer(arg)
           forcedDomain       <- force(domain)
-          routeUniform       <- if (uniformCarrier) uniformArgSlotRoutable(arg, argType, forcedDomain) else pure(false)
-          outcome            <- if (routeUniform) uniformArgumentSlot(arg, argExpr, argType, forcedDomain)
-                                else
-                                  forcedDomain match {
-                                    case VMeta(_, Spine.SNil) =>
-                                      // The deferral decision needs the argument's *instantiated* type — a bare
-                                      // ability-method reference (`readLine`) infers as a polytype (`VLam`), whose
-                                      // carrier only appears once the binder is peeled to its (flagged) meta.
-                                      // Instantiating here is exactly once either way (the ladder's own instantiation is
-                                      // a no-op on a monotype).
-                                      for {
-                                        (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
-                                        out                         <- lifter.effectCarrierSplit(instantiated).flatMap {
-                                                                         case Some(_) =>
-                                                                           pure(SlotOutcome.Deferred(updatedExpr, instantiated, domain))
-                                                                         case None    =>
-                                                                           resolveGuardedLadder(arg, updatedExpr, instantiated, domain, allowBindLift = true)
-                                                                       }
-                                      } yield out
-                                    case _                    =>
-                                      resolveGuardedLadder(arg, argExpr, argType, domain, allowBindLift = true)
-                                  }
+          // Under the transitional gate, a **plain payload** parameter domain (a concrete value type, never a flex meta)
+          // routes through the uniform ladder; a flex/carrier domain keeps the default Phase-A logic (deferral + lift).
+          plainDomain        <- if (uniformCarrier) uniformPlainValueType(forcedDomain) else pure(false)
+          outcome            <- if (plainDomain) uniformPayloadSlot(arg, argExpr, argType, forcedDomain)
+                                else defaultArgSlot(arg, argExpr, argType, forcedDomain)
         } yield outcome
     }
 
-  /** Effects-as-channel U3a-2b(ii), spine wiring slice 1 (docs/effects-as-channel.md §10) — gated on [[uniformCarrier]]:
-    * whether an application argument slot is the plain **pure value into a payload slot** case the uniform ladder covers
-    * today (the analogue of [[uniformReturnRoutable]] for argument positions). True only when both the argument's
-    * inferred type and the parameter domain are plain, non-carrier-headed `VTopDef` value types
-    * ([[uniformPlainValueType]]) *and* the payload already fits by pure definitional equality. Everything else — an
-    * effectful argument (which must *bind*), a generic/flex domain (Phase-A deferral), an effect-carrier or HKT-dispatch
-    * slot, a function/polytype argument — falls back to the default Phase-A logic, so the uniform argument path grows
-    * from the simplest slots while every other shape stays byte-identical.
+  /** The default (carrier-based) Phase-A argument-slot resolution — kept verbatim as the fallback for every slot the
+    * U3a-2b(ii) uniform ladder does not cover (the live path when `uniformCarrier` is off, and under it for a
+    * flex/carrier domain or a slot the uniform path declines). A bare flex domain receiving an effect-carrier-headed
+    * argument is *deferred* (Phase B decides); everything else runs the shared resolution ladder.
     */
-  private def uniformArgSlotRoutable(
+  private def defaultArgSlot(
       arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
+      argType: SemValue,
+      forcedDomain: SemValue
+  ): CheckIO[SlotOutcome] =
+    forcedDomain match {
+      case VMeta(_, Spine.SNil) =>
+        // The deferral decision needs the argument's *instantiated* type — a bare ability-method reference (`readLine`)
+        // infers as a polytype (`VLam`), whose carrier only appears once the binder is peeled to its (flagged) meta.
+        // Instantiating here is exactly once either way (the ladder's own instantiation is a no-op on a monotype).
+        for {
+          (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
+          out                         <- lifter.effectCarrierSplit(instantiated).flatMap {
+                                           case Some(_) =>
+                                             pure(SlotOutcome.Deferred(updatedExpr, instantiated, forcedDomain))
+                                           case None    =>
+                                             resolveGuardedLadder(arg, updatedExpr, instantiated, forcedDomain, allowBindLift = true)
+                                         }
+        } yield out
+      case _                    =>
+        resolveGuardedLadder(arg, argExpr, argType, forcedDomain, allowBindLift = true)
+    }
+
+  /** Effects-as-channel U3a-2b(ii), spine wiring (docs/effects-as-channel.md §10) — gated on [[uniformCarrier]]: resolve
+    * an argument against a **plain payload** parameter domain through the uniform ladder. The argument is instantiated
+    * once (peeling a polytype like `readLine`'s `[F ~ Console] F[String]` to its carrier-headed monotype `?F[String]`),
+    * then routed through [[uniformArgumentSlot]] when it is a carrier-headed value whose payload fits the domain by pure
+    * definitional equality:
+    *
+    *   - a **pure** actual (a plain `VTopDef` value) ⇒ its payload passes directly (the bridge returns `Passed(runId …)`,
+    *     erased downstream — byte-identical to the default direct pass);
+    *   - an **effectful** actual (`?F[String]`, an ambient/role effect carrier) ⇒ it *binds* (the bridge returns
+    *     `Bound`, folded by the spine's `wrapBinds` into `flatMap`/`map` — the effect runs at the call site, exactly as
+    *     the default `tryBindLift` produces).
+    *
+    * A function/polytype/type-level or ill-fitting argument (no carrier-headed payload, or a payload that does not fit)
+    * falls back to [[defaultArgSlot]] with the already-instantiated argument (a no-op re-instantiation), so flag-off and
+    * the un-routed shapes stay byte-identical.
+    */
+  private def uniformPayloadSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
       argType: SemValue,
       domain: SemValue
-  ): CheckIO[Boolean] =
+  ): CheckIO[SlotOutcome] =
     for {
-      plainArg    <- uniformPlainValueType(argType)
-      plainDomain <- uniformPlainValueType(domain)
-      routable    <- if (plainArg && plainDomain) unifiesDefinitionally(argType, domain, arg.as("Type mismatch."))
-                     else pure(false)
-    } yield routable
+      (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
+      payload                     <- uniformPayloadOf(instantiated)
+      outcome                     <- payload match {
+                                       case Some(p) =>
+                                         unifiesDefinitionally(p, domain, arg.as("Type mismatch.")).flatMap {
+                                           case true  => uniformArgumentSlot(arg, updatedExpr, domain)
+                                           case false => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                         }
+                                       case None    => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                     }
+    } yield outcome
 
-  /** Resolve a routable pure-value argument slot through the uniform bridge: bring the argument carrier-headed
-    * ([[UniformCarrierChecker.intoCarrierHeadedTerm]]) and run [[UniformCarrierChecker.resolveArgumentSlot]], mapping its
-    * [[UniformCarrierChecker.UniformSlotOutcome]] onto the checker's [[SlotOutcome]]. For the gated case (a pure actual
-    * into a payload slot) the bridge returns `Passed(runId(pure@Id(arg)))`, which the Id-normalization stage erases back
-    * to the bare argument — byte-identical to the default path's direct pass. (`Bound` is unreachable here, since a pure
-    * actual never binds; it is mapped for completeness against the effectful-argument slices to come.)
+  /** The payload of a carrier-headed argument type, for the [[uniformPayloadSlot]] routing decision: the effect-carrier
+    * payload for an effectful actual ([[EffectLifter.effectCarrierSplit]]), the value itself for a pure plain `VTopDef`
+    * actual ([[uniformPlainValueType]]), and [[None]] for anything the uniform ladder does not carrier-head (a function
+    * `VPi`/polytype `VLam`, `VType`, a bare metavariable).
+    */
+  private def uniformPayloadOf(tpe: SemValue): CheckIO[Option[SemValue]] =
+    for {
+      forced <- force(tpe)
+      split  <- lifter.effectCarrierSplit(forced)
+      plain  <- uniformPlainValueType(forced)
+    } yield split.map(_._2).orElse(Option.when(plain)(forced))
+
+  /** Bring a routable argument carrier-headed ([[UniformCarrierChecker.intoCarrierHeadedTerm]] — a pure actual becomes
+    * `pure@Id`, an effectful actual is left as-is) and resolve it through [[UniformCarrierChecker.resolveArgumentSlot]],
+    * mapping the [[UniformCarrierChecker.UniformSlotOutcome]] onto the checker's [[SlotOutcome]]: a pure payload passes as
+    * `Resolved`; an effectful actual binds as `Bound`, folded by the spine's `wrapBinds`.
     */
   private def uniformArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
       argExpr: SemExpression,
-      argType: SemValue,
       domain: SemValue
   ): CheckIO[SlotOutcome] =
     for {

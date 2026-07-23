@@ -22,10 +22,14 @@ import java.util.zip.ZipInputStream
   */
 class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
+  // Exercises the shapes the uniform gate routes today: a pure value return (`label`'s `line`), a pure argument into a
+  // payload slot (`printLine(<pure>)`), and an *effectful* argument into a payload slot (`label(readLine)` — `readLine`
+  // is `{Console} String`, bound at the call site). The program plus the whole base layer must compile byte-identically
+  // with the flag off vs on.
   private val source =
-    """def greeting: String = "greetings from the uniform carrier"
+    """def label(line: String): String = line
       |
-      |def main: {Console} Unit = printLine(greeting)
+      |def main: {Console} Unit = printLine(label(readLine))
       |""".stripMargin
 
   "the --uniform-carrier gate" should "emit byte-identical classes to the default path (whole base + program)" in {
