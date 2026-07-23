@@ -4,7 +4,8 @@ import cats.Monad
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -23,7 +24,8 @@ import scala.annotation.tailrec
   * because `used` is the codegen driver that walks the *breadth* of the monomorphic fact graph, a divergent type-level
   * computation could make this DFS materialise specializations without bound — a hang/OOM. The breadth lives in this
   * processor's own `processValue` descent (not in the global `activeFactKeys` chain, which only reflects *depth* across
-  * fact generations and stays flat here, since every `MonomorphicValue` is requested as a sibling of `used`), so the
+  * fact generations and stays flat here, since every [[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue]]
+  * is requested as a sibling of `used`), so the
   * backstop tracks the chain of enclosing `processValue` frames (`ancestors`) and, when more than [[maxNestedRepeats]]
   * of them share the same `vfqn` with differing type arguments, converts the runaway into a specific diagnostic
   * instead of diverging.
@@ -52,15 +54,20 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
     } yield ()
 
   /** Walk one monomorphic instance, deduping on its **codegen projection** (Deliverable B2/B3): the traversal — the
-    * `visited` set and the [[MonomorphicValue]] demand — is keyed on [[CodegenProjection.codegenProject]] of the type
-    * arguments, so two instances that generate identical code (e.g. `id[Int[0, 100]]` and `id[Int[0, 50]]`, both a
-    * byte) type-check and materialise only one representative `MonomorphicValue` instead of one per exact bound. The
-    * exact `typeArgs` are still used to fetch that representative (the checker's keys stay full and exact) and are
-    * recorded verbatim by [[recordUsage]] (so the backend, which already collapses these cases via its method-signature
-    * dedup, sees the full picture).
+    * `visited` set and the [[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue]] demand — is keyed on
+    * [[CodegenProjection.codegenProject]] of the type arguments, so two instances that generate identical code (e.g.
+    * `id[Int[0, 100]]` and `id[Int[0, 50]]`, both a byte) type-check and materialise only one representative woven value
+    * instead of one per exact bound. The exact `typeArgs` are still used to fetch that representative (the checker's keys
+    * stay full and exact) and are recorded verbatim by [[recordUsage]] (so the backend, which already collapses these
+    * cases via its method-signature dedup, sees the full picture).
+    *
+    * The demand is the woven value rather than the raw `MonomorphicValue` because `used` is the codegen driver: it must
+    * walk the *woven* body so effect-operation references resolved by the weaver (and, in later slices, its inserted
+    * `flatMap`/`pure` calls) are the ones whose callees get materialised. Off the effect-channel flag the woven value is
+    * the identity image of the `MonomorphicValue`, so the walk is unchanged.
     *
     * @param typeArgs
-    *   The full, type-checking-exact type arguments — used to fetch the representative `MonomorphicValue`.
+    *   The full, type-checking-exact type arguments — used to fetch the representative woven value.
     * @param projected
     *   The codegen projection of `typeArgs`, used as the dedup identity.
     * @param ancestors
@@ -77,8 +84,8 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
       Monad[CompilerIO].unit.liftToUsedNames,
       for {
         _                <- markVisited(vfqn, projected)
-        monomorphicMaybe <- getFactIfProduced(MonomorphicValue.Key(vfqn, typeArgs)).liftToUsedNames
-        _                <- monomorphicMaybe.fold(markFailed()) { mv =>
+        wovenMaybe       <- getFactIfProduced(WovenValue.Key(vfqn, typeArgs)).liftToUsedNames
+        _                <- wovenMaybe.fold(markFailed()) { mv =>
                               recordNaturalArity(vfqn, mv.naturalArity) >>
                                 checkConvergence(vfqn, mv.name, ancestors) >>
                                 processMonomorphicValue(mv, vfqn :: ancestors)
@@ -111,7 +118,7 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
       )
     )
 
-  private def processMonomorphicValue(mv: MonomorphicValue, ancestors: List[ValueFQN]): UsedNamesIO[Unit] =
+  private def processMonomorphicValue(mv: WovenValue, ancestors: List[ValueFQN]): UsedNamesIO[Unit] =
     mv.runtime.traverse_(sourcedExpr => processExpression(sourcedExpr.value, ancestors))
 
   @tailrec

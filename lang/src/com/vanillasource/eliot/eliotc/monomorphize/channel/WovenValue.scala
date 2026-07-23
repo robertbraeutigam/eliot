@@ -5,6 +5,8 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, Monomorphi
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
+import scala.annotation.tailrec
+
 /** The effects-as-channel **woven** form of one monomorphic instance (docs/effects-as-channel.md §6) — the direct-style
   * → monadic elaboration the checker performs today, done here post-monomorphization over concrete terms under
   * `--effect-channel`.
@@ -39,6 +41,15 @@ case class WovenValue(
     runtime: Option[Sourced[MonomorphicExpression.Expression]]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[WovenValue] = WovenValue.Key(vfqn, typeArguments)
+
+  /** The number of arguments a direct call to this instance can absorb — the count of leading
+    * [[MonomorphicExpression.FunctionLiteral]]s of the woven body, exactly as
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.naturalArity]] computes it over the mono body.
+    * The codegen driver (`used`, the jvm `ExpressionCodeGenerator`) reads this off the woven value it now consumes in
+    * place of the `MonomorphicValue`; off the flag the woven body is the identity image so the arity is unchanged, and
+    * on it the arity reflects the woven body (bind/`pure` insertion once that slice lands). `None` for a body-less value.
+    */
+  def naturalArity: Option[Int] = runtime.map(body => WovenValue.countLeadingLambdas(body.value, 0))
 }
 
 object WovenValue {
@@ -48,4 +59,11 @@ object WovenValue {
     * stack`, docs/effects-as-channel.md §6; the stack dimension is added when control-effect carriers arrive.)
     */
   case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[WovenValue]
+
+  @tailrec
+  private def countLeadingLambdas(expression: MonomorphicExpression.Expression, count: Int): Int =
+    expression match {
+      case MonomorphicExpression.FunctionLiteral(_, _, body) => countLeadingLambdas(body.value.expression, count + 1)
+      case _                                                 => count
+    }
 }

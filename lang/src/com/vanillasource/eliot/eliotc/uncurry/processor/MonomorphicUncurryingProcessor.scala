@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -14,18 +15,19 @@ import scala.annotation.tailrec
 
 /** Processor that uncurries monomorphic values to a specific arity.
   *
-  * Input: MonomorphicValue (monomorphized, concrete types) Output: UncurriedMonomorphicValue (multi-parameter form with
-  * specified arity)
+  * Input: [[WovenValue]] (the post-monomorphization woven view — the effects-as-channel codegen source; off the flag it
+  * is the identity image of the `MonomorphicValue`, so this is unchanged) Output: UncurriedMonomorphicValue
+  * (multi-parameter form with specified arity)
   */
 class MonomorphicUncurryingProcessor
-    extends TransformationProcessor[MonomorphicValue.Key, UncurriedMonomorphicValue.Key](key =>
-      MonomorphicValue.Key(key.vfqn, key.typeArguments)
+    extends TransformationProcessor[WovenValue.Key, UncurriedMonomorphicValue.Key](key =>
+      WovenValue.Key(key.vfqn, key.typeArguments)
     )
     with Logging {
 
   override protected def generateFromKeyAndFact(
       key: UncurriedMonomorphicValue.Key,
-      monomorphicValue: MonomorphicValue
+      monomorphicValue: WovenValue
   ): CompilerIO[UncurriedMonomorphicValue] =
     for {
       _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} (${key.typeArguments.size} type args) to ${key.arity}")

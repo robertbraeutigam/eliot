@@ -1,7 +1,8 @@
 # Effects as a Channel: Full Separation of Effects from Type Checking
 
 Status: **DESIGN + Phases 1–2 landed + Phase 3 in progress behind `--effect-channel`** (dark plumbing
-→ shadow accounting → the gated effect-blind path: desugar/checker, real accounting, weaver slice 1).
+→ shadow accounting → the gated effect-blind path: desugar/checker, real accounting, weaver slice 1,
+codegen redirect to the woven fact).
 The carrier-based elaboration in `monomorphize/check` (`EffectLifter`, `EffectResidualChecker`,
 ambient-carrier tracking) is still the live **default** path and drives compilation unchanged; the
 channel path exists only under the `--effect-channel` flag (developer-only until a program runs
@@ -92,17 +93,30 @@ Concretely:
   mono still type-checks its body). The weaver walks the mono body, resolves each abstract user effect-operation
   reference to its concrete instance method via `AbilityImplementation` at the base carrier (exactly as
   `PostDrainQuoter.resolveIfAbility` does), and carrier-wraps an effectful value's signature; verified by
-  `WovenValueTest`. **Remaining for a *running* program under the flag (multi-part):** `flatMap`/`pure` insertion
-  (nested effectful args, blocks); precise carrier-headed node types on the woven body (kept as effect-blind
-  payload types here); control-effect carrier stacks (`weave key = mono key × stack`); the codegen redirect
-  (`used`/`uncurry` + one `ExpressionCodeGenerator` read swap `MonomorphicValue`→`WovenValue`); the base-carrier
-  `Configuration` key that `JvmPlugin` sets to `eliot.jvm.IO`; and the **entry-point rework** — the synthetic
-  main's `block(main)` needs `main : IO[Unit]`, but the effect-blind checker sees `main : Unit`, so the platform
-  entry must run the *woven* main. Until those land the flag stays developer-only (per the fail-safe rule it can
-  never become default before the whole reachable program is verified and woven end-to-end).
+  `WovenValueTest`.
+
+  The **codegen redirect is now done** (the next §6 slice): the post-monomorphization codegen chain reads the woven
+  value in place of the `MonomorphicValue`. `WovenValue` gained a `naturalArity` (mirroring `MonomorphicValue`'s), and
+  the three codegen-driver reads were swapped `MonomorphicValue.Key`→`WovenValue.Key`: `UsedNamesProcessor` (the
+  breadth driver, so the *woven* body — with its resolved effect-operation references, and later its inserted
+  `flatMap`/`pure` — is what gets walked and whose callees get materialised), `MonomorphicUncurryingProcessor` (its
+  transformer source), and the jvm `ExpressionCodeGenerator`'s natural-arity read. The refinement/accounting reads
+  stay on `MonomorphicValue` (they are parallel channels off the effect-blind body, upstream of weaving). Because
+  `WovenValue` is the **identity image** of its `MonomorphicValue` off the flag (no base carrier), this is
+  behaviour-neutral: verified byte-identical across `lang.test`, `jvm.test`, and the example mains (HelloWorld and the
+  effect/state/throw/discharge examples build and run unchanged).
+
+  **Remaining for a *running* program under the flag (multi-part):** `flatMap`/`pure` insertion (nested effectful
+  args, blocks); precise carrier-headed node types on the woven body (kept as effect-blind payload types here);
+  control-effect carrier stacks (`weave key = mono key × stack`); the base-carrier `Configuration` key that
+  `JvmPlugin` sets to `eliot.jvm.IO` (threaded into the existing `LangProcessors(baseCarrier = …)` call the way
+  `effectChannel` already is); and the **entry-point rework** — the synthetic main's `block(main)` needs
+  `main : IO[Unit]`, but the effect-blind checker sees `main : Unit`, so the platform entry must run the *woven* main.
+  Until those land the flag stays developer-only (per the fail-safe rule it can never become default before the whole
+  reachable program is verified and woven end-to-end).
 
 - **Phase 3 remaining slices + Phases 4–5 — not started.** The weaver's remaining work (bind/`pure` insertion,
-  precise woven node types, control-effect weave-key stacks, the codegen redirect, the base-carrier config, and
+  precise woven node types, control-effect weave-key stacks, the base-carrier config, and
   the entry-point rework — the path to a running program, above), the later accounting slices
   (transparent-parameter expansion, reify/discharge subtraction, the carrier-machinery-impl exception), the
   flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and Phase 2's shadow are the
@@ -426,10 +440,15 @@ tracks are green.
   - **§6 weaver slice 1 (landed).** `WovenValueProcessor` — carrier assignment + effect-operation
     resolution for the Suspend-riding base carrier (+ the conformance-check relaxation that unblocks it);
     see §0/§6.
+  - **§6 codegen redirect (landed).** The post-mono codegen chain reads `WovenValue` in place of
+    `MonomorphicValue`: `naturalArity` ported onto `WovenValue`, and `UsedNamesProcessor` /
+    `MonomorphicUncurryingProcessor` / the jvm `ExpressionCodeGenerator` natural-arity read swapped to
+    `WovenValue.Key`. Behaviour-neutral off the flag (`WovenValue` is the identity image), verified
+    byte-identical across `lang.test` / `jvm.test` / the example mains; see §0/§6.
   - **3a (remaining).** ambient `Suspend`-riding effects to a *running* program: `flatMap`/`pure`
-    insertion, precise woven node types, the codegen redirect (`MonomorphicValue`→`WovenValue`), the
-    base-carrier `Configuration` key (`JvmPlugin` → `eliot.jvm.IO`), and the entry-point rework (run the
-    woven `IO[Unit]` main). HelloWorld/Console examples green under the flag.
+    insertion, precise woven node types, the base-carrier `Configuration` key (`JvmPlugin` →
+    `eliot.jvm.IO`), and the entry-point rework (run the woven `IO[Unit]` main). HelloWorld/Console
+    examples green under the flag.
   - **3b** control effects, reify points, dischargers, weave keys threaded through
     `used`/`uncurry`/codegen (mangling gains the stack component).
   - **3c** higher-order: parameter rows, `Effect`-transparent positions (`foreach`), lambdas,

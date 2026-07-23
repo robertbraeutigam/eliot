@@ -11,7 +11,8 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdent
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -642,9 +643,10 @@ object ExpressionCodeGenerator {
     for {
       // An application spine can be longer than the callee's natural arity (`unwrap(w)("x")` on a 1-parameter
       // accessor): the direct call absorbs `naturalArity` arguments, and the excess is applied one at a time to the
-      // function value it returns. Body-less natives have no natural arity and keep the full spine.
-      monomorphicMaybe          <- getFactIfProduced(MonomorphicValue.Key(calledVfqn, typeArgs)).liftToTypes
-      directCallArity            = monomorphicMaybe.flatMap(_.naturalArity).fold(arguments.length)(_ min arguments.length)
+      // function value it returns. Body-less natives have no natural arity and keep the full spine. Read off the woven
+      // value (the effects-as-channel codegen source; off the flag it is the identity image of the `MonomorphicValue`).
+      wovenMaybe                <- getFactIfProduced(WovenValue.Key(calledVfqn, typeArgs)).liftToTypes
+      directCallArity            = wovenMaybe.flatMap(_.naturalArity).fold(arguments.length)(_ min arguments.length)
       (directArgs, overApplied)  = arguments.splitAt(directCallArity)
       uncurriedMaybe            <- getFactIfProduced(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, directArgs.length)).liftToTypes
       resultClasses             <- uncurriedMaybe match
