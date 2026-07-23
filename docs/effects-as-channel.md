@@ -76,7 +76,7 @@ job is to **match** it (byte-identical gate). The **transitional `--uniform-carr
 `--effect-channel` lets the uniform checker grow on default carrier-desugared input, compared byte-identical,
 decoupled from the `desugarChannel`/accounting knot until U4 unifies the flags. Commit trail (on `master`): U2 spike
 `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a `455575bb`, U3a-2b(i)
-`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-return-boundary `8fadd27f`, U3a-2b(ii)-arg-slot `527af90a`, U3a-2b(ii)-effectful-arg `16a432f6`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
+`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-return-boundary `8fadd27f`, U3a-2b(ii)-arg-slot `527af90a`, U3a-2b(ii)-effectful-arg `16a432f6`, U3a-2b(ii)-self-join-guard `ead5d631`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
 eliot-test 11/11).** The §13 fork
 raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
@@ -124,14 +124,15 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, at U3a-2b(ii)-effectful-arg (commit `16a432f6`). Green everywhere: `./mill lang.test`,
+**Where the tree is:** `master`, at U3a-2b(ii)-self-join-guard (commit `ead5d631`). Green everywhere: `./mill lang.test`,
 `./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest`), HelloWorld builds+runs
 (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
 and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
 then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The
 transitional `--uniform-carrier` gate is **live for the plain pure value return *and* the whole argument→payload-slot
 case — pure args pass, effectful args bind** (all routed through the uniform boundary/ladder and Id-normalized back to
-byte-identical); a flex/carrier domain and every other shape falls back to the default path.
+byte-identical); a flex/carrier domain and every other shape falls back to the default path. `CarrierJoin` now guards
+the carrier-meta self-join (a prerequisite; not yet triggered by the checker).
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -261,13 +262,29 @@ byte-identical); a flex/carrier domain and every other shape falls back to the d
   `label(readLine)` (effectful arg bound) + `label`'s pure value return; whole base + program byte-identical, and a probe
   confirmed the effectful `Bound` path is live (`carrier=?F, payload=String` for `readLine`).
 
-**Next: U3a-2b(ii) — carrier/generic slots (the conditionals)** (under `--uniform-carrier`). This is the first
-*non-overlap* step — where the uniform path does **better** than the default (it fixes the effectful-conditional bugs),
-so it needs **compile-succeeds tests**, not just byte-identical. (a) `CarrierSlot` pass-join + `Generic` pass-through (the
-extensible-conditionals mechanism) with the **join solver** (`CarrierJoin` — `Id` bottom, one non-`Id` winner) +
-`finalizeAndMaterialize` at the value boundary; here `bindWrap`'s `doUnify` must become a `CarrierJoin` for arms that
-carry *different* carriers (a pure arm and an effectful sibling). (b) **effect-carrier-headed returns** (guard the
-carrier-meta self-join — the `?F := ?F` finding). Each gated on `uniformCarrier` so flag-off stays byte-identical.
+**Next: U3a-2b(ii) — carrier/generic slots (the conditionals).** **Corrected understanding (2026-07-23):** conditionals
+are ordinary functions — `fold[A](c: Bool, whenTrue: A, whenFalse: A): A` (bare-`A` arms ⇒ `Generic` slots, both arms
+must already match, no auto-lift) and `if[T](c: Bool, value: {Abort} T): {Abort} T = fold(c, value, abort)` (the arm is
+declared `{Abort} T` = `?G[T]` ⇒ a **`CarrierSlot`**, so a pure arm auto-lifts). So `if`'s arms are `CarrierSlot`s
+because the **signature declares them carrier-headed** — *no* eager carrier-headed generic instantiation is needed
+(the earlier worry). The default path already compiles most mixed conditionals (the "emergent branch rule": an
+effectful arm passes through a still-flex slot, `Checker.resolveDeferredSlot`); only 4 ordering-dependent cases fail
+(the `tryIdDefault`-first-contact bugs). So this is the first *non-overlap* step — needs **compile-succeeds tests**,
+not just byte-identical.
+**Miscompile finding (2026-07-23) — why the `CarrierSlot` pure-arm routing is NOT a byte-identical overlap and must NOT
+be naively wired:** a trial routed `if`'s pure arm (`"+"` into `?G[T]`) via `carrierSlotLift` (`pure@?G(runId(pure@Id
+"+"))`). On `def sign(f: Bool): String = if(f, "+") else "-"` the uniform jar threw `VerifyError: Bad type on operand
+stack` — `"+"` (a raw `String`) reached `if` where an `AbortCarrier` was expected. **Root cause:** `if`'s arm carrier
+`?G` is **ability-constrained** (`~ Abort`); the default path solves it to the concrete `AbortCarrier[Id]` (via ability
+resolution / the `else` discharge), so `pure@?G` stays a *real* call, whereas the uniform join left `?G` to **default
+to `Id`**, erasing the `pure` and passing the raw payload. So the join lattice's "unsolved carrier meta ⇒ `Id` at the
+boundary" rule is **wrong for an ability-constrained carrier binder**: `finalize` must never default a carrier meta
+that carries an ability constraint (`~ Abort`, `~ Console`) — ability resolution / the discharge must solve it. This is
+the crux the conditional step must handle; the trial was reverted. (a) `CarrierSlot` pass-join + `Generic` pass-through
+with the **join solver** (`CarrierJoin` — `Id` bottom, one non-`Id` winner; **but respect ability-constrained carrier
+metas, don't default them to `Id`**) + `finalizeAndMaterialize`; `bindWrap`'s `doUnify` becomes a `CarrierJoin` for
+different-carrier arms. (b) **effect-carrier-headed returns** (the self-join guard `ead5d631` is landed). Each gated on
+`uniformCarrier` so flag-off stays byte-identical.
 **Wiring finding (2026-07-23):**
 `intoCarrierHeadedTerm` (and every heading site) must fire on **terminal value leaves only, never a function-typed
 (`VPi`) reference** — a `printLine` leaf (`String → …`) is not `VType` and not carrier-headed, so the bridge as
@@ -953,10 +970,20 @@ before anything leans on it), the foundation spike second, the checker refactor 
     Byte-identical because an effectful arg's carrier *is* the ambient meta (same as the core), so `wrapBinds`'s
     `doUnify` connects them correctly — the join is only needed for conditionals (different-carrier arms). Test program
     now `label(readLine)` + `label`'s pure return; whole base byte-identical, probe-confirmed effectful `Bound` live.
+  - **U3a-2b(ii) carrier-meta self-join guard — LANDED (2026-07-23, `ead5d631`).** `CarrierJoin.join` no-ops a carrier
+    joined toward *itself* (`?F` against `?F` — a value's own ambient meeting its declared return), which would else
+    write a self-referential cycle and loop `resolve`. A prerequisite for effect-carrier-headed returns and the
+    conditionals; isolation-tested, not yet triggered by the checker. **The conditional `CarrierSlot` pure-arm routing
+    was TRIALLED and REVERTED — it MISCOMPILES** (`VerifyError` on `if(f,"+") else "-"`: `"+"` reaches `if` as a raw
+    `String` where an `AbortCarrier` is expected). Root cause: `if`'s arm carrier `?G` is *ability-constrained*
+    (`~ Abort`) and the default path solves it to the concrete `AbortCarrier[Id]`, but the uniform join left `?G` to
+    default to `Id`, erasing the `pure` — so **`finalize` must never default an ability-constrained carrier meta to
+    `Id`**; ability resolution / the discharge must solve it. Corrected understanding: `if`'s arms are `CarrierSlot`s
+    because `if`'s signature declares `value: {Abort} T` (carrier-headed) — no eager generic instantiation needed.
     **NEXT (the first *non-overlap* step — uniform does better than default, needs compile-succeeds tests):**
-    carrier/generic slots (`CarrierSlot` pass-join + `Generic` pass-through, the extensible-conditionals mechanism) with
-    the **join solver** (`CarrierJoin`) + `finalizeAndMaterialize` — here `bindWrap`'s `doUnify` becomes a `CarrierJoin`
-    for different-carrier arms; then effect-carrier-headed returns (guard the `?F := ?F` self-join). The coupled
+    the conditionals — `CarrierSlot` pass-join + `Generic` pass-through with the join solver **respecting
+    ability-constrained carrier metas** (never defaulting them to `Id`) + `finalizeAndMaterialize`;
+    then effect-carrier-headed returns (self-join guard already landed). The coupled
     `desugarChannel`/accounting deletion stays on the `--effect-channel` gate and is untangled at U4 (this transitional
     gate sidesteps it).
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
