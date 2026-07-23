@@ -61,11 +61,22 @@ behaviour is unchanged (the channel is dark/shadow). Concretely:
   ability demands still resolve/error as before. Net: an effectful program **monomorphizes effect-blind**, its
   effect operations surviving as abstract ability-method references. Verified: default suites byte-identical
   (flag off); flag-on `EffectChannelDesugarTest` (Console + Abort mono effect-blind, the op stays an abstract
-  `Ability` ref, a first-order `Show` with no instance still errors). **Known gap, flag-gated:** the §5
-  accounting (verification) and §6 weaver (codegen) are *not built yet*, so under the flag an undeclared effect
-  is not yet rejected and codegen does not run — the flag is developer-only until those land (per the fail-safe
-  rule the flag can never become default before §5 lands). The `EffectLifter`/`EffectResidualChecker` are inert
-  under the flag (no carriers to recognise) but not yet explicitly disabled.
+  `Ability` ref, a first-order `Show` with no instance still errors). The `EffectLifter`/`EffectResidualChecker`
+  are inert under the flag (no carriers to recognise) but not yet explicitly disabled.
+
+  The **§5 accounting is now built** (`monomorphize/channel/EffectAccountingProcessor` + the `EffectAccounting`
+  fact, on the `RefinementChannelProcessor` template): a post-mono rider on `MonomorphicValue` that computes the
+  value's **derived row** — each abstract effect-ability reference contributes its ability (machinery excluded),
+  each ordinary callee contributes its declared row (`OperatorResolvedValue.effectRow`), unioned — and requires
+  `derived ⊆ declared`, aborting with the friendly "performs the effect 'X' but does not declare it" on a leak.
+  It is the real verifier under the flag (replaces the Phase-2 shadow), verified by `EffectAccountingTest`
+  (derive/subset/propagate accept + undeclared-direct/undeclared-propagated reject). **Remaining gap,
+  flag-gated:** the §6 weaver (codegen) is not built, so there is no terminal demander under the flag yet — the
+  accounting is wired into `LangProcessors` and demanded per value by tests, but nothing auto-runs it across a
+  reachable program until the weaver's codegen driver (or a used-walk hook) demands it; and the transparent-
+  parameter expansion, reify/discharge subtraction, and carrier-machinery-impl exception (§0 Phase 2, §11) are
+  later slices. So the flag stays developer-only until §6 (per the fail-safe rule it can never become default
+  before the whole reachable program is verified end-to-end).
 
 - **Phases 3 (accounting/weaver) – 5 — not started.** The standalone §5 accounting processor, the §6 weaver,
   the flip/deletions, and follow-ups remain as designed below. Phase 1's `EffectRow` and Phase 2's shadow are
@@ -216,11 +227,13 @@ in the signature either way.
 
 ## 5. Row accounting and verification (per mono key)
 
-*Implementation note (§0): the standalone post-mono processor described here is Phase 3 work — it is
-where the channel becomes the **real** verification path. Phase 2 (landed) proves the row logic first
-by computing the channel verdict inside `EffectResidualChecker` and shadow-comparing it, so the
-accounting semantics below are already validated byte-identical against the current checker before any
-processor is built.*
+*Implementation note (§0): the standalone post-mono processor described here is **built** —
+`monomorphize/channel/EffectAccountingProcessor` + the `EffectAccounting` fact (`RefinementChannelProcessor`
+template), the real `derived ⊆ declared` verifier under `--effect-channel`. It currently implements the two
+core contribution rules below (effect-ability method → its ability; ordinary callee → its declared row) plus
+the subset check; the transparent-parameter expansion, reify subtraction, and the machinery-impl exception are
+later slices. Phase 2 (landed) proved the row logic first by shadow-comparing inside `EffectResidualChecker`,
+so the semantics were validated byte-identical against the current checker before the processor was built.*
 
 A new post-mono processor (template: `RefinementChannelProcessor`) computes each mono'd value's
 **derived row** by a bottom-up walk of the checked body:

@@ -18,7 +18,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor,
   UnifiedModuleValueProcessor
 }
-import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor
+import com.vanillasource.eliot.eliotc.monomorphize.channel.{EffectAccountingProcessor, RefinementChannelProcessor}
 import com.vanillasource.eliot.eliotc.namedvalues.processor.{NamedValuesIndexProcessor, NamedValuesRewriteProcessor}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
@@ -111,6 +111,7 @@ object LangProcessors {
     MonomorphicTypeCheckProcessor(effectChannel),
     CompilerMonomorphicTypeCheckProcessor(effectChannel),
     RefinementChannelProcessor(),
+    EffectAccountingProcessor(effectChannel),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),
     MonomorphicUncurryingProcessor(),
