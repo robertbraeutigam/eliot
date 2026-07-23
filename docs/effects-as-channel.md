@@ -357,7 +357,7 @@ single-slot `if` arm needs no join, so it is still not yet triggered live).
 | **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — bind-vs-capture by **payload-fit** | `uniformPayloadSlot`: if the actual's **payload genuinely fits** the domain ⇒ **bind** (`printLine(readLine)`; the compound-state `items : ?F[List[X]]` into `foldLeft`'s `List[A]` — `List[X]` fits `List[A]`, which the **default path rejects** by stealing `?F := List`), pure passes (`runId`). If the payload does **not** fit ⇒ `defaultArgSlot`: a **capture** (a carrier-stack/pinned domain whose inner value never fits its outer carrier — a discharger's `{Abort\|G} A` ⤳ `AbortCarrier[G,A]`, `runMain`'s `IO[A]`) or a mismatch. A **bare-flex payload `?A`** is guarded out of "fits" (`payloadFitsDomain`) — it absorbs any domain and strips the carrier, so it captures. Gate `uniformPlainValueType(domain)` + `Platform.Runtime`. |
 | **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface compiles byte-identically: return boundary + discharger capture route uniform; `fold`'s bare-`A` `Generic` arm still on the default `defaultArgSlot` ladder. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful on default | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the default path **rejects** (the pure arm steals the carrier `?G := Option`); an **effectful** actual stays on `defaultArgSlot` (its carrier unifies with `?G` correctly). Byte-identical where the default already pure-wraps (`sign`). |
-| **argument → GENERIC arm + the join-requiring cases** (`fold`'s bare-`A`; compound-state, catch-handler) | **no → default** | `defaultArgSlot`. The remaining arm-routing work; see "Next". |
+| **argument → GENERIC arm** (`fold`'s bare-`A`) + **the effectful-`catch`-handler** | **no → default** | `defaultArgSlot`. `fold`'s `Generic` arm = byte-identical regularization; the catch-handler = the one join-requiring case (+ a stdlib delta). The remaining arm-routing work; see "Next". |
 | function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary. |
 
 Every routed case inserts `pure@Id`/`runId`/`flatMap@Id` that the Id-normalization stage erases, so the emitted bytecode
@@ -366,9 +366,12 @@ equals the default's. **The wiring lives in `Checker.scala`** (the gated `unifor
 (the bridge: `checkReturnBoundary` with its three arms incl. discharge-to-pure, the pure-actual-passes fix, `force`
 before every `Carrier.split`) + `CarrierJoin.scala` (self-join guard); the durable gate is
 `jvm/test/.../UniformCarrierByteIdenticalTest.scala` (whole base + `label(readLine)` *and* the conditional surface
-`if`/`else`/`fold`/discharge-to-pure, flag off vs on, class-bytes equal). `finalizeAndMaterialize` is built but
-**uncalled** (it defaults unsolved carrier metas to `Id` — which the miscompile finding shows must *not* happen for
-ability-constrained metas; it is wired only when the arms route through the join solver).
+`if`/`else`/`fold`/discharge-to-pure, flag off vs on, class-bytes equal) plus `UniformCarrierConditionalTest` (the
+non-overlap compile-succeeds gate). `finalizeAndMaterialize` and the `CarrierJoin` join solver are built but **uncalled**:
+the landed slices (return boundary, payload-fit bind/capture, `CarrierSlot` pure-wrap) each needed only a single carrier
+meta solved by the surrounding context, never a *join* of sibling arms. They are wired only for the effectful-`catch`-handler
+(the one join-requiring case), where an ability-constrained carrier meta must be solved by ability resolution / discharge,
+never defaulted to `Id`.
 
 **Conditional surface — byte-identical LANDED (2026-07-23, `23eb785a`).** The whole `IfDemo` (every `if`/`else`/`fold`
 form: pure, effectful, chains, blocks, discharge-to-pure) now compiles byte-identically under `--uniform-carrier`, with
@@ -413,33 +416,39 @@ domain's inner value never fits its outer carrier (⇒ capture), a data containe
 eliot-test byte-identical). Byte-identical everywhere it overlaps (eliot-test 11/11, sign/IfDemo, 32/32 mains, no
 regressions); compound-state compile-succeeds cases in `UniformCarrierConditionalTest`.
 
-**Next: the GENERIC arm + the effectful-`catch`-handler.** `fold`'s bare-`A` `Generic` arm (pass-through-whole) still on
-the default ladder — byte-identical regularization (fold's arms already work on default). The one remaining historical
-failure needing the actual `CarrierJoin` lattice (a pure/effectful *sibling* in one call) is the effectful-`catch`-handler,
-which also needs the stdlib `onError: E => {Effect} A` parameter-row delta. **Corrected understanding
-(2026-07-23):** conditionals
-are ordinary functions — `fold[A](c: Bool, whenTrue: A, whenFalse: A): A` (bare-`A` arms ⇒ `Generic` slots, both arms
-must already match, no auto-lift) and `if[T](c: Bool, value: {Abort} T): {Abort} T = fold(c, value, abort)` (the arm is
-declared `{Abort} T` = `?G[T]` ⇒ a **`CarrierSlot`**, so a pure arm auto-lifts). So `if`'s arms are `CarrierSlot`s
-because the **signature declares them carrier-headed** — *no* eager carrier-headed generic instantiation is needed
-(the earlier worry). The default path already compiles most mixed conditionals (the "emergent branch rule": an
-effectful arm passes through a still-flex slot, `Checker.resolveDeferredSlot`); only 4 ordering-dependent cases fail
-(the `tryIdDefault`-first-contact bugs). So this is the first *non-overlap* step — needs **compile-succeeds tests**,
-not just byte-identical.
-**Miscompile finding (2026-07-23) — why the `CarrierSlot` pure-arm routing is NOT a byte-identical overlap and must NOT
-be naively wired:** a trial routed `if`'s pure arm (`"+"` into `?G[T]`) via `carrierSlotLift` (`pure@?G(runId(pure@Id
-"+"))`). On `def sign(f: Bool): String = if(f, "+") else "-"` the uniform jar threw `VerifyError: Bad type on operand
-stack` — `"+"` (a raw `String`) reached `if` where an `AbortCarrier` was expected. **Root cause:** `if`'s arm carrier
-`?G` is **ability-constrained** (`~ Abort`); the default path solves it to the concrete `AbortCarrier[Id]` (via ability
-resolution / the `else` discharge), so `pure@?G` stays a *real* call, whereas the uniform join left `?G` to **default
-to `Id`**, erasing the `pure` and passing the raw payload. So the join lattice's "unsolved carrier meta ⇒ `Id` at the
-boundary" rule is **wrong for an ability-constrained carrier binder**: `finalize` must never default a carrier meta
-that carries an ability constraint (`~ Abort`, `~ Console`) — ability resolution / the discharge must solve it. This is
-the crux the conditional step must handle; the trial was reverted. (a) `CarrierSlot` pass-join + `Generic` pass-through
-with the **join solver** (`CarrierJoin` — `Id` bottom, one non-`Id` winner; **but respect ability-constrained carrier
-metas, don't default them to `Id`**) + `finalizeAndMaterialize`; `bindWrap`'s `doUnify` becomes a `CarrierJoin` for
-different-carrier arms. (b) **effect-carrier-headed returns** (the self-join guard `ead5d631` is landed). Each gated on
-`uniformCarrier` so flag-off stays byte-identical.
+**Next: the GENERIC (`fold`) arm + the effectful-`catch`-handler.** Two things remain on the default ladder:
+
+- **`fold`'s bare-`A` `Generic` arm** (`UniformLadder.ExpectedSlot.Generic` — pass-through-whole, `?A :=
+  <carrier-headed action>`). This is **byte-identical regularization, not a fix**: `fold`'s arms already compile on the
+  default path (matching arms unify; the Phase-A/B deferral handles effectful ones), so routing them through the uniform
+  `Generic` ladder adds no capability — it only moves coverage onto the uniform path and exercises the pass-through arm.
+  Low risk, low value; a reasonable warm-up. It joins the existing `checkArgumentSlot` routing beside `uniformPayloadSlot`
+  / `uniformCarrierSlot`, gated on a **bare flex-meta domain** (`VMeta(_, SNil)`, which today falls to `defaultArgSlot`'s
+  deferral case).
+- **The effectful-`catch`-handler** — the *one* remaining historical failure that genuinely needs the `CarrierJoin`
+  lattice: a discharger with a **pure/effectful sibling in one call** (`catch(computation, onError)` where `onError` is
+  itself effectful, so a pure and an effectful arm must agree on one carrier by *join*, order-independently). It also
+  needs a **stdlib delta**: `catch`'s handler is today `onError: E => A` (pure), so the effectful-handler case is *not
+  even expressible* until it becomes `onError: E => {Effect} A`. This is the only place the join solver
+  (`CarrierJoin`/`finalizeAndMaterialize`, both built but currently uncalled) finally earns its place.
+
+**Background — conditionals are ordinary functions (no FQN ever hardcoded).** `fold[A](c, whenTrue: A, whenFalse: A): A`
+(bare-`A` arms ⇒ `Generic` slots, both must already match — no auto-lift) and `if[T](c, value: {Abort} T): {Abort} T =
+fold(c, value, abort)` (the arm declared `{Abort} T` = `?G[T]` ⇒ a `CarrierSlot`, a pure arm auto-lifts). The ladder
+classifies by the *expected slot's* shape, so a user- or platform-defined conditional routes the same way — the property
+whose absence killed the v1 weaver's `fold`/`if` hardcode.
+
+**Disproven crux (kept as a warning, do not re-derive it).** The conditional-arm work was long expected to hinge on an
+*ability-constrained-carrier* crux: a 2026-07-23 trial routed `if`'s pure `"+"` arm via `carrierSlotLift`
+(`pure@?G(runId(pure@Id "+"))`), `sign` threw a `VerifyError`, and this was theorised as "`finalize` defaults the
+ability-constrained `?G` to `Id`, erasing the `pure`". **That hypothesis was wrong** (`5864f95f`): the real cause was the
+`carrierSlotLift` **double-wrap** — the inner `pure@Id` confuses the outer `pure`'s `Effect`-instance resolution (erasure
+keys on the *resolved impl module*, `IdNormalizer.isEffectIdMethod`, not the type argument), mis-erasing it to raw
+payload. Reusing the default `tryPureWrap`'s clean single `pure@Effect[?G](arg)` node fixed it, and the single-slot `if`
+arm needs **no** `CarrierJoin`/`finalize` — `?G` is solved by the surrounding `else` discharge, never defaulted. The
+*genuinely* useful residue of the finding, for the catch-handler's real join: when the join solver *is* wired, an
+ability-constrained carrier meta must be solved by ability resolution / discharge, never defaulted to `Id`.
+
 **Wiring finding (2026-07-23):**
 `intoCarrierHeadedTerm` (and every heading site) must fire on **terminal value leaves only, never a function-typed
 (`VPi`) reference** — a `printLine` leaf (`String → …`) is not `VType` and not carrier-headed, so the bridge as
@@ -470,18 +479,23 @@ existing `--effect-channel` flag.** Two facts force this:
    default path, leaving `--effect-channel` and its tests untouched until U4 unifies them. This turns the bundle
    back into an incrementally-green sequence.
 
-Start points and constraints:
+Start points and constraints (the broad U3a shape — **much of "what to build" is now landed** under the transitional
+`--uniform-carrier` gate; see the Done list + coverage table above for the current state. This subsection is the
+overall map and the still-pending `--effect-channel` coupling, not the immediate task):
 - **Where it lives:** the checker chain `monomorphize/processor/MonomorphicTypeCheckProcessor` →
-  `monomorphize/check/TypeStackLoop` → `monomorphize/check/Checker` (~1000 lines) + the unifier
-  `monomorphize/unify/Unifier` + the domain `monomorphize/domain/SemValue`. The `effectChannel` flag is
-  already threaded to all of these (currently inert) — branch on it to grow the uniform path while the
-  default path stays byte-identical.
+  `monomorphize/check/TypeStackLoop` → `monomorphize/check/Checker` (~1200 lines) + the unifier
+  `monomorphize/unify/Unifier` + the domain `monomorphize/domain/SemValue`, plus the bridge
+  `monomorphize/check/UniformCarrierChecker` and the `monomorphize/carrier/` package
+  (`Carrier`/`CarrierJoin`/`UniformLadder`). The immediate work uses the **`--uniform-carrier`** gate (`uniformCarrier`,
+  distinct from `--effect-channel`); the `effectChannel` flag threading is the separate future bundle (below).
 - **What to build** (from the spike, §3): uniform carrier-headed judgments; the classify-by-expected-slot
   ladder (Generic / effect-carrier-form / data-Functor-form); the **join solver** (`Id` = lattice
   bottom, one non-`Id` winner, conflict = mismatch, unsolved-at-boundary = `Id`) replacing
   `EffectLifter.tryIdDefault`-as-an-arm and the `Checker`'s Phase A/B decision-deferral with *deferred,
   decision-free* lift materialization. Keep the `EffectLifter` bind/`pure` insertion *mechanics*
-  (`wrapBinds`/`bindWrap`, the `$eff$N` splice) — reshape, don't rebuild.
+  (`wrapBinds`/`bindWrap`, the `$eff$N` splice) — reshape, don't rebuild. **Status:** the carrier-headed judgments,
+  the return boundary, the payload-slot bind/capture, and the `CarrierSlot` pure-wrap are landed; the `Generic`
+  pass-through arm and the **join solver's first live use** (the effectful-`catch`-handler) are what remain.
 - **The coupled deletion rides here:** deleting `desugarChannel` + the `AbilityResolver` abstain + the
   `AbilityImplementationCheck` relaxation + `EffectChannelDesugarTest` (the §7 leftovers) is only
   possible once the uniform checker monomorphizes an effect-polymorphic value at a **bound carrier**
