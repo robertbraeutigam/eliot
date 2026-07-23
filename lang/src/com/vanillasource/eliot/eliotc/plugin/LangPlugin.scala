@@ -4,9 +4,11 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   allRoots,
+  baseCarrierKey,
   compilerRoots,
   effectChannelKey,
   eliotCompilerOverlay,
@@ -95,7 +97,12 @@ class LangPlugin extends CompilerPlugin {
               // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
               // initialize, so the roster is already final here.
               configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
-            effectChannel = configuration.getOrElse(effectChannelKey, false)
+            effectChannel = configuration.getOrElse(effectChannelKey, false),
+            // The platform's runtime base effect carrier (the jvm target's `eliot.jvm.IO`), contributed by that target's
+            // plugin in its configure() when the effect-channel flag is on, so the weaver can assign it and resolve
+            // effect operations at it. Absent (no effect-channel target, or the flag off) leaves the weave the identity
+            // image of each `MonomorphicValue`.
+            baseCarrier = configuration.get(baseCarrierKey)
           )
         )
       )
@@ -118,6 +125,16 @@ object LangPlugin {
     * Absent (the default) leaves the entire current carrier-based effect path unchanged.
     */
   val effectChannelKey: Configuration.Key[Boolean] = namedKey[Boolean]("effectChannel")
+
+  /** The platform's runtime **base effect carrier** — the concrete `Suspend`-riding carrier the effects-as-channel
+    * weaver assigns as the ambient stack base and resolves effect operations at (the jvm target's `eliot.jvm.IO`). It is
+    * a *platform* fact, so it is contributed by the target's plugin (jvm) in its `configure()` — under the
+    * [[effectChannelKey]] flag — and read here, exactly the way [[effectChannelKey]] itself is threaded; `LangPlugin`,
+    * being platform-agnostic, never names a carrier. Absent (no effect-channel-capable target selected, or the flag off)
+    * leaves [[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValueProcessor]] the identity image of each
+    * `MonomorphicValue`.
+    */
+  val baseCarrierKey: Configuration.Key[ValueFQN] = namedKey[ValueFQN]("baseCarrier")
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly

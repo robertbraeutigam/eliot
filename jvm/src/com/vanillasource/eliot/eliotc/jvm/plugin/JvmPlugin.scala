@@ -44,18 +44,31 @@ class JvmPlugin extends CompilerPlugin {
       )
   )
 
-  /** Mount the synthesized `main.els` entry-point module into the runtime scan pool. All `configure()`s run before any
-    * `initialize`, so `LangPlugin` sees the contributed mount when it builds the `PathScanner`.
+  /** Mount the synthesized `main.els` entry-point module into the runtime scan pool, and — under the effect-channel
+    * flag — contribute this platform's **base effect carrier** (`eliot.jvm.IO`) so the effects-as-channel weaver can
+    * assign it (`LangPlugin.baseCarrierKey`; `LangPlugin` is platform-agnostic and never names a carrier itself). All
+    * `configure()`s run before any `initialize`, and the effect-channel flag is already parsed here, so `LangPlugin`
+    * sees both contributions when it builds the pipeline.
     */
   override def configure(): StateT[IO, Configuration, Unit] =
     StateT.modify(configuration =>
       if (configuration.contains(mainKey))
-        configuration.updatedWith(
-          PathScanner.extraRuntimeMountsKey,
-          mounts => (mounts.getOrElse(Seq.empty) :+ new SyntheticMainMount).some
+        withBaseCarrier(
+          configuration.updatedWith(
+            PathScanner.extraRuntimeMountsKey,
+            mounts => (mounts.getOrElse(Seq.empty) :+ new SyntheticMainMount).some
+          )
         )
       else configuration
     )
+
+  /** Contribute the jvm base effect carrier when the effect-channel flag is on; a no-op otherwise (the default carrier
+    * path names its carrier by ordinary unification, not this config).
+    */
+  private def withBaseCarrier(configuration: Configuration): Configuration =
+    if (configuration.getOrElse(LangPlugin.effectChannelKey, false))
+      configuration.set(LangPlugin.baseCarrierKey, JvmPlugin.baseCarrierFQN)
+    else configuration
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
     StateT
@@ -79,4 +92,14 @@ class JvmPlugin extends CompilerPlugin {
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
     compilation.getFact(GenerateExecutableJar.Key(configuration.get(mainKey).get)).void
+}
+
+object JvmPlugin {
+
+  /** This platform's base effect carrier as a type-constructor `ValueFQN`: `eliot.jvm.IO`'s `IO` (the `Qualifier.Type`
+    * namespace). Contributed to `LangPlugin.baseCarrierKey` under the effect-channel flag (see `configure`). There is no
+    * `WellKnownTypes` entry for `IO` — it is a jvm-platform detail, deliberately absent from the platform-agnostic lang
+    * layer — so the FQN is spelled here, the one place the backend names its carrier for the weaver.
+    */
+  val baseCarrierFQN: ValueFQN = ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("IO", Qualifier.Type))
 }
