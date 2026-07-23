@@ -60,6 +60,50 @@ class UniformCarrierChecker(
         isCarrierHeaded(forced).map(if (_) tpe else Evaluator.applyValue(idCarrier, tpe))
     }
 
+  /** Bring a runtime term's **value** into carrier-headed form (the term-level dual of [[intoCarrierHeaded]], for the
+    * eager elaboration): a pure term `expr : T` ⤳ `pure@Effect[Id, T](expr) : Id[T]`, so its value matches its
+    * `Id`-carried type (the Id-normalization stage erases the `pure@Id` again). A term already carrier-headed
+    * (ambient/role/`Id`) or type-level (`VType`) is returned unchanged. `infer` uses this on its pure leaves (literals,
+    * pure references) so every judgment is carrier-headed by construction.
+    */
+  def intoCarrierHeadedTerm(expr: SemExpression, source: Sourced[?]): CheckIO[SemExpression] =
+    for {
+      forced <- force(expr.expressionType)
+      headed <- isCarrierHeaded(forced)
+    } yield
+      if (forced == VType || headed) expr
+      else EffectLifter.pureWrapNode(EffectLifter.idCarrier, forced, Evaluator.applyValue(EffectLifter.idCarrier, forced), expr, source)
+
+  /** Check a value/lambda **body** against its declared return type (the uniform successor of the checker's
+    * `checkAgainst` return boundary). The declared return is brought into carrier-headed form ([[intoCarrierHeaded]] —
+    * a pure return becomes `Id[T]`), then the body's carrier **joins** the return's and the payloads unify; a **pure**
+    * body is re-carried into the declared carrier via [[UniformCarrierChecker.carrierSlotLift]] (which erases when the
+    * carrier is `Id`, so a pure body against a pure return costs nothing). A genuinely effectful body against a pure
+    * (`Id`) declared return leaves its carrier meta to default to `Id`, where the effect operation's instance
+    * (`Console[Id]`, …) fails to resolve — the loud fail-safe, exactly as on the default path; the friendly
+    * "declared pure but performs an effect" diagnostic remains the post-mono accounting's job (§5).
+    *
+    * Both the return and the body are carrier-headed by the elaboration invariant, so [[Carrier.split]] is total here.
+    */
+  def checkReturnBoundary(
+      bodyExpr: SemExpression,
+      bodyType: SemValue,
+      declaredReturn: SemValue,
+      source: Sourced[?]
+  ): CheckIO[SemExpression] =
+    for {
+      expected              <- intoCarrierHeaded(declaredReturn)
+      (cExpected, pExpected) = Carrier.split(expected)
+      (cBody, pBody)         = Carrier.split(bodyType)
+      unifier               <- inspect(_.unifier)
+      bodyIsPure             = CarrierJoin.resolve(unifier, cBody) == Carrier.Bottom
+      joined                 = CarrierJoin.joinToward(unifier, cBody, cExpected, source.as("Type mismatch."))
+      _                     <- modify(_.withUnifier(joined.unify(pBody, pExpected, source.as("Type mismatch."))))
+    } yield
+      if (bodyIsPure)
+        UniformCarrierChecker.carrierSlotLift(Carrier.toSemValue(cExpected), pExpected, bodyExpr, source)
+      else bodyExpr
+
   /** Whether the forced outermost head of `tpe` is already an effect carrier (ambient / role-flagged, via
     * `effectCarrierSplit`) or the compiler-owned `Id`.
     */

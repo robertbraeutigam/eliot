@@ -232,4 +232,50 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
       case other                                                   => fail(s"expected a Bound outcome, got $other")
     }
   }
+
+  // --- intoCarrierHeadedTerm (the eager term-level pure carrier-wrap) ---
+
+  "intoCarrierHeadedTerm" should "wrap a pure term's value in pure@Effect[Id]" in {
+    val node = run(CheckState.initial, checker.intoCarrierHeadedTerm(exprOf(string), anchor))
+    (headRef(node).valueName.value, headRef(node).typeArguments, node.expressionType) shouldBe
+      (WellKnownTypes.effectPureFQN, Seq(EffectLifter.idCarrier, string), id(string))
+  }
+
+  it should "leave an already Id-headed term unchanged" in {
+    run(CheckState.initial, checker.intoCarrierHeadedTerm(exprOf(id(string)), anchor)) shouldBe exprOf(id(string))
+  }
+
+  it should "leave an already effectful (ambient IO) term unchanged" in {
+    run(ambientIoState, checker.intoCarrierHeadedTerm(exprOf(applied(io, string)), anchor)) shouldBe exprOf(applied(io, string))
+  }
+
+  it should "never wrap a type-level term (VType — the §8 boundary)" in {
+    run(CheckState.initial, checker.intoCarrierHeadedTerm(exprOf(VType), anchor)) shouldBe exprOf(VType)
+  }
+
+  // --- checkReturnBoundary (the uniform return-boundary resolver) ---
+
+  "checkReturnBoundary of a pure body against a pure return" should "re-carry via a (downstream-erased) pure@Id lift" in {
+    val node = run(CheckState.initial, checker.checkReturnBoundary(exprOf(id(string)), id(string), string, anchor))
+    (headRef(node).valueName.value, headRef(node).typeArguments) shouldBe (WellKnownTypes.effectPureFQN, Seq(EffectLifter.idCarrier, string))
+  }
+
+  "checkReturnBoundary of a pure body against an ambient IO return" should "lift the body into IO with pure@Effect[IO]" in {
+    val node = run(ambientIoState, checker.checkReturnBoundary(exprOf(id(string)), id(string), applied(io, string), anchor))
+    (headRef(node).valueName.value, headRef(node).typeArguments) shouldBe (WellKnownTypes.effectPureFQN, Seq(io, string))
+  }
+
+  "checkReturnBoundary of an effectful body against an ambient IO return" should "pass it through unchanged, no error" in {
+    val (endState, node) = runWithState(ambientIoState, checker.checkReturnBoundary(exprOf(applied(io, string)), applied(io, string), applied(io, string), anchor))
+    (node, endState.unifier.errors.isEmpty) shouldBe (exprOf(applied(io, string)), true)
+  }
+
+  "checkReturnBoundary of an effectful body against a pure return" should "leave the carrier to default to Id (caught downstream)" in {
+    // A pure-declared value with an effectful body: the join defaults the body's carrier to Id rather than erroring at
+    // the boundary; the effect operation's Id instance then fails to resolve (the loud fail-safe, as on the default path).
+    val (ids, st) = stateWithMetas(1)
+    val flagged   = st.recordEffectCarrier(ids.head)
+    val (endState, _) = runWithState(flagged, checker.checkReturnBoundary(exprOf(applied(VMeta(ids.head, Spine.SNil), string)), applied(VMeta(ids.head, Spine.SNil), string), string, anchor))
+    endState.unifier.errors shouldBe empty
+  }
 }
