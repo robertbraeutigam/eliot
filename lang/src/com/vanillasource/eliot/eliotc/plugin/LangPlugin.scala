@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   compilerRoots,
   effectChannelKey,
   eliotCompilerOverlay,
+  entryPointKey,
   mountFactory,
   pathKey
 }
@@ -102,7 +103,11 @@ class LangPlugin extends CompilerPlugin {
             // plugin in its configure() when the effect-channel flag is on, so the weaver can assign it and resolve
             // effect operations at it. Absent (no effect-channel target, or the flag off) leaves the weave the identity
             // image of each `MonomorphicValue`.
-            baseCarrier = configuration.get(baseCarrierKey)
+            baseCarrier = configuration.get(baseCarrierKey),
+            // The platform's synthesized entry-point value (the jvm target's `main::main`), whose effect-blind body is a
+            // bare reference to the user `main`; the weaver wraps its woven `IO[Unit]` reference in the carrier's run
+            // boundary so the launcher runs it. Same provenance/lifecycle as `baseCarrier`.
+            entryPoint = configuration.get(entryPointKey)
           )
         )
       )
@@ -135,6 +140,15 @@ object LangPlugin {
     * `MonomorphicValue`.
     */
   val baseCarrierKey: Configuration.Key[ValueFQN] = namedKey[ValueFQN]("baseCarrier")
+
+  /** The platform's synthesized **entry-point** value (the jvm target's `main::main`). Under the effect-channel flag the
+    * effect-blind checker types this value's body — a bare reference to the user `main` — as pure `Unit`; the weaver
+    * recognises it (by this FQN) and wraps its woven `IO[Unit]` reference in the carrier's run boundary
+    * (`<baseCarrier module>::runMain`), so the platform launcher runs the effect instead of receiving a bare `IO`. A
+    * platform fact, contributed by the target's plugin (jvm) in its `configure()` under the flag, exactly like
+    * [[baseCarrierKey]]. Absent leaves the weaver with no entry to rewrite.
+    */
+  val entryPointKey: Configuration.Key[ValueFQN] = namedKey[ValueFQN]("entryPoint")
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly

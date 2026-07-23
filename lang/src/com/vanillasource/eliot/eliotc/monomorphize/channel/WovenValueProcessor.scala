@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -25,19 +25,28 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - an effectful value's signature is wrapped in the carrier (`Unit` ⤳ `IO[Unit]`), so the woven form is the
   *     runnable carrier-headed value the platform entry point expects. The carrier machinery (`Effect`/`Suspend`) and
   *     the effect *instances* keep their carriers (they are not erased), so their carrier-tower bodies monomorphize
-  *     normally and need no weaving — only top-level user operations do.
+  *     normally and need no weaving — only top-level user operations do;
+  *   - the platform **entry point** (`main::main`, [[entryPoint]]) is the run boundary: the effect-blind checker types
+  *     its body — a bare reference to the user `main` — as pure `Unit`, but the woven user `main` is an `IO[Unit]` that
+  *     must be *run*, so the reference is wrapped in the carrier's `runMain` (`eliot.jvm.IO::runMain`), the one node
+  *     given a precise carrier-headed type (`IO[Unit]`). This lets a single-operation `Console` program (HelloWorld)
+  *     run end-to-end under the flag; the launcher and codegen are unchanged because the entry stays pure `Unit`.
   *
   * Deferred to later slices (documented so the gaps are visible, not silent): `flatMap`/`pure` insertion where an
   * effectful sub-term meets a pure position (a nested effectful argument or a block); precise carrier-headed node types
-  * on the woven body (kept as the effect-blind payload types here); control-effect carrier stacks (`weave key = mono
-  * key × stack`); and the multi-parameter effect abilities (`State[S, F]`), which this slice's single-carrier-argument
-  * query does not yet resolve (they are left abstract rather than mis-resolved).
+  * on the rest of the woven body (kept as the effect-blind payload types here — only the entry's `runMain` boundary is
+  * precisely typed so far); control-effect carrier stacks (`weave key = mono key × stack`); and the multi-parameter
+  * effect abilities (`State[S, F]`), which this slice's single-carrier-argument query does not yet resolve (they are
+  * left abstract rather than mis-resolved).
   *
   * Off the flag, or when no base carrier is configured, the weave is the **identity** image of the `MonomorphicValue`
   * (the carrier path is unchanged).
   */
-class WovenValueProcessor(effectChannel: Boolean = false, baseCarrier: Option[ValueFQN] = None)
-    extends TransformationProcessor[MonomorphicValue.Key, WovenValue.Key](key =>
+class WovenValueProcessor(
+    effectChannel: Boolean = false,
+    baseCarrier: Option[ValueFQN] = None,
+    entryPoint: Option[ValueFQN] = None
+) extends TransformationProcessor[MonomorphicValue.Key, WovenValue.Key](key =>
       MonomorphicValue.Key(key.vfqn, key.typeArguments)
     )
     with Logging {
@@ -47,8 +56,37 @@ class WovenValueProcessor(effectChannel: Boolean = false, baseCarrier: Option[Va
       mv: MonomorphicValue
   ): CompilerIO[WovenValue] =
     baseCarrier.filter(_ => effectChannel) match {
-      case Some(carrier) => weave(mv, carrier)
-      case None          => WovenValue(mv.vfqn, mv.typeArguments, mv.name, mv.signature, mv.runtime).pure[CompilerIO]
+      case Some(carrier) if entryPoint.contains(mv.vfqn) => weaveEntry(mv, carrier).pure[CompilerIO]
+      case Some(carrier)                                 => weave(mv, carrier)
+      case None                                          =>
+        WovenValue(mv.vfqn, mv.typeArguments, mv.name, mv.signature, mv.runtime).pure[CompilerIO]
+    }
+
+  /** Weave the platform **entry point** (`main::main`, [[entryPoint]]): under the effect-blind checker its body is a
+    * bare reference to the user `main`, typed pure `Unit`, but the woven user `main` is an `IO[Unit]` that must be *run*.
+    * Wrap that reference in the carrier's run boundary `<carrier module>::runMain` (an ordinary Eliot function
+    * `runMain[A](io: IO[A]): A` — the checker can never spell this because it never sees the user `main` as an `IO`).
+    * The entry stays pure `Unit` (it runs and returns `Unit`), so codegen and the launcher are unchanged. A body that is
+    * not the expected single reference is left un-wrapped (defensive; never a silent mis-weave).
+    */
+  private def weaveEntry(mv: MonomorphicValue, carrier: ValueFQN): WovenValue =
+    WovenValue(mv.vfqn, mv.typeArguments, mv.name, mv.signature, mv.runtime.map(_.map(runBoundary(_, carrier, mv))))
+
+  private def runBoundary(
+      body: MonomorphicExpression.Expression,
+      carrier: ValueFQN,
+      mv: MonomorphicValue
+  ): MonomorphicExpression.Expression =
+    body match {
+      case userMain @ MonomorphicExpression.MonomorphicValueReference(sourcedUserMain, _) =>
+        val payload   = mv.signature                          // the entry's return type (`Unit`)
+        val ioPayload = carrierApplied(carrier, payload)      // the woven user `main`'s type (`IO[Unit]`)
+        val runMainOf = MonomorphicExpression.MonomorphicValueReference(sourcedUserMain.as(runMainFQN(carrier)), Seq(payload))
+        MonomorphicExpression.FunctionApplication(
+          sourcedUserMain.as(MonomorphicExpression(functionType(ioPayload, payload), runMainOf)),
+          sourcedUserMain.as(MonomorphicExpression(ioPayload, userMain))
+        )
+      case other                                                                          => other
     }
 
   private def weave(mv: MonomorphicValue, carrier: ValueFQN): CompilerIO[WovenValue] =
@@ -118,4 +156,17 @@ class WovenValueProcessor(effectChannel: Boolean = false, baseCarrier: Option[Va
   /** The carrier applied to a payload (`IO[Unit]`) — the woven signature of an effectful value. */
   private def carrierApplied(carrier: ValueFQN, payload: GroundValue): GroundValue =
     GroundValue.Structure(carrier, Seq(payload), GroundValue.Type)
+
+  /** The arrow type `param -> result` as a ground value (`Structure` headed by the well-known `Function` type
+    * constructor, matching `GroundValue.asFunctionType`). Cosmetic on the entry's run-boundary head — codegen derives
+    * `runMain`'s descriptors from its own fact, not this node type — but stamped correctly for consistency.
+    */
+  private def functionType(param: GroundValue, result: GroundValue): GroundValue =
+    GroundValue.Structure(WellKnownTypes.functionDataTypeFQN, Seq(param, result), GroundValue.Type)
+
+  /** The carrier's run-boundary function `<carrier module>::runMain` (`eliot.jvm.IO::runMain`): the platform ships it in
+    * the carrier's own module, so it is derived from the base-carrier FQN rather than separately configured.
+    */
+  private def runMainFQN(carrier: ValueFQN): ValueFQN =
+    ValueFQN(carrier.moduleName, QualifiedName("runMain", Qualifier.Default))
 }

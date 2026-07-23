@@ -72,6 +72,9 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     effect-channel flag so the weaver ([[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValueProcessor]])
   *     can assign it and resolve effect operations at it. `None` (the default) leaves the weave the identity image of
   *     each `MonomorphicValue`.
+  *   - `entryPoint` — the platform's synthesized entry-point value (the jvm target's `main::main`), supplied under the
+  *     effect-channel flag so the weaver wraps its woven `IO[Unit]` reference in the carrier's run boundary. `None`
+  *     leaves the weaver with no entry to rewrite.
   *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
   *     this base one (e.g. stdlib's arithmetic natives,
   *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
@@ -86,7 +89,8 @@ object LangProcessors {
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
       extraNativeBindingLabels: Seq[String] = Seq.empty,
       effectChannel: Boolean = false,
-      baseCarrier: Option[ValueFQN] = None
+      baseCarrier: Option[ValueFQN] = None,
+      entryPoint: Option[ValueFQN] = None
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
@@ -121,7 +125,7 @@ object LangProcessors {
     CompilerMonomorphicTypeCheckProcessor(effectChannel),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(effectChannel),
-    WovenValueProcessor(effectChannel, baseCarrier),
+    WovenValueProcessor(effectChannel, baseCarrier, entryPoint),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),
     MonomorphicUncurryingProcessor(),

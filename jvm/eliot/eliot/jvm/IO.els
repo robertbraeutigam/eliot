@@ -30,3 +30,12 @@ implement Effect[IO] {
 implement Suspend[IO] {
    def suspend[A](thunk: Function[Unit, A]): IO[A] = IO(thunk)
 }
+
+/**
+ * Force a deferred `IO` computation, running its effects and yielding the result. This is the platform **run boundary**:
+ * the effects-as-channel weaver wraps the synthesized entry point's woven `main` (an `IO[Unit]`) in this call so the JVM
+ * launcher runs it (`docs/effects-as-channel.md` §6). Ordinary Eliot — `block` unwraps the thunk, `apply` forces it —
+ * so no native is needed and the whole thing inlines away in codegen. Its `io: IO[A]` parameter is a concrete type,
+ * unaffected by the effect-blind desugar, so it type-checks on both the carrier and the effect-channel paths.
+ */
+def runMain[A](io: IO[A]): A = apply(block(io), unit)

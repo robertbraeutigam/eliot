@@ -62,12 +62,15 @@ class JvmPlugin extends CompilerPlugin {
       else configuration
     )
 
-  /** Contribute the jvm base effect carrier when the effect-channel flag is on; a no-op otherwise (the default carrier
-    * path names its carrier by ordinary unification, not this config).
+  /** Contribute the jvm base effect carrier and the synthesized entry-point FQN when the effect-channel flag is on; a
+    * no-op otherwise (the default carrier path names its carrier by ordinary unification, and its synthetic main runs
+    * the carrier in Eliot source, so neither config is needed).
     */
   private def withBaseCarrier(configuration: Configuration): Configuration =
     if (configuration.getOrElse(LangPlugin.effectChannelKey, false))
-      configuration.set(LangPlugin.baseCarrierKey, JvmPlugin.baseCarrierFQN)
+      configuration
+        .set(LangPlugin.baseCarrierKey, JvmPlugin.baseCarrierFQN)
+        .set(LangPlugin.entryPointKey, SyntheticMainSourceProcessor.syntheticMainVfqn)
     else configuration
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
@@ -79,7 +82,10 @@ class JvmPlugin extends CompilerPlugin {
             OutputFileStatProcessor(),
             JvmClassGenerator(),
             JvmProgramGenerator(configuration.get(Compiler.targetPathKey).get)
-          ) ++ configuration.get(mainKey).map(SyntheticMainSourceProcessor(_)).toSeq
+          ) ++ configuration
+            .get(mainKey)
+            .map(SyntheticMainSourceProcessor(_, configuration.getOrElse(LangPlugin.effectChannelKey, false)))
+            .toSeq
         )
       )
 
