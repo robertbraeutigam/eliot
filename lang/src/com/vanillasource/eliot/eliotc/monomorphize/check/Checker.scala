@@ -946,14 +946,19 @@ class Checker(
         for {
           (argExpr, argType) <- infer(arg)
           forcedDomain       <- force(domain)
-          // Under the transitional gate, a **plain payload** parameter domain (a concrete value type, never a flex meta)
-          // routes through the uniform ladder; a flex/carrier domain keeps the default Phase-A logic (deferral + lift).
+          // Under the transitional gate, both a **plain payload** parameter domain (a concrete value type) and an
+          // **effect-carrier** domain (`?G[T]` — the ambient / a callee's `F ~ Effect` binder; a conditional arm
+          // `value: {Abort} T`, a discharger's `fallback: G[A]`) route through the uniform ladder; a bare flex generic
+          // (`fold`'s bare-`A` arm) and everything else keep the default Phase-A logic (deferral + lift).
           // Restricted to the **runtime** track, exactly as the return boundary is ([[uniformReturnRoutable]]): the §8
           // boundary keeps the compile-time track (`eliot-compiler/` value bodies, the `Either` guard discharge)
           // entirely on the default path — carrier-free — so it stays byte-identical.
-          plainDomain        <- if (uniformCarrier && platform == Platform.Runtime) uniformPlainValueType(forcedDomain)
+          uniform             = uniformCarrier && platform == Platform.Runtime
+          plainDomain        <- if (uniform) uniformPlainValueType(forcedDomain) else pure(false)
+          carrierDomain      <- if (uniform && !plainDomain) lifter.effectCarrierSplit(forcedDomain).map(_.nonEmpty)
                                 else pure(false)
           outcome            <- if (plainDomain) uniformPayloadSlot(arg, argExpr, argType, forcedDomain)
+                                else if (carrierDomain) uniformCarrierSlot(arg, argExpr, argType, forcedDomain)
                                 else defaultArgSlot(arg, argExpr, argType, forcedDomain)
         } yield outcome
     }
@@ -1030,6 +1035,48 @@ class Checker(
                                              case false => defaultArgSlot(arg, updatedExpr, instantiated, domain)
                                            }
                                          case None    => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                       }
+    } yield outcome
+
+  /** Effects-as-channel U3a-2b(ii), the conditional-arm slice (docs/effects-as-channel.md §3) — gated on
+    * [[uniformCarrier]] + `Platform.Runtime`: resolve an argument against an **effect-carrier** parameter domain
+    * (`?G[T]` — a conditional arm `if`'s `value: {Abort} T`, a discharger's `fallback: G[A]`, an effect combinator's
+    * `fa: F[A]`). The uniform-carrier property the default path lacks is that at such a slot a carrier meta must be
+    * solved by the *payload*, never stolen whole by the actual's head. Two arms, telling **pure** apart from
+    * **effectful** by the actual's own carrier ([[EffectLifter.effectCarrierSplit]]):
+    *
+    *   - **pure actual** (a plain `H[X]` value, `Id`-carried) ⇒ **pure-wrap first**
+    *     ([[EffectLifter.tryPureWrap]]): the payload `H[X]` unifies with the carrier's payload slot `?T` and the term is
+    *     `pure@Effect[?G]`-lifted, `?G` kept a meta the enclosing discharge / ambient solves (never defaulted). This
+    *     fires *before* the default ladder's `tryUnifyCommitting`, which — at equal arity (`None : Option[?E]` into
+    *     `?G[?T]`, both arity 1) — would **steal** the carrier whole (`?G := Option`) because the pure-wrap pre-arm only
+    *     triggers on a strictly *under*-applied actual. That theft is exactly why `if(c, None) else Some(x)` is rejected
+    *     on the default path; pure-wrapping first fixes it. Where the default path *does* pure-wrap (a strictly
+    *     under-applied `"+"`), this produces the identical node — byte-identical. A pure-wrap that does not fit falls
+    *     back to [[defaultArgSlot]] (which commits the mismatch).
+    *   - **effectful actual** (`?F[Unit]`, a carrier-headed sibling) ⇒ [[defaultArgSlot]]: its carrier meta unifies with
+    *     `?G` correctly (`?G := ?F`), the same as the default path — no theft hazard, so no reshaping needed.
+    *
+    * Reuses [[EffectLifter.tryPureWrap]] unchanged (reshape, not rebuild) — the clean single `pure@Effect[?G](arg)` node
+    * the default path emits, *not* the eager-heading double-wrap `pure(runId(pure@Id(arg)))`, whose inner `pure@Id`
+    * confuses the outer `pure`'s `Effect` instance resolution and mis-erases it. `if`'s `value` arm is a single slot
+    * (no pure/effectful *sibling* in one call — that is `fold`'s `Generic` case), so the full `CarrierJoin` lattice is
+    * not needed here.
+    */
+  private def uniformCarrierSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
+      argType: SemValue,
+      domain: SemValue
+  ): CheckIO[SlotOutcome] =
+    for {
+      (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
+      effectful                   <- lifter.effectCarrierSplit(instantiated).map(_.nonEmpty)
+      outcome                     <- if (effectful) defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                     else
+                                       lifter.tryPureWrap(arg, updatedExpr, instantiated, domain).flatMap {
+                                         case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+                                         case None          => defaultArgSlot(arg, updatedExpr, instantiated, domain)
                                        }
     } yield outcome
 
