@@ -226,10 +226,12 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
     }
   }
 
-  "resolveArgumentSlot at a payload slot receiving a pure actual" should "bind over the Id carrier (erased downstream)" in {
+  "resolveArgumentSlot at a payload slot receiving a pure actual" should "pass its payload directly via runId, not bind (a bind would strip an effectful core's carrier)" in {
     run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), string)) match {
-      case UniformCarrierChecker.UniformSlotOutcome.Bound(_, bind) => bind.carrier shouldBe EffectLifter.idCarrier
-      case other                                                   => fail(s"expected a Bound outcome, got $other")
+      case UniformCarrierChecker.UniformSlotOutcome.Passed(slotExpr) =>
+        (headRef(slotExpr).valueName.value, headRef(slotExpr).typeArguments, slotExpr.expressionType) shouldBe
+          (WellKnownTypes.runIdFQN, Seq(string), string)
+      case other                                                     => fail(s"expected a Passed(runId ...) outcome, got $other")
     }
   }
 

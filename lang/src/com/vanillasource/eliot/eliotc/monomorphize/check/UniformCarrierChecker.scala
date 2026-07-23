@@ -170,9 +170,15 @@ class UniformCarrierChecker(
     *     the expected carrier via [[UniformCarrierChecker.carrierSlotLift]] (`pure@Effect[?G](runId(actual))`, whose
     *     `?G` the join solves and the Id-normalizer erases when it defaults to `Id`), an already-effectful actual passes
     *     through;
-    *   - [[UniformLadder.ExpectedSlot.PayloadSlot]] ⇒ **bind**: the slot receives a fresh `$eff$N` reference at the
-    *     payload and an [[EffectLifter.Bind]] is recorded for the spine's `wrapBinds` (a bind over a bottom `Id` carrier
-    *     erases at the Id-normalizer, so a pure actual into a pure slot costs nothing).
+    *   - [[UniformLadder.ExpectedSlot.PayloadSlot]] with an **effectful** actual ⇒ **bind**: the slot receives a fresh
+    *     `$eff$N` reference at the payload and an [[EffectLifter.Bind]] is recorded for the spine's `wrapBinds` — the
+    *     effect runs at the call site (`printLine(readLine)`);
+    *   - [[UniformLadder.ExpectedSlot.PayloadSlot]] with a **pure** (`Id`, bottom) actual ⇒ **pass** its payload
+    *     directly (`runId`, erased downstream), *not* a bind. A pure actual has no effect to sequence, and binding it
+    *     would be unsound: `wrapBinds`/`bindWrap` unifies the bind's carrier with the enclosing core's, so an `Id` bind
+    *     reaching an *effectful* core (`printLine(greeting)`, core `F[Unit]`) would wrongly solve `F := Id` and strip
+    *     the effect. Passing the payload directly is what the default path does for a pure argument, and byte-identical
+    *     after the `runId` erases.
     *
     * `argType` is the actual's carrier-headed type (the elaboration invariant); the ladder never sees an un-split
     * carrier because [[Carrier.split]] peels it off before any payload unification.
@@ -200,6 +206,11 @@ class UniformCarrierChecker(
                            )
                          case (_, UniformLadder.Outcome.PassJoin(None)) =>
                            pure(UniformCarrierChecker.UniformSlotOutcome.Passed(argExpr))
+                         case (UniformLadder.ExpectedSlot.PayloadSlot(shape), UniformLadder.Outcome.Bound(Carrier.Bottom)) =>
+                           // A pure (bottom) actual passes its payload directly (`runId`) — no bind. See the doc above:
+                           // binding an `Id`-carriered actual would let `wrapBinds` unify `Id` with an effectful core's
+                           // carrier and strip the effect. The `runId` erases downstream, matching the default path.
+                           pure(UniformCarrierChecker.UniformSlotOutcome.Passed(EffectLifter.runIdNode(shape, argExpr, arg)))
                          case (UniformLadder.ExpectedSlot.PayloadSlot(shape), UniformLadder.Outcome.Bound(actualCarrier)) =>
                            freshLiftName.map { name =>
                              UniformCarrierChecker.UniformSlotOutcome.Bound(
