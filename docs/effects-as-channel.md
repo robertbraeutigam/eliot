@@ -59,10 +59,14 @@ Durable gate: `UniformCarrierByteIdenticalTest` (jvm.test) compiles a pure-value
 layer** with the flag off and on and asserts every generated class's bytes match — the *entire* base compiles
 byte-identically under the flag (every pure value return in lang/stdlib/jvm routes through the uniform boundary and
 Id-normalizes away). **SINCE THEN (see §0 "Uniform-path coverage NOW" for the current, authoritative state):** the
-argument→payload-slot case (pure args pass, effectful args bind — `527af90a`/`16a432f6`) and **every value return**
-including effect-carrier-headed (`?F[Unit]`/`IO[Unit]`, runtime track — `b35bf80c`) now route uniform, all
-byte-identical; `CarrierJoin` guards the self-join (`ead5d631`). **NEXT: the conditionals** (carrier/generic argument
-slots) — the sole remaining fallback besides the compile-time track, and the first *non-overlap* step; its crux is the
+argument→payload-slot case (pure args pass, effectful args bind — `527af90a`/`16a432f6`), **every value return**
+including effect-carrier-headed (`?F[Unit]`/`IO[Unit]`, runtime track — `b35bf80c`), and the **whole conditional
+surface** (`if`/`else`/`fold` — `IfDemo` byte-identical, `23eb785a`: return-boundary discharge-to-pure + discharger
+capture-vs-bind + `Platform.Runtime` arg-slot gate) now route uniform, all byte-identical; `CarrierJoin` guards the
+self-join (`ead5d631`). **NEXT: route the conditional ARMS through the join solver** (the 4 historical failure cases) —
+the conditional *bodies* are byte-identical, but the arms (`if`'s `{Abort} T` `CarrierSlot`, `fold`'s bare-`A`
+`Generic`) still resolve on the default ladder, so the cases the default path *rejects* still fail. This is the first
+*non-overlap* step (needs compile-succeeds tests, not byte-identical); its crux is the
 **ability-constrained-carrier finding** (§0/§10): the join solver must never default a `~ Abort`/`~ Console`-constrained
 carrier meta to `Id` (a trial that did so miscompiled `if(f,"+") else "-"` to a `VerifyError`). **Wiring finding
 (2026-07-23):** `intoCarrierHeadedTerm` (and every heading site)
@@ -129,16 +133,20 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, at U3a-2b(ii)-effect-return (commit `b35bf80c`). Green everywhere: `./mill lang.test`,
-`./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest`), HelloWorld builds+runs
-(`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
+**Where the tree is:** `master`, at U3a-2b(ii)-conditionals-byte-identical (commit `23eb785a`). Green everywhere:
+`./mill lang.test`, `./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest` — now with a conditional-surface case),
+HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
 and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
 then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The
 transitional `--uniform-carrier` gate is **live for every *value* return (pure re-carried via `Id`, effect-carrier
-passed through — runtime track) *and* the whole argument→payload-slot case (pure args pass, effectful args bind)** —
-all routed through the uniform boundary/ladder and Id-normalized back to byte-identical; a flex/carrier *domain* (the
-conditional arms) and the compile-time track fall back to the default path. `CarrierJoin` guards the carrier-meta
-self-join (a defensive prerequisite; the checker links distinct carrier metas by union, so it is not yet triggered).
+passed through, and discharge-to-pure `Id`-defaulted + `runId`-unwrapped — runtime track), the whole
+argument→payload-slot case (pure args pass, effectful args bind, effectful-that-whole-unifies **captures**), and the
+whole conditional surface (`if`/`else`/`fold` — `IfDemo` byte-identical)** — all routed through the uniform
+boundary/ladder and Id-normalized back to byte-identical; the compile-time track falls back to the default path
+(the arg-slot routing is `Platform.Runtime`-gated). The conditional **arms** still resolve on the default ladder
+(byte-identical) — routing them through the join solver (the 4 historical cases, the *non-overlap* improvement) is the
+next step. `CarrierJoin` guards the carrier-meta self-join (a defensive prerequisite; the checker links distinct carrier
+metas by union, so it is not yet triggered).
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -280,25 +288,69 @@ self-join (a defensive prerequisite; the checker links distinct carrier metas by
   (an effectful body passes through unchanged — carriers join/union; a pure body re-carries via `pure@?F`, `?F` solved
   at the entry to `IO`, never defaulted to `Id`). Byte-identical (whole-base test; probe-confirmed the `IO[Unit]` return
   routes). This supersedes slice 1's "falls back for effect-carrier-headed returns".
+- **U3a-2b(ii) conditionals byte-identical — LANDED (2026-07-23, `23eb785a`).** The whole `IfDemo` conditional surface
+  (`if`/`else`/`fold`, pure/effectful/chains/blocks/discharge-to-pure) compiles byte-identically under the flag, with the
+  conditional **bodies** on the uniform path and the **arms** still on the default ladder. Three fixes the
+  conditional-bodied programs exposed, all runtime-track: (1) `checkReturnBoundary` grew a **discharge-to-pure** arm —
+  a fully-discharged flex-carrier body (`?G[T]`) under a pure `Id` return defaults that carrier to `Id`
+  (`CarrierJoin.finalize` over the one meta) and unwraps with `runId` (`EffectLifter.runIdNode`), the successor of
+  `tryIdDefault`, so `sign(f) = if(f,"+") else "-"` drops into pure code; and it `force`s `bodyType`/`declaredReturn`
+  before `Carrier.split` (a solved-but-unforced carrier meta would else throw "not a carrier-headed runtime judgment"),
+  as does `resolveArgumentSlot`. (2) `uniformPayloadSlot` distinguishes **capture from bind**: an *effectful* actual
+  whose *whole* carrier-headed type unifies the domain is a **capture** — the domain is a carrier form / pinned stack (a
+  discharger's `computation: {Abort | G} A` ⤳ `AbortCarrier[G, A]`, `runMain`'s `IO[A]`) — so it defers to the default
+  unify-first ladder, which stores the computation whole (`?G_if := AbortCarrier[G]`). Binding it let the flex payload
+  meta *steal* the domain (`?T := AbortCarrier[..]`), inverting `if`'s carrier to the ambient `IO` and leaking the
+  discharged `Abort` (the observed `if` type args `[IO, AbortCarrier[..]]` instead of `[AbortCarrier[..], Unit]`). (3)
+  the arg-slot uniform routing is gated to `Platform.Runtime`, matching the return boundary (§8: the compile-track
+  `eliot-compiler/` bodies stay carrier-free) — fixes a compiler-track `Id.els` mismatch eliot-test hit under the flag.
+  Gate: eliot-test 11/11 byte-identical (was failing under the flag), 32/32 compiling example mains byte-identical, no
+  regressions (the 3 flag failures — `EffectsTwoDeps`/`EffectsTwoThrows`/`WherePrecondition` — fail identically at
+  baseline: pre-existing multi-layer-discharge / `where`-precondition gaps). New `UniformCarrierByteIdenticalTest`
+  conditional-surface case; `lang.test`/`jvm.test`/HelloWorld green. The conditional **arms** still resolve on the
+  default ladder — the join-solver arm routing (the 4 historical cases, the non-overlap improvement) is the next step.
 
 **Uniform-path coverage NOW (under `--uniform-carrier`, all byte-identical to the default path, runtime track):**
 
 | construct | routes uniform? | how |
 |---|---|---|
-| **value RETURN boundary** (`checkAgainst`) | **yes** — pure *and* effect-carrier | `uniformReturnBoundary` → `checkReturnBoundary`; pure re-carried via `Id` (erased), effect-carrier passed through. Gate `uniformReturnRoutable`/`uniformValueReturn`. |
-| **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — pure *and* effectful | `uniformPayloadSlot`; pure passes (`runId`), effectful binds (`wrapBinds`→`flatMap`). Gate `uniformPlainValueType(domain)`. |
-| **argument → CARRIER/GENERIC slot** (the conditional arms — `{Abort} T`, bare `A`) | **no → default** | `defaultArgSlot` (verbatim `EffectLifter`). The next step; see "Next". |
+| **value RETURN boundary** (`checkAgainst`) | **yes** — pure, effect-carrier, *and* discharge-to-pure | `uniformReturnBoundary` → `checkReturnBoundary`; pure re-carried via `Id` (erased), effect-carrier passed through, a fully-discharged flex `?G[T]` body under a pure return `Id`-defaulted + `runId`-unwrapped (tryIdDefault's successor). Gate `uniformReturnRoutable`/`uniformValueReturn`. |
+| **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — pure passes, effectful binds, effectful-that-whole-unifies **captures** | `uniformPayloadSlot`; pure passes (`runId`), effectful binds (`wrapBinds`→`flatMap`), an effectful actual whose *whole* carrier-headed type unifies the domain (a discharger's `{Abort\|G} A` ⤳ `AbortCarrier[G,A]` capture slot, a pinned/`runMain` `IO[A]`) defers to the default unify-first ladder (**capture**, never bind — binding would steal the domain into the flex payload). Gate `uniformPlainValueType(domain)` + `Platform.Runtime`. |
+| **conditional bodies** (`if`/`else`/`fold` — return boundary + discharger capture + arms) | **yes** — byte-identical | The whole `IfDemo` surface compiles byte-identically: return boundary + capture route uniform; the **arms** (`if`'s `{Abort} T` `CarrierSlot`, `fold`'s bare-`A` `Generic`) still resolve on the default (byte-identical) `defaultArgSlot` ladder. |
+| **argument → CARRIER/GENERIC arm through the JOIN SOLVER** (the 4 historical failure cases) | **no → default** | `defaultArgSlot` (verbatim `EffectLifter`). Routing the arms through the join-solver ladder — the *non-overlap* improvement that fixes cases the default path rejects — is the next step; see "Next". |
 | function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary. |
 
 Every routed case inserts `pure@Id`/`runId`/`flatMap@Id` that the Id-normalization stage erases, so the emitted bytecode
 equals the default's. **The wiring lives in `Checker.scala`** (the gated `uniform*` helpers + the `defaultArgSlot` /
-`checkAgainstDefault` verbatim fallbacks) + `UniformCarrierChecker.scala` (the bridge, incl. the pure-actual-passes fix)
-+ `CarrierJoin.scala` (self-join guard); the durable gate is `jvm/test/.../UniformCarrierByteIdenticalTest.scala`
-(whole base + a `label(readLine)` program, flag off vs on, class-bytes equal). `finalizeAndMaterialize` is built but
-**uncalled** (it defaults unsolved carrier metas to `Id` — which the finding shows must *not* happen for
-ability-constrained metas; it is wired only when the conditionals land).
+`checkAgainstDefault` verbatim fallbacks; the arg-slot routing gated to `Platform.Runtime`) + `UniformCarrierChecker.scala`
+(the bridge: `checkReturnBoundary` with its three arms incl. discharge-to-pure, the pure-actual-passes fix, `force`
+before every `Carrier.split`) + `CarrierJoin.scala` (self-join guard); the durable gate is
+`jvm/test/.../UniformCarrierByteIdenticalTest.scala` (whole base + `label(readLine)` *and* the conditional surface
+`if`/`else`/`fold`/discharge-to-pure, flag off vs on, class-bytes equal). `finalizeAndMaterialize` is built but
+**uncalled** (it defaults unsolved carrier metas to `Id` — which the miscompile finding shows must *not* happen for
+ability-constrained metas; it is wired only when the arms route through the join solver).
 
-**Next: U3a-2b(ii) — carrier/generic slots (the conditionals).** **Corrected understanding (2026-07-23):** conditionals
+**Conditional surface — byte-identical LANDED (2026-07-23, `23eb785a`).** The whole `IfDemo` (every `if`/`else`/`fold`
+form: pure, effectful, chains, blocks, discharge-to-pure) now compiles byte-identically under `--uniform-carrier`, with
+the conditional **bodies** routed through the *existing* uniform return-boundary + payload/capture slots and the
+**arms** still on the default (byte-identical) `defaultArgSlot` ladder. Three fixes made it work: (1) `checkReturnBoundary`
+grew the **discharge-to-pure** arm (`?G[T]` flex body under a pure `Id` return ⇒ default the carrier to `Id`, unwrap
+with `runId` — the successor of `tryIdDefault`) and now `force`s before `Carrier.split`; (2) `uniformPayloadSlot`
+distinguishes **capture from bind** (an effectful actual whose whole carrier-headed type unifies the domain — a
+discharger's `AbortCarrier[G,A]` slot — defers to the default unify-first ladder, which *captures* it; binding stole the
+domain into the flex payload and inverted `if`'s carrier to the ambient `IO`, leaking the discharged `Abort`); (3) the
+arg-slot uniform routing is gated to `Platform.Runtime` (matching the return boundary; keeps the compile-track
+`eliot-compiler/` bodies carrier-free — §8). eliot-test 11/11 byte-identical (was failing under the flag), 32/32
+compiling example mains byte-identical, no regressions (the 3 remaining flag failures — `EffectsTwoDeps`,
+`EffectsTwoThrows`, `WherePrecondition`: pre-existing multi-layer-discharge / `where`-precondition gaps, fail identically
+at baseline). Durable `UniformCarrierByteIdenticalTest` conditional case added.
+
+**Next: U3a-2b(ii) — route the conditional ARMS through the join solver (the 4 historical failure cases).** The
+non-overlap improvement: the arms currently resolve on the default ladder (byte-identical), so the 4 cases the default
+path *rejects* still fail. Routing `if`'s `CarrierSlot` arm through `carrierSlotLift` + the join solver, and `fold`'s
+`Generic` arm through pass-through, fixes them — **needs compile-succeeds tests, not byte-identical**, and must handle
+the ability-constrained-carrier crux below (never default a `~ Abort` carrier meta to `Id`). **Corrected understanding
+(2026-07-23):** conditionals
 are ordinary functions — `fold[A](c: Bool, whenTrue: A, whenFalse: A): A` (bare-`A` arms ⇒ `Generic` slots, both arms
 must already match, no auto-lift) and `if[T](c: Bool, value: {Abort} T): {Abort} T = fold(c, value, abort)` (the arm is
 declared `{Abort} T` = `?G[T]` ⇒ a **`CarrierSlot`**, so a pure arm auto-lifts). So `if`'s arms are `CarrierSlot`s
@@ -1027,8 +1079,17 @@ before anything leans on it), the foundation spike second, the checker refactor 
     a pure body re-carries via `pure@?F`, `?F` solved at the entry to `IO`, never defaulted to `Id`). Byte-identical
     (whole-base test; probe-confirmed the `IO[Unit]` return routes). The remaining fallback is the conditional arms (a
     flex/carrier *domain*) and the compile-time track.
-    **NEXT is the conditionals** (above) — the join solver respecting ability-constrained carrier metas; needs
-    compile-succeeds tests. The coupled
+  - **U3a-2b(ii) conditionals byte-identical — LANDED (2026-07-23, `23eb785a`).** The whole `IfDemo` conditional surface
+    (`if`/`else`/`fold`) compiles byte-identically under the flag: conditional **bodies** on the uniform path (return
+    boundary + discharger capture), **arms** still on the default ladder. Three fixes (full detail in the §0 "conditionals
+    byte-identical — LANDED" bullet): (1) `checkReturnBoundary`'s **discharge-to-pure** arm (`?G[T]` flex body under a
+    pure `Id` return ⇒ `Id`-default + `runId`) + `force` before every `Carrier.split`; (2) `uniformPayloadSlot`
+    **capture-vs-bind** (an effectful actual whole-unifying the domain — a discharger's `AbortCarrier[G,A]` slot — is a
+    capture, deferred to the default unify-first ladder, never bound); (3) arg-slot routing gated to `Platform.Runtime`
+    (compile-track bodies stay carrier-free, §8). eliot-test 11/11 byte-identical (was failing under the flag), 32/32
+    example mains byte-identical, no regressions.
+    **NEXT: route the conditional ARMS through the join solver** (above) — the 4 historical failure cases, respecting
+    ability-constrained carrier metas; needs compile-succeeds tests, not byte-identical. The coupled
     `desugarChannel`/accounting deletion stays on the `--effect-channel` gate and is untangled at U4 (this transitional
     gate sidesteps it).
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
