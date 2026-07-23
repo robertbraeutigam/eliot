@@ -33,15 +33,23 @@ behavior-preserving refactor of `tryPureWrap`/`tryIdDefault`) and reused (reshap
 `UniformCarrierChecker.resolveArgumentSlot` (the node-producing successor of the checker's `checkArgumentSlot`:
 classify ⤳ ladder ⤳ build the slot node — Generic pass-through / CarrierSlot pass-join with a pure actual
 re-carried by `carrierSlotLift` = `pure@Effect[?G](runId(actual))` / PayloadSlot bind via `EffectLifter.Bind`),
-returning a `UniformSlotOutcome` that mirrors the checker's `SlotOutcome`. Still unit-tested in isolation, still
-not called by the `Checker` — default path byte-identical (verified incl. eliot-test 11/11). **NEXT: U3a-2b(ii)
-— the spine-loop flip**: construct `UniformCarrierChecker` in the `Checker`, route the spine slots
-(`checkArgumentSlot`/`resolveDeferredSlot`/`checkAgainst`) through `resolveArgumentSlot` + the join solver under
-the flag (replacing Phase A/B + `tryIdDefault`-as-an-arm), and carrier-head `infer` at the boundaries via
-`intoCarrierHeaded`, untangling the coupled `desugarChannel`/accounting deletion together (U3a/U3c). Commit trail
-(on `master`): U2 spike `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`,
-U3a-2a `455575bb`, U3a-2b(i) `e1445031`; the tree is green (`lang.test`/`jvm.test`, HelloWorld, eliot-test
-11/11).** The §13 fork raised during the Phase-3
+returning a `UniformSlotOutcome` that mirrors the checker's `SlotOutcome`. U3a-2b(i+) LANDED (2026-07-23): the
+**bridge surface is now complete** — `intoCarrierHeadedTerm` (the eager term-level dual: a pure term's value
+`expr:T` ⤳ `pure@Effect[Id](expr):Id[T]`) and `checkReturnBoundary` (the uniform `checkAgainst`: join the body's
+carrier to the declared return's, pure body re-carried by `carrierSlotLift`, erased at `Id`) added, so the flip is
+pure wiring. Still isolation-tested, still not called by the `Checker` — default path byte-identical. **NEXT:
+U3a-2b(ii) — the spine-loop flip**, but it is a **non-partitionable bundle** (finding, §0/§10): `desugarChannel`
+makes effectful programs *look pure*, so no per-value gate can grow the uniform path under `--effect-channel`
+without disturbing the kept effect-blind tests — the flip must land `desugarChannel`-removal + uniform-checker +
+`AbilityResolver`-abstain-removal + `EffectAccounting` re-point + `EffectChannelDesugarTest` delete +
+`EffectAccountingTest`→jvm together (kept green by the uniform checker binding the effect-poly value's carrier).
+Reframing: the default checker *already* compiles effectful carrier-desugared programs, so the uniform checker's
+job is to **match** it (byte-identical gate). **Recommended: a transitional `--uniform-carrier` gate** distinct
+from `--effect-channel`, so the uniform checker grows on default carrier-desugared input, compared byte-identical,
+decoupled from the `desugarChannel`/accounting knot until U4. Commit trail (on `master`): U2 spike `6fc17e99`,
+U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a `455575bb`, U3a-2b(i) `e1445031`,
+U3a-2b(i+) `ec46b7fa`; the tree is green (`lang.test`/`jvm.test`, HelloWorld, eliot-test 11/11).** The §13 fork
+raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -156,9 +164,47 @@ then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-
     Id-normalizer erases at `Id`); `PayloadSlot` **binds** (fresh `$eff$N` reference + `EffectLifter.Bind` for
     the spine's `wrapBinds` — a bind over a bottom `Id` carrier erases, so a pure actual into a pure slot costs
     nothing). Returns a `UniformSlotOutcome` (`Passed`/`Bound`) mirroring the checker's `SlotOutcome`.
+- **U3a-2b(i+) (bridge surface complete) — LANDED.** The last two primitives the spine flip will call, so
+  U3a-2b(ii) becomes pure wiring (additive, default path byte-identical):
+  - `intoCarrierHeadedTerm(expr, source)` — the eager **term-level** dual of `intoCarrierHeaded`: a pure term's
+    *value* `expr : T` ⤳ `pure@Effect[Id, T](expr) : Id[T]` (via the extracted `pureWrapNode`), leaving an
+    already-carrier-headed or `VType` term unchanged. `infer` applies it to its pure leaves so every judgment is
+    carrier-headed.
+  - `checkReturnBoundary(bodyExpr, bodyType, declaredReturn, source)` — the uniform successor of `checkAgainst`:
+    `intoCarrierHeaded` the declared return, the body's carrier **joins** it + payloads unify, a **pure** body
+    re-carried via `carrierSlotLift` (erased at `Id`). An effectful body against a pure (`Id`) return leaves its
+    carrier to default to `Id`, where the effect op's `Id` instance fails to resolve — the loud fail-safe, as on
+    the default path.
+  The bridge is now feature-complete: `intoCarrierHeaded` (type) + `intoCarrierHeadedTerm` (term) +
+  `classifyExpectedSlot` + `resolveArgumentSlot` (+ extracted node mechanics) + `checkReturnBoundary` +
+  `finalizeAndMaterialize`.
 
 **Next: U3a-2b(ii) — the spine-loop flip.** Construct `UniformCarrierChecker` in the `Checker` and route the
-spine slots through it under `--effect-channel`. The honest big step (§11). Start points and constraints:
+spine slots + return boundaries through the (now complete) bridge. The honest big step (§11).
+
+**KEY FINDING (2026-07-23) — the flip is a non-partitionable bundle; it cannot be grown per-value under the
+existing `--effect-channel` flag.** Two facts force this:
+1. **The flip *keeps* the carrier desugar and removes only `desugarChannel`'s effect-*blinding*.** `{Console}
+   Unit` still desugars to `F[Unit]` (F ambient) exactly as on the default path — so the default checker *already*
+   compiles effectful programs on carrier-desugared input, and the uniform checker's job is to **match** it (the
+   byte-identical/shadow gate compares uniform-under-flag vs default). This is a *matching* problem against a
+   working reference, not from-scratch effectful compilation.
+2. **`desugarChannel` makes effectful programs *look pure*** (it strips `{Console}` → `main : Unit` with an
+   abstract `printLine`). So under `--effect-channel` no per-value gate (e.g. "engage the uniform path only for
+   `ambientCarriers.isEmpty`") can separate a genuinely-pure value from an effect-blinded one — the effect-blinded
+   `main` has no ambient carrier either. Any uniform-spine-under-`--effect-channel` therefore disturbs the
+   effect-blind path the kept flag-on tests exercise. The two behaviors cannot coexist under one flag.
+   Consequently the flip must land as one bundle: **stop `desugarChannel` effect-blinding + switch the checker to
+   uniform + stop the `AbilityResolver` abstain + re-point `EffectAccounting` + delete `EffectChannelDesugarTest`
+   (it pins the deleted effect-blindness) + relocate `EffectAccountingTest` to jvm** — all together, kept green by
+   the uniform checker binding the effect-poly value's carrier (which is what makes it monomorphize once
+   `desugarChannel` no longer blinds it). **Recommended de-risking: a transitional `--uniform-carrier` gate**
+   distinct from `--effect-channel`, so the uniform checker grows on the *default* carrier-desugared input (no
+   `desugarChannel`, normal ability resolution — `--effect-channel` off) and is compared byte-identical against the
+   default path, leaving `--effect-channel` and its tests untouched until U4 unifies them. This turns the bundle
+   back into an incrementally-green sequence.
+
+Start points and constraints:
 - **Where it lives:** the checker chain `monomorphize/processor/MonomorphicTypeCheckProcessor` →
   `monomorphize/check/TypeStackLoop` → `monomorphize/check/Checker` (~1000 lines) + the unifier
   `monomorphize/unify/Unifier` + the domain `monomorphize/domain/SemValue`. The `effectChannel` flag is
