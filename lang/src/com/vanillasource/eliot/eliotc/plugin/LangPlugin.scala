@@ -11,7 +11,8 @@ import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   effectChannelKey,
   eliotCompilerOverlay,
   mountFactory,
-  pathKey
+  pathKey,
+  uniformCarrierKey
 }
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -52,6 +53,15 @@ class LangPlugin extends CompilerPlugin {
       .text(
         "EXPERIMENTAL: the effects-as-channel uniform-carrier path (docs/effects-as-channel.md). Currently inert; " +
           "off by default."
+      ),
+    // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the transitional `--uniform-carrier` gate, distinct
+    // from `--effect-channel`. Under it the uniform-carrier spine grows on the *default* carrier-desugared input,
+    // compared byte-identical against the default path (no `desugarChannel`). Off by default; the live path is unchanged.
+    opt[Unit]("uniform-carrier")
+      .action((_, config) => config.set(uniformCarrierKey, true))
+      .text(
+        "EXPERIMENTAL: grow the effects-as-channel uniform-carrier checker on default carrier-desugared input " +
+          "(docs/effects-as-channel.md). Off by default."
       )
   )
 
@@ -94,7 +104,8 @@ class LangPlugin extends CompilerPlugin {
               // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
               // initialize, so the roster is already final here.
               configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
-            effectChannel = configuration.getOrElse(effectChannelKey, false)
+            effectChannel = configuration.getOrElse(effectChannelKey, false),
+            uniformCarrier = configuration.getOrElse(uniformCarrierKey, false)
           )
         )
       )
@@ -116,6 +127,13 @@ object LangPlugin {
     * checker and the post-mono effect accounting. Absent (the default) is the live carrier-based path.
     */
   val effectChannelKey: Configuration.Key[Boolean] = namedKey[Boolean]("effectChannel")
+
+  /** The transitional `--uniform-carrier` gate (docs/effects-as-channel.md §0/§10, U3a-2b), distinct from
+    * [[effectChannelKey]]. Under it the uniform-carrier checker grows on the *default* carrier-desugared input, compared
+    * byte-identical against the default path (no `desugarChannel`), decoupled from the `--effect-channel` accounting knot
+    * (U3-0b) until U4 unifies the flags. Absent (the default) is the live carrier-based path.
+    */
+  val uniformCarrierKey: Configuration.Key[Boolean] = namedKey[Boolean]("uniformCarrier")
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly

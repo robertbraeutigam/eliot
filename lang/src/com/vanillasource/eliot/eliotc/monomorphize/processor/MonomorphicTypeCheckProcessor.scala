@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
   * work. Reads the [[SaturatedValue]] (the operator-resolved value with parameter-position bare omittable references
   * generalized into explicit generic binders), not the raw `OperatorResolvedValue`.
   */
-class MonomorphicTypeCheckProcessor(effectChannel: Boolean = false)
+class MonomorphicTypeCheckProcessor(effectChannel: Boolean = false, uniformCarrier: Boolean = false)
     extends TransformationProcessor[SaturatedValue.Key, MonomorphicValue.Key](key => SaturatedValue.Key(key.vfqn)) {
 
   private def fetchBinding(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
@@ -46,7 +46,8 @@ class MonomorphicTypeCheckProcessor(effectChannel: Boolean = false)
                              track = Track.Runtime,
                              reduceInstance = ReducedBindingClosure.reduceInstance(_, _),
                              injectedSignature = injectedSignature,
-                             effectChannel = effectChannel
+                             effectChannel = effectChannel,
+                             uniformCarrier = uniformCarrier
                            )
     } yield MonomorphicValue(
       key.vfqn,

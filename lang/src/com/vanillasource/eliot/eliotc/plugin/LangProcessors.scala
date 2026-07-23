@@ -68,6 +68,10 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     uniform checker grows (U3); off by default. Threaded to the checker
   *     ([[com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor]]) and the post-mono
   *     effect accounting ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]).
+  *   - `uniformCarrier` — the transitional `--uniform-carrier` gate (docs/effects-as-channel.md §0/§10, U3a-2b), distinct
+  *     from `effectChannel`. Under it the uniform-carrier spine grows on the *default* carrier-desugared input, compared
+  *     byte-identical against the default path (no `desugarChannel`), decoupled from the `effectChannel` accounting knot
+  *     until U4 unifies the flags. Off by default; threaded to both mono checkers (runtime + compiler tracks).
   *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
   *     this base one (e.g. stdlib's arithmetic natives,
   *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
@@ -81,7 +85,8 @@ object LangProcessors {
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
       extraNativeBindingLabels: Seq[String] = Seq.empty,
-      effectChannel: Boolean = false
+      effectChannel: Boolean = false,
+      uniformCarrier: Boolean = false
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
@@ -112,8 +117,8 @@ object LangProcessors {
       ContributedBinding.langNativeLabels ++ extraNativeBindingLabels,
       ContributedBinding.userLabels
     ),
-    MonomorphicTypeCheckProcessor(effectChannel),
-    CompilerMonomorphicTypeCheckProcessor(effectChannel),
+    MonomorphicTypeCheckProcessor(effectChannel, uniformCarrier),
+    CompilerMonomorphicTypeCheckProcessor(effectChannel, uniformCarrier),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(effectChannel),
     WovenValueProcessor(),

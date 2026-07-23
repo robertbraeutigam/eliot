@@ -38,7 +38,13 @@ class Checker(
     // Effects-as-channel Phase 3 (docs/effects-as-channel.md §10): the effect-blind checker. Threaded to
     // [[AbilityResolver]] so effect-ability method references (whose carrier the desugar erased) are left unresolved for
     // the downstream weaver rather than aborting as failed demands. Off by default — the carrier-based path is unchanged.
-    effectChannel: Boolean = false
+    effectChannel: Boolean = false,
+    // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the transitional `--uniform-carrier` gate, distinct
+    // from `--effect-channel`. Under it the uniform-carrier spine ([[uniformChecker]]) grows on the *default*
+    // carrier-desugared input (no `desugarChannel`, ordinary ability resolution), compared byte-identical against the
+    // default path, decoupled from the `--effect-channel` `desugarChannel`/accounting knot (U3-0b) until U4 unifies the
+    // flags. Off by default — the live carrier-based path is unchanged.
+    uniformCarrier: Boolean = false
 ) {
 
   /** The track's platform — fact keys read it off the [[track]] rather than threading a bare [[Platform]]. */
@@ -77,6 +83,18 @@ class Checker(
     * immediately-applied-lambda `let` rule ([[typeImmediateLambda]]). See [[EffectLifter]].
     */
   private[check] val lifter: EffectLifter = new EffectLifter(force, doUnify)
+
+  /** The **uniform-carrier** checker-side bridge (docs/effects-as-channel.md §3, U3a): the successor spine mechanism —
+    * carrier-headed judgments, the classify-by-expected-slot ladder, and the join solver — consulted only under the
+    * transitional `--uniform-carrier` gate ([[uniformCarrier]]). Built and unit-tested in isolation
+    * ([[UniformCarrierCheckerTest]]); the spine-loop flip (U3a-2b(ii)) routes the argument slots, the pure-leaf heading,
+    * and the return boundary through it. Its node splicing reuses [[EffectLifter]]'s `pureWrapNode`/`bindWrap` mechanics
+    * (reshape, not rebuild), so uniform-path and default-path binders share the one `$eff$N` counter. Constructed
+    * unconditionally (cheap — two function references) but never called while [[uniformCarrier]] is off, so the default
+    * path is byte-identical.
+    */
+  private[check] val uniformChecker: UniformCarrierChecker =
+    new UniformCarrierChecker(force, lifter.effectCarrierSplit)
 
   /** Exact effect *verification*: the monomorphize-phase subset check that
     * a value's residual effects (those demanded on its own ambient carrier) are declared — the sole authority, having
