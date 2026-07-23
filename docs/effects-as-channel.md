@@ -2,8 +2,9 @@
 
 Status: **DESIGN + Phases 1–2 landed + Phase 3 in progress behind `--effect-channel`** (dark plumbing
 → shadow accounting → the gated effect-blind path: desugar/checker, real accounting, weaver slice 1,
-codegen redirect to the woven fact, base-carrier wired — only the entry-point rework remains for a
-running HelloWorld).
+codegen redirect to the woven fact, base-carrier wired, entry-point rework — **a single-operation
+`Console` program (HelloWorld) now compiles and runs end-to-end under the flag**; control effects and
+nested/multi-op effectful terms are the next slices).
 The carrier-based elaboration in `monomorphize/check` (`EffectLifter`, `EffectResidualChecker`,
 ambient-carrier tracking) is still the live **default** path and drives compilation unchanged; the
 channel path exists only under the `--effect-channel` flag (developer-only until a program runs
@@ -107,28 +108,35 @@ Concretely:
   behaviour-neutral: verified byte-identical across `lang.test`, `jvm.test`, and the example mains (HelloWorld and the
   effect/state/throw/discharge examples build and run unchanged).
 
-  The **base-carrier config is now wired** (the next §6 slice): `LangPlugin.baseCarrierKey` carries the platform's
-  runtime base effect carrier, read in `LangPlugin.initialize` and passed to `LangProcessors(baseCarrier = …)` exactly
-  the way `effectChannel` is; `JvmPlugin.configure` contributes `JvmPlugin.baseCarrierFQN` (`eliot.jvm.IO::IO`,
-  `Qualifier.Type`) to it *under the flag only*, so `LangPlugin` stays platform-agnostic and never names a carrier.
-  Behaviour-neutral off the flag (the key is unset → `baseCarrier` `None` → identity weave). With it on, compiling
-  HelloWorld now reaches — and fails **only at** — the entry point: the synthetic main's
-  `apply(block(HelloWorld::main), unit)` can't type-check effect-blind (`block` expects `IO[Unit]`, the effect-blind
-  user main is `Unit`), which confirms the carrier reaches the weaver and isolates the last blocker to the entry point.
+  The **base-carrier config is wired**: `LangPlugin.baseCarrierKey` carries the platform's runtime base effect carrier,
+  read in `LangPlugin.initialize` and passed to `LangProcessors(baseCarrier = …)` exactly the way `effectChannel` is;
+  `JvmPlugin.configure` contributes `JvmPlugin.baseCarrierFQN` (`eliot.jvm.IO::IO`, `Qualifier.Type`) to it *under the
+  flag only*, so `LangPlugin` stays platform-agnostic and never names a carrier. Behaviour-neutral off the flag (the key
+  is unset → `baseCarrier` `None` → identity weave).
 
-  **Remaining for a *running* program under the flag (multi-part):** the **entry-point rework** and the woven node
-  types it needs. The `block(main)` failure above is the crux: the run-boundary `apply(block(main), unit)` can only be
-  built *post-weave* (the effect-blind checker can never connect the user main to `IO`), it needs the platform's carrier
-  FQNs (`block` — a jvm detail, so "run an IO" semantics belong to the jvm backend, not lang's weaver), and it needs
-  **precise carrier-headed node types on the woven body** (the woven reference to the effectful user main must be typed
-  `IO[Unit]`, not the effect-blind `Unit`) so the surrounding spine and codegen descriptors agree — today the bootstrap
-  `INVOKESTATIC main.main()Ljava/lang/Void;` (`JvmClassGenerator.createApplicationMain`, result type hardcoded to
-  `systemUnitValue`) assumes `main::main : Unit`. Also: `main::main`, referencing the effectful user main without a
-  declared row, is a channel-accounting leak (the shadow already flags it `channel=reject`), so the entry needs an
-  accounting exemption (it is the run/discharge boundary). Beyond the entry: `flatMap`/`pure` insertion (nested
-  effectful args, blocks — not needed for the single-op HelloWorld) and control-effect carrier stacks
-  (`weave key = mono key × stack`). Until the entry lands the flag stays developer-only (per the fail-safe rule it can
-  never become default before the whole reachable program is verified and woven end-to-end).
+  The **entry-point rework is done, and a single-operation `Console` program runs end-to-end under the flag.** The
+  run-boundary `apply(block(main), unit)` can only be built *post-weave* — the effect-blind checker never connects the
+  user main to `IO` — so: (1) the jvm layer gains an ordinary Eliot `runMain[A](io: IO[A]): A = apply(block(io), unit)`
+  in `IO.els` (its `io: IO[A]` parameter is concrete, untouched by the effect-blind desugar, so it type-checks on both
+  paths; it inlines in codegen); (2) under the flag `SyntheticMainSourceProcessor` emits the synthetic main as a **bare
+  reference** `def main: Unit = <userMain>` (type-checks `Unit = Unit`), not `apply(block(main), unit)`; (3) the weaver
+  recognises the entry value (`LangPlugin.entryPointKey`, set by `JvmPlugin.configure` to the synthetic main FQN under
+  the flag, threaded like `baseCarrier`) and wraps its woven `IO[Unit]` user-main reference in `<carrier module>::runMain`,
+  giving that one reference a precise carrier-headed type. The entry stays pure `Unit` (it runs and returns `Unit`), so
+  the launcher and codegen are unchanged — no `JvmClassGenerator` change, the bootstrap still
+  `INVOKESTATIC main.main()Ljava/lang/Void;`. Verified: `HelloWorld --effect-channel` builds and prints `Hello World!`;
+  the `main` class is `INVOKESTATIC HelloWorld.main()->IO` then `INVOKESTATIC eliot/jvm/IO.runMain$Unit(IO)->Void` (the
+  woven run-boundary — `printLine` was resolved to `Console[IO]::printLine` inside the woven user main, which is why it
+  returns an `IO`). Off the flag: HelloWorld runs, `lang.test`/`jvm.test` green.
+
+  **Remaining under the flag (next slices):** **control effects** (`State`/`Throw`/`Abort` need the control-effect
+  carrier stacks — `weave key = mono key × stack`) and **nested/multi-operation effectful terms** (`printLine(readLine)`,
+  blocks — need `flatMap`/`pure` insertion; not exercised by the single-op HelloWorld). Also a **latent accounting
+  leak**: the entry `main::main` references the effectful user main without a declared row, so channel accounting would
+  flag it `channel=reject` (the shadow already does) — harmless today (nothing demands `EffectAccounting` in a jar
+  build), but when accounting is wired to auto-run the entry needs the discharge/reify subtraction or an explicit
+  exemption (it is the run/discharge boundary). The flag stays developer-only until the whole reachable program is
+  verified and woven end-to-end for the general case.
 
 - **Phase 3 remaining slices + Phases 4–5 — not started.** The weaver's remaining work (bind/`pure` insertion,
   precise woven node types, control-effect weave-key stacks, and
@@ -464,12 +472,13 @@ tracks are green.
     `LangProcessors(baseCarrier = …)`; `JvmPlugin.configure` sets it to `eliot.jvm.IO::IO` under the flag. With
     it on, HelloWorld reaches and fails only at the entry point (`block(main)` wants `IO[Unit]`, effect-blind
     `main` is `Unit`), isolating the last blocker; see §0/§6.
-  - **3a (remaining).** the **entry-point rework** to a *running* program: build the run-boundary
-    `apply(block(main), unit)` post-weave (the jvm backend owns "run an IO"), give the woven reference to the
-    effectful main its carrier-headed type (`IO[Unit]`) so codegen descriptors agree, and exempt the entry
-    `main::main` from channel accounting (it is the run/discharge boundary). `flatMap`/`pure` insertion and
-    control-effect stacks are not needed for the single-op HelloWorld. HelloWorld/Console examples green under
-    the flag.
+  - **§6 entry-point rework (landed) — HelloWorld runs under the flag.** The run-boundary is built post-weave: the
+    jvm layer ships `runMain[A](io: IO[A]): A = apply(block(io), unit)` (ordinary Eliot), the synthetic main becomes a
+    bare user-main reference under the flag, and the weaver (`LangPlugin.entryPointKey`) wraps the entry's woven
+    `IO[Unit]` reference in `runMain`, giving it a precise carrier-headed type. The entry stays pure `Unit`, so codegen
+    and the launcher are unchanged. `HelloWorld --effect-channel` prints `Hello World!`; off-flag green. See §0/§6.
+  - **3a (remaining).** the **rest of** a *running* program for the general case: `flatMap`/`pure` insertion (nested
+    effectful args, blocks — `printLine(readLine)`), and the entry accounting exemption once accounting is auto-run.
   - **3b** control effects, reify points, dischargers, weave keys threaded through
     `used`/`uncurry`/codegen (mangling gains the stack component).
   - **3c** higher-order: parameter rows, `Effect`-transparent positions (`foreach`), lambdas,
