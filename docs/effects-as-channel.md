@@ -2,9 +2,10 @@
 
 Status: **DESIGN + Phases 1–2 landed + Phase 3 in progress behind `--effect-channel`** (dark plumbing
 → shadow accounting → the gated effect-blind path: desugar/checker, real accounting, weaver slice 1,
-codegen redirect to the woven fact, base-carrier wired, entry-point rework — **a single-operation
-`Console` program (HelloWorld) now compiles and runs end-to-end under the flag**; control effects and
-nested/multi-op effectful terms are the next slices).
+codegen redirect to the woven fact, base-carrier wired, entry-point rework, **bind/`pure` insertion** —
+**sequenced `Console` programs (nested effectful args, blocks, effectful `val` bindings) compile and run
+end-to-end under the flag**; control effects, pure-strict-nested effects, and effectful conditionals are
+the next slices).
 The carrier-based elaboration in `monomorphize/check` (`EffectLifter`, `EffectResidualChecker`,
 ambient-carrier tracking) is still the live **default** path and drives compilation unchanged; the
 channel path exists only under the `--effect-channel` flag (developer-only until a program runs
@@ -129,14 +130,28 @@ Concretely:
   woven run-boundary — `printLine` was resolved to `Console[IO]::printLine` inside the woven user main, which is why it
   returns an `IO`). Off the flag: HelloWorld runs, `lang.test`/`jvm.test` green.
 
+  The **bind/`pure` insertion is done for strict consumers** — the post-mono monadic translation that reintroduces the
+  sequencing the effect-blind checker drops. `WovenValueProcessor.weave` now monadifies an effectful value's body: an
+  effectful argument to a *strict* consumer is bound with `flatMap`, a pure value reaching the carrier is wrapped in
+  `pure`, both resolved at the base carrier's `Effect` instance exactly like a user effect operation
+  (`WellKnownTypes.effectFlatMapFQN`/`effectPureFQN` → impl at `[IO]`). It is a CBV translation (a `StateT` counter mints
+  fresh `$weave$N` binders): block-desugared applied lambdas sequence via `flatMap` reusing the lambda's binder;
+  effect-op/effectful-function-headed spines bind their effectful arguments left-to-right; each inserted node is stamped
+  its carrier-headed type so codegen descriptors line up. **Fail-safe scope:** only strict consumers are monadified — a
+  *pure-headed* spine (`concat`, and crucially the lazy `fold`/`if`) is left structural and `pure`-wrapped, so a
+  conditional's arms are never both eagerly run; an unhandled shape crashes at runtime, never silently computes the wrong
+  answer. Verified under the flag: `printLine(readLine)` echoes stdin, a two-statement `Console` block prints both lines,
+  `val name = readLine; printLine(name); printLine(name)` sequences and reuses the binding; HelloWorld unchanged. Off the
+  flag neutral (`weave` unreached): `lang.test`/`jvm.test` green.
+
   **Remaining under the flag (next slices):** **control effects** (`State`/`Throw`/`Abort` need the control-effect
-  carrier stacks — `weave key = mono key × stack`) and **nested/multi-operation effectful terms** (`printLine(readLine)`,
-  blocks — need `flatMap`/`pure` insertion; not exercised by the single-op HelloWorld). Also a **latent accounting
-  leak**: the entry `main::main` references the effectful user main without a declared row, so channel accounting would
-  flag it `channel=reject` (the shadow already does) — harmless today (nothing demands `EffectAccounting` in a jar
-  build), but when accounting is wired to auto-run the entry needs the discharge/reify subtraction or an explicit
-  exemption (it is the run/discharge boundary). The flag stays developer-only until the whole reachable program is
-  verified and woven end-to-end for the general case.
+  carrier stacks — `weave key = mono key × stack`); **effects nested under a pure strict function**
+  (`printLine("a" ++ readLine)`) and **effectful conditionals** (both left structural today — a crash, not a wrong
+  answer). Also a **latent accounting leak**: the entry `main::main` references the effectful user main without a
+  declared row, so channel accounting would flag it `channel=reject` (the shadow already does) — harmless today (nothing
+  demands `EffectAccounting` in a jar build), but when accounting is wired to auto-run the entry needs the
+  discharge/reify subtraction or an explicit exemption (it is the run/discharge boundary). The flag stays developer-only
+  until the whole reachable program is verified and woven end-to-end for the general case.
 
 - **Phase 3 remaining slices + Phases 4–5 — not started.** The weaver's remaining work (bind/`pure` insertion,
   precise woven node types, control-effect weave-key stacks, and
@@ -477,8 +492,13 @@ tracks are green.
     bare user-main reference under the flag, and the weaver (`LangPlugin.entryPointKey`) wraps the entry's woven
     `IO[Unit]` reference in `runMain`, giving it a precise carrier-headed type. The entry stays pure `Unit`, so codegen
     and the launcher are unchanged. `HelloWorld --effect-channel` prints `Hello World!`; off-flag green. See §0/§6.
-  - **3a (remaining).** the **rest of** a *running* program for the general case: `flatMap`/`pure` insertion (nested
-    effectful args, blocks — `printLine(readLine)`), and the entry accounting exemption once accounting is auto-run.
+  - **§6 bind/`pure` insertion (landed) — sequenced `Console` programs run under the flag.** `WovenValueProcessor.weave`
+    monadifies an effectful body: `flatMap` for an effectful argument to a strict consumer, `pure` for a pure value
+    reaching the carrier, both resolved at the base carrier's `Effect` instance. Only strict consumers are monadified
+    (pure-headed/lazy spines stay structural — the fail-safe). `printLine(readLine)`, multi-statement blocks, and
+    effectful `val` bindings run; off-flag neutral. See §0/§6.
+  - **3a (remaining).** effects nested under a pure strict function (`printLine("a" ++ readLine)`), effectful
+    conditionals, and the entry accounting exemption once accounting is auto-run.
   - **3b** control effects, reify points, dischargers, weave keys threaded through
     `used`/`uncurry`/codegen (mangling gains the stack component).
   - **3c** higher-order: parameter rows, `Effect`-transparent positions (`foreach`), lambdas,

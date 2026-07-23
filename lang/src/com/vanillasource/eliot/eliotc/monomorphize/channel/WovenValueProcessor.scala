@@ -35,12 +35,15 @@ import scala.annotation.tailrec
   *     given a precise carrier-headed type (`IO[Unit]`). This lets a single-operation `Console` program (HelloWorld)
   *     run end-to-end under the flag; the launcher and codegen are unchanged because the entry stays pure `Unit`.
   *
-  * Deferred to later slices (documented so the gaps are visible, not silent): `flatMap`/`pure` insertion where an
-  * effectful sub-term meets a pure position (a nested effectful argument or a block); precise carrier-headed node types
-  * on the rest of the woven body (kept as the effect-blind payload types here — only the entry's `runMain` boundary is
-  * precisely typed so far); control-effect carrier stacks (`weave key = mono key × stack`); and the multi-parameter
-  * effect abilities (`State[S, F]`), which this slice's single-carrier-argument query does not yet resolve (they are
-  * left abstract rather than mis-resolved).
+  * It also does **bind/`pure` insertion** for the effectful value's body — the post-mono monadic translation that
+  * reintroduces the sequencing the effect-blind checker dropped (see the section comment on `resolveCombinators` below).
+  *
+  * Deferred to later slices (documented so the gaps are visible, not silent): bind/`pure` insertion under a *pure strict*
+  * function (`printLine("a" ++ readLine)`) and effectful conditionals (both left structural today — a runtime crash, not
+  * a silent wrong answer); precise carrier-headed node types on structurally-woven (non-monadified) sub-terms; control-
+  * effect carrier stacks (`weave key = mono key × stack`); and the multi-parameter effect abilities (`State[S, F]`),
+  * which this slice's single-carrier-argument query does not yet resolve (they are left abstract rather than
+  * mis-resolved).
   *
   * Off the flag, or when no base carrier is configured, the weave is the **identity** image of the `MonomorphicValue`
   * (the carrier path is unchanged).
