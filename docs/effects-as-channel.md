@@ -67,16 +67,21 @@ pure-wraps before the default ladder's stealing equal-arity unify — `if(c, Non
 path rejects it), and the **payload slot decided by payload-fit** (`ba208c48`: an effectful value whose payload fits a
 data slot **binds** — the compound-state `items : {Console} List[String]` into `foldLeft`'s `List[A]`, another default
 rejection) now route uniform, byte-identical where the default path succeeds, with **two non-overlap wins** the default
-rejects; `CarrierJoin` guards the self-join (`ead5d631`). **NEXT: the effectful-`catch`-handler (the `Generic` arm is
-DROPPED — finding, 2026-07-23).** Two candidates were tried this session and both re-scoped (details in the "Next"
-subsection below): `fold`'s bare-`A` `Generic` arm is **not** a standalone byte-identical slice — routing bare-flex-meta
-domains through `PassWhole` fires for *every* generic argument in the base (`Some`/`Pair`/`identity`/`min`, not just
-`fold`), Id-wrapping them into occurs-check failures; without the Id-wrap it is vacuous (`?A := payload` = the default),
-and it omits the ride-up-vs-bind check Phase A/B makes — so it is folded into the flip, not landed early. The
-effectful-`catch`-handler is the real remaining case but is **blocked on the checker join**: the stdlib delta alone
-(`onError: E => G[A]`) breaks even the pure-handler backward-compat case on the default path (the caller-chosen carrier
-mis-resolves into a stacked `ThrowCarrier`, demanding a bogus `Throw[String, IO]` at jvm `Throw.els:54`), and its sibling
-join lives at `foldEither`'s **function-typed** arms — a multi-slice piece. **The single-slot `if` arm needed no join and
+rejects; `CarrierJoin` guards the self-join (`ead5d631`). **NEXT: fold the effectful-`catch`-handler into U4; the
+`Generic` arm is DROPPED (findings, 2026-07-23).** Two candidates were tried this session and both re-scoped (details in
+the "Next" subsection). `fold`'s bare-`A` `Generic` arm is **not** a standalone byte-identical slice — routing
+bare-flex-meta domains through `PassWhole` fires for *every* generic argument in the base (`Some`/`Pair`/`identity`/`min`,
+not just `fold`), Id-wrapping them into occurs-check failures; without the Id-wrap it is vacuous (`?A := payload` = the
+default) and omits the ride-up-vs-bind check Phase A/B makes — so it is folded into the flip, not landed early. The
+effectful-`catch`-handler was tried empirically (correcting the earlier claim): the stdlib delta (`onError: E => G[A]`,
+`flatMap`+`pure` body) **does enable effectful handlers** (`failUnit catch (err -> printLine(err))` compiles+runs) **and
+is backward-compatible for a single discharger**, but it **requires a user-facing stdlib signature change**, which — since
+stdlib source is not flag-gated — hits **both** paths and **regresses one default-path shape**: two-or-more dischargers
+with *pure* handlers sequenced in a block (`EffectsThrow`/`MinCatch2`), where the pure handler's forced codomain lift
+mis-unifies the shared ambient into a stacked `ThrowCarrier` (bogus `Throw[String, IO]` at jvm `Throw.els:54`). That
+stacking is the premature-carrier-commitment class the uniform `CarrierJoin` eliminates, so the delta can only land when
+the uniform path is the **default** — **at/after U4**. It is therefore **not** a pre-flip `--uniform-carrier` win like the
+other three cases (those were pure-checker fixes with no stdlib change). **The single-slot `if` arm needed no join and
 no `finalize`** — the earlier "ability-constrained-carrier / `finalize`-defaults-to-`Id`" crux hypothesis was **wrong**;
 the real cause of the `if(f,"+")` `VerifyError` trial was the `carrierSlotLift` **double-wrap** (`pure(runId(pure@Id(…)))`
 mis-erased), fixed by reusing the clean single `tryPureWrap` node. **Wiring finding
@@ -364,7 +369,7 @@ single-slot `if` arm needs no join, so it is still not yet triggered live).
 | **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface compiles byte-identically: return boundary + discharger capture route uniform; `fold`'s bare-`A` `Generic` arm still on the default `defaultArgSlot` ladder. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful on default | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the default path **rejects** (the pure arm steals the carrier `?G := Option`); an **effectful** actual stays on `defaultArgSlot` (its carrier unifies with `?G` correctly). Byte-identical where the default already pure-wraps (`sign`). |
 | **argument → GENERIC arm** (`fold`'s bare-`A`) | **no → default, and DROPPED as a standalone step** (finding) | `defaultArgSlot`. Routing bare-flex-meta domains through `PassWhole` fires for *every* generic argument in the base (not just `fold`) and Id-wraps them → occurs-check failures; without the Id-wrap it equals the default (`?A := payload`) and omits Phase A/B's ride-up-vs-bind check. Folded into the flip, not landed early; see "Next". |
-| **the effectful-`catch`-handler** | **no → blocked on the checker join** (finding) | The one join-requiring historical case. The stdlib delta *alone* (`onError: E => G[A]`) breaks even the pure-handler case on the default path (carrier mis-resolves to a stacked `ThrowCarrier` → bogus `Throw[String, IO]` at jvm `Throw.els:54`); its sibling join lives at `foldEither`'s function-typed arms. Multi-slice; needs the join solver wired first. See "Next". |
+| **the effectful-`catch`-handler** | **GATED ON U4** (corrected finding) | The stdlib delta (`onError: E => G[A]`, `flatMap`+`pure` body) **works** — enables effectful handlers (`failUnit catch (err -> printLine(err))` runs) and is backward-compatible for a *single* discharger. But it needs a user-facing stdlib signature change (not flag-gated ⇒ hits both paths), and on the default path it **regresses two-or-more sequenced pure-handler catches** (`EffectsThrow`) via ambient carrier-stacking (bogus `Throw[String, IO]` at jvm `Throw.els:54`). That stacking is the premature-carrier-commitment class the uniform `CarrierJoin` removes, so the delta can only land once the uniform path is the default — at/after U4. See "Next". |
 | function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary. |
 
 Every routed case inserts `pure@Id`/`runId`/`flatMap@Id` that the Id-normalization stage erases, so the emitted bytecode
@@ -451,21 +456,42 @@ this session; both are re-scoped:
   Phase A/B deferral wholesale, the uniform `Generic` arm must itself carry the ride-up check (`occursInValue(metaId,
   retType)` → pass-through, else bind) — it is **not** "pass-through-whole, zero knowledge". Folded into the flip; removed
   from the standalone NEXT.
-- **The effectful-`catch`-handler — the real remaining case; blocked on the checker join, *not* deliverable by the
-  stdlib delta alone (finding, 2026-07-23).** It genuinely needs the `CarrierJoin` lattice: a discharger with a
-  **pure/effectful sibling in one call** (`catch(computation, onError)` where `onError` is itself effectful, so the pure
-  success arm and the effectful handler arm must agree on one carrier by *join*, order-independently). The plan always
-  paired it with a **stdlib delta** (`catch`'s handler is today `onError: E => A`, pure — the effectful-handler case is
-  not even expressible); this session confirmed the **"AND" is load-bearing**: applying the stdlib delta *alone*
-  (`onError: E => G[A]`, body `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`) on the default
-  path **breaks even the pure-handler backward-compat case** (`catch(comp, err -> "default")`) — the caller-chosen
-  carrier `G` is mis-resolved into a *stacked* `ThrowCarrier`, spuriously demanding a `Throw[String, IO]` instance at the
-  inductive lift step (jvm `Throw.els:54`, the `where E1 != E2` diagonal). So the signature change cannot land before the
-  checker can resolve the handler carrier by join. **Extra sharpening:** the sibling join here is **not** at a direct
-  `CarrierSlot` arm (as the single-slot `if` arm was) — it is at `foldEither`'s **function-typed** arms
-  (`onLeft: E => B`, `onRight: A => B`, joined at `B = G[A]`), a *function-return* join, harder than the direct-value
-  `CarrierSlot` join already wired. This is where the join solver (`CarrierJoin`/`finalizeAndMaterialize`, both built but
-  still uncalled) finally earns its place; it is a multi-slice piece, not one session.
+- **The effectful-`catch`-handler — the stdlib delta *works* for effectful handlers, but is GATED ON U4 (corrected
+  finding, 2026-07-23; supersedes the earlier "breaks even the pure-handler backward-compat case", which came from a
+  malformed probe that hit the pre-existing discharge-to-pure gap).** The delta is `catch`'s handler
+  `onError: E => A` (pure) → `onError: E => G[A]` with body
+  `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`. Measured behaviour, each case built and
+  run:
+  - ✅ **Enables effectful handlers** (the target capability): `failUnit catch (err -> printLine(err))`
+    (`failUnit : {Throw[String]} Unit`) compiles and runs on **both** the default and the `--uniform-carrier` path. The
+    signature change is *necessary* — without it a pure `onError: E => A` cannot absorb an effectful handler
+    (`err -> printLine(err) : E => ?F[Unit]` would make `catch` return `G[?F[Unit]]` = a double carrier), which is why
+    the effectful case is "not even expressible" today.
+  - ✅ **Backward-compatible for a single discharger** (even inside a block): `printLine(parseOk catch (err -> err))`
+    compiles and runs.
+  - ✅ **The `flatMap` + `pure(a)` body is sound in isolation**: keeping the *pure* signature `onError: E => A` but
+    switching the body to `flatMap(e -> pure(foldEither(onError, a -> a, e)), runThrow(computation))` compiles the whole
+    two-discharger `EffectsThrow` example — so the body rewrite is not the problem.
+  - ❌ **Regresses exactly one shape on the default path: two-or-more dischargers with *pure* handlers sequenced in one
+    block** (`EffectsThrow`'s `{ printLine(parseOk catch (err -> err)); printLine(parseBad catch (err -> err)) }`, and
+    the minimal `MinCatch2`). The new signature forces the pure handler `err -> err` to **lift its codomain**
+    (`pure@?G(err) : ?G[String]`); under block-sequenced dischargers over the pinned row `{Throw[E] | G}` that lift
+    mis-unifies the shared ambient carrier into a **stacked `ThrowCarrier`**, spuriously demanding `Throw[String, IO]` at
+    the inductive lift (jvm `Throw.els:54`, the `where E1 != E2` diagonal). `--uniform-carrier` does **not** currently fix
+    it (the lambda-handler codomain lift is not uniform-routed).
+
+  **Why this is gated on U4, not a pre-flip `--uniform-carrier` win like the other three cases.** The other historical
+  fixes (`if(c, None) else Some(x)`, compound-state) were *pure checker* improvements — no stdlib change — so the default
+  path was untouched and the flag could grow them incrementally. The catch-handler is different: it *requires a
+  user-facing stdlib signature change* (`onError: E => G[A]`), and stdlib source is **not** flag-gated, so the change
+  hits **both** paths at once. On the default path it regresses sequenced pure handlers (the carrier-stacking bug above),
+  and that stacking is precisely the *premature-carrier-commitment* class the uniform `CarrierJoin` (Id-as-bottom, join
+  not unify) is built to eliminate. So the delta can only land when the uniform carrier handling is the **default** — i.e.
+  at/after the **U4 flip** — or behind a throwaway fix to the default checker's stacking (work U4 deletes anyway). The
+  sibling join it needs lives at `foldEither`'s **function-typed** arms (`onLeft: E => B`/`onRight: A => B`, joined at
+  `B = G[A]`) — a function-return join. **Recommendation:** move the effectful-`catch`-handler into the U4 milestone
+  (land the stdlib delta atomically with the flip), and do not attempt it as a pre-flip slice. `CarrierJoin` /
+  `finalizeAndMaterialize` stay built-but-uncalled until then.
 
 **Background — conditionals are ordinary functions (no FQN ever hardcoded).** `fold[A](c, whenTrue: A, whenFalse: A): A`
 (bare-`A` arms ⇒ `Generic` slots, both must already match — no auto-lift) and `if[T](c, value: {Abort} T): {Abort} T =
@@ -1235,22 +1261,37 @@ before anything leans on it), the foundation spike second, the checker refactor 
       default Phase A/B makes (`resolveDeferredSlot`'s `occursInValue(id, retType)`: transparent `fold` rides up,
       non-transparent `putState` must bind-lift). So the uniform `Generic` arm must carry the ride-up check and is folded
       into the U4 flip, not landed early. The U2 spike's `Generic` test only covered the transparent ride-up.
-    - **The effectful-`catch`-handler is blocked on the checker join — the stdlib delta alone does not work.** Applying
-      the delta (`onError: E => G[A]`, body `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`)
-      on the default path **breaks even the pure-handler backward-compat case** (`catch(comp, err -> "default")`): the
-      caller-chosen carrier `G` mis-resolves into a stacked `ThrowCarrier`, demanding a bogus `Throw[String, IO]` at the
-      inductive lift (jvm `Throw.els:54`). This confirms the plan's "AND" is load-bearing — the checker must resolve the
-      handler carrier by *join* before the signature can change — and sharpens where the join lives: at `foldEither`'s
-      **function-typed** arms (`onLeft: E => B`/`onRight: A => B`, joined at `B = G[A]`), a function-return join, harder
-      than the direct-value `CarrierSlot` join already wired. A multi-slice piece, not one session.
-    **NEXT: wire the `CarrierJoin` sibling-join live in the checker** (currently `CarrierJoin`/`finalizeAndMaterialize`
-    are built but uncalled), starting from a direct two-arm value join, then the `foldEither` function-return join the
-    catch-handler needs — *with* the stdlib delta landing atomically once the join resolves the handler carrier. The
-    coupled `desugarChannel`/accounting deletion stays on the `--effect-channel` gate and is untangled at U4.
+    - **The effectful-`catch`-handler works with the stdlib delta but is GATED ON U4 (corrected from an earlier,
+      malformed-probe finding).** The delta (`onError: E => A` → `onError: E => G[A]`, body
+      `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`) was applied and measured case by case:
+      it **enables effectful handlers** (`failUnit catch (err -> printLine(err))` compiles+runs on both paths — and the
+      signature change is *necessary*, since a pure `onError: E => A` cannot absorb an effectful handler without a double
+      carrier), is **backward-compatible for a single discharger** (`printLine(parseOk catch (err -> err))` runs), and its
+      `flatMap`+`pure` body is sound in isolation (a pure-signature variant compiles the two-discharger `EffectsThrow`).
+      It **regresses exactly one shape on the default path**: two-or-more dischargers with *pure* handlers sequenced in a
+      block (`EffectsThrow`/`MinCatch2`), where the new signature forces the pure handler's codomain to lift
+      (`pure@?G(err)`) and, over the block-sequenced pinned rows `{Throw[E] | G}`, that lift mis-unifies the shared ambient
+      into a stacked `ThrowCarrier` (bogus `Throw[String, IO]` at jvm `Throw.els:54`); `--uniform-carrier` does not fix it.
+      **The gating conclusion:** unlike the other three historical fixes (pure-checker improvements, no stdlib change, so
+      flag-gatable), this one needs a *user-facing stdlib signature change* that is not flag-gated and so hits both paths —
+      regressing the default path via exactly the premature-carrier-commitment stacking the uniform `CarrierJoin` removes.
+      So it can only land once the uniform path is the **default** (at/after U4), or behind a throwaway default-checker
+      stacking fix U4 deletes anyway. Its sibling join lives at `foldEither`'s **function-typed** arms
+      (`onLeft: E => B`/`onRight: A => B`, joined at `B = G[A]`), a function-return join.
+    **NEXT: move the effectful-`catch`-handler into the U4 milestone** — land the stdlib delta atomically with the flip
+    (when the uniform `CarrierJoin` is the default carrier handling and the stacking cannot occur), with the effectful- and
+    sequenced-pure-handler cases as its acceptance tests. Do not attempt it as a pre-flip slice. `CarrierJoin` /
+    `finalizeAndMaterialize` stay built-but-uncalled until then. The coupled `desugarChannel`/accounting deletion stays on
+    the `--effect-channel` gate and is untangled at U4.
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
   assertion becomes a hard error; the Cornerstone amendment (§9 restatement) and the doc/skill
   sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections);
-  LSP/diagnostic rendering verified `Id`-free. The old path is removed, not kept as a mode.
+  LSP/diagnostic rendering verified `Id`-free. The old path is removed, not kept as a mode. **Also
+  lands here (moved from a pre-flip slice — finding 2026-07-23): the effectful-`catch`-handler stdlib
+  delta** (`onError: E => G[A]`, `flatMap`+`pure` body), which is ready and works but regresses
+  sequenced pure-handler catches on the *default* path — so it can only ship once the uniform
+  `CarrierJoin` is the default carrier handling. Acceptance: `failUnit catch (err -> printLine(err))`
+  runs, and `EffectsThrow` (two sequenced pure-handler catches) stays green.
 - **U5 — follow-ups unlocked.** Row-bearing diagnostics everywhere; the evaluation-order decision
   (resolved-argument order vs source order — v1 §6's recorded question, carried over);
   `Suspended` for first-class platform actions; the MCU lowering (§6: identity-carrier erasure +
