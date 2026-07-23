@@ -15,10 +15,18 @@ entry-point rework + config keys deleted (`WovenValueProcessor` is now just the 
 default path byte-identical. U3-0b finding (2026-07-23): the `desugarChannel` deletion is **not
 separable before U3a** — it couples through the kept `EffectAccounting` verifier to carrier-bound
 monomorphization of effect-polymorphic values, so the §7 "delete at U3 start" ordering is corrected
-to fold that deletion into U3a/U3c (§7, §10 U3-0b). **NEXT: U3a — the uniform-carrier checker under
-the flag.** Commit trail (on `master`): U2 spike `6fc17e99`, U3-0a `71c39704`, U3-sequencing
-correction `4ad8b333`; the tree is at U3-0a and green (`lang.test`/`jvm.test`, HelloWorld, eliot-test
-11/11).** The §13 fork raised during the Phase-3
+to fold that deletion into U3a/U3c (§7, §10 U3-0b). U3a-1 LANDED (2026-07-23): the U2 spike mechanism
+is **productionised onto the real `SemValue`/`Unifier` domain** as a new `monomorphize/carrier/`
+package (`Carrier` lattice + `split`, `CarrierJoin` join solver, `UniformLadder` classify-by-expected-slot
+ladder + deferred lift materialization), **not yet wired into the ~1000-line `Checker`** — so the default
+path stays byte-identical. Its 27-case regression suite (`CarrierMechanismTest`) is U3a's acceptance
+suite in real types, and the theft-contrast cases run the *real* `Unifier` to show the exact injectivity
+theft that splitting the carrier head off first avoids. **NEXT: U3a-2 — wire the `carrier/` mechanism
+into the `Checker` spine loop under `--effect-channel`** (replace Phase A/B + `EffectLifter.tryIdDefault`-as-an-arm
+with the ladder + join solver; the coupled `desugarChannel`/accounting deletion rides U3a/U3c). Commit
+trail (on `master`): U2 spike `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1
+carrier mechanism module; the tree is green (`lang.test`/`jvm.test`, HelloWorld, eliot-test 11/11).**
+The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -85,9 +93,28 @@ then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-
   `JvmPlugin.withBaseCarrier`/`baseCarrierFQN`, `SyntheticMainSourceProcessor.effectChannelMainSource`),
   and `WovenValueTest` are deleted. Safe because all of it was reachable only via `baseCarrier = Some`,
   which nothing sets anymore.
+- **U3a-1 (carrier mechanism, productionised) — LANDED.** The U2 spike ported from its toy `SType`
+  model onto the real domain, as a new **`lang/src/.../monomorphize/carrier/`** package:
+  - `Carrier.scala` — the carrier lattice (`Bottom` = `Id`, `Con(fqn, prefix)`, `Var(id)`) with the
+    **positional, total `split`** (`C[T] ⤳ (carrier, payload)`; needs *no* carrier-constructor set, unlike
+    the spike — it peels whatever outermost head elaboration put there, `Id` ⤳ `Bottom`), `ofHead`, and
+    `toSemValue`.
+  - `CarrierJoin.scala` — the **join solver** over the real `Unifier`/`MetaStore` (`Id` = lattice bottom,
+    single non-`Id` winner, conflict = `addError`, `finalize` defaults untouched metas to `Id`). Carrier
+    metas live in the shared meta store, kept unstealable by *routing them exclusively through this join
+    channel* (the ladder splits the carrier off before any payload `unify`).
+  - `UniformLadder.scala` — `resolveSlot` (the classify-by-expected-slot ladder: `Generic` pass-through /
+    `CarrierSlot` pass-join / `PayloadSlot` bind), `classifyExpected` (the surviving positional recognition —
+    an `isEffectCarrierSlot` tag on the *expected* binder), and **deferred, decision-free `materialize`**.
+  - `lang/test/.../monomorphize/carrier/CarrierMechanismTest.scala` — 27 cases (the four historical failure
+    cases + the flagship effectful/mixed conditionals + the join lattice + the §8 boundary + the classifier
+    + payload rendering), green. The theft-contrast cases run the **real** `Unifier` so the injectivity
+    theft is demonstrated on production types, not a toy.
+  - **Not wired into the `Checker`** — the default path is byte-identical (verified: `lang.test`/`jvm.test`
+    green, HelloWorld builds+runs). This is the foundation U3a-2 (the checker wiring) consumes.
 
-**Next: U3a — the uniform-carrier checker under `--effect-channel`.** The honest big step (§11). Start
-points and constraints:
+**Next: U3a-2 — wire the `carrier/` mechanism into the `Checker` spine loop under `--effect-channel`.**
+The honest big step (§11). Start points and constraints:
 - **Where it lives:** the checker chain `monomorphize/processor/MonomorphicTypeCheckProcessor` →
   `monomorphize/check/TypeStackLoop` → `monomorphize/check/Checker` (~1000 lines) + the unifier
   `monomorphize/unify/Unifier` + the domain `monomorphize/domain/SemValue`. The `effectChannel` flag is
@@ -695,6 +722,19 @@ before anything leans on it), the foundation spike second, the checker refactor 
       U3-0a. U3-0a stands as the *only* cleanly-separable pre-U3a deletion (it was inert because gated
       on `baseCarrier = Some`). **NEXT is U3a itself** (the uniform checker under the flag), which
       subsumes this deletion.
+  - **U3a-1 (carrier mechanism, productionised) — LANDED (2026-07-23).** Before touching the ~1000-line
+    `Checker`, the U2 spike is ported from its throwaway toy `SType` model onto the real domain as a new,
+    unit-tested **`monomorphize/carrier/`** package — the foundation the checker wiring (U3a-2) consumes,
+    with **nothing wired in** so the default path is byte-identical (the doc's risk section: "the U2 spike
+    and the four-case regression suite bound it"). Contents and the full 27-case acceptance suite are
+    detailed in the §0 handover ("U3a-1 — LANDED"). The two non-obvious wins the port surfaced: (i) the
+    production `split` needs **no** carrier-constructor set — under uniformity it is purely *positional*
+    (peel the outermost head, `Id` ⤳ `Bottom`), because elaboration guarantees carrier-headedness, whereas
+    the spike's toy `split` needed `carrierCons` defensively; (ii) the theft the pre-uniform equal-arity
+    guard blocked is now an *executable* contrast against the **real** `Unifier` — `?F[List[String]] ~
+    List[A]` whole-unified injectivity-decomposes to `?F := List, A := List[String]` (the theft), which
+    the ladder avoids by `split`ting `?F` off so only `List[String] ~ List[A]` (⇒ `A := String`) reaches
+    payload `unify`. **NEXT is U3a-2** — the checker wiring.
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
   assertion becomes a hard error; the Cornerstone amendment (§9 restatement) and the doc/skill
   sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections);
