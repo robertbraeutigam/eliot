@@ -76,7 +76,7 @@ job is to **match** it (byte-identical gate). The **transitional `--uniform-carr
 `--effect-channel` lets the uniform checker grow on default carrier-desugared input, compared byte-identical,
 decoupled from the `desugarChannel`/accounting knot until U4 unifies the flags. Commit trail (on `master`): U2 spike
 `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a `455575bb`, U3a-2b(i)
-`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-return-boundary `8fadd27f`, U3a-2b(ii)-arg-slot `527af90a`, U3a-2b(ii)-effectful-arg `16a432f6`, U3a-2b(ii)-self-join-guard `ead5d631`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
+`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-return-boundary `8fadd27f`, U3a-2b(ii)-arg-slot `527af90a`, U3a-2b(ii)-effectful-arg `16a432f6`, U3a-2b(ii)-self-join-guard `ead5d631`, U3a-2b(ii)-effect-return `b35bf80c`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
 eliot-test 11/11).** The §13 fork
 raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
@@ -124,15 +124,16 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, at U3a-2b(ii)-self-join-guard (commit `ead5d631`). Green everywhere: `./mill lang.test`,
+**Where the tree is:** `master`, at U3a-2b(ii)-effect-return (commit `b35bf80c`). Green everywhere: `./mill lang.test`,
 `./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest`), HelloWorld builds+runs
 (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
 and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
 then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The
-transitional `--uniform-carrier` gate is **live for the plain pure value return *and* the whole argument→payload-slot
-case — pure args pass, effectful args bind** (all routed through the uniform boundary/ladder and Id-normalized back to
-byte-identical); a flex/carrier domain and every other shape falls back to the default path. `CarrierJoin` now guards
-the carrier-meta self-join (a prerequisite; not yet triggered by the checker).
+transitional `--uniform-carrier` gate is **live for every *value* return (pure re-carried via `Id`, effect-carrier
+passed through — runtime track) *and* the whole argument→payload-slot case (pure args pass, effectful args bind)** —
+all routed through the uniform boundary/ladder and Id-normalized back to byte-identical; a flex/carrier *domain* (the
+conditional arms) and the compile-time track fall back to the default path. `CarrierJoin` guards the carrier-meta
+self-join (a defensive prerequisite; the checker links distinct carrier metas by union, so it is not yet triggered).
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -982,8 +983,17 @@ before anything leans on it), the foundation spike second, the checker refactor 
     because `if`'s signature declares `value: {Abort} T` (carrier-headed) — no eager generic instantiation needed.
     **NEXT (the first *non-overlap* step — uniform does better than default, needs compile-succeeds tests):**
     the conditionals — `CarrierSlot` pass-join + `Generic` pass-through with the join solver **respecting
-    ability-constrained carrier metas** (never defaulting them to `Id`) + `finalizeAndMaterialize`;
-    then effect-carrier-headed returns (self-join guard already landed). The coupled
+    ability-constrained carrier metas** (never defaulting them to `Id`) + `finalizeAndMaterialize`.
+  - **U3a-2b(ii) effect-carrier-headed returns — LANDED (2026-07-23, `b35bf80c`).** `uniformReturnRoutable` broadened
+    from plain-pure-value returns to any *value* return (`uniformValueReturn` = pure `VTopDef` OR effect-carrier-headed),
+    **runtime track only** (§8 keeps the compile-track `Either` discharge carrier-free). So `main : {Console} Unit`'s
+    `?F[Unit]` and the synthetic entry's `IO[Unit]` now route through `checkReturnBoundary` (an effectful body passes
+    through unchanged — carriers join, a no-op via the self-join guard for `?F` vs `?F` or a union for distinct metas;
+    a pure body re-carries via `pure@?F`, `?F` solved at the entry to `IO`, never defaulted to `Id`). Byte-identical
+    (whole-base test; probe-confirmed the `IO[Unit]` return routes). The remaining fallback is the conditional arms (a
+    flex/carrier *domain*) and the compile-time track.
+    **NEXT is the conditionals** (above) — the join solver respecting ability-constrained carrier metas; needs
+    compile-succeeds tests. The coupled
     `desugarChannel`/accounting deletion stays on the `--effect-channel` gate and is untangled at U4 (this transitional
     gate sidesteps it).
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
