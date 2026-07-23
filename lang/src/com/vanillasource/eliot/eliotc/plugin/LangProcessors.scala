@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.block.processor.BlockDesugaringProcessor
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleAbilitiesProcessor,
   ModuleConstructorsProcessor,
@@ -18,7 +18,11 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor,
   UnifiedModuleValueProcessor
 }
-import com.vanillasource.eliot.eliotc.monomorphize.channel.{EffectAccountingProcessor, RefinementChannelProcessor}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.{
+  EffectAccountingProcessor,
+  RefinementChannelProcessor,
+  WovenValueProcessor
+}
 import com.vanillasource.eliot.eliotc.namedvalues.processor.{NamedValuesIndexProcessor, NamedValuesRewriteProcessor}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
@@ -64,6 +68,10 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     [[com.vanillasource.eliot.eliotc.core.processor.CoreProcessor]]'s desugar strips open effect rows to their
   *     payload and erases the carrier from effect abilities, making the checker effect-blind. Off by default; the whole
   *     current carrier-based effect path is unchanged unless it is set.
+  *   - `baseCarrier` — the platform's runtime base effect carrier (the jvm target's `eliot.jvm.IO`), supplied under the
+  *     effect-channel flag so the weaver ([[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValueProcessor]])
+  *     can assign it and resolve effect operations at it. `None` (the default) leaves the weave the identity image of
+  *     each `MonomorphicValue`.
   *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
   *     this base one (e.g. stdlib's arithmetic natives,
   *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
@@ -77,7 +85,8 @@ object LangProcessors {
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
       extraNativeBindingLabels: Seq[String] = Seq.empty,
-      effectChannel: Boolean = false
+      effectChannel: Boolean = false,
+      baseCarrier: Option[ValueFQN] = None
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
@@ -97,7 +106,7 @@ object LangProcessors {
     RecursionCheckProcessor(),
     SaturatedValueProcessor(),
     AbilityImplementationProcessor(),
-    AbilityImplementationCheckProcessor(),
+    AbilityImplementationCheckProcessor(effectChannel),
     ModuleAbilityOverlapCheckProcessor(),
     SystemNativesProcessor(),
     DataTypeNativesProcessor(),
@@ -112,6 +121,7 @@ object LangProcessors {
     CompilerMonomorphicTypeCheckProcessor(effectChannel),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(effectChannel),
+    WovenValueProcessor(effectChannel, baseCarrier),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),
     MonomorphicUncurryingProcessor(),

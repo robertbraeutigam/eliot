@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, EffectRow, FunctionDefinition, GenericParameter}
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
+import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -184,16 +185,20 @@ object EffectSugarDesugarer {
       case None          => function
     }
 
-  /** The higher-kinded carrier binder name of an effect-ability *method*, else `None`. A method is a `Qualifier.Ability`
-    * value whose local name differs from the ability's own name (which is the synthetic marker); its carrier is the sole
-    * higher-kinded (arrow-kinded, `F[_]`) generic binder. A first-order ability method (`Show[A].show`, no `F[_]`) has
-    * no such binder and is left alone.
+  /** The higher-kinded carrier binder name of a *user* effect-ability *method*, else `None`. A method is a
+    * `Qualifier.Ability` value whose local name differs from the ability's own name (which is the synthetic marker); its
+    * carrier is the sole higher-kinded (arrow-kinded, `F[_]`) generic binder. Excluded:
+    *   - a first-order ability method (`Show[A].show`, no `F[_]`) — it has no carrier binder;
+    *   - the **carrier machinery** (`Effect`/`Suspend`) — its carrier is deliberately *kept*, so the carrier-tower
+    *     bodies of effect instances (`Console[F].printLine = suspend(...)`) still type-check and monomorphize with
+    *     their carriers intact; only *user* effect operations are erased and left for the weaver to resolve.
     */
   private def abilityCarrierName(function: FunctionDefinition): Option[String] =
     function.name.value.qualifier match {
-      case Qualifier.Ability(abilityName) if function.name.value.name =!= abilityName =>
+      case Qualifier.Ability(abilityName)
+          if function.name.value.name =!= abilityName && !EffectMachinery.isMachineryAbility(abilityName) =>
         function.genericParameters.find(isHigherKindedBinder).map(_.name.value)
-      case _                                                                          => None
+      case _ => None
     }
 
   /** Whether a generic binder is higher-kinded (a carrier), i.e. its kind restriction is an arrow `Function[_, _]`. */

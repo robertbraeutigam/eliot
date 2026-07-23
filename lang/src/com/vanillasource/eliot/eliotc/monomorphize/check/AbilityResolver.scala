@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
+import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -192,22 +192,24 @@ class AbilityResolver(
     * type args down to the ability-level prefix for the impl query. Falls back to `Int.MaxValue` (slice nothing) if the
     * marker has no resolvable signature, preserving prior behaviour rather than mis-slicing.
     */
-  /** Whether `ref` names a method of an **effect ability** — an ability declared with a higher-kinded carrier binder.
-    * Read off the ability *marker*'s signature (which retains its carrier binder even under the effect-channel flag, so
-    * it is the queryable effect signal): the ability is an effect ability iff its marker has a higher-kinded binder. A
-    * first-order ability (`Show[A]`, `Eq[A]`) has none and resolves normally. Used only under the effect-channel flag to
-    * decide which references to leave unresolved for the weaver.
+  /** Whether `ref` names a method of a **user effect ability** — an ability declared with a higher-kinded carrier
+    * binder, excluding the carrier machinery (`Effect`/`Suspend`). Read off the ability *marker*'s signature (which
+    * retains its carrier binder even under the effect-channel flag, so it is the queryable effect signal): the ability
+    * is a user effect ability iff its marker has a higher-kinded binder and it is not machinery. A first-order ability
+    * (`Show[A]`, `Eq[A]`) has no such binder, and the machinery is excluded so its methods still resolve normally
+    * (effect-instance carrier-tower bodies rely on `flatMap`/`suspend` resolving). Used only under the effect-channel
+    * flag to decide which references to leave unresolved for the weaver.
     */
   private def isEffectAbilityRef(ref: Sourced[ValueFQN]): CheckIO[Boolean] =
     ref.value.name.qualifier match {
-      case Qualifier.Ability(abilityName) =>
+      case Qualifier.Ability(abilityName) if !EffectMachinery.isMachineryAbility(abilityName) =>
         val markerFqn = ValueFQN(ref.value.moduleName, QualifiedName(abilityName, ref.value.name.qualifier))
         liftF(getFactIfProduced(OperatorResolvedValue.Key(markerFqn, platform))).map {
           case Some(orv) =>
             OperatorResolvedExpression.SignatureView.of(orv.signature).binders.exists(EffectCarriers.isHktBinder)
           case None      => false
         }
-      case _                              => pure(false)
+      case _                                                                                  => pure(false)
     }
 
   private def abilityArity(methodVfqn: ValueFQN, abilityName: String): CheckIO[Int] = {
