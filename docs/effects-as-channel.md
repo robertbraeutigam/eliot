@@ -395,15 +395,20 @@ microcontroller; recorded here as the design intent for the MCU backend (U5 foll
 
 ## 7. What is deleted, what stays
 
-**Deleted at U3 start** (the superseded v1 Phase-3 erasure path, currently flag-gated and dormant):
-`EffectSugarDesugarer.desugarChannel`'s open-row stripping + user-effect-ability carrier-erasure,
-`AbilityResolver`'s effect-ability abstain, the ability↔impl conformance relaxation in
-`AbilityImplementationCheckProcessor`, `WovenValueProcessor`'s entire monadification
+**Deleted as they become separable, across U3** (the superseded v1 Phase-3 erasure path, currently
+flag-gated and dormant — *not* a single atomic "U3 start" delete, see §10 U3-0b):
+**Already gone (U3-0a):** `WovenValueProcessor`'s entire monadification
 (`weave`/`weaveMonadic`/`sequenceSpine`/`weaveBlock`/`peelAndWeave`/`pureWrap`/`finalApply`/
 `Combinators`, the `isLazyConditionalHead` FQN hardcode, the lambda-peeling), the weaver-built run
 boundary + `LangPlugin.baseCarrierKey`/`entryPointKey` and their `JvmPlugin.configure`
 contributions, `SyntheticMainSourceProcessor`'s bare-ref flag branch (replaced by spelling
-`runMain(<user main>)`), `EffectChannelDesugarTest`, and `WovenValueTest`'s monadification cases.
+`runMain(<user main>)`), and `WovenValueTest`'s monadification cases.
+**Deferred into U3a/U3c** (coupled to the kept `EffectAccounting` verifier, §10 U3-0b):
+`EffectSugarDesugarer.desugarChannel`'s open-row stripping + user-effect-ability carrier-erasure,
+`AbilityResolver`'s effect-ability abstain, the ability↔impl conformance relaxation in
+`AbilityImplementationCheckProcessor`, and `EffectChannelDesugarTest` — these come out when the
+uniform checker monomorphizes effect-polymorphic values at a bound carrier and the accounting
+derivation + `EffectAccountingTest` are re-pointed.
 
 **Deleted at the U4 flip** (the old default-path machinery the uniform checker replaces):
 `EffectLifter`'s recognition arms — `mustLiftBeforeUnify`/`mustPureWrapBeforeUnify`, the
@@ -566,9 +571,11 @@ before anything leans on it), the foundation spike second, the checker refactor 
       (`Id[String]`, `IO[String]` → `String`); rows come from the channel; no `Id`/carrier/meta leaks.
     - **(f) perf — CONSTANT:** one payload-unify per slot (linear), join is O(1) per contribution with
       no fixpoint, materialization is one post-drain pass.
-- **U3 — the uniform checker behind `--effect-channel`.** First **delete** the superseded v1
-  slices (§7 first list; the flag goes briefly inert — nothing user-visible is behind it). Then
-  grow in slices, default path byte-identical throughout: (a) uniform judgments + the ladder +
+- **U3 — the uniform checker behind `--effect-channel`.** Delete the superseded v1 slices (§7 first
+  list) **as they become separable** — *not* all at "U3 start": the weaver slice separated cleanly and
+  is gone (U3-0a), but the `desugarChannel`/abstain/relaxation slice is **coupled to the kept
+  `EffectAccounting` verifier and folds into U3a/U3c** (the finding below). Then grow in slices,
+  default path byte-identical throughout: (a) uniform judgments + the ladder +
   join solver in `Checker`/`EffectLifter`-successor; (b) synthetic main spells
   `runMain(<user main>)` under the flag; (c) accounting derivation re-pointed + diagnostics
   ordering (§5); (d) the acceptance gate — full `lang.test`/`jvm.test`, all example mains,
@@ -598,11 +605,28 @@ before anything leans on it), the foundation spike second, the checker refactor 
       the gate, threaded to the checker + `EffectAccountingProcessor` only. Gate met: `lang.test`/
       `jvm.test` green, HelloWorld builds+runs, eliot-test 11/11, and the kept flag-on suites
       (`EffectAccountingTest`, `EffectChannelDesugarTest`) still green.
-    - **U3-0b — NEXT.** Delete `desugarChannel` + its helpers, `AbilityResolver`'s effect-ability
-      abstain, `AbilityImplementationCheckProcessor`'s conformance relaxation, and
-      `EffectChannelDesugarTest` — **together with** re-pointing `EffectAccountingProcessor`'s
-      derivation to recover the ability from a resolved impl ref (U3c's first half), so
-      `EffectAccountingTest` stays green through the flag going inert.
+    - **U3-0b — BLOCKED on U3a; the `desugarChannel` deletion moves out of "U3 start" (finding,
+      2026-07-23).** A trial deletion (`desugarChannel` + its 4 helpers + the `rewrite` `stripOpen`
+      arm; `AbilityResolver`'s abstain; `AbilityImplementationCheckProcessor`'s relaxation;
+      `EffectChannelDesugarTest`) compiled cleanly but **reddened `EffectAccountingTest` with
+      `"Cannot resolve type."` — not** the anticipated "derived row is empty". The root cause is
+      deeper than a derivation re-point: `EffectAccountingTest` demands
+      `MonomorphicValue.Key(main, Seq.empty)` for an **effect-polymorphic** `main : {Console} Unit`,
+      and on the carrier path that value **cannot be monomorphized standalone** — its ambient carrier
+      `F` is unbound (there is no synthetic-main use-site in the test, and the **lang test track has no
+      runtime carrier at all**: `IO` is a jvm-platform type, and `Console` is `Suspend`-riding so it
+      cannot even resolve at the compile-track `Id`). The effect-blind `desugarChannel` is precisely
+      what let `main` monomorphize *carrier-free* (as pure `Unit` with abstract `Console` refs). All
+      four deletion targets are coupled to `desugarChannel`, which is coupled to
+      `EffectAccounting(Test)`, which needs a **carrier-bound monomorphization of an effect-polymorphic
+      value** — i.e. U3a infrastructure. **So the §7 "delete `desugarChannel` at U3 start" ordering has
+      a hidden dependency and is corrected:** this deletion folds into **U3a/U3c** (when the uniform
+      checker monomorphizes effect-polymorphic values at a bound carrier, and the accounting derivation
+      **and `EffectAccountingTest` itself** are re-pointed — the test likely relocating to the jvm
+      module, the only track with a concrete runtime carrier). The trial was reverted; the tree is at
+      U3-0a. U3-0a stands as the *only* cleanly-separable pre-U3a deletion (it was inert because gated
+      on `baseCarrier = Some`). **NEXT is U3a itself** (the uniform checker under the flag), which
+      subsumes this deletion.
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
   assertion becomes a hard error; the Cornerstone amendment (§9 restatement) and the doc/skill
   sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections);
