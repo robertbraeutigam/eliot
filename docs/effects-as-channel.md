@@ -1,10 +1,11 @@
 # Effects as a Channel, v2: Uniform Carriers (Id-Uniform) + a Verification Channel
 
 Status: **FOUNDATION RESOLVED (2026-07-23) — Variant A, carrier-everywhere / Id-uniform — with a
-reconstructed migration plan (U1–U5, §10). U1 LANDED (2026-07-23): the Id-normalization stage is
-on by default — U1a body rewrites + jvm newtype representation, U1b `Id[X] ⤳ X` type/key erasure
-(§6, §10). Remaining before U2: first-class-combinator eta-expansion (the last normalizer step).**
-The §13 fork raised during the Phase-3
+reconstructed migration plan (U1–U5, §10). U1 COMPLETE (2026-07-23): the Id-normalization stage is
+on by default and leaves **no `Id` residue** — U1a body rewrites + jvm newtype representation, U1b
+`Id[X] ⤳ X` type/key erasure, and first-class-combinator eta-expansion (the last normalizer step:
+a bare `Id` combinator reference ⤳ the identity/apply lambda). §6, §10. Next: the U2 foundation
+spike.** The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -323,10 +324,18 @@ shifts the callee's demanded mono key, so an `Id`-instantiation merges with its 
 (`fold[Id[String]]` ≡ `fold[String]`). The WovenValue's *own* key is left as demanded (the
 `TransformationProcessor` requires produced-key = demanded-key, and the demand is already erased). A
 *bare* `Id` (the higher-kinded `G` of `AbortCarrier[Id, A]`) is left — it has no payload and survives
-to deeper stack lowering. The residue fail-safe now also flags a residual `Id[X]` *type*. The remaining
-work is the first-class-combinator eta-expansion (a bare `runId`/`pure`/`flatMap`/`map@Effect[Id]`
-reference ⤳ the identity function, §6 rewrite list): until it lands, those references warn (backstopped
-by the newtype + identity accessor); it is what makes the U4 assertion fully clean.
+to deeper stack lowering. The residue fail-safe now also flags a residual `Id[X]` *type*.
+
+**Eta-expansion landed (2026-07-23) — U1 complete.** The last normalizer step handles a **first-class**
+`Id` combinator reference — the combinator passed as a function value, e.g. `runId` reached through a
+dot-chain `x.runId` (which lowers to `_dot_(x, runId)`) — which the applied-form rewrites do not reach.
+`IdNormalizer.etaExpand` rewrites it to the equivalent lambda: `runId`/`Id`/`pure@Effect[Id]` (arity 1)
+⤳ `x -> x`; `flatMap`/`map@Effect[Id]` (arity 2) ⤳ `f -> m -> f(m)`, built from the reference's own
+function type. A reference reached as a *child* node carries its own type; a bare reference standing as
+the *whole body* (`def r = runId`) is covered by threading the value's signature as the top node's type
+(`normalizeValue(vfqn, signature, body)`). With this, **no `Id` machinery survives normalization at all**
+— the residue fail-safe is now silent across the suites, examples, and eliot-test (`eliot.lang.Id` ships
+no `runId`/`pure`/`flatMap`/`map` method), which is what lets the U4 assertion become a hard error.
 
 **The MCU story.** With `Id` erased, pure code compiles to plain calls. For *effectful* MCU code,
 the carrier is compile-time bookkeeping the backend may lower away: post-mono, every carrier

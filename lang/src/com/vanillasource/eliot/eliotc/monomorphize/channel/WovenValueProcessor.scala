@@ -76,7 +76,8 @@ class WovenValueProcessor(
         // WovenValue's own key (`mv.typeArguments`) is left as demanded — it is set by the reference that demanded it,
         // itself already erased. The load-bearing fail-safe: any `Id` machinery the rewrites failed to reach is
         // reported (a U1 warning, a hard error from U4).
-        val normalized  = mv.runtime.map(body => IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, body)))
+        val normalized  =
+          mv.runtime.map(body => IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, mv.signature, body)))
         val erasedSig    = IdNormalizer.eraseIdTypes(mv.signature)
         warnIdResidue(mv.vfqn, erasedSig, normalized)
           .as(WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized))

@@ -42,16 +42,24 @@ object IdNormalizer {
     * sees no `handleCases`, the apparatus is never generated, and any `runId` reference (applied or first-class) is a
     * safe identity. Every other value's body gets the ordinary [[normalize]] rewrites.
     */
-  def normalizeValue(vfqn: ValueFQN, body: Sourced[MonomorphicExpression.Expression]): Sourced[MonomorphicExpression.Expression] =
-    if (vfqn == WellKnownTypes.runIdFQN) identityAccessorBody(body) else normalize(body)
+  def normalizeValue(
+      vfqn: ValueFQN,
+      signature: GroundValue,
+      body: Sourced[MonomorphicExpression.Expression]
+  ): Sourced[MonomorphicExpression.Expression] =
+    if (vfqn == WellKnownTypes.runIdFQN) identityAccessorBody(body) else normalize(body, signature)
 
   /** Normalize the body expression of one monomorphic value, applying the `Id` rewrites bottom-up. The value's runtime
     * body is a `Sourced` *untyped* top-level expression (its children carry types); it is bridged to the typed
-    * [[normalizeNode]] with a placeholder top type whose only use is discarded — the top node's type is never read (the
-    * value's signature carries the return type, and each child carries its own).
+    * [[normalizeNode]] with `topType` as the top node's type — the value's signature, so that a first-class `Id`-machinery
+    * reference standing as the *whole body* (`def r = runId`) still carries the function type its eta-expansion needs.
+    * (For every non-leaf top node the type is otherwise discarded; each child carries its own type.)
     */
-  def normalize(body: Sourced[MonomorphicExpression.Expression]): Sourced[MonomorphicExpression.Expression] =
-    normalizeNode(body.map(MonomorphicExpression(GroundValue.Type, _))).map(_.expression)
+  def normalize(
+      body: Sourced[MonomorphicExpression.Expression],
+      topType: GroundValue = GroundValue.Type
+  ): Sourced[MonomorphicExpression.Expression] =
+    normalizeNode(body.map(MonomorphicExpression(topType, _))).map(_.expression)
 
   /** Rewrite the single-parameter data-accessor body `obj -> handleCases(obj){ Id(x) -> x }` to the identity
     * `obj -> obj`. A body that is not the expected single lambda is left as-is (defensive — never a silent mis-rewrite).
@@ -86,6 +94,8 @@ object IdNormalizer {
         }
       case MonomorphicExpression.FunctionLiteral(name, parameterType, innerBody)                   =>
         retype(node, MonomorphicExpression.FunctionLiteral(name, parameterType, normalizeNode(innerBody)))
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, _) if isIdMachinery(vfqn.value)   =>
+        etaExpand(node, vfqn.value)
       case _                                                                                       => node
     }
 
@@ -94,6 +104,60 @@ object IdNormalizer {
       expression: MonomorphicExpression.Expression
   ): Sourced[MonomorphicExpression] =
     node.map(me => MonomorphicExpression(me.expressionType, expression))
+
+  // ── Eta-expansion of a first-class `Id`-machinery reference (docs/effects-as-channel.md §6) ───────────────────────
+  //
+  // The rewrites above collapse *applied* `Id` machinery. A **first-class** reference — the combinator passed as a
+  // function value, e.g. `runId` reached through a dot-chain `x.runId` (which lowers to `_dot_(x, runId)`) — reaches
+  // this node as a bare `MonomorphicValueReference`. Left alone it would still ship an `Id` reference (the residue
+  // fail-safe warns on it; the newtype keeps it a no-op). Eta-expanding it to the equivalent lambda removes the last
+  // `Id` reference, so post-normalization no `Id` machinery survives at all. Since `Id[A] ≡ A`, the equivalents are:
+  // `runId`/`Id`/`pure@Effect[Id]` (arity 1) ⤳ the identity `x -> x`; `flatMap`/`map@Effect[Id]` (arity 2) ⤳ the
+  // application `f -> m -> f(m)`. The lambda is built from the reference's own (still `Id`-typed) function type; the
+  // later U1b `eraseIdInBody` pass erases those `Id` types like any other.
+
+  private def etaExpand(node: Sourced[MonomorphicExpression], fqn: ValueFQN): Sourced[MonomorphicExpression] =
+    if (isEffectIdMethod(fqn, "flatMap") || isEffectIdMethod(fqn, "map")) etaApply(node)
+    else etaIdentity(node)
+
+  /** `ref: P -> R` ⤳ `x -> x` (`x` bound at `P`, referenced at `R`; `P ≡ R` under the newtype). */
+  private def etaIdentity(node: Sourced[MonomorphicExpression]): Sourced[MonomorphicExpression] =
+    node.value.expressionType.asFunctionType match {
+      case Some((paramType, resultType)) =>
+        val x = node.as("$idEta")
+        node.as(
+          MonomorphicExpression(
+            node.value.expressionType,
+            MonomorphicExpression.FunctionLiteral(
+              x,
+              paramType,
+              node.as(MonomorphicExpression(resultType, MonomorphicExpression.ParameterReference(x)))
+            )
+          )
+        )
+      case None                          => node
+    }
+
+  /** `ref: F -> M -> R` ⤳ `f -> m -> f(m)` (`f` bound at the continuation type `F`, `m` at `M`, `f(m)` at `R`). */
+  private def etaApply(node: Sourced[MonomorphicExpression]): Sourced[MonomorphicExpression] =
+    (for {
+      (fType, rest)        <- node.value.expressionType.asFunctionType
+      (mType, resultType)  <- rest.asFunctionType
+    } yield {
+      val f       = node.as("$idEtaFn")
+      val m       = node.as("$idEtaArg")
+      val applied = node.as(
+        MonomorphicExpression(
+          resultType,
+          MonomorphicExpression.FunctionApplication(
+            node.as(MonomorphicExpression(fType, MonomorphicExpression.ParameterReference(f))),
+            node.as(MonomorphicExpression(mType, MonomorphicExpression.ParameterReference(m)))
+          )
+        )
+      )
+      val inner   = node.as(MonomorphicExpression(rest, MonomorphicExpression.FunctionLiteral(m, mType, applied)))
+      node.as(MonomorphicExpression(node.value.expressionType, MonomorphicExpression.FunctionLiteral(f, fType, inner)))
+    }).getOrElse(node)
 
   // ── U1b: type/key erasure (`Id[X] ⤳ X`, docs/effects-as-channel.md §6/§10) ───────────────────────────────────────
   //

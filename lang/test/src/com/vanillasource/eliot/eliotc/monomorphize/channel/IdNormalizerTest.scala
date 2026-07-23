@@ -93,7 +93,7 @@ class IdNormalizerTest extends AnyFlatSpec with Matchers {
     val body    = at[MonomorphicExpression.Expression](
       MonomorphicExpression.FunctionLiteral(objName, idType(stringType), node(stringType, MonomorphicExpression.StringLiteral(at("machinery"))))
     )
-    IdNormalizer.normalizeValue(WellKnownTypes.runIdFQN, body).value.shouldBe(
+    IdNormalizer.normalizeValue(WellKnownTypes.runIdFQN, fnType(idType(stringType), stringType), body).value.shouldBe(
       MonomorphicExpression.FunctionLiteral(objName, idType(stringType), node(stringType, MonomorphicExpression.ParameterReference(objName)))
     )
   }
@@ -130,5 +130,34 @@ class IdNormalizerTest extends AnyFlatSpec with Matchers {
   it should "detect a residual Id[X] type before erasure" in {
     val body = app(ref(effectId("id"), fnType(idType(stringType), stringType)), str, idType(stringType))
     IdNormalizer.hasResidualIdType(idType(stringType), Some(at(body.value.expression))).shouldBe(true)
+  }
+
+  // A first-class Id reference appears as a *child* node (an argument) in real code (a dot-chain `x.runId` lowers to
+  // `_dot_(x, runId)`), where it carries its own function type — which the eta-expansion reads to build the lambda.
+  private val dotFqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Function"), QualifiedName("_dot_", Qualifier.Default))
+
+  "eta-expansion of a first-class reference" should "eta-expand a runId argument to a lambda" in {
+    val call = app(ref(dotFqn, fnType(fnType(idType(stringType), stringType), stringType)),
+                   ref(WellKnownTypes.runIdFQN, fnType(idType(stringType), stringType)), stringType)
+    normalizedExpr(call.value.expression).shouldBe(a[MonomorphicExpression.FunctionApplication])
+  }
+
+  it should "leave no residual Id reference after eta-expanding a runId argument" in {
+    val call = app(ref(dotFqn, fnType(fnType(idType(stringType), stringType), stringType)),
+                   ref(WellKnownTypes.runIdFQN, fnType(idType(stringType), stringType)), stringType)
+    IdNormalizer.residualIdReferences(normalizedExpr(call.value.expression)).shouldBe(Seq.empty)
+  }
+
+  it should "leave no residual Id reference after eta-expanding a flatMap@Effect[Id] argument" in {
+    val fmType = fnType(fnType(stringType, idType(stringType)), fnType(idType(stringType), idType(stringType)))
+    val call   = app(ref(dotFqn, fnType(fmType, stringType)), ref(effectId("flatMap"), fmType), stringType)
+    IdNormalizer.residualIdReferences(normalizedExpr(call.value.expression)).shouldBe(Seq.empty)
+  }
+
+  it should "eta-expand a bare Id reference standing as the whole body, using the signature" in {
+    val pureSig  = fnType(stringType, idType(stringType))
+    val body     = at[MonomorphicExpression.Expression](ref(effectId("pure"), pureSig).value.expression)
+    val aliasFqn = ValueFQN(ModuleName(Seq.empty, "Test"), QualifiedName("alias", Qualifier.Default))
+    IdNormalizer.residualIdReferences(IdNormalizer.normalizeValue(aliasFqn, pureSig, body).value).shouldBe(Seq.empty)
   }
 }
