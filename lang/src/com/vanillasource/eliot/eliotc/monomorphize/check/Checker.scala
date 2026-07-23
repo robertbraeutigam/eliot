@@ -1016,27 +1016,43 @@ class Checker(
   ): CheckIO[SlotOutcome] =
     for {
       (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
-      // Capture vs bind: an **effectful** (carrier-headed) actual whose *whole* carrier-headed type unifies with the
-      // domain is a **capture**, not a bind — the domain is itself a carrier form / pinned stack (a discharger's
-      // `computation: {Abort | G} A` ⤳ `AbortCarrier[G, A]`, `runMain`'s `IO[A]`, a pinned param), so the computation
-      // must be stored whole (`?G_if := AbortCarrier[G]`), never sequenced (`flatMap`). Binding it would let the domain
-      // be *stolen* into the actual's flex payload meta (`?T := AbortCarrier[..]`), inverting the carrier and leaking the
-      // discharged effect. The default (unify-first) ladder captures it correctly, so defer there. A *pure* actual
-      // whole-unifying a concrete domain is an ordinary direct pass (below), not a capture.
-      effectful                   <- lifter.effectCarrierSplit(instantiated).map(_.nonEmpty)
-      captures                    <- if (effectful) unifiesDefinitionally(instantiated, domain, arg.as("Type mismatch."))
-                                     else pure(false)
-      outcome                     <- if (captures) defaultArgSlot(arg, updatedExpr, instantiated, domain)
-                                     else
-                                       uniformPayloadOf(instantiated).flatMap {
-                                         case Some(p) =>
-                                           unifiesDefinitionally(p, domain, arg.as("Type mismatch.")).flatMap {
-                                             case true  => uniformArgumentSlot(arg, updatedExpr, domain)
-                                             case false => defaultArgSlot(arg, updatedExpr, instantiated, domain)
-                                           }
-                                         case None    => defaultArgSlot(arg, updatedExpr, instantiated, domain)
-                                       }
+      // Bind vs capture, decided by whether the actual's **payload** fits the domain (the payload split off the carrier
+      // first, so the carrier meta can never be stolen):
+      //   - **payload fits** ⇒ **bind** ([[uniformArgumentSlot]]): the effect runs and the payload flows into the slot —
+      //     `printLine(readLine)` (`String` fits `String`), and crucially the compound-state case `items : ?F[List[X]]`
+      //     into `foldLeft`'s `list : List[A]` (`List[X]` fits `List[A]`, `A := X`), which the default path *rejects*
+      //     because the equal-arity unify steals the carrier (`?F := List`, then `Effect[List]` has no instance). A pure
+      //     actual whose payload fits passes directly (`runId`, erased).
+      //   - **payload does NOT fit** ⇒ [[defaultArgSlot]]: either a **capture** — the whole effectful actual's carrier
+      //     partial-applies a carrier-stack / pinned domain (a discharger's `computation: {Abort | G} A` ⤳
+      //     `AbortCarrier[G, A]`, `runMain`'s `IO[A]`; the actual's *payload* `Option[?E]` does not fit `AbortCarrier`,
+      //     but the *whole* `?G[Option[?E]]` unifies via `?G := AbortCarrier[G']`, storing the computation) — or an
+      //     ordinary mismatch; the default unify-first ladder handles both.
+      // Checking payload-fit *first* is what distinguishes the two: a carrier-stack domain's inner value never fits its
+      // outer carrier, so it captures; a data container's element type does fit, so it binds.
+      payload                     <- uniformPayloadOf(instantiated)
+      payloadFits                 <- payload match {
+                                       case Some(p) => payloadFitsDomain(p, domain, arg.as("Type mismatch."))
+                                       case None    => pure(false)
+                                     }
+      outcome                     <- if (payloadFits) uniformArgumentSlot(arg, updatedExpr, domain)
+                                     else defaultArgSlot(arg, updatedExpr, instantiated, domain)
     } yield outcome
+
+  /** Whether an effectful actual's **payload** `p` *genuinely* fits the parameter `domain` — the bind-vs-capture
+    * decision of [[uniformPayloadSlot]]. A **bare flex payload metavariable** (`?A`) is **not** a genuine fit even
+    * though it speculatively unifies with anything: a discharger's `raise`/`map` over a still-polymorphic carrier
+    * (`raise(err) : ?F[?A]` into `map`'s `fa : F[A]`) has such a payload, and treating it as "fits" would **bind**
+    * (sequence) a computation that must be **captured** whole — the flex payload would absorb the domain and strip the
+    * carrier (the same flex-payload theft the old capture check guarded against). Only a *headed* payload (`List[X]`,
+    * `String`, `Option[..]`) whose head actually matches the domain counts, so the compound-state `List[X]`-into-`List[A]`
+    * bind is admitted while the carrier-stack capture is not.
+    */
+  private def payloadFitsDomain(payload: SemValue, domain: SemValue, context: Sourced[String]): CheckIO[Boolean] =
+    force(payload).flatMap {
+      case VMeta(_, Spine.SNil) => pure(false)
+      case _                    => unifiesDefinitionally(payload, domain, context)
+    }
 
   /** Effects-as-channel U3a-2b(ii), the conditional-arm slice (docs/effects-as-channel.md §3) — gated on
     * [[uniformCarrier]] + `Platform.Runtime`: resolve an argument against an **effect-carrier** parameter domain
