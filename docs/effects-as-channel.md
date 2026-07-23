@@ -76,7 +76,7 @@ job is to **match** it (byte-identical gate). The **transitional `--uniform-carr
 `--effect-channel` lets the uniform checker grow on default carrier-desugared input, compared byte-identical,
 decoupled from the `desugarChannel`/accounting knot until U4 unifies the flags. Commit trail (on `master`): U2 spike
 `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a `455575bb`, U3a-2b(i)
-`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-wiring-1 `8fadd27f`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
+`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-return-boundary `8fadd27f`, U3a-2b(ii)-arg-slot `527af90a`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
 eliot-test 11/11).** The §13 fork
 raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
@@ -124,13 +124,14 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, at U3a-2b(ii)-wiring-1 (commit `8fadd27f`). Green everywhere: `./mill lang.test`,
-`./mill jvm.test` (incl. the new `UniformCarrierByteIdenticalTest`), HelloWorld builds+runs
+**Where the tree is:** `master`, at U3a-2b(ii)-arg-slot (commit `527af90a`). Green everywhere: `./mill lang.test`,
+`./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest`), HelloWorld builds+runs
 (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
 and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
-then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The new
-transitional `--uniform-carrier` gate is **live for the plain pure value return** (routed through the uniform
-boundary and Id-normalized back to byte-identical) and falls back to the default path for every other shape.
+then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The
+transitional `--uniform-carrier` gate is **live for the plain pure value return *and* the pure-value-into-payload-slot
+argument** (both routed through the uniform boundary/ladder and Id-normalized back to byte-identical); every other shape
+falls back to the default path.
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -234,10 +235,24 @@ boundary and Id-normalized back to byte-identical) and falls back to the default
   (`?F := ?F`) → infinite loop, hence the non-carrier-headed gate.** Durable gate: `UniformCarrierByteIdenticalTest`
   (jvm.test) compiles a pure-value program **+ the whole base layer** with the flag off and on and asserts every class's
   bytes match (two full base compiles by design — the entire base compiles byte-identically under the flag).
+- **U3a-2b(ii) spine wiring slice 1 (the argument slot) — LANDED (2026-07-23, `527af90a`).** `checkArgumentSlot` now
+  routes the **plain pure-value-into-payload-slot** case through the uniform ladder (`intoCarrierHeadedTerm` the arg +
+  `resolveArgumentSlot`), gated by `uniformArgSlotRoutable` (the argument-position analogue of `uniformReturnRoutable`:
+  both the arg's inferred type and the domain are plain non-carrier-headed `VTopDef` value types + payload fits by pure
+  definitional equality). Everything else — effectful args, generic/flex domains + Phase-A deferral, effect-carrier /
+  HKT-dispatch slots, function/polytype args — falls back to the verbatim default Phase-A logic. **Bridge fix the wiring
+  surfaced:** a pure (`Id`, bottom) actual into a `PayloadSlot` must **pass its payload directly (`runId`), not bind** —
+  binding it was unsound because `wrapBinds`/`bindWrap` unifies the bind's carrier with the enclosing core's, so an `Id`
+  bind reaching an *effectful* core (`printLine(greeting)`, core `F[Unit]`) would wrongly solve `F := Id` and strip the
+  effect (only an effectful actual binds). For the gated case the bridge returns `Passed(runId(pure@Id(arg)))`, erased
+  by the Id-normalizer → byte-identical direct pass. The whole-base `UniformCarrierByteIdenticalTest` now exercises the
+  argument path across every pure-arg-into-payload-slot in lang/stdlib/jvm and stays byte-identical.
 
-**Next: U3a-2b(ii) — the spine** (under `--uniform-carrier`). In order: (a) the **spine** — `checkArgumentSlot`
-through `resolveArgumentSlot` + fold `Bind`s via `wrapBinds` + `finalizeAndMaterialize` at the value boundary, replacing
-Phase A/B; (b) **effect-carrier-headed returns** (guard the carrier-meta self-join — the finding above). Each gated on
+**Next: U3a-2b(ii) — the effectful spine** (under `--uniform-carrier`). In order: (a) **effectful arguments** — the
+`Bound` path + a **join-based `bindWrap`** (the arg's carrier *joins* the core's via `CarrierJoin`, not the polluting
+`doUnify` — an `Id` arg contributes nothing, an effectful arg joins the ambient) + `finalizeAndMaterialize` at the value
+boundary; (b) **carrier/generic slots** (`CarrierSlot` pass-join, `Generic` pass-through — the conditional mechanism);
+(c) **effect-carrier-headed returns** (guard the carrier-meta self-join — the finding above). Each gated on
 `uniformCarrier` so flag-off stays byte-identical, growing toward flag-on byte-identical from the simplest programs.
 **Wiring finding (2026-07-23):**
 `intoCarrierHeadedTerm` (and every heading site) must fire on **terminal value leaves only, never a function-typed
@@ -910,9 +925,17 @@ before anything leans on it), the foundation spike second, the checker refactor 
     effect-carrier-headed return self-solves its carrier meta (`?F := ?F`) → loop, hence the non-carrier-headed gate.
     Durable gate `UniformCarrierByteIdenticalTest` (jvm.test): the whole base + program compiles byte-identically with
     the flag off vs on (`Int` returns route too — `Int == Int` definitionally, no `Coerce` to reconcile; bounds stay in
-    the refinement channel). **NEXT**: (a) the spine (`checkArgumentSlot` →
-    `resolveArgumentSlot` + `wrapBinds` + `finalizeAndMaterialize`, replacing Phase A/B); (b) effect-carrier-headed
-    returns (guard the carrier-meta self-join). The coupled `desugarChannel`/accounting deletion stays on the
+    the refinement channel).
+  - **U3a-2b(ii) spine wiring slice 1 (the argument slot) — LANDED (2026-07-23, `527af90a`).** `checkArgumentSlot`
+    routes the **plain pure-value-into-payload-slot** case through the uniform ladder (`intoCarrierHeadedTerm` +
+    `resolveArgumentSlot`), gated by `uniformArgSlotRoutable`; everything else falls back to the default Phase-A logic.
+    **Bridge fix:** a pure (`Id`, bottom) actual into a `PayloadSlot` passes its payload directly (`runId`), *not* a bind
+    — binding it lets `wrapBinds`/`bindWrap` unify the `Id` carrier with an effectful core's and strip the effect (only
+    effectful actuals bind). Whole-base `UniformCarrierByteIdenticalTest` stays byte-identical with the arg path live.
+    **NEXT**: (a) effectful arguments (the `Bound` path + a **join-based `bindWrap`** so the arg's carrier *joins* the
+    core's via `CarrierJoin`, not the polluting `doUnify`) + `finalizeAndMaterialize`; (b) carrier/generic slots
+    (`CarrierSlot` pass-join, `Generic` pass-through — the conditional mechanism); (c) effect-carrier-headed returns
+    (guard the carrier-meta self-join). The coupled `desugarChannel`/accounting deletion stays on the
     `--effect-channel` gate and is untangled at U4 (this transitional gate sidesteps it).
 - **U4 — flip and delete.** The flag becomes the default; the §7 flip-deletions land; the §6
   assertion becomes a hard error; the Cornerstone amendment (§9 restatement) and the doc/skill
