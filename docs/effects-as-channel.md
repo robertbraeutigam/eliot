@@ -27,13 +27,21 @@ bridge** `check/UniformCarrierChecker` — the §12-Q1 decision resolved to **ch
 the value's real carrier bookkeeping (`ambientCarriers`/`carrierRoles` via the reused `effectCarrierSplit`),
 and the CheckIO-threaded ladder + boundary finalize/materialize — built and **unit-tested in isolation**
 (`UniformCarrierCheckerTest`, like `EffectLifterTest`), **not yet constructed/called by the `Checker`** so the
-default path stays byte-identical (and clear of the `desugarChannel`/accounting knot). **NEXT: U3a-2b — the
-spine-loop flip**: construct `UniformCarrierChecker` in the `Checker`, route the spine slots through it (replace
-Phase A/B + `EffectLifter.tryIdDefault`-as-an-arm with the ladder + join solver, reusing `EffectLifter`'s
-`bindWrap`/`tryPureWrap` node mechanics for the materialised lift), untangling the coupled
-`desugarChannel`/accounting deletion together (U3a/U3c). Commit trail (on `master`): U2 spike `6fc17e99`,
-U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a checker-side bridge; the tree
-is green (`lang.test`/`jvm.test`, HelloWorld, eliot-test 11/11).** The §13 fork raised during the Phase-3
+default path stays byte-identical (and clear of the `desugarChannel`/accounting knot). U3a-2b(i) LANDED
+(2026-07-23): the bridge's **node mechanics** — `EffectLifter.pureWrapNode`/`runIdNode` **extracted** (a
+behavior-preserving refactor of `tryPureWrap`/`tryIdDefault`) and reused (reshape, not rebuild) by
+`UniformCarrierChecker.resolveArgumentSlot` (the node-producing successor of the checker's `checkArgumentSlot`:
+classify ⤳ ladder ⤳ build the slot node — Generic pass-through / CarrierSlot pass-join with a pure actual
+re-carried by `carrierSlotLift` = `pure@Effect[?G](runId(actual))` / PayloadSlot bind via `EffectLifter.Bind`),
+returning a `UniformSlotOutcome` that mirrors the checker's `SlotOutcome`. Still unit-tested in isolation, still
+not called by the `Checker` — default path byte-identical (verified incl. eliot-test 11/11). **NEXT: U3a-2b(ii)
+— the spine-loop flip**: construct `UniformCarrierChecker` in the `Checker`, route the spine slots
+(`checkArgumentSlot`/`resolveDeferredSlot`/`checkAgainst`) through `resolveArgumentSlot` + the join solver under
+the flag (replacing Phase A/B + `tryIdDefault`-as-an-arm), and carrier-head `infer` at the boundaries via
+`intoCarrierHeaded`, untangling the coupled `desugarChannel`/accounting deletion together (U3a/U3c). Commit trail
+(on `master`): U2 spike `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`,
+U3a-2a `455575bb`, U3a-2b(i) `e1445031`; the tree is green (`lang.test`/`jvm.test`, HelloWorld, eliot-test
+11/11).** The §13 fork raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
 §1–§6 of the previous revision) is **superseded**, and the committed foundation is **uniform
 carriers**: every runtime term's checked type is carrier-headed, `Id` is the pure carrier, and a
@@ -134,10 +142,22 @@ then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-
     lifts decision-free).
   - **Not constructed/called by the `Checker` yet** — the default path is byte-identical (verified). This
     deliberately avoids the `desugarChannel`/`EffectAccounting` coupling (U3-0b), which the *flip* must
-    untangle. Node *splicing* of a materialised lift is left for the flip (it reuses `EffectLifter`'s
-    `bindWrap`/`tryPureWrap` — reshape, not rebuild).
+    untangle.
+- **U3a-2b(i) (the bridge's node mechanics) — LANDED.** The "execute a ladder decision as a real
+  `SemExpression`" toolkit, built by **reusing** `EffectLifter`'s insertions (reshape, not rebuild), still
+  isolation-tested and uncalled by the `Checker` (default path byte-identical, verified incl. eliot-test 11/11):
+  - `EffectLifter.pureWrapNode`/`runIdNode` **extracted** into the companion (a behavior-preserving refactor of
+    `tryPureWrap`/`tryIdDefault`; `idCarrier` moved there too), so both the default path and the uniform path
+    build the same nodes from one place.
+  - `UniformCarrierChecker.resolveArgumentSlot(arg, argExpr, argType, expected)` — the node-producing successor
+    of the checker's `checkArgumentSlot`: classify the expected → run the ladder (join + payload unify) → build
+    the slot node. `Generic` passes the action through unchanged; `CarrierSlot` pass-joins and re-carries a
+    **pure** actual via `carrierSlotLift` (`pure@Effect[?G](runId(actual))`, whose `?G` the join solves and the
+    Id-normalizer erases at `Id`); `PayloadSlot` **binds** (fresh `$eff$N` reference + `EffectLifter.Bind` for
+    the spine's `wrapBinds` — a bind over a bottom `Id` carrier erases, so a pure actual into a pure slot costs
+    nothing). Returns a `UniformSlotOutcome` (`Passed`/`Bound`) mirroring the checker's `SlotOutcome`.
 
-**Next: U3a-2b — the spine-loop flip.** Construct `UniformCarrierChecker` in the `Checker` and route the
+**Next: U3a-2b(ii) — the spine-loop flip.** Construct `UniformCarrierChecker` in the `Checker` and route the
 spine slots through it under `--effect-channel`. The honest big step (§11). Start points and constraints:
 - **Where it lives:** the checker chain `monomorphize/processor/MonomorphicTypeCheckProcessor` →
   `monomorphize/check/TypeStackLoop` → `monomorphize/check/Checker` (~1000 lines) + the unifier
