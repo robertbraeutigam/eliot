@@ -32,14 +32,18 @@ current state, and the path forward.
 ## 0. Current state
 
 **Tree**: `master`; all gates green: `./mill lang.test` / `./mill jvm.test` (incl.
-`UniformCarrierByteIdenticalTest` — the whole base + test programs compiled flag-off vs flag-on,
-every generated class's bytes equal — and `UniformCarrierConditionalTest`, the non-overlap
-compile-succeeds gate), HelloWorld builds+runs
+`UniformCarrierByteIdenticalTest` — the whole base + seven targeted programs (pure/effect return,
+payload bind/capture/mismatch/doomed-bind, carrier-slot, generic-arm, a State transformer-stack)
+compiled flag-off vs flag-on, every generated class's bytes equal — and `UniformCarrierConditionalTest`,
+the non-overlap compile-succeeds gate), HelloWorld builds+runs
 (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar
 target/HelloWorld.jar`), eliot-test 11/11 (exact command in `eliot-test/.claude/CLAUDE.md`; args
-are order-strict), and 32/32 compiling example mains byte-identical under the flag (the 3
-remaining flag failures — `EffectsTwoDeps`/`EffectsTwoThrows`/`WherePrecondition` — fail
-identically at baseline: pre-existing multi-layer-discharge / `where`-precondition gaps). The
+are order-strict), and **34/34 compiling example mains byte-identical under the flag** (re-verified
+2026-07-24 by an automated whole-corpus script — every `examples/src` main compiled both ways,
+all class bytes equal; the 3 non-compiling `EffectsTwoDeps`/`EffectsTwoThrows`/`WherePrecondition`
+fail identically at baseline: pre-existing multi-layer-discharge / `where`-precondition gaps).
+**This whole-corpus byte-identity is the U4-e flag-flip readiness proof** — the uniform path is
+byte-identical to the default across every real program, not just the targeted suite. The
 default path is byte-identical to pre-U1. Because effect **accounting now verifies on every
 compile** (U4-c-2, unconditional), whole-base accounting parity — no over-count reddens valid code —
 is a standing gate covered by `lang.test`/`jvm.test` (every example integration test compiles with

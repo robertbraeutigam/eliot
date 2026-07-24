@@ -96,6 +96,36 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       |def main: IO[Unit] = flatMap(o -> printLine(foldOption("done", s -> "got", o)), runAbort(demo))
       |""".stripMargin
 
+  // A rich effect-transformer-stack program (the `EffectsState` example, inlined): a `{State[String]}` computation in
+  // direct style (`val old = state; putState(next); old`), discharged under the pure `Id` carrier via `runStateToPair` +
+  // `runId`. Exercises the uniform carrier-slot / bind / discharge surface over a real transformer stack — the shape the
+  // hand-written programs above do not deeply cover. Byte-identical off vs on is verified across the whole example corpus
+  // (34/34 mains, 2026-07-24); this pins the most complex shape as a permanent regression guard.
+  private val stateSource =
+    """import eliot.carrier.Effect
+      |
+      |data Id[A](runId: A)
+      |
+      |implement Effect[Id] {
+      |   def pure[A](a: A): Id[A] = Id(a)
+      |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
+      |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
+      |}
+      |
+      |def swap(next: String): {State[String]} String = {
+      |   val old = state
+      |   putState(next)
+      |   old
+      |}
+      |
+      |def demo: Pair[String, String] = runId(swap("second").runStateToPair("first"))
+      |
+      |def main: {Console} Unit = {
+      |   printLine(demo.first)
+      |   printLine(demo.second)
+      |}
+      |""".stripMargin
+
   "the --uniform-carrier gate" should "emit byte-identical classes to the default path (whole base + program)" in {
     (for {
       off <- compileClasses(source, uniformCarrier = false)
@@ -128,6 +158,13 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
     (for {
       off <- compileClasses(doomedBindSource, uniformCarrier = false)
       on  <- compileClasses(doomedBindSource, uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => on shouldBe off }
+  }
+
+  it should "emit byte-identical classes for a State transformer-stack program (direct-style, discharged under Id)" in {
+    (for {
+      off <- compileClasses(stateSource, uniformCarrier = false)
+      on  <- compileClasses(stateSource, uniformCarrier = true)
     } yield (off, on)).asserting { case (off, on) => on shouldBe off }
   }
 
