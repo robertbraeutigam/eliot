@@ -1349,7 +1349,27 @@ before anything leans on it), the foundation spike second, the checker refactor 
        not the post-mono accounting; re-express accordingly. (`EffectAccountingChannelDeclaredTest`, the pure
        row-extraction unit test, already lives on the channel package and is unaffected.)
   3. **U4-c — swap the verifier.** Make `EffectAccountingProcessor` the sole post-mono verifier and **delete
-     `EffectResidualChecker`** (`TypeStackLoop:388`). Its **Phase-2 shadow is already deleted** (`26ce08b2`,
+     `EffectResidualChecker`** (`TypeStackLoop:388`). **Wiring finding (2026-07-24): `EffectAccounting` is *not wired
+     into the compile pipeline* today** — nothing demands `EffectAccounting.Key` except `EffectAccountingTest`
+     (it is a demand-driven `TransformationProcessor`), so despite the "real verification path" framing it currently
+     runs *only* in its own test, never on a real compile; `EffectResidualChecker` (unconditional, in-checker) is the
+     sole actual verifier. So U4-c is **two coupled steps**, not just a deletion: (a) **wire** a demand for
+     `EffectAccounting.Key` for every used value, so it runs alongside `EffectResidualChecker` on all real code; then
+     (b) delete `EffectResidualChecker`. **Concrete hook (located 2026-07-24):** the codegen chain reaches each used
+     value at `UsedNamesProcessor:87` (`getFactIfProduced(WovenValue.Key(vfqn, typeArgs))`), and the refinement channel
+     is reached analogously by `ReconcileProcessor:43` demanding `RefinementTable.Key`. Wire `EffectAccounting.Key` at
+     the post-mono seam — `WovenValueProcessor` demanding it (with `getFactOrAbort`, so a leak aborts weaving), or
+     `UsedNamesProcessor` — so it becomes a **precondition of codegen** per used value. Step (a) is *also how Bundle A's
+     re-point gets verified*: with both verifiers live, the whole example/eliot-test suite must stay green (any
+     **over-count** → a red compile, caught immediately), and a dedicated **rejection** test confirms no **under-count**
+     before `EffectResidualChecker` is removed — the fail-safe gate the re-point requires. **Blast-radius caveat (why
+     this is a dedicated session, not a quick slice):** the re-point fires only on the *carrier* path (under
+     `--effect-channel` the ops are still abstract `Qualifier.Ability`, so the `AbilityImplementation` branch is dormant
+     there) — so verifying it requires running EffectAccounting on the *default* path, i.e. as a codegen precondition
+     over the **whole base**. The re-point must then correctly account **every** base value (dischargers, carrier-machinery
+     `Effect`/`Suspend` impl bodies, first-order `Show`/`Eq`/`==` methods that also resolve to `AbilityImplementation`) —
+     an open-ended debug against the full base, best done focused. It cannot be validated in isolation (a bounded
+     carrier-machinery compile with fact access at carrier-bound mono keys, which no current test harness provides). Its **Phase-2 shadow is already deleted** (`26ce08b2`,
      2026-07-24 — `channelEffectsOf`/`channelDeclaredFor`/`shadowCompareSubset`/`shadowCompareVerdict`/`shadowMarker`
      were purely observational; the pure row-extraction unit test was retargeted to
      `EffectAccountingProcessor.channelDeclaredEffects` as `EffectAccountingChannelDeclaredTest`). What remains is
