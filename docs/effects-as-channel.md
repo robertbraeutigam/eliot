@@ -46,15 +46,20 @@ solves) — both no-ops on legacy.
   carrier-bookkeeping suites are all green under the uniform default. Then (still slice 2) the
   **`--legacy-carrier` CLI flag + `uniformCarrierKey` were removed** and the byte-identity transition tests
   converted to a uniform-only compile suite (`UniformCarrierByteIdenticalTest` → `UniformCarrierCompileTest`;
-  `UniformCarrierConditionalTest` keeps only the accepted-under-uniform half). **Remaining:** delete the legacy
-  machinery (§7 — the `EffectLifter` recognition arms, `Checker` Phase A/B, `defaultArgSlot`,
-  `CheckState.ambientCarriers`, and the now-always-`true` `uniformCarrier` param + its legacy branches).
-- **Then — retire the legacy default path** (the `EffectLifter` recognition arms, the `Checker` Phase A/B
-  deferral, `defaultArgSlot`/`resolveLadder`, `CheckState.ambientCarriers`); respell the synthetic main to
-  `runMain`; land the **effectful-`catch`-handler stdlib delta** (pinned finding 7); turn the §6 Id-residue
-  assertion into a **hard error**; the §9 Cornerstone amendment + doc/skill sweep; verify LSP/diagnostic
-  rendering `Id`-free. (The old U4-d "delete default-path machinery" step folds into this close-out.) See §10
-  and the pinned findings.
+  `UniformCarrierConditionalTest` keeps only the accepted-under-uniform half); finally the **`uniformCarrier`
+  checker param itself was removed** and its two dead `if (!uniformCarrier)` branches collapsed (the uniform
+  path is unconditionally live for the runtime track). **Finding (2026-07-24): the §7 "delete the legacy
+  machinery" cannot proceed at the current state — the default path is the *shared substrate*, not a dead
+  branch.** A whole-tree dependency map showed the uniform bridge is a runtime-track routing overlay that
+  reuses `checkAgainstDefault`/`defaultArgSlot`/`resolveLadder`/the `EffectLifter` arms/`CheckState.ambientCarriers`/`CarrierKindChecker`
+  directly, *and* the compile-time track uses that default path permanently (§8); the join-solver replacement
+  (`finalizeAndMaterialize`) is built but **uncalled**. So the real remaining §7 work is an *implementation*
+  (rewire the runtime uniform spine onto the join solver + decide/extend compile-track treatment), not a
+  deletion — details and the full map in §7.
+- **Then — the reframed §7 + close-out follow-ons**: rewire the uniform spine onto `CarrierJoin` (§7) so the
+  recognition arms retire; respell the synthetic main to `runMain`; land the **effectful-`catch`-handler stdlib
+  delta** (pinned finding 7); turn the §6 Id-residue assertion into a **hard error**; the §9 Cornerstone
+  amendment + doc/skill sweep; verify LSP/diagnostic rendering `Id`-free. See §7/§10 and the pinned findings.
 
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
@@ -663,19 +668,46 @@ effect-blind `desugarChannel`, the `AbilityResolver` abstain, the conformance re
 tests at U4-b Bundle A; the residual checker's Phase-2 shadow separately) — details in the git
 log.
 
-**Deleted at the U4 flip** (the old default-path machinery the uniform checker replaces, live
-until then):
-`EffectLifter`'s recognition arms — `mustLiftBeforeUnify`/`mustPureWrapBeforeUnify`, the
-equal-arity arm with its guards, `underApplied`/`isFlexMeta`, `effectCarrierSplit`'s ambient/role
-recognition — and `tryIdDefault` *as an arm* (promoted into the join solver, §3);
-`CheckState.ambientCarriers` + `recordAmbientCarriers` (their accounting role is replaced by the
-forwarded `MonomorphicValue.ambientCarriers` field, whose *writer* then reads the uniform
-checker's carrier bookkeeping — the fact contract is unchanged, §9); the `Checker`'s Phase A/B
-flex-slot deferral (replaced by decision-free deferred lift materialization);
-`CarrierKindChecker`'s carrier-specific duties; the synthetic main's `apply(block(main), unit)`
-spelling (→ `runMain(<user main>)` — making the one legitimate run boundary **nominal**). The
-bind/`pure` *mechanics* (`wrapBinds`/`bindWrap`/`tryPureWrap`/`pureWrapNode`, the `$eff$N` splice
-convention) survive reshaped as the uniform ladder's insertion step.
+**The `uniformCarrier` gate is gone (close-out slice 2, 2026-07-24) — but the "legacy" machinery
+is NOT deletable, because it is the shared substrate, not a dead branch.** The flag param was
+removed from `Checker`/`TypeStackLoop`/both mono processors/`LangProcessors` and the two dead
+`if (!uniformCarrier)` branches collapsed; the uniform path is now unconditionally live for the
+runtime track. **A whole-tree dependency map (2026-07-24) then established that the deletion list
+below cannot be executed at the current state** — it was written on the premise that the uniform
+bridge *replaces* the default path, but the incremental (byte-identity-driven) implementation made
+the uniform bridge a thin **routing overlay that reuses the default path as its substrate**:
+
+- **The compile-time track always runs the default path.** Every uniform routing site is gated on
+  `platform == Platform.Runtime` (`uniformReturnRoutable`, the arg-slot `uniform` flag, the Generic
+  arm). The `Platform.Compiler` track (the `eliot-compiler/` bodies, the `Either` discharge, §8)
+  therefore uses `checkAgainstDefault`/`defaultArgSlot`/`resolveGuardedLadder`/`resolveLadder`
+  *permanently* — those are the **compile-time checker**, not legacy.
+- **The runtime uniform overlay reuses the default helpers directly.** `uniformCaptureSlot` calls
+  `EffectLifter.mustLiftBeforeUnify`; `uniformCarrierSlot` calls `EffectLifter.tryPureWrap` and
+  falls back to `defaultArgSlot`; the return-boundary `false` case calls `checkAgainstDefault`; the
+  bare-flex generic arg-domain falls to `defaultArgSlot`; the whole bridge is built on the shared
+  node mechanics (`pureWrapNode`/`runIdNode`/`bindWrap`/`wrapBinds`/`Bind`/`effectCarrierSplit`),
+  and `effectCarrierSplit` is the *sole* reader of `CheckState.ambientCarriers`. `CarrierKindChecker`
+  flags the effect-carrier role the uniform `effectCarrierSplit` reads, and runs on every
+  instantiation on both tracks.
+- **The join-solver replacement is built but uncalled.** `UniformCarrierChecker.finalizeAndMaterialize`
+  / `resolveSlot` (the §3 decision-free spine that would let the recognition arms retire) have **no
+  callers** — the uniform spine still routes through the legacy `tryBindLift`/`tryPureWrap`/
+  `tryIdDefault`/`wrapBinds` mechanics.
+
+So the real prerequisite for deleting the default helpers is **not** removing a flag; it is (a)
+extending the uniform bridge to cover the compile-time track (so the `platform == Platform.Runtime`
+gate can go — a §8 design decision) and (b) rewiring the runtime uniform spine onto the join solver
+(`finalizeAndMaterialize`, currently uncalled) so the `EffectLifter` recognition arms and
+`defaultArgSlot`/`checkAgainstDefault` become genuinely unreachable. That is a substantial
+implementation effort (§11's "join-solver first live use"), tracked as the remaining §7 work — not
+the mechanical deletion this section originally described. The one piece that **is** independent —
+respelling the synthetic main `apply(block(main), unit)` → `runMain(<user main>)` — needs a
+`runMain` callable to exist first and is deferred with the rest.
+
+The bind/`pure` *mechanics* (`wrapBinds`/`bindWrap`/`tryPureWrap`/`pureWrapNode`/`runIdNode`, the
+`$eff$N` splice convention) are **permanently shared** — the uniform bridge is constructed with
+`lifter.effectCarrierSplit` and reuses these; they were never on the deletion list.
 
 (`EffectResidualChecker` was already deleted at U4-c-2 — earlier and independent of the flip, since
 accounting replaced its subset check — with its one declared-pure diagnostic moved to
@@ -724,9 +756,11 @@ on runtime term judgments**; the NbE/signature path never calls it.
   premature-commitment bug class and must not be reintroduced.
 - **The channel interface is fact-carried and stable.** Verification inputs are explicit fields on
   facts (`MonomorphicValue.ambientCarriers`; the constraint-based declared set on
-  `OperatorResolvedValue`). A field's *writer* may change (U4-d swaps the ambient's source from
-  `CheckState.ambientCarriers` to the uniform checker's bookkeeping); the schema and meaning may
-  not. Verification never reads checker state.
+  `OperatorResolvedValue`). The schema and meaning are fixed; verification never reads checker state.
+  (The accounting writer `TypeStackLoop.groundAmbientCarriers` **re-derives** the ambient carriers
+  from `SignatureView` + ρ + `PostDrainQuoter` — it does *not* read `CheckState.ambientCarriers`,
+  which is a checker-internal lift-recognition table read only by `EffectLifter`; the earlier note
+  that the §7 deletion would "re-point the writer" was wrong — the two are already independent.)
 - **Forward what is declared, derive what is done.** Declaration-level facts may be forwarded
   through mono; per-op verdicts are always derived from ground instantiations. A forwarded per-op
   bit is a checker self-report and is rejected (§5), as is any negative-effect surface.
@@ -814,13 +848,15 @@ default path byte-identical, gated by the §0 harness.
    Locked by `EffectAccountingRideTest` (the 8-case ride matrix), `EffectAccountingDerivationTest`
    (correct rows, no over-count), and `EffectAccountingWiringTest` (undeclared `Console`/`Inf` redden).
 
-4. **U4-d — delete the default-path machinery: folded into the U4-e close-out** (the core flip landed
-   with the legacy path still present behind `--legacy-carrier`). The §7 flip-deletion list applies.
-   Beyond deletion: the synthetic main respells to `runMain(<user main>)`, making the run boundary
-   nominal (§9); the `MonomorphicValue.ambientCarriers` writer switches its source from
-   `CheckState.ambientCarriers` to the uniform checker's carrier bookkeeping (the fact contract is
-   unchanged); friendly voicing for the `AbilityResolver`-killed control-effect leaks stays optional
-   polish. (The "declared pure" diagnostic already moved to `DeclaredPureChecker` at U4-c.)
+4. **U4-d — delete the default-path machinery: re-scoped, NOT a deletion (see §7).** The premise (uniform
+   *replaces* the default path) did not hold — the whole-tree map (2026-07-24) showed the default path is the
+   shared substrate + the permanent compile-time checker, so the "deletion" is really an implementation:
+   rewire the runtime uniform spine onto the join solver + resolve compile-track treatment. The synthetic-main
+   `runMain` respell still stands (needs a `runMain` callable first); the `MonomorphicValue.ambientCarriers`
+   writer is **already independent** of `CheckState.ambientCarriers` (it re-derives — the old "switch the
+   writer's source" plan was based on a wrong reading, §9); friendly voicing for the `AbilityResolver`-killed
+   control-effect leaks stays optional polish. (The "declared pure" diagnostic already moved to
+   `DeclaredPureChecker` at U4-c.)
 
 5. **U4-e — make it the default + close out. CORE FLIP LANDED (2026-07-24).** The live default is now
    uniform (`LangPlugin` `uniformCarrierKey` default `true`, opt-*out* `--legacy-carrier`; constructor

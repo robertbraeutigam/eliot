@@ -28,7 +28,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * This processor never mentions [[MonomorphicValue]] / its key, so the `compiler-mono → runtime-mono` fact edge cannot
   * exist; the two tracks are acyclic by construction.
   */
-class CompilerMonomorphicTypeCheckProcessor(uniformCarrier: Boolean = true)
+class CompilerMonomorphicTypeCheckProcessor()
     extends TransformationProcessor[SaturatedValue.Key, CompilerMonomorphicValue.Key](key =>
       // Both roles' monos read the **runtime** value's `SaturatedValue` (signature-unification Phase E): a `Signature`
       // mono checks that same value's signature expression (`processSignatureTwin`), so there is no separate front-end
@@ -110,7 +110,6 @@ class CompilerMonomorphicTypeCheckProcessor(uniformCarrier: Boolean = true)
                              fetchBinding = fetchBinding(value.name),
                              resolveAbility = resolveAbilityImpl,
                              track = Track.Compiler,
-                             uniformCarrier = uniformCarrier,
                              reduceInstance = ReducedBindingClosure.reduceInstance(_, _),
                              signatureOnly = signatureOnly,
                              injectedSignature = injectedSignature

@@ -64,12 +64,6 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     the default; tests that declare local versions of ambient names pass a narrower set, e.g.
   *     `systemModulesWithoutInt`, or `Seq.empty`);
   *   - `maxNestedRepeats` — the `UsedNamesProcessor` non-convergence backstop bound.
-  *   - `uniformCarrier` — the pre-uniform carrier-based checker opt-out (docs/effects-as-channel.md §0/§10). The
-  *     uniform-carrier spine is the live default and this constructor default matches it (`true`); the `--legacy-carrier`
-  *     CLI flag was removed at the U4-e close-out slice 2, so the only remaining opt-out is passing
-  *     `uniformCarrier = false` explicitly at construction (a raw-mono processor unit test that must exercise the legacy
-  *     path). Threaded to both mono checkers (runtime + compiler tracks); the param and the legacy branches are deleted
-  *     together with the legacy machinery in the remaining U4-e close-out.
   *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
   *     this base one (e.g. stdlib's arithmetic natives,
   *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
@@ -82,8 +76,7 @@ object LangProcessors {
   def apply(
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
-      extraNativeBindingLabels: Seq[String] = Seq.empty,
-      uniformCarrier: Boolean = true
+      extraNativeBindingLabels: Seq[String] = Seq.empty
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
@@ -114,8 +107,8 @@ object LangProcessors {
       ContributedBinding.langNativeLabels ++ extraNativeBindingLabels,
       ContributedBinding.userLabels
     ),
-    MonomorphicTypeCheckProcessor(uniformCarrier),
-    CompilerMonomorphicTypeCheckProcessor(uniformCarrier),
+    MonomorphicTypeCheckProcessor(),
+    CompilerMonomorphicTypeCheckProcessor(),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(),
     WovenValueProcessor(),

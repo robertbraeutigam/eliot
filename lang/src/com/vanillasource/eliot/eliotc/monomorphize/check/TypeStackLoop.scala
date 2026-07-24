@@ -43,16 +43,11 @@ class TypeStackLoop(
     // args)`), fed in **mandatorily** by the processor (C1/C2). [[establishSignature]] binds the type arguments (leftover
     // binders to fresh metas, re-inflating the twin's `Param`s) and re-inflates it — the one way a value mono obtains its
     // signature. `None` only for a signature twin computing itself (`signatureOnly`, which does not read it).
-    injectedSignature: Option[GroundValue] = None,
-    // Effects-as-channel (docs/effects-as-channel.md §0/§10): the uniform-carrier gate, forwarded to [[Checker]] where
-    // the uniform-carrier spine grows. The live default; an explicit `false` (the `--legacy-carrier` CLI flag was removed
-    // at the U4-e close-out slice 2) falls back to the pre-uniform carrier-based path. Deleted with the legacy machinery
-    // in the remaining U4-e close-out.
-    uniformCarrier: Boolean = true
+    injectedSignature: Option[GroundValue] = None
 ) {
   import TypeStackLoop.AbilityRef
 
-  private val checker = new Checker(fetchBinding, resolveAbility, track, signatureOnly, uniformCarrier)
+  private val checker = new Checker(fetchBinding, resolveAbility, track, signatureOnly)
 
   def process(
       typeArguments: Seq[GroundValue],
@@ -700,8 +695,7 @@ object TypeStackLoop {
       reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
       (_, _) => none[SemValue].pure[CompilerIO],
       signatureOnly: Boolean = false,
-      injectedSignature: Option[GroundValue] = None,
-      uniformCarrier: Boolean = true
+      injectedSignature: Option[GroundValue] = None
   ): CompilerIO[Result] =
     new TypeStackLoop(
       fetchBinding,
@@ -709,8 +703,7 @@ object TypeStackLoop {
       track,
       reduceInstance,
       signatureOnly,
-      injectedSignature,
-      uniformCarrier
+      injectedSignature
     )
       .process(typeArguments, resolvedValue)
 

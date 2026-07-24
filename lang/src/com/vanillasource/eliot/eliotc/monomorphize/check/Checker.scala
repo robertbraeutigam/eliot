@@ -34,13 +34,7 @@ class Checker(
     // must **not** fire there — reading `CompilerMonomorphicValue(Function@Signature, …)` while computing exactly that
     // fact is a demand cycle. The flip therefore fires only for body checks (a runtime/compiler *value* mono), whose
     // callees are other values; the twin those bodies read then computes its signature in place, bottoming the demand.
-    signatureOnly: Boolean = false,
-    // Effects-as-channel (docs/effects-as-channel.md §0/§10): the pre-uniform carrier-based opt-out. The uniform-carrier
-    // spine ([[uniformChecker]]) grows on the carrier-desugared input (ordinary ability resolution). It is the **live
-    // default** (this ctor default matches it); the `--legacy-carrier` CLI flag was removed at the U4-e close-out
-    // slice 2, so only an explicit `false` at construction falls back to the default path. The param and the legacy
-    // branches are deleted with the legacy machinery in the remaining U4-e close-out.
-    uniformCarrier: Boolean = true
+    signatureOnly: Boolean = false
 ) {
 
   /** The track's platform — fact keys read it off the [[track]] rather than threading a bare [[Platform]]. */
@@ -80,14 +74,13 @@ class Checker(
     */
   private[check] val lifter: EffectLifter = new EffectLifter(force, doUnify)
 
-  /** The **uniform-carrier** checker-side bridge (docs/effects-as-channel.md §3, U3a): the successor spine mechanism —
-    * carrier-headed judgments, the classify-by-expected-slot ladder, and the join solver — consulted only under the
-    * transitional `--uniform-carrier` gate ([[uniformCarrier]]). Built and unit-tested in isolation
-    * ([[UniformCarrierCheckerTest]]); the spine-loop flip (U3a-2b(ii)) routes the argument slots, the pure-leaf heading,
-    * and the return boundary through it. Its node splicing reuses [[EffectLifter]]'s `pureWrapNode`/`bindWrap` mechanics
-    * (reshape, not rebuild), so uniform-path and default-path binders share the one `$eff$N` counter. Constructed
-    * unconditionally (cheap — two function references) but never called while [[uniformCarrier]] is off, so the default
-    * path is byte-identical.
+  /** The **uniform-carrier** checker-side bridge (docs/effects-as-channel.md §3): the successor spine mechanism —
+    * carrier-headed judgments, the classify-by-expected-slot ladder, and the join solver. It is the live path for
+    * **runtime**-track value returns and argument slots (`platform == Platform.Runtime`); the compile-time track and the
+    * runtime shapes it declines fall back to the default ladder ([[checkAgainstDefault]]/[[defaultArgSlot]], §8). Its
+    * node splicing reuses [[EffectLifter]]'s `pureWrapNode`/`bindWrap` mechanics (reshape, not rebuild), so uniform-path
+    * and default-path binders share the one `$eff$N` counter — which is why the default ladder and the `EffectLifter`
+    * arms are the shared substrate the bridge sits on, not a deletable legacy path (see docs/effects-as-channel.md §7).
     */
   private[check] val uniformChecker: UniformCarrierChecker =
     new UniformCarrierChecker(force, lifter.effectCarrierSplit)
@@ -242,12 +235,10 @@ class Checker(
       inferred: SemValue,
       expected: SemValue
   ): CheckIO[SemExpression] =
-    if (!uniformCarrier) checkAgainstDefault(tm, expr, inferred, expected)
-    else
-      uniformReturnRoutable(tm, inferred, expected).flatMap {
-        case true  => uniformReturnBoundary(tm, expr, expected)
-        case false => checkAgainstDefault(tm, expr, inferred, expected)
-      }
+    uniformReturnRoutable(tm, inferred, expected).flatMap {
+      case true  => uniformReturnBoundary(tm, expr, expected)
+      case false => checkAgainstDefault(tm, expr, inferred, expected)
+    }
 
   /** The default (carrier-based) return-boundary resolution: [[resolveGuardedLadder]] with the bind-lift arm disabled
     * (see [[checkAgainst]]'s doc). Kept verbatim as the fallback for every boundary the U3a-2b(ii) uniform bridge does
@@ -780,7 +771,7 @@ class Checker(
                               // successor of [[deferredGenericDefault]], byte-identical to it wherever the default path
                               // succeeds (the same `occursInValue(id, retType)` test; PassWhole ⤳ `Resolved`, Bound ⤳
                               // the same `$eff$N`/`Bind` node the default `tryBindLift` produces).
-                              outcome                 <- if (uniformCarrier && platform == Platform.Runtime)
+                              outcome                 <- if (platform == Platform.Runtime)
                                                            uniformChecker
                                                              .resolveGenericSlot(record.arg, updated, instantiated, id, record.retType)
                                                              .map {
@@ -978,7 +969,7 @@ class Checker(
           // Restricted to the **runtime** track, exactly as the return boundary is ([[uniformReturnRoutable]]): the §8
           // boundary keeps the compile-time track (`eliot-compiler/` value bodies, the `Either` guard discharge)
           // entirely on the default path — carrier-free — so it stays byte-identical.
-          uniform             = uniformCarrier && platform == Platform.Runtime
+          uniform             = platform == Platform.Runtime
           plainDomain        <- if (uniform) uniformPlainValueType(forcedDomain) else pure(false)
           carrierDomain      <- if (uniform && !plainDomain) lifter.effectCarrierSplit(forcedDomain).map(_.nonEmpty)
                                 else pure(false)
