@@ -65,9 +65,10 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     `systemModulesWithoutInt`, or `Seq.empty`);
   *   - `maxNestedRepeats` — the `UsedNamesProcessor` non-convergence backstop bound.
   *   - `uniformCarrier` — the transitional `--legacy-carrier` opt-out (docs/effects-as-channel.md §0/§10, U3a-2b). The
-  *     uniform-carrier spine is the live default; this constructor default stays `false` only so the raw-mono processor
-  *     unit tests observe the pre-uniform representation during the transition. Threaded to both mono checkers (runtime +
-  *     compiler tracks); removed with the legacy path at the U4-e close-out.
+  *     uniform-carrier spine is the live default, and this constructor default now matches it (`true`, flipped at the
+  *     U4-e close-out slice 2); a raw-mono processor unit test that must exercise the legacy path passes
+  *     `uniformCarrier = false` explicitly. Threaded to both mono checkers (runtime + compiler tracks); removed with the
+  *     legacy path at the U4-e close-out.
   *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
   *     this base one (e.g. stdlib's arithmetic natives,
   *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
@@ -81,7 +82,7 @@ object LangProcessors {
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
       extraNativeBindingLabels: Seq[String] = Seq.empty,
-      uniformCarrier: Boolean = false
+      uniformCarrier: Boolean = true
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),

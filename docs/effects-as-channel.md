@@ -31,21 +31,19 @@ solves) — both no-ops on legacy.
   (`effectChannelKey`, the `effectChannel` ctor params on `LangProcessors`/`EffectAccountingProcessor`,
   dropped from the two accounting tests). Inert — accounting already verified unconditionally; lang 233/233,
   jvm 283/283.
-- **Slice 2 — IN PROGRESS; the folding fix is LANDED (2026-07-24), the flip remains.** The eventual goal is
-  to remove `--legacy-carrier` + flip the six `uniformCarrier` constructor defaults to `true`, updating the
-  ~13 raw-mono processor unit tests to the uniform (Id-inserted) representation. Flipping the defaults
-  surfaced a **reduce-and-reify folding regression** (`PostDrainQuoter`'s staging gate can't fold a
-  carrier-headed erased-determined body); the chosen path was **fix folding first** (do NOT re-baseline
-  `ReificationTest`), and the fix — the **SemExpression-level Id-strip in the staging gate** — is now
-  **landed** (`PostDrainQuoter.stripIdMachinery`), with a companion **resolution-agnostic recognition** of
-  the abstract `Effect[Id]` combinator form in `IdNormalizer`. `ReificationTest` runs under uniform
-  (`LangProcessors(uniformCarrier = true)`) and passes **verbatim** — the strip folds the field-projection
-  cases, an `Id`-normalize-before-assert helper cleans the runtime-param wrapper noise. The earlier
-  `resolveAbilityRefs` direction stays **rejected** (it cannot fold on the runtime track even in production:
-  `Track.Runtime.implBindings` is empty by design). Analysis + resolution in pinned finding 11; details in
-  §10 close-out slice 2. **Remaining slice-2 work:** the Id-normalize test helper on the other ~13 raw-mono
-  unit tests, flip the six constructor defaults, characterise + fix the higher-kinded-ability (5) and
-  `CarrierBookkeepingTest` (1) failures, then remove `--legacy-carrier` + `uniformCarrierKey`.
+- **Slice 2 — the flip is LANDED (2026-07-24); only flag/test cleanup + legacy deletion remain.** The six
+  `uniformCarrier` constructor defaults are now `true`, so the raw-mono processor unit tests run uniform too.
+  Getting there needed three fixes, all landed: (a) the **SemExpression-level Id-strip in the staging gate**
+  (`PostDrainQuoter.stripIdMachinery`) so an erased-determined body still folds under uniform (finding 11) —
+  plus a companion resolution-agnostic recognition of the abstract `Effect[Id]` form in `IdNormalizer`; (b)
+  an **Id-normalize-before-assert helper** on the raw-mono unit tests that now see `pure@Id`/`runId` wrapper
+  noise (`MonomorphicTypeCheckProcessorTest`, `MonomorphicTypeCheckTest`); (c) the **`checkReturnBoundary`
+  injectivity fix** (finding 12) — a callee's HKT ability binder (`Container`'s `?F`, flagged as a carrier
+  unfiltered) is resolved by whole-type injectivity `?F := Box`, not split as a carrier, with an arity guard
+  keeping the effectful-body-under-pure-return fail-safe. `ReificationTest` and the higher-kinded-ability +
+  carrier-bookkeeping suites are all green under the uniform default. **Remaining:** remove `--legacy-carrier`
+  + `uniformCarrierKey` and convert the byte-identity transition tests to uniform-only (then the legacy
+  machinery, §7, can be deleted).
 - **Then — retire the legacy default path** (the `EffectLifter` recognition arms, the `Checker` Phase A/B
   deferral, `defaultArgSlot`/`resolveLadder`, `CheckState.ambientCarriers`); respell the synthetic main to
   `runMain`; land the **effectful-`catch`-handler stdlib delta** (pinned finding 7); turn the §6 Id-residue
@@ -58,9 +56,10 @@ current state, and the path forward.
 
 ## 0. Current state
 
-**Tree**: `master`; **uniform carriers are the live default** (the U4-e core flip). All gates green:
-`./mill lang.test` (233/233 — the raw-mono processor units still run *legacy* via the `false` constructor
-defaults; see Flags) / `./mill jvm.test` (283/283 — the **whole integration suite now runs uniform**),
+**Tree**: `master`; **uniform carriers are the live default** (the U4-e core flip) — and, since close-out
+slice 2, the raw-mono processor unit tests run uniform too (the six ctor defaults are `true`; see Flags).
+All gates green: `./mill lang.test` (233/233) / `./mill jvm.test` (283/283 — the **whole integration suite
+runs uniform**),
 HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then
 `java -jar target/HelloWorld.jar`, now compiled uniform), eliot-test 11/11 (exact command in
 `eliot-test/.claude/CLAUDE.md`; args are order-strict). The **transition regression suites** compare the
@@ -86,15 +85,16 @@ pure but performs an effect", for a value whose mono *fails* — moved to the fo
 fires only for a value with an *open effect row* (a concrete-carrier `IO[Unit]` return is exempt); a
 leak reddens through accounting with no flag.
 
-**Flags**: **the uniform checker is now the LIVE DEFAULT (U4-e core flip, 2026-07-24).** `LangPlugin`
-defaults `uniformCarrier` to `true`; `--legacy-carrier` is the transitional opt-*out* to the pre-uniform
-carrier-based path, kept only to drive the byte-identity / non-overlap transition tests and removed at
-the U4-e close-out. (Constructor defaults stay `false` so the raw-mono processor units observe the
-pre-uniform representation until the legacy path is deleted — a documented transitional inconsistency.)
-The vestigial `--effect-channel` flag (accounting verifies unconditionally, so it gated nothing) has
-been **removed** (U4-e close-out slice 1) — `effectChannelKey` and the `effectChannel` constructor
-params on `LangProcessors`/`EffectAccountingProcessor` are gone. `--legacy-carrier` is removed with the
-legacy path in the remaining close-out.
+**Flags**: **the uniform checker is the LIVE DEFAULT (U4-e core flip, 2026-07-24)** — and, since
+close-out slice 2 (2026-07-24), **the six `uniformCarrier` constructor defaults are `true` too**
+(`MonomorphicTypeCheckProcessor`, `CompilerMonomorphicTypeCheckProcessor`, `TypeStackLoop` ×2, `Checker`,
+`LangProcessors`), so the raw-mono processor unit tests now run uniform as well — the transitional
+"constructor defaults stay `false`" inconsistency is gone. `LangPlugin` defaults `uniformCarrier` to
+`true`; `--legacy-carrier` is the transitional opt-*out* to the pre-uniform carrier-based path, kept only
+to drive the byte-identity / non-overlap transition tests, and removed together with the legacy path in the
+remaining close-out. A raw-mono processor unit test that must still exercise legacy passes
+`uniformCarrier = false` explicitly. The vestigial `--effect-channel` flag (accounting verifies
+unconditionally, so it gated nothing) was **removed** at close-out slice 1.
 
 **Component map**:
 
@@ -237,6 +237,25 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
     injection (`ReificationTest`). Since the strip is resolution-independent by construction, that + the
     jvm.test byte-identity suite are the empirical confirmation; step (2)'s literal "compile through the full
     jvm path" is subsumed, not separately achievable.
+12. **A callee's HKT ability binder is flagged as an effect carrier *unfiltered*, and the uniform return
+    boundary splits before whole-unifying — FIXED at the ctor-default flip (2026-07-24).**
+    `CarrierKindChecker.recordIfHigherKinded` flags **every** `[F[_]]` instantiation meta as an effect carrier
+    (deliberately, the callee-side notion), so `wrap(someString) : ?F[String]` from `ability Container[F[_]]`
+    carries a flagged `?F`. Its own doc says a spurious flag is "harmless because the lift arms fire only after
+    unification failed" — but that invariant is a **legacy-path** one: the default ladder whole-unifies first
+    (`?F[String] ~ Box[String]` ⤳ `?F := Box` by injectivity), so the flag never bites. The **uniform** return
+    boundary (`checkReturnBoundary`) instead *splits* the body `?F[String]` into carrier `?F` + payload `String`
+    and hits the discharge-to-pure arm `(Bottom, Var(?F))`, defaulting `?F` to `Id` and unifying
+    `String ~ Box[String]` → a spurious mismatch. Flipping the ctor defaults surfaced this on five
+    `AbilityImplementationCheckProcessorTest` cases. **Fix:** the discharge-to-pure arm now speculatively checks
+    **payload-fit first** (like the default path's `tryIdDefault`): payload fits ⇒ genuine discharge (default the
+    carrier to `Id`, `runId`); payload does **not** fit ⇒ resolve by whole-type injectivity (`?F := Box`) and
+    pass the body through — **but only when the declared return is a rigid application** of matching arity. The
+    arity guard is the fail-safe: against a **nullary** pure return (`?F[Unit] ~ String`, an effectful lambda
+    body under a rigid pure codomain — `twice(s -> printLine(s))`) whole-unify would *degenerately* solve
+    `?F := const String` and silently strip the effect, so there the payload mismatch is reported instead. The
+    deeper lesson (same class as findings 10/11): a legacy "harmless because unify-first" invariant does not
+    transfer to the split-first uniform path — audit every such assumption when the flip surfaces it.
 
 ## 1. The problem
 
@@ -860,18 +879,20 @@ default path byte-identical, gated by the §0 harness.
      "carrier-typed storage slot" (1).** Characterise each before any re-baselining.
 
    **Sequenced steps for slice 2** (✓ = landed 2026-07-24): (1) ✓ implement the Id-strip; `ReificationTest`
-   passes **verbatim** under `uniformCarrier = true`; (2) ✓ *equivalent-of* — the literal "compile a
-   reification-style program through the full jvm path and confirm the folded constant" is **not
-   achievable** (no compilable full-jvm surface program reification-folds a non-leaf term — pinned finding
-   11's empirical-vehicle finding), subsumed by the resolution-independent `ReificationTest` + the jvm.test
-   byte-identity suite; (3) land the Id-normalize test helper on the remaining ~13 raw-mono unit tests
-   (`ReificationTest` done); (4) flip the six constructor defaults; (5) characterise + fix the
-   higher-kinded-ability and carrier-bookkeeping failures; (6) remove `--legacy-carrier` +
-   `uniformCarrierKey`, convert the byte-identity transition tests to uniform-only. Only after all unit
-   tests are green under the uniform default can the legacy machinery be deleted (the §7 list). Landed
-   state: `PostDrainQuoter.stripIdMachinery` + `IdNormalizer` abstract-form recognition +
-   `ReificationTest` uniform/helper + `IdNormalizerTest` abstract-form cases; the six ctor defaults stay
-   `false` (the flip is step 4). Gate green: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11.
+   passes **verbatim** under uniform; (2) ✓ *equivalent-of* — the literal "compile a reification-style program
+   through the full jvm path and confirm the folded constant" is **not achievable** (no compilable full-jvm
+   surface program reification-folds a non-leaf term — pinned finding 11's empirical-vehicle finding),
+   subsumed by the resolution-independent `ReificationTest` + the jvm.test byte-identity suite; (3) ✓ Id-normalize
+   test helper on the raw-mono unit tests (`MonomorphicTypeCheckProcessorTest`'s 4 whole-structure cases via a
+   `normalizedBody` helper, `MonomorphicTypeCheckTest`'s `liftedBody` — the discharge-helper `pure@Id` noise
+   erased before the combinator assert); (4) ✓ flip the six constructor defaults to `true`; (5) ✓ characterise +
+   fix the higher-kinded-ability (5) and carrier-bookkeeping (1) failures — the carrier-bookkeeping one was pure
+   `pure@Id` noise (helper), the five higher-kinded ones a **real checker bug** (pinned finding 12); (6)
+   **remaining** — remove `--legacy-carrier` + `uniformCarrierKey`, convert the byte-identity transition tests to
+   uniform-only. Only after that can the legacy machinery be deleted (the §7 list). **Landed state (flip
+   complete):** `PostDrainQuoter.stripIdMachinery` + `IdNormalizer` abstract-form recognition + the six ctor
+   defaults `true` + the `checkReturnBoundary` injectivity fix (finding 12) + the test-helper adaptations. Gate
+   green: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11.
 
    (The first flip attempt's two failure classes and their fixes — refinement-channel Id-transparency,
    nested-carrier prefix-unify — are summarised in finding 10 and the core-flip paragraph above; forensic

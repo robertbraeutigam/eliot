@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -1312,7 +1313,12 @@ class MonomorphicTypeCheckTest
     )
   )
 
-  /** The names of every value referenced in the named value's monomorphic body, checked at the stub `IO` carrier. */
+  /** The names of every value referenced in the named value's monomorphic body, checked at the stub `IO` carrier. The
+    * body is **Id-normalized** first, exactly as `WovenValueProcessor` does before codegen (docs/effects-as-channel.md
+    * §6): the uniform-carrier checker wraps a pure passthrough in `pure@Id`/`runId` machinery that carries no effect and
+    * is erased before codegen, so the *real* lift combinators the assertions probe are those surviving normalization (a
+    * `pure@Id` around a discharge-helper passthrough is not a lift). A no-op on the legacy path.
+    */
   private def liftedBody(
       source: String,
       name: String = "echo",
@@ -1325,10 +1331,13 @@ class MonomorphicTypeCheckTest
     ).map(
       _._2.values
         .collectFirst { case mv: MonomorphicValue if mv.vfqn.name.name == name => mv }
-        .flatMap(_.runtime)
-        .map(body => referencedNames(body.value))
+        .flatMap(mv => mv.runtime.map(body => referencedNames(idNormalized(mv, body))))
         .getOrElse(Seq.empty)
     )
+
+  /** Id-normalize a monomorphic value's runtime body as `WovenValueProcessor` does before codegen (see [[liftedBody]]). */
+  private def idNormalized(mv: MonomorphicValue, body: Sourced[MonomorphicExpression.Expression]): MonomorphicExpression.Expression =
+    IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, mv.signature, body)).value
 
   /** The build errors of checking the named value at the stub `IO` carrier. */
   private def liftedErrors(

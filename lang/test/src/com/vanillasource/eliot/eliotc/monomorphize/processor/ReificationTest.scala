@@ -17,7 +17,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * Uses the full match machinery ([[MatchNativesProcessor]] + concrete `PatternMatch`/`TypeMatch` abilities) so that
   * field accessors — desugared to `match` — reduce during checking, which is how `name(A)` folds to its constant.
   */
-class ReificationTest extends ProcessorTest(LangProcessors(uniformCarrier = true)*) {
+class ReificationTest extends ProcessorTest(LangProcessors()*) {
 
   // The canonical ambient set with the real `PatternMatch`/`TypeMatch` ability declarations so field accessors
   // (desugared to `match`) reduce during checking.

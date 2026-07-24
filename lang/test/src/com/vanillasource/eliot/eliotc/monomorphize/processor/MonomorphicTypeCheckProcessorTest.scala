@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
@@ -56,17 +57,17 @@ class MonomorphicTypeCheckProcessorTest
     // `integerLiteral` reference back into a plain integer-literal node at the readback boundary (Stage 3b), so the
     // monomorphic runtime is an `IntegerLiteral`, not a value reference.
     runEngineForMonomorphicValue("def f: Int[42, 42] = 42")
-      .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.IntegerLiteral])
+      .asserting(normalizedBody(_) shouldBe a[MonomorphicExpression.IntegerLiteral])
   }
 
   it should "monomorphize string literal in body" in {
     runEngineForMonomorphicValue("def f: String = \"hello\"")
-      .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.StringLiteral])
+      .asserting(normalizedBody(_) shouldBe a[MonomorphicExpression.StringLiteral])
   }
 
   it should "monomorphize value reference to non-generic value" in {
     runEngineForMonomorphicValue("def constVal: BigInteger\ndef f: BigInteger = constVal")
-      .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.MonomorphicValueReference])
+      .asserting(normalizedBody(_) shouldBe a[MonomorphicExpression.MonomorphicValueReference])
   }
 
   // --- Generic tests (Step 5) ---
@@ -115,7 +116,7 @@ class MonomorphicTypeCheckProcessorTest
         |def f[A ~ Show](x: A): A = show(x)""".stripMargin
     runEngineForMonomorphicValue(source, "f", Seq(intType))
       .asserting { result =>
-        unwrapFunctionLiterals(result.runtime.get.value) match {
+        unwrapFunctionLiterals(normalizedBody(result)) match {
           case MonomorphicExpression.FunctionApplication(target, _) =>
             target.value.expression match {
               case MonomorphicExpression.MonomorphicValueReference(name, typeArgs) =>
@@ -189,6 +190,13 @@ class MonomorphicTypeCheckProcessorTest
           case None    => IO.raiseError(new Exception(s"No MonomorphicValue found for '$name'"))
         }
     }
+
+  /** The value's runtime body, Id-normalized exactly as `WovenValueProcessor` does before codegen
+    * (docs/effects-as-channel.md §6) — so a body-shape assert sees the normalized leaf (`IntegerLiteral`, the resolved
+    * ability-impl reference) rather than the uniform-carrier `pure@Id`/`runId` wrapper. A no-op on the legacy path.
+    */
+  private def normalizedBody(result: MonomorphicValue): MonomorphicExpression.Expression =
+    IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(result.vfqn, result.signature, result.runtime.get)).value
 
   private def unwrapFunctionLiterals(expr: MonomorphicExpression.Expression): MonomorphicExpression.Expression =
     expr match {

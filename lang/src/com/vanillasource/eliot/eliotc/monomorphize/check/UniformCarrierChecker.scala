@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -105,22 +106,46 @@ class UniformCarrierChecker(
     for {
       expected              <- intoCarrierHeaded(declaredReturn).flatMap(force)
       (cExpected, pExpected) = Carrier.split(expected)
-      (cBody, pBody)        <- force(bodyType).map(Carrier.split)
+      forcedBody            <- force(bodyType)
+      (cBody, pBody)         = Carrier.split(forcedBody)
       unifier               <- inspect(_.unifier)
       resolvedBody           = CarrierJoin.resolve(unifier, cBody)
       result                <- (cExpected, resolvedBody) match {
-                                 // Discharge-to-pure: an unsolved residual carrier meta meets a pure `Id` return. Default
-                                 // it to `Id` and unwrap with `runId` (tryIdDefault's uniform successor). A pure body
-                                 // (Bottom) is handled by the general arm below (carrierSlotLift over `Id` erases), so this
-                                 // arm is only the genuinely-flex `?G[T]` case.
+                                 // A flex carrier-meta body meets a pure `Id` return. Two shapes hide here, told apart by
+                                 // whether the body's **payload** fits the pure return (speculative, like the default
+                                 // path's `tryIdDefault`):
+                                 //   - **discharge-to-pure** (payload fits): a fully-discharged residual carrier
+                                 //     (`sign`'s `?G[String]` into a `String` return) — default the carrier to `Id`
+                                 //     ([[CarrierJoin.finalize]]) and unwrap the body with `runId`.
+                                 //   - **spuriously-flagged HKT ability binder** (payload does NOT fit): the body head is
+                                 //     not a discharge residual but a callee's `[F[_]]` binder that `CarrierKindChecker`
+                                 //     flags as a carrier *unfiltered* (`wrap`'s `?F[String]` into a `Box[String]`
+                                 //     return). It must be resolved by ordinary whole-type injectivity (`?F := Box`) on
+                                 //     the raw declared return and the body passed through — exactly as the default path
+                                 //     (`checkAgainstDefault`) does, since that binder is decided by the call context, not
+                                 //     a carrier to default to `Id`.
                                  case (Carrier.Bottom, Carrier.Var(id)) =>
-                                   modify(s =>
-                                     s.withUnifier(
-                                       CarrierJoin
-                                         .finalize(s.unifier, List(id))
-                                         .unify(pBody, pExpected, source.as("Type mismatch."))
-                                     )
-                                   ).as(EffectLifter.runIdNode(pExpected, bodyExpr, source))
+                                   unifier.tryUnify(pBody, pExpected, source.as("Type mismatch.")) match {
+                                     case UnifyResult.Unified(u)       =>
+                                       modify(_.withUnifier(CarrierJoin.finalize(u, List(id))))
+                                         .as(EffectLifter.runIdNode(pExpected, bodyExpr, source))
+                                     case UnifyResult.Contradiction(_) =>
+                                       // The payload does not fit the pure return. Injectivity (`?F := Box`) is the right
+                                       // resolution ONLY when the return is itself a rigid application of matching arity
+                                       // (`?F[String] ~ Box[String]`, the spuriously-flagged HKT binder) — a clean
+                                       // decomposition. Against a **nullary** return (`?F[Unit] ~ String`) whole-unify
+                                       // would DEGENERATELY solve `?F := const String`, silently stripping a genuine
+                                       // effect (`twice(s -> printLine(s))` under a pure codomain), so there the payload
+                                       // mismatch (`Unit ~ String`) is reported instead — the fail-safe.
+                                       force(pExpected).flatMap {
+                                         case rigid @ VTopDef(_, _, Spine.SApp(_, _)) =>
+                                           modify(s => s.withUnifier(s.unifier.unify(forcedBody, rigid, source.as("Type mismatch."))))
+                                             .as(bodyExpr)
+                                         case _                                       =>
+                                           modify(s => s.withUnifier(s.unifier.unify(pBody, pExpected, source.as("Type mismatch."))))
+                                             .as(EffectLifter.runIdNode(pExpected, bodyExpr, source))
+                                       }
+                                   }
                                  case _                                 =>
                                    val bodyIsPure = resolvedBody == Carrier.Bottom
                                    modify(s =>

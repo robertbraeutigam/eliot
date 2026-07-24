@@ -37,10 +37,10 @@ class Checker(
     signatureOnly: Boolean = false,
     // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the `--legacy-carrier` opt-out. The uniform-carrier
     // spine ([[uniformChecker]]) grows on the carrier-desugared input (ordinary ability resolution), compared
-    // byte-identical against the pre-uniform default path. It is the **live default**; `--legacy-carrier` sets this
-    // `false` to fall back to the default path, kept only for the transition regression tests. Removed at the U4-e
-    // close-out.
-    uniformCarrier: Boolean = false
+    // byte-identical against the pre-uniform default path. It is the **live default** (this ctor default matches it,
+    // flipped at the U4-e close-out slice 2); `--legacy-carrier` (or an explicit `false`) falls back to the default
+    // path, kept only for the transition regression tests. Removed at the U4-e close-out.
+    uniformCarrier: Boolean = true
 ) {
 
   /** The track's platform — fact keys read it off the [[track]] rather than threading a bare [[Platform]]. */
