@@ -92,13 +92,14 @@ class Checker(
   private[check] val uniformChecker: UniformCarrierChecker =
     new UniformCarrierChecker(force, lifter.effectCarrierSplit)
 
-  /** Exact effect *verification*: the monomorphize-phase subset check that
-    * a value's residual effects (those demanded on its own ambient carrier) are declared — the sole authority, having
-    * replaced the now-deleted pre-mono declared-effect phase. A non-equality *verification* concern, kept out of this
+  /** The "declared pure but performs an effect" fail-safe: the one effect diagnostic the post-mono
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]] cannot voice (its value's mono
+    * fails, so no fact is produced). The `derived ⊆ declared` subset check now lives entirely in that processor
+    * (U4-c-2, which deleted the old `EffectResidualChecker`). A non-equality *verification* concern, kept out of this
     * checker's definitional-equality core. Called from [[TypeStackLoop.runPostDrainResolution]] after the final drain.
-    * See [[EffectResidualChecker]].
+    * See [[DeclaredPureChecker]].
     */
-  private[check] val effectResidual: EffectResidualChecker = new EffectResidualChecker(force, platform)
+  private[check] val declaredPure: DeclaredPureChecker = new DeclaredPureChecker(platform)
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =

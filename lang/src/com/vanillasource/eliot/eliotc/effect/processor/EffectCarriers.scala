@@ -19,8 +19,8 @@ object EffectCarriers {
     * is the *callee* notion of a carrier: an ability method's return rides its ability's binder (`printLine : F[Unit]`)
     * even though that binder carries no constraint on the method itself, so no constraint is required here. A *value's
     * own* ambient effect carriers are the further-filtered subset whose binder is ability-constrained — the
-    * `carrierBinders ∩ paramConstraints` filter the monomorphize-phase residual check applies (see
-    * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]), which excludes a bare generic
+    * `carrierBinders ∩ paramConstraints` filter the monomorphize-phase effect accounting applies (see
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]), which excludes a bare generic
     * `C[_, _]`.
     */
   def carrierBinders(view: SignatureView): Set[String] =

@@ -17,33 +17,32 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 /** The effects-as-channel **effect accounting** processor (docs/effects-as-channel.md §5) — the post-monomorphization
   * effect verifier, a rider on [[MonomorphicValue]] built on the same template as [[RefinementChannelProcessor]]. It
   * computes each mono'd value's **derived effect row** by a bottom-up walk of its checked body and requires
-  * `derived ⊆ declared`, with a source-anchored, effect-vocabulary diagnostic. The mono body reaches it (on the carrier
-  * path) with every ability reference already resolved to its concrete implementation, so the derivation reads:
+  * `derived ⊆ declared` for a value with an open effect row ([[verifySubset]]), with a source-anchored,
+  * effect-vocabulary diagnostic. The mono body reaches it with every ability reference already resolved to its concrete
+  * implementation, and each contribution is **gated by the ride test** ([[contributedEffects]], [[ridesAmbient]]): a
+  * reference counts only if it performs its effect on the value's own ambient carrier.
   *
   *   - an **effect-ability method** reference (`Console::printLine`, resolved to `Qualifier.AbilityImplementation`)
-  *     contributes its owning ability, discriminated from a first-order impl (`Show`/`Eq`/`==`) by the ability marker's
-  *     higher-kinded carrier binder (machinery abilities `Effect`/`Suspend` excluded) — see [[contributedEffects]];
-  *   - an **ordinary callee** contributes its *declared* row, read from the callee's own ambient carrier-binder ability
-  *     constraints (the single source of truth shared with the residual checker); so an effect propagates from callee to
-  *     caller through the same union.
+  *     contributes its owning ability *iff it rides*; a first-order (`Show`/`Eq`) impl is pure (empty ambient) so it
+  *     never rides, and the match-family eliminators (`PatternMatch`/`TypeMatch`) plus the machinery (`Effect`/`Suspend`)
+  *     are excluded outright ([[nonEffectAbility]]);
+  *   - an **ordinary callee** contributes its *declared* row (its carrier-binder ability constraints, [[openRow]] — the
+  *     single source of truth) iff it rides; a discharged/captured/lifted callee (whose carrier is an inner transformer
+  *     stack, not the ambient) drops out — discharge is structural.
   *
   * `Inf` is an ordinary entry and rides the union like any effect. The fact is only produced once `derived ⊆ declared`
-  * holds; an undeclared effect is reported at the value and the accounting **declines (aborts)**.
+  * holds; an undeclared effect is reported at the value and the accounting **declines (aborts)**, and
+  * [[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValueProcessor]]'s `getFactOrAbort` precondition turns that
+  * abort into a blocked codegen (U4-c-1).
   *
-  * '''Status (U4-b / Bundle A, docs/effects-as-channel.md §0/§10).''' Verification still lives in
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]; this processor is **not yet wired as a
-  * codegen precondition** (`effectChannel` gates it inert off the flag) because the row-based derivation here cannot yet
-  * replicate the residual checker's **run/discharge subtraction**: walking the *fully monomorphic* body it has lost the
-  * ambient-vs-concrete carrier distinction the checker still has (a `{Console}` value run on `IO`, and a discharged
-  * `raise` on an inner transformer carrier, both read as bare effect ops here), so wiring it whole-base over-counts
-  * (finding: the synthetic `main` runs `Console` on `IO` yet declares nothing). U4-c is blocked on that subtraction; see
-  * §10. The re-point of [[contributedEffects]] to the resolved-impl (`AbilityImplementation`) view is landed and
-  * validated (the user `main` of a Console program accounts as `{Console}` at its carrier-bound key).
-  *
-  * Scope note: the transparent-parameter expansion (`Effect`-marked callback positions) and reify/discharge subtraction
-  * are later slices; the carrier-machinery-impl exception is **gone** — U4-c-0b reads "declared" from the carrier-binder
-  * constraints ([[declaredEffectsOf]]), the single source of truth, so a hand-written carrier-generic discharger with no
-  * surface `{E}` row accounts correctly by the rule.
+  * '''Status (U4-c-2, docs/effects-as-channel.md §0/§10).''' This is the **sole subset verifier**, wired as a codegen
+  * precondition and verifying **unconditionally** (the old pre-mono `EffectResidualChecker` is deleted; its one remaining
+  * diagnostic, "declared pure but performs an effect", moved to
+  * [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]], because that concerns a value whose mono
+  * *fails* and so never reaches accounting). The `effectChannel` flag is vestigial (removed at U4-e). A **concrete-carrier**
+  * return (`def main: IO[Unit] = printLine(…)`) has no carrier binder and is exempt from the subset check — its explicitly
+  * chosen carrier permits its effects ([[verifySubset]]). The transparent-parameter expansion (`Effect`-marked callback
+  * positions) and the reify-legality check are later slices.
   */
 class EffectAccountingProcessor(effectChannel: Boolean = false)
     extends TransformationProcessor[MonomorphicValue.Key, EffectAccounting.Key](key =>
@@ -51,10 +50,10 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
     )
     with Logging {
 
-  // effects-as-channel U4-c-2 (docs/effects-as-channel.md §10): accounting now verifies **unconditionally** — it is the
-  // sole subset verifier on the default path, alongside the still-live `EffectResidualChecker` until slice B deletes the
-  // latter's subset check. The `effectChannel` flag no longer gates verification (it is vestigial, removed with the flag
-  // at U4-e); `WovenValueProcessor`'s `getFactOrAbort` precondition makes an undeclared effect block codegen.
+  // effects-as-channel U4-c-2 (docs/effects-as-channel.md §10): accounting is the **sole** subset verifier and verifies
+  // **unconditionally** (the pre-mono `EffectResidualChecker` is deleted). The `effectChannel` flag no longer gates
+  // verification (it is vestigial, removed with the flag at U4-e); `WovenValueProcessor`'s `getFactOrAbort` precondition
+  // makes an undeclared effect block codegen.
   override protected def generateFromKeyAndFact(
       key: EffectAccounting.Key,
       mv: MonomorphicValue
@@ -67,9 +66,9 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
   /** The `derived ⊆ declared` subset check — fired **only for a value with an open effect row** (a constrained carrier
     * binder). A **concrete-carrier** return (`def main: IO[Unit] = printLine(…)`) has no carrier binder, so it declares no
     * row to be a subset of; its explicitly chosen carrier permits its effects and it is **exempt**, exactly as
-    * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker.checkDeclaredPure]] exempts an *applied*
-    * return. A genuinely pure value whose body performs an effect never reaches here — its mono fails first (the effect
-    * cannot resolve on no carrier), and that "declared pure" diagnostic is the residual checker's own (not accounting's).
+    * [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]] exempts an *applied* return. A genuinely
+    * pure value whose body performs an effect never reaches here — its mono fails first (the effect cannot resolve on no
+    * carrier), and that "declared pure" diagnostic is [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]]'s.
     */
   private def verifySubset(mv: MonomorphicValue, derived: Set[AbilityFQN]): CompilerIO[Unit] =
     getFactIfProduced(OperatorResolvedValue.Key(mv.vfqn, Platform.Runtime)).flatMap {
@@ -163,14 +162,8 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
         if (EffectAccountingProcessor.ridesAmbient(callee.ambientCarriers, ambient)) candidate else Set.empty
       }
 
-  /** A value's declared effect abilities — the ability constraints on its own ambient effect-carrier binders
-    * (`carrierBinders ∩ paramConstraints`, machinery excluded), read off its `OperatorResolvedValue` on the runtime
-    * track. This is the **single source of truth** for "declared" (U4-c-0b), shared verbatim with
-    * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]: surface `{E...}` rows desugar *into*
-    * these constraints, and hand-written carrier-generic code (the stdlib dischargers, the lifting instances
-    * `implement[S, G ~ Abort] Abort[StateCarrier[S, G]]`) declares its effects *only* this way — so reading the
-    * constraints rather than the surface `effectRow` makes those correct by the rule, with no carrier-machinery-impl
-    * exception. Empty when the value declares no effects (or its front-end fact is not available).
+  /** A callee's declared effect abilities (the `._2` of its [[openRow]]) — the row [[gatedByRide]] propagates from a
+    * callee to its caller. Empty when the value declares no effects, or its front-end fact is unavailable.
     */
   private def declaredEffectsOf(vfqn: ValueFQN): CompilerIO[Set[AbilityFQN]] =
     getFactIfProduced(OperatorResolvedValue.Key(vfqn, Platform.Runtime)).map(_.map(openRow(_)._2).getOrElse(Set.empty))
@@ -178,7 +171,7 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
   /** A value's **open effect row**, read off its `OperatorResolvedValue`: its constrained carrier binders
     * (`carrierBinders ∩ paramConstraints` — empty for a concrete-carrier or pure return, non-empty for an `{E...}` row)
     * and the user-facing effects declared on them (machinery excluded). The single source of truth for "declared"
-    * (U4-c-0b), shared verbatim with [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]: surface
+    * (U4-c-0b), the same reading [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]] uses: surface
     * rows desugar *into* these constraints, and hand-written carrier-generic code (the stdlib dischargers, the lifting
     * instances `implement[S, G ~ Abort] Abort[StateCarrier[S, G]]`) declares its effects *only* this way. The
     * carrier-binder set is what [[verifySubset]] gates on (an empty set = no row to be a subset of = exempt).

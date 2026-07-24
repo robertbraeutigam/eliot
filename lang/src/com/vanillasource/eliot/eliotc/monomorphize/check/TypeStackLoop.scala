@@ -383,11 +383,11 @@ class TypeStackLoop(
       _ <- checker.carriers.verifyCarrierKinds
       _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
       _ <- modify(s => s.withUnifier(s.unifier.drain()))
-      // Exact effect verification: a value's residual effects (those
-      // demanded on its own ambient carrier) must be declared. Runs here — after the drain solved every reference's
-      // carrier argument, before `defaultUnsolvedMetas` collapses an abstract ambient carrier to `Type`. Passed the
-      // checked body only for a value mono; a signature twin passes `None` (its arrow-chain has no runtime effects).
-      _ <- residualBody.traverse_(body => checker.effectResidual.check(body, resolvedValue))
+      // The "declared pure but performs an effect" fail-safe (the one diagnostic post-mono effect accounting cannot
+      // voice — its value's mono fails, so no fact is produced). Runs here — after the drain left the committed
+      // mismatch, before `defaultUnsolvedMetas` collapses an abstract ambient carrier to `Type`. Passed the checked
+      // body only for a value mono; a signature twin passes `None` (its arrow-chain has no runtime effects).
+      _ <- residualBody.traverse_(body => checker.declaredPure.check(body, resolvedValue))
       _ <- defaultUnsolvedMetas
       // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality obligation the check
       // never discharged. Flush the queue to hard mismatch errors (triaging benign, now-defaulted constraints away

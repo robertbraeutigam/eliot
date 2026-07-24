@@ -11,14 +11,14 @@ import org.scalatest.matchers.should.Matchers
 
 import java.nio.file.{Files, Path}
 
-/** Effects-as-channel U4-c-0d (docs/effects-as-channel.md §5): the rewired post-mono derivation
+/** Effects-as-channel U4-c-0d (docs/effects-as-channel.md §5): the post-mono derivation
   * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]) must produce each value's derived
-  * effect row by gating every reference through the ride test against the value's own ambient carriers, matching what the
-  * live `EffectResidualChecker` accepts. This drives the derivation directly (under `--effect-channel`, which is still the
-  * gate before U4-c-1 wires accounting as a codegen precondition): compile a valid effectful program, demand
-  * `EffectAccounting` for **every** monomorphic value, and assert (a) no accounting error is raised — a spurious over-count
-  * on valid code aborts and would surface here — and (b) the derived rows are exactly right: an effect performed on the
-  * ambient is counted, a discharged / captured computation is not, and the synthetic entry (empty ambient) counts nothing.
+  * effect row by gating every reference through the ride test against the value's own ambient carriers. This drives the
+  * derivation directly by demanding `EffectAccounting` for **every** monomorphic value of a valid program and asserts
+  * (a) no accounting error is raised — a spurious over-count on valid code aborts and would surface here — and (b) the
+  * derived rows are exactly right: an effect performed on the ambient is counted, a discharged / captured computation is
+  * not, and the synthetic entry (empty ambient) counts nothing. (The `--effect-channel` argument is vestigial since
+  * U4-c-2 made accounting unconditional; kept harmlessly until the flag is removed at U4-e.)
   *
   * It is the valid-program half of the U4-c-1 parity gate, exercised one slice early to pin the derivation. The
   * undeclared-effect **rejection** direction lands with the wiring at U4-c-1.

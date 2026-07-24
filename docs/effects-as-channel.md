@@ -18,12 +18,13 @@ ambient carrier" by exact `GroundValue` equality; and **U4-c-0d (rewire the deri
 derivation now gates every contribution through the ride test, reading each reference's carriers as
 the *callee's* forwarded `ambientCarriers` (so the concrete-impl carrier and discharge fall out for
 free), validated by a direct-demand derivation test. All four are additive/inert (the processor is
-still unwired); the default path is byte-identical throughout, and `EffectResidualChecker` is the
-sole live verifier until U4-c passes its parity gate. **U4-c-1 then landed the wiring**: accounting
-runs as a codegen precondition (`WovenValueProcessor` demands `EffectAccounting` via `getFactOrAbort`),
-byte-identical off `--effect-channel` and, on the flag, parity-clean across the base + rejection tests
-green. What remains of U4-c: relocate the residual checker's friendly diagnostics (U4-d item), then
-delete it (U4-c-2), making accounting the sole verifier.
+still unwired); the default path is byte-identical throughout. **U4-c-1 then landed the wiring**:
+accounting runs as a codegen precondition (`WovenValueProcessor` demands `EffectAccounting` via
+`getFactOrAbort`). **U4-c-2 completed the swap**: accounting now verifies unconditionally and is the
+**sole effect verifier** — the pre-mono `EffectResidualChecker` is deleted, its one accounting-can't-voice
+diagnostic ("declared pure but performs an effect") moved to `DeclaredPureChecker`, and the whole base +
+example integration tests + eliot-test stay green. What remains of the effects-as-channel plan is the
+uniform-checker side (U4-a coverage, then U4-d/U4-e), not the verifier swap.
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
 
@@ -40,14 +41,15 @@ remaining flag failures — `EffectsTwoDeps`/`EffectsTwoThrows`/`WherePreconditi
 identically at baseline: pre-existing multi-layer-discharge / `where`-precondition gaps). The
 default path is byte-identical to pre-U1.
 
-**Verifier**: `EffectResidualChecker` (in-checker, per value mono, run from
-`TypeStackLoop.runPostDrainResolution`) is the **sole live verifier** — during the two-verifier
-window it preempts (aborts a leak's mono before accounting runs). `EffectAccountingProcessor` (the
-§5 verifier, the whole U4-c course landed) is now **wired** as a codegen precondition
-(`WovenValueProcessor` demands `EffectAccounting.Key` via `getFactOrAbort`, U4-c-1), but its
-verification is still gated behind `--effect-channel`: off the flag it produces an empty row (no
-verification, byte-identical); on the flag it verifies (parity + rejection tests green). It becomes
-the sole, unconditional verifier at U4-c-2 (delete `EffectResidualChecker`) / U4-e (drop the flag).
+**Verifier**: `EffectAccountingProcessor` (the §5 post-mono verifier) is now the **sole effect
+verifier** (U4-c-2). It is wired as a codegen precondition (`WovenValueProcessor` demands
+`EffectAccounting.Key` via `getFactOrAbort`, U4-c-1) and verifies **unconditionally** (the
+`--effect-channel` gate on verification is gone; the flag is vestigial until U4-e). The pre-mono
+`EffectResidualChecker` is **deleted**; the one diagnostic it voiced that accounting cannot — "declared
+pure but performs an effect", for a value whose mono *fails* — moved to the focused
+`DeclaredPureChecker`, run per value mono from `TypeStackLoop.runPostDrainResolution`. The subset check
+fires only for a value with an *open effect row* (a concrete-carrier `IO[Unit]` return is exempt); a
+leak reddens through accounting with no flag.
 
 **Flags**: `--uniform-carrier` — the transitional gate the uniform checker grows under (coverage
 below); distinct from `--effect-channel` so the uniform checker could grow on default
@@ -733,10 +735,23 @@ default path byte-identical, gated by the §0 harness.
      two-verifier window the residual checker preempts (aborts the mono before accounting runs), so these
      lock the end-to-end behavior and become accounting-specific at U4-c-2; the wiring's own correctness
      is carried now by parity (no over-count) + `EffectAccountingDerivationTest` (correct rows).
-   - **U4-c-2 — delete `EffectResidualChecker`** once parity holds — *after* its two friendly
-     diagnostics have a new home (§5 last paragraph; the relocation itself is the U4-d item
-     below). From here `EffectAccounting` is the sole verifier and is no longer flag-gated
-     (unconditional; the `effectChannel` parameter dies at U4-e).
+   - **U4-c-2 — delete `EffectResidualChecker`: LANDED (2026-07-24).** Done in two slices. **Slice A:**
+     accounting verifies **unconditionally** (the `--effect-channel` gate on verification dropped — the flag
+     is now vestigial, removed at U4-e), so it is the sole subset verifier on the *default* path. This
+     surfaced one real over-count fixed here: a **concrete-carrier return** (`def main: IO[Unit] =
+     printLine(…)`) has no carrier binder, so `declaredEffectsOf` is empty, yet it performs Console — the
+     subset check (`verifySubset`) now fires **only for a value with an open effect row** and exempts a
+     concrete-carrier return (its chosen carrier permits its effects), mirroring what the residual checker's
+     `checkDeclaredPure` did by exempting an *applied* return. **Slice B:** `EffectResidualChecker` deleted;
+     its one diagnostic accounting cannot voice — "declared pure but performs an effect", for a value whose
+     mono *fails* (a nullary non-carrier return can't host its effect) — extracted to the focused
+     `DeclaredPureChecker` (no `force`/ambient/ride machinery, just the platform), still called per value
+     mono from `TypeStackLoop.runPostDrainResolution`. The subset diagnostics were byte-identical between the
+     two emitters, so the existing subset tests pass unchanged (now via accounting, post-mono); the
+     declared-pure tests pass via `DeclaredPureChecker`. **Accounting is now the sole effect verifier** and a
+     leak reddens through it with no flag. The `State`/`Throw`/`Abort` `AbilityResolver` leaks stay cryptic
+     (independent of the residual checker — nothing to relocate). Gates: whole base + all example integration
+     tests + eliot-test 11/11 + HelloWorld green.
 
 4. **U4-d — delete the default-path machinery** (dead once U4-a coverage is complete): the §7
    flip-deletion list. Two items need care beyond deletion: (i) **diagnostics relocation** — the

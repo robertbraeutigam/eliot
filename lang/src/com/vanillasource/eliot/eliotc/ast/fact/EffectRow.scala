@@ -10,8 +10,8 @@ import cats.syntax.all.*
   * BlockDesugaredValue → MatchDesugaredValue → OperatorResolvedValue) alongside `paramConstraints`, converting the
   * entry representation at each hop exactly as `paramConstraints` is converted.
   *
-  * **Dark / inert in Phase 1**: nothing reads this yet. It exists so Phase 2's shadow accounting can compute a derived
-  * row and compare `derived ⊆ declared` against the current `EffectResidualChecker`. The carrier desugar still runs, so
+  * **Rendering metadata** (U4-c-0b): the effect verifier (`EffectAccountingProcessor`) reads "declared" from the
+  * carrier-binder constraints, not this row; the row is the LSP's declared-row vocabulary. The carrier desugar still runs, so
   * the same row information is *also* present in the desugared signature (as `F ~ E` constraints); this field is the
   * explicit, position-attributed copy, and is deliberately **not** part of any `signatureEquality` (the desugared
   * signature already carries the character-exact merge check).

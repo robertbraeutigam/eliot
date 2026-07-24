@@ -16,9 +16,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
   * `derived ⊆ declared` passing — an undeclared effect is reported at the value and the fact declines (aborts), the
   * fail-safe that keeps a leaking value from reaching the weaver.
   *
-  * The **real verification path under `--effect-channel`**, replacing the in-checker shadow of Phase 2
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]], deleted at Phase 4). It is also the
-  * intended LSP hover source for a value's effect row.
+  * The **sole effect verifier** (U4-c-2): the pre-mono in-checker `EffectResidualChecker` is deleted, and this fact's
+  * production is a codegen precondition. It is also the intended LSP hover source for a value's effect row.
   *
   * @param vfqn
   *   The value this accounting belongs to (the same instance identity as its `MonomorphicValue`).
