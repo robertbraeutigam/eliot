@@ -51,18 +51,34 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
     )
     with Logging {
 
+  // effects-as-channel U4-c-2 (docs/effects-as-channel.md §10): accounting now verifies **unconditionally** — it is the
+  // sole subset verifier on the default path, alongside the still-live `EffectResidualChecker` until slice B deletes the
+  // latter's subset check. The `effectChannel` flag no longer gates verification (it is vestigial, removed with the flag
+  // at U4-e); `WovenValueProcessor`'s `getFactOrAbort` precondition makes an undeclared effect block codegen.
   override protected def generateFromKeyAndFact(
       key: EffectAccounting.Key,
       mv: MonomorphicValue
   ): CompilerIO[EffectAccounting] =
-    if (!effectChannel) EffectAccounting(key.vfqn, key.typeArguments, Set.empty).pure[CompilerIO]
-    else
-      for {
-        derived   <- derivedRow(mv)
-        declared  <- declaredEffectsOf(mv.vfqn)
-        undeclared = derived.diff(declared)
-        _         <- if (undeclared.isEmpty) ().pure[CompilerIO] else reportUndeclared(mv, undeclared)
-      } yield EffectAccounting(key.vfqn, key.typeArguments, derived)
+    for {
+      derived <- derivedRow(mv)
+      _       <- verifySubset(mv, derived)
+    } yield EffectAccounting(key.vfqn, key.typeArguments, derived)
+
+  /** The `derived ⊆ declared` subset check — fired **only for a value with an open effect row** (a constrained carrier
+    * binder). A **concrete-carrier** return (`def main: IO[Unit] = printLine(…)`) has no carrier binder, so it declares no
+    * row to be a subset of; its explicitly chosen carrier permits its effects and it is **exempt**, exactly as
+    * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker.checkDeclaredPure]] exempts an *applied*
+    * return. A genuinely pure value whose body performs an effect never reaches here — its mono fails first (the effect
+    * cannot resolve on no carrier), and that "declared pure" diagnostic is the residual checker's own (not accounting's).
+    */
+  private def verifySubset(mv: MonomorphicValue, derived: Set[AbilityFQN]): CompilerIO[Unit] =
+    getFactIfProduced(OperatorResolvedValue.Key(mv.vfqn, Platform.Runtime)).flatMap {
+      case Some(orv) =>
+        val (carrierNames, declared) = openRow(orv)
+        val undeclared               = derived.diff(declared)
+        if (carrierNames.isEmpty || undeclared.isEmpty) ().pure[CompilerIO] else reportUndeclared(mv, undeclared)
+      case None      => ().pure[CompilerIO]
+    }
 
   /** The value's derived row: the union, over every value reference in the body, of that reference's contributed
     * effects — each **gated by the ride test** against the value's own ambient carriers. Empty for a body-less value.
@@ -157,15 +173,21 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
     * exception. Empty when the value declares no effects (or its front-end fact is not available).
     */
   private def declaredEffectsOf(vfqn: ValueFQN): CompilerIO[Set[AbilityFQN]] =
-    getFactIfProduced(OperatorResolvedValue.Key(vfqn, Platform.Runtime)).map {
-      case Some(orv) =>
-        val view = OperatorResolvedExpression.SignatureView.of(orv.signature)
-        EffectCarriers.declaredEffects(
-          EffectCarriers.carrierBinders(view).filter(orv.paramConstraints.contains),
-          orv.paramConstraints
-        )
-      case None      => Set.empty
-    }
+    getFactIfProduced(OperatorResolvedValue.Key(vfqn, Platform.Runtime)).map(_.map(openRow(_)._2).getOrElse(Set.empty))
+
+  /** A value's **open effect row**, read off its `OperatorResolvedValue`: its constrained carrier binders
+    * (`carrierBinders ∩ paramConstraints` — empty for a concrete-carrier or pure return, non-empty for an `{E...}` row)
+    * and the user-facing effects declared on them (machinery excluded). The single source of truth for "declared"
+    * (U4-c-0b), shared verbatim with [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]: surface
+    * rows desugar *into* these constraints, and hand-written carrier-generic code (the stdlib dischargers, the lifting
+    * instances `implement[S, G ~ Abort] Abort[StateCarrier[S, G]]`) declares its effects *only* this way. The
+    * carrier-binder set is what [[verifySubset]] gates on (an empty set = no row to be a subset of = exempt).
+    */
+  private def openRow(orv: OperatorResolvedValue): (Set[String], Set[AbilityFQN]) = {
+    val carrierNames = EffectCarriers.carrierBinders(OperatorResolvedExpression.SignatureView.of(orv.signature))
+      .filter(orv.paramConstraints.contains)
+    (carrierNames, EffectCarriers.declaredEffects(carrierNames, orv.paramConstraints))
+  }
 
   /** Every value reference in a monomorphic body **with its ground type arguments**, in traversal order (parameter
     * references and literals excluded). The `typeArguments` are the reference's own mono key — kept (not discarded as
