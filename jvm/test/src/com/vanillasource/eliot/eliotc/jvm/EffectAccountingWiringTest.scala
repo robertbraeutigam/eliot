@@ -10,16 +10,15 @@ import java.nio.file.{Files, Path}
 
 /** Effects-as-channel U4-c-1 (docs/effects-as-channel.md §5/§10): effect accounting is wired as a **codegen precondition**
   * — `WovenValueProcessor` demands `EffectAccounting` via `getFactOrAbort`, so a value with an undeclared effect fails
-  * accounting and its abort blocks codegen. Under `--effect-channel` (the gate until U4-c-2 makes accounting the sole,
-  * unconditional verifier) this must:
+  * accounting and its abort blocks codegen. Accounting is the sole, unconditional verifier (U4-c-2), so this must:
   *   - **not block a valid effectful program** — accounting must not over-count, or it would redden valid code (the parity
   *     direction; the whole base a program pulls in is exercised, and a spurious over-count anywhere surfaces as an error
   *     here);
   *   - **reject a leak** — an undeclared effect must redden, both the ordinary Console case and the `Inf` concrete-carrier
   *     impl case (`forever` from `implement Inf[IO]`, whose carrier is counted via its forwarded ambient).
   *
-  * Off the flag the demand still resolves (accounting produces an empty row without verifying), so codegen is
-  * byte-identical — covered by `UniformCarrierByteIdenticalTest`.
+  * Codegen for valid programs is byte-identical whether or not accounting runs — covered by
+  * `UniformCarrierByteIdenticalTest`.
   */
 class EffectAccountingWiringTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
@@ -57,14 +56,14 @@ class EffectAccountingWiringTest extends AsyncFlatSpec with AsyncIOSpec with Mat
     compileErrors(undeclaredInfSource).asserting(_.exists(_.contains("performs the effect 'Inf' but does not declare")) shouldBe true)
   }
 
-  /** Compile the program (module `Test`) over the base layer under `--effect-channel` and return the diagnostic messages. */
+  /** Compile the program (module `Test`) over the base layer and return the diagnostic messages. */
   private def compileErrors(source: String): IO[Seq[String]] =
     for {
       sourceDir  <- IO.blocking(Files.createTempDirectory("acct-wire-src"))
       targetDir  <- IO.blocking(Files.createTempDirectory("acct-wire-target"))
       _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
       args        =
-        List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test", "--effect-channel") ++ layerPathArgs
+        List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++ layerPathArgs
       sessionOpt <- Compiler.createSession(args)
       session    <- IO.fromOption(sessionOpt)(new IllegalStateException("Could not create the compilation session."))
       result     <- session.compileOnce()

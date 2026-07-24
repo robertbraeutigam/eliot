@@ -7,20 +7,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import scala.annotation.tailrec
 
-/** The effects-as-channel **woven** form of one monomorphic instance (docs/effects-as-channel.md §6) — the direct-style
-  * → monadic elaboration the checker performs today, done here post-monomorphization over concrete terms under
-  * `--effect-channel`.
+/** The effects-as-channel **woven** form of one monomorphic instance (docs/effects-as-channel.md §6) — the
+  * `Id`-normalized image of the value's [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]], produced
+  * post-monomorphization by [[WovenValueProcessor]] at the codegen seam.
   *
   * Mirrors [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]]'s consumable shape (name / signature /
-  * runtime body) so codegen (`uncurry`, `used`, the jvm backend) can read it in place of `MonomorphicValue` under the
-  * flag, and is keyed identically. It carries the *woven* body: each abstract user-effect-operation reference
-  * (`Console::printLine`, left abstract by the effect-blind checker) resolved to its concrete carrier-instance method at
-  * the assigned base carrier, and (later slices) `flatMap`/`pure` inserted where an effectful sub-term meets a pure
-  * position. Off the flag — or when no base carrier is supplied — it is the identity image of the value's
-  * `MonomorphicValue`.
-  *
-  * Scope note (this slice): single top-level effect operations are resolved at the base carrier; bind/`pure` insertion,
-  * precise carrier-headed node types, and control-effect stacks are later slices.
+  * runtime body) so codegen (`uncurry`, `used`, the jvm backend) reads it in place of `MonomorphicValue`, and is keyed
+  * identically. The checker leaves the body already monadic (binds/`pure` inserted by the uniform elaboration) and
+  * resolved; the woven stage erases the pervasive identity carrier `Id` (`runId`/`Id`/`Effect[Id]` methods rewritten
+  * away, `Id[X]` types collapsed to `X`) so pure code recovers its efficient shape and no effect machinery ships for it.
+  * A value that carries no `Id` (already-effectful or genuinely pure with none inserted) weaves to the identity image.
   *
   * @param vfqn
   *   The value this weave belongs to (the same instance identity as its `MonomorphicValue`).
@@ -29,7 +25,8 @@ import scala.annotation.tailrec
   * @param name
   *   The sourced name of the value (forwarded from `MonomorphicValue` for codegen).
   * @param signature
-  *   The woven signature — the carrier-wrapped payload (`IO[Unit]`) for an effectful value, else the payload unchanged.
+  *   The woven signature — the carrier-wrapped payload (`IO[Unit]`) for an effectful value, else the payload with any
+  *   `Id` carrier erased.
   * @param runtime
   *   The woven runtime body, or `None` for a body-less value.
   */
@@ -46,8 +43,8 @@ case class WovenValue(
     * [[MonomorphicExpression.FunctionLiteral]]s of the woven body, exactly as
     * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.naturalArity]] computes it over the mono body.
     * The codegen driver (`used`, the jvm `ExpressionCodeGenerator`) reads this off the woven value it now consumes in
-    * place of the `MonomorphicValue`; off the flag the woven body is the identity image so the arity is unchanged, and
-    * on it the arity reflects the woven body (bind/`pure` insertion once that slice lands). `None` for a body-less value.
+    * place of the `MonomorphicValue`; the woven body reflects any `Id`-erasure the normalizer applied. `None` for a
+    * body-less value.
     */
   def naturalArity: Option[Int] = runtime.map(body => WovenValue.countLeadingLambdas(body.value, 0))
 }

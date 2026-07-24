@@ -39,21 +39,20 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   * precondition and verifying **unconditionally** (the old pre-mono `EffectResidualChecker` is deleted; its one remaining
   * diagnostic, "declared pure but performs an effect", moved to
   * [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]], because that concerns a value whose mono
-  * *fails* and so never reaches accounting). The `effectChannel` flag is vestigial (removed at U4-e). A **concrete-carrier**
+  * *fails* and so never reaches accounting). A **concrete-carrier**
   * return (`def main: IO[Unit] = printLine(…)`) has no carrier binder and is exempt from the subset check — its explicitly
   * chosen carrier permits its effects ([[verifySubset]]). The transparent-parameter expansion (`Effect`-marked callback
   * positions) and the reify-legality check are later slices.
   */
-class EffectAccountingProcessor(effectChannel: Boolean = false)
+class EffectAccountingProcessor
     extends TransformationProcessor[MonomorphicValue.Key, EffectAccounting.Key](key =>
       MonomorphicValue.Key(key.vfqn, key.typeArguments)
     )
     with Logging {
 
   // effects-as-channel U4-c-2 (docs/effects-as-channel.md §10): accounting is the **sole** subset verifier and verifies
-  // **unconditionally** (the pre-mono `EffectResidualChecker` is deleted). The `effectChannel` flag no longer gates
-  // verification (it is vestigial, removed with the flag at U4-e); `WovenValueProcessor`'s `getFactOrAbort` precondition
-  // makes an undeclared effect block codegen.
+  // **unconditionally** (the pre-mono `EffectResidualChecker` is deleted). `WovenValueProcessor`'s `getFactOrAbort`
+  // precondition makes an undeclared effect block codegen.
   override protected def generateFromKeyAndFact(
       key: EffectAccounting.Key,
       mv: MonomorphicValue

@@ -17,8 +17,7 @@ import java.nio.file.{Files, Path}
   * derivation directly by demanding `EffectAccounting` for **every** monomorphic value of a valid program and asserts
   * (a) no accounting error is raised — a spurious over-count on valid code aborts and would surface here — and (b) the
   * derived rows are exactly right: an effect performed on the ambient is counted, a discharged / captured computation is
-  * not, and the synthetic entry (empty ambient) counts nothing. (The `--effect-channel` argument is vestigial since
-  * U4-c-2 made accounting unconditional; kept harmlessly until the flag is removed at U4-e.)
+  * not, and the synthetic entry (empty ambient) counts nothing. (Accounting is unconditional since U4-c-2.)
   *
   * It is the valid-program half of the U4-c-1 parity gate, exercised one slice early to pin the derivation. The
   * undeclared-effect **rejection** direction lands with the wiring at U4-c-1.
@@ -59,7 +58,7 @@ class EffectAccountingDerivationTest extends AsyncFlatSpec with AsyncIOSpec with
     }
   }
 
-  /** Compile the program under `--effect-channel`, demand `EffectAccounting` for every monomorphic value, and return the
+  /** Compile the program, demand `EffectAccounting` for every monomorphic value, and return the
     * derived effect-ability names grouped by simple value name, plus every accounting error raised.
     */
   private def derive(source: String): IO[(String => Set[Set[String]], Seq[String])] =
@@ -68,7 +67,7 @@ class EffectAccountingDerivationTest extends AsyncFlatSpec with AsyncIOSpec with
       targetDir  <- IO.blocking(Files.createTempDirectory("acct-target"))
       _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
       args        =
-        List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test", "--effect-channel") ++ layerPathArgs
+        List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++ layerPathArgs
       sessionOpt <- Compiler.createSession(args)
       session    <- IO.fromOption(sessionOpt)(new IllegalStateException("Could not create the compilation session."))
       result     <- session.compileOnce()

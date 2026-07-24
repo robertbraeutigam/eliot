@@ -62,9 +62,9 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
     * cases via its method-signature dedup, sees the full picture).
     *
     * The demand is the woven value rather than the raw `MonomorphicValue` because `used` is the codegen driver: it must
-    * walk the *woven* body so effect-operation references resolved by the weaver (and, in later slices, its inserted
-    * `flatMap`/`pure` calls) are the ones whose callees get materialised. Off the effect-channel flag the woven value is
-    * the identity image of the `MonomorphicValue`, so the walk is unchanged.
+    * walk the *woven* body so effect-operation references resolved by the weaver (and its inserted `flatMap`/`pure` calls)
+    * are the ones whose callees get materialised. For pure code the `Id`-normalization the woven stage applies erases all
+    * effect machinery, so the walk sees plain calls.
     *
     * @param typeArgs
     *   The full, type-checking-exact type arguments — used to fetch the representative woven value.

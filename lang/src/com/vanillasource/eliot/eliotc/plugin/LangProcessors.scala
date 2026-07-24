@@ -64,13 +64,10 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     the default; tests that declare local versions of ambient names pass a narrower set, e.g.
   *     `systemModulesWithoutInt`, or `Seq.empty`);
   *   - `maxNestedRepeats` — the `UsedNamesProcessor` non-convergence backstop bound.
-  *   - `effectChannel` — the effects-as-channel accounting gate (docs/effects-as-channel.md §10). As of Bundle A (U4-b)
-  *     the superseded `--effect-channel` erasure path is deleted; the flag now threads to the post-mono effect accounting
-  *     ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]) only, and is removed at U4-e.
-  *   - `uniformCarrier` — the transitional `--uniform-carrier` gate (docs/effects-as-channel.md §0/§10, U3a-2b), distinct
-  *     from `effectChannel`. Under it the uniform-carrier spine grows on the *default* carrier-desugared input, compared
-  *     byte-identical against the default path (no `desugarChannel`), decoupled from the `effectChannel` accounting knot
-  *     until U4 unifies the flags. Off by default; threaded to both mono checkers (runtime + compiler tracks).
+  *   - `uniformCarrier` — the transitional `--legacy-carrier` opt-out (docs/effects-as-channel.md §0/§10, U3a-2b). The
+  *     uniform-carrier spine is the live default; this constructor default stays `false` only so the raw-mono processor
+  *     unit tests observe the pre-uniform representation during the transition. Threaded to both mono checkers (runtime +
+  *     compiler tracks); removed with the legacy path at the U4-e close-out.
   *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
   *     this base one (e.g. stdlib's arithmetic natives,
   *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
@@ -84,7 +81,6 @@ object LangProcessors {
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
       extraNativeBindingLabels: Seq[String] = Seq.empty,
-      effectChannel: Boolean = false,
       uniformCarrier: Boolean = false
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
@@ -119,7 +115,7 @@ object LangProcessors {
     MonomorphicTypeCheckProcessor(uniformCarrier),
     CompilerMonomorphicTypeCheckProcessor(uniformCarrier),
     RefinementChannelProcessor(),
-    EffectAccountingProcessor(effectChannel),
+    EffectAccountingProcessor(),
     WovenValueProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),

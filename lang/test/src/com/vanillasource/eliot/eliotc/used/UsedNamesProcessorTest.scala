@@ -10,9 +10,9 @@ import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 // `used` now demands the post-mono `WovenValue` (the effects-as-channel codegen source), so this manual-fact-injection
-// harness runs the `WovenValueProcessor` too: off the flag it is the identity image of each injected `MonomorphicValue`.
-// `WovenValue` in turn demands `EffectAccounting` as a codegen precondition (U4-c-1), so the accounting processor rides
-// along; off the `--effect-channel` flag it produces an empty row from each injected `MonomorphicValue` without verifying.
+// harness runs the `WovenValueProcessor` too: the injected `MonomorphicValue`s carry no `Id`, so weaving is the identity
+// image of each. `WovenValue` in turn demands `EffectAccounting` as a codegen precondition (U4-c-1), so the accounting
+// processor rides along; the injected values declare and perform no effects, so it produces an empty row and passes.
 class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor(), WovenValueProcessor(), EffectAccountingProcessor()) {
   private val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
   private val intType = GroundValue.Structure(intVfqn, Seq.empty, GroundValue.Type)

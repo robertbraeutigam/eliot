@@ -76,8 +76,10 @@ defaults `uniformCarrier` to `true`; `--legacy-carrier` is the transitional opt-
 carrier-based path, kept only to drive the byte-identity / non-overlap transition tests and removed at
 the U4-e close-out. (Constructor defaults stay `false` so the raw-mono processor units observe the
 pre-uniform representation until the legacy path is deleted — a documented transitional inconsistency.)
-`--effect-channel` — **vestigial**: accounting verifies unconditionally, so the flag gates nothing.
-Both flags are removed at the U4-e close-out.
+The vestigial `--effect-channel` flag (accounting verifies unconditionally, so it gated nothing) has
+been **removed** (U4-e close-out slice 1) — `effectChannelKey` and the `effectChannel` constructor
+params on `LangProcessors`/`EffectAccountingProcessor` are gone. `--legacy-carrier` is removed with the
+legacy path in the remaining close-out.
 
 **Component map**:
 
@@ -905,7 +907,12 @@ default path byte-identical, gated by the §0 harness.
    Nested-carrier programs are pinned byte-identical in `UniformCarrierByteIdenticalTest`; the refinement
    case in `UniformCarrierConditionalTest`.
 
-   **Close-out remaining:** remove `--legacy-carrier` and `--effect-channel` and their threading (and flip
+   **Close-out slice 1 — DONE (2026-07-24):** the vestigial `--effect-channel` flag and its threading
+   removed (`effectChannelKey`, the `effectChannel` constructor params on
+   `LangProcessors`/`EffectAccountingProcessor`, `--effect-channel` dropped from the two accounting tests).
+   Accounting already verified unconditionally, so this is inert; lang 233/233 + jvm green.
+
+   **Close-out remaining:** remove `--legacy-carrier` and its threading (and flip
    the constructor defaults to `true`, updating the ~13 raw-mono processor unit tests to the uniform
    representation, retiring the legacy path); land the **effectful-`catch`-handler stdlib delta**
    atomically (pinned finding 7 — the join solver is now the default, so the stacking cannot occur;

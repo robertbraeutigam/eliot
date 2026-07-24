@@ -8,7 +8,6 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   allRoots,
   compilerRoots,
-  effectChannelKey,
   eliotCompilerOverlay,
   mountFactory,
   pathKey,
@@ -45,18 +44,9 @@ class LangPlugin extends CompilerPlugin {
           "compile-time pool its sibling `eliot-compiler/` overlay is added on top (override-preferred). Repeatable; " +
           "this is the option form of the positional `<path>`, usable after a subcommand."
       ),
-    // Effects-as-channel (docs/effects-as-channel.md §10): the gate under which the uniform-carrier checker grows (U3).
-    // Currently inert — the v1 effect-blind slices behind it are deleted. Off by default; the live carrier-based path is
-    // unchanged.
-    opt[Unit]("effect-channel")
-      .action((_, config) => config.set(effectChannelKey, true))
-      .text(
-        "EXPERIMENTAL: the effects-as-channel uniform-carrier path (docs/effects-as-channel.md). Currently inert; " +
-          "off by default."
-      ),
-    // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the transitional `--uniform-carrier` gate, distinct
-    // from `--effect-channel`. Under it the uniform-carrier spine grows on the *default* carrier-desugared input,
-    // compared byte-identical against the default path (no `desugarChannel`). Off by default; the live path is unchanged.
+    // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the transitional `--uniform-carrier` gate. Under it
+    // the uniform-carrier spine grows on the *default* carrier-desugared input, compared byte-identical against the
+    // default path. Off by default; the live path is unchanged.
     opt[Unit]("legacy-carrier")
       .action((_, config) => config.set(uniformCarrierKey, false))
       .text(
@@ -104,7 +94,6 @@ class LangPlugin extends CompilerPlugin {
               // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
               // initialize, so the roster is already final here.
               configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
-            effectChannel = configuration.getOrElse(effectChannelKey, false),
             uniformCarrier = configuration.getOrElse(uniformCarrierKey, true)
           )
         )
@@ -122,16 +111,10 @@ object LangPlugin {
   /** All configured source roots, in order. */
   def allRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(pathKey, Seq.empty)
 
-  /** The effects-as-channel gated-path flag (`--effect-channel`, docs/effects-as-channel.md §10). The gate under which
-    * the uniform-carrier checker grows (U3); currently inert (its v1 effect-blind slices are deleted). Threaded to the
-    * checker and the post-mono effect accounting. Absent (the default) is the live carrier-based path.
-    */
-  val effectChannelKey: Configuration.Key[Boolean] = namedKey[Boolean]("effectChannel")
-
-  /** The transitional `--uniform-carrier` gate (docs/effects-as-channel.md §0/§10, U3a-2b), distinct from
-    * [[effectChannelKey]]. Under it the uniform-carrier checker grows on the *default* carrier-desugared input, compared
-    * byte-identical against the default path (no `desugarChannel`), decoupled from the `--effect-channel` accounting knot
-    * (U3-0b) until U4 unifies the flags. Absent (the default) is the live carrier-based path.
+  /** The transitional `--legacy-carrier` opt-out (docs/effects-as-channel.md §0/§10). The uniform-carrier checker is the
+    * **live default** (this key defaults to `true`); passing `--legacy-carrier` sets it `false` to fall back to the
+    * pre-uniform carrier-based path, kept only to drive the byte-identity / non-overlap transition tests. Removed with the
+    * legacy path at the U4-e close-out.
     */
   val uniformCarrierKey: Configuration.Key[Boolean] = namedKey[Boolean]("uniformCarrier")
 
