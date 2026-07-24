@@ -14,41 +14,52 @@ forwarded `MonomorphicValue.ambientCarriers`, compared by exact `GroundValue` eq
 cannot voice ("declared pure but performs an effect", a value whose mono fails) moved to the focused
 `DeclaredPureChecker`. Design + interface in §4/§5; the derivation is fully live, no flag needed.
 
-**Uniform-carrier checker — IN PROGRESS.** U1 (Id-normalization, on by default), U2 (spike), and the
-U3a bridge are **landed**; the transitional `--uniform-carrier` gate covers every value return, the
-argument→payload-slot case, the whole conditional surface, and the `CarrierSlot` arm — byte-identical
-wherever the default path succeeds, plus three of the four historical non-overlap wins (coverage table
-below). **Remaining work**: **U4-a** — complete uniform coverage (the `Generic` arm carrying the
-ride-up-vs-bind check + reshaping the capture/mismatch fallbacks; the invasive ~1200-line `Checker`
-flip), then **U4-d** — delete the default-path machinery (`EffectLifter` recognition arms, the `Checker`
-Phase A/B deferral, `CheckState.ambientCarriers`, respell the synthetic main to `runMain`), then
-**U4-e** — make the uniform path the default, remove `--uniform-carrier` + the vestigial
-`--effect-channel`, land the effectful-`catch`-handler stdlib delta, and turn the §6 Id-residue
-assertion into a hard error. See §10 and the pinned findings.
+**Uniform-carrier checker — the LIVE DEFAULT (U4-e core flip landed 2026-07-24).** U1
+(Id-normalization), U2 (spike), the U3a bridge, **U4-a** (complete uniform coverage — every value
+return, all PAYLOAD-slot outcomes, the carrier-slot arm, and the Generic arm route uniform), and the
+**U4-e core flip** are all landed. `LangPlugin` now defaults `uniformCarrier` to `true`; the transitional
+opt-*out* `--legacy-carrier` reaches the pre-uniform path only for the byte-identity / non-overlap
+regression tests. The whole jvm integration suite runs uniform, green. The first flip attempt regressed
+9 jvm integration tests (pinned finding 10); it was unblocked by two fixes — **refinement-channel
+Id-transparency** (`RefinementChannelProcessor` normalizes `Id` on its `MonomorphicValue` input up front,
+as the codegen seam does) and **nested-carrier solving** (`CarrierJoin` now unifies the carrier-stack
+**prefix** pairwise, so the inner binder `G` of `AbortCarrier[AbortCarrier[IO]]` / a nested `DepCarrier`
+solves) — both no-ops on legacy.
+
+**Remaining — the U4-e close-out** (uniform is already the working default; these are cleanup, in no
+strict order): remove `--legacy-carrier` + the vestigial `--effect-channel` and their threading; flip the
+constructor defaults to `true` and **retire the legacy default path** (the `EffectLifter` recognition
+arms, the `Checker` Phase A/B deferral, `defaultArgSlot`/`resolveLadder`, `CheckState.ambientCarriers`)
+— this is where the ~13 raw-mono processor unit tests get updated to the uniform (Id-inserted)
+representation; respell the synthetic main to `runMain`; land the **effectful-`catch`-handler stdlib
+delta** (pinned finding 7); turn the §6 Id-residue assertion into a **hard error**; the §9 Cornerstone
+amendment + doc/skill sweep; verify LSP/diagnostic rendering `Id`-free. (The old U4-d "delete
+default-path machinery" step folds into this close-out — the flip landed with the legacy path still
+present behind `--legacy-carrier`, so deletion is now the close-out's job.) See §10 and the pinned
+findings.
 
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
 
 ## 0. Current state
 
-**Tree**: `master`; all gates green: `./mill lang.test` / `./mill jvm.test` (incl.
-`UniformCarrierByteIdenticalTest` — the whole base + seven targeted programs (pure/effect return,
-payload bind/capture/mismatch/doomed-bind, carrier-slot, generic-arm, a State transformer-stack)
-compiled flag-off vs flag-on, every generated class's bytes equal — and `UniformCarrierConditionalTest`,
-the non-overlap compile-succeeds gate), HelloWorld builds+runs
-(`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar
-target/HelloWorld.jar`), eliot-test 11/11 (exact command in `eliot-test/.claude/CLAUDE.md`; args
-are order-strict), and **34/34 compiling example mains byte-identical under the flag** (re-verified
-2026-07-24 by an automated whole-corpus script — every `examples/src` main compiled both ways,
-all class bytes equal; the 3 non-compiling `EffectsTwoDeps`/`EffectsTwoThrows`/`WherePrecondition`
-fail identically at baseline: pre-existing multi-layer-discharge / `where`-precondition gaps).
-**This whole-corpus byte-identity is the U4-e flag-flip readiness proof** — the uniform path is
-byte-identical to the default across every real program, not just the targeted suite. The
-default path is byte-identical to pre-U1. Because effect **accounting now verifies on every
-compile** (U4-c-2, unconditional), whole-base accounting parity — no over-count reddens valid code —
-is a standing gate covered by `lang.test`/`jvm.test` (every example integration test compiles with
-accounting live); rejection is `EffectAccountingWiringTest` (undeclared `Console`, undeclared `Inf`)
-and correct-derivation is `EffectAccountingDerivationTest`.
+**Tree**: `master`; **uniform carriers are the live default** (the U4-e core flip). All gates green:
+`./mill lang.test` (233/233 — the raw-mono processor units still run *legacy* via the `false` constructor
+defaults; see Flags) / `./mill jvm.test` (283/283 — the **whole integration suite now runs uniform**),
+HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then
+`java -jar target/HelloWorld.jar`, now compiled uniform), eliot-test 11/11 (exact command in
+`eliot-test/.claude/CLAUDE.md`; args are order-strict). The **transition regression suites** compare the
+two paths via `--legacy-carrier` (off) vs default-uniform (on): `UniformCarrierByteIdenticalTest` — the
+whole base + nine targeted programs (pure/effect return, payload bind/capture/mismatch/doomed-bind,
+carrier-slot, generic-arm, a State transformer-stack, a **nested `AbortCarrier` stack**, **two nested
+`Dep` carriers**), every generated class's bytes equal — and `UniformCarrierConditionalTest`, the
+non-overlap compile-succeeds gate plus the refinement-through-`Id` case. The `EffectsTwoDeps` /
+`EffectsTwoThrows` / `WherePrecondition` **example files** still fail *identically on both paths*
+(pre-existing multi-layer-discharge / `where`-precondition gaps unrelated to the carrier model; note the
+*integration-test* two-Deps/two-Throws programs are simpler and now pass uniform). Because effect
+**accounting verifies on every compile** (U4-c-2, unconditional), whole-base accounting parity — no
+over-count reddens valid code — is a standing gate; rejection is `EffectAccountingWiringTest` (undeclared
+`Console`/`Inf`), correct-derivation is `EffectAccountingDerivationTest`.
 
 **Verifier**: `EffectAccountingProcessor` (the §5 post-mono verifier) is now the **sole effect
 verifier** (U4-c-2). It is wired as a codegen precondition (`WovenValueProcessor` demands
@@ -71,12 +82,12 @@ Both flags are removed at the U4-e close-out.
 **Component map**:
 
 - `monomorphize/carrier/` — `Carrier` (the lattice `Bottom`=`Id` / `Con` / `Var` + the positional,
-  total `split`), `CarrierJoin` (the join solver; **built, uncalled live** — first live use is the
-  catch-handler join at the flip), `UniformLadder` (classify-by-expected-slot + decision-free
-  `materialize`; plus `resolveGenericSlot` — the ride-aware Generic-arm resolver, **live** (U4-a(i),
-  wired through the Phase-B deferred slot)). Acceptance: `CarrierMechanismTest` (the
-  four historical failure cases, the injectivity-theft contrasts run on the real `Unifier`, and the
-  Generic-arm ride-up-vs-bind decision).
+  total `split`), `CarrierJoin` (the join solver — **live** as the default carrier handling; its equal-FQN
+  `Con`-vs-`Con` arms **unify the carrier-stack prefix pairwise** (`unifyPrefixes`) so a nested stack's
+  inner binder solves — the U4-e nested-carrier fix), `UniformLadder` (classify-by-expected-slot +
+  decision-free `materialize`; plus `resolveGenericSlot` — the ride-aware Generic-arm resolver, live via
+  the Phase-B deferred slot). Acceptance: `CarrierMechanismTest` (the four historical failure cases, the
+  injectivity-theft contrasts run on the real `Unifier`, and the Generic-arm ride-up-vs-bind decision).
 - `monomorphize/check/` — `Checker` (the gated `uniform*` routing + the verbatim
   `checkAgainstDefault`/`defaultArgSlot` fallbacks; arg-slot routing gated to `Platform.Runtime`),
   `UniformCarrierChecker` (the bridge: `intoCarrierHeaded`/`intoCarrierHeadedTerm`,
@@ -96,10 +107,13 @@ Both flags are removed at the U4-e close-out.
   leak block codegen), `IdNormalizer` (U1, on by default), `EffectAccountingProcessor` +
   `EffectAccounting` (the §5 verifier — **the sole effect verifier, unconditional**;
   `verifySubset`/`derivedRow`/`ridesAmbient`/`openRow`), `RefinementChannelProcessor` (the
-  architectural template: policy verified post-mono against the final program).
+  architectural template: policy verified post-mono against the final program — and, since it reads the
+  un-normalized `MonomorphicValue`, **normalizes `Id` on its input up front** the same way
+  `WovenValueProcessor` does, so a `where`-precondition sees an argument's range through the uniform
+  path's `Id[Int[range]]` wrapper; the template every future `MonomorphicValue` consumer follows).
 
-**Uniform-path coverage** (under `--uniform-carrier`, byte-identical to the default path, runtime
-track):
+**Uniform-path coverage** (now the default; byte-identical to the legacy `--legacy-carrier` path where it
+succeeds, runtime track):
 
 | construct | routes uniform? | how |
 |---|---|---|
@@ -682,21 +696,19 @@ default path byte-identical, gated by the §0 harness.
 
 ### U4 — the flip (in progress)
 
-1. **U4-a — complete uniform *coverage* (the gating prerequisite for U4-d).** Nothing that
-   legitimately runs on the runtime track may fall back to the default ladder. Gaps: (i) the
-   **`Generic` arm** — **DONE (U4-a(i))**, carries the **ride-up-vs-bind** decision
-   (`occursInValue(metaId, retType)` → pass-through if the meta rides the result, else bind; never the
-   naive `PassWhole`, pinned finding 6); (ii) reshaping the **capture / mismatch** fallbacks
-   (`defaultArgSlot`'s capture case, `resolveGuardedLadder`/`resolveLadder`) into the uniform ladder so
-   the carrier-stack/pinned capture is a uniform outcome, not a default hand-off — **in progress**
-   (U4-a(ii)-0: the CARRIER-SLOT arm's *effectful* actual pass-joins uniform; U4-a(ii)-1: the
-   PAYLOAD-slot no-fit *capture* whole-type pass-throughs uniform; U4-a(ii)-2: the PAYLOAD-slot
-   *mismatch* leaf commits uniform; U4-a(ii)-3: the *doomed under-applied bind* binds uniform — all
-   landed, so **`uniformCaptureSlot` is fully uniform with no `defaultArgSlot` hand-off**. **Remaining**:
-   only `uniformCarrierSlot`'s pure-wrap-fails mismatch edge and the Generic arm's Phase-A deferral entry
-   still touch `defaultArgSlot` — the last non-permanent hand-offs, routed uniform at U4-d. *By-design
-   defaults, permanent* (§8): the compile-time track, `VType`/guard/calc-return/W3, and function/polytype
-   (`VPi`/`VLam`) returns (pinned finding 2).
+1. **U4-a — complete uniform *coverage*: DONE.** Every argument slot and value return that legitimately
+   runs on the runtime track routes uniform. (i) the **`Generic` arm** — carries the **ride-up-vs-bind**
+   decision (`occursInValue(metaId, retType)` → pass-through if the meta rides the result, else bind;
+   never the naive `PassWhole`, pinned finding 6); (ii) the **capture / mismatch** fallbacks are reshaped
+   into the uniform ladder (U4-a(ii)-0..3: the CARRIER-SLOT arm's effectful actual pass-joins, the
+   PAYLOAD-slot no-fit *capture* whole-type pass-throughs, the *mismatch* leaf commits via `commitMismatch`,
+   the *doomed under-applied bind* binds via `uniformArgumentSlot`) — so `uniformCaptureSlot` has **no
+   `defaultArgSlot` hand-off**. The only remaining `defaultArgSlot` touches under uniform are
+   `uniformCarrierSlot`'s pure-wrap-fails mismatch edge and the Generic arm's Phase-A deferral *marker* —
+   both cosmetic (the deferral's decision is uniform in Phase B), retired when the legacy path is deleted
+   at the close-out. *By-design defaults, permanent* (§8): the compile-time track,
+   `VType`/guard/calc-return/W3, and function/polytype (`VPi`/`VLam`) returns (pinned finding 2). The whole
+   nested-carrier surface (multi-layer transformer stacks) works via the `CarrierJoin` prefix-unify fix.
 
    - **U4-a(i)-0 — the ride-aware Generic resolver (pure mechanism): LANDED (2026-07-24).**
      `UniformLadder.resolveGenericSlot(unifier, actual, metaId, retType, context)` makes the
@@ -864,8 +876,10 @@ default path byte-identical, gated by the §0 harness.
      (independent of the residual checker — nothing to relocate). Gates: whole base + all example integration
      tests + eliot-test 11/11 + HelloWorld green.
 
-4. **U4-d — delete the default-path machinery** (dead once U4-a coverage is complete): the §7
-   flip-deletion list. Two items need care beyond deletion: (i) **diagnostics relocation** — the
+4. **U4-d — delete the default-path machinery. NOW FOLDED INTO THE U4-e CLOSE-OUT** (below): the core
+   flip landed with the legacy path still present behind `--legacy-carrier`, so its deletion is a
+   close-out task, not a pre-flip one. The §7
+   flip-deletion list still applies. Two items need care beyond deletion: (i) **diagnostics relocation** — the
    "declared pure but performs an effect" message and friendly voicing for the
    `AbilityResolver`-killed control-effect leaks move to the uniform checker's boundary (they
    concern programs that never produce mono facts and can never live in accounting) — this
