@@ -179,7 +179,7 @@ pre-uniform path it mirrors — that path is now the shared substrate the unifor
 | **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface: return boundary + discharger capture + `fold`'s bare-`A` `Generic` arms all route uniform. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful pass-joins (U4-a(ii)) | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the **default path rejects**; an **effectful** actual (`if(flag, printLine("on"))`) routes through the uniform CarrierSlot **pass-join** (`uniformArgumentSlot` — the actual's carrier meta joins the domain's, payloads unify, the action passes through), byte-identical to the default whole-unify (no longer a `defaultArgSlot` hand-off). |
 | **argument → GENERIC arm** (`fold`'s bare-`A`, a discarded type-param slot) | **yes** — ride-up-vs-bind (U4-a(i)) | The still-bare-flex `Generic` domain's Phase-B deferred decision routes through `UniformCarrierChecker.resolveGenericSlot` → `UniformLadder.resolveGenericSlot`: `occursInValue(metaId, retType)` ⇒ **pass-through** the whole action (transparent callee — `fold`'s selected arm, `identity`), else **bind** the payload and sequence the effect (non-transparent callee — a discarded type-param slot). Byte-identical to the default `deferredGenericDefault` (pinned finding 6 discharged). |
-| **the effectful-`catch`-handler** | **no** — gated on U4-e | The stdlib delta works but is not flag-gatable (pinned finding 7); lands atomically at U4-e. |
+| **the effectful-`catch`-handler** | **no** — blocked (pinned finding 7) | The `onError: E => G[A]` delta works, but exposes a pre-existing pinned-row/open-row pinning bug (`E` unpinned ⇒ the `where E1 != E2` lift is chosen ⇒ `Throw[String, IO]`); needs row-argument type-pinning first, then lands atomically. |
 | function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary — *by design*, permanent. |
 
 **Background — conditionals are ordinary functions (no FQN ever hardcoded).** `fold[A](c,
@@ -213,11 +213,45 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
    `putState` bind-lifts. Landed as `UniformLadder.resolveGenericSlot` on the Phase-B deferred slot,
    byte-identical to the default `deferredGenericDefault` on both sides; a Phase-B decision keyed on the
    already-computed `retType`, never a Phase-A wrap.
-7. **The effectful-`catch`-handler stdlib delta works** (`onError: E => G[A]`, `flatMap`+`pure`
-   body — enables `failUnit catch (err -> printLine(err))`, backward-compatible for a single
-   discharger) **but regresses two-plus sequenced pure-handler catches on the default path**
-   (ambient carrier-stacking — the premature-commitment class the uniform `CarrierJoin`
-   eliminates). A stdlib signature change is not flag-gatable, so it lands atomically at U4-e.
+7. **The effectful-`catch`-handler delta is BLOCKED on a pre-existing pinned-row/open-row pinning bug —
+   NOT the ambient-stacking / premature-commitment class the uniform `CarrierJoin` eliminates (corrected
+   2026-07-24; the earlier reading — "regresses two-plus sequenced pure catches, fixed once uniform is the
+   default" — was wrong).** The delta itself is right: `catch`'s handler parameter `onError: E => A` becomes
+   `onError: E => G[A]`, and its body
+   `map(e -> foldEither(onError, a -> a, e), runThrow(computation))` becomes
+   `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`. It enables an *effectful*
+   recovery — `failUnit catch (err -> printLine(err))` (with `failUnit: {Throw[String]} Unit`) compiles and
+   runs `"boom"`.
+   - **The regression.** It reddens `EffectsThrow`, and even a **single** pure-handler catch
+     `printLine(parseBad catch (err -> err))` (`parseBad: {Throw[String]} String`):
+     `No ability implementation found for ability 'Throw' with type arguments [String, IO]` at the
+     `where E1 != E2` *lift* body (`jvm/eliot/eliot/effect/Throw.els:54`). (A pure handler discharged to a
+     pure `val` — `def r: String = parseBad catch (err -> err)` — *does* compile, because that boundary
+     forces `G := Id`; the failure is specific to the effectful/ambient discharge position.)
+   - **Root cause — verified PRE-EXISTING on baseline HEAD, independent of the delta.** `catch`'s pinned
+     parameter `computation: {Throw[E] | G} A` desugars (`EffectSugarDesugarer`, pinned-row rule) to the
+     **structural** carrier stack `ThrowCarrier[E, G, A]`, so `E` sits in a concrete type slot. But the
+     *argument* `parseBad: {Throw[String]} String` is an **open** row, which desugars to an inferable carrier
+     generic — a constrained metavariable `?F ~ Throw[String]`, with the error type `String` living in the
+     *constraint*, not the structure. Unifying `?F[String] ~ ThrowCarrier[E, G, String]` solves
+     `?F := ThrowCarrier[E, G]`, `A := String` — but **never brings the constraint's `String` into contact
+     with `E`**, so `E` stays a free meta. The residual demand `Throw[String, ThrowCarrier[E, G]]` then has
+     two candidate instances: the native `Throw[E', ThrowCarrier[E', G']]` (needs `E := String`) and the lift
+     `Throw[E2, ThrowCarrier[E1, G']] where E1 != E2` (needs `E != String`, inner `Throw[String, G']`). With
+     `E` unsolved the lift is taken; later `G := IO`, and its inner `Throw[String, IO]` has no instance.
+   - **Why every test/example masked it.** They all use the *identity* handler `err -> err`. Under the old
+     `onError: E => A`, the lambda `?p => ?p` unifies against `E => A` and pins `E := A := String` — the native
+     then wins *by luck of the identity handler*. The effectful signature `onError: E => G[A]` breaks that tie
+     (the body now targets `G[A]`, not `E`), unmasking the bug. Confirmed: **baseline HEAD** `catch` with a
+     *non-identity* handler (`printLine(parseBad catch (err -> "default"))`) fails with the identical
+     `Throw[String, IO]` error. So this is a latent coherence bug, not a regression the delta introduces.
+   - **The real prerequisite is row-argument type-pinning, not the join solver.** When an open-row argument
+     flows into a pinned-row parameter, the argument's declared ability arguments (`Throw[String]`'s `String`)
+     must unify with the pinned carrier's corresponding slots (`ThrowCarrier[E, _]`'s `E`). That is
+     coherence/pinning work in the §11 "join-solver first live use" risk class. The delta + a demonstrating
+     example were built, measured (effectful handler runs; pure-handler regresses), and **reverted** — the
+     tree is at baseline for `catch`. Land the pinning fix first, then the stdlib delta atomically; acceptance
+     stays `failUnit catch (err -> printLine(err))` runs **and** `EffectsThrow` green.
 8. **A naive accounting wiring (an unfiltered reference union) over-counts run and discharge** —
    the synthetic entry rejects itself (`Console` run on concrete `IO`, nothing declared) and
    discharged ops on inner transformer carriers count as leaks. Superseded by the U4-c
@@ -309,11 +343,14 @@ sub-guards to not steal a legitimate unification. The compound-state fix (2026-0
 equal-arity arm with three guards; the eliot.file work (2026-07-22) immediately found the case
 those guards exclude (`?F[List[String]] ~ List[A]` with a *concrete* payload — structurally
 identical to the legitimate `?F[String] ~ Box[String]` HKT dispatch, and therefore undecidable by
-structure). The same erasure is behind the effectful-`catch`-handler failure (`tryIdDefault`
-commits a still-flex carrier to `Id` before the handler's `Console → Suspend` demand is
-collected) and the `if(c, None) else Some(x)` mis-defaulting (arms threaded through the `Abort`
-carrier machinery commit a flex element type before the sibling arm constrains it). These are not
-three bugs; they are one representation problem.
+structure). The same erasure is behind the `if(c, None) else Some(x)` mis-defaulting (arms threaded
+through the `Abort` carrier machinery commit a flex element type before the sibling arm constrains
+it). These are not two bugs; they are one representation problem. (The effectful-`catch`-handler was
+originally grouped here as a third instance — `tryIdDefault` committing a still-flex carrier to `Id`
+before the handler's demand is collected — but was found 2026-07-24 to fail for a *distinct*,
+pre-existing reason that uniform carriers do **not** fix: an open-row `{Throw[String]}` argument never
+pins the pinned-row parameter's error type `E`, so the `where E1 != E2` lift is chosen. See pinned
+finding 7; it needs row-argument type-pinning.)
 
 **The v1 experiment added the problem's second half.** v1's answer was to erase carriers from
 checking entirely and reconstruct them post-mono (the weaver). The Phase-3 effectful-conditional
@@ -346,9 +383,10 @@ Every guard in `EffectLifter` exists to answer the recognition question, and die
   never be stolen by a container.
 - The degenerate `?F := const String` pure-wrap hazard cannot arise: there is no uncarriered
   `String` actual anymore.
-- `tryIdDefault`'s ordering fragility (the `catch`-handler and `if(c, None) else Some(x)` classes)
-  dies because carrier variables are solved by **join**, not first-contact unification (§3) — no
-  premature commitment exists to mis-order.
+- `tryIdDefault`'s ordering fragility (the `if(c, None) else Some(x)` class) dies because carrier
+  variables are solved by **join**, not first-contact unification (§3) — no premature commitment
+  exists to mis-order. (The effectful-`catch`-handler, once thought to be this class, is a separate
+  pinned-row/open-row pinning bug that join does not address — pinned finding 7.)
 
 **What survives of "separation."** v1's slogan was "types ignore effects." The half of it that was
 right — and is **kept, already built, and unchanged by this decision** — is the *channel*: rows are
@@ -458,8 +496,9 @@ that dissolves the premature-commitment bug class rather than reproducing it. A 
 - a meta untouched by any non-`Id` carrier at the value's boundary solves to `Id`.
 
 So `if(c, "a") else readLine` works order-independently: the pure arm no longer commits the slot to
-`Id` before the effectful sibling contributes `IO` (the historical `if(c, None) else Some(x)` and
-`catch`-handler bugs are exactly this mis-ordering). `tryIdDefault` is thereby **promoted from a
+`Id` before the effectful sibling contributes `IO` (the historical `if(c, None) else Some(x)` bug is
+exactly this mis-ordering; the `catch`-handler was thought to be too but is a distinct
+pinned-row/open-row pinning bug — pinned finding 7). `tryIdDefault` is thereby **promoted from a
 heuristic ladder arm into the solving rule itself**. **Lift materialization is deferred and
 decision-free**: once a meta solves, each recorded `Id`-side term gets its mechanical lift
 (`pure` at the solved carrier — or nothing, if the meta solved to `Id`) inserted at post-drain;
@@ -746,8 +785,9 @@ carrier during checking, erased by §6 (its compile-time overlay remains for §8
 `WovenValue` seam as the normalizer's home; the `termination` story (`Inf` as a row entry);
 `namedValues`; eliot-test unchanged.
 
-**Stdlib deltas stay additive**: the effectful-handler `catch` (`onError: E => G[A]`) lands
-atomically at U4-e (pinned finding 7).
+**Stdlib deltas stay additive**: the effectful-handler `catch` (`onError: E => G[A]`) is designed to land
+atomically, but is **blocked** on a pre-existing pinned-row/open-row pinning bug (pinned finding 7) —
+row-argument type-pinning must land first.
 
 ## 8. The compile-time residue
 
@@ -828,8 +868,9 @@ default path byte-identical, gated by the §0 harness.
   `monomorphize/carrier/` package and the `UniformCarrierChecker` bridge, wired into the `Checker`
   behind `--uniform-carrier` with tight per-shape gates and verbatim default fallbacks; coverage
   per the §0 table, incl. two non-overlap wins the default path rejects.
-  `CarrierJoin`/`finalizeAndMaterialize` are built but uncalled (first live use: the catch-handler
-  join). The v1 erasure path is fully deleted (weaver at U3-0a; `desugarChannel`/abstain/relaxation
+  `CarrierJoin`/`finalizeAndMaterialize` are built but uncalled (first live use: the §7 spine rewire;
+  the catch-handler was expected to be it, but is blocked earlier on the row-pinning bug — finding 7).
+  The v1 erasure path is fully deleted (weaver at U3-0a; `desugarChannel`/abstain/relaxation
   at U4-b Bundle A).
 
 ### U4 — the flip (in progress)
@@ -990,9 +1031,14 @@ legality check (§5 check 2) on the ride-test foundation.
 
 ## 11. Risks
 
-- **Join-solver correctness at the catch-handler's first live use**: deferred lift materialization
-  must be total, and an ability-constrained carrier meta must never default to `Id` (pinned
-  finding 4). A missed insertion is a loud type/codegen error, not silence — but budget for the tail.
+- **Join-solver correctness at its first live use** (the §7 spine rewire; and the catch-handler once
+  its row-pinning prerequisite lands, finding 7): deferred lift materialization must be total, and an
+  ability-constrained carrier meta must never default to `Id` (pinned finding 4). A missed insertion is
+  a loud type/codegen error, not silence — but budget for the tail.
+- **Row-argument type-pinning** (finding 7's prerequisite): an open-row argument passed to a pinned-row
+  parameter must pin the parameter's ability type arguments (`{Throw[String]}` ⇒ the pinned
+  `ThrowCarrier[E, _]`'s `E := String`). Touching coherence resolution / the constraint-on-carrier-meta
+  discharge is high-blast-radius; scope it as a dedicated slice with the whole gate as the net.
 - **Accounting under-count hazards** (the fail-safe direction — a leak passing silently): the
   countermeasures are standing (the rejection tests; abort-on-missing reads). Over-count is
   self-announcing — a red compile on valid code.
