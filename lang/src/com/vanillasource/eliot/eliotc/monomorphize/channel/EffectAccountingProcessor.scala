@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -178,4 +178,45 @@ object EffectAccountingProcessor {
       .map(_.abilityFQN)
       .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
       .toSet
+
+  /** The reference's own **carrier** ground value(s) — the pure input to the ride test (U4-c-0c). Two sources, mutually
+    * exclusive by construction:
+    *   - a generic effect-ability method / carrier-generic callee (`printLine@[IO]`, a lifting
+    *     `raise@[E, StateCarrier[S, G]]`) carries its carrier(s) in its `typeArguments` at the callee's
+    *     **carrier-binder positions** (`carrierPositions`, the callee's higher-kinded binder indices, aligned by
+    *     `binders.zipWithIndex` — the alignment `establishSignature` and the mono key share). A multi-binder callee
+    *     (`Throw[E, G]`) has only its higher-kinded `G` counted, never its plain error binder `E`.
+    *   - a **binder-less concrete-carrier impl** (`implement Inf[IO]`, whose impl method is fully concrete and carries no
+    *     type argument, so `carrierPositions` is empty) has its fixed carrier read from its signature return head,
+    *     supplied here as `concreteImplCarrier`.
+    *
+    * Empty ⇒ the reference has no carrier and can never ride (a first-order impl `Show[Int]` with no higher-kinded binder
+    * and no concrete-carrier arm; a non-effect callee is never asked).
+    */
+  private[channel] def referenceCarriers(
+      refTypeArgs: Seq[GroundValue],
+      carrierPositions: Set[Int],
+      concreteImplCarrier: Option[GroundValue]
+  ): Set[GroundValue] =
+    if (carrierPositions.nonEmpty) carrierPositions.flatMap(refTypeArgs.lift)
+    else concreteImplCarrier.toSet
+
+  /** Whether a reference **rides** one of the value's own ambient carriers (docs/effects-as-channel.md §5): one of the
+    * reference's carrier ground value(s) ([[referenceCarriers]]) equals an ambient carrier by **exact `GroundValue`
+    * equality**. Exactness is the load-bearing choice — strictly tighter than a head-level carrier test — and is what
+    * makes the whole accounting fall out of one rule:
+    *   - a discharged / captured op's carrier is an **inner transformer stack** (`ThrowCarrier[E, IO]`), unequal to the
+    *     ambient `IO`, so it does not ride — discharge is structural, with no `-E` annotation;
+    *   - it separates **nested same-transformer stacks** (`ThrowCarrier[E2, ThrowCarrier[E1, IO]]` ≠ the ambient
+    *     `ThrowCarrier[E1, IO]`), which a head-level `ThrowCarrier == ThrowCarrier` test would wrongly conflate;
+    *   - an **empty** ambient set (a pure value, the synthetic entry) never rides — there is **no synthetic-entry
+    *     exemption**, it simply has nothing to ride.
+    */
+  private[channel] def ridesAmbient(
+      refTypeArgs: Seq[GroundValue],
+      carrierPositions: Set[Int],
+      concreteImplCarrier: Option[GroundValue],
+      ambient: Set[GroundValue]
+  ): Boolean =
+    referenceCarriers(refTypeArgs, carrierPositions, concreteImplCarrier).exists(ambient.contains)
 }

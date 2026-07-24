@@ -8,13 +8,15 @@ arm — byte-identical wherever the default path succeeds, plus three of the fou
 non-overlap wins. **U4 (the flip) is in progress**: U4-b (Bundle A — the superseded
 `--effect-channel` erasure path deleted, accounting re-pointed to resolved impls) landed
 2026-07-24; **U4-c runs on the explicit-interface course adopted 2026-07-24** (§5, §10): *forward
-what is declared, derive what is done*. Its first two steps landed 2026-07-24: **U4-c-0a (forward
+what is declared, derive what is done*. Its first three steps landed 2026-07-24: **U4-c-0a (forward
 the ambient)** — `MonomorphicValue.ambientCarriers` now carries each value's full ground ambient
-carriers, stamped by one writer at mono-fact production; and **U4-c-0b (single source of truth for
+carriers, stamped by one writer at mono-fact production; **U4-c-0b (single source of truth for
 "declared")** — accounting reads declared effects from the carrier-binder constraints (the residual
-checker's definition), retiring the surface-`effectRow` reading to rendering-only. The default path
-is byte-identical throughout; `EffectResidualChecker` is the sole live verifier until U4-c passes
-its parity gate.
+checker's definition), retiring the surface-`effectRow` reading to rendering-only; and **U4-c-0c
+(the pure ride-test core)** — `EffectAccountingProcessor.ridesAmbient` decides "does a reference
+ride an ambient carrier" by exact `GroundValue` equality, with a 12-case matrix test. All three are
+additive/inert (the processor is still unwired); the default path is byte-identical throughout, and
+`EffectResidualChecker` is the sole live verifier until U4-c passes its parity gate.
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
 
@@ -660,14 +662,19 @@ default path byte-identical, gated by the §0 harness.
      the rendering-side row extraction (LSP declared-row vocabulary, §4/§5), no longer a verification
      input. Byte-identical by construction — the processor is still unwired (`effectChannel` off ⇒
      inert), so this changes no live compile; validated at U4-c-1's parity + rejection gate.
-   - **U4-c-0c — the pure ride-test core.** A small pure object (the `channelDeclaredEffects`
-     pattern — pure over `GroundValue`s/signature views, no `CompilerIO`): given a reference's
-     `typeArguments`, its callee's carrier-binder positions, and the ambient set → ride iff exact
-     `GroundValue` equality at a carrier position; the **concrete-impl arm** reads a binder-less
-     impl's fixed carrier from the impl identity (pattern / signature return head); machinery
-     excluded. **New code + a matrix unit test** run in isolation: riding / discharged (inner
-     transformer) / captured (concrete stack ≠ ambient) / entry (ambient ∅) / concrete impl
-     (`Inf[IO]`) / lifting impl / pinned return / nested same-transformer stack.
+   - **U4-c-0c — the pure ride-test core: LANDED (2026-07-24).**
+     `EffectAccountingProcessor.{referenceCarriers, ridesAmbient}` (companion object, the
+     `channelDeclaredEffects` pattern — pure over `GroundValue`s + `Set[Int]`, no `CompilerIO`):
+     given a reference's `typeArguments`, its callee's carrier-binder positions
+     (`carrierPositions: Set[Int]`), a binder-less concrete-carrier impl's fixed carrier
+     (`concreteImplCarrier: Option[GroundValue]`, read from the impl's signature return head), and the
+     ambient set → ride iff **exact `GroundValue` equality** between a reference carrier and an ambient
+     carrier. `Eq[GroundValue] = fromUniversalEquals`, so exactness separates nested same-transformer
+     stacks and makes discharge/capture structural. Matrix unit test `EffectAccountingRideTest` (12
+     cases): run / discharged (inner transformer) / captured / entry (ambient ∅, no exemption) /
+     concrete impl `Inf[IO]` (both at- and off-ambient) / lifting impl (HKT position selected, error
+     binder ignored; lifted vs at-its-own-stack) / pinned-stack ambient / nested same-transformer
+     stack. Additive, no live caller yet (0d wires it) — byte-identical by construction.
    - **U4-c-0d — rewire the derivation + fail-safe reads.** `collectReferences` stops discarding
      `MonomorphicValueReference.typeArguments` (the `(vfqn, _)` match was the naive wiring's
      entire gap — pinned finding 8); `contributedEffects` gates **every** contribution (effect op
