@@ -1,30 +1,31 @@
 # Effects as a Channel, v2: Uniform Carriers (Id-Uniform) + a Verification Channel
 
 Status: **Variant A — carrier-everywhere / Id-uniform — is the committed foundation (§13, decided
-2026-07-23).** U1 (the Id-normalization stage, on by default), U2 (the foundation spike), and the
-U3a bridge work are **landed**; the transitional `--uniform-carrier` gate covers every value
-return, the whole argument→payload-slot case, the whole conditional surface, and the `CarrierSlot`
-arm — byte-identical wherever the default path succeeds, plus three of the four historical
-non-overlap wins. **U4 (the flip) is in progress**: U4-b (Bundle A — the superseded
-`--effect-channel` erasure path deleted, accounting re-pointed to resolved impls) landed
-2026-07-24; **U4-c runs on the explicit-interface course adopted 2026-07-24** (§5, §10): *forward
-what is declared, derive what is done*. Its first four steps landed 2026-07-24: **U4-c-0a (forward
-the ambient)** — `MonomorphicValue.ambientCarriers` now carries each value's full ground ambient
-carriers, stamped by one writer at mono-fact production; **U4-c-0b (single source of truth for
-"declared")** — accounting reads declared effects from the carrier-binder constraints (the residual
-checker's definition), retiring the surface-`effectRow` reading to rendering-only; **U4-c-0c (the
-pure ride-test core)** — `EffectAccountingProcessor.ridesAmbient` decides "does a reference ride an
-ambient carrier" by exact `GroundValue` equality; and **U4-c-0d (rewire the derivation)** — the
-derivation now gates every contribution through the ride test, reading each reference's carriers as
-the *callee's* forwarded `ambientCarriers` (so the concrete-impl carrier and discharge fall out for
-free), validated by a direct-demand derivation test. All four are additive/inert (the processor is
-still unwired); the default path is byte-identical throughout. **U4-c-1 then landed the wiring**:
-accounting runs as a codegen precondition (`WovenValueProcessor` demands `EffectAccounting` via
-`getFactOrAbort`). **U4-c-2 completed the swap**: accounting now verifies unconditionally and is the
-**sole effect verifier** — the pre-mono `EffectResidualChecker` is deleted, its one accounting-can't-voice
-diagnostic ("declared pure but performs an effect") moved to `DeclaredPureChecker`, and the whole base +
-example integration tests + eliot-test stay green. What remains of the effects-as-channel plan is the
-uniform-checker side (U4-a coverage, then U4-d/U4-e), not the verifier swap.
+2026-07-23).** The plan has two halves that can be handed over independently: a **verification
+channel** (post-mono effect accounting) and a **uniform-carrier checker**.
+
+**Verification channel — DONE (U4-b + the U4-c course, 2026-07-24).** `EffectAccountingProcessor` is
+the **sole effect verifier**: for each monomorphized value it derives the effect row from the checked
+body (a reference counts iff it rides the value's own ambient carrier — its carriers are the *callee's*
+forwarded `MonomorphicValue.ambientCarriers`, compared by exact `GroundValue` equality) and requires
+`derived ⊆ declared` for a value with an open effect row. It is **wired as a codegen precondition**
+(`WovenValueProcessor` demands `EffectAccounting` via `getFactOrAbort`) and verifies
+**unconditionally**. The pre-mono `EffectResidualChecker` is **deleted**; its one diagnostic accounting
+cannot voice ("declared pure but performs an effect", a value whose mono fails) moved to the focused
+`DeclaredPureChecker`. Design + interface in §4/§5; the derivation is fully live, no flag needed.
+
+**Uniform-carrier checker — IN PROGRESS.** U1 (Id-normalization, on by default), U2 (spike), and the
+U3a bridge are **landed**; the transitional `--uniform-carrier` gate covers every value return, the
+argument→payload-slot case, the whole conditional surface, and the `CarrierSlot` arm — byte-identical
+wherever the default path succeeds, plus three of the four historical non-overlap wins (coverage table
+below). **Remaining work**: **U4-a** — complete uniform coverage (the `Generic` arm carrying the
+ride-up-vs-bind check + reshaping the capture/mismatch fallbacks; the invasive ~1200-line `Checker`
+flip), then **U4-d** — delete the default-path machinery (`EffectLifter` recognition arms, the `Checker`
+Phase A/B deferral, `CheckState.ambientCarriers`, respell the synthetic main to `runMain`), then
+**U4-e** — make the uniform path the default, remove `--uniform-carrier` + the vestigial
+`--effect-channel`, land the effectful-`catch`-handler stdlib delta, and turn the §6 Id-residue
+assertion into a hard error. See §10 and the pinned findings.
+
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
 
@@ -39,7 +40,11 @@ target/HelloWorld.jar`), eliot-test 11/11 (exact command in `eliot-test/.claude/
 are order-strict), and 32/32 compiling example mains byte-identical under the flag (the 3
 remaining flag failures — `EffectsTwoDeps`/`EffectsTwoThrows`/`WherePrecondition` — fail
 identically at baseline: pre-existing multi-layer-discharge / `where`-precondition gaps). The
-default path is byte-identical to pre-U1.
+default path is byte-identical to pre-U1. Because effect **accounting now verifies on every
+compile** (U4-c-2, unconditional), whole-base accounting parity — no over-count reddens valid code —
+is a standing gate covered by `lang.test`/`jvm.test` (every example integration test compiles with
+accounting live); rejection is `EffectAccountingWiringTest` (undeclared `Console`, undeclared `Inf`)
+and correct-derivation is `EffectAccountingDerivationTest`.
 
 **Verifier**: `EffectAccountingProcessor` (the §5 post-mono verifier) is now the **sole effect
 verifier** (U4-c-2). It is wired as a codegen precondition (`WovenValueProcessor` demands
@@ -52,9 +57,10 @@ fires only for a value with an *open effect row* (a concrete-carrier `IO[Unit]` 
 leak reddens through accounting with no flag.
 
 **Flags**: `--uniform-carrier` — the transitional gate the uniform checker grows under (coverage
-below); distinct from `--effect-channel` so the uniform checker could grow on default
-carrier-desugared input, compared byte-identical. `--effect-channel` — dormant (its erasure
-semantics are deleted); both flags are removed at U4-e.
+below); the uniform checker grows on default carrier-desugared input, compared byte-identical.
+`--effect-channel` — **vestigial**: accounting now verifies unconditionally, so the flag gates
+nothing (it once gated accounting's verification and, before U4-b, an erasure path — both gone).
+Both flags are removed at U4-e.
 
 **Component map**:
 
@@ -68,15 +74,19 @@ semantics are deleted); both flags are removed at U4-e.
   `UniformCarrierChecker` (the bridge: `intoCarrierHeaded`/`intoCarrierHeadedTerm`,
   `classifyExpectedSlot`, `resolveArgumentSlot`, `checkReturnBoundary` with the discharge-to-pure
   arm, `finalizeAndMaterialize`), `EffectLifter` (default path; the shared node mechanics
-  `pureWrapNode`/`runIdNode` extracted for both paths), `EffectResidualChecker` (the live
-  verifier), `TypeStackLoop` (`recordAmbientCarriers` — the checker-side ambient *heads* for the
-  live lifter; and `groundAmbientCarriers` — the U4-c-0a single writer of the *full ground* ambient
-  carriers onto `MonomorphicValue.ambientCarriers`, from the same two spellings: open-row binders
-  and pinned/concrete returns).
+  `pureWrapNode`/`runIdNode` extracted for both paths), `DeclaredPureChecker` (the "declared pure
+  but performs an effect" diagnostic — the one effect check accounting cannot voice, since its value's
+  mono fails; run per value mono from `TypeStackLoop.runPostDrainResolution`), `TypeStackLoop`
+  (`recordAmbientCarriers` — the checker-side ambient *heads* for the live lifter; and
+  `groundAmbientCarriers` — the U4-c-0a single writer of the *full ground* ambient carriers onto
+  `MonomorphicValue.ambientCarriers`, from the two spellings: open-row binders and pinned/concrete
+  returns).
 - `monomorphize/channel/` — `WovenValueProcessor` (the Id-normalization stage at the `WovenValue`
-  seam), `IdNormalizer` (U1, on by default), `EffectAccountingProcessor` + `EffectAccounting` (the
-  §5 verifier), `RefinementChannelProcessor` (the architectural template: policy verified
-  post-mono against the final program).
+  seam; **also demands `EffectAccounting` via `getFactOrAbort`, the codegen precondition** that makes a
+  leak block codegen), `IdNormalizer` (U1, on by default), `EffectAccountingProcessor` +
+  `EffectAccounting` (the §5 verifier — **the sole effect verifier, unconditional**;
+  `verifySubset`/`derivedRow`/`ridesAmbient`/`openRow`), `RefinementChannelProcessor` (the
+  architectural template: policy verified post-mono against the final program).
 
 **Uniform-path coverage** (under `--uniform-carrier`, byte-identical to the default path, runtime
 track):
@@ -356,9 +366,10 @@ unaffected.
 
 ## 5. Row accounting and verification (per mono key)
 
-*Status: built (`monomorphize/channel/EffectAccountingProcessor` + the `EffectAccounting` fact);
-gated + demand-driven today; becomes the sole verifier via U4-c (§10). The interface to type
-checking is **explicit and fact-carried**, on the principle adopted 2026-07-24:*
+*Status: **DONE** (U4-c, 2026-07-24) — `monomorphize/channel/EffectAccountingProcessor` + the
+`EffectAccounting` fact is the **sole effect verifier**, wired as a codegen precondition and
+verifying unconditionally (§0). The interface to type checking is **explicit and fact-carried**, on
+the principle adopted 2026-07-24:*
 
 > **Forward what is declared, derive what is done.** Declaration-level facts (the ambient
 > carriers, the declared effects) are forwarded as explicit fact fields with one writer each.
@@ -451,11 +462,15 @@ instantiation of the whole program; declaration-level granularity by intent.
   discharge (dot-chained `catch`/`runStateTo…` just compiling) is one of the system's best
   properties.
 
-**What verification can never absorb:** diagnostics for programs that never produce mono facts —
-`State`/`Throw`/`Abort` leaks dying (cryptically but soundly) in `AbilityResolver`, and the
-"declared pure but performs an effect" case the residual checker voices off `unifier.errors`.
-Their friendly messages must move to the uniform checker's boundary before the residual checker is
-deleted (§10 U4-d).
+**What verification can never absorb** (and how it landed): diagnostics for programs that never
+produce mono facts — `State`/`Throw`/`Abort` leaks dying (cryptically but soundly) in
+`AbilityResolver`, and the "declared pure but performs an effect" case, off `unifier.errors`. At
+U4-c-2 the declared-pure case was extracted from the deleted residual checker into the focused
+`DeclaredPureChecker` (a default-path check run per value mono from
+`TypeStackLoop.runPostDrainResolution`, reading `unifier.errors`), *not* the uniform checker's
+boundary — the uniform checker is not the default path, so relocating there would have regressed the
+diagnostic. The `AbilityResolver` control-effect leaks stay cryptic (independent of the residual
+checker; a friendlier message is a possible later polish, not a blocker).
 
 ## 6. The Id-normalization stage (replaces the v1 weaver)
 
@@ -541,11 +556,14 @@ recognition — and `tryIdDefault` *as an arm* (promoted into the join solver, �
 forwarded `MonomorphicValue.ambientCarriers` field, whose *writer* then reads the uniform
 checker's carrier bookkeeping — the fact contract is unchanged, §9); the `Checker`'s Phase A/B
 flex-slot deferral (replaced by decision-free deferred lift materialization);
-`EffectResidualChecker` (after U4-c parity + the diagnostics relocation);
 `CarrierKindChecker`'s carrier-specific duties; the synthetic main's `apply(block(main), unit)`
 spelling (→ `runMain(<user main>)` — making the one legitimate run boundary **nominal**). The
 bind/`pure` *mechanics* (`wrapBinds`/`bindWrap`/`tryPureWrap`/`pureWrapNode`, the `$eff$N` splice
 convention) survive reshaped as the uniform ladder's insertion step.
+
+(`EffectResidualChecker` was already deleted at U4-c-2 — earlier and independent of the flip, since
+accounting replaced its subset check — with its one declared-pure diagnostic moved to
+`DeclaredPureChecker`; it is not part of this flip-deletion list.)
 
 **Stays**: the surface (open + pinned rows, ambient effects, dischargers unchanged); the channel
 (`EffectRow` plumbing as rendering metadata, `EffectAccountingProcessor` as the verifier, LSP row
