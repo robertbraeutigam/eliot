@@ -1072,12 +1072,13 @@ class Checker(
     *
     * The doomed shape ([[EffectLifter.mustLiftBeforeUnify]] — a carrier-meta application against an under-applied /
     * equal-arity-non-carrier rigid head) is checked **first**: it must *bind-lift* (sequence the effect), never capture,
-    * so it stays on [[defaultArgSlot]] where the pre-arm fires. Otherwise the whole-type unify is tried
-    * ([[tryUnifyCommitting]]): **success is the capture** — a uniform `Resolved`, byte-identical to the default
-    * `resolveFailureLadder`'s arm-1 whole-unify (the same `tryUnifyCommitting`, same solutions, same slot expr); **failure
-    * hands the mismatch back to [[defaultArgSlot]]** — byte-identical because `tryUnifyCommitting` commits nothing on
-    * contradiction, so the re-run there (whose bind-lift / pure-wrap arms cannot fire for a non-fitting non-doomed actual)
-    * simply commits the same mismatch.
+    * so it stays on [[defaultArgSlot]] where the pre-arm fires (the last argument-slot bind-lift on the default path,
+    * routed uniform at U4-d). Otherwise the whole-type unify is tried ([[tryUnifyCommitting]]): **success is the
+    * capture** — a uniform `Resolved`, byte-identical to the default `resolveFailureLadder`'s arm-1 whole-unify (the same
+    * `tryUnifyCommitting`, same solutions, same slot expr); **failure is the mismatch**, committed directly via
+    * [[commitMismatch]] — byte-identical to the default (a non-fitting non-doomed actual's bind-lift / pure-wrap arms
+    * cannot fire, so the default ladder also bottoms out at exactly this `commitMismatch`; the failed
+    * `tryUnifyCommitting` here commits nothing, so no state differs).
     */
   private def uniformCaptureSlot(
       arg: Sourced[OperatorResolvedExpression],
@@ -1091,7 +1092,7 @@ class Checker(
                  else
                    tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
                      case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
-                     case false => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                     case false => commitMismatch(instantiated, domain, arg, updatedExpr)
                    }
     } yield outcome
 

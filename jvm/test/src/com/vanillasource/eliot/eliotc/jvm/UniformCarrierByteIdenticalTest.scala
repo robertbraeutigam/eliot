@@ -109,6 +109,16 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
     } yield (off, on)).asserting { case (off, on) => on shouldBe off }
   }
 
+  it should "produce identical errors for a payload-slot mismatch (pure actual not fitting, no capture)" in {
+    // `printLine(true)` — `Bool` into the `String` domain — reaches `uniformCaptureSlot`'s mismatch leaf (not doomed, no
+    // whole-type capture), which now commits the mismatch directly rather than via `defaultArgSlot`. The reported errors
+    // must be identical off vs on (and non-empty, so the check is not vacuous).
+    (for {
+      off <- compileErrors("def main: {Console} Unit = printLine(true)\n", uniformCarrier = false)
+      on  <- compileErrors("def main: {Console} Unit = printLine(true)\n", uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => (off.nonEmpty, on) shouldBe (true, off) }
+  }
+
   /** Compile the program (module `Test`) over the base layer roots, optionally under `--uniform-carrier`, and return each
     * generated class's name → bytes. A fresh session per call keeps the two runs independent.
     */
@@ -128,6 +138,22 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
                     )
       classes    <- readClasses(targetDir.resolve("Test.jar"))
     } yield classes
+
+  /** Compile the program and return its sorted error messages (never raising) — for a program expected NOT to compile,
+    * validating the uniform gate reports the identical errors as the default path.
+    */
+  private def compileErrors(source: String, uniformCarrier: Boolean): IO[Seq[String]] =
+    for {
+      sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-src"))
+      targetDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-target"))
+      _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
+      flag        = if (uniformCarrier) List("--uniform-carrier") else Nil
+      args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++
+                      layerPathArgs ++ flag
+      sessionOpt <- Compiler.createSession(args)
+      session    <- IO.fromOption(sessionOpt)(new IllegalStateException("Could not create the compilation session."))
+      result     <- session.compileOnce()
+    } yield result.errors.map(_.message).sorted
 
   private def readClasses(jar: Path): IO[Map[String, Seq[Byte]]] = IO.blocking {
     val in = new ZipInputStream(Files.newInputStream(jar))

@@ -674,9 +674,11 @@ default path byte-identical, gated by the §0 harness.
    (`defaultArgSlot`'s capture case, `resolveGuardedLadder`/`resolveLadder`) into the uniform ladder so
    the carrier-stack/pinned capture is a uniform outcome, not a default hand-off — **in progress**
    (U4-a(ii)-0: the CARRIER-SLOT arm's *effectful* actual pass-joins uniform; U4-a(ii)-1: the
-   PAYLOAD-slot no-fit *capture* whole-type pass-throughs uniform — both landed; **remaining**: the
-   *doomed under-applied bind* and the *mismatch* leaf still hand off to `defaultArgSlot`, plus the
-   Generic arm's Phase-A deferral entry). *By-design defaults, permanent* (§8): the compile-time track,
+   PAYLOAD-slot no-fit *capture* whole-type pass-throughs uniform; U4-a(ii)-2: the PAYLOAD-slot
+   *mismatch* leaf commits uniform — all landed; **remaining**: the *doomed under-applied bind*
+   (`uniformCaptureSlot`'s bind-lift branch) and the Generic arm's Phase-A deferral entry still hand off
+   to `defaultArgSlot` — both routed uniform at U4-d, where the byte-identity constraint lifts and the
+   default path is deleted). *By-design defaults, permanent* (§8): the compile-time track,
    `VType`/guard/calc-return/W3, and function/polytype (`VPi`/`VLam`) returns (pinned finding 2).
 
    - **U4-a(i)-0 — the ride-aware Generic resolver (pure mechanism): LANDED (2026-07-24).**
@@ -722,9 +724,15 @@ default path byte-identical, gated by the §0 harness.
      whole-type unify *is* the capture, succeeding iff the domain spells a carrier form (§3 arm 1).
      Validated by a new byte-identical program `parseOk : {Throw[String]} String` captured whole by
      `parseOk catch (err -> err)` (`?F[String]` ⤳ `ThrowCarrier[E, G]`). Full §0 gate green.
-     **Remaining U4-a(ii):** the *doomed under-applied bind* and *mismatch* leaves (each still a
-     `defaultArgSlot` hand-off) plus the Generic arm's Phase-A deferral entry, so
-     `defaultArgSlot`/`resolveLadder` can be deleted at U4-d.
+   - **U4-a(ii)-2 — payload-slot mismatch commits uniform: LANDED (2026-07-24).** `uniformCaptureSlot`'s
+     not-doomed / whole-unify-fails leaf now commits the mismatch **directly** via `commitMismatch`
+     instead of handing off to `defaultArgSlot` (which only bottomed out at exactly that `commitMismatch`
+     — a non-fitting non-doomed actual's bind-lift / pure-wrap arms cannot fire, and the failed
+     `tryUnifyCommitting` commits nothing, so the state and the error are identical). Validated by a new
+     error-comparison test: `printLine(true)` (`Bool` into `String`) reports the identical non-empty
+     error set off vs on. Full §0 gate green. **Remaining U4-a(ii):** the *doomed under-applied bind*
+     (`uniformCaptureSlot`'s `mustLiftBeforeUnify` branch — the last argument-slot bind-lift on the
+     default path) and the Generic arm's Phase-A deferral entry, both routed uniform at U4-d.
 
 2. **U4-b — Bundle A: LANDED (2026-07-24).** The `--effect-channel` erasure path deleted;
    `effectChannel` threads to `EffectAccountingProcessor` only (removed at U4-e);
