@@ -774,31 +774,22 @@ class Checker(
                           case VMeta(id, Spine.SNil) =>
                             for {
                               (updated, instantiated) <- instantiatePolymorphic(argExpr, argType)
-                              // Pass-through *adoption*: solve the bare domain meta to the carrier-headed argument
-                              // type, letting the effect ride up as a first-class value — sound ONLY for a
-                              // *transparent* callee whose result flows from this domain meta (`identity`, `const`, a
-                              // data ctor over the slot): the meta occurs in the node's result, so after `?id := C[T']`
-                              // the result is carrier-headed and the enclosing slot decides. The bare meta is solved
-                              // directly (the reversed orientation would only postpone — a meta application against a
-                              // bare meta is not a pattern).
-                              //
-                              // For a *non-transparent* callee whose result carrier is independent of the domain
-                              // (`putState[S, F](s: S): F[Unit]` — `S` absent from `F[Unit]`), adoption would strand the
-                              // argument's carrier inside the type parameter, where nothing ever grounds it ("contains
-                              // unresolved variable" at quote). The effect cannot ride up, so it must be sequenced here:
-                              // bind-lift the argument and pass its payload, exactly as a rigid domain would.
-                              ridesUp                 <- inspect(_.unifier.occursInValue(id, record.retType))
-                              outcome                 <- if (ridesUp)
-                                                           doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
-                                                             .as(SlotOutcome.Resolved(updated): SlotOutcome)
-                                                         else
-                                                           lifter.tryBindLift(record.arg, updated, instantiated, domain).flatMap {
-                                                             case Some((slotRef, bind)) =>
-                                                               pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
-                                                             case None                  =>
-                                                               doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
-                                                                 .as(SlotOutcome.Resolved(updated): SlotOutcome)
-                                                           }
+                              // Effects-as-channel U4-a(i) (docs/effects-as-channel.md §10): under the transitional gate
+                              // on the runtime track, route the Generic arm's ride-up-vs-bind decision through the
+                              // uniform bridge ([[UniformCarrierChecker.resolveGenericSlot]] → [[UniformLadder]]) — the
+                              // successor of [[deferredGenericDefault]], byte-identical to it wherever the default path
+                              // succeeds (the same `occursInValue(id, retType)` test; PassWhole ⤳ `Resolved`, Bound ⤳
+                              // the same `$eff$N`/`Bind` node the default `tryBindLift` produces).
+                              outcome                 <- if (uniformCarrier && platform == Platform.Runtime)
+                                                           uniformChecker
+                                                             .resolveGenericSlot(record.arg, updated, instantiated, id, record.retType)
+                                                             .map {
+                                                               case UniformCarrierChecker.UniformSlotOutcome.Passed(e)       =>
+                                                                 SlotOutcome.Resolved(e): SlotOutcome
+                                                               case UniformCarrierChecker.UniformSlotOutcome.Bound(ref, bnd) =>
+                                                                 SlotOutcome.Bound(ref, bnd): SlotOutcome
+                                                             }
+                                                         else deferredGenericDefault(record, id, updated, instantiated, domain)
                             } yield outcome
                           case _                     =>
                             // The bare [[resolveLadder]], not [[resolveGuardedLadder]]: the W2b guard-kind acceptance
@@ -810,6 +801,43 @@ class Checker(
       } yield record.copy(outcome = outcome)
     case _                                              => pure(record)
   }
+
+  /** The default (carrier-based) Phase-B decision for a still-bare-flex Generic domain — the live path when
+    * `uniformCarrier` is off (and on the compile-time track), kept verbatim as [[UniformCarrierChecker.resolveGenericSlot]]'s
+    * byte-identical fallback:
+    *
+    * Pass-through *adoption*: solve the bare domain meta to the carrier-headed argument type, letting the effect ride up
+    * as a first-class value — sound ONLY for a *transparent* callee whose result flows from this domain meta (`identity`,
+    * `const`, a data ctor over the slot): the meta occurs in the node's result, so after `?id := C[T']` the result is
+    * carrier-headed and the enclosing slot decides. The bare meta is solved directly (the reversed orientation would only
+    * postpone — a meta application against a bare meta is not a pattern).
+    *
+    * For a *non-transparent* callee whose result carrier is independent of the domain (`putState[S, F](s: S): F[Unit]` —
+    * `S` absent from `F[Unit]`), adoption would strand the argument's carrier inside the type parameter, where nothing
+    * ever grounds it ("contains unresolved variable" at quote). The effect cannot ride up, so it must be sequenced here:
+    * bind-lift the argument and pass its payload, exactly as a rigid domain would.
+    */
+  private def deferredGenericDefault(
+      record: SlotRecord,
+      id: MetaId,
+      updated: SemExpression,
+      instantiated: SemValue,
+      domain: SemValue
+  ): CheckIO[SlotOutcome] =
+    for {
+      ridesUp <- inspect(_.unifier.occursInValue(id, record.retType))
+      outcome <- if (ridesUp)
+                   doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
+                     .as(SlotOutcome.Resolved(updated): SlotOutcome)
+                 else
+                   lifter.tryBindLift(record.arg, updated, instantiated, domain).flatMap {
+                     case Some((slotRef, bind)) =>
+                       pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
+                     case None                  =>
+                       doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
+                         .as(SlotOutcome.Resolved(updated): SlotOutcome)
+                   }
+    } yield outcome
 
   /** Assemble the spine result: rebuild the application chain when Phase B changed a deferred slot's expression, then
     * fold the recorded effect-binds around the core — the spine's type becomes the outermost wrap's carrier-headed

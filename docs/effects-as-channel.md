@@ -67,15 +67,17 @@ Both flags are removed at U4-e.
 - `monomorphize/carrier/` — `Carrier` (the lattice `Bottom`=`Id` / `Con` / `Var` + the positional,
   total `split`), `CarrierJoin` (the join solver; **built, uncalled live** — first live use is the
   catch-handler join at the flip), `UniformLadder` (classify-by-expected-slot + decision-free
-  `materialize`; plus `resolveGenericSlot` — the ride-aware Generic-arm resolver, **built, uncalled
-  live**, first live use is the U4-a(i) Generic-arm wiring). Acceptance: `CarrierMechanismTest` (the
+  `materialize`; plus `resolveGenericSlot` — the ride-aware Generic-arm resolver, **live** (U4-a(i),
+  wired through the Phase-B deferred slot)). Acceptance: `CarrierMechanismTest` (the
   four historical failure cases, the injectivity-theft contrasts run on the real `Unifier`, and the
   Generic-arm ride-up-vs-bind decision).
 - `monomorphize/check/` — `Checker` (the gated `uniform*` routing + the verbatim
   `checkAgainstDefault`/`defaultArgSlot` fallbacks; arg-slot routing gated to `Platform.Runtime`),
   `UniformCarrierChecker` (the bridge: `intoCarrierHeaded`/`intoCarrierHeadedTerm`,
-  `classifyExpectedSlot`, `resolveArgumentSlot`, `checkReturnBoundary` with the discharge-to-pure
-  arm, `finalizeAndMaterialize`), `EffectLifter` (default path; the shared node mechanics
+  `classifyExpectedSlot`, `resolveArgumentSlot`, `resolveGenericSlot` (the ride-aware Generic arm),
+  `checkReturnBoundary` with the discharge-to-pure arm, `finalizeAndMaterialize`), `Checker`'s
+  `deferredGenericDefault` (the verbatim default-path Generic Phase-B decision the uniform arm
+  mirrors), `EffectLifter` (default path; the shared node mechanics
   `pureWrapNode`/`runIdNode` extracted for both paths), `DeclaredPureChecker` (the "declared pure
   but performs an effect" diagnostic — the one effect check accounting cannot voice, since its value's
   mono fails; run per value mono from `TypeStackLoop.runPostDrainResolution`), `TypeStackLoop`
@@ -97,9 +99,9 @@ track):
 |---|---|---|
 | **value RETURN boundary** (`checkAgainst`) | **yes** — pure, effect-carrier, *and* discharge-to-pure | `uniformReturnBoundary` → `checkReturnBoundary`; pure re-carried via `Id` (erased), effect-carrier passed through, a fully-discharged flex `?G[T]` body under a pure return `Id`-defaulted + `runId`-unwrapped. Gate `uniformReturnRoutable`/`uniformValueReturn`. |
 | **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — bind-vs-capture by **payload-fit** | `uniformPayloadSlot`: if the actual's **payload genuinely fits** the domain ⇒ **bind** (`printLine(readLine)`; the compound-state `items : ?F[List[X]]` into `foldLeft`'s `List[A]`, which the **default path rejects**), pure passes (`runId`). No fit ⇒ `defaultArgSlot`: a **capture** (a carrier-stack/pinned domain — a discharger's `{Abort\|G} A` ⤳ `AbortCarrier[G,A]`, `runMain`'s `IO[A]`) or a mismatch. A **bare-flex payload `?A`** is guarded out of "fits" (`payloadFitsDomain`) — it absorbs any domain and strips the carrier, so it captures. Gate `uniformPlainValueType(domain)` + `Platform.Runtime`. |
-| **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface: return boundary + discharger capture route uniform; `fold`'s bare-`A` `Generic` arm still on the default `defaultArgSlot` ladder. |
+| **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface: return boundary + discharger capture + `fold`'s bare-`A` `Generic` arms all route uniform. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful on default | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the **default path rejects**; an **effectful** actual stays on `defaultArgSlot`. |
-| **argument → GENERIC arm** (`fold`'s bare-`A`) | **no → default** | `defaultArgSlot`. Not a standalone slice (pinned finding 6): the uniform Generic arm must carry the ride-up-vs-bind check; lands with the flip (U4-a). |
+| **argument → GENERIC arm** (`fold`'s bare-`A`, a discarded type-param slot) | **yes** — ride-up-vs-bind (U4-a(i)) | The still-bare-flex `Generic` domain's Phase-B deferred decision routes through `UniformCarrierChecker.resolveGenericSlot` → `UniformLadder.resolveGenericSlot`: `occursInValue(metaId, retType)` ⇒ **pass-through** the whole action (transparent callee — `fold`'s selected arm, `identity`), else **bind** the payload and sequence the effect (non-transparent callee — a discarded type-param slot). Byte-identical to the default `deferredGenericDefault` (pinned finding 6 discharged). |
 | **the effectful-`catch`-handler** | **no** — gated on U4-e | The stdlib delta works but is not flag-gatable (pinned finding 7); lands atomically at U4-e. |
 | function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary — *by design*, permanent. |
 
@@ -128,12 +130,16 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
    `CarrierJoin` goes live (the catch-handler's function-return join at `foldEither`'s arms).
 5. **An effect-carrier-headed return must guard the self-join** — joining `?F` toward `?F` writes
    a self-referential cycle and loops `resolve`; the guard is landed in `CarrierJoin.join`.
-6. **`fold`'s bare-`A` `Generic` arm is not a standalone slice**: a bare-meta domain is *every*
-   generic argument's slot in the base (recognising `fold` by name is forbidden); the eager
-   Id-wrap cascades into occurs-check failures, and without it the arm is vacuous *and* omits the
-   **ride-up-vs-bind** check the default Phase A/B makes (`occursInValue(metaId, retType)`:
-   transparent `fold` rides the carrier up, non-transparent `putState` must bind-lift). The
-   uniform Generic arm must carry that check; it lands with the flip (U4-a).
+6. **`fold`'s bare-`A` `Generic` arm carries the ride-up-vs-bind check — DISCHARGED (U4-a(i)).** A
+   bare-meta domain is *every* generic argument's slot in the base (recognising `fold` by name is
+   forbidden); the eager Id-wrap cascades into occurs-check failures, and the arm must **not** be the
+   naive pass-whole — it must make the **ride-up-vs-bind** check the default Phase A/B makes
+   (`occursInValue(metaId, retType)`: transparent `fold` rides the carrier up, non-transparent
+   `putState` must bind-lift). Landed as `UniformLadder.resolveGenericSlot` wired through the Phase-B
+   deferred slot (`UniformCarrierChecker.resolveGenericSlot`), byte-identical to the default
+   `deferredGenericDefault` for both the ride-up (`fold`'s selected arm) and bind (a discarded
+   type-param slot) sides — *not* the eager Id-wrap, which is why it is a Phase-B decision keyed on the
+   already-computed `retType`, never a Phase-A eager wrap.
 7. **The effectful-`catch`-handler stdlib delta works** (`onError: E => G[A]`, `flatMap`+`pure`
    body — enables `failUnit catch (err -> printLine(err))`, backward-compatible for a single
    discharger) **but regresses two-plus sequenced pure-handler catches on the default path**
@@ -661,14 +667,14 @@ default path byte-identical, gated by the §0 harness.
 ### U4 — the flip (in progress)
 
 1. **U4-a — complete uniform *coverage* (the gating prerequisite for U4-d).** Nothing that
-   legitimately runs on the runtime track may fall back to the default ladder. Genuine remaining
-   gaps: (i) the **`Generic` arm** (`fold`'s bare-`A`) — must carry the **ride-up-vs-bind**
-   decision (`occursInValue(metaId, retType)` → pass-through if the meta rides the result, else
-   bind; never the naive `PassWhole`, pinned finding 6); (ii) reshaping the **capture / mismatch**
-   fallbacks (`defaultArgSlot`'s capture case, `resolveGuardedLadder`/`resolveLadder`) into the
-   uniform ladder so the carrier-stack/pinned capture is a uniform outcome, not a default
-   hand-off. *By-design defaults, permanent* (§8): the compile-time track, `VType`/guard/
-   calc-return/W3, and function/polytype (`VPi`/`VLam`) returns (pinned finding 2).
+   legitimately runs on the runtime track may fall back to the default ladder. Gaps: (i) the
+   **`Generic` arm** — **DONE (U4-a(i))**, carries the **ride-up-vs-bind** decision
+   (`occursInValue(metaId, retType)` → pass-through if the meta rides the result, else bind; never the
+   naive `PassWhole`, pinned finding 6); (ii) reshaping the **capture / mismatch** fallbacks
+   (`defaultArgSlot`'s capture case, `resolveGuardedLadder`/`resolveLadder`) into the uniform ladder so
+   the carrier-stack/pinned capture is a uniform outcome, not a default hand-off — **remaining**. *By-design
+   defaults, permanent* (§8): the compile-time track, `VType`/guard/calc-return/W3, and
+   function/polytype (`VPi`/`VLam`) returns (pinned finding 2).
 
    - **U4-a(i)-0 — the ride-aware Generic resolver (pure mechanism): LANDED (2026-07-24).**
      `UniformLadder.resolveGenericSlot(unifier, actual, metaId, retType, context)` makes the
@@ -682,8 +688,19 @@ default path byte-identical, gated by the §0 harness.
      unit-tested in isolation (`CarrierMechanismTest`: ride-up pass-through, byte-identity with the
      plain `PassWhole` primitive it composes, and the bind case), **uncalled live** so the default path
      stays byte-identical — the U3a "build the mechanism, then wire" discipline (as `CarrierJoin` was).
-     **Remaining U4-a(i):** wire the Generic arm in `checkArgumentSlot`/the Phase-A/B deferral through
-     this resolver (retType is a Phase-B-time input), then (ii) reshape the capture/mismatch fallbacks.
+   - **U4-a(i)-1 — wire the Generic arm: LANDED (2026-07-24).** The Phase-B deferred-slot decision
+     (`Checker.resolveDeferredSlot`, the still-bare-flex `VMeta(id, SNil)` domain) routes through
+     `UniformCarrierChecker.resolveGenericSlot` under `--uniform-carrier` + `Platform.Runtime`; the
+     verbatim default ride/bind logic was extracted to `Checker.deferredGenericDefault` (the flag-off
+     fallback, byte-identical by construction — same code, moved). The uniform bridge builds the bind
+     node with the **proven** payload-bind mechanics (`Carrier.toSemValue(actualCarrier)`, slot typed at
+     the split payload, `EffectLifter.Bind` for `wrapBinds`), so PassWhole ⤳ `Resolved` and Bound ⤳ the
+     same `$eff$N`/`Bind` the default `tryBindLift` produces. **Byte-identical, both sides:** the ride-up
+     side is exercised by `pick(flag) = fold(flag, printLine("a"), printLine("b"))` (fold's bare-`A`
+     arms) in `UniformCarrierByteIdenticalTest`'s conditional corpus; the bind side by a new program
+     `first[A, B](a, b): A = a` called `first("x", readLine)` (an effectful arg into a discarded
+     type-param slot). Full §0 gate green (lang/jvm test, HelloWorld, eliot-test 11/11). **Remaining
+     U4-a:** (ii) reshape the capture/mismatch fallbacks into the uniform ladder.
 
 2. **U4-b — Bundle A: LANDED (2026-07-24).** The `--effect-channel` erasure path deleted;
    `effectChannel` threads to `EffectAccountingProcessor` only (removed at U4-e);

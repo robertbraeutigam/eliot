@@ -257,6 +257,52 @@ class UniformCarrierChecker(
                        }
     } yield result
 
+  /** Resolve a **Generic** argument slot — a bare flex domain `?metaId` receiving a carrier-headed `argType` — with the
+    * **ride-up-vs-bind** decision the naive pass-through omits (docs/effects-as-channel.md §10 U4-a(i), pinned finding 6),
+    * the uniform successor of the default path's Phase-B deferred-slot decision
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveDeferredSlot]]). The decision is delegated to
+    * [[com.vanillasource.eliot.eliotc.monomorphize.carrier.UniformLadder.resolveGenericSlot]] (`occursInValue(metaId,
+    * retType)`); the node is then built reusing [[EffectLifter]]'s mechanics exactly as [[resolveArgumentSlot]]'s payload
+    * bind does (reshape, not rebuild):
+    *
+    *   - **rides up** (the meta flows into the call's result) ⇒ [[UniformLadder.Outcome.PassWhole]] ⇒ the whole
+    *     carrier-headed action passes through unchanged (`Passed(argExpr)`) — byte-identical to the default
+    *     `doUnify(?metaId, actual)` → `Resolved`;
+    *   - **binds** (the meta is absent from the result) ⇒ [[UniformLadder.Outcome.Bound]] ⇒ the slot receives a fresh
+    *     `$eff$N` reference at the payload and an [[EffectLifter.Bind]] is recorded for the spine's `wrapBinds` (`Bound`)
+    *     — byte-identical to the default `tryBindLift` → `Bound`.
+    *
+    * `argType` is carrier-headed by the elaboration invariant, so [[Carrier.split]] is total; `retType` is passed raw (the
+    * unifier's occurs-check follows solutions, exactly as the default path reads `record.retType`).
+    */
+  def resolveGenericSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
+      argType: SemValue,
+      metaId: MetaId,
+      retType: SemValue
+  ): CheckIO[UniformCarrierChecker.UniformSlotOutcome] =
+    for {
+      forcedActual  <- force(argType)
+      unifier       <- inspect(_.unifier)
+      (updated, out) = UniformLadder.resolveGenericSlot(unifier, forcedActual, metaId, retType, arg.as("Type mismatch."))
+      _             <- modify(_.withUnifier(updated))
+      result        <- out match {
+                         case UniformLadder.Outcome.PassWhole            =>
+                           pure(UniformCarrierChecker.UniformSlotOutcome.Passed(argExpr))
+                         case UniformLadder.Outcome.Bound(actualCarrier) =>
+                           val (_, payload) = Carrier.split(forcedActual)
+                           freshLiftName.map { name =>
+                             UniformCarrierChecker.UniformSlotOutcome.Bound(
+                               SemExpression(payload, SemExpression.ParameterReference(arg.as(name))),
+                               EffectLifter.Bind(name, arg, argExpr, argType, Carrier.toSemValue(actualCarrier), payload)
+                             )
+                           }
+                         case UniformLadder.Outcome.PassJoin(_)          =>
+                           throw new IllegalStateException(s"generic slot yielded a carrier-join outcome: $out")
+                       }
+    } yield result
+
   /** The next fresh lift-binder name (`$eff$0`, `$eff$1`, …), threading [[CheckState.liftCounter]] — the same
     * convention (and counter) [[EffectLifter]] uses, so uniform-path and default-path binders never collide.
     */

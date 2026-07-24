@@ -59,6 +59,17 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       |}
       |""".stripMargin
 
+  // Exercises the Generic-arm BIND case (U4-a(i)): a generic callee whose type parameter is *discarded* from the result
+  // (`first[A, B](a: A, b: B): A` — `B` absent from `A`) receiving an *effectful* argument in the discarded slot
+  // (`first("x", readLine)`). The domain meta `B` does not ride the result, so the effect cannot ride up as a first-class
+  // value — it must be *sequenced* (bound) at the call site, exactly as the default path's Phase-B `tryBindLift` does. The
+  // ride-up sibling is covered by `pick`'s `fold` arms in `conditionalSource`; this pins the bind sibling byte-identical.
+  private val genericBindSource =
+    """def first[A, B](a: A, b: B): A = a
+      |
+      |def main: {Console} Unit = printLine(first("x", readLine))
+      |""".stripMargin
+
   "the --uniform-carrier gate" should "emit byte-identical classes to the default path (whole base + program)" in {
     (for {
       off <- compileClasses(source, uniformCarrier = false)
@@ -70,6 +81,13 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
     (for {
       off <- compileClasses(conditionalSource, uniformCarrier = false)
       on  <- compileClasses(conditionalSource, uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => on shouldBe off }
+  }
+
+  it should "emit byte-identical classes for the Generic-arm bind case (effectful arg into a discarded type-param slot)" in {
+    (for {
+      off <- compileClasses(genericBindSource, uniformCarrier = false)
+      on  <- compileClasses(genericBindSource, uniformCarrier = true)
     } yield (off, on)).asserting { case (off, on) => on shouldBe off }
   }
 
