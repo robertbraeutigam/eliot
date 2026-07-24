@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -16,7 +17,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * Uses the full match machinery ([[MatchNativesProcessor]] + concrete `PatternMatch`/`TypeMatch` abilities) so that
   * field accessors — desugared to `match` — reduce during checking, which is how `name(A)` folds to its constant.
   */
-class ReificationTest extends ProcessorTest(LangProcessors()*) {
+class ReificationTest extends ProcessorTest(LangProcessors(uniformCarrier = true)*) {
 
   // The canonical ambient set with the real `PatternMatch`/`TypeMatch` ability declarations so field accessors
   // (desugared to `match`) reduce during checking.
@@ -89,12 +90,23 @@ class ReificationTest extends ProcessorTest(LangProcessors()*) {
         else
           facts.values
             .collectFirst { case v: MonomorphicValue if v.vfqn.name.name == name => v }
-            .flatMap(_.runtime)
-            .map(_.value) match {
+            .flatMap(v => v.runtime.map(idNormalized(v, _))) match {
             case Some(expr) => IO.pure(expr)
             case None       => IO.raiseError(new Exception(s"No runtime body for '$name'"))
           }
       }
+
+  /** Id-normalize a monomorphic value's runtime body exactly as [[com.vanillasource.eliot.eliotc.monomorphize.channel.
+    * WovenValueProcessor]] does before codegen (docs/effects-as-channel.md §6), so the structural asserts see the
+    * effects-as-channel normalized shape rather than the raw uniform-carrier mono body's `pure@Id`/`runId` wrapper
+    * noise. Under the legacy carrier path (or a compile-time-track body) no `Id` machinery is inserted, so this is a
+    * no-op — the same body either way.
+    */
+  private def idNormalized(
+      v: MonomorphicValue,
+      body: Sourced[MonomorphicExpression.Expression]
+  ): MonomorphicExpression.Expression =
+    IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(v.vfqn, v.signature, body)).value
 
   private def errorsFor(source: String, name: String, typeArgs: Seq[GroundValue]): IO[Seq[TestError]] =
     runGenerator(source, MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs), matchImports)

@@ -259,20 +259,40 @@ object IdNormalizer {
 
   /** A single-argument `Id` wrapper whose application is dropped (`runId(e)`/`Id(e)`/`pure@Effect[Id](e) ⤳ e`). */
   private def isDropWrapperRef(node: Sourced[MonomorphicExpression]): Boolean =
-    headFQN(node).exists(fqn =>
-      fqn == WellKnownTypes.runIdFQN || fqn == WellKnownTypes.idConstructorFQN || isEffectIdMethod(fqn, "pure")
-    )
+    headRef(node).exists { case (fqn, typeArgs) =>
+      fqn == WellKnownTypes.runIdFQN || fqn == WellKnownTypes.idConstructorFQN ||
+        isEffectIdMethod(fqn, "pure") || isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectPureFQN)
+    }
 
   /** A two-argument `Effect[Id]` combinator whose application collapses to plain application
     * (`flatMap@Effect[Id](f, m)`/`map@Effect[Id](f, m) ⤳ f(m)`).
     */
   private def isApplyCombinatorRef(node: Sourced[MonomorphicExpression]): Boolean =
-    headFQN(node).exists(fqn => isEffectIdMethod(fqn, "flatMap") || isEffectIdMethod(fqn, "map"))
+    headRef(node).exists { case (fqn, typeArgs) =>
+      isEffectIdMethod(fqn, "flatMap") || isEffectIdMethod(fqn, "map") ||
+        isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectFlatMapFQN) ||
+        isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectMapFQN)
+    }
 
-  private def headFQN(node: Sourced[MonomorphicExpression]): Option[ValueFQN] =
+  private def headRef(node: Sourced[MonomorphicExpression]): Option[(ValueFQN, Seq[GroundValue])] =
     node.value.expression match {
-      case MonomorphicExpression.MonomorphicValueReference(vfqn, _) => Some(vfqn.value)
-      case _                                                        => None
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) => Some((vfqn.value, typeArgs))
+      case _                                                               => None
+    }
+
+  /** The **abstract** (unresolved) form of an `Effect[Id]` combinator: `pure`/`flatMap`/`map` still on the
+    * `eliot.carrier.Effect` ability-method FQN (`abstractFqn`, e.g. [[WellKnownTypes.effectPureFQN]]) rather than the
+    * resolved `Id` impl, recognised by its leading carrier type-argument being `Id`. Ability resolution normally
+    * rewrites these to the impl (handled by [[isEffectIdMethod]]); the abstract form survives only where no
+    * `Effect[Id]` instance is in scope (a unit-test stub) or on a resolution gap. Recognising it too makes the `Id`
+    * erasure **resolution-agnostic** — the same checker-inserted machinery, whether resolved or not — mirroring the
+    * `SemExpression`-level strip in `PostDrainQuoter`; being still the identity, erasing it is always sound. Firing is
+    * guarded by the `Id` carrier arg, so an `Effect[C]` combinator over any real carrier is never touched.
+    */
+  private def isAbstractEffectIdCombinator(fqn: ValueFQN, typeArgs: Seq[GroundValue], abstractFqn: ValueFQN): Boolean =
+    fqn == abstractFqn && typeArgs.headOption.exists {
+      case GroundValue.Structure(name, _, _) => name == WellKnownTypes.idFQN
+      case _                                 => false
     }
 
   /** Whether `fqn` is the named method of the `Effect[Id]` instance — recognised by living in the `Id` module (where

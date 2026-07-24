@@ -29,6 +29,11 @@ class IdNormalizerTest extends AnyFlatSpec with Matchers {
     at(MonomorphicExpression(t, e))
   private def ref(fqn: ValueFQN, t: GroundValue): Sourced[MonomorphicExpression] =
     node(t, MonomorphicExpression.MonomorphicValueReference(at(fqn), Seq.empty))
+  private def refArgs(fqn: ValueFQN, typeArgs: Seq[GroundValue], t: GroundValue): Sourced[MonomorphicExpression] =
+    node(t, MonomorphicExpression.MonomorphicValueReference(at(fqn), typeArgs))
+  private val bareId: GroundValue = GroundValue.Structure(WellKnownTypes.idFQN, Seq.empty, GroundValue.Type)
+  private val bareIo: GroundValue =
+    GroundValue.Structure(ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("IO", Qualifier.Type)), Seq.empty, GroundValue.Type)
   private def app(target: Sourced[MonomorphicExpression], arg: Sourced[MonomorphicExpression], t: GroundValue) =
     node(t, MonomorphicExpression.FunctionApplication(target, arg))
   private val str: Sourced[MonomorphicExpression] = node(stringType, MonomorphicExpression.StringLiteral(at("x")))
@@ -86,6 +91,27 @@ class IdNormalizerTest extends AnyFlatSpec with Matchers {
     val pureIo = ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("pure", Qualifier.AbilityImplementation("Effect", "IO")))
     val call   = app(ref(pureIo, fnType(stringType, stringType)), str, stringType)
     normalizedExpr(call.value.expression).shouldBe(call.value.expression)
+  }
+
+  // The **abstract** (unresolved) form of the `Effect[Id]` combinators — the ability method still on
+  // `eliot.carrier.Effect` (never resolved to the `Id` impl, e.g. because no `Effect[Id]` instance is in scope) — is
+  // recognised by its leading `Id` carrier type-argument, so the erasure is resolution-agnostic (mirroring the
+  // `SemExpression`-level strip in `PostDrainQuoter`). A non-`Id` carrier arg is the guard that keeps a real effect safe.
+  it should "erase an abstract pure@Effect[Id] application (Id carrier type-arg) to its argument" in {
+    val pureRef = refArgs(WellKnownTypes.effectPureFQN, Seq(bareId, stringType), fnType(stringType, idType(stringType)))
+    normalizedExpr(app(pureRef, str, idType(stringType)).value.expression).shouldBe(str.value.expression)
+  }
+
+  it should "leave an abstract pure@Effect[IO] application untouched (non-Id carrier type-arg)" in {
+    val pureRef = refArgs(WellKnownTypes.effectPureFQN, Seq(bareIo, stringType), fnType(stringType, stringType))
+    val call    = app(pureRef, str, stringType)
+    normalizedExpr(call.value.expression).shouldBe(call.value.expression)
+  }
+
+  it should "collapse an abstract flatMap@Effect[Id](f, m) (Id carrier type-arg) to the application f(m)" in {
+    val f     = ref(effectId("id"), fnType(stringType, idType(stringType)))
+    val inner = app(refArgs(WellKnownTypes.effectFlatMapFQN, Seq(bareId, stringType, stringType), fnType(stringType, idType(stringType))), f, GroundValue.Type)
+    normalizedExpr(app(inner, str, idType(stringType)).value.expression).shouldBe(MonomorphicExpression.FunctionApplication(f, str))
   }
 
   it should "rewrite the runId accessor's own body to the identity via normalizeValue" in {

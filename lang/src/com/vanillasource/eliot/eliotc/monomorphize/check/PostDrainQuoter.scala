@@ -348,12 +348,87 @@ class PostDrainQuoter(
       expr: Sourced[SemExpression],
       evalEnv: Env
   ): CompilerIO[Option[Sourced[MonomorphicExpression]]] = {
-    val forced = Evaluator.force(semEvaluator.eval(evalEnv, expr.value), metaStore)
+    val forced = Evaluator.force(semEvaluator.eval(evalEnv, stripIdMachinery(expr.value)), metaStore)
     Quoter.quote(0, forced, metaStore) match {
       case Left(_)       => Option.empty[Sourced[MonomorphicExpression]].pure[CompilerIO]
       case Right(ground) => materialise(ground, expr).map(_.map(expr.as))
     }
   }
+
+  /** The [[SemExpression]]-level twin of the channel's [[com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer]]
+    * (docs/effects-as-channel.md §6/§10, close-out slice 2): strip the checker-inserted `Id` machinery out of a
+    * value-position sub-term **before** the reification staging gate ([[tryMaterialise]]) evaluates it. Under uniform
+    * carriers a pure erased-determined body (`name(A)` on an erased `A: Person`) is wrapped in inserted machinery
+    * (`pure@Effect[Id](runId(…))`); the gate's bare [[SemExpressionEvaluator.eval]] has no binding for those references
+    * and stalls, degrading the fold to an un-reduced structural projection. Stripping the machinery first — `Id` carries
+    * no representation, so its combinators are the identity — restores the fold (the quoter then materialises the
+    * constant). Rewrites, each strictly decreasing the `Id`-node count so the pass is confluent and terminating:
+    *   - `runId(e) ⤳ e`, `Id(e) ⤳ e` — the pure projection / value constructor of the identity carrier (always `Id`);
+    *   - `pure@Effect[C](e) ⤳ e` and `flatMap`/`map@Effect[C](f, m) ⤳ f(m)` — **iff `C` forces to `Id`**: a non-`Id`
+    *     carrier is a genuine effect that must stay observation-ordered and never fold (§9's carrier-based fold
+    *     criterion).
+    *
+    * Recognition is by the compiler-owned FQNs the checker itself inserts
+    * ([[EffectLifter.pureWrapNode]]/[[EffectLifter.runIdNode]]/[[EffectLifter.bindWrap]]) — the sanctioned
+    * well-known-types practice (§6), exactly as [[com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer]]
+    * does. This is the [[SemExpression]] twin of [[IdNormalizer]] as [[resolveAbilityRefs]] is of [[resolveIfAbility]].
+    * It touches only the gate's *eval input*, never the emitted tree — [[IdNormalizer]] at the `WovenValue` seam stays
+    * the one erasure authority — and it is a no-op on a machinery-free term (the compile-time track, or the legacy path
+    * where no machinery is inserted), so it is safe to run unconditionally.
+    */
+  private def stripIdMachinery(se: SemExpression): SemExpression = se.expression match {
+    case SemExpression.FunctionApplication(target, argument) if isDropWrapperHead(target.value) =>
+      stripIdMachinery(argument.value)
+    case SemExpression.FunctionApplication(target, argument)                                    =>
+      target.value.expression match {
+        case SemExpression.FunctionApplication(comboHead, f) if isApplyCombinatorHead(comboHead.value) =>
+          SemExpression(
+            se.expressionType,
+            SemExpression.FunctionApplication(f.map(stripIdMachinery), argument.map(stripIdMachinery))
+          )
+        case _                                                                                        =>
+          SemExpression(
+            se.expressionType,
+            SemExpression.FunctionApplication(target.map(stripIdMachinery), argument.map(stripIdMachinery))
+          )
+      }
+    case SemExpression.FunctionLiteral(paramName, paramType, body)                              =>
+      SemExpression(se.expressionType, SemExpression.FunctionLiteral(paramName, paramType, body.map(stripIdMachinery)))
+    case _                                                                                      => se
+  }
+
+  /** A single-argument `Id` wrapper whose application drops to its argument: `runId(e)`/`Id(e)` (FQN-specific to the
+    * identity carrier, always dropped) or `pure@Effect[C](e)` with the leading carrier arg `C` forcing to `Id`.
+    */
+  private def isDropWrapperHead(head: SemExpression): Boolean = head.expression match {
+    case SemExpression.ValueReference(vfqn, typeArgs) =>
+      vfqn.value === WellKnownTypes.runIdFQN || vfqn.value === WellKnownTypes.idConstructorFQN ||
+        (vfqn.value === WellKnownTypes.effectPureFQN && leadingCarrierIsId(typeArgs))
+    case _                                            => false
+  }
+
+  /** A two-argument `Effect[C]` combinator whose application collapses to plain application
+    * (`flatMap@Effect[C](f, m)`/`map@Effect[C](f, m) ⤳ f(m)`) — with the leading carrier arg `C` forcing to `Id`.
+    */
+  private def isApplyCombinatorHead(head: SemExpression): Boolean = head.expression match {
+    case SemExpression.ValueReference(vfqn, typeArgs) =>
+      (vfqn.value === WellKnownTypes.effectFlatMapFQN || vfqn.value === WellKnownTypes.effectMapFQN) &&
+        leadingCarrierIsId(typeArgs)
+    case _                                            => false
+  }
+
+  /** Whether the leading carrier type-argument of an inserted `Effect` combinator forces to the identity carrier `Id`
+    * (the checker inserts the carrier first, matching ability resolution's `[abilityParams ++ methodParams]` order —
+    * see [[EffectLifter.pureWrapNode]]/[[EffectLifter.bindWrap]]). Post-drain every meta is solved, so a carrier meta
+    * solved to `Id` forces to its [[SemValue.VTopDef]] head.
+    */
+  private def leadingCarrierIsId(typeArgs: Seq[SemValue]): Boolean =
+    typeArgs.headOption.exists(carrier =>
+      Evaluator.force(carrier, metaStore) match {
+        case SemValue.VTopDef(fqn, _, _) => fqn === WellKnownTypes.idFQN
+        case _                           => false
+      }
+    )
 
   /** Expand a fully-ground compile-time value into a [[MonomorphicExpression]] tree.
     *
