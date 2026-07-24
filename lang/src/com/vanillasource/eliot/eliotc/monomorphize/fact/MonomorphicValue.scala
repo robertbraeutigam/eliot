@@ -19,13 +19,23 @@ import scala.annotation.tailrec
   *   The concrete ground type of this specialized instance
   * @param runtime
   *   The optional monomorphized runtime body
+  * @param ambientCarriers
+  *   This value's own *ambient* effect carriers as **full ground values** (`IO`, `StateCarrier[S, IO]` — never just
+  *   heads), the carriers its declared effect row (an open `{E...}` row's carrier binders) or pinned/concrete-carrier
+  *   return rides. Empty for a pure value and for the synthetic entry (which run their bodies on a concrete carrier the
+  *   caller never declares). The effect-accounting verifier's `derived ⊆ declared` test decides "does this reference
+  *   ride the value's ambient" by **exact ground equality** against this set — the authoritative "ambient" input,
+  *   forwarded here rather than reconstructed from the mono key ↔ signature-binder alignment
+  *   (docs/effects-as-channel.md §5, U4-c-0a). Stamped by the single writer at mono-fact production
+  *   ([[com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop]]) from the two carrier spellings.
   */
 case class MonomorphicValue(
     vfqn: ValueFQN,
     typeArguments: Seq[GroundValue],
     name: Sourced[QualifiedName],
     signature: GroundValue,
-    runtime: Option[Sourced[MonomorphicExpression.Expression]]
+    runtime: Option[Sourced[MonomorphicExpression.Expression]],
+    ambientCarriers: Set[GroundValue]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[MonomorphicValue] =
     MonomorphicValue.Key(vfqn, typeArguments)

@@ -53,7 +53,8 @@ class MonomorphicTypeCheckProcessor(uniformCarrier: Boolean = false)
       key.typeArguments,
       value.signature.as(key.vfqn.name),
       result.signature,
-      result.body
+      result.body,
+      result.ambientCarriers
     )
   }
 

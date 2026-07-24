@@ -144,9 +144,13 @@ class TypeStackLoop(
       // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
       // channel, so the body is read back directly.
       monoBody  <- runtime.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
+      // Forward the value's own ambient effect carriers as full ground values (the single writer, U4-c-0a): now every
+      // carrier meta is drained-solved, so the two carrier spellings quote to ground (`IO`, `StateCarrier[S, IO]`).
+      ambient   <- groundAmbientCarriers(resolvedValue, monoEnv, quoter)
     } yield TypeStackLoop.Result(
       groundSig,
-      monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
+      monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression)),
+      ambient
     )
 
   /** The signature twin's monomorphization as an **ordinary body mono** (signature-unification §3.1): the signature's
@@ -588,6 +592,68 @@ class TypeStackLoop(
                 }
     } yield result
 
+  /** The value-under-check's own *ambient* effect carriers as **full ground values** (`IO`, `StateCarrier[S, IO]` —
+    * never just heads), the U4-c-0a forwarded input for effect accounting (docs/effects-as-channel.md §5). Computed
+    * post-drain (every carrier meta solved) from the same two carrier spellings [[recordAmbientCarriers]] reads for the
+    * checker-side heads — an *open* effect row's carrier binders or a *pinned* / concrete-carrier return — but quoted to
+    * ground rather than reduced to a head, so a transformer stack keeps its full shape (which is what separates nested
+    * same-transformer stacks at the ride test). Empty for a pure value and the synthetic entry (neither carrier binder
+    * nor concrete-carrier return). A carrier that cannot be quoted to ground (residual metas at a partial-arity mono) is
+    * skipped — the fail-safe default of not recording, never a wrong classification.
+    */
+  private def groundAmbientCarriers(
+      resolvedValue: OperatorResolvedValue,
+      monoEnv: Env,
+      quoter: PostDrainQuoter
+  ): CheckIO[Set[GroundValue]] = {
+    val view         = SignatureView.of(resolvedValue.signature)
+    val carrierNames = EffectCarriers.carrierBinders(view).filter(resolvedValue.paramConstraints.contains)
+    if (carrierNames.nonEmpty) groundBinderCarriers(carrierNames, monoEnv, quoter)
+    else groundConcreteReturnCarrier(view, monoEnv, quoter)
+  }
+
+  /** The open-row ambient carriers as full ground values: each carrier binder looked up in ρ (the clean pre-check env),
+    * forced through the post-drain metastore — so a binder solved to `IO` reads as `IO`, not its stale meta — and quoted
+    * to ground. A binder not in ρ or not ground-quotable is skipped.
+    */
+  private def groundBinderCarriers(
+      carrierNames: Set[String],
+      monoEnv: Env,
+      quoter: PostDrainQuoter
+  ): CheckIO[Set[GroundValue]] =
+    carrierNames.toList
+      .traverse(name =>
+        monoEnv.lookupByName(name) match {
+          case Some(value) => checker.force(value).map(quoter.quoteSemOption)
+          case None        => pure(Option.empty[GroundValue])
+        }
+      )
+      .map(_.flatten.toSet)
+
+  /** The pinned-row / concrete-carrier ambient as a full ground value: evaluate the return type in the clean env, and if
+    * it forces to a carrier-headed application `C[a.., R]` whose carrier `C[a..]` has an `Effect` instance (the one
+    * authority on "is this constructor a carrier"), quote that carrier prefix (dropping the payload `R`). A plain
+    * container return (`List[X]`, `Pair[A, B]`) or an open-row carrier *meta* records nothing.
+    */
+  private def groundConcreteReturnCarrier(
+      view: SignatureView,
+      monoEnv: Env,
+      quoter: PostDrainQuoter
+  ): CheckIO[Set[GroundValue]] =
+    for {
+      returnSv <- checker.evalExpr(view.returnType.value, Some(monoEnv))
+      forced   <- checker.force(returnSv)
+      result   <- forced match {
+                    case VTopDef(fqn, cached, Spine.SApp(prefix, _)) =>
+                      val carrier = VTopDef(fqn, cached, prefix)
+                      isEffectCarrierConstructor(carrier).map {
+                        case true  => quoter.quoteSemOption(carrier).toSet
+                        case false => Set.empty[GroundValue]
+                      }
+                    case _                                           => pure(Set.empty[GroundValue])
+                  }
+    } yield result
+
   /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both
     * sides. The semantic values are re-forced through the final metastore so any metas that were solved after the error
     * was raised display their resolution.
@@ -615,7 +681,11 @@ object TypeStackLoop {
     */
   case class Result(
       signature: GroundValue,
-      body: Option[Sourced[MonomorphicExpression.Expression]]
+      body: Option[Sourced[MonomorphicExpression.Expression]],
+      // The value's own ambient effect carriers as full ground values (docs/effects-as-channel.md §5, U4-c-0a) —
+      // consumed only by the runtime [[MonomorphicValue]] fact. Empty for a pure value, the synthetic entry, and every
+      // signature twin (which never produces this fact).
+      ambientCarriers: Set[GroundValue] = Set.empty
   )
 
   /** Static convenience wrapper — constructs a [[TypeStackLoop]] and runs its [[process]]. */

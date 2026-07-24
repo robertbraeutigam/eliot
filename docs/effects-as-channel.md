@@ -8,10 +8,12 @@ arm — byte-identical wherever the default path succeeds, plus three of the fou
 non-overlap wins. **U4 (the flip) is in progress**: U4-b (Bundle A — the superseded
 `--effect-channel` erasure path deleted, accounting re-pointed to resolved impls) landed
 2026-07-24; **U4-c runs on the explicit-interface course adopted 2026-07-24** (§5, §10): *forward
-what is declared, derive what is done*. The default path is byte-identical throughout;
-`EffectResidualChecker` is the sole live verifier until U4-c passes its parity gate. Per-slice
-history and commit trails live in the git log — this document keeps only the design, the current
-state, and the path forward.
+what is declared, derive what is done*. Its first step, **U4-c-0a (forward the ambient)**, landed
+2026-07-24 — `MonomorphicValue.ambientCarriers` now carries each value's full ground ambient
+carriers, stamped by one writer at mono-fact production. The default path is byte-identical
+throughout; `EffectResidualChecker` is the sole live verifier until U4-c passes its parity gate.
+Per-slice history and commit trails live in the git log — this document keeps only the design, the
+current state, and the path forward.
 
 ## 0. Current state
 
@@ -50,8 +52,10 @@ semantics are deleted); both flags are removed at U4-e.
   `classifyExpectedSlot`, `resolveArgumentSlot`, `checkReturnBoundary` with the discharge-to-pure
   arm, `finalizeAndMaterialize`), `EffectLifter` (default path; the shared node mechanics
   `pureWrapNode`/`runIdNode` extracted for both paths), `EffectResidualChecker` (the live
-  verifier), `TypeStackLoop` (`recordAmbientCarriers` — the two ambient spellings: open-row
-  binders and pinned/concrete returns).
+  verifier), `TypeStackLoop` (`recordAmbientCarriers` — the checker-side ambient *heads* for the
+  live lifter; and `groundAmbientCarriers` — the U4-c-0a single writer of the *full ground* ambient
+  carriers onto `MonomorphicValue.ambientCarriers`, from the same two spellings: open-row binders
+  and pinned/concrete returns).
 - `monomorphize/channel/` — `WovenValueProcessor` (the Id-normalization stage at the `WovenValue`
   seam), `IdNormalizer` (U1, on by default), `EffectAccountingProcessor` + `EffectAccounting` (the
   §5 verifier), `RefinementChannelProcessor` (the architectural template: policy verified
@@ -630,16 +634,19 @@ default path byte-identical, gated by the §0 harness.
    and mechanism in §5; rejected alternatives recorded there. Steps, in order — the first four
    are small, independently testable, and **modify already-landed code**:
 
-   - **U4-c-0a — forward the ambient (schema + writer).** Add
-     `MonomorphicValue.ambientCarriers: Set[GroundValue]` — full ground carriers, quoted at
-     mono-fact production from the two spellings `TypeStackLoop.recordAmbientCarriers` already
-     reads (open-row: each `carrierBinders ∩ paramConstraints` binder's ρ-value at the mono key;
-     pinned/concrete return: the return's carrier prefix, `Effect[C]` as the authority). Empty
-     for pure values and the synthetic entry. **Touches landed code:** the fact class, its one
-     producer (`MonomorphicTypeCheckProcessor`/`PostDrainQuoter` seam), and any direct
-     `MonomorphicValue` constructions in tests. This supersedes reconstructing the ambient from
-     the key↔binder positional alignment inside accounting — the alignment stays true, but stops
-     being a load-bearing cross-module contract.
+   - **U4-c-0a — forward the ambient (schema + writer): LANDED (2026-07-24).**
+     `MonomorphicValue.ambientCarriers: Set[GroundValue]` — full ground carriers, quoted post-drain
+     (every carrier meta solved) by the single writer `TypeStackLoop.groundAmbientCarriers` from the
+     two spellings `recordAmbientCarriers` reads (open-row: each `carrierBinders ∩ paramConstraints`
+     binder's ρ-value at the mono key; pinned/concrete return: the return's carrier prefix, `Effect[C]`
+     as the authority). Empty for pure values and the synthetic entry; a carrier not ground-quotable
+     (residual metas at a partial-arity mono) is skipped (fail-safe). The field has **no default** — a
+     silent `Set.empty` is the under-count direction. Stamped at `MonomorphicTypeCheckProcessor`; the
+     12 direct `MonomorphicValue` constructions in `UsedNamesProcessorTest` pass `Set.empty`. Pinned
+     directly by `MonomorphicAmbientCarriersTest` (jvm full compile: `greet:{Console}Unit` ⤳ `{IO}`,
+     pure `label` ⤳ `∅`), since nothing consumes the field until U4-c-0d. This supersedes
+     reconstructing the ambient from the key↔binder positional alignment inside accounting — the
+     alignment stays true, but stops being a load-bearing cross-module contract.
    - **U4-c-0b — single source of truth for "declared".**
      `EffectAccountingProcessor.declaredEffectsOf` switches from `channelDeclaredEffects(effectRow)`
      to `EffectCarriers.declaredEffects(carrierBinders ∩ paramConstraints)` — the residual
