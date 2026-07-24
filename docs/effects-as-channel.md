@@ -59,10 +59,29 @@ first live use" — a substantial, risky slice; do it focused, with the gate abo
 **Close-out follow-ons (independent of §7, each landable on its own):**
 - **synthetic main → `runMain`** (§7) — makes the one run boundary nominal; needs a `runMain` callable to
   exist first;
-- **effectful-`catch`-handler stdlib delta** (pinned finding 7) — the join solver is now the default so the
-  stacking cannot occur; acceptance: `failUnit catch (err -> printLine(err))` runs *and* `EffectsThrow` stays
-  green;
-- **§6 Id-residue assertion → hard error** (currently a warning);
+- **effectful-`catch`-handler stdlib delta** (pinned finding 7) — **NOT cleanly landable; blocked on a
+  pre-existing pinning bug (found 2026-07-24, correcting the earlier optimism).** The delta itself works — with
+  `onError: E => G[A]` and body `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`,
+  `failUnit catch (err -> printLine(err))` compiles and runs "boom". But it **regresses `EffectsThrow`** (and even a
+  single `printLine(parseBad catch (err -> err))`): the error is `No ability implementation for 'Throw' with
+  [String, IO]` at the `where E1 != E2` lift (`jvm/.../Throw.els:54`) — the stacking the join solver was supposed
+  to prevent. **Root cause (verified pre-existing on baseline HEAD): `catch`'s pinned param `{Throw[E] | G} A`
+  desugars to structural `ThrowCarrier[E, G, A]`, but the *argument* `parseBad : {Throw[String]}` is an *open* row =
+  a constrained carrier meta `?F ~ Throw[String]`; unifying `?F[String] ~ ThrowCarrier[E,G,String]` gives
+  `?F := ThrowCarrier[E,G]` but the constraint's `String` never meets `E`, so `E` stays a meta and
+  `Throw[String, ThrowCarrier[E,G]]` resolves to the lift (E≠String) instead of the native.** Every existing
+  test/example masks this by using the *identity* handler `err -> err`, which coincidentally pins `E := A := String`
+  through `onError`; the old `onError: E => A` sig relied on that tie. The baseline `catch` with a *non-identity*
+  handler (`err -> "default"`) **fails identically**. So the real prerequisite is **row-argument type-pinning** — an
+  open-row argument passed to a pinned-row parameter must unify its declared ability args (here `Throw[String]`'s
+  `String`) with the pinned carrier's slots (`ThrowCarrier[E, _]`'s `E`). This is coherence/pinning work in the
+  "join-solver first live use" risk class (§11) — do it as a dedicated slice with the pinning fix first, then the
+  stdlib delta. (The delta + its example are reverted; tree is at baseline.)
+- **§6 Id-residue assertion → hard error — DONE (2026-07-24).** `WovenValueProcessor.assertNoIdResidue` (was
+  `warnIdResidue`) now `compilerAbort`s at `mv.name` on any surviving `Id`-machinery reference or `Id[X]` type
+  instead of warning; the full gate is green under it (lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11), so
+  zero `Id` residue is now *proven*, not assumed. Tripwire confirmed live: neutering `IdNormalizer.normalizeValue`
+  reddens the build with the residue error. The `Logging` mixin + `ValueFQN` import (now unused) were dropped.
 - **§9 Cornerstone amendment + doc/skill sweep** (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect +
   monomorphize sections);
 - **LSP / diagnostic rendering `Id`-free** — a close-out gate (§9).
@@ -631,7 +650,8 @@ hardcoding compiler-owned insertions is how every such pass works.
 **Load-bearing, with a hard fail-safe.** Pervasive `Id` is only acceptable because it reliably and
 *provably* erases, so this stage is a mandatory compilation stage, not an optimization
 (per the gaps-must-be-fail-safe rule): a post-pass **assertion that no `Id` FQN or `Id[X]` type
-survives** in any emitted type, key, or reference — a warning today, a hard build error from U4-e.
+survives** in any emitted type, key, or reference — **a hard build error since U4-e**
+(`WovenValueProcessor.assertNoIdResidue`; a warning during U1 bring-up).
 Belt-and-braces: `Id` has **newtype representation** in codegen (`GroundValue.carrierFQN` erases
 `Id[X]` to its payload's carrier; constructor and accessor emit nothing), so any hypothetically
 missed residue is a no-op rather than an allocation.
@@ -772,7 +792,8 @@ on runtime term judgments**; the NbE/signature path never calls it.
 - **`effectRow` is rendering metadata** (LSP hover, diagnostics vocabulary) — never a verification
   input (from U4-c-0b).
 - **No `Id` residue**: the §6 assertion is a permanent invariant from U4-e on — `Id` exists between
-  elaboration and normalization, nowhere downstream.
+  elaboration and normalization, nowhere downstream. **Enforced as a hard build error** since 2026-07-24
+  (`WovenValueProcessor.assertNoIdResidue` — the residue fail-safe was promoted from a warning).
 - **Pinned types are declared, never inferred** — capture stays syntax-directed. With `runMain`
   nominal (U4-d), every effect boundary is *declared* (capture), *structural* (discharge), or
   *nominal* (run) — never guessed.
@@ -885,15 +906,18 @@ default path byte-identical, gated by the §0 harness.
    `LangProcessors`/`EffectAccountingProcessor`, `--effect-channel` dropped from the two accounting tests).
    Accounting already verified unconditionally, so this is inert; lang 233/233 + jvm green.
 
-   **Close-out remaining:** remove `--legacy-carrier` and its threading (and flip
-   the constructor defaults to `true`, updating the ~13 raw-mono processor unit tests to the uniform
-   representation, retiring the legacy path — the reification-folding fix below is now **landed**, so the
-   flip is unblocked); land the **effectful-`catch`-handler stdlib delta**
-   atomically (pinned finding 7 — the join solver is now the default, so the stacking cannot occur;
-   acceptance: `failUnit catch (err -> printLine(err))` runs and `EffectsThrow` stays green); turn the §6
-   Id-residue assertion into a **hard error**; the §9 Cornerstone amendment + doc/skill sweep (`eliot-code`
-   global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections); verify LSP/diagnostic rendering
-   `Id`-free.
+   **Close-out remaining** (the flag/param removal and the flip are DONE — slice 2 below):
+   - **§6 Id-residue assertion → hard error — DONE (2026-07-24).** `WovenValueProcessor.assertNoIdResidue`
+     `compilerAbort`s (was a `warn`) on any surviving `Id`-machinery reference or `Id[X]` type; full gate green
+     under it, so zero residue is proven; tripwire confirmed live. (See the Handover block.)
+   - **effectful-`catch`-handler stdlib delta — BLOCKED on a pre-existing pinning bug (2026-07-24).** The delta
+     works (`failUnit catch (err -> printLine(err))` runs) but regresses `EffectsThrow`: an open-row `Throw[String]`
+     argument passed to `catch`'s pinned `{Throw[E] | G}` parameter does not pin `E := String`, so the constraint
+     resolves to the `where E1 != E2` lift and fails at `Throw[String, IO]`. Verified pre-existing on baseline HEAD
+     (a non-identity handler `err -> "default"` fails identically; identity handlers masked it). Needs row-argument
+     type-pinning first — full detail in the Handover block. (Delta reverted; tree at baseline.)
+   - the §9 Cornerstone amendment + doc/skill sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect +
+     monomorphize sections); verify LSP/diagnostic rendering `Id`-free.
 
    **Close-out slice 2 — the folding fix is LANDED (2026-07-24, pinned finding 11); the flip remains.**
    Flipping the six `uniformCarrier: Boolean = false` constructor defaults to `true`

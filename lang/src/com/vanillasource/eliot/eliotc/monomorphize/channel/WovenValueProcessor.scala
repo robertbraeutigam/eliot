@@ -1,12 +1,11 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 /** The post-monomorphization **Id-normalization** stage (docs/effects-as-channel.md §6/§10, U1) — the one step that
   * occupies the `WovenValue` codegen seam between checking and codegen (`used`/`uncurry`/jvm read [[WovenValue]]).
@@ -24,15 +23,14 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     erased), so key merging falls out of the demand shift.
   *
   * The stage is a **mandatory** compilation stage, not an optimization (the gaps-must-be-fail-safe rule), backed by the
-  * [[warnIdResidue]] fail-safe: any `Id` machinery the rewrites failed to reach is reported (a warning during U1
-  * bring-up, a hard build error from U4). Combined with the newtype representation, no `Id` allocation ships even if a
-  * residue were ever missed.
+  * [[assertNoIdResidue]] fail-safe: any `Id` machinery the rewrites failed to reach fails the build (a **hard error**
+  * from U4-e — `Id` must not exist downstream of normalization, §9; a warning during U1 bring-up). Combined with the
+  * newtype representation, no `Id` allocation ships even if a residue were ever missed.
   */
 class WovenValueProcessor()
     extends TransformationProcessor[MonomorphicValue.Key, WovenValue.Key](key =>
       MonomorphicValue.Key(key.vfqn, key.typeArguments)
-    )
-    with Logging {
+    ) {
 
   override protected def generateFromKeyAndFact(
       key: WovenValue.Key,
@@ -47,23 +45,29 @@ class WovenValueProcessor()
       // reaches bytecode. Accounting verifies unconditionally (U4-c-2); for a valid program it always resolves and the
       // woven output is byte-identical.
       _ <- getFactOrAbort(EffectAccounting.Key(mv.vfqn, mv.typeArguments))
-      _ <- warnIdResidue(mv.vfqn, erasedSig, normalized)
+      _ <- assertNoIdResidue(mv, erasedSig, normalized)
     } yield WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized)
   }
 
-  /** Warn on any `Id` residue left after normalization + erasure (the effects-as-channel §6 fail-safe — a warning in
-    * U1, a hard build error from U4): a surviving `Id`-machinery *reference* (a first-class combinator the U1a rewrites
-    * do not reach — kept safe by the newtype), or a surviving `Id[X]` *type* (a top-level carrier U1b erasure missed).
+  /** Assert no `Id` residue remains after normalization + erasure (the effects-as-channel §6 fail-safe, a **hard error**
+    * from U4-e — `Id` exists only between elaboration and normalization, nowhere downstream, §9). A surviving
+    * `Id`-machinery *reference* (a first-class combinator the U1a rewrites did not reach) or a surviving `Id[X]` *type*
+    * (a top-level carrier U1b erasure missed) is a normalizer-invariant violation and fails the build at the offending
+    * value. The jvm newtype representation of `Id` (`Id[A] ≡ A`) still keeps any such residue a codegen no-op, so this
+    * is a correctness *tripwire*, not a soundness gate; from U4-e the invariant is that it never fires. It was a warning
+    * during U1 bring-up (docs/effects-as-channel.md §6/§9/§10).
     */
-  private def warnIdResidue(
-      vfqn: ValueFQN,
+  private def assertNoIdResidue(
+      mv: MonomorphicValue,
       signature: GroundValue,
       body: Option[Sourced[MonomorphicExpression.Expression]]
   ): CompilerIO[Unit] = {
     val references  = body.map(b => IdNormalizer.residualIdReferences(b.value)).getOrElse(Seq.empty)
     val typeResidue = IdNormalizer.hasResidualIdType(signature, body)
-    warn[CompilerIO](
-      s"effects-as-channel: Id residue survived normalization in ${vfqn.show}: ${references.map(_.show).mkString(", ")}${if (typeResidue) " [Id-headed type]" else ""}"
+    compilerAbort[Unit](
+      mv.name.as(
+        s"effects-as-channel: Id residue survived normalization in ${mv.vfqn.show}: ${references.map(_.show).mkString(", ")}${if (typeResidue) " [Id-headed type]" else ""}"
+      )
     ).whenA(references.nonEmpty || typeResidue)
   }
 }
