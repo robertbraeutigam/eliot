@@ -130,6 +130,33 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "parsed-value\nmalformed input")
   }
 
+  // Row-argument type-pinning (docs/effects-as-channel.md §10 U4-f, pinned finding 7): a `catch` whose handler does NOT
+  // itself pin the error type — a non-identity `err -> "default"` (identity handlers `err -> err` masked the bug by
+  // pinning `E := A` through the handler). The open-row argument `parseBad : {Throw[String]}` captured into `catch`'s
+  // pinned `{Throw[E] | G} A` parameter solved `?F := ThrowCarrier[?E, G]` structurally but left the error slot `?E`
+  // disconnected from the constraint's `String`; it junk-grounded to `Type`, selecting the `where E1 != E2` lift whose
+  // inner `raise` demanded the nonexistent `Throw[String, Id]`. The row-directed pin (`?E := String`) resolves the
+  // native carrier instance instead, in both the pure-boundary `recovered` (the shape that also un-breaks the stdlib doc
+  // idiom) and the ambient position.
+  it should "discharge with a non-identity handler (row-argument type-pinning, finding 7)" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.effect.Throw
+        |
+        |def parseOk: {Throw[String]} String = "ok-value"
+        |def parseBad: {Throw[String]} String = raise("boom")
+        |
+        |def recovered: String = parseBad catch (err -> "recovered-default")
+        |
+        |def main: IO[Unit] = {
+        |   printLine(recovered)
+        |   printLine(parseOk catch (err -> "unused"))
+        |   printLine(parseBad catch (err -> "ambient-default"))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "recovered-default\nok-value\nambient-default")
+  }
+
   // Ability-implementation guards, the Throw client (ability-guards Stage 4): TWO distinct error types in one effect
   // row force the `ThrowCarrier` to nest, which needs both the native `Throw[E, ThrowCarrier[E, G]]` instance and the
   // lift `Throw[E2, ThrowCarrier[E1, G]] where E1 != E2`. Those structurally overlap on the diagonal `E1 = E2`; the

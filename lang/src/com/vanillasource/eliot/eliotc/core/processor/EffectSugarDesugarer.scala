@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, EffectRow, FunctionDefinition, GenericParameter}
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
+import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars the effect-row sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]), in its two forms.
@@ -162,7 +163,7 @@ object EffectSugarDesugarer {
           e.abilityName.as(
             FunctionApplication(
               None,
-              e.abilityName.map(_ + "Carrier"),
+              e.abilityName.map(EffectCarrierNaming.carrierName),
               Some(e.typeParameters.map(recurse) :+ acc),
               Seq.empty
             )
@@ -172,7 +173,7 @@ object EffectSugarDesugarer {
         expr.as(
           FunctionApplication(
             None,
-            head.abilityName.map(_ + "Carrier"),
+            head.abilityName.map(EffectCarrierNaming.carrierName),
             Some(head.typeParameters.map(recurse) :+ innerStack :+ recurse(resultType)),
             Seq.empty
           )

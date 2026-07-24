@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -1080,14 +1081,82 @@ class Checker(
       domain: SemValue
   ): CheckIO[SlotOutcome] =
     for {
-      doomed  <- lifter.mustLiftBeforeUnify(instantiated, domain)
-      outcome <- if (doomed) uniformArgumentSlot(arg, updatedExpr, domain)
-                 else
-                   tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
-                     case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
-                     case false => commitMismatch(instantiated, domain, arg, updatedExpr)
-                   }
+      // The argument's own carrier meta, read *before* the capture unify solves it — the row-argument type-pinning
+      // rule (docs/effects-as-channel.md §10 U4-f) needs its id to look its declared ability constraints up.
+      carrierMeta <- lifter.effectCarrierSplit(instantiated).map(_.collect { case (VMeta(id, _), _) => id.value })
+      doomed      <- lifter.mustLiftBeforeUnify(instantiated, domain)
+      outcome     <- if (doomed) uniformArgumentSlot(arg, updatedExpr, domain)
+                     else
+                       tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
+                         case true  =>
+                           carrierMeta.traverse_(recordRowArgumentPins(_, arg)).as(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+                         case false => commitMismatch(instantiated, domain, arg, updatedExpr)
+                       }
     } yield outcome
+
+  /** Row-argument type-pinning (docs/effects-as-channel.md §10 U4-f): an *open-row* argument — a carrier metavariable
+    * `?F` constrained `Throw[String]` — captured whole into a *pinned-row* parameter domain (`{Throw[E] | G} A` ⤳
+    * `ThrowCarrier[E, G, A]`) solves `?F := ThrowCarrier[?E, ?G]` by structure alone, leaving the error slot `?E`
+    * disconnected from the constraint's `String`. Without this connection `?E` junk-grounds to `Type` at
+    * [[TypeStackLoop.defaultUnsolvedMetas]], selecting the `where E1 != E2` lift instance whose inner `raise` demands
+    * the nonexistent `Throw[String, Id]` — the pinned-finding-7 bug.
+    *
+    * For each ability constraint recorded on `?F` ([[CheckState.metaConstraints]]), locate the ability's canonical
+    * carrier layer in `?F`'s solution (by the `<Ability>Carrier` authority, [[EffectCarrierNaming]]) and record a
+    * *deferred* pin of each non-carrier ability argument (`String`) into that layer's leading slot (`?E`). The pin is
+    * applied at post-drain finalize **only if the slot is still free** ([[applyPendingCarrierPins]]) — an
+    * explicitly-typed handler that pinned the slot itself, checked *after* this computation argument, is left to win.
+    * A constraint whose ability has *no* layer in the stack (an effect the base carrier absorbs, or the machinery
+    * `Effect`/`Suspend` whose `<Ability>Carrier` type does not exist) records no pin.
+    */
+  private def recordRowArgumentPins(carrierMetaId: Int, at: Sourced[OperatorResolvedExpression]): CheckIO[Unit] =
+    for {
+      state       <- get
+      solution    <- force(VMeta(MetaId(carrierMetaId), Spine.SNil))
+      _           <- state.metaConstraints.getOrElse(carrierMetaId, Seq.empty).traverse_ { constraint =>
+                       val nonCarrierArgs = constraint.args.dropRight(1)
+                       if (nonCarrierArgs.isEmpty) pure(())
+                       else
+                         findCarrierLayerSlots(solution, EffectCarrierNaming.carrierFQN(constraint.abilityFQN)).flatMap {
+                           case Some(slots) =>
+                             nonCarrierArgs.zip(slots).traverse_ { case (value, slot) =>
+                               modify(_.recordPendingPin(CheckState.PendingPin(slot, value, at.as("Row-argument effect pinning."))))
+                             }
+                           case None        => pure(())
+                         }
+                     }
+    } yield ()
+
+  /** The leading (result-unapplied) spine slots of the outermost `carrierFqn` layer within a canonical carrier stack,
+    * descending through each layer's *base* (its last spine element) — `ThrowCarrier`'s slots inside
+    * `StateCarrier[S, ThrowCarrier[E, G]]`. [[None]] when no layer of that carrier is present.
+    */
+  private def findCarrierLayerSlots(carrier: SemValue, carrierFqn: ValueFQN): CheckIO[Option[Seq[SemValue]]] =
+    force(carrier).flatMap {
+      case VTopDef(fqn, _, spine) if fqn == carrierFqn      => pure(Some(spine.toList))
+      case VTopDef(_, _, spine) if spine.toList.nonEmpty    => findCarrierLayerSlots(spine.toList.last, carrierFqn)
+      case _                                                => pure(None)
+    }
+
+  /** Apply the deferred row-argument type pins ([[CheckState.pendingPins]]) at post-drain finalize (docs/effects-as-channel.md
+    * §10 U4-f): drain so a handler's own pin of a slot (checked *after* the computation argument) is visible, then unify
+    * each pin's slot with its ability argument **only if the slot is still a free metavariable**. A slot an
+    * explicitly-typed handler already pinned is left untouched (pin-if-still-free — order-independent, never a spurious
+    * conflict); a still-free slot receives the effect type its row directed (`?E := String`), so the discharger resolves
+    * against the native carrier instance rather than junk-grounding to `Type`. A no-op (no drain) when no pins were
+    * recorded — the common path.
+    */
+  private[check] def applyPendingCarrierPins: CheckIO[Unit] =
+    inspect(_.pendingPins).flatMap { pins =>
+      if (pins.isEmpty) pure(())
+      else
+        modify(s => s.withUnifier(s.unifier.drain())) >> pins.traverse_ { pin =>
+          force(pin.slot).flatMap {
+            case VMeta(_, Spine.SNil) => doUnify(pin.slot, pin.value, pin.context)
+            case _                    => pure(())
+          }
+        }
+    }
 
   /** Whether an effectful actual's **payload** `p` *genuinely* fits the parameter `domain` — the bind-vs-capture
     * decision of [[uniformPayloadSlot]]. A **bare flex payload metavariable** (`?A`) is **not** a genuine fit even

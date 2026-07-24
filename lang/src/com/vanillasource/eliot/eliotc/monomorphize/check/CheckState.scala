@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Immutable state for the bidirectional type checker.
@@ -47,6 +48,17 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param liftCounter
   *   The fresh-binder counter for effect-lift-inserted bindings (the established `$eff$N` naming convention; `$` is
   *   not a user identifier character). Threaded by the effect lifter so synthesized binders are unique within a body.
+  * @param metaConstraints
+  *   The ability constraints a callee reference declared on each of its freshly-peeled instantiation metas — keyed by
+  *   the meta's raw id (docs/effects-as-channel.md §10 U4-f). Recorded at instantiation ([[recordMetaConstraints]],
+  *   from [[CarrierKindChecker.recordCarrierMetas]]); read by the row-argument type-pinning rule when a constrained
+  *   carrier meta is captured whole into a pinned-row parameter. The same table pinned finding 4 (the `CarrierJoin`
+  *   Id-default guard) needs — built once here.
+  * @param pendingPins
+  *   Deferred row-argument type pins ([[CheckState.PendingPin]]) recorded when a constrained carrier meta solved to a
+  *   canonical carrier stack (docs/effects-as-channel.md §10 U4-f, the capture arm). Applied at post-drain finalize
+  *   **only if the target slot is still free**, so an explicitly-typed handler that legitimately pinned the slot
+  *   itself wins — pin-if-still-free is order-independent and never a spurious conflict.
   */
 case class CheckState(
     gamma: Env,
@@ -55,7 +67,9 @@ case class CheckState(
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
     ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
-    liftCounter: Int = 0
+    liftCounter: Int = 0,
+    metaConstraints: Map[Int, Seq[CheckState.MetaConstraint]] = Map.empty,
+    pendingPins: Seq[CheckState.PendingPin] = Seq.empty
 ) {
 
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
@@ -69,6 +83,17 @@ case class CheckState(
   /** Record the value-under-check's ambient effect-carrier heads. See [[ambientCarriers]]. */
   def recordAmbientCarriers(heads: Set[CheckState.CarrierHead]): CheckState =
     copy(ambientCarriers = ambientCarriers ++ heads)
+
+  /** Record the ability constraints a callee reference declared on one of its instantiation metas. See
+    * [[metaConstraints]].
+    */
+  def recordMetaConstraints(id: MetaId, constraints: Seq[CheckState.MetaConstraint]): CheckState =
+    if (constraints.isEmpty) this
+    else copy(metaConstraints = metaConstraints.updated(id.value, constraints))
+
+  /** Record a deferred row-argument type pin (applied at post-drain finalize, pin-if-still-free). See [[pendingPins]]. */
+  def recordPendingPin(pin: CheckState.PendingPin): CheckState =
+    copy(pendingPins = pendingPins :+ pin)
 
   /** The neutral a runtime value parameter binds to in ρ: a fresh rigid variable at the current ρ level, standing for
     * the parameter's not-yet-known runtime value. Read *before* [[bindValueParam]] so the checker can substitute it into
@@ -154,4 +179,18 @@ object CheckState {
     /** A still-open carrier — the binder was peeled to an instantiation metavariable. */
     case class Meta(id: Int) extends CarrierHead
   }
+
+  /** One ability constraint a callee reference declared on an instantiation meta, its type arguments already evaluated
+    * against the callee's binder→instantiation-meta substitution ([[metaConstraints]]). The carrier binder itself is
+    * the constraint's *last* argument (as [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]]
+    * appends it); the non-carrier ability arguments — the ones the row-pinning rule pins into the carrier's leading
+    * slots — are `args.dropRight(1)`.
+    */
+  case class MetaConstraint(abilityFQN: AbilityFQN, args: Seq[SemValue])
+
+  /** A deferred row-argument type pin: unify the carrier-layer `slot` (a metavariable) with the ability argument
+    * `value` **iff `slot` is still free** at post-drain finalize (docs/effects-as-channel.md §10 U4-f). See
+    * [[pendingPins]].
+    */
+  case class PendingPin(slot: SemValue, value: SemValue, context: Sourced[String])
 }

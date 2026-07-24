@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -8,6 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
@@ -71,16 +73,47 @@ class CarrierKindChecker(
           _     <- svOpt match {
                      case None     => pure(())
                      case Some(sv) =>
-                       val signature = sv.value.signature
-                       val binders   = SignatureView.of(signature).binders.drop(explicitArgs.size)
+                       val orv        = sv.value
+                       val allBinders = SignatureView.of(orv.signature).binders
+                       val binders    = allBinders.drop(explicitArgs.size)
+                       // The callee's binder → instantiation-value substitution (explicit args first, then the peeled
+                       // metas), so a carrier binder's ability constraint (`F ~ Throw[E]`, whose `E`/`F` are the
+                       // callee's *own* binder names) evaluates to the metas this call actually instantiated.
+                       val substEnv   = allBinders.zip(explicitArgs ++ implicitMetas).foldLeft(Env.empty) {
+                                          case (env, (b, v)) => env.bind(b.name.value, v)
+                                        }
                        implicitMetas.zip(binders).traverse_ {
-                         case (VMeta(id, _), binder) => recordIfHigherKinded(id, binder, fqn)
+                         case (VMeta(id, _), binder) =>
+                           recordIfHigherKinded(id, binder, fqn) >>
+                             recordMetaConstraints(id, binder, orv.paramConstraints, substEnv)
                          case _                      => pure(())
                        }
                    }
         } yield ()
       case _                                                                         => pure(())
     }
+
+  /** Record the ability constraints a *higher-kinded* (carrier) binder declares onto its instantiation meta
+    * ([[CheckState.metaConstraints]]) — the table the row-argument type-pinning rule (docs/effects-as-channel.md §10
+    * U4-f) reads when a constrained carrier meta is captured whole into a pinned-row parameter. Each constraint's type
+    * arguments are evaluated against `substEnv` (the callee's binder → instantiation-meta substitution), so `Throw[E]`
+    * on `parseBad`'s carrier resolves `E` to the concrete `String` this call carries and its trailing carrier argument
+    * to the meta itself. Only carrier (higher-kinded) binders are recorded; an ordinary `[A]` binder cannot be a
+    * captured carrier.
+    */
+  private def recordMetaConstraints(
+      id: SemValue.MetaId,
+      binder: SignatureView.Binder,
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
+      substEnv: Env
+  ): CheckIO[Unit] =
+    if (!EffectCarriers.isHktBinder(binder)) pure(())
+    else
+      paramConstraints.getOrElse(binder.name.value, Seq.empty).toList
+        .traverse { c =>
+          c.typeArgs.toList.traverse(a => evalExpr(a, Some(substEnv))).map(CheckState.MetaConstraint(c.abilityFQN, _))
+        }
+        .flatMap(constraints => modify(_.recordMetaConstraints(id, constraints)))
 
   /** Evaluate a binder's kind annotation; if it forces to a `VPi` (a higher kind such as `Type -> Type`), record the
     * meta as a carrier with that kind and flag it as an effect carrier (see [[recordCarrierMetas]]). A `Type`-kinded
