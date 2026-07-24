@@ -1113,7 +1113,12 @@ class Checker(
     for {
       (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
       effectful                   <- lifter.effectCarrierSplit(instantiated).map(_.nonEmpty)
-      outcome                     <- if (effectful) defaultArgSlot(arg, updatedExpr, instantiated, domain)
+      // Effects-as-channel U4-a(ii) (docs/effects-as-channel.md §10): an **effectful** actual into an effect-carrier
+      // slot routes through the uniform CarrierSlot arm ([[uniformArgumentSlot]] → the pass-join: the actual's carrier
+      // meta joins the domain's, the payloads unify, and the whole action passes through as `Passed`) rather than
+      // handing off to [[defaultArgSlot]]. Byte-identical to the default whole-unify (`?F[Unit] ~ ?G[T]` ⇒ `?G := ?F`,
+      // `T := Unit`, slot expr unchanged); exercised by `report`'s `if(flag, printLine("on"))` in the byte-identical gate.
+      outcome                     <- if (effectful) uniformArgumentSlot(arg, updatedExpr, domain)
                                      else
                                        lifter.tryPureWrap(arg, updatedExpr, instantiated, domain).flatMap {
                                          case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
