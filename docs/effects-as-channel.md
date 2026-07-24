@@ -886,25 +886,41 @@ default path byte-identical, gated by the §0 harness.
    jvm integration tests** — programs the 34-example-main byte-identity corpus never exercised under the
    flag (the proof compared *example mains*, and only their *codegen* bytes; it never ran uniform against
    the integration suite's richer inline programs). Two failure classes, both surfaced only here:
-   - **post-mono MonomorphicValue consumers choke on the un-erased `Id`.** Id-normalization runs *only*
-     at the `WovenValue` **codegen** seam (§6), so every *other* post-mono consumer reads the
-     `pure@Id`/`runId`-laden mono. Confirmed on the **refinement channel** (`RefinementChannelProcessor`):
-     an argument's `Int[range]` is hidden inside `Id[Int[range]]`, so a `where`-precondition reports "an
-     argument's value range is not known here" instead of the bound-violation
-     (`WhereOnDefIntegrationTest`, `InlineTransferBraceIntegrationTest`).
-   - **genuine miscompiles** (wrong runtime output, not a consumer mis-read): **two distinct-typed Deps**
-     resolve one to `null` (`ExamplesIntegrationTest1`), **two-`Throw` catch** yields the wrong handler
-     values (`config-value/<fallback>` vs `excellent/taken`, `ExamplesIntegrationTest2`), and a
-     **compiler-track constant-fold** crashes at run time (`InvocationTargetException`). These are real
-     uniform-path bugs in multi-effect / multi-dep resolution, not covered by the single-effect examples.
+   - **post-mono MonomorphicValue consumers choke on the un-erased `Id` — the refinement channel is
+     FIXED (`9078e894`).** Id-normalization runs *only* at the `WovenValue` **codegen** seam (§6), so
+     every *other* post-mono consumer reads the `pure@Id`/`runId`-laden mono. The **refinement channel**
+     (`RefinementChannelProcessor`) hid an argument's `Int[range]` inside `Id[Int[range]]` and reported
+     "an argument's value range is not known here" instead of the bound-violation; fixed by normalizing
+     `Id` on its input up front (`IdNormalizer.eraseIdTypes`/`normalizeValue`/`eraseIdInBody`, exactly as
+     `WovenValueProcessor` does — a no-op on legacy). Pinned by a `--uniform-carrier` regression case in
+     `UniformCarrierConditionalTest`. Any *other* consumer that reads `MonomorphicValue` must get the same
+     treatment when the flip is re-attempted.
+   - **nested-carrier-stack solving is BROKEN under uniform (pre-existing, deeper — the real blocker).**
+     Not from any recent U4-a slice (verified: reverting U4-a(ii)-0 does not change it). Monomorphizing a
+     **carrier-generic effect instance at a nested stack** leaves the inner binder `G` unsolved — e.g.
+     `grade: {Abort} String = if(..) else if(..) else ..` builds `AbortCarrier[AbortCarrier[IO]]`, and the
+     `Effect[AbortCarrier[G]]` methods (`abort`/`pure = AbortCarrier(pure(None))`) fail to quote with
+     "contains unresolved variable"; two distinct-typed `Dep`s build `DepCarrier[X1, DepCarrier[X2, IO]]`
+     and the second's instance (`Dep[X2, DepCarrier[X1, G]] where X1 != X2`) reports "No ability
+     implementation found for ability 'Dep' with type arguments [Logger]". **Single-level** carriers
+     (`AbortCarrier[IO]`, the `EffectsAbort` example) work under uniform — only *nesting* fails, so the
+     34-example-main corpus (no nested stacks) missed it. The integration "miscompile" outputs
+     (two-Deps→`null`, two-Throws→`config-value/<fallback>`) were `SharedSession` cached-fact artifacts of
+     the *fresh-compile* failures above. The compiler-track constant-fold crash is likely the same class.
 
-   **Prerequisite for the flip** (the actual next step): (a) make every post-mono MonomorphicValue
-   consumer `Id`-transparent — normalize `Id` *before* them (move/duplicate the §6 `Id[X]⤳X` erasure
-   ahead of the refinement channel & friends) or teach each to see through `Id`; and (b) fix the genuine
-   multi-effect/multi-dep miscompiles (investigate two-Deps→null, two-Throws→wrong-value under uniform).
-   Only then re-attempt the flip, this time gating on the **whole jvm.test integration suite under
-   uniform**, not just example-main codegen bytes. The flip mechanics themselves (opt-out flag, test
-   repoint) worked and are recorded here for the re-attempt.
+   **Prerequisites for the flip** (the actual next steps): (a) **Id-transparency for post-mono
+   MonomorphicValue consumers** — the refinement channel is DONE (`9078e894`); audit the other consumers
+   (effect accounting, `used`/reflection, LSP `TypeHintIndex`) and give each the same `Id`-normalize-first
+   treatment as they surface. (b) **the nested-carrier-stack solving bug** — the deep, pre-existing
+   blocker: the uniform path must solve the inner carrier binder `G` when monomorphizing a carrier-generic
+   effect instance at `AbortCarrier[AbortCarrier[…]]` / `DepCarrier[X1, DepCarrier[X2, …]]`, exactly as
+   legacy does (single-level already works; only nesting fails). This is a foundational uniform
+   carrier-solving fix (the return-boundary / `CarrierJoin` / carrier-slot handling of a return whose
+   carrier head itself contains a binder), *not* an `Id` issue. Only then re-attempt the flip, gating on
+   the **whole jvm.test integration suite under uniform** (add nested-carrier programs — `grade`'s nested
+   `if`, two distinct `Dep`s — to the transition tests), not just example-main codegen bytes. The flip
+   mechanics themselves (opt-out `--legacy-carrier`, test repoint) worked and are recorded here for the
+   re-attempt.
 
 ### U5 — follow-ups unlocked
 
