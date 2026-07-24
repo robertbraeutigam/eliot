@@ -1311,20 +1311,51 @@ before anything leans on it), the foundation spike second, the checker refactor 
      track** (`platform != Runtime`, `Checker:309`), `VType`/guard/calc-return/W3, and **function/polytype
      (`VPi`/`VLam`) returns** — heading fires on terminal value leaves only, never a `VPi`.
   2. **U4-b — Bundle A: retire the superseded `--effect-channel` erasure path + re-point accounting** (the
-     U3-0b bundle, coupled — land together): delete `EffectSugarDesugarer.desugarChannel` (+`eraseAbilityCarrier`
-     /`abilityCarrierName`/`isHigherKindedBinder`/`eraseCarrierApplications` + the `stripOpen` arm),
-     `AbilityResolver`'s effect-ability abstain (`isEffectAbilityRef`, `:81-83`), the
-     `AbilityImplementationCheckProcessor` conformance relaxation (`isUserEffectAbility`, `:54`), and
-     `EffectChannelDesugarTest`; **re-point** `EffectAccountingProcessor.contributedEffects` (`:72-77`) from
-     abstract `Qualifier.Ability` reads to resolved impl refs (once the carrier path leaves ops *resolved*, not
-     abstract); **relocate** `EffectAccountingTest` off the lang track (no runtime carrier) to jvm, kept green by
-     the uniform checker binding the effect-poly value's carrier via the synthetic-main `runMain`. A trial delete
-     without the re-point reddened `EffectAccountingTest` (`Cannot resolve type.`) — do not separate them.
+     U3-0b bundle, coupled — land together; the code deletions compile clean, so the whole slice's difficulty is
+     the re-point + the test relocation). **Deletions** (mechanical, all understood):
+     - `EffectSugarDesugarer.desugarChannel` + `eraseAbilityCarrier`/`abilityCarrierName`/`isHigherKindedBinder`
+       /`eraseCarrierApplications` + the `rewrite` `stripOpen` parameter and its `EffectfulType(_,_,None) if stripOpen`
+       arm; `desugar(function, effectChannel)` ⤳ `desugarCarrier(function)` and `desugar(data, effectChannel)` drop the
+       (already-unused, `val _ =`) flag param.
+     - `AbilityResolver`'s effect-ability abstain (`isEffectAbilityRef`, the `if (effectChannel) …filterA…` at `:81-90`
+       ⤳ `resolvable = unresolved.toList`) + its `effectChannel` ctor param.
+     - `AbilityImplementationCheckProcessor` conformance relaxation (`isUserEffectAbility` + the `:54` skip ⤳ always
+       `checkSignatures`) + its `effectChannel` ctor param.
+     - `EffectChannelDesugarTest` (it pins the deleted effect-blindness).
+     - **Flag-threading simplification that falls out:** `effectChannel` was the checker's only use *via* `AbilityResolver`
+       (the map's finding), so removing it there drops it from `Checker` → `TypeStackLoop` → both mono processors, and from
+       `CoreProcessor`/`AbilityImplementationCheckProcessor`. After Bundle A `effectChannel` is threaded to
+       **`EffectAccountingProcessor` only** (its removal is U4-e).
+     - **The re-point — the delicate part (definitive mechanism, pinned 2026-07-24).** On the carrier path an effect-op
+       reference is NOT left abstract: `PostDrainQuoter.resolveIfAbility` (`:494-508`, SemExpression twin `:232-241`)
+       rewrites it to the resolved impl-method FQN carrying `Qualifier.AbilityImplementation(abilityName, pattern)` — so
+       `contributedEffects`'s current `EffectMachinery.abilityNameOf` (only matches `Qualifier.Ability`) returns `None`
+       and silently under-counts (derives the impl method's empty row). Re-point `contributedEffects` to recognise
+       `Qualifier.AbilityImplementation(name, _)`, **but with two caveats that make it not a pure qualifier match**: (a)
+       *first-order* abilities (`Show`/`Eq`) resolve to `AbilityImplementation` too, so it must discriminate an **effect**
+       ability by the ability *marker*'s HKT carrier binder — the same test `AbilityResolver.isEffectAbilityRef` does
+       (`EffectCarriers.isHktBinder` on the marker's `OperatorResolvedValue` signature, machinery excluded), i.e. a **fact
+       lookup**, not a pure match; (b) the `AbilityFQN`'s **module** must be the *ability's* module, not `ref.moduleName`
+       (the impl lives in the platform layer, e.g. jvm, while the ability is in `eliot.effect`), or `derived` will not
+       match `declared` (which `channelDeclaredEffects` sources from the `effectRow`, in the ability's module). Recover the
+       ability module from the marker/`OperatorResolvedValue` looked up in (a). **Get this exactly right — a wrong module
+       or a missed HKT check silently mis-counts effects and lets a leaking value pass (a fail-safe violation).**
+     - **Relocate `EffectAccountingTest`.** Its `main:{Console} Unit` at `EffectAccounting.Key(main, Seq.empty)` cannot
+       monomorphize once carrier-desugared (the lang test track has no concrete carrier to bind `F` — `Cannot resolve
+       type.`, the U3-0b blocker). It must move to jvm.test and drive a **full compile** where the synthetic main's
+       `runMain` binds `F := IO`, then query the accounting fact at the carrier-bound key. Note the semantic shift the
+       carrier path forces: `main:Unit = printLine(…)` (its "reject undeclared" case) now errors *during check* via
+       `EffectResidualChecker.checkDeclaredPure`, not via `EffectAccounting` — so those assertions belong to the checker,
+       not the post-mono accounting; re-express accordingly. (`EffectAccountingChannelDeclaredTest`, the pure
+       row-extraction unit test, already lives on the channel package and is unaffected.)
   3. **U4-c — swap the verifier.** Make `EffectAccountingProcessor` the sole post-mono verifier and **delete
-     `EffectResidualChecker`** (`TypeStackLoop:388`) *including its Phase-2 shadow* (`channelEffectsOf`
-     /`channelDeclaredFor`/`shadowCompareSubset`/`shadowCompareVerdict`/`shadowMarker` — purely observational
-     today, so it is deleted *with* the checker, not before: cutting it early loses the channel-vs-constraint
-     regression net for zero payoff).
+     `EffectResidualChecker`** (`TypeStackLoop:388`). Its **Phase-2 shadow is already deleted** (`26ce08b2`,
+     2026-07-24 — `channelEffectsOf`/`channelDeclaredFor`/`shadowCompareSubset`/`shadowCompareVerdict`/`shadowMarker`
+     were purely observational; the pure row-extraction unit test was retargeted to
+     `EffectAccountingProcessor.channelDeclaredEffects` as `EffectAccountingChannelDeclaredTest`). What remains is
+     deleting the real verifier itself once `EffectAccounting` covers the carrier path (needs Bundle A's re-point) —
+     and note `EffectResidualChecker` reads `CheckState.ambientCarriers`, which U4-d deletes, so it *cannot* be the
+     kept verifier (this is *why* the row-based `EffectAccounting` is the keeper, not the carrier-constraint one).
   4. **U4-d — delete the default-path machinery** (now dead once coverage is complete): `EffectLifter`'s
      recognition arms (`mustLiftBeforeUnify`/`mustPureWrapBeforeUnify`/equal-arity+guards/`underApplied`
      /`isFlexMeta`, `~123-211`) and `tryIdDefault`-as-an-arm (`~295-316`); `CheckState.ambientCarriers`
