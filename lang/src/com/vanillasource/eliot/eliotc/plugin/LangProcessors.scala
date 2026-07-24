@@ -64,10 +64,9 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     the default; tests that declare local versions of ambient names pass a narrower set, e.g.
   *     `systemModulesWithoutInt`, or `Seq.empty`);
   *   - `maxNestedRepeats` — the `UsedNamesProcessor` non-convergence backstop bound.
-  *   - `effectChannel` — the effects-as-channel gated path (docs/effects-as-channel.md §10). The gate under which the
-  *     uniform checker grows (U3); off by default. Threaded to the checker
-  *     ([[com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor]]) and the post-mono
-  *     effect accounting ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]).
+  *   - `effectChannel` — the effects-as-channel accounting gate (docs/effects-as-channel.md §10). As of Bundle A (U4-b)
+  *     the superseded `--effect-channel` erasure path is deleted; the flag now threads to the post-mono effect accounting
+  *     ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]) only, and is removed at U4-e.
   *   - `uniformCarrier` — the transitional `--uniform-carrier` gate (docs/effects-as-channel.md §0/§10, U3a-2b), distinct
   *     from `effectChannel`. Under it the uniform-carrier spine grows on the *default* carrier-desugared input, compared
   *     byte-identical against the default path (no `desugarChannel`), decoupled from the `effectChannel` accounting knot
@@ -90,7 +89,7 @@ object LangProcessors {
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
-    CoreProcessor(effectChannel),
+    CoreProcessor(),
     ModuleNamesProcessor(),
     ModuleValueProcessor(systemModules),
     UnifiedModuleNamesProcessor(),
@@ -106,7 +105,7 @@ object LangProcessors {
     RecursionCheckProcessor(),
     SaturatedValueProcessor(),
     AbilityImplementationProcessor(),
-    AbilityImplementationCheckProcessor(effectChannel),
+    AbilityImplementationCheckProcessor(),
     ModuleAbilityOverlapCheckProcessor(),
     SystemNativesProcessor(),
     DataTypeNativesProcessor(),
@@ -117,8 +116,8 @@ object LangProcessors {
       ContributedBinding.langNativeLabels ++ extraNativeBindingLabels,
       ContributedBinding.userLabels
     ),
-    MonomorphicTypeCheckProcessor(effectChannel, uniformCarrier),
-    CompilerMonomorphicTypeCheckProcessor(effectChannel, uniformCarrier),
+    MonomorphicTypeCheckProcessor(uniformCarrier),
+    CompilerMonomorphicTypeCheckProcessor(uniformCarrier),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(effectChannel),
     WovenValueProcessor(),

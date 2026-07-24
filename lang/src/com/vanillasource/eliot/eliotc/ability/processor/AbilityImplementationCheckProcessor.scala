@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.ability.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.{AbilityImplementationCheck, ModuleAbilityOverlapCheck}
 import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
-import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -14,7 +13,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as Res
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-class AbilityImplementationCheckProcessor(effectChannel: Boolean = false)
+class AbilityImplementationCheckProcessor
     extends SingleKeyTypeProcessor[AbilityImplementationCheck.Key] {
 
   override protected def generateFact(key: AbilityImplementationCheck.Key): CompilerIO[Unit] = {
@@ -44,15 +43,7 @@ class AbilityImplementationCheckProcessor(effectChannel: Boolean = false)
                           case _   =>
                             checkCompleteness(abilityMethods, implMethods) >>
                               checkNoExtras(abilityMethods, implMethods) >>
-                              // Effects-as-channel Phase 3: under `--effect-channel` a *user* effect ability is
-                              // carrier-erased (`op: F[Unit]` ⤳ `op: Unit`) but its instances are NOT (`op: F[Unit]`),
-                              // so the character-exact ability↔impl conformance would spuriously fail even though they
-                              // conform by construction (the impl is the carrier-headed runtime truth, the erased
-                              // ability its effect-blind view). Skip the lexical signature check for those; every other
-                              // ability (first-order, and the carrier machinery which keeps its carrier) is checked as
-                              // usual, and the impl's own monomorphization still type-checks its body at the carrier.
-                              (if (effectChannel && isUserEffectAbility(abilityFQN, abilityMethods)) ().pure[CompilerIO]
-                               else checkSignatures(abilityFQN, abilityMethods, implMethods, key.platform))
+                              checkSignatures(abilityFQN, abilityMethods, implMethods, key.platform)
                         }
       _              <- registerFactIfClear(AbilityImplementationCheck(abilityFQN, typeArguments, key.platform))
     } yield ()
@@ -134,17 +125,6 @@ class AbilityImplementationCheckProcessor(effectChannel: Boolean = false)
         )
       )
   }
-
-  /** Whether `abilityFQN` is a *user* effect ability — a carrier-parametric ability that is not the carrier machinery.
-    * Recognised, as elsewhere under the flag, by the ability *marker* method (local name == ability name) carrying a
-    * higher-kinded binder; the machinery (`Effect`/`Suspend`) is excluded because its methods are not carrier-erased.
-    */
-  private def isUserEffectAbility(abilityFQN: AbilityFQN, abilityMethods: Seq[ResolvedMethod]): Boolean =
-    !EffectMachinery.isMachineryAbility(abilityFQN.abilityName) &&
-      abilityMethods.exists(m =>
-        m.vfqn.name.name == abilityFQN.abilityName &&
-          EffectCarriers.carrierBinders(OperatorResolvedExpression.SignatureView.of(m.methodSig)).nonEmpty
-      )
 
   private def checkSignatures(
       abilityFQN: AbilityFQN,

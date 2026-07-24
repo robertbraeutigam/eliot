@@ -149,10 +149,12 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, in **U4 (the flip)**, latest commit `20a0b88b` (2026-07-24). **U3a is complete as far
-as it goes pre-flip** (the two remaining pre-flip arm items were resolved to findings this session — see below); **U4
-has begun**: the first deletion landed (`26ce08b2`, the `EffectResidualChecker` Phase-2 shadow) and the rest is scoped
-into a grounded, code-anchored 5-slice plan (§10, "U4 execution plan"). Green everywhere: `./mill lang.test`,
+**Where the tree is:** `master`, in **U4 (the flip)**, **Bundle A (U4-b) LANDED (2026-07-24)** — the superseded
+`--effect-channel` erasure path is deleted and `EffectAccounting.contributedEffects` is re-pointed to the resolved-impl
+(`AbilityImplementation`) view. **U4-c is BLOCKED** on a genuine design finding (below): the row-based `EffectAccounting`
+cannot replace `EffectResidualChecker` without a **run/discharge-subtraction** slice that does not yet exist, so the
+residual checker stays the verifier. **U3a is complete as far as it goes pre-flip** (the two remaining pre-flip arm items
+were resolved to findings — see below). Green everywhere: `./mill lang.test`,
 `./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest` conditional-surface case + `UniformCarrierConditionalTest` —
 the non-overlap compile-succeeds gate: `if(c, None) else Some(x)` *and* an effectful list into `foldLeft`'s `List[A]`,
 both rejected off, accepted on), HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld`
@@ -184,11 +186,62 @@ no join).
   ambient carrier-stacking on the *default* path. It can only land once the uniform `CarrierJoin` is the default carrier
   handling → **moved into the U4 milestone** (land the delta atomically with the flip).
 
-**The immediate next step is Bundle A + U4-c as one focused, dedicated session** — see §10 U4-b/U4-c for the complete
-recipe (deletions, the flag-threading simplification, the definitive re-point mechanism with its module + HKT caveats,
-the concrete wiring hook, and the whole-base self-verifying gate). It is genuinely a dedicated session (the re-point is
-fail-safe-critical and verifiable only as a codegen precondition over the whole base — the blast-radius caveat in §10
-U4-c), **not** a quick slice — do not rush it.
+**Bundle A LANDED (U4-b, 2026-07-24, this session).** The deletions + flag-threading simplification + the
+`contributedEffects` re-point all landed, byte-identical on the default path (`EffectAccounting` stays behind its
+`--effect-channel` gate, demand-driven / test-only, so a real compile never runs it — `EffectResidualChecker` is still
+the sole live verifier). What landed:
+- **Deleted the `--effect-channel` erasure path** (all compile-clean, all understood): `EffectSugarDesugarer.desugarChannel`
+  + `eraseAbilityCarrier`/`abilityCarrierName`/`isHigherKindedBinder`/`eraseCarrierApplications`, and the `rewrite`
+  `stripOpen` parameter + its arm (`desugar(function)` is now just the carrier desugar; `desugar(data)` dropped the unused
+  flag); `AbilityResolver`'s effect-abstain (`isEffectAbilityRef` + the `filterA`) + its `effectChannel` param;
+  `AbilityImplementationCheckProcessor`'s conformance relaxation (`isUserEffectAbility` + the skip) + its param;
+  `EffectChannelDesugarTest`; the old lang-track `EffectAccountingTest` (its premise — effect-blind abstract refs — is
+  gone).
+- **Flag-threading simplification:** `effectChannel` came off `CoreProcessor`/`AbilityImplementationCheckProcessor`/both
+  mono processors/`TypeStackLoop`/`Checker`/`AbilityResolver`; it now threads **`LangPlugin` → `LangProcessors` →
+  `EffectAccountingProcessor` only** (removal is U4-e). `uniformCarrier` threading is untouched.
+- **The re-point** (`EffectAccountingProcessor.contributedEffects`, fail-safe-critical): recognises an effect op as a
+  `Qualifier.AbilityImplementation(name, _)` reference (the carrier path resolves every ability ref to its impl), an
+  effect ability discriminated from a first-order impl (`Show`/`Eq`/`==`, the synthetic `PatternMatch`/`TypeMatch`/`Meta`
+  impls) by the **ability marker**'s HKT carrier binder — read on the ability marker (a concrete `implement Inf[IO]` impl
+  marker has *no* HKT binder, only the ability does), via `isEffectAbility(ref.moduleName, name)`. **Module resolved to
+  `ref.moduleName`** (not a separate ability-module lookup): effect-ability instances are colocated with their ability —
+  a carrier-generic `implement[F ~ E] Ability[F]` can only live in the ability's module, and a concrete `implement Inf[IO]`
+  is placed there too (verified: every effect ability + its instances are in `eliot.effect`) — so the impl method's module
+  *is* the ability's, confirmed by the ability-marker lookup succeeding there. This mirrors `EffectResidualChecker`'s own
+  `AbilityFQN(vfqn.moduleName, name)`. The `Qualifier.Ability` arm is kept for a constraint-covered method the checker
+  left abstract.
+- **Re-point validated** by the whole-base probe (below): a Console program's **user `main` accounts as `{Console}`** at
+  its carrier-bound mono key — correct.
+
+**U4-c is BLOCKED — the design finding of this session (do not retry the naive wiring).** The plan assumed the row-based
+`EffectAccounting` could become the sole verifier once wired + re-pointed (§10 U4-c: "wire a demand … then delete
+`EffectResidualChecker`"). It cannot, because **`EffectAccounting` walks the *fully monomorphic* body, where the
+ambient-vs-concrete carrier distinction is already erased** — the exact information the residual checker uses for
+**run/discharge subtraction**. Two over-count classes make wiring it whole-base reject valid code:
+1. **Run-via-concrete-carrier.** The synthesized entry `def main: Unit = apply(block(User::main), unit)` runs `Console`
+   on the concrete `IO` carrier but declares no row. `EffectResidualChecker` accepts it (its `checkDeclaredPure` fires
+   only on a *committed unifier mismatch*, and `IO` absorbs the effect cleanly — no mismatch); `EffectAccounting` derives
+   `{Console} ⊄ {} = ` a false leak. **Empirically observed:** wiring the demand made HelloWorld fail with "This value
+   performs the effect 'Console' but does not declare it" *on the synthetic main* (the user `main` accounted fine).
+2. **Discharge.** A discharged `raise`/`get` resolves to the effect op on an *inner transformer carrier*
+   (`Either`/`AbortCarrier`/`StateCarrier`), not the value's ambient `IO`. `EffectResidualChecker` drops it via its
+   "rides the ambient carrier" filter (a type arg forced to an ambient head); post-mono every carrier is concrete, so
+   `EffectAccounting` reads the bare `AbilityImplementation` and over-counts the discharged effect.
+
+   The residual checker's discharge/run awareness rests on **`CheckState.ambientCarriers` + `unifier.errors`** — checker
+   state that does not survive to the post-mono body. The plan's own rationale for keeping the row-based accounting was
+   that it *avoids* `ambientCarriers` (which U4-d deletes); the finding is that avoiding it is exactly what makes the
+   row-based derivation unable to subtract run/discharge. **U4-c therefore needs the discharge-subtraction slice first:**
+   reconstruct the value's ambient carrier from its mono'd signature (`IO[Unit]` ⤳ ambient `IO`) and count an effect op
+   only when its resolved carrier *is* that ambient (never an inner transformer / concrete run boundary) — essentially
+   porting `EffectResidualChecker.residualEffects`/`ridesAmbient` into the post-mono/quoted domain. Until that exists,
+   `EffectResidualChecker` **stays** the live verifier (kept as the fail-safe — [[feedback_gaps_must_be_failsafe]]), the
+   `WovenValueProcessor` demand is **not** wired, and the re-pointed `EffectAccounting` remains gated + demand-driven.
+
+Commit trail this session: Bundle A (deletions + flag-simplification + re-point) — one commit. The whole-base wiring was
+built as a probe (`WovenValueProcessor` demand + unconditional accounting), used to surface the run/discharge finding,
+then reverted; only Bundle A landed.
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -1344,9 +1397,20 @@ before anything leans on it), the foundation spike second, the checker refactor 
      uniform outcome, not a default hand-off. *By-design default, not gaps* (§8): the whole **compile-time
      track** (`platform != Runtime`, `Checker:309`), `VType`/guard/calc-return/W3, and **function/polytype
      (`VPi`/`VLam`) returns** — heading fires on terminal value leaves only, never a `VPi`.
-  2. **U4-b — Bundle A: retire the superseded `--effect-channel` erasure path + re-point accounting** (the
-     U3-0b bundle, coupled — land together; the code deletions compile clean, so the whole slice's difficulty is
-     the re-point + the test relocation). **Deletions** (mechanical, all understood):
+  2. **U4-b — Bundle A: retire the superseded `--effect-channel` erasure path + re-point accounting — LANDED
+     (2026-07-24).** All the deletions, the flag-threading simplification, and the re-point landed byte-identical (see
+     §0 "Bundle A LANDED"). Two divergences from the recipe below, both findings: **(a) module recovery is
+     `ref.moduleName`, not a separate ability-module lookup** — every effect ability and its instances are colocated in
+     `eliot.effect` (a carrier-generic `implement[F ~ E] Ability[F]` must be, and a concrete `implement Inf[IO]` is placed
+     there too), so the impl method's module *is* the ability's, confirmed by the ability-marker lookup succeeding there;
+     the recipe's "impl lives in jvm while ability is in eliot.effect" concern does not manifest (the module in a
+     `ValueFQN` is path-derived, and both layers' `.../eliot/effect/` files resolve to `eliot.effect`). **(b) the HKT
+     check reads the ability marker, not the impl marker** — a concrete-carrier impl (`implement Inf[IO]`) has no HKT
+     binder of its own, only the ability `Inf[F[_]]` does. **(c) the test was not relocated to a jvm fact-query test** —
+     no jvm `ProcessorTest` fact-query harness exists (jvm tests use `Compiler.createSession`), and the derivation is not
+     a live verifier this session (U4-c blocked), so the old test was deleted, the pure-row half stays on
+     `EffectAccountingChannelDeclaredTest`, and the derivation test lands with U4-c. The original recipe (kept for the
+     U4-c re-check):
      - `EffectSugarDesugarer.desugarChannel` + `eraseAbilityCarrier`/`abilityCarrierName`/`isHigherKindedBinder`
        /`eraseCarrierApplications` + the `rewrite` `stripOpen` parameter and its `EffectfulType(_,_,None) if stripOpen`
        arm; `desugar(function, effectChannel)` ⤳ `desugarCarrier(function)` and `desugar(data, effectChannel)` drop the
@@ -1382,8 +1446,27 @@ before anything leans on it), the foundation spike second, the checker refactor 
        `EffectResidualChecker.checkDeclaredPure`, not via `EffectAccounting` — so those assertions belong to the checker,
        not the post-mono accounting; re-express accordingly. (`EffectAccountingChannelDeclaredTest`, the pure
        row-extraction unit test, already lives on the channel package and is unaffected.)
-  3. **U4-c — swap the verifier.** Make `EffectAccountingProcessor` the sole post-mono verifier and **delete
-     `EffectResidualChecker`** (`TypeStackLoop:388`). **Wiring finding (2026-07-24): `EffectAccounting` is *not wired
+  3. **U4-c — swap the verifier. BLOCKED (finding, 2026-07-24) — needs a run/discharge-subtraction slice first.** The
+     naive plan ("wire a demand for `EffectAccounting.Key`, then delete `EffectResidualChecker`") was **built as a probe
+     and reverted**: wiring it made HelloWorld reject its own synthesized entry (`def main: Unit = apply(block(User::main),
+     unit)` runs `Console` on `IO`, declares nothing → false `{Console}` leak). The root cause is structural, not a bug:
+     `EffectAccounting` walks the **fully monomorphic** body, where the ambient-vs-concrete carrier distinction is already
+     erased, so it cannot do the **run/discharge subtraction** `EffectResidualChecker` does — (1) an effect *run* on a
+     concrete carrier (`Console` on `IO` at the entry boundary; the residual checker's `checkDeclaredPure` fires only on a
+     *committed unifier mismatch*, and `IO` absorbs it cleanly), and (2) an effect *discharged* onto an inner transformer
+     carrier (`raise` on `Either`/`AbortCarrier`, dropped by the residual checker's "rides the ambient carrier" filter),
+     both read as bare `AbilityImplementation` ops here and over-count. The residual checker's awareness rests on
+     `CheckState.ambientCarriers` + `unifier.errors` — **checker state that does not survive to the post-mono body**. The
+     plan's rationale for keeping the row-based accounting (it *avoids* `ambientCarriers`, which U4-d deletes) is exactly
+     what makes it unable to subtract run/discharge: those need the carrier identity. **So U4-c must first build the
+     subtraction:** reconstruct the value's ambient carrier from its mono'd signature (`IO[Unit]` ⤳ ambient `IO`) and count
+     an effect op only when its resolved carrier *is* that ambient — porting `EffectResidualChecker.residualEffects`/
+     `ridesAmbient` into the post-mono/quoted domain (the effect op's resolved carrier is recoverable from its
+     `MonomorphicExpression` type arguments). Until it exists, **`EffectResidualChecker` stays the live verifier**
+     (fail-safe — [[feedback_gaps_must_be_failsafe]]), accounting is unwired + gated. The re-point of `contributedEffects`
+     (Bundle A) is landed and validated (user `main` → `{Console}`); it is *correct for the ambient-carrier case*, it just
+     cannot be the whole story without the subtraction. Everything below is the original (now-superseded) U4-c recipe, kept
+     for when the subtraction lands. **Wiring finding (2026-07-24): `EffectAccounting` is *not wired
      into the compile pipeline* today** — nothing demands `EffectAccounting.Key` except `EffectAccountingTest`
      (it is a demand-driven `TransformationProcessor`), so despite the "real verification path" framing it currently
      runs *only* in its own test, never on a real compile; `EffectResidualChecker` (unconditional, in-checker) is the
@@ -1425,10 +1508,12 @@ before anything leans on it), the foundation spike second, the checker refactor 
      Id-residue assertion into a hard error; the §9 Cornerstone amendment + doc/skill sweep; verify LSP rendering
      `Id`-free.
 
-  Slices 1 and 2 are each multi-session; 3–5 are mechanical once 1 lands. Gate every slice with the existing
-  harness (`lang.test`/`jvm.test`, `UniformCarrierByteIdenticalTest`, HelloWorld, eliot-test 11/11, the 32 example
-  mains). The whole flip stays a coupled bundle *on `--effect-channel`* (§0 finding), which is why the
-  transitional `--uniform-carrier` gate carries slices 1–4 and only slice 5 unifies the flags.
+  Slice 2 (Bundle A) **is landed** (2026-07-24). Slice 3 (U4-c) turned out **not** mechanical — it is **blocked** on a
+  new run/discharge-subtraction sub-slice (the finding above); it is no longer "delete a verifier" but "build the
+  post-mono residual reconstruction, *then* delete." Slice 1 (U4-a coverage) remains the gating prerequisite for U4-d.
+  Gate every slice with the existing harness (`lang.test`/`jvm.test`, `UniformCarrierByteIdenticalTest`, HelloWorld,
+  eliot-test 11/11, the 32 example mains). The whole flip stays a coupled bundle *on `--effect-channel`* (§0 finding),
+  which is why the transitional `--uniform-carrier` gate carries slices 1–4 and only slice 5 unifies the flags.
 - **U5 — follow-ups unlocked.** Row-bearing diagnostics everywhere; the evaluation-order decision
   (resolved-argument order vs source order — v1 §6's recorded question, carried over);
   `Suspended` for first-class platform actions; the MCU lowering (§6: identity-carrier erasure +

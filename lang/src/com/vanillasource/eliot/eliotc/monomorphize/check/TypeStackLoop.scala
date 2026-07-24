@@ -44,15 +44,13 @@ class TypeStackLoop(
     // binders to fresh metas, re-inflating the twin's `Param`s) and re-inflates it — the one way a value mono obtains its
     // signature. `None` only for a signature twin computing itself (`signatureOnly`, which does not read it).
     injectedSignature: Option[GroundValue] = None,
-    // Effects-as-channel Phase 3 (docs/effects-as-channel.md §10): the effect-blind checker, forwarded to [[Checker]].
-    effectChannel: Boolean = false,
     // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the transitional `--uniform-carrier` gate,
     // forwarded to [[Checker]] where the uniform-carrier spine grows. Off by default — the carrier-based path unchanged.
     uniformCarrier: Boolean = false
 ) {
   import TypeStackLoop.AbilityRef
 
-  private val checker = new Checker(fetchBinding, resolveAbility, track, signatureOnly, effectChannel, uniformCarrier)
+  private val checker = new Checker(fetchBinding, resolveAbility, track, signatureOnly, uniformCarrier)
 
   def process(
       typeArguments: Seq[GroundValue],
@@ -631,7 +629,6 @@ object TypeStackLoop {
       (_, _) => none[SemValue].pure[CompilerIO],
       signatureOnly: Boolean = false,
       injectedSignature: Option[GroundValue] = None,
-      effectChannel: Boolean = false,
       uniformCarrier: Boolean = false
   ): CompilerIO[Result] =
     new TypeStackLoop(
@@ -641,7 +638,6 @@ object TypeStackLoop {
       reduceInstance,
       signatureOnly,
       injectedSignature,
-      effectChannel,
       uniformCarrier
     )
       .process(typeArguments, resolvedValue)

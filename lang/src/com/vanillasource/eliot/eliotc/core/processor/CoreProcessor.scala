@@ -20,7 +20,7 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
   *   - Converts data definitions into constructor and accessor functions
   *   - Represents all types as levels in ExpressionStacks
   */
-class CoreProcessor(effectChannel: Boolean = false)
+class CoreProcessor
     extends TransformationProcessor[SourceAST.Key, CoreAST.Key](key => SourceAST.Key(key.uri))
     with Logging {
 
@@ -37,7 +37,7 @@ class CoreProcessor(effectChannel: Boolean = false)
     // home on the type constructor (see EffectSugarDesugarer.desugar(DataDefinition)). Splitting first would leave the
     // carrier bound only on the value constructor, making it an unresolvable free variable at every use site.
     val desugaredFromData: Seq[(FunctionDefinition, RoleHint)] =
-      sourceAstData.typeDefinitions.map(EffectSugarDesugarer.desugar(_, effectChannel)).flatMap(DataDefinitionDesugarer.desugar)
+      sourceAstData.typeDefinitions.map(EffectSugarDesugarer.desugar).flatMap(DataDefinitionDesugarer.desugar)
     // Meta-slot brace on a type declaration (`type Int {range: …}`) → the type's `^Meta` constructor
     // (bounds-as-refinements §4.2, Step 4a). Type aliases are `FunctionDefinition`s, so this runs over them.
     val desugaredMetaConstructors: Seq[(FunctionDefinition, RoleHint)] =
@@ -58,7 +58,7 @@ class CoreProcessor(effectChannel: Boolean = false)
       // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so
       // everything downstream sees ordinary HKT-constrained generics (see EffectSugarDesugarer). Each definition splits
       // at birth into its `Runtime` twin and its `Signature` twin (see [[transformFunction]]).
-      allFunctions.flatMap { case (fd, hint) => transformFunction(EffectSugarDesugarer.desugar(fd, effectChannel), hint) }
+      allFunctions.flatMap { case (fd, hint) => transformFunction(EffectSugarDesugarer.desugar(fd), hint) }
     )
 
     // Strict-positivity check (termination precondition #2): reject any `data` whose own type constructor appears in a

@@ -2,11 +2,11 @@ package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
-import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
+import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -14,28 +14,33 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-/** The effects-as-channel **effect accounting** processor (docs/effects-as-channel.md §5) — the *real* effect
-  * verification path under `--effect-channel`, a post-monomorphization rider on [[MonomorphicValue]] built on the same
-  * template as [[RefinementChannelProcessor]]. It computes each mono'd value's **derived effect row** by a bottom-up
-  * walk of its checked body and requires `derived ⊆ declared`, with a source-anchored, effect-vocabulary diagnostic —
-  * replacing the in-checker Phase-2 shadow ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]],
-  * deleted at Phase 4). With the checker effect-blind, the ground truth is purely syntactic:
+/** The effects-as-channel **effect accounting** processor (docs/effects-as-channel.md §5) — the post-monomorphization
+  * effect verifier, a rider on [[MonomorphicValue]] built on the same template as [[RefinementChannelProcessor]]. It
+  * computes each mono'd value's **derived effect row** by a bottom-up walk of its checked body and requires
+  * `derived ⊆ declared`, with a source-anchored, effect-vocabulary diagnostic. The mono body reaches it (on the carrier
+  * path) with every ability reference already resolved to its concrete implementation, so the derivation reads:
   *
-  *   - an **effect-ability method** reference (`Console::printLine`, left abstract by the effect-blind desugar/resolver,
-  *     its `Qualifier.Ability` intact) contributes its owning ability — machinery abilities (`Effect`/`Suspend`)
-  *     excluded, first-order abilities never appearing here (they are resolved to concrete impls, so they carry no
-  *     `Qualifier.Ability`);
+  *   - an **effect-ability method** reference (`Console::printLine`, resolved to `Qualifier.AbilityImplementation`)
+  *     contributes its owning ability, discriminated from a first-order impl (`Show`/`Eq`/`==`) by the ability marker's
+  *     higher-kinded carrier binder (machinery abilities `Effect`/`Suspend` excluded) — see [[contributedEffects]];
   *   - an **ordinary callee** contributes its *declared* row, read from the callee's channel metadata
   *     (`OperatorResolvedValue.effectRow`); so an effect propagates from callee to caller through the same union.
   *
-  * `Inf` is an ordinary entry and rides the union like any effect, so the totality story is unchanged. The fact is only
-  * produced once `derived ⊆ declared` holds; an undeclared effect is reported at the value and the accounting **declines
-  * (aborts)** — the fail-safe that keeps a leaking value out of codegen.
+  * `Inf` is an ordinary entry and rides the union like any effect. The fact is only produced once `derived ⊆ declared`
+  * holds; an undeclared effect is reported at the value and the accounting **declines (aborts)**.
   *
-  * Scope note (this slice): the transparent-parameter expansion (`Effect`-marked callback positions), reify/discharge
-  * subtraction, and the carrier-machinery-impl exception (§0/§11) are later slices; a foundation program (direct effect
-  * operations + ordinary-callee propagation) is fully and soundly accounted by the two rules above. Off the flag the
-  * processor is inert (an empty accounting) — the carrier path verifies inside the checker.
+  * '''Status (U4-b / Bundle A, docs/effects-as-channel.md §0/§10).''' Verification still lives in
+  * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]; this processor is **not yet wired as a
+  * codegen precondition** (`effectChannel` gates it inert off the flag) because the row-based derivation here cannot yet
+  * replicate the residual checker's **run/discharge subtraction**: walking the *fully monomorphic* body it has lost the
+  * ambient-vs-concrete carrier distinction the checker still has (a `{Console}` value run on `IO`, and a discharged
+  * `raise` on an inner transformer carrier, both read as bare effect ops here), so wiring it whole-base over-counts
+  * (finding: the synthetic `main` runs `Console` on `IO` yet declares nothing). U4-c is blocked on that subtraction; see
+  * §10. The re-point of [[contributedEffects]] to the resolved-impl (`AbilityImplementation`) view is landed and
+  * validated (the user `main` of a Console program accounts as `{Console}` at its carrier-bound key).
+  *
+  * Scope note: the transparent-parameter expansion (`Effect`-marked callback positions), reify/discharge subtraction,
+  * and the carrier-machinery-impl exception (§0/§11) are later slices.
   */
 class EffectAccountingProcessor(effectChannel: Boolean = false)
     extends TransformationProcessor[MonomorphicValue.Key, EffectAccounting.Key](key =>
@@ -66,15 +71,53 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
       )
     }
 
-  /** The effects one reference contributes: its owning ability if it is an effect-ability method (machinery excluded),
-    * else the callee's declared row.
+  /** The effects one reference contributes: its owning ability if it performs an effect, else the callee's declared row.
+    *
+    * A monomorphic body reaches this processor *after* the checker has resolved every ability reference to its concrete
+    * implementation ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter.resolveIfAbility]]), so an
+    * effect operation is a value carrying `Qualifier.AbilityImplementation(abilityName, _)` — not the abstract
+    * `Qualifier.Ability` the pre-mono view had. Two subtleties make recognising it more than a qualifier match:
+    *   - **first-order abilities also resolve to `AbilityImplementation`** (`Show`/`Eq`/`==`, the synthetic
+    *     `PatternMatch`/`TypeMatch`/`Meta` impls), so an *effect* ability must be discriminated by its **carrier**: the
+    *     ability *marker* (the `Qualifier.Ability` value named after the ability) has a higher-kinded (`F[_]`) binder iff
+    *     the ability is carrier-parametric, i.e. an effect. This is a fact lookup (the same test
+    *     `AbilityResolver.isEffectAbilityRef` performed pre-mono), read on the ability marker rather than the impl
+    *     marker — a concrete-carrier impl (`implement Inf[IO]`) has *no* HKT binder of its own, only the ability does.
+    *   - the contributed [[AbilityFQN]]'s **module** must be the ability's, so `derived` matches `declared` (which
+    *     [[channelDeclaredEffects]] sources from the `effectRow`, in the ability's module). Effect-ability instances are
+    *     colocated with their ability (a carrier-generic `implement[F ~ E] Ability[F]` can only live in the ability's
+    *     module; a concrete `implement Inf[IO]` is placed there too), so the impl method's own module *is* the ability's
+    *     module — confirmed by looking the ability marker up there.
+    *
+    * A constraint-covered effect method that the checker left abstract (`Qualifier.Ability`, resolved at the caller's
+    * level) is still handled by the first arm; the machinery (`Effect`/`Suspend`) is excluded in both.
     */
   private def contributedEffects(ref: ValueFQN): CompilerIO[Set[AbilityFQN]] =
-    EffectMachinery.abilityNameOf(ref) match {
-      case Some(name) if EffectMachinery.isMachineryAbility(name) => Set.empty[AbilityFQN].pure[CompilerIO]
-      case Some(name)                                            => Set(AbilityFQN(ref.moduleName, name)).pure[CompilerIO]
-      case None                                                  => declaredEffectsOf(ref)
+    ref.name.qualifier match {
+      case Qualifier.Ability(name) if EffectMachinery.isMachineryAbility(name)               =>
+        Set.empty[AbilityFQN].pure[CompilerIO]
+      case Qualifier.Ability(name)                                                           =>
+        Set(AbilityFQN(ref.moduleName, name)).pure[CompilerIO]
+      case Qualifier.AbilityImplementation(name, _) if !EffectMachinery.isMachineryAbility(name) =>
+        isEffectAbility(ref.moduleName, name).map(if (_) Set(AbilityFQN(ref.moduleName, name)) else Set.empty)
+      case _                                                                                  => declaredEffectsOf(ref)
     }
+
+  /** Whether the ability named `abilityName` in `moduleName` is a **user effect ability** — carrier-parametric (a
+    * higher-kinded `F[_]` binder on its marker) and not machinery. Read off the ability *marker*'s signature (the
+    * `Qualifier.Ability` value named after the ability, colocated in the same module as any of its instances), exactly as
+    * `AbilityResolver.isEffectAbilityRef` reads it pre-mono. A first-order ability (`Show`/`Eq`) has no such binder, and
+    * the synthetic `PatternMatch`/`TypeMatch`/`Meta` impls have no ability marker at all, so both are correctly not
+    * counted as effects. Absent marker ⟹ not an effect.
+    */
+  private def isEffectAbility(moduleName: ModuleName, abilityName: String): CompilerIO[Boolean] = {
+    val markerFqn = ValueFQN(moduleName, QualifiedName(abilityName, Qualifier.Ability(abilityName)))
+    getFactIfProduced(OperatorResolvedValue.Key(markerFqn, Platform.Runtime)).map {
+      case Some(orv) =>
+        OperatorResolvedExpression.SignatureView.of(orv.signature).binders.exists(EffectCarriers.isHktBinder)
+      case None      => false
+    }
+  }
 
   /** A value's declared effect row, read from its channel metadata (`OperatorResolvedValue.effectRow`, on the runtime
     * track). Empty when the value declares no effects (or its front-end fact is not available).
