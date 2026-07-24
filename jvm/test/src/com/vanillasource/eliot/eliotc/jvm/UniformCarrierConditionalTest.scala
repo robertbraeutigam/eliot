@@ -94,7 +94,7 @@ class UniformCarrierConditionalTest extends AsyncFlatSpec with AsyncIOSpec with 
       sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-cond-src"))
       targetDir  <- IO.blocking(Files.createTempDirectory("eliot-cond-target"))
       _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
-      flag        = if (uniformCarrier) List("--uniform-carrier") else Nil
+      flag        = if (uniformCarrier) Nil else List("--legacy-carrier")
       args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++
                       layerPathArgs ++ flag
       sessionOpt <- Compiler.createSession(args)

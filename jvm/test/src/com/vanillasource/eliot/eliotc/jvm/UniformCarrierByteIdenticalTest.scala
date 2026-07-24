@@ -236,7 +236,7 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-src"))
       targetDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-target"))
       _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
-      flag        = if (uniformCarrier) List("--uniform-carrier") else Nil
+      flag        = if (uniformCarrier) Nil else List("--legacy-carrier")
       args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++
                       layerPathArgs ++ flag
       sessionOpt <- Compiler.createSession(args)
@@ -256,7 +256,7 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-src"))
       targetDir  <- IO.blocking(Files.createTempDirectory("eliot-uc-target"))
       _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
-      flag        = if (uniformCarrier) List("--uniform-carrier") else Nil
+      flag        = if (uniformCarrier) Nil else List("--legacy-carrier")
       args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++
                       layerPathArgs ++ flag
       sessionOpt <- Compiler.createSession(args)

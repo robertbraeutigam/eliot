@@ -57,11 +57,11 @@ class LangPlugin extends CompilerPlugin {
     // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the transitional `--uniform-carrier` gate, distinct
     // from `--effect-channel`. Under it the uniform-carrier spine grows on the *default* carrier-desugared input,
     // compared byte-identical against the default path (no `desugarChannel`). Off by default; the live path is unchanged.
-    opt[Unit]("uniform-carrier")
-      .action((_, config) => config.set(uniformCarrierKey, true))
+    opt[Unit]("legacy-carrier")
+      .action((_, config) => config.set(uniformCarrierKey, false))
       .text(
-        "EXPERIMENTAL: grow the effects-as-channel uniform-carrier checker on default carrier-desugared input " +
-          "(docs/effects-as-channel.md). Off by default."
+        "TRANSITIONAL: fall back to the pre-uniform carrier-based checker path (docs/effects-as-channel.md). The " +
+          "uniform-carrier path is the default; this opt-out exists only for the transition regression tests."
       )
   )
 
@@ -105,7 +105,7 @@ class LangPlugin extends CompilerPlugin {
               // initialize, so the roster is already final here.
               configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
             effectChannel = configuration.getOrElse(effectChannelKey, false),
-            uniformCarrier = configuration.getOrElse(uniformCarrierKey, false)
+            uniformCarrier = configuration.getOrElse(uniformCarrierKey, true)
           )
         )
       )

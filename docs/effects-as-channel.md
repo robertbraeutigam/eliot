@@ -60,11 +60,13 @@ pure but performs an effect", for a value whose mono *fails* — moved to the fo
 fires only for a value with an *open effect row* (a concrete-carrier `IO[Unit]` return is exempt); a
 leak reddens through accounting with no flag.
 
-**Flags**: `--uniform-carrier` — the transitional gate the uniform checker grows under (coverage
-below); the uniform checker grows on default carrier-desugared input, compared byte-identical.
-`--effect-channel` — **vestigial**: accounting now verifies unconditionally, so the flag gates
-nothing (it once gated accounting's verification and, before U4-b, an erasure path — both gone).
-Both flags are removed at U4-e.
+**Flags**: **the uniform checker is now the LIVE DEFAULT (U4-e core flip, 2026-07-24).** `LangPlugin`
+defaults `uniformCarrier` to `true`; `--legacy-carrier` is the transitional opt-*out* to the pre-uniform
+carrier-based path, kept only to drive the byte-identity / non-overlap transition tests and removed at
+the U4-e close-out. (Constructor defaults stay `false` so the raw-mono processor units observe the
+pre-uniform representation until the legacy path is deleted — a documented transitional inconsistency.)
+`--effect-channel` — **vestigial**: accounting verifies unconditionally, so the flag gates nothing.
+Both flags are removed at the U4-e close-out.
 
 **Component map**:
 
@@ -872,18 +874,35 @@ default path byte-identical, gated by the §0 harness.
    `MonomorphicValue.ambientCarriers` writer switches its source from `CheckState.ambientCarriers`
    to the uniform checker's carrier bookkeeping — the fact contract is unchanged.
 
-5. **U4-e — make it the default + close out.** Remove `--uniform-carrier` and `--effect-channel`
-   and their threading; land the **effectful-`catch`-handler stdlib delta** atomically (pinned
-   finding 7 — the join solver is now the default carrier handling, so the stacking cannot
-   occur; acceptance: `failUnit catch (err -> printLine(err))` runs and `EffectsThrow` stays
-   green); turn the §6 Id-residue assertion into a **hard error**; the §9 Cornerstone amendment +
-   doc/skill sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize
-   sections); verify LSP/diagnostic rendering `Id`-free.
+5. **U4-e — make it the default + close out. CORE FLIP LANDED (2026-07-24).** The live default is now
+   uniform (`LangPlugin` `uniformCarrierKey` default `true`, opt-*out* `--legacy-carrier`; constructor
+   defaults stay `false` so raw-mono processor units observe the pre-uniform representation during the
+   transition). Full gate green under uniform-as-default: **lang.test 233/233, jvm.test 283/283
+   (the whole integration suite now runs uniform), HelloWorld, eliot-test 11/11.** Got here by fixing the
+   two blockers pinned finding 10 identified (both landed, both no-ops on legacy):
+   - **refinement-channel Id-transparency** (`9078e894`): normalize `Id` on the channel's `MonomorphicValue`
+     input up front (as `WovenValueProcessor` does), so a `where`-precondition sees the argument range
+     through `Id[Int[range]]`.
+   - **nested-carrier solving** (`9a30f815`): `CarrierJoin`'s equal-FQN `Con`-vs-`Con` arms dropped the
+     carrier stack **prefix**, leaving the inner binder `G` unsolved at `AbortCarrier[AbortCarrier[IO]]` /
+     `DepCarrier[X1, DepCarrier[X2, IO]]`; the fix unifies the prefixes pairwise (restoring what legacy's
+     full structural unify did), carrier identity still FQN-only so no theft. This one fix resolved all six
+     nested-stack failures (two-Throws, two-Deps, the compiler-track constant-fold — all nested `if`).
+   Nested-carrier programs are pinned byte-identical in `UniformCarrierByteIdenticalTest`; the refinement
+   case in `UniformCarrierConditionalTest`.
 
-   **BLOCKED — flip attempted 2026-07-24, reverted (pinned finding 10).** Flipping the live default to
-   uniform (LangPlugin `uniformCarrierKey` default `true`, an opt-*out* `--legacy-carrier`; constructor
-   defaults left `false` so raw-mono unit tests stay legacy) kept **lang.test green** but **regressed 9
-   jvm integration tests** — programs the 34-example-main byte-identity corpus never exercised under the
+   **Close-out remaining:** remove `--legacy-carrier` and `--effect-channel` and their threading (and flip
+   the constructor defaults to `true`, updating the ~13 raw-mono processor unit tests to the uniform
+   representation, retiring the legacy path); land the **effectful-`catch`-handler stdlib delta**
+   atomically (pinned finding 7 — the join solver is now the default, so the stacking cannot occur;
+   acceptance: `failUnit catch (err -> printLine(err))` runs and `EffectsThrow` stays green); turn the §6
+   Id-residue assertion into a **hard error**; the §9 Cornerstone amendment + doc/skill sweep (`eliot-code`
+   global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections); verify LSP/diagnostic rendering
+   `Id`-free.
+
+   **History — flip first attempted + reverted 2026-07-24 (pinned finding 10), then unblocked.** The first
+   attempt regressed 9 jvm integration tests — programs the 34-example-main byte-identity corpus never
+   exercised under the
    flag (the proof compared *example mains*, and only their *codegen* bytes; it never ran uniform against
    the integration suite's richer inline programs). Two failure classes, both surfaced only here:
    - **post-mono MonomorphicValue consumers choke on the un-erased `Id` — the refinement channel is
