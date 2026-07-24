@@ -159,6 +159,16 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
    (`PostDrainQuoter.resolveAbilityRefs` preserves impl type args). It is erased only from a bare
    body walk. This is what makes the §5 derivation possible; the U4-c course makes the value-side
    half explicit as a fact field instead of relying on the alignment as a cross-module contract.
+10. **Codegen byte-identity is NOT flip-readiness — post-mono MonomorphicValue consumers see the
+    un-erased `Id`** (U4-e flip attempt, 2026-07-24, reverted). Id-normalization runs only at the
+    `WovenValue` codegen seam (§6), so the refinement channel, ability/effect resolution, and every
+    other post-mono consumer read `pure@Id`/`runId`-laden mono and mis-analyze — the refinement channel
+    can't find an `Int[range]` hidden in `Id[Int[range]]`, and multi-effect/multi-dep programs miscompile
+    (two-Deps→`null`, two-Throws→wrong values). The whole-corpus byte-identity proof compared *example-main
+    codegen bytes* and never ran uniform against the jvm integration suite, so it missed all of this. The
+    flip prerequisite: normalize `Id` *before* those consumers (or make them `Id`-transparent) **and** fix
+    the genuine multi-effect/multi-dep miscompiles; gate the re-attempt on the whole jvm.test integration
+    suite under uniform, not example-main bytes. See §10 U4-e (BLOCKED).
 
 ## 1. The problem
 
@@ -869,6 +879,32 @@ default path byte-identical, gated by the §0 harness.
    green); turn the §6 Id-residue assertion into a **hard error**; the §9 Cornerstone amendment +
    doc/skill sweep (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect + monomorphize
    sections); verify LSP/diagnostic rendering `Id`-free.
+
+   **BLOCKED — flip attempted 2026-07-24, reverted (pinned finding 10).** Flipping the live default to
+   uniform (LangPlugin `uniformCarrierKey` default `true`, an opt-*out* `--legacy-carrier`; constructor
+   defaults left `false` so raw-mono unit tests stay legacy) kept **lang.test green** but **regressed 9
+   jvm integration tests** — programs the 34-example-main byte-identity corpus never exercised under the
+   flag (the proof compared *example mains*, and only their *codegen* bytes; it never ran uniform against
+   the integration suite's richer inline programs). Two failure classes, both surfaced only here:
+   - **post-mono MonomorphicValue consumers choke on the un-erased `Id`.** Id-normalization runs *only*
+     at the `WovenValue` **codegen** seam (§6), so every *other* post-mono consumer reads the
+     `pure@Id`/`runId`-laden mono. Confirmed on the **refinement channel** (`RefinementChannelProcessor`):
+     an argument's `Int[range]` is hidden inside `Id[Int[range]]`, so a `where`-precondition reports "an
+     argument's value range is not known here" instead of the bound-violation
+     (`WhereOnDefIntegrationTest`, `InlineTransferBraceIntegrationTest`).
+   - **genuine miscompiles** (wrong runtime output, not a consumer mis-read): **two distinct-typed Deps**
+     resolve one to `null` (`ExamplesIntegrationTest1`), **two-`Throw` catch** yields the wrong handler
+     values (`config-value/<fallback>` vs `excellent/taken`, `ExamplesIntegrationTest2`), and a
+     **compiler-track constant-fold** crashes at run time (`InvocationTargetException`). These are real
+     uniform-path bugs in multi-effect / multi-dep resolution, not covered by the single-effect examples.
+
+   **Prerequisite for the flip** (the actual next step): (a) make every post-mono MonomorphicValue
+   consumer `Id`-transparent — normalize `Id` *before* them (move/duplicate the §6 `Id[X]⤳X` erasure
+   ahead of the refinement channel & friends) or teach each to see through `Id`; and (b) fix the genuine
+   multi-effect/multi-dep miscompiles (investigate two-Deps→null, two-Throws→wrong-value under uniform).
+   Only then re-attempt the flip, this time gating on the **whole jvm.test integration suite under
+   uniform**, not just example-main codegen bytes. The flip mechanics themselves (opt-out flag, test
+   repoint) worked and are recorded here for the re-attempt.
 
 ### U5 — follow-ups unlocked
 
