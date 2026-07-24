@@ -8,15 +8,18 @@ arm — byte-identical wherever the default path succeeds, plus three of the fou
 non-overlap wins. **U4 (the flip) is in progress**: U4-b (Bundle A — the superseded
 `--effect-channel` erasure path deleted, accounting re-pointed to resolved impls) landed
 2026-07-24; **U4-c runs on the explicit-interface course adopted 2026-07-24** (§5, §10): *forward
-what is declared, derive what is done*. Its first three steps landed 2026-07-24: **U4-c-0a (forward
+what is declared, derive what is done*. Its first four steps landed 2026-07-24: **U4-c-0a (forward
 the ambient)** — `MonomorphicValue.ambientCarriers` now carries each value's full ground ambient
 carriers, stamped by one writer at mono-fact production; **U4-c-0b (single source of truth for
 "declared")** — accounting reads declared effects from the carrier-binder constraints (the residual
-checker's definition), retiring the surface-`effectRow` reading to rendering-only; and **U4-c-0c
-(the pure ride-test core)** — `EffectAccountingProcessor.ridesAmbient` decides "does a reference
-ride an ambient carrier" by exact `GroundValue` equality, with a 12-case matrix test. All three are
-additive/inert (the processor is still unwired); the default path is byte-identical throughout, and
-`EffectResidualChecker` is the sole live verifier until U4-c passes its parity gate.
+checker's definition), retiring the surface-`effectRow` reading to rendering-only; **U4-c-0c (the
+pure ride-test core)** — `EffectAccountingProcessor.ridesAmbient` decides "does a reference ride an
+ambient carrier" by exact `GroundValue` equality; and **U4-c-0d (rewire the derivation)** — the
+derivation now gates every contribution through the ride test, reading each reference's carriers as
+the *callee's* forwarded `ambientCarriers` (so the concrete-impl carrier and discharge fall out for
+free), validated by a direct-demand derivation test. All four are additive/inert (the processor is
+still unwired); the default path is byte-identical throughout, and `EffectResidualChecker` is the
+sole live verifier until U4-c passes its parity gate.
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
 
@@ -371,17 +374,28 @@ checking is **explicit and fact-carried**, on the principle adopted 2026-07-24:*
   the mono key) and a pinned/concrete-carrier return (the return's carrier prefix, `Effect[C]`
   resolving as the authority). Empty for a pure value and for the synthetic entry.
 
-**Derivation (per mono key, from ground instantiations):** walk the checked body
-(`MonomorphicValue.runtime`); an effect-ability method reference contributes its owning ability
-(recognised as `Qualifier.AbilityImplementation` discriminated by the ability marker's HKT binder,
-or a constraint-covered `Qualifier.Ability` left abstract — the Bundle A re-point), an ordinary
-callee contributes its declared set — in both cases **iff the reference rides an ambient**:
+**Derivation (per mono key, from ground instantiations, U4-c-0d):** walk the checked body
+(`MonomorphicValue.runtime`); an effect-ability method reference (`Qualifier.AbilityImplementation`,
+or a constraint-covered `Qualifier.Ability` left abstract) contributes its owning ability, an
+ordinary callee its declared set — in both cases **iff the reference rides an ambient**:
 
-> the ground value at the reference's own carrier-binder position(s) (its `typeArguments`, aligned
-> with its `OperatorResolvedValue` binders; `resolveAbilityRefs` preserves impl type args), or a
-> **concrete-carrier impl's** fixed carrier (`implement Inf[IO]` — no binder; read from the impl
-> identity / signature return head), **equals an ambient carrier by exact `GroundValue`
-> equality**.
+> the reference's own carrier — read as the **callee's forwarded `MonomorphicValue.ambientCarriers`
+> at the reference's mono key** (`getFactOrAbort(MonomorphicValue.Key(ref, typeArgs))`) —
+> **equals an ambient carrier by exact `GroundValue` equality**.
+
+The callee's ambient *is* the reference carrier for every class, computed once by the 0a writer:
+a generic effect method / carrier-generic callee forwards its carrier-binder value, and a binder-less
+**concrete-carrier impl** (`implement Inf[IO]`, whose impl method carries no type argument) forwards
+the carrier from its own return head. So there is no positional reconstruction and no per-class arm —
+reading the fact means both sides compare identical quotes (exact equality is reliable), and the
+concrete-impl carrier that has no `typeArgument` to point at is simply the callee's own ambient. Two
+qualifier classes are excluded up front, never ride-tested: the **machinery** (`Effect`/`Suspend`) and
+the **match-family eliminators** (`PatternMatch`/`TypeMatch`) — the latter because a match's result
+type follows its branches, so it is carrier-headed over an effectful `match` (a non-empty ambient that
+would otherwise spuriously ride), yet it is structural dispatch, never a user effect. First-order
+abilities (`Show`/`Eq`/…) need no exclusion: their result is a fixed non-carrier type, so their ambient
+is empty and the ride test drops them (this is what let the effect-vs-first-order marker lookup — and
+its spurious `Could not find` on non-colocated markers — be deleted).
 
 Exactness matters: it is strictly tighter than the checker's head-level `CarrierHead` test and
 correctly separates nested same-transformer stacks (`ThrowCarrier[E2, ThrowCarrier[E1, IO]]` ≠
@@ -663,24 +677,38 @@ default path byte-identical, gated by the §0 harness.
      input. Byte-identical by construction — the processor is still unwired (`effectChannel` off ⇒
      inert), so this changes no live compile; validated at U4-c-1's parity + rejection gate.
    - **U4-c-0c — the pure ride-test core: LANDED (2026-07-24).**
-     `EffectAccountingProcessor.{referenceCarriers, ridesAmbient}` (companion object, the
-     `channelDeclaredEffects` pattern — pure over `GroundValue`s + `Set[Int]`, no `CompilerIO`):
-     given a reference's `typeArguments`, its callee's carrier-binder positions
-     (`carrierPositions: Set[Int]`), a binder-less concrete-carrier impl's fixed carrier
-     (`concreteImplCarrier: Option[GroundValue]`, read from the impl's signature return head), and the
-     ambient set → ride iff **exact `GroundValue` equality** between a reference carrier and an ambient
-     carrier. `Eq[GroundValue] = fromUniversalEquals`, so exactness separates nested same-transformer
-     stacks and makes discharge/capture structural. Matrix unit test `EffectAccountingRideTest` (12
-     cases): run / discharged (inner transformer) / captured / entry (ambient ∅, no exemption) /
-     concrete impl `Inf[IO]` (both at- and off-ambient) / lifting impl (HKT position selected, error
-     binder ignored; lifted vs at-its-own-stack) / pinned-stack ambient / nested same-transformer
-     stack. Additive, no live caller yet (0d wires it) — byte-identical by construction.
-   - **U4-c-0d — rewire the derivation + fail-safe reads.** `collectReferences` stops discarding
-     `MonomorphicValueReference.typeArguments` (the `(vfqn, _)` match was the naive wiring's
-     entire gap — pinned finding 8); `contributedEffects` gates **every** contribution (effect op
-     and callee row alike) through the ride test against `mv.ambientCarriers`; a counted-class
-     reference with a missing fact **aborts** (`getFactOrAbort`), never `Set.empty`. **Touches
-     landed code:** `EffectAccountingProcessor` only.
+     `EffectAccountingProcessor.ridesAmbient(referenceCarriers, ambient)` (companion object, the
+     `channelDeclaredEffects` pattern — pure over `GroundValue` sets, no `CompilerIO`): ride iff
+     **exact `GroundValue` equality** between one of the reference's carriers and an ambient carrier.
+     `Eq[GroundValue] = fromUniversalEquals`, so exactness separates nested same-transformer stacks and
+     makes discharge/capture structural. **The reference's carriers are the callee's own forwarded
+     `MonomorphicValue.ambientCarriers` at the reference's mono key** (the 0a writer) — which *is* the
+     reference carrier for every class with no positional reconstruction: a generic effect method /
+     carrier-generic callee forwards its carrier-binder value, and a binder-less concrete-carrier impl
+     (`implement Inf[IO]`, no type argument) forwards the carrier from its return head, both already in
+     the one field (empirically confirmed: `forever@Inf#IO` carries **empty** type args, `IO` only via
+     its own ambient). Matrix unit test `EffectAccountingRideTest` (8 cases): run / captured-or-discharged
+     (inner transformer) / empty ambient (no synthetic-entry exemption) / no carrier (pure callee) /
+     any-of-several-ambients / disjoint / pinned-stack ambient / nested same-transformer stack.
+     Additive, no live caller yet — byte-identical by construction.
+   - **U4-c-0d — rewire the derivation + fail-safe reads: LANDED (2026-07-24).** `collectReferences`
+     keeps `MonomorphicValueReference.typeArguments` (the `(vfqn, _)` discard was the naive-wiring gap,
+     pinned finding 8); `contributedEffects` gates **every** contribution through the ride test, reading
+     the reference's carriers as the **callee's** forwarded `MonomorphicValue.ambientCarriers`
+     (`getFactOrAbort(MonomorphicValue.Key(ref, typeArgs))`, so a counted-class reference with a missing
+     callee mono **aborts**, never `Set.empty`). Two refinements the wiring surfaced: (i) the
+     effect-vs-first-order **marker lookup was deleted** — it triggered a spurious `Could not find` for a
+     non-colocated / synthetic ability marker, and is unnecessary since a first-order impl is pure
+     (empty ambient) and the ride test filters it; (ii) the **match-family eliminators**
+     (`PatternMatch`/`TypeMatch`) join the machinery exclusion — their result type follows the eliminated
+     branches, so over an effectful `match` it is carrier-headed (a non-empty ambient that would
+     spuriously ride), yet they are structural dispatch, never a user effect. Still unwired
+     (`effectChannel` off ⇒ inert, byte-identical), but the derivation is validated one slice early by
+     `EffectAccountingDerivationTest` (jvm full compile under `--effect-channel`, demanding accounting for
+     every mono value): the discharge program derives `main`⤳`{Console}` with `parseOk`/`parseBad`⤳`∅`
+     (capture excluded) and **no over-count error**, and the `Inf` program derives `{Inf, Console}`
+     (`forever` counted via its forwarded ambient). **Touches landed code:** `EffectAccountingProcessor`
+     only.
    - **U4-c-1 — wire + parity.** Demand `EffectAccounting.Key` at the post-mono seam
      (`WovenValueProcessor` with `getFactOrAbort` so a leak aborts before codegen, or
      `UsedNamesProcessor` beside its `WovenValue` demand — the refinement channel's

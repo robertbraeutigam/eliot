@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
@@ -65,62 +65,87 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
       } yield EffectAccounting(key.vfqn, key.typeArguments, derived)
 
   /** The value's derived row: the union, over every value reference in the body, of that reference's contributed
-    * effects. Empty for a body-less value.
+    * effects — each **gated by the ride test** against the value's own ambient carriers. Empty for a body-less value.
     */
   private def derivedRow(mv: MonomorphicValue): CompilerIO[Set[AbilityFQN]] =
     mv.runtime.fold(Set.empty[AbilityFQN].pure[CompilerIO]) { body =>
-      collectReferences(body.value).toList.foldLeftM(Set.empty[AbilityFQN])((acc, ref) =>
-        contributedEffects(ref).map(acc ++ _)
-      )
+      collectReferences(body.value).toList.foldLeftM(Set.empty[AbilityFQN]) { case (acc, (ref, typeArgs)) =>
+        contributedEffects(ref, typeArgs, mv.ambientCarriers).map(acc ++ _)
+      }
     }
 
-  /** The effects one reference contributes: its owning ability if it performs an effect, else the callee's declared row.
+  /** The effects one reference contributes: its owning ability (for an ability-method reference) or the callee's declared
+    * row (for an ordinary callee) — but **only if the reference rides the value's own ambient carrier** (U4-c-0d). The
+    * candidate set is gated through [[EffectAccountingProcessor.ridesAmbient]], so a discharged / captured / lifted callee
+    * (whose carrier is an inner transformer stack, not the ambient) contributes nothing — discharge is structural.
     *
     * A monomorphic body reaches this processor *after* the checker has resolved every ability reference to its concrete
     * implementation ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter.resolveIfAbility]]), so an
     * effect operation is a value carrying `Qualifier.AbilityImplementation(abilityName, _)` — not the abstract
-    * `Qualifier.Ability` the pre-mono view had. Two subtleties make recognising it more than a qualifier match:
-    *   - **first-order abilities also resolve to `AbilityImplementation`** (`Show`/`Eq`/`==`, the synthetic
-    *     `PatternMatch`/`TypeMatch`/`Meta` impls), so an *effect* ability must be discriminated by its **carrier**: the
-    *     ability *marker* (the `Qualifier.Ability` value named after the ability) has a higher-kinded (`F[_]`) binder iff
-    *     the ability is carrier-parametric, i.e. an effect. This is a fact lookup (the same test
-    *     `AbilityResolver.isEffectAbilityRef` performed pre-mono), read on the ability marker rather than the impl
-    *     marker — a concrete-carrier impl (`implement Inf[IO]`) has *no* HKT binder of its own, only the ability does.
-    *   - the contributed [[AbilityFQN]]'s **module** must be the ability's, so `derived` matches `declared` (which
-    *     [[declaredEffectsOf]] sources from the carrier-binder constraints, in the ability's module). Effect-ability instances are
-    *     colocated with their ability (a carrier-generic `implement[F ~ E] Ability[F]` can only live in the ability's
-    *     module; a concrete `implement Inf[IO]` is placed there too), so the impl method's own module *is* the ability's
-    *     module — confirmed by looking the ability marker up there.
+    * `Qualifier.Ability` the pre-mono view had. **No effect-vs-first-order marker lookup is needed** (the source of a
+    * spurious `Could not find` when a non-colocated / synthetic marker was resolved): the ride test *plus* the
+    * [[nonEffectAbility]] exclusion discriminate them. A **first-order** impl (`Show`/`Eq`/`==`, `Combine`, `Arithmetic`)
+    * is pure by construction — its method's result type is a fixed non-carrier type, so its own
+    * `MonomorphicValue.ambientCarriers` is empty and it can never ride; its owning-ability candidate is simply dropped by
+    * the ride test. The **match-family / machinery** eliminators (`PatternMatch`/`TypeMatch`, `Effect`/`Suspend`) are
+    * excluded by name up front: they are compiler-inserted structural dispatch, never a user effect, and — unlike a
+    * first-order ability — a match eliminator's result type *follows its branches*, so over an effectful `match` it is
+    * carrier-headed (non-empty ambient) and would otherwise spuriously ride. The contributed [[AbilityFQN]]'s **module**
+    * is `ref.moduleName` — for a true effect impl that is the ability's module (instances are colocated with their
+    * ability), so `derived` matches `declared` ([[declaredEffectsOf]], same module).
     *
-    * A constraint-covered effect method that the checker left abstract (`Qualifier.Ability`, resolved at the caller's
-    * level) is still handled by the first arm; the machinery (`Effect`/`Suspend`) is excluded in both.
+    * A constraint-covered effect method the checker left abstract (`Qualifier.Ability`, resolved at the caller's level —
+    * not seen on a fully-ground runtime mono) rides the value's own ambient carrier **by definition**, so the abstract arm
+    * contributes **unconditionally** (there is no resolved callee mono to ride-test).
     */
-  private def contributedEffects(ref: ValueFQN): CompilerIO[Set[AbilityFQN]] =
+  private def contributedEffects(
+      ref: ValueFQN,
+      typeArgs: Seq[GroundValue],
+      ambient: Set[GroundValue]
+  ): CompilerIO[Set[AbilityFQN]] =
     ref.name.qualifier match {
-      case Qualifier.Ability(name) if EffectMachinery.isMachineryAbility(name)               =>
+      case Qualifier.Ability(name) if EffectMachinery.isMachineryAbility(name)     =>
         Set.empty[AbilityFQN].pure[CompilerIO]
-      case Qualifier.Ability(name)                                                           =>
+      case Qualifier.Ability(name)                                                 =>
         Set(AbilityFQN(ref.moduleName, name)).pure[CompilerIO]
-      case Qualifier.AbilityImplementation(name, _) if !EffectMachinery.isMachineryAbility(name) =>
-        isEffectAbility(ref.moduleName, name).map(if (_) Set(AbilityFQN(ref.moduleName, name)) else Set.empty)
-      case _                                                                                  => declaredEffectsOf(ref)
+      case Qualifier.AbilityImplementation(name, _) if nonEffectAbility(name)      =>
+        Set.empty[AbilityFQN].pure[CompilerIO]
+      case Qualifier.AbilityImplementation(name, _)                                =>
+        gatedByRide(Set(AbilityFQN(ref.moduleName, name)), ref, typeArgs, ambient)
+      case _                                                                       =>
+        declaredEffectsOf(ref).flatMap(gatedByRide(_, ref, typeArgs, ambient))
     }
 
-  /** Whether the ability named `abilityName` in `moduleName` is a **user effect ability** — carrier-parametric (a
-    * higher-kinded `F[_]` binder on its marker) and not machinery. Read off the ability *marker*'s signature (the
-    * `Qualifier.Ability` value named after the ability, colocated in the same module as any of its instances), exactly as
-    * `AbilityResolver.isEffectAbilityRef` reads it pre-mono. A first-order ability (`Show`/`Eq`) has no such binder, and
-    * the synthetic `PatternMatch`/`TypeMatch`/`Meta` impls have no ability marker at all, so both are correctly not
-    * counted as effects. Absent marker ⟹ not an effect.
+  /** Ability names that are **never** a user effect and must not contribute even if they ride: the compiler machinery
+    * (`Effect`/`Suspend`) and the match-family eliminators (`PatternMatch`/`TypeMatch`), all compiler-inserted structural
+    * dispatch. First-order abilities (`Show`/`Eq`/…) need no listing — their result type is non-carrier, so their impl's
+    * ambient is empty and the ride test drops them; the match eliminators are listed because their result type follows the
+    * eliminated branches and so is carrier-headed over an effectful `match` (a non-empty ambient that would ride).
     */
-  private def isEffectAbility(moduleName: ModuleName, abilityName: String): CompilerIO[Boolean] = {
-    val markerFqn = ValueFQN(moduleName, QualifiedName(abilityName, Qualifier.Ability(abilityName)))
-    getFactIfProduced(OperatorResolvedValue.Key(markerFqn, Platform.Runtime)).map {
-      case Some(orv) =>
-        OperatorResolvedExpression.SignatureView.of(orv.signature).binders.exists(EffectCarriers.isHktBinder)
-      case None      => false
-    }
-  }
+  private def nonEffectAbility(name: String): Boolean =
+    EffectMachinery.isMachineryAbility(name) ||
+      name == WellKnownTypes.patternMatchAbilityName ||
+      name == WellKnownTypes.typeMatchAbilityName
+
+  /** Gate a reference's candidate effects through the ride test: the effects count only if the reference performs them on
+    * the value's own ambient carrier. The reference's carriers are the **callee's own forwarded ambient carriers** at the
+    * reference's mono key ([[MonomorphicValue.ambientCarriers]], the U4-c-0a writer) — read via `getFactOrAbort`, so a
+    * counted-class reference whose callee mono is (unexpectedly) absent **aborts** rather than contributing `Set.empty`:
+    * silent-empty is the under-count direction, the one that lets a leak through (§5 check 3, [[feedback_gaps_must_be_failsafe]]).
+    * A pure candidate (empty) short-circuits without a fetch. A non-effect impl's callee mono exists but carries an **empty**
+    * ambient (it is pure), so the fetch succeeds and the ride simply fails — the natural, lookup-free effect filter.
+    */
+  private def gatedByRide(
+      candidate: Set[AbilityFQN],
+      ref: ValueFQN,
+      typeArgs: Seq[GroundValue],
+      ambient: Set[GroundValue]
+  ): CompilerIO[Set[AbilityFQN]] =
+    if (candidate.isEmpty) Set.empty[AbilityFQN].pure[CompilerIO]
+    else
+      getFactOrAbort(MonomorphicValue.Key(ref, typeArgs)).map { callee =>
+        if (EffectAccountingProcessor.ridesAmbient(callee.ambientCarriers, ambient)) candidate else Set.empty
+      }
 
   /** A value's declared effect abilities — the ability constraints on its own ambient effect-carrier binders
     * (`carrierBinders ∩ paramConstraints`, machinery excluded), read off its `OperatorResolvedValue` on the runtime
@@ -142,13 +167,17 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
       case None      => Set.empty
     }
 
-  /** Every value reference in a monomorphic body, in traversal order (parameter references and literals excluded). */
-  private def collectReferences(expr: MonomorphicExpression.Expression): Seq[ValueFQN] = expr match {
-    case MonomorphicExpression.MonomorphicValueReference(vfqn, _) => Seq(vfqn.value)
-    case MonomorphicExpression.FunctionApplication(target, arg)  =>
+  /** Every value reference in a monomorphic body **with its ground type arguments**, in traversal order (parameter
+    * references and literals excluded). The `typeArguments` are the reference's own mono key — kept (not discarded as
+    * `(vfqn, _)`, the naive-wiring gap of §5/pinned finding 8) so [[gatedByRide]] can fetch the callee's forwarded
+    * ambient carriers at exactly this reference's instantiation.
+    */
+  private def collectReferences(expr: MonomorphicExpression.Expression): Seq[(ValueFQN, Seq[GroundValue])] = expr match {
+    case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) => Seq((vfqn.value, typeArgs))
+    case MonomorphicExpression.FunctionApplication(target, arg)          =>
       collectReferences(target.value.expression) ++ collectReferences(arg.value.expression)
-    case MonomorphicExpression.FunctionLiteral(_, _, body)       => collectReferences(body.value.expression)
-    case _                                                       => Seq.empty
+    case MonomorphicExpression.FunctionLiteral(_, _, body)              => collectReferences(body.value.expression)
+    case _                                                              => Seq.empty
   }
 
   private def reportUndeclared(mv: MonomorphicValue, undeclared: Set[AbilityFQN]): CompilerIO[Unit] = {
@@ -179,44 +208,26 @@ object EffectAccountingProcessor {
       .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
       .toSet
 
-  /** The reference's own **carrier** ground value(s) — the pure input to the ride test (U4-c-0c). Two sources, mutually
-    * exclusive by construction:
-    *   - a generic effect-ability method / carrier-generic callee (`printLine@[IO]`, a lifting
-    *     `raise@[E, StateCarrier[S, G]]`) carries its carrier(s) in its `typeArguments` at the callee's
-    *     **carrier-binder positions** (`carrierPositions`, the callee's higher-kinded binder indices, aligned by
-    *     `binders.zipWithIndex` — the alignment `establishSignature` and the mono key share). A multi-binder callee
-    *     (`Throw[E, G]`) has only its higher-kinded `G` counted, never its plain error binder `E`.
-    *   - a **binder-less concrete-carrier impl** (`implement Inf[IO]`, whose impl method is fully concrete and carries no
-    *     type argument, so `carrierPositions` is empty) has its fixed carrier read from its signature return head,
-    *     supplied here as `concreteImplCarrier`.
+  /** Whether a reference **rides** one of the value-under-check's own ambient carriers (docs/effects-as-channel.md §5):
+    * one of the reference's own carrier ground value(s) equals an ambient carrier by **exact `GroundValue` equality**.
     *
-    * Empty ⇒ the reference has no carrier and can never ride (a first-order impl `Show[Int]` with no higher-kinded binder
-    * and no concrete-carrier arm; a non-effect callee is never asked).
-    */
-  private[channel] def referenceCarriers(
-      refTypeArgs: Seq[GroundValue],
-      carrierPositions: Set[Int],
-      concreteImplCarrier: Option[GroundValue]
-  ): Set[GroundValue] =
-    if (carrierPositions.nonEmpty) carrierPositions.flatMap(refTypeArgs.lift)
-    else concreteImplCarrier.toSet
-
-  /** Whether a reference **rides** one of the value's own ambient carriers (docs/effects-as-channel.md §5): one of the
-    * reference's carrier ground value(s) ([[referenceCarriers]]) equals an ambient carrier by **exact `GroundValue`
-    * equality**. Exactness is the load-bearing choice — strictly tighter than a head-level carrier test — and is what
-    * makes the whole accounting fall out of one rule:
-    *   - a discharged / captured op's carrier is an **inner transformer stack** (`ThrowCarrier[E, IO]`), unequal to the
-    *     ambient `IO`, so it does not ride — discharge is structural, with no `-E` annotation;
+    * The `referenceCarriers` are the **callee's own forwarded ambient carriers** at the reference's mono key
+    * (`MonomorphicValue.ambientCarriers`, computed once by the U4-c-0a writer) — which is precisely the reference's
+    * carrier for every reference class, with no positional reconstruction: a generic effect method / carrier-generic
+    * callee (`printLine@[IO]`, `loopForever@[IO]`) forwards its carrier-binder value, and a **binder-less
+    * concrete-carrier impl** (`implement Inf[IO]`, whose impl method carries no type argument) forwards the carrier read
+    * from its signature return head — both already resolved into the one `ambientCarriers` field. Reading it (rather than
+    * re-deriving from `typeArguments` positions) also means the two sides compare identical quotes, so exact equality is
+    * reliable.
+    *
+    * Exactness is the load-bearing choice — strictly tighter than a head-level carrier test:
+    *   - a captured / discharged callee's carrier is an **inner transformer stack** (`ThrowCarrier[E, IO]`), unequal to
+    *     the ambient `IO`, so it does not ride — capture/discharge is structural, with no `-E` annotation;
     *   - it separates **nested same-transformer stacks** (`ThrowCarrier[E2, ThrowCarrier[E1, IO]]` ≠ the ambient
     *     `ThrowCarrier[E1, IO]`), which a head-level `ThrowCarrier == ThrowCarrier` test would wrongly conflate;
     *   - an **empty** ambient set (a pure value, the synthetic entry) never rides — there is **no synthetic-entry
     *     exemption**, it simply has nothing to ride.
     */
-  private[channel] def ridesAmbient(
-      refTypeArgs: Seq[GroundValue],
-      carrierPositions: Set[Int],
-      concreteImplCarrier: Option[GroundValue],
-      ambient: Set[GroundValue]
-  ): Boolean =
-    referenceCarriers(refTypeArgs, carrierPositions, concreteImplCarrier).exists(ambient.contains)
+  private[channel] def ridesAmbient(referenceCarriers: Set[GroundValue], ambient: Set[GroundValue]): Boolean =
+    referenceCarriers.exists(ambient.contains)
 }
