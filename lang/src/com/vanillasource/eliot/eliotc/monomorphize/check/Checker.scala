@@ -1048,11 +1048,12 @@ class Checker(
       //     into `foldLeft`'s `list : List[A]` (`List[X]` fits `List[A]`, `A := X`), which the default path *rejects*
       //     because the equal-arity unify steals the carrier (`?F := List`, then `Effect[List]` has no instance). A pure
       //     actual whose payload fits passes directly (`runId`, erased).
-      //   - **payload does NOT fit** ⇒ [[defaultArgSlot]]: either a **capture** — the whole effectful actual's carrier
+      //   - **payload does NOT fit** ⇒ [[uniformCaptureSlot]]: either a **capture** — the whole effectful actual's carrier
       //     partial-applies a carrier-stack / pinned domain (a discharger's `computation: {Abort | G} A` ⤳
       //     `AbortCarrier[G, A]`, `runMain`'s `IO[A]`; the actual's *payload* `Option[?E]` does not fit `AbortCarrier`,
-      //     but the *whole* `?G[Option[?E]]` unifies via `?G := AbortCarrier[G']`, storing the computation) — or an
-      //     ordinary mismatch; the default unify-first ladder handles both.
+      //     but the *whole* `?G[Option[?E]]` unifies via `?G := AbortCarrier[G']`, storing the computation — the uniform
+      //     ladder's arm-1 whole-type pass-through) — or a doomed under-applied bind / an ordinary mismatch, both left
+      //     on the default ladder.
       // Checking payload-fit *first* is what distinguishes the two: a carrier-stack domain's inner value never fits its
       // outer carrier, so it captures; a data container's element type does fit, so it binds.
       payload                     <- uniformPayloadOf(instantiated)
@@ -1061,7 +1062,37 @@ class Checker(
                                        case None    => pure(false)
                                      }
       outcome                     <- if (payloadFits) uniformArgumentSlot(arg, updatedExpr, domain)
-                                     else defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                     else uniformCaptureSlot(arg, updatedExpr, instantiated, domain)
+    } yield outcome
+
+  /** The no-fit branch of [[uniformPayloadSlot]] (U4-a(ii)): an actual whose payload does not fit the plain domain is
+    * either a **capture** — the whole carrier-headed actual pass-through-unifies with a carrier-stack / pinned domain
+    * (`{Abort | G} A` ⤳ `AbortCarrier[G, A]`, `runMain`'s `IO[A]`), the uniform ladder's **arm-1 whole-type
+    * pass-through** — or a *doomed* under-applied bind / an ordinary mismatch, both left on the default ladder.
+    *
+    * The doomed shape ([[EffectLifter.mustLiftBeforeUnify]] — a carrier-meta application against an under-applied /
+    * equal-arity-non-carrier rigid head) is checked **first**: it must *bind-lift* (sequence the effect), never capture,
+    * so it stays on [[defaultArgSlot]] where the pre-arm fires. Otherwise the whole-type unify is tried
+    * ([[tryUnifyCommitting]]): **success is the capture** — a uniform `Resolved`, byte-identical to the default
+    * `resolveFailureLadder`'s arm-1 whole-unify (the same `tryUnifyCommitting`, same solutions, same slot expr); **failure
+    * hands the mismatch back to [[defaultArgSlot]]** — byte-identical because `tryUnifyCommitting` commits nothing on
+    * contradiction, so the re-run there (whose bind-lift / pure-wrap arms cannot fire for a non-fitting non-doomed actual)
+    * simply commits the same mismatch.
+    */
+  private def uniformCaptureSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      updatedExpr: SemExpression,
+      instantiated: SemValue,
+      domain: SemValue
+  ): CheckIO[SlotOutcome] =
+    for {
+      doomed  <- lifter.mustLiftBeforeUnify(instantiated, domain)
+      outcome <- if (doomed) defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                 else
+                   tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
+                     case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+                     case false => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                   }
     } yield outcome
 
   /** Whether an effectful actual's **payload** `p` *genuinely* fits the parameter `domain` — the bind-vs-capture

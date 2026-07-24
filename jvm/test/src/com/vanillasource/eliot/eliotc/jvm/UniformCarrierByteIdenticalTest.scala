@@ -70,6 +70,17 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       |def main: {Console} Unit = printLine(first("x", readLine))
       |""".stripMargin
 
+  // Exercises the payload-slot CAPTURE case (U4-a(ii)): an effectful actual captured *whole* into a carrier-stack /
+  // pinned domain. `parseOk : {Throw[String]} String` (desugars to a role-carrier `?F[String]`) is passed to `catch`'s
+  // `computation: {Throw[E] | G} A` slot (a pinned `ThrowCarrier[E, G, A]`); its payload `String` does not fit the
+  // domain, but the whole `?F[String]` pass-through-unifies (`?F := ThrowCarrier[E, G]`, `A := String`), storing the
+  // computation — the uniform ladder's arm-1 whole-type pass-through, byte-identical to the default whole-unify.
+  private val captureSource =
+    """def parseOk: {Throw[String]} String = "parsed-value"
+      |
+      |def main: {Console} Unit = printLine(parseOk catch (err -> err))
+      |""".stripMargin
+
   "the --uniform-carrier gate" should "emit byte-identical classes to the default path (whole base + program)" in {
     (for {
       off <- compileClasses(source, uniformCarrier = false)
@@ -88,6 +99,13 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
     (for {
       off <- compileClasses(genericBindSource, uniformCarrier = false)
       on  <- compileClasses(genericBindSource, uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => on shouldBe off }
+  }
+
+  it should "emit byte-identical classes for the payload-slot capture case (effectful computation captured by a discharger)" in {
+    (for {
+      off <- compileClasses(captureSource, uniformCarrier = false)
+      on  <- compileClasses(captureSource, uniformCarrier = true)
     } yield (off, on)).asserting { case (off, on) => on shouldBe off }
   }
 
