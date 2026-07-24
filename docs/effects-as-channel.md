@@ -40,14 +40,21 @@ are all landed). **Gate — all green, run these to confirm before starting:**
 # eliot-test 11/11 — exact command in eliot-test/.claude/CLAUDE.md (args order-strict)
 ```
 
-**The next step is an *implementation*, not the "deletion" the old plan implied.** A whole-tree dependency
+**The §7 step is an *implementation*, not the "deletion" the old plan implied.** A whole-tree dependency
 map (§7) established that the "legacy"/default checker path is the **shared substrate**, not dead code:
 the compile-time track uses it permanently (§8), the runtime uniform overlay reuses its helpers directly
 (`checkAgainstDefault`/`defaultArgSlot`/`resolveLadder`/the `EffectLifter` arms/`CheckState.ambientCarriers`/
 `CarrierKindChecker`), and the join-solver replacement (`UniformCarrierChecker.finalizeAndMaterialize`/
 `resolveSlot`) is **built but uncalled**. So nothing in the old deletion list can be removed yet.
 
-**Start here (§7):** rewire the runtime uniform spine onto the `CarrierJoin` solver — wire in
+**Start here (U4-f, §10): row-argument type-pinning.** The 2026-07-24 analysis reclassified the
+catch-handler blocker (pinned finding 7): it is a **live pre-existing language bug** — every `catch` whose
+handler does not itself pin `E` fails, in *any* position (the stdlib's own documented idiom is the failing
+shape) — and its fix builds the meta→constraint bookkeeping pinned finding 4 needs when `CarrierJoin` goes
+live, so it comes **before** the §7 rewire and de-risks it. Slice design in §10 U4-f; the spec rules it
+implements ("discharge is row-directed"; same-ability multiplicity is a diagnostic) are in §4.
+
+**Then the §7 implementation:** rewire the runtime uniform spine onto the `CarrierJoin` solver — wire in
 `finalizeAndMaterialize`/`resolveSlot` so `tryBindLift`/`tryPureWrap`/`tryIdDefault`/`mustLift` become
 unreachable at the argument slots — and decide/extend the compile-time-track treatment so the
 `platform == Platform.Runtime` gate can go (a real §8 design tension: §8 wants both tracks carrier-wrapped for
@@ -59,24 +66,13 @@ first live use" — a substantial, risky slice; do it focused, with the gate abo
 **Close-out follow-ons (independent of §7, each landable on its own):**
 - **synthetic main → `runMain`** (§7) — makes the one run boundary nominal; needs a `runMain` callable to
   exist first;
-- **effectful-`catch`-handler stdlib delta** (pinned finding 7) — **NOT cleanly landable; blocked on a
-  pre-existing pinning bug (found 2026-07-24, correcting the earlier optimism).** The delta itself works — with
-  `onError: E => G[A]` and body `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`,
-  `failUnit catch (err -> printLine(err))` compiles and runs "boom". But it **regresses `EffectsThrow`** (and even a
-  single `printLine(parseBad catch (err -> err))`): the error is `No ability implementation for 'Throw' with
-  [String, IO]` at the `where E1 != E2` lift (`jvm/.../Throw.els:54`) — the stacking the join solver was supposed
-  to prevent. **Root cause (verified pre-existing on baseline HEAD): `catch`'s pinned param `{Throw[E] | G} A`
-  desugars to structural `ThrowCarrier[E, G, A]`, but the *argument* `parseBad : {Throw[String]}` is an *open* row =
-  a constrained carrier meta `?F ~ Throw[String]`; unifying `?F[String] ~ ThrowCarrier[E,G,String]` gives
-  `?F := ThrowCarrier[E,G]` but the constraint's `String` never meets `E`, so `E` stays a meta and
-  `Throw[String, ThrowCarrier[E,G]]` resolves to the lift (E≠String) instead of the native.** Every existing
-  test/example masks this by using the *identity* handler `err -> err`, which coincidentally pins `E := A := String`
-  through `onError`; the old `onError: E => A` sig relied on that tie. The baseline `catch` with a *non-identity*
-  handler (`err -> "default"`) **fails identically**. So the real prerequisite is **row-argument type-pinning** — an
-  open-row argument passed to a pinned-row parameter must unify its declared ability args (here `Throw[String]`'s
-  `String`) with the pinned carrier's slots (`ThrowCarrier[E, _]`'s `E`). This is coherence/pinning work in the
-  "join-solver first live use" risk class (§11) — do it as a dedicated slice with the pinning fix first, then the
-  stdlib delta. (The delta + its example are reverted; tree is at baseline.)
+- **effectful-`catch`-handler stdlib delta** (pinned finding 7) — blocked on the pre-existing row-pinning
+  bug, now scoped as the **U4-f slice** (§10, the recommended *next* step — see "Start here") and **widened
+  2026-07-24 by experiment**: the bug is position-independent (a pure boundary fails identically) and hits
+  every handler that does not itself pin `E` — a live language bug fixed on its own merits, not merely the
+  delta's prerequisite. Root cause + the full evidence trail live in pinned finding 7. The delta (reverted,
+  tree at baseline) lands on top of U4-f; acceptance stays `failUnit catch (err -> printLine(err))` runs
+  **and** `EffectsThrow` green.
 - **§6 Id-residue assertion → hard error — DONE (2026-07-24).** `WovenValueProcessor.assertNoIdResidue` (was
   `warnIdResidue`) now `compilerAbort`s at `mv.name` on any surviving `Id`-machinery reference or `Id[X]` type
   instead of warning; the full gate is green under it (lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11), so
@@ -179,7 +175,7 @@ pre-uniform path it mirrors — that path is now the shared substrate the unifor
 | **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface: return boundary + discharger capture + `fold`'s bare-`A` `Generic` arms all route uniform. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful pass-joins (U4-a(ii)) | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the **default path rejects**; an **effectful** actual (`if(flag, printLine("on"))`) routes through the uniform CarrierSlot **pass-join** (`uniformArgumentSlot` — the actual's carrier meta joins the domain's, payloads unify, the action passes through), byte-identical to the default whole-unify (no longer a `defaultArgSlot` hand-off). |
 | **argument → GENERIC arm** (`fold`'s bare-`A`, a discarded type-param slot) | **yes** — ride-up-vs-bind (U4-a(i)) | The still-bare-flex `Generic` domain's Phase-B deferred decision routes through `UniformCarrierChecker.resolveGenericSlot` → `UniformLadder.resolveGenericSlot`: `occursInValue(metaId, retType)` ⇒ **pass-through** the whole action (transparent callee — `fold`'s selected arm, `identity`), else **bind** the payload and sequence the effect (non-transparent callee — a discarded type-param slot). Byte-identical to the default `deferredGenericDefault` (pinned finding 6 discharged). |
-| **the effectful-`catch`-handler** | **no** — blocked (pinned finding 7) | The `onError: E => G[A]` delta works, but exposes a pre-existing pinned-row/open-row pinning bug (`E` unpinned ⇒ the `where E1 != E2` lift is chosen ⇒ `Throw[String, IO]`); needs row-argument type-pinning first, then lands atomically. |
+| **the effectful-`catch`-handler** | **no** — blocked (pinned finding 7 → U4-f) | The `onError: E => G[A]` delta works, but exposes a pre-existing pinned-row/open-row pinning bug (`E` unpinned ⇒ the `where E1 != E2` lift is chosen ⇒ `Throw[String, IO]`) — a live bug for *every* non-`E`-pinning handler in *any* position; fixed by the U4-f pinning slice (§10), then the delta lands atomically. |
 | function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary — *by design*, permanent. |
 
 **Background — conditionals are ordinary functions (no FQN ever hardcoded).** `fold[A](c,
@@ -252,6 +248,28 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
      example were built, measured (effectful handler runs; pure-handler regresses), and **reverted** — the
      tree is at baseline for `catch`. Land the pinning fix first, then the stdlib delta atomically; acceptance
      stays `failUnit catch (err -> printLine(err))` runs **and** `EffectsThrow` green.
+   - **Scope widening (2026-07-24, verified by experiment).** The failure is *position-independent*: a
+     **pure**-boundary discharge with a non-identity handler — `def recovered: String = parseBad catch
+     (_ -> "default")` — fails identically (`Throw[String, Id]` at the lift; `G := Id` does not help, because
+     `E` is still unpinned), while the identity control at the same boundary compiles. The earlier
+     parenthetical above ("a pure `val` boundary compiles because it forces `G := Id`") held only for
+     identity handlers. So: **every `catch` whose handler does not itself pin `E` has never compiled,
+     anywhere** — including the exact idiom the stdlib's own `Throw.els` doc comment advertises
+     (`parseConfiguration(config) catch (_ -> emptyConfiguration)`). This is a live, user-facing language
+     bug independent of the migration; U4-f (§10) fixes it on its own merits.
+   - **Why only `catch` bites.** Every other stdlib discharger pins its ability argument from a *value*
+     argument (`runStateToPair`'s `s0 : S`, `runDep`'s `dep : D`; `Abort` has no type argument) — `catch`
+     alone relies on the handler-type coincidence. That reliance was always semantically backwards: in
+     `parseBad catch h`, the `E` the user means is the one `parseBad`'s row declares. The argument's row is
+     the principled information source — which is why the fix is *spec* ("discharge is row-directed", §4),
+     not a workaround.
+   - **The seam, named.** Open rows put an effect's *type arguments* in **constraint-space**
+     (`?F ~ Throw[String]` — metadata about the meta); pinned rows put them in **type-space**
+     (`ThrowCarrier[E, G, A]` — structural slots). Nothing implements constraint↔structure, yet every
+     discharger call site crosses that edge. This is the last dual-representation seam of the §1 class
+     (carrierhood was the first, closed by uniform carriers; the verifier interface the second, closed by
+     U4-c). The multi-layer discharge gap (`EffectsTwoDeps`/`EffectsTwoThrows`) is the same missing
+     machinery at n layers.
 8. **A naive accounting wiring (an unfiltered reference union) over-counts run and discharge** —
    the synthetic entry rejects itself (`Console` run on concrete `IO`, nothing declared) and
    discharged ops on inner transformer carriers count as leaks. Superseded by the U4-c
@@ -350,7 +368,10 @@ originally grouped here as a third instance — `tryIdDefault` committing a stil
 before the handler's demand is collected — but was found 2026-07-24 to fail for a *distinct*,
 pre-existing reason that uniform carriers do **not** fix: an open-row `{Throw[String]}` argument never
 pins the pinned-row parameter's error type `E`, so the `where E1 != E2` lift is chosen. See pinned
-finding 7; it needs row-argument type-pinning.)
+finding 7; it needs row-argument type-pinning — the same dual-representation defect class this section
+describes, one seam over: carrierhood was the first seam, closed by uniform carriers; the verifier
+interface the second, closed by U4-c; the effect's *type arguments* — constraint-space in open rows,
+type-space slots in pinned stacks, no bridge — are the third and last. The U4-f slice, §10, closes it.)
 
 **The v1 experiment added the problem's second half.** v1's answer was to erase carriers from
 checking entirely and reconstruct them post-mono (the weaver). The Phase-3 effectful-conditional
@@ -541,6 +562,15 @@ ladder arm 1 (whole-type pass-through into the declared stack type); whether the
 (the expression's row ⊆ pinned entries ∪ base) is the channel verifier's job (§5). Dischargers
 need no recognition mechanism: a captured effect lands on the inner stack and is simply absent
 from the caller's derived row — consumption is structural absence, as today.
+
+**Discharge is row-directed (spec, adopted 2026-07-24).** A discharger consumes the effect named by the
+*computation argument's declared row*; handler types constrain, they never select. (Until U4-f the
+implementation realizes this only when some other unification happens to pin the ability argument — the
+identity-handler coincidence of pinned finding 7; U4-f makes the row the mechanism.) Corollary spec rule:
+an open row carrying **two instances of one ability** (`{Throw[A], Throw[B]}`) has no canonical discharge
+order, so *inferring* one is a diagnostic asking for a pinned row — never a solver guess. Nothing
+regresses under the corollary: the multi-layer examples already fail today, and the passing variants pin
+through handler types.
 
 **Open rows on by-value parameters stay rejected.** `def getOr(x: {Abort} String, d: String)`
 would claim the callee receives effects that in fact already ran at the call site (concrete-payload
@@ -787,7 +817,7 @@ carrier during checking, erased by §6 (its compile-time overlay remains for §8
 
 **Stdlib deltas stay additive**: the effectful-handler `catch` (`onError: E => G[A]`) is designed to land
 atomically, but is **blocked** on a pre-existing pinned-row/open-row pinning bug (pinned finding 7) —
-row-argument type-pinning must land first.
+the U4-f row-argument type-pinning slice (§10) must land first.
 
 ## 8. The compile-time residue
 
@@ -1015,12 +1045,66 @@ default path byte-identical, gated by the §0 harness.
    `runMain` callable to exist first. **Landed state (all of slice 2, incl. the param removal):**
    `PostDrainQuoter.stripIdMachinery` + `IdNormalizer` abstract-form recognition + the ctor-default flip + the
    `checkReturnBoundary` injectivity fix (finding 12) + the test-helper adaptations + the flag/param removal +
-   test conversion. Gate green: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11. **The reframed §7
-   implementation is the next step (see the Handover block up top and §7).**
+   test conversion. Gate green: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11. **Next: the U4-f
+   row-argument type-pinning slice (below), then the reframed §7 implementation (see the Handover block up
+   top and §7).**
 
    (The first flip attempt's two failure classes and their fixes — refinement-channel Id-transparency,
    nested-carrier prefix-unify — are summarised in finding 10 and the core-flip paragraph above; forensic
    detail in the git log.)
+
+6. **U4-f — row-argument type-pinning (NEXT; do before the §7 rewire).** Fixes the pinned-finding-7 bug on
+   its own merits (a live language bug: every `catch` whose handler does not pin `E`, in any position) and
+   unblocks the effectful-handler stdlib delta; simultaneously builds the meta→constraint bookkeeping that
+   pinned finding 4 requires when `CarrierJoin` goes live, so it **de-risks §7** rather than competing with
+   it. The slice, in order:
+
+   1. **`CheckState.metaConstraints`** — record the callee's ability constraints onto the instantiation
+      metas (`instantiatePolymorphic`/`recordCarrierMetas`; today `CarrierRole` keeps only the
+      effect-carrier flag + carrier kind and the constraints are dropped): `MetaId → Seq[(AbilityFQN,
+      args)]`. This is the same table pinned finding 4 ("the join must never `Id`-default an
+      ability-constrained carrier meta") needs — shared prerequisite, built once.
+   2. **One authority for the ability↔canonical-carrier correspondence** — today a bare
+      `abilityName + "Carrier"` string concat inline in `EffectSugarDesugarer.rewrite`. Extract a single
+      shared resolver (`WellKnownTypes`-style helper or a small fact); consumers: the pinned-row desugar,
+      the U4-f pinning rule, `GroundValueRenderer`'s stack→row rendering, and later the §5 reify-legality
+      check — four readers of what is currently an inline convention.
+   3. **The deferred pinning rule.** At the capture arm, when a constrained carrier meta solves to a
+      canonical carrier stack, record *pending pins* — each constraint matched to the same-ability stack
+      layer via the step-2 authority; apply them at post-drain finalize **only if the slot is still
+      free**. Deferral is load-bearing: the handler argument is checked *after* the computation argument,
+      and an explicitly-typed handler legitimately pins `E` to a *different* type (lifting the row's
+      effect into a declared ambient) — eager pinning at capture time would break that program;
+      pin-if-still-free is order-independent and backward compatible. Exactly one same-ability match ⇒
+      pin the ability args pairwise into the layer's slots; zero ⇒ the constraint flows to the base
+      meta; several ⇒ the §4 multiplicity diagnostic.
+   4. **The fail-safe** (gaps-must-be-fail-safe): an effect constraint still undischarged at the value
+      boundary — pinned into no layer, absorbed by no declared ambient — is a **loud diagnostic**
+      ("cannot determine which effect layer discharges 'Throw[String]'; pin the row or annotate the
+      handler"), never an input to committed-choice instance selection. Today the unpinned meta gets
+      junk-ground downstream and resolution *commits* on the junk (the observed `where E1 != E2` lift
+      selection); this rule turns the next seam of the class into an actionable error instead of a
+      silently wrong instance choice.
+   5. **Gate + instrumentation.** Full harness, plus: non-identity **pure** catch (`def recovered: String
+      = parseBad catch (_ -> "default")` — also un-breaks the stdlib doc idiom), non-identity **ambient**
+      catch (`printLine(parseBad catch (err -> "default"))`), identity controls, `EffectsThrow`. First
+      instrument where the free `E` currently *receives* its junk ground value (the observed inner
+      demands — `Throw[String, Id]` pure / `Throw[String, IO]` ambient — prove the lift is selected on a
+      grounded-but-wrong `E`; the exact defaulting site is unconfirmed) and validate the fix by that path
+      becoming unreachable, not only by green examples.
+
+   Then the **stdlib delta** (`onError: E => G[A]` + the `flatMap`/`foldEither` body) lands on top, with
+   the standing acceptance (`failUnit catch (err -> printLine(err))` runs, `EffectsThrow` stays green).
+   **Multi-layer discharge** (`EffectsTwoDeps`/`EffectsTwoThrows`) is the n-layer case of the same missing
+   machinery — revisit on the U4-f table after it lands, under the §4 multiplicity rule.
+
+   **Rejected alternative (recorded so it is not re-proposed): a first-class row calculus**
+   (Koka/Leijen-style row types with dedicated row unification). It would fix this class by construction,
+   but: it is a *fourth* representation of rows (surface, constraints, stacks, channel); a distinct row
+   kind cuts against types-are-values; and Eliot's constraint + canonical-stack encoding is precisely the
+   evidence-passing form row systems compile into anyway. Every observed failure of the class traces to
+   one missing rule at one boundary — U4-f closes the seam without new machinery. (Per-node rows and `-E`
+   stay rejected per §5/§9.)
 
 ### U5 — follow-ups unlocked
 
@@ -1035,10 +1119,13 @@ legality check (§5 check 2) on the ride-test foundation.
   its row-pinning prerequisite lands, finding 7): deferred lift materialization must be total, and an
   ability-constrained carrier meta must never default to `Id` (pinned finding 4). A missed insertion is
   a loud type/codegen error, not silence — but budget for the tail.
-- **Row-argument type-pinning** (finding 7's prerequisite): an open-row argument passed to a pinned-row
-  parameter must pin the parameter's ability type arguments (`{Throw[String]}` ⇒ the pinned
-  `ThrowCarrier[E, _]`'s `E := String`). Touching coherence resolution / the constraint-on-carrier-meta
-  discharge is high-blast-radius; scope it as a dedicated slice with the whole gate as the net.
+- **Row-argument type-pinning (U4-f)**: an open-row argument passed to a pinned-row parameter must pin
+  the parameter's ability type arguments (`{Throw[String]}` ⇒ the pinned `ThrowCarrier[E, _]`'s
+  `E := String`). Touching coherence resolution / the constraint-on-carrier-meta discharge is
+  high-blast-radius; the §10 U4-f design bounds it (deferred pin-if-still-free, the boundary fail-safe,
+  the junk-ground instrumentation step), with the whole gate as the net — and its `metaConstraints` table
+  is the same bookkeeping finding 4 needs, so the shared risk is retired once, *before* the §7 rewire
+  relies on it.
 - **Accounting under-count hazards** (the fail-safe direction — a leak passing silently): the
   countermeasures are standing (the rejection tests; abort-on-missing reads). Over-count is
   self-announcing — a red compile on valid code.
