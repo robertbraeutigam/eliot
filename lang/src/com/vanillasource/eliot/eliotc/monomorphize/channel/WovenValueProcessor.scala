@@ -41,8 +41,14 @@ class WovenValueProcessor()
     val normalized =
       mv.runtime.map(body => IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, mv.signature, body)))
     val erasedSig  = IdNormalizer.eraseIdTypes(mv.signature)
-    warnIdResidue(mv.vfqn, erasedSig, normalized)
-      .as(WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized))
+    for {
+      // Effect accounting as a **codegen precondition** (docs/effects-as-channel.md §5/§10, U4-c-1): a value with an
+      // undeclared effect fails accounting, whose abort here blocks its `WovenValue` and so its codegen — a leak never
+      // reaches bytecode. Off the `--effect-channel` flag the accounting produces an empty row without verifying, so this
+      // demand always resolves and the woven output is byte-identical; the flag turns the verification on.
+      _ <- getFactOrAbort(EffectAccounting.Key(mv.vfqn, mv.typeArguments))
+      _ <- warnIdResidue(mv.vfqn, erasedSig, normalized)
+    } yield WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized)
   }
 
   /** Warn on any `Id` residue left after normalization + erasure (the effects-as-channel §6 fail-safe — a warning in

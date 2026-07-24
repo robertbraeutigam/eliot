@@ -19,7 +19,11 @@ derivation now gates every contribution through the ride test, reading each refe
 the *callee's* forwarded `ambientCarriers` (so the concrete-impl carrier and discharge fall out for
 free), validated by a direct-demand derivation test. All four are additive/inert (the processor is
 still unwired); the default path is byte-identical throughout, and `EffectResidualChecker` is the
-sole live verifier until U4-c passes its parity gate.
+sole live verifier until U4-c passes its parity gate. **U4-c-1 then landed the wiring**: accounting
+runs as a codegen precondition (`WovenValueProcessor` demands `EffectAccounting` via `getFactOrAbort`),
+byte-identical off `--effect-channel` and, on the flag, parity-clean across the base + rejection tests
+green. What remains of U4-c: relocate the residual checker's friendly diagnostics (U4-d item), then
+delete it (U4-c-2), making accounting the sole verifier.
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
 
@@ -37,10 +41,13 @@ identically at baseline: pre-existing multi-layer-discharge / `where`-preconditi
 default path is byte-identical to pre-U1.
 
 **Verifier**: `EffectResidualChecker` (in-checker, per value mono, run from
-`TypeStackLoop.runPostDrainResolution`) is the **sole live verifier**. `EffectAccountingProcessor`
-is built and re-pointed to the resolved-impl view (Bundle A), but **unwired** (demand-driven;
-nothing demands `EffectAccounting.Key` in a real compile) and gated behind `--effect-channel`,
-which now threads to it alone. It becomes the sole verifier via the U4-c course (§5, §10).
+`TypeStackLoop.runPostDrainResolution`) is the **sole live verifier** — during the two-verifier
+window it preempts (aborts a leak's mono before accounting runs). `EffectAccountingProcessor` (the
+§5 verifier, the whole U4-c course landed) is now **wired** as a codegen precondition
+(`WovenValueProcessor` demands `EffectAccounting.Key` via `getFactOrAbort`, U4-c-1), but its
+verification is still gated behind `--effect-channel`: off the flag it produces an empty row (no
+verification, byte-identical); on the flag it verifies (parity + rejection tests green). It becomes
+the sole, unconditional verifier at U4-c-2 (delete `EffectResidualChecker`) / U4-e (drop the flag).
 
 **Flags**: `--uniform-carrier` — the transitional gate the uniform checker grows under (coverage
 below); distinct from `--effect-channel` so the uniform checker could grow on default
@@ -709,19 +716,23 @@ default path byte-identical, gated by the §0 harness.
      (capture excluded) and **no over-count error**, and the `Inf` program derives `{Inf, Console}`
      (`forever` counted via its forwarded ambient). **Touches landed code:** `EffectAccountingProcessor`
      only.
-   - **U4-c-1 — wire + parity.** Demand `EffectAccounting.Key` at the post-mono seam
-     (`WovenValueProcessor` with `getFactOrAbort` so a leak aborts before codegen, or
-     `UsedNamesProcessor` beside its `WovenValue` demand — the refinement channel's
-     `ReconcileProcessor` is the pattern) so accounting runs as a **codegen precondition per used
-     value, alongside the live `EffectResidualChecker`**. Parity gate: the whole base + 32 example
-     mains + eliot-test 11/11 stay green (an over-count is a red compile, caught immediately), plus
-     dedicated **rejection tests** for the under-count direction (jvm.test full compiles via
-     `Compiler.createSession` — no lang-track fact-query test can mono an effect-polymorphic
-     `main`, there is no runtime carrier on that track): an undeclared `Console` in a user value
-     must redden, and an undeclared `Inf` reaching a `{Console}`-only value must redden (the
-     concrete-impl arm's test). Blast radius: every base value must account correctly
-     (dischargers, carrier-machinery `Effect`/`Suspend` impl bodies, first-order `Show`/`Eq`
-     impls) — a focused session.
+   - **U4-c-1 — wire + parity: LANDED (2026-07-24).** `WovenValueProcessor` demands
+     `EffectAccounting.Key(mv.vfqn, mv.typeArguments)` via `getFactOrAbort` before producing its
+     `WovenValue`, so accounting runs as a **codegen precondition per used value, alongside the live
+     `EffectResidualChecker`**: a leak's accounting abort blocks the value's `WovenValue` and so its
+     codegen. Off the `--effect-channel` flag the demand resolves to the empty row (no verification), so
+     the woven output — and all codegen — is **byte-identical** (`UniformCarrierByteIdenticalTest` +
+     HelloWorld + eliot-test 11/11 green). `UsedNamesProcessorTest`, the one minimal-set harness driving
+     `WovenValue`, gains `EffectAccountingProcessor` in its set. **Parity (on flag):** HelloWorld and
+     every effect example (`Effects*`, `DischargeDemo`, `HandleWith`) compile clean under
+     `--effect-channel` — no over-count blocks valid codegen (the three baseline failures
+     `EffectsTwoDeps`/`EffectsTwoThrows`/`WherePrecondition` fail earlier at mono, so accounting never
+     runs for them). **Rejection (on flag, `EffectAccountingWiringTest`, jvm full compiles):** an
+     undeclared `Console` reddens, and an undeclared `Inf` reaching a `{Console}` value reddens (the
+     concrete-carrier `implement Inf[IO]` arm — `forever` counted via its forwarded ambient). During the
+     two-verifier window the residual checker preempts (aborts the mono before accounting runs), so these
+     lock the end-to-end behavior and become accounting-specific at U4-c-2; the wiring's own correctness
+     is carried now by parity (no over-count) + `EffectAccountingDerivationTest` (correct rows).
    - **U4-c-2 — delete `EffectResidualChecker`** once parity holds — *after* its two friendly
      diagnostics have a new home (§5 last paragraph; the relocation itself is the U4-d item
      below). From here `EffectAccounting` is the sole verifier and is no longer flag-gated
