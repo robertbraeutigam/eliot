@@ -98,7 +98,7 @@ track):
 | construct | routes uniform? | how |
 |---|---|---|
 | **value RETURN boundary** (`checkAgainst`) | **yes** — pure, effect-carrier, *and* discharge-to-pure | `uniformReturnBoundary` → `checkReturnBoundary`; pure re-carried via `Id` (erased), effect-carrier passed through, a fully-discharged flex `?G[T]` body under a pure return `Id`-defaulted + `runId`-unwrapped. Gate `uniformReturnRoutable`/`uniformValueReturn`. |
-| **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — bind-vs-capture by **payload-fit**; capture pass-throughs uniform (U4-a(ii)) | `uniformPayloadSlot`: if the actual's **payload genuinely fits** the domain ⇒ **bind** (`printLine(readLine)`; the compound-state `items : ?F[List[X]]` into `foldLeft`'s `List[A]`, which the **default path rejects**), pure passes (`runId`). No fit ⇒ `uniformCaptureSlot`: a **capture** (a carrier-stack/pinned domain — a discharger's `{Abort\|G} A` ⤳ `AbortCarrier[G,A]`, `runMain`'s `IO[A]`) routes through the uniform **arm-1 whole-type pass-through** (`tryUnifyCommitting` succeeds ⤳ `Resolved`); a *doomed* under-applied bind (`mustLiftBeforeUnify`) and a *mismatch* stay on `defaultArgSlot`. A **bare-flex payload `?A`** is guarded out of "fits" (`payloadFitsDomain`) — it absorbs any domain and strips the carrier, so it captures. Gate `uniformPlainValueType(domain)` + `Platform.Runtime`. |
+| **argument → PAYLOAD slot** (`checkArgumentSlot`, a concrete non-carrier domain) | **yes** — bind-vs-capture by **payload-fit**; `uniformCaptureSlot` fully uniform (U4-a(ii)) | `uniformPayloadSlot`: if the actual's **payload genuinely fits** the domain ⇒ **bind** (`printLine(readLine)`; the compound-state `items : ?F[List[X]]` into `foldLeft`'s `List[A]`, which the **default path rejects**), pure passes (`runId`). No fit ⇒ `uniformCaptureSlot` — **all three sub-cases uniform, no `defaultArgSlot`**: a *doomed* under-applied bind (`mustLiftBeforeUnify`, always a bare-flex payload) **binds** via `uniformArgumentSlot`; else a **capture** (a carrier-stack/pinned domain — `{Abort\|G} A` ⤳ `AbortCarrier[G,A]`, `runMain`'s `IO[A]`) whole-type pass-throughs (`tryUnifyCommitting` succeeds ⤳ `Resolved`); else a **mismatch** commits directly (`commitMismatch`). A **bare-flex payload `?A`** is guarded out of "fits" (`payloadFitsDomain`). Gate `uniformPlainValueType(domain)` + `Platform.Runtime`. |
 | **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface: return boundary + discharger capture + `fold`'s bare-`A` `Generic` arms all route uniform. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful pass-joins (U4-a(ii)) | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the **default path rejects**; an **effectful** actual (`if(flag, printLine("on"))`) routes through the uniform CarrierSlot **pass-join** (`uniformArgumentSlot` — the actual's carrier meta joins the domain's, payloads unify, the action passes through), byte-identical to the default whole-unify (no longer a `defaultArgSlot` hand-off). |
 | **argument → GENERIC arm** (`fold`'s bare-`A`, a discarded type-param slot) | **yes** — ride-up-vs-bind (U4-a(i)) | The still-bare-flex `Generic` domain's Phase-B deferred decision routes through `UniformCarrierChecker.resolveGenericSlot` → `UniformLadder.resolveGenericSlot`: `occursInValue(metaId, retType)` ⇒ **pass-through** the whole action (transparent callee — `fold`'s selected arm, `identity`), else **bind** the payload and sequence the effect (non-transparent callee — a discarded type-param slot). Byte-identical to the default `deferredGenericDefault` (pinned finding 6 discharged). |
@@ -675,11 +675,12 @@ default path byte-identical, gated by the §0 harness.
    the carrier-stack/pinned capture is a uniform outcome, not a default hand-off — **in progress**
    (U4-a(ii)-0: the CARRIER-SLOT arm's *effectful* actual pass-joins uniform; U4-a(ii)-1: the
    PAYLOAD-slot no-fit *capture* whole-type pass-throughs uniform; U4-a(ii)-2: the PAYLOAD-slot
-   *mismatch* leaf commits uniform — all landed; **remaining**: the *doomed under-applied bind*
-   (`uniformCaptureSlot`'s bind-lift branch) and the Generic arm's Phase-A deferral entry still hand off
-   to `defaultArgSlot` — both routed uniform at U4-d, where the byte-identity constraint lifts and the
-   default path is deleted). *By-design defaults, permanent* (§8): the compile-time track,
-   `VType`/guard/calc-return/W3, and function/polytype (`VPi`/`VLam`) returns (pinned finding 2).
+   *mismatch* leaf commits uniform; U4-a(ii)-3: the *doomed under-applied bind* binds uniform — all
+   landed, so **`uniformCaptureSlot` is fully uniform with no `defaultArgSlot` hand-off**. **Remaining**:
+   only `uniformCarrierSlot`'s pure-wrap-fails mismatch edge and the Generic arm's Phase-A deferral entry
+   still touch `defaultArgSlot` — the last non-permanent hand-offs, routed uniform at U4-d. *By-design
+   defaults, permanent* (§8): the compile-time track, `VType`/guard/calc-return/W3, and function/polytype
+   (`VPi`/`VLam`) returns (pinned finding 2).
 
    - **U4-a(i)-0 — the ride-aware Generic resolver (pure mechanism): LANDED (2026-07-24).**
      `UniformLadder.resolveGenericSlot(unifier, actual, metaId, retType, context)` makes the
@@ -730,9 +731,19 @@ default path byte-identical, gated by the §0 harness.
      — a non-fitting non-doomed actual's bind-lift / pure-wrap arms cannot fire, and the failed
      `tryUnifyCommitting` commits nothing, so the state and the error are identical). Validated by a new
      error-comparison test: `printLine(true)` (`Bool` into `String`) reports the identical non-empty
-     error set off vs on. Full §0 gate green. **Remaining U4-a(ii):** the *doomed under-applied bind*
-     (`uniformCaptureSlot`'s `mustLiftBeforeUnify` branch — the last argument-slot bind-lift on the
-     default path) and the Generic arm's Phase-A deferral entry, both routed uniform at U4-d.
+     error set off vs on. Full §0 gate green.
+   - **U4-a(ii)-3 — doomed under-applied bind binds uniform: LANDED (2026-07-24).** `uniformCaptureSlot`'s
+     doomed branch (`mustLiftBeforeUnify` — always a **bare-flex payload**, since a concrete-payload fit
+     takes the `payloadFits` branch) now routes through `uniformArgumentSlot` (the PayloadSlot **bind**:
+     the flex payload unifies with the domain, the carrier binds) instead of `defaultArgSlot`.
+     Byte-identical to the default `tryBindLift` (same payload solve, same `$eff$N`/`Bind`; the doomed
+     carriers are flat `?F[?A]` here, so the `Carrier.split`-drops-prefix stacked-meta caveat does not
+     arise). Validated by a new byte-identical program `demo: {Abort, Console} Unit = printLine(abort)`
+     (`abort : ?F[?A]` bare-flex, into `printLine`'s nullary `String` ⇒ under-applied ⇒ bind `?A :=
+     String`), discharged via `runAbort`. **With this, `uniformCaptureSlot` has no `defaultArgSlot`
+     hand-off at all** — every PAYLOAD-slot outcome (bind / capture / doomed-bind / mismatch) is uniform.
+     Full §0 gate green. **Remaining U4-a(ii):** only `uniformCarrierSlot`'s pure-wrap-fails mismatch edge
+     and the Generic arm's Phase-A deferral entry, both routed uniform at U4-d.
 
 2. **U4-b — Bundle A: LANDED (2026-07-24).** The `--effect-channel` erasure path deleted;
    `effectChannel` threads to `EffectAccountingProcessor` only (removed at U4-e);

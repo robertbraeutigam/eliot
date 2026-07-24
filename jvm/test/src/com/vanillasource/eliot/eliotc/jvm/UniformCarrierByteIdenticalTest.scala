@@ -81,6 +81,21 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       |def main: {Console} Unit = printLine(parseOk catch (err -> err))
       |""".stripMargin
 
+  // Exercises the doomed under-applied BIND case (U4-a(ii)): a fully-polymorphic effectful actual (`abort : {Abort} ?A`
+  // = `?F[?A]`, bare-flex payload) into `printLine`'s nullary `String` domain. The payload does not fit (bare flex) and
+  // the whole-type unify is *doomed* (`?F[?A] ~ String` has no injective solution), so the effect must bind-lift: `?A :=
+  // String`, the Abort sequences at the call site. `runAbort` discharges it. Byte-identical to the default `tryBindLift`.
+  private val doomedBindSource =
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
+      |import eliot.carrier.Effect
+      |import eliot.effect.Abort
+      |
+      |def demo: {Abort, Console} Unit = printLine(abort)
+      |
+      |def main: IO[Unit] = flatMap(o -> printLine(foldOption("done", s -> "got", o)), runAbort(demo))
+      |""".stripMargin
+
   "the --uniform-carrier gate" should "emit byte-identical classes to the default path (whole base + program)" in {
     (for {
       off <- compileClasses(source, uniformCarrier = false)
@@ -106,6 +121,13 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
     (for {
       off <- compileClasses(captureSource, uniformCarrier = false)
       on  <- compileClasses(captureSource, uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => on shouldBe off }
+  }
+
+  it should "emit byte-identical classes for the doomed under-applied bind case (fully-polymorphic effectful actual)" in {
+    (for {
+      off <- compileClasses(doomedBindSource, uniformCarrier = false)
+      on  <- compileClasses(doomedBindSource, uniformCarrier = true)
     } yield (off, on)).asserting { case (off, on) => on shouldBe off }
   }
 
