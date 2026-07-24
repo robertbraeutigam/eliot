@@ -101,7 +101,7 @@ job is to **match** it (byte-identical gate). The **transitional `--uniform-carr
 `--effect-channel` lets the uniform checker grow on default carrier-desugared input, compared byte-identical,
 decoupled from the `desugarChannel`/accounting knot until U4 unifies the flags. Commit trail (on `master`): U2 spike
 `6fc17e99`, U3-0a `71c39704`, U3-sequencing correction `4ad8b333`, U3a-1 `5f08a12a`, U3a-2a `455575bb`, U3a-2b(i)
-`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-return-boundary `8fadd27f`, U3a-2b(ii)-arg-slot `527af90a`, U3a-2b(ii)-effectful-arg `16a432f6`, U3a-2b(ii)-self-join-guard `ead5d631`, U3a-2b(ii)-effect-return `b35bf80c`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
+`e1445031`, U3a-2b(i+) `ec46b7fa`, U3a-2b(ii)-infra `dd61f027`, U3a-2b(ii)-return-boundary `8fadd27f`, U3a-2b(ii)-arg-slot `527af90a`, U3a-2b(ii)-effectful-arg `16a432f6`, U3a-2b(ii)-self-join-guard `ead5d631`, U3a-2b(ii)-effect-return `b35bf80c`, U3a-2b(ii)-CarrierSlot-arm `5864f95f`, U3a-2b(ii)-compound-state `ba208c48`; then **U4**: Generic-arm-dropped/catch-handler finding `3fa0dbec`, catch-handler correction `fb58c830`, U4 execution plan `c0654a3f`, **U4-c shadow deletion `26ce08b2` (code, green)**, Bundle A re-point recipe `f7767998`, U4-c wiring hook + blast-radius `20a0b88b`; the tree is green (`lang.test`/`jvm.test`, HelloWorld,
 eliot-test 11/11).** The §13 fork
 raised during the Phase-3
 effectful-conditional slice is decided: the erase-then-reconstruct foundation (v1 of this design,
@@ -149,26 +149,46 @@ before the U4 flip.
 
 ### Handover snapshot (cold-start read this first)
 
-**Where the tree is:** `master`, at U3a-2b(ii)-compound-state (commit `ba208c48`). Green everywhere:
-`./mill lang.test`, `./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest` conditional-surface case +
-`UniformCarrierConditionalTest` — the non-overlap compile-succeeds gate: `if(c, None) else Some(x)` *and* an effectful
-list into `foldLeft`'s `List[A]`, both rejected off, accepted on),
-HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then `java -jar target/HelloWorld.jar`),
-and eliot-test 11/11 (build `-m eliot.test.Runner` over `/home/robert/personal/eliot-test/{src,test}`,
-then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant. The
-transitional `--uniform-carrier` gate is **live for every *value* return (pure re-carried via `Id`, effect-carrier
-passed through, and discharge-to-pure `Id`-defaulted + `runId`-unwrapped — runtime track), the whole
-argument→payload-slot case (bind-vs-capture by **payload-fit** — a payload that genuinely fits the domain binds, incl.
-the compound-state effectful-value-into-a-data-slot the default path rejects; a carrier-stack domain or a bare-flex
-payload captures), the whole conditional surface (`if`/`else`/`fold` — `IfDemo` byte-identical), and the `if`
-**CarrierSlot arm** (`value: {Abort} T` — a pure `H[X]` actual pure-wraps before the default ladder's stealing
-equal-arity unify, fixing `if(c, None) else Some(x)`)** — all routed through the uniform boundary/ladder and
-Id-normalized back to byte-identical where the default path already succeeds, and **two non-overlap wins** (`if(c, None)
-else Some(x)`, effectful-list-into-`List[A]`) that the default path rejects; the compile-time track falls back to the
-default path (the arg-slot routing is `Platform.Runtime`-gated). Remaining on the default ladder: `fold`'s bare-`A`
-**Generic** arm (byte-identical regularization) and the one join-requiring historical case (effectful-`catch`-handler,
-needing a stdlib delta) — the next step. `CarrierJoin` guards the carrier-meta self-join (a defensive prerequisite; the
-single-slot `if` arm needs no join, so it is still not yet triggered live).
+**Where the tree is:** `master`, in **U4 (the flip)**, latest commit `20a0b88b` (2026-07-24). **U3a is complete as far
+as it goes pre-flip** (the two remaining pre-flip arm items were resolved to findings this session — see below); **U4
+has begun**: the first deletion landed (`26ce08b2`, the `EffectResidualChecker` Phase-2 shadow) and the rest is scoped
+into a grounded, code-anchored 5-slice plan (§10, "U4 execution plan"). Green everywhere: `./mill lang.test`,
+`./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest` conditional-surface case + `UniformCarrierConditionalTest` —
+the non-overlap compile-succeeds gate: `if(c, None) else Some(x)` *and* an effectful list into `foldLeft`'s `List[A]`,
+both rejected off, accepted on), HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld`
+then `java -jar target/HelloWorld.jar`), and eliot-test 11/11 (build `-m eliot.test.Runner` over
+`/home/robert/personal/eliot-test/{src,test}` — exact command in `eliot-test/.claude/CLAUDE.md`, args are order-strict —
+then run `Runner.jar`). The default path is byte-identical to pre-U1; `--effect-channel` is dormant.
+
+The transitional `--uniform-carrier` gate is **live for every *value* return** (pure re-carried via `Id`, effect-carrier
+passed through, discharge-to-pure `Id`-defaulted + `runId`-unwrapped — runtime track), the **whole
+argument→payload-slot case** (bind-vs-capture by **payload-fit**, incl. the compound-state effectful-value-into-a-data-slot
+the default path rejects; a carrier-stack domain or a bare-flex payload captures), the **whole conditional surface**
+(`if`/`else`/`fold` — `IfDemo` byte-identical), and the `if` **CarrierSlot arm** (`value: {Abort} T` — a pure `H[X]`
+actual pure-wraps before the default ladder's stealing equal-arity unify, fixing `if(c, None) else Some(x)`) — all
+Id-normalized back to byte-identical where the default path already succeeds, plus **two non-overlap wins** the default
+path rejects. The compile-time track falls back to the default path (arg-slot routing is `Platform.Runtime`-gated).
+`CarrierJoin`/`finalizeAndMaterialize` are built but **not yet called** by the checker (the single-slot `if` arm needs
+no join).
+
+**What resolved the two pre-flip arm items (this session, 2026-07-24 — both re-scoped, no code):**
+- **`fold`'s bare-`A` `Generic` arm — DROPPED as a standalone slice.** Routing bare-flex-meta domains through the uniform
+  `PassWhole` ladder fires for *every* generic argument in the base (`Some`/`Pair`/`identity`/`min`, not just `fold` — the
+  design forbids naming `fold`) and Id-wraps them into occurs-check failures; without the Id-wrap it is vacuous
+  (`?A := payload` = the default) *and* omits the ride-up-vs-bind check Phase A/B makes (`occursInValue`). Folded into the
+  U4 flip's Generic arm, not landed early. (Full write-up: §0 "Next", §10.)
+- **The effectful-`catch`-handler — GATED ON U4** (corrected from an earlier malformed-probe claim). The stdlib delta
+  (`onError: E => G[A]`, `flatMap`+`pure` body) **works** — it enables effectful handlers (`failUnit catch (err ->
+  printLine(err))` runs) and is backward-compatible for a single discharger — but a *user-facing stdlib signature change*
+  is not flag-gated, so it hits both paths and regresses two-or-more sequenced pure-handler catches (`EffectsThrow`) via
+  ambient carrier-stacking on the *default* path. It can only land once the uniform `CarrierJoin` is the default carrier
+  handling → **moved into the U4 milestone** (land the delta atomically with the flip).
+
+**The immediate next step is Bundle A + U4-c as one focused, dedicated session** — see §10 U4-b/U4-c for the complete
+recipe (deletions, the flag-threading simplification, the definitive re-point mechanism with its module + HKT caveats,
+the concrete wiring hook, and the whole-base self-verifying gate). It is genuinely a dedicated session (the re-point is
+fail-safe-critical and verifiable only as a codegen precondition over the whole base — the blast-radius caveat in §10
+U4-c), **not** a quick slice — do not rush it.
 
 **Done:**
 - **U1 (Id-normalization) — COMPLETE.** `monomorphize/channel/IdNormalizer.scala`, invoked from
@@ -359,6 +379,20 @@ single-slot `if` arm needs no join, so it is still not yet triggered live).
   `Effect[String, Id]`). Byte-identical everywhere it overlaps (eliot-test 11/11, sign/IfDemo, 32/32 mains, **no
   regressions**); compound-state compile-succeeds cases added to `UniformCarrierConditionalTest` (rejected off, accepted
   on — runs `loading...` then `start`); `lang.test`/`jvm.test` green.
+- **U4 started (2026-07-24).** The two remaining pre-flip arm items were resolved to findings (both re-scoped, no code —
+  `3fa0dbec`, `fb58c830`): the `Generic` arm is **dropped** as a standalone slice (folded into the flip) and the
+  effectful-`catch`-handler is **U4-gated** (the stdlib delta works but a non-flag-gated signature change regresses the
+  default path). The **grounded 5-slice U4 execution plan** was written from a full code map (`c0654a3f`, §10).
+  - **U4-c partial — LANDED (`26ce08b2`, code, green).** Deleted the `EffectResidualChecker` **Phase-2 shadow**
+    (`channelEffectsOf`/`channelDeclaredFor`/`shadowCompareSubset`/`shadowCompareVerdict`/`shadowMarker` + the
+    `effectsOfFn` parameterization) — purely observational, byte-identical; the pure row-extraction unit test retargeted
+    to `EffectAccountingProcessor.channelDeclaredEffects` (new `EffectAccountingChannelDeclaredTest`, deleted
+    `EffectResidualCheckerTest`). All gates green incl. eliot-test 11/11.
+  - **U4-b/U4-c recipe pinned (`f7767998`, `20a0b88b`, docs).** The definitive Bundle A re-point mechanism (carrier-path
+    effect ops carry `Qualifier.AbilityImplementation` — `contributedEffects` must recover the ability via a HKT-marker
+    fact lookup + the *ability's* module, fail-safe-critical), the flag-threading simplification that falls out, the
+    concrete wiring hook (`EffectAccounting` is *unwired* — demand it at the `WovenValueProcessor`/`UsedNamesProcessor`
+    seam), and the whole-base self-verifying gate + blast-radius caveat. §10 U4-b/U4-c.
 
 **Uniform-path coverage NOW (under `--uniform-carrier`, all byte-identical to the default path, runtime track):**
 
