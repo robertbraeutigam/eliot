@@ -193,6 +193,28 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
     lifts shouldBe Nil
   }
 
+  // --- The ride-up-vs-bind decision on a Generic slot (U4-a(i), pinned finding 6) -----------------------------------
+
+  "resolveGenericSlot (ride-up: domain meta occurs in retType)" should "pass the whole action through (identity-shaped)" in {
+    // `identity[A](a: A): A` — the domain meta 20 IS the result, so the effect rides up: ?20 := the whole IO[Unit].
+    val (u, out) = UniformLadder.resolveGenericSlot(fresh, io(unit), MetaId(20), meta(20), ctx)
+    out shouldBe Outcome.PassWhole
+    solved(u, 20) shouldBe io(unit)
+  }
+
+  it should "be byte-identical to the plain resolveSlot PassWhole primitive it composes" in {
+    UniformLadder.resolveGenericSlot(fresh, io(unit), MetaId(20), meta(20), ctx) shouldBe
+      UniformLadder.resolveSlot(fresh, io(unit), ExpectedSlot.Generic(MetaId(20)), ctx)
+  }
+
+  "resolveGenericSlot (bind: domain meta absent from retType)" should "bind the effect, filling the slot with the payload" in {
+    // `putState[S, F](s: S): F[Unit]` — the domain meta 20 is ABSENT from the result IO[Unit], so the effect cannot
+    // ride up and must be sequenced here: ?20 := the payload (Unit), the carrier binds.
+    val (u, out) = UniformLadder.resolveGenericSlot(fresh, io(unit), MetaId(20), io(unit), ctx)
+    out shouldBe Outcome.Bound(ioCarrier)
+    solved(u, 20) shouldBe unit
+  }
+
   "runMain(main) with main : ?G[Unit]" should "bind the ambient carrier to the platform's IO, no config key" in {
     val (u, _, out) = runSpine(List(meta(30, unit) -> ExpectedSlot.CarrierSlot(ioCarrier, meta(31))), List(30))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(30))) shouldBe ioCarrier

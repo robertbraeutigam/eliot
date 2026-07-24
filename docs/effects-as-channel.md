@@ -67,8 +67,10 @@ Both flags are removed at U4-e.
 - `monomorphize/carrier/` — `Carrier` (the lattice `Bottom`=`Id` / `Con` / `Var` + the positional,
   total `split`), `CarrierJoin` (the join solver; **built, uncalled live** — first live use is the
   catch-handler join at the flip), `UniformLadder` (classify-by-expected-slot + decision-free
-  `materialize`). Acceptance: `CarrierMechanismTest` (27 cases incl. the four historical failure
-  cases and the injectivity-theft contrasts run on the real `Unifier`).
+  `materialize`; plus `resolveGenericSlot` — the ride-aware Generic-arm resolver, **built, uncalled
+  live**, first live use is the U4-a(i) Generic-arm wiring). Acceptance: `CarrierMechanismTest` (the
+  four historical failure cases, the injectivity-theft contrasts run on the real `Unifier`, and the
+  Generic-arm ride-up-vs-bind decision).
 - `monomorphize/check/` — `Checker` (the gated `uniform*` routing + the verbatim
   `checkAgainstDefault`/`defaultArgSlot` fallbacks; arg-slot routing gated to `Platform.Runtime`),
   `UniformCarrierChecker` (the bridge: `intoCarrierHeaded`/`intoCarrierHeadedTerm`,
@@ -667,6 +669,21 @@ default path byte-identical, gated by the §0 harness.
    uniform ladder so the carrier-stack/pinned capture is a uniform outcome, not a default
    hand-off. *By-design defaults, permanent* (§8): the compile-time track, `VType`/guard/
    calc-return/W3, and function/polytype (`VPi`/`VLam`) returns (pinned finding 2).
+
+   - **U4-a(i)-0 — the ride-aware Generic resolver (pure mechanism): LANDED (2026-07-24).**
+     `UniformLadder.resolveGenericSlot(unifier, actual, metaId, retType, context)` makes the
+     ride-up-vs-bind decision the naive `resolveSlot`/`PassWhole` omits (pinned finding 6): a bare
+     flex domain `?metaId` receiving a carrier-headed actual passes the *whole* action through iff
+     `unifier.occursInValue(metaId, retType)` (a transparent callee whose result flows from the
+     domain — `fold`'s selected arm, `identity`, `const`; byte-identical to the default Phase-B
+     `doUnify(?metaId, actual)` → `Resolved`), else **binds** — `?metaId :=` the payload, the carrier
+     sequences here (a non-transparent callee like `putState[S, F](s: S): F[Unit]` whose result carrier
+     is independent of the domain; byte-identical to the default `tryBindLift` → `Bound`). Built and
+     unit-tested in isolation (`CarrierMechanismTest`: ride-up pass-through, byte-identity with the
+     plain `PassWhole` primitive it composes, and the bind case), **uncalled live** so the default path
+     stays byte-identical — the U3a "build the mechanism, then wire" discipline (as `CarrierJoin` was).
+     **Remaining U4-a(i):** wire the Generic arm in `checkArgumentSlot`/the Phase-A/B deferral through
+     this resolver (retType is a Phase-B-time input), then (ii) reshape the capture/mismatch fallbacks.
 
 2. **U4-b — Bundle A: LANDED (2026-07-24).** The `--effect-channel` erasure path deleted;
    `effectChannel` threads to `EffectAccountingProcessor` only (removed at U4-e);

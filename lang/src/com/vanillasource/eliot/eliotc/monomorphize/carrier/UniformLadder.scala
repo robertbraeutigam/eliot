@@ -119,6 +119,41 @@ object UniformLadder {
         (commit(unifier, actualPayload, shape, context), Outcome.Bound(actualCarrier))
     }
 
+  /** Resolve a [[ExpectedSlot.Generic]] slot with the **ride-up-vs-bind** decision the naive [[resolveSlot]]
+    * [[Outcome.PassWhole]] omits (docs/effects-as-channel.md §10 U4-a(i), pinned finding 6). A bare flex domain `?metaId`
+    * receiving a carrier-headed `actual` is *not* unconditionally passed whole: whether the whole action rides up as a
+    * first-class value or must be sequenced here depends on whether the domain meta flows into the call's **result**
+    * (`retType`), read by the unifier's occurs-check — the exact test the default path's Phase-B deferral makes
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveDeferredSlot]]):
+    *
+    *   - **rides up** (`metaId` occurs in `retType`) ⇒ **pass-through-whole**: a *transparent* callee whose result flows
+    *     from this domain (`fold`'s selected arm, `identity`, `const`, a data ctor over the slot) — solving `?metaId :=`
+    *     the whole carrier-headed action makes the node carrier-headed, so the effect rides up and the enclosing slot
+    *     decides. Byte-identical to the default `doUnify(?metaId, actual)` → `Resolved`.
+    *   - **does not ride up** (`metaId` absent from `retType`) ⇒ **bind**: a *non-transparent* callee whose result carrier
+    *     is independent of the domain (`putState[S, F](s: S): F[Unit]` — `S` absent from `F[Unit]`) cannot let the effect
+    *     ride up (it would strand the carrier in a type parameter nothing grounds), so the effect sequences here: the
+    *     payload fills the slot (`?metaId :=` the payload) and the carrier binds. Byte-identical to the default
+    *     `tryBindLift` → `Bound`.
+    *
+    * `actual` is carrier-headed by the elaboration invariant, so [[Carrier.split]] is total. This is the ride-aware
+    * resolver the flip's Generic-arm wiring calls; the plain [[resolveSlot]] [[Outcome.PassWhole]] survives only as the
+    * already-decided-ride-up primitive it composes.
+    */
+  def resolveGenericSlot(
+      unifier: Unifier,
+      actual: SemValue,
+      metaId: MetaId,
+      retType: SemValue,
+      context: Sourced[String]
+  ): (Unifier, Outcome) =
+    if (unifier.occursInValue(metaId, retType))
+      resolveSlot(unifier, actual, ExpectedSlot.Generic(metaId), context)
+    else {
+      val (actualCarrier, actualPayload) = Carrier.split(actual)
+      (commit(unifier, actualPayload, VMeta(metaId, Spine.SNil), context), Outcome.Bound(actualCarrier))
+    }
+
   /** Classify an *expected* slot type off its elaborated shape (the surviving positional recognition):
     *   - a bare flex meta `?A` ⇒ [[ExpectedSlot.Generic]];
     *   - a `Head[arg]` whose head is tagged an effect carrier (`isEffectCarrierSlot`) ⇒ [[ExpectedSlot.CarrierSlot]]
