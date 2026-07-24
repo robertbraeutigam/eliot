@@ -35,11 +35,11 @@ class Checker(
     // fact is a demand cycle. The flip therefore fires only for body checks (a runtime/compiler *value* mono), whose
     // callees are other values; the twin those bodies read then computes its signature in place, bottoming the demand.
     signatureOnly: Boolean = false,
-    // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the `--legacy-carrier` opt-out. The uniform-carrier
-    // spine ([[uniformChecker]]) grows on the carrier-desugared input (ordinary ability resolution), compared
-    // byte-identical against the pre-uniform default path. It is the **live default** (this ctor default matches it,
-    // flipped at the U4-e close-out slice 2); `--legacy-carrier` (or an explicit `false`) falls back to the default
-    // path, kept only for the transition regression tests. Removed at the U4-e close-out.
+    // Effects-as-channel (docs/effects-as-channel.md §0/§10): the pre-uniform carrier-based opt-out. The uniform-carrier
+    // spine ([[uniformChecker]]) grows on the carrier-desugared input (ordinary ability resolution). It is the **live
+    // default** (this ctor default matches it); the `--legacy-carrier` CLI flag was removed at the U4-e close-out
+    // slice 2, so only an explicit `false` at construction falls back to the default path. The param and the legacy
+    // branches are deleted with the legacy machinery in the remaining U4-e close-out.
     uniformCarrier: Boolean = true
 ) {
 

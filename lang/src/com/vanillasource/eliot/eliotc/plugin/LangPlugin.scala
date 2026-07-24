@@ -10,8 +10,7 @@ import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   compilerRoots,
   eliotCompilerOverlay,
   mountFactory,
-  pathKey,
-  uniformCarrierKey
+  pathKey
 }
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -43,15 +42,6 @@ class LangPlugin extends CompilerPlugin {
         "an additional source root (a layer's `eliot/` dir). Each root is scanned for the runtime pool; for the " +
           "compile-time pool its sibling `eliot-compiler/` overlay is added on top (override-preferred). Repeatable; " +
           "this is the option form of the positional `<path>`, usable after a subcommand."
-      ),
-    // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the transitional `--uniform-carrier` gate. Under it
-    // the uniform-carrier spine grows on the *default* carrier-desugared input, compared byte-identical against the
-    // default path. Off by default; the live path is unchanged.
-    opt[Unit]("legacy-carrier")
-      .action((_, config) => config.set(uniformCarrierKey, false))
-      .text(
-        "TRANSITIONAL: fall back to the pre-uniform carrier-based checker path (docs/effects-as-channel.md). The " +
-          "uniform-carrier path is the default; this opt-out exists only for the transition regression tests."
       )
   )
 
@@ -93,8 +83,7 @@ class LangPlugin extends CompilerPlugin {
               // The native-binding merger built inside LangProcessors must consult every native contributor that other
               // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
               // initialize, so the roster is already final here.
-              configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
-            uniformCarrier = configuration.getOrElse(uniformCarrierKey, true)
+              configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq
           )
         )
       )
@@ -110,13 +99,6 @@ object LangPlugin {
 
   /** All configured source roots, in order. */
   def allRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(pathKey, Seq.empty)
-
-  /** The transitional `--legacy-carrier` opt-out (docs/effects-as-channel.md §0/§10). The uniform-carrier checker is the
-    * **live default** (this key defaults to `true`); passing `--legacy-carrier` sets it `false` to fall back to the
-    * pre-uniform carrier-based path, kept only to drive the byte-identity / non-overlap transition tests. Removed with the
-    * legacy path at the U4-e close-out.
-    */
-  val uniformCarrierKey: Configuration.Key[Boolean] = namedKey[Boolean]("uniformCarrier")
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly

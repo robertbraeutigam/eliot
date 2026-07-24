@@ -17,9 +17,11 @@ cannot voice ("declared pure but performs an effect", a value whose mono fails) 
 **Uniform-carrier checker — the LIVE DEFAULT (U4-e core flip landed 2026-07-24).** U1
 (Id-normalization), U2 (spike), the U3a bridge, **U4-a** (complete uniform coverage — every value
 return, all PAYLOAD-slot outcomes, the carrier-slot arm, and the Generic arm route uniform), and the
-**U4-e core flip** are all landed. `LangPlugin` now defaults `uniformCarrier` to `true`; the transitional
-opt-*out* `--legacy-carrier` reaches the pre-uniform path only for the byte-identity / non-overlap
-regression tests. The whole jvm integration suite runs uniform, green. The first flip attempt regressed
+**U4-e core flip** are all landed, and (close-out slice 2) the six `uniformCarrier` **constructor defaults
+are `true`** too and the **`--legacy-carrier` CLI flag is removed** — the uniform checker is the sole path
+reachable from the CLI (an explicit `uniformCarrier = false` at processor construction still selects the
+legacy branch, pending its deletion). The whole jvm integration suite runs uniform, green. The first flip
+attempt regressed
 9 jvm integration tests (pinned finding 10); it was unblocked by two fixes — **refinement-channel
 Id-transparency** (`RefinementChannelProcessor` normalizes `Id` on its `MonomorphicValue` input up front,
 as the codegen seam does) and **nested-carrier solving** (`CarrierJoin` now unifies the carrier-stack
@@ -41,9 +43,12 @@ solves) — both no-ops on legacy.
   injectivity fix** (finding 12) — a callee's HKT ability binder (`Container`'s `?F`, flagged as a carrier
   unfiltered) is resolved by whole-type injectivity `?F := Box`, not split as a carrier, with an arity guard
   keeping the effectful-body-under-pure-return fail-safe. `ReificationTest` and the higher-kinded-ability +
-  carrier-bookkeeping suites are all green under the uniform default. **Remaining:** remove `--legacy-carrier`
-  + `uniformCarrierKey` and convert the byte-identity transition tests to uniform-only (then the legacy
-  machinery, §7, can be deleted).
+  carrier-bookkeeping suites are all green under the uniform default. Then (still slice 2) the
+  **`--legacy-carrier` CLI flag + `uniformCarrierKey` were removed** and the byte-identity transition tests
+  converted to a uniform-only compile suite (`UniformCarrierByteIdenticalTest` → `UniformCarrierCompileTest`;
+  `UniformCarrierConditionalTest` keeps only the accepted-under-uniform half). **Remaining:** delete the legacy
+  machinery (§7 — the `EffectLifter` recognition arms, `Checker` Phase A/B, `defaultArgSlot`,
+  `CheckState.ambientCarriers`, and the now-always-`true` `uniformCarrier` param + its legacy branches).
 - **Then — retire the legacy default path** (the `EffectLifter` recognition arms, the `Checker` Phase A/B
   deferral, `defaultArgSlot`/`resolveLadder`, `CheckState.ambientCarriers`); respell the synthetic main to
   `runMain`; land the **effectful-`catch`-handler stdlib delta** (pinned finding 7); turn the §6 Id-residue
@@ -62,15 +67,16 @@ All gates green: `./mill lang.test` (233/233) / `./mill jvm.test` (283/283 — t
 runs uniform**),
 HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then
 `java -jar target/HelloWorld.jar`, now compiled uniform), eliot-test 11/11 (exact command in
-`eliot-test/.claude/CLAUDE.md`; args are order-strict). The **transition regression suites** compare the
-two paths via `--legacy-carrier` (off) vs default-uniform (on): `UniformCarrierByteIdenticalTest` — the
-whole base + nine targeted programs (pure/effect return, payload bind/capture/mismatch/doomed-bind,
-carrier-slot, generic-arm, a State transformer-stack, a **nested `AbortCarrier` stack**, **two nested
-`Dep` carriers**), every generated class's bytes equal — and `UniformCarrierConditionalTest`, the
-non-overlap compile-succeeds gate plus the refinement-through-`Id` case. The `EffectsTwoDeps` /
-`EffectsTwoThrows` / `WherePrecondition` **example files** still fail *identically on both paths*
-(pre-existing multi-layer-discharge / `where`-precondition gaps unrelated to the carrier model; note the
-*integration-test* two-Deps/two-Throws programs are simpler and now pass uniform). Because effect
+`eliot-test/.claude/CLAUDE.md`; args are order-strict). The **uniform-carrier regression suites** (formerly
+the `--legacy-carrier`-vs-uniform byte-identity oracle, converted to uniform-only when the flag was removed
+at close-out slice 2): `UniformCarrierCompileTest` — the whole base + nine targeted programs (pure/effect
+return, payload bind/capture/mismatch/doomed-bind, carrier-slot, generic-arm, a State transformer-stack, a
+**nested `AbortCarrier` stack**, **two nested `Dep` carriers**), each compiling cleanly under uniform — and
+`UniformCarrierConditionalTest`, the non-overlap compile-succeeds gate (`if(c, None) else Some(x)`, the
+compound-state bind) plus the refinement-through-`Id` case. The `EffectsTwoDeps` / `EffectsTwoThrows` /
+`WherePrecondition` **example files** still fail (pre-existing multi-layer-discharge / `where`-precondition
+gaps unrelated to the carrier model; note the *integration-test* two-Deps/two-Throws programs are simpler and
+pass uniform). Because effect
 **accounting verifies on every compile** (U4-c-2, unconditional), whole-base accounting parity — no
 over-count reddens valid code — is a standing gate; rejection is `EffectAccountingWiringTest` (undeclared
 `Console`/`Inf`), correct-derivation is `EffectAccountingDerivationTest`.
@@ -89,12 +95,13 @@ leak reddens through accounting with no flag.
 close-out slice 2 (2026-07-24), **the six `uniformCarrier` constructor defaults are `true` too**
 (`MonomorphicTypeCheckProcessor`, `CompilerMonomorphicTypeCheckProcessor`, `TypeStackLoop` ×2, `Checker`,
 `LangProcessors`), so the raw-mono processor unit tests now run uniform as well — the transitional
-"constructor defaults stay `false`" inconsistency is gone. `LangPlugin` defaults `uniformCarrier` to
-`true`; `--legacy-carrier` is the transitional opt-*out* to the pre-uniform carrier-based path, kept only
-to drive the byte-identity / non-overlap transition tests, and removed together with the legacy path in the
-remaining close-out. A raw-mono processor unit test that must still exercise legacy passes
-`uniformCarrier = false` explicitly. The vestigial `--effect-channel` flag (accounting verifies
-unconditionally, so it gated nothing) was **removed** at close-out slice 1.
+"constructor defaults stay `false`" inconsistency is gone. The **`--legacy-carrier` CLI flag and
+`uniformCarrierKey` were also removed** (close-out slice 2): the uniform checker is the sole CLI-reachable
+path, and the byte-identity transition tests were converted to a uniform-only compile suite. The
+`uniformCarrier` param survives (always `true`) with its legacy branches only until the §7 legacy-machinery
+deletion — an explicit `uniformCarrier = false` at processor construction still selects the legacy branch
+should a test need it. The vestigial `--effect-channel` flag (accounting verifies unconditionally, so it
+gated nothing) was **removed** at close-out slice 1.
 
 **Component map**:
 
@@ -829,8 +836,8 @@ default path byte-identical, gated by the §0 harness.
      `DepCarrier[X1, DepCarrier[X2, IO]]`; the fix unifies the prefixes pairwise (restoring what legacy's
      full structural unify did), carrier identity still FQN-only so no theft. This one fix resolved all six
      nested-stack failures (two-Throws, two-Deps, the compiler-track constant-fold — all nested `if`).
-   Nested-carrier programs are pinned byte-identical in `UniformCarrierByteIdenticalTest`; the refinement
-   case in `UniformCarrierConditionalTest`.
+   Nested-carrier programs are pinned (compile-under-uniform) in `UniformCarrierCompileTest` (formerly the
+   byte-identity `UniformCarrierByteIdenticalTest`); the refinement case in `UniformCarrierConditionalTest`.
 
    **Close-out slice 1 — DONE (2026-07-24):** the vestigial `--effect-channel` flag and its threading
    removed (`effectChannelKey`, the `effectChannel` constructor params on
@@ -887,12 +894,17 @@ default path byte-identical, gated by the §0 harness.
    `normalizedBody` helper, `MonomorphicTypeCheckTest`'s `liftedBody` — the discharge-helper `pure@Id` noise
    erased before the combinator assert); (4) ✓ flip the six constructor defaults to `true`; (5) ✓ characterise +
    fix the higher-kinded-ability (5) and carrier-bookkeeping (1) failures — the carrier-bookkeeping one was pure
-   `pure@Id` noise (helper), the five higher-kinded ones a **real checker bug** (pinned finding 12); (6)
-   **remaining** — remove `--legacy-carrier` + `uniformCarrierKey`, convert the byte-identity transition tests to
-   uniform-only. Only after that can the legacy machinery be deleted (the §7 list). **Landed state (flip
-   complete):** `PostDrainQuoter.stripIdMachinery` + `IdNormalizer` abstract-form recognition + the six ctor
-   defaults `true` + the `checkReturnBoundary` injectivity fix (finding 12) + the test-helper adaptations. Gate
-   green: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11.
+   `pure@Id` noise (helper), the five higher-kinded ones a **real checker bug** (pinned finding 12); (6) ✓ remove
+   the `--legacy-carrier` CLI flag + `uniformCarrierKey` and convert the byte-identity transition tests to a
+   uniform-only compile suite (`UniformCarrierByteIdenticalTest` → `UniformCarrierCompileTest`, compile-succeeds
+   over the base + corpus; `UniformCarrierConditionalTest` keeps the accepted-under-uniform half). **Now
+   remaining — the §7 legacy-machinery deletion** (its own step): collapse the always-`true` `uniformCarrier`
+   branches, delete the `EffectLifter` recognition arms / `Checker` Phase A/B / `defaultArgSlot` /
+   `CheckState.ambientCarriers` (re-pointing the accounting writer), respell the synthetic main to `runMain`, and
+   remove the `uniformCarrier` param. **Landed state (all of slice 2 except §7):** `PostDrainQuoter.stripIdMachinery`
+   + `IdNormalizer` abstract-form recognition + the six ctor defaults `true` + the `checkReturnBoundary` injectivity
+   fix (finding 12) + the test-helper adaptations + the flag removal / test conversion. Gate green: lang 233/233,
+   jvm 283/283, HelloWorld, eliot-test 11/11.
 
    (The first flip attempt's two failure classes and their fixes — refinement-channel Id-transparency,
    nested-carrier prefix-unify — are summarised in finding 10 and the core-flip paragraph above; forensic

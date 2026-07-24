@@ -44,9 +44,10 @@ class TypeStackLoop(
     // binders to fresh metas, re-inflating the twin's `Param`s) and re-inflates it — the one way a value mono obtains its
     // signature. `None` only for a signature twin computing itself (`signatureOnly`, which does not read it).
     injectedSignature: Option[GroundValue] = None,
-    // Effects-as-channel U3a-2b (docs/effects-as-channel.md §0/§10): the uniform-carrier gate, forwarded to [[Checker]]
-    // where the uniform-carrier spine grows. The live default; `--legacy-carrier` (or an explicit `false`) falls back to
-    // the pre-uniform carrier-based path, kept only for the transition regression tests. Removed at the U4-e close-out.
+    // Effects-as-channel (docs/effects-as-channel.md §0/§10): the uniform-carrier gate, forwarded to [[Checker]] where
+    // the uniform-carrier spine grows. The live default; an explicit `false` (the `--legacy-carrier` CLI flag was removed
+    // at the U4-e close-out slice 2) falls back to the pre-uniform carrier-based path. Deleted with the legacy machinery
+    // in the remaining U4-e close-out.
     uniformCarrier: Boolean = true
 ) {
   import TypeStackLoop.AbilityRef
