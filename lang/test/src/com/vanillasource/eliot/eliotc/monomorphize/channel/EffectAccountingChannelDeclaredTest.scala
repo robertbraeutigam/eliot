@@ -7,11 +7,12 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-/** The pure core of the effect accounting's channel-declared computation
+/** The pure core of the effect accounting's **rendering-side** channel-declared extraction
   * ([[EffectAccountingProcessor.channelDeclaredEffects]]): reading a value's declared effect row straight from the
-  * channel metadata ([[EffectRow]], populated in Phase 1) rather than its carrier-binder constraints. This pins the
-  * extraction rules the `derived ⊆ declared` verification relies on. (Successor to the Phase-2
-  * `EffectResidualChecker.channelDeclaredEffects` unit test, retargeted when that in-checker shadow was removed.)
+  * channel metadata ([[EffectRow]], populated in Phase 1) for the LSP's declared-row vocabulary (§4/§5). This is **not**
+  * the verification input — since U4-c-0b, `derived ⊆ declared` reads "declared" from the carrier-binder constraints
+  * ([[EffectAccountingProcessor.declaredEffectsOf]], the single source of truth); this pins only the row-rendering
+  * rules. (Successor to the Phase-2 `EffectResidualChecker.channelDeclaredEffects` unit test.)
   */
 class EffectAccountingChannelDeclaredTest extends AnyFlatSpec with Matchers {
 
@@ -20,7 +21,7 @@ class EffectAccountingChannelDeclaredTest extends AnyFlatSpec with Matchers {
 
   private def entry(name: String): ResolvedAbilityConstraint = ResolvedAbilityConstraint(ability(name), Seq.empty)
 
-  "the channel declared-row extraction" should "union the return and parameter positions" in {
+  "the channel declared-row rendering extraction" should "union the return and parameter positions" in {
     val row = EffectRow(Seq(entry("Console")), Seq(EffectRow.ParameterEffects(0, Seq(entry("Log")))))
     EffectAccountingProcessor.channelDeclaredEffects(row) shouldBe Set(ability("Console"), ability("Log"))
   }

@@ -23,8 +23,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   *   - an **effect-ability method** reference (`Console::printLine`, resolved to `Qualifier.AbilityImplementation`)
   *     contributes its owning ability, discriminated from a first-order impl (`Show`/`Eq`/`==`) by the ability marker's
   *     higher-kinded carrier binder (machinery abilities `Effect`/`Suspend` excluded) — see [[contributedEffects]];
-  *   - an **ordinary callee** contributes its *declared* row, read from the callee's channel metadata
-  *     (`OperatorResolvedValue.effectRow`); so an effect propagates from callee to caller through the same union.
+  *   - an **ordinary callee** contributes its *declared* row, read from the callee's own ambient carrier-binder ability
+  *     constraints (the single source of truth shared with the residual checker); so an effect propagates from callee to
+  *     caller through the same union.
   *
   * `Inf` is an ordinary entry and rides the union like any effect. The fact is only produced once `derived ⊆ declared`
   * holds; an undeclared effect is reported at the value and the accounting **declines (aborts)**.
@@ -39,8 +40,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   * §10. The re-point of [[contributedEffects]] to the resolved-impl (`AbilityImplementation`) view is landed and
   * validated (the user `main` of a Console program accounts as `{Console}` at its carrier-bound key).
   *
-  * Scope note: the transparent-parameter expansion (`Effect`-marked callback positions), reify/discharge subtraction,
-  * and the carrier-machinery-impl exception (§0/§11) are later slices.
+  * Scope note: the transparent-parameter expansion (`Effect`-marked callback positions) and reify/discharge subtraction
+  * are later slices; the carrier-machinery-impl exception is **gone** — U4-c-0b reads "declared" from the carrier-binder
+  * constraints ([[declaredEffectsOf]]), the single source of truth, so a hand-written carrier-generic discharger with no
+  * surface `{E}` row accounts correctly by the rule.
   */
 class EffectAccountingProcessor(effectChannel: Boolean = false)
     extends TransformationProcessor[MonomorphicValue.Key, EffectAccounting.Key](key =>
@@ -84,7 +87,7 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
     *     `AbilityResolver.isEffectAbilityRef` performed pre-mono), read on the ability marker rather than the impl
     *     marker — a concrete-carrier impl (`implement Inf[IO]`) has *no* HKT binder of its own, only the ability does.
     *   - the contributed [[AbilityFQN]]'s **module** must be the ability's, so `derived` matches `declared` (which
-    *     [[channelDeclaredEffects]] sources from the `effectRow`, in the ability's module). Effect-ability instances are
+    *     [[declaredEffectsOf]] sources from the carrier-binder constraints, in the ability's module). Effect-ability instances are
     *     colocated with their ability (a carrier-generic `implement[F ~ E] Ability[F]` can only live in the ability's
     *     module; a concrete `implement Inf[IO]` is placed there too), so the impl method's own module *is* the ability's
     *     module — confirmed by looking the ability marker up there.
@@ -119,12 +122,23 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
     }
   }
 
-  /** A value's declared effect row, read from its channel metadata (`OperatorResolvedValue.effectRow`, on the runtime
-    * track). Empty when the value declares no effects (or its front-end fact is not available).
+  /** A value's declared effect abilities — the ability constraints on its own ambient effect-carrier binders
+    * (`carrierBinders ∩ paramConstraints`, machinery excluded), read off its `OperatorResolvedValue` on the runtime
+    * track. This is the **single source of truth** for "declared" (U4-c-0b), shared verbatim with
+    * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectResidualChecker]]: surface `{E...}` rows desugar *into*
+    * these constraints, and hand-written carrier-generic code (the stdlib dischargers, the lifting instances
+    * `implement[S, G ~ Abort] Abort[StateCarrier[S, G]]`) declares its effects *only* this way — so reading the
+    * constraints rather than the surface `effectRow` makes those correct by the rule, with no carrier-machinery-impl
+    * exception. Empty when the value declares no effects (or its front-end fact is not available).
     */
   private def declaredEffectsOf(vfqn: ValueFQN): CompilerIO[Set[AbilityFQN]] =
     getFactIfProduced(OperatorResolvedValue.Key(vfqn, Platform.Runtime)).map {
-      case Some(orv) => EffectAccountingProcessor.channelDeclaredEffects(orv.effectRow)
+      case Some(orv) =>
+        val view = OperatorResolvedExpression.SignatureView.of(orv.signature)
+        EffectCarriers.declaredEffects(
+          EffectCarriers.carrierBinders(view).filter(orv.paramConstraints.contains),
+          orv.paramConstraints
+        )
       case None      => Set.empty
     }
 
@@ -152,10 +166,12 @@ class EffectAccountingProcessor(effectChannel: Boolean = false)
 
 object EffectAccountingProcessor {
 
-  /** The declared effect abilities read straight from a value's effect channel: the union of its open-row entries over
-    * every position (return + effect-transparent parameters), with the machinery abilities (`Effect`/`Suspend`) removed.
-    * Pure, so it is the unit-testable core of the channel-declared computation (the durable successor to Phase 2's
-    * `EffectResidualChecker.channelDeclaredEffects`).
+  /** The declared effect abilities read straight from a value's effect **channel metadata** (`EffectRow`): the union of
+    * its open-row entries over every position (return + effect-transparent parameters), machinery (`Effect`/`Suspend`)
+    * removed. This is the **rendering-side** row extraction (the LSP's declared-row vocabulary, §4/§5) — *not* a
+    * verification input (U4-c-0b): `derived ⊆ declared` reads "declared" from the carrier-binder constraints
+    * ([[declaredEffectsOf]]), the single source of truth, so a hand-written discharger with no surface `{E}` row still
+    * accounts correctly. Pure, hence unit-testable in isolation.
     */
   private[channel] def channelDeclaredEffects(effectRow: EffectRow[ResolvedAbilityConstraint]): Set[AbilityFQN] =
     (effectRow.returnEffects ++ effectRow.parameterEffects.flatMap(_.effects))

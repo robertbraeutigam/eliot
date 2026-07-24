@@ -8,10 +8,13 @@ arm — byte-identical wherever the default path succeeds, plus three of the fou
 non-overlap wins. **U4 (the flip) is in progress**: U4-b (Bundle A — the superseded
 `--effect-channel` erasure path deleted, accounting re-pointed to resolved impls) landed
 2026-07-24; **U4-c runs on the explicit-interface course adopted 2026-07-24** (§5, §10): *forward
-what is declared, derive what is done*. Its first step, **U4-c-0a (forward the ambient)**, landed
-2026-07-24 — `MonomorphicValue.ambientCarriers` now carries each value's full ground ambient
-carriers, stamped by one writer at mono-fact production. The default path is byte-identical
-throughout; `EffectResidualChecker` is the sole live verifier until U4-c passes its parity gate.
+what is declared, derive what is done*. Its first two steps landed 2026-07-24: **U4-c-0a (forward
+the ambient)** — `MonomorphicValue.ambientCarriers` now carries each value's full ground ambient
+carriers, stamped by one writer at mono-fact production; and **U4-c-0b (single source of truth for
+"declared")** — accounting reads declared effects from the carrier-binder constraints (the residual
+checker's definition), retiring the surface-`effectRow` reading to rendering-only. The default path
+is byte-identical throughout; `EffectResidualChecker` is the sole live verifier until U4-c passes
+its parity gate.
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
 
@@ -647,14 +650,16 @@ default path byte-identical, gated by the §0 harness.
      pure `label` ⤳ `∅`), since nothing consumes the field until U4-c-0d. This supersedes
      reconstructing the ambient from the key↔binder positional alignment inside accounting — the
      alignment stays true, but stops being a load-bearing cross-module contract.
-   - **U4-c-0b — single source of truth for "declared".**
-     `EffectAccountingProcessor.declaredEffectsOf` switches from `channelDeclaredEffects(effectRow)`
-     to `EffectCarriers.declaredEffects(carrierBinders ∩ paramConstraints)` — the residual
-     checker's own definition. This makes the lifting instances and hand-written dischargers
-     correct *by the rule* (the "carrier-machinery-impl exception" is deleted as a concept).
-     **Touches landed code:** `declaredEffectsOf`; `channelDeclaredEffects` +
-     `EffectAccountingChannelDeclaredTest` are retargeted as the rendering-side row extraction
-     (LSP vocabulary), no longer a verification input.
+   - **U4-c-0b — single source of truth for "declared": LANDED (2026-07-24).**
+     `EffectAccountingProcessor.declaredEffectsOf` reads
+     `EffectCarriers.declaredEffects(carrierBinders ∩ paramConstraints)` off the value's
+     `OperatorResolvedValue` — the residual checker's own definition — instead of
+     `channelDeclaredEffects(effectRow)`. This makes the lifting instances and hand-written
+     dischargers correct *by the rule*: the "carrier-machinery-impl exception" is deleted as a
+     concept. `channelDeclaredEffects` (+ `EffectAccountingChannelDeclaredTest`) survive **only** as
+     the rendering-side row extraction (LSP declared-row vocabulary, §4/§5), no longer a verification
+     input. Byte-identical by construction — the processor is still unwired (`effectChannel` off ⇒
+     inert), so this changes no live compile; validated at U4-c-1's parity + rejection gate.
    - **U4-c-0c — the pure ride-test core.** A small pure object (the `channelDeclaredEffects`
      pattern — pure over `GroundValue`s/signature views, no `CompilerIO`): given a reference's
      `typeArguments`, its callee's carrier-binder positions, and the ambient set → ride iff exact
