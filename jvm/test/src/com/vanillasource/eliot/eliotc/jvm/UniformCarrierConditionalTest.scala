@@ -49,6 +49,27 @@ class UniformCarrierConditionalTest extends AsyncFlatSpec with AsyncIOSpec with 
       |def main: {Console} Unit = printLine(summary)
       |""".stripMargin
 
+  // Effects-as-channel §6/§10 (U4-e prerequisite): a post-mono MonomorphicValue consumer must see through the uniform
+  // path's pervasive `Id`. `useByte(1000)`'s argument range `[1000,1000]` sits inside `pure@Effect[Id]( 1000 )`; before
+  // the refinement channel normalized `Id` away it read "value range is not known here" (a wrong diagnostic) instead of
+  // the bound violation. This pins that the range survives the `Id` wrapper under `--uniform-carrier`.
+  private val refinementSource =
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
+      |
+      |def byteMin: BigInteger = -128
+      |def byteMax: BigInteger = 127
+      |def withinByte(i: Interval[BigInteger]): Bool = lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
+      |def useByte(x: Int): Int where withinByte(range(x)) = x
+      |
+      |def main: IO[Unit] = printLine(show(useByte(1000)))
+      |""".stripMargin
+
+  "a where-precondition over a uniform-carriered argument" should "see the argument's range through the Id wrapper" in {
+    compileErrors(refinementSource, uniformCarrier = true)
+      .asserting(_.map(_.message).mkString should include("is not satisfied"))
+  }
+
   "if(c, None) else Some(x)" should "be REJECTED by the default path (the pure arm steals the if carrier)" in {
     compileErrors(conditionalSource, uniformCarrier = false).asserting(_ should not be empty)
   }

@@ -79,13 +79,24 @@ class RefinementChannelProcessor
   override protected def generateFromKeyAndFact(
       key: RefinementTable.Key,
       mv: MonomorphicValue
-  ): CompilerIO[RefinementTable] =
+  ): CompilerIO[RefinementTable] = {
+    // Effects-as-channel §6/§10: the flow analysis reads `MonomorphicValue`, a **sibling** of `WovenValueProcessor` —
+    // so under the uniform-carrier path its body still carries the pervasive `Id` machinery (`pure@Effect[Id]`/`runId`
+    // wrappers, `Id[X]` node/signature types) that the codegen seam erases but this channel would otherwise trip over: a
+    // literal's `[n,n]` range hides inside `pure@Effect[Id]( n )` and a merge's `A := Id[Int]` finds no `Id$Meta`, so a
+    // provable range reads as ⊤ ("value range is not known"). Normalize `Id` away up front, exactly as
+    // `WovenValueProcessor` does (a no-op on the legacy path, which inserts no `eliot.lang.Id`), so the flow sees the bare
+    // literal and `Id`-erased types.
+    val erasedSig      = IdNormalizer.eraseIdTypes(mv.signature)
+    val normalizedBody =
+      mv.runtime.map(body => IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, mv.signature, body)))
     for {
-      result <- mv.runtime match {
-                  case Some(body) => walkFlow(body.as(MonomorphicExpression(mv.signature, body.value)))
+      result <- normalizedBody match {
+                  case Some(body) => walkFlow(body.as(MonomorphicExpression(erasedSig, body.value)))
                   case None       => Flow.topBoundary.pure[CompilerIO]
                 }
     } yield RefinementTable(key.vfqn, key.typeArguments, result.records)
+  }
 
   /** Compute one node's flow interval and record it (when known), descending per the propagation rules in the class
     * note. Bottom-up: a node's interval is derived from its children's, and a known interval is recorded at the node's
