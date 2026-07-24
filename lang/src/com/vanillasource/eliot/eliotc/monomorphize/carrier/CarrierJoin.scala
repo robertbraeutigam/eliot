@@ -65,12 +65,12 @@ object CarrierJoin {
           case Carrier.Var(cid) if cid == rep => unifier
           case resolved                       => solve(unifier, rep, resolved)
         }
-      case rep @ Carrier.Con(a, _) =>
+      case rep @ Carrier.Con(a, prefixA) =>
         resolve(unifier, contribution) match {
-          case Carrier.Bottom              => unifier
-          case Carrier.Con(b, _) if b == a => unifier
-          case Carrier.Con(_, _)           => conflict(unifier, context)
-          case Carrier.Var(vid)            => solve(unifier, vid, rep) // keep the resolved stack (prefix included)
+          case Carrier.Bottom                    => unifier
+          case Carrier.Con(b, prefixB) if b == a => unifyPrefixes(unifier, prefixA, prefixB, context)
+          case Carrier.Con(_, _)                 => conflict(unifier, context)
+          case Carrier.Var(vid)                  => solve(unifier, vid, rep) // keep the resolved stack (prefix included)
         }
       case Carrier.Bottom   => unifier
     }
@@ -85,7 +85,7 @@ object CarrierJoin {
       case (contribution, Carrier.Var(gid))               => join(unifier, gid, contribution, context)
       case (Carrier.Var(aid), concrete)                   => join(unifier, aid, concrete, context)
       case (Carrier.Bottom, _)                            => unifier
-      case (Carrier.Con(a, _), Carrier.Con(b, _)) if a == b => unifier
+      case (Carrier.Con(a, prefixA), Carrier.Con(b, prefixB)) if a == b => unifyPrefixes(unifier, prefixA, prefixB, context)
       case (Carrier.Con(_, _), Carrier.Con(_, _))         => conflict(unifier, context)
       case (_, Carrier.Bottom)                            => unifier
     }
@@ -100,6 +100,21 @@ object CarrierJoin {
         case _                => u
       }
     }
+
+  /** Two carriers with the *same* constructor FQN are the same carrier by identity — but their stack **prefixes**
+    * (`AbortCarrier[G]`'s `[G]`, a transformer stack's inner layers) must still be unified pointwise. A meta prefix
+    * (`[?G1]`, the inner carrier of a nested `AbortCarrier[AbortCarrier[IO]]` instance) is grounded here, exactly as the
+    * legacy full structural `unify` did by zipping the whole spine — without this the inner carrier binder is left
+    * unsolved and quoting fails ("contains unresolved variable"). Carrier *identity* stays FQN-only (the payload was
+    * split off before the join), so no container can steal a carrier meta; only the carrier-position prefix is unified.
+    */
+  private def unifyPrefixes(
+      unifier: Unifier,
+      prefixA: List[SemValue],
+      prefixB: List[SemValue],
+      context: Sourced[String]
+  ): Unifier =
+    prefixA.zip(prefixB).foldLeft(unifier) { case (u, (a, b)) => u.unify(a, b, context) }
 
   private def solve(unifier: Unifier, id: MetaId, carrier: Carrier): Unifier =
     unifier.copy(metaStore = unifier.metaStore.solve(id, Carrier.toSemValue(carrier)))

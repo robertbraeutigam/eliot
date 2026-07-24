@@ -126,6 +126,42 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
       |}
       |""".stripMargin
 
+  // Exercises NESTED effect-carrier stacks (U4-e prerequisite — the `CarrierJoin` prefix-unify fix): `grade`'s
+  // `if..else if..else` monomorphizes the `Effect[AbortCarrier[G]]` instance at `AbortCarrier[AbortCarrier[IO]]`, whose
+  // inner binder `G` the uniform join must solve (it dropped the `Con` prefix before, leaving `G` unsolved → "contains
+  // unresolved variable"). Byte-identical off vs on now that the prefix unifies.
+  private val nestedAbortSource =
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
+      |import eliot.effect.Abort
+      |
+      |def grade(s: String): {Abort} String = if(s == "A", "excellent") else if(s == "B", "good") else "fail"
+      |
+      |def main: IO[Unit] = {
+      |   printLine(grade("A") else "?")
+      |   printLine(if(true, "taken") else "skipped")
+      |}
+      |""".stripMargin
+
+  // Exercises two distinct-typed nested `Dep` carriers (`DepCarrier[Database, DepCarrier[Logger, IO]]`): the second
+  // dep's lift instance (`Dep[X2, DepCarrier[X1, G]] where X1 != X2`) resolves only if the uniform join solves the inner
+  // carrier prefix — before the fix it reported "No ability implementation found for ability 'Dep' with type arguments
+  // [Logger]".
+  private val twoDepsSource =
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
+      |import eliot.effect.Dep
+      |import eliot.carrier.Effect
+      |
+      |data Database(url: String)
+      |data Logger(name: String)
+      |
+      |def firstDep: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
+      |def pick(a: String, b: String): String = a
+      |
+      |def main: IO[Unit] = printLine(firstDep.provide(Database("the-db")).provide(Logger("the-logger")))
+      |""".stripMargin
+
   "the --uniform-carrier gate" should "emit byte-identical classes to the default path (whole base + program)" in {
     (for {
       off <- compileClasses(source, uniformCarrier = false)
@@ -165,6 +201,20 @@ class UniformCarrierByteIdenticalTest extends AsyncFlatSpec with AsyncIOSpec wit
     (for {
       off <- compileClasses(stateSource, uniformCarrier = false)
       on  <- compileClasses(stateSource, uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => on shouldBe off }
+  }
+
+  it should "emit byte-identical classes for a NESTED AbortCarrier stack (if..else if..else at two carrier depths)" in {
+    (for {
+      off <- compileClasses(nestedAbortSource, uniformCarrier = false)
+      on  <- compileClasses(nestedAbortSource, uniformCarrier = true)
+    } yield (off, on)).asserting { case (off, on) => on shouldBe off }
+  }
+
+  it should "emit byte-identical classes for two distinct-typed nested Dep carriers" in {
+    (for {
+      off <- compileClasses(twoDepsSource, uniformCarrier = false)
+      on  <- compileClasses(twoDepsSource, uniformCarrier = true)
     } yield (off, on)).asserting { case (off, on) => on shouldBe off }
   }
 
