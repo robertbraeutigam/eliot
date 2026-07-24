@@ -151,9 +151,11 @@ before the U4 flip.
 
 **Where the tree is:** `master`, in **U4 (the flip)**, **Bundle A (U4-b) LANDED (2026-07-24)** — the superseded
 `--effect-channel` erasure path is deleted and `EffectAccounting.contributedEffects` is re-pointed to the resolved-impl
-(`AbilityImplementation`) view. **U4-c is BLOCKED** on a genuine design finding (below): the row-based `EffectAccounting`
-cannot replace `EffectResidualChecker` without a **run/discharge-subtraction** slice that does not yet exist, so the
-residual checker stays the verifier. **U3a is complete as far as it goes pre-flip** (the two remaining pre-flip arm items
+(`AbilityImplementation`) view. **U4-c was BLOCKED, now UNBLOCKED IN DESIGN (investigation, 2026-07-24, below):** the
+row-based `EffectAccounting` cannot replace `EffectResidualChecker` without a **run/discharge-subtraction** slice — but
+that slice is buildable post-mono as a **positional key↔binder fact join** (the mono key retains the ambient-carrier
+binding; the naive derivation was discarding it), now fully specified as **U4-c-0** (§10 U4-c). `EffectResidualChecker`
+stays the live verifier until U4-c-0 lands and passes the parity gate. **U3a is complete as far as it goes pre-flip** (the two remaining pre-flip arm items
 were resolved to findings — see below). Green everywhere: `./mill lang.test`,
 `./mill jvm.test` (incl. `UniformCarrierByteIdenticalTest` conditional-surface case + `UniformCarrierConditionalTest` —
 the non-overlap compile-succeeds gate: `if(c, None) else Some(x)` *and* an effectful list into `foldLeft`'s `List[A]`,
@@ -214,11 +216,12 @@ the sole live verifier). What landed:
 - **Re-point validated** by the whole-base probe (below): a Console program's **user `main` accounts as `{Console}`** at
   its carrier-bound mono key — correct.
 
-**U4-c is BLOCKED — the design finding of this session (do not retry the naive wiring).** The plan assumed the row-based
-`EffectAccounting` could become the sole verifier once wired + re-pointed (§10 U4-c: "wire a demand … then delete
-`EffectResidualChecker`"). It cannot, because **`EffectAccounting` walks the *fully monomorphic* body, where the
-ambient-vs-concrete carrier distinction is already erased** — the exact information the residual checker uses for
-**run/discharge subtraction**. Two over-count classes make wiring it whole-base reject valid code:
+**U4-c blocker — found 2026-07-24, RESOLVED IN DESIGN the same day (do not retry the *naive* wiring; the correct
+mechanism is U4-c-0, §10).** The plan assumed the row-based `EffectAccounting` could become the sole verifier once
+wired + re-pointed (§10 U4-c: "wire a demand … then delete `EffectResidualChecker`"). The naive derivation cannot,
+because **it walks the *fully monomorphic* body as a bare reference union, where the ambient-vs-concrete carrier
+distinction is not visible** — the exact information the residual checker uses for **run/discharge subtraction**. Two
+over-count classes make wiring it whole-base reject valid code:
 1. **Run-via-concrete-carrier.** The synthesized entry `def main: Unit = apply(block(User::main), unit)` runs `Console`
    on the concrete `IO` carrier but declares no row. `EffectResidualChecker` accepts it (its `checkDeclaredPure` fires
    only on a *committed unifier mismatch*, and `IO` absorbs the effect cleanly — no mismatch); `EffectAccounting` derives
@@ -231,13 +234,42 @@ ambient-vs-concrete carrier distinction is already erased** — the exact inform
 
    The residual checker's discharge/run awareness rests on **`CheckState.ambientCarriers` + `unifier.errors`** — checker
    state that does not survive to the post-mono body. The plan's own rationale for keeping the row-based accounting was
-   that it *avoids* `ambientCarriers` (which U4-d deletes); the finding is that avoiding it is exactly what makes the
-   row-based derivation unable to subtract run/discharge. **U4-c therefore needs the discharge-subtraction slice first:**
-   reconstruct the value's ambient carrier from its mono'd signature (`IO[Unit]` ⤳ ambient `IO`) and count an effect op
-   only when its resolved carrier *is* that ambient (never an inner transformer / concrete run boundary) — essentially
-   porting `EffectResidualChecker.residualEffects`/`ridesAmbient` into the post-mono/quoted domain. Until that exists,
-   `EffectResidualChecker` **stays** the live verifier (kept as the fail-safe — [[feedback_gaps_must_be_failsafe]]), the
-   `WovenValueProcessor` demand is **not** wired, and the re-pointed `EffectAccounting` remains gated + demand-driven.
+   that it *avoids* `ambientCarriers` (which U4-d deletes); the finding was that avoiding it is exactly what makes the
+   *naive* derivation unable to subtract run/discharge.
+
+   **Investigation finding (2026-07-24, later the same session) — the blocker's generalization was wrong; the
+   subtraction is a positional fact join over information that DOES survive monomorphization.** The distinction is
+   erased *from the body walk*, not from the mono facts:
+   - `TypeStackLoop.establishSignature` binds `typeArguments.lift(i)` against `binders.zipWithIndex`, so
+     **`MonomorphicValue.typeArguments` is positionally aligned with the value's signature binders**. The value's
+     **ambient carrier set = the key's type arguments at its `carrierBinders(view) ∩ paramConstraints` positions**
+     (the identical filter `EffectResidualChecker.check` uses, read off the value's own `OperatorResolvedValue` — a
+     front-end fact alive post-mono). Exact ground values, no shape-parsing of the return type.
+   - Every body reference is `MonomorphicValueReference(vfqn, typeArguments)`, and `PostDrainQuoter.resolveAbilityRefs`
+     **preserves the impl's type args** through the ability→impl rewrite — so each effect op / callee carries its *own*
+     carrier instantiation, positionally aligned with *its* binders.
+   - The current `EffectAccountingProcessor.collectReferences` matches `MonomorphicValueReference(vfqn, _)` — it
+     **discards exactly this signal**. That one discard is the entire gap.
+   The ported ride test: **count a reference iff the ground value at its carrier-binder position(s) equals (one of) the
+   value's own ambient instantiation(s), by exact `GroundValue` equality.** Total and positional (never recognitional —
+   the §13 doctrine applied to the verifier), and *strictly more precise* than the in-checker head-level
+   `CarrierHead` test: exact equality distinguishes nested same-transformer stacks
+   (`ThrowCarrier[E2, ThrowCarrier[E1, IO]]` ≠ ambient `ThrowCarrier[E1, IO]`), which the head test cannot — masked
+   today only by `AbilityFQN` (ability-name) granularity. Case walk, all resolved: the synthetic entry has *no* carrier
+   binder ⇒ ambient ∅ ⇒ `User::main@[IO]` subtracted (**no synthetic-entry exemption needed at all**); user `main` at
+   `[IO]` ⇒ `printLine@[IO]` == ambient ⇒ counted, `{Console} ⊆ {Console}`; a discharged `raise` at an inner transformer
+   ≠ ambient ⇒ subtracted; a captured `{Throw}` value mono'd *at* the stack ⇒ its own `raise` == ambient ⇒ counted and
+   declared. Structural verdict from the same investigation: an extrinsic row verifier is **architecturally forced** in
+   Eliot (use-site checking always sees concretized carriers, and concrete instances are promiscuous —
+   `implement[F[_] ~ Suspend] Console[F]` resolves `Console[IO]` regardless of what the caller declared, so instance
+   resolution can never enforce rows), and the governing condition matches GHC Core Lint's: post-hoc verification works
+   iff the lowered form retains the checked structure — which the mono key does. Definitive recipe + caveats
+   (concrete-impl arm, constraint-based declared side, pinned returns, the diagnostics that can never move): **§10
+   U4-c-0**.
+
+   Until U4-c-0 lands and passes the parity gate, `EffectResidualChecker` **stays** the live verifier (kept as the
+   fail-safe — [[feedback_gaps_must_be_failsafe]]), the `WovenValueProcessor` demand is **not** wired, and the
+   re-pointed `EffectAccounting` remains gated + demand-driven.
 
 Commit trail this session: Bundle A (deletions + flag-simplification + re-point) — one commit. The whole-base wiring was
 built as a probe (`WovenValueProcessor` demand + unconditional accounting), used to surface the run/discharge finding,
@@ -912,15 +944,21 @@ The accounting fact is also the LSP's hover source for rows. The exactness argum
 verbatim (computed per concrete instantiation of the whole program; syntactically complete inputs;
 declaration-level granularity by intent).
 
-**U3 adjustments** (scheduled, §10): (a) **re-point the derivation** — under uniform checking
+**U3/U4 adjustments** (scheduled, §10): (a) **re-point the derivation** — under uniform checking
 effect operations arrive in the mono body *resolved* to concrete instance methods, not as abstract
-ability refs, so the derivation must recover the ability from an impl reference; the Phase-2
-shadow's ability-method handling (which did exactly this against the default path) is the
-template. (b) **Diagnostics ordering** — for the friendly message to actually be what the user
-sees, the accounting verdict must win over (or preempt) the cryptic carrier-instance resolution
-failure for the same leak; the carrier-machinery-impl exception (Phase-2 finding: those impls
-declare effects via carrier constraints, not rows) and the synthetic-entry exemption (`main::main`
-references the effectful user main at the run boundary) land here too.
+ability refs, so the derivation must recover the ability from an impl reference; **LANDED (Bundle
+A, 2026-07-24)**. (b) **the run/discharge subtraction (U4-c-0, §10)** — the derivation counts a
+reference only when its carrier instantiation *is* the value's ambient (the positional key↔binder
+join, 2026-07-24 investigation); this makes discharge subtraction structural post-mono and
+**obsoletes the previously planned synthetic-entry exemption** (the entry has no carrier binder, so
+its ambient set is empty and `main::main@[IO]` drops out with no special case). The
+carrier-machinery-impl exception (Phase-2 finding: those impls declare effects via carrier
+constraints, not rows) is absorbed there too (the constraint-based declared side). (c)
+**Diagnostics ordering** — for the friendly message to actually be what the user sees, the
+accounting verdict must win over (or preempt) the cryptic carrier-instance resolution failure for
+the same leak; note the leaks that die *before* mono facts exist (`AbilityResolver`,
+`checkDeclaredPure`) can never be re-voiced by the accounting and need a home on the uniform
+checker's boundary (§10 U4-c-0 last bullet).
 
 ## 6. The Id-normalization stage (replaces the v1 weaver)
 
@@ -1408,9 +1446,9 @@ before anything leans on it), the foundation spike second, the checker refactor 
      check reads the ability marker, not the impl marker** — a concrete-carrier impl (`implement Inf[IO]`) has no HKT
      binder of its own, only the ability `Inf[F[_]]` does. **(c) the test was not relocated to a jvm fact-query test** —
      no jvm `ProcessorTest` fact-query harness exists (jvm tests use `Compiler.createSession`), and the derivation is not
-     a live verifier this session (U4-c blocked), so the old test was deleted, the pure-row half stays on
-     `EffectAccountingChannelDeclaredTest`, and the derivation test lands with U4-c. The original recipe (kept for the
-     U4-c re-check):
+     a live verifier yet (U4-c was blocked at the time; since unblocked in design — see U4-c-0 below), so the old test
+     was deleted, the pure-row half stays on `EffectAccountingChannelDeclaredTest`, and the derivation test lands with
+     U4-c. The original recipe (kept for the U4-c re-check):
      - `EffectSugarDesugarer.desugarChannel` + `eraseAbilityCarrier`/`abilityCarrierName`/`isHigherKindedBinder`
        /`eraseCarrierApplications` + the `rewrite` `stripOpen` parameter and its `EffectfulType(_,_,None) if stripOpen`
        arm; `desugar(function, effectChannel)` ⤳ `desugarCarrier(function)` and `desugar(data, effectChannel)` drop the
@@ -1446,27 +1484,64 @@ before anything leans on it), the foundation spike second, the checker refactor 
        `EffectResidualChecker.checkDeclaredPure`, not via `EffectAccounting` — so those assertions belong to the checker,
        not the post-mono accounting; re-express accordingly. (`EffectAccountingChannelDeclaredTest`, the pure
        row-extraction unit test, already lives on the channel package and is unaffected.)
-  3. **U4-c — swap the verifier. BLOCKED (finding, 2026-07-24) — needs a run/discharge-subtraction slice first.** The
-     naive plan ("wire a demand for `EffectAccounting.Key`, then delete `EffectResidualChecker`") was **built as a probe
-     and reverted**: wiring it made HelloWorld reject its own synthesized entry (`def main: Unit = apply(block(User::main),
-     unit)` runs `Console` on `IO`, declares nothing → false `{Console}` leak). The root cause is structural, not a bug:
-     `EffectAccounting` walks the **fully monomorphic** body, where the ambient-vs-concrete carrier distinction is already
-     erased, so it cannot do the **run/discharge subtraction** `EffectResidualChecker` does — (1) an effect *run* on a
-     concrete carrier (`Console` on `IO` at the entry boundary; the residual checker's `checkDeclaredPure` fires only on a
-     *committed unifier mismatch*, and `IO` absorbs it cleanly), and (2) an effect *discharged* onto an inner transformer
-     carrier (`raise` on `Either`/`AbortCarrier`, dropped by the residual checker's "rides the ambient carrier" filter),
-     both read as bare `AbilityImplementation` ops here and over-count. The residual checker's awareness rests on
-     `CheckState.ambientCarriers` + `unifier.errors` — **checker state that does not survive to the post-mono body**. The
-     plan's rationale for keeping the row-based accounting (it *avoids* `ambientCarriers`, which U4-d deletes) is exactly
-     what makes it unable to subtract run/discharge: those need the carrier identity. **So U4-c must first build the
-     subtraction:** reconstruct the value's ambient carrier from its mono'd signature (`IO[Unit]` ⤳ ambient `IO`) and count
-     an effect op only when its resolved carrier *is* that ambient — porting `EffectResidualChecker.residualEffects`/
-     `ridesAmbient` into the post-mono/quoted domain (the effect op's resolved carrier is recoverable from its
-     `MonomorphicExpression` type arguments). Until it exists, **`EffectResidualChecker` stays the live verifier**
-     (fail-safe — [[feedback_gaps_must_be_failsafe]]), accounting is unwired + gated. The re-point of `contributedEffects`
-     (Bundle A) is landed and validated (user `main` → `{Console}`); it is *correct for the ambient-carrier case*, it just
-     cannot be the whole story without the subtraction. Everything below is the original (now-superseded) U4-c recipe, kept
-     for when the subtraction lands. **Wiring finding (2026-07-24): `EffectAccounting` is *not wired
+  3. **U4-c — swap the verifier. UNBLOCKED IN DESIGN (investigation, 2026-07-24): build the U4-c-0 subtraction slice
+     below first, then wire + prove parity + delete.** The naive plan ("wire a demand for `EffectAccounting.Key`, then
+     delete `EffectResidualChecker`") was **built as a probe and reverted**: wiring it made HelloWorld reject its own
+     synthesized entry (`def main: Unit = apply(block(User::main), unit)` runs `Console` on `IO`, declares nothing →
+     false `{Console}` leak). Root cause of the probe failure: the naive derivation is a bare reference union, blind to
+     the **run/discharge subtraction** `EffectResidualChecker` does — (1) an effect *run* on a concrete carrier
+     (`Console` on `IO` at the entry boundary; the residual checker's `checkDeclaredPure` fires only on a *committed
+     unifier mismatch*, and `IO` absorbs it cleanly), and (2) an effect *discharged* onto an inner transformer carrier
+     (`raise` on `Either`/`AbortCarrier`, dropped by the residual checker's "rides the ambient carrier" filter), both
+     read as bare `AbilityImplementation` ops and over-count. The blocker's *generalization* ("the ambient-vs-concrete
+     distinction is erased post-mono, so accounting cannot subtract") was **refuted by the 2026-07-24 investigation**
+     (§0): the distinction survives in the **mono key ↔ signature-binder alignment** and in each reference's own type
+     arguments — the derivation was simply discarding them. The re-point of `contributedEffects` (Bundle A) is landed
+     and validated (user `main` → `{Console}`); U4-c-0 adds the ride filter it lacks.
+
+     **U4-c-0 — the run/discharge-subtraction slice (the definitive mechanism: port
+     `EffectResidualChecker.residualEffects`/`ridesAmbient` as a positional fact join — never shape recognition):**
+     - **Ambient reconstruction (positional).** For the value under accounting, read its `OperatorResolvedValue`
+       (runtime track), compute `carrierNames = EffectCarriers.carrierBinders(view).filter(paramConstraints.contains)`
+       — identical to `EffectResidualChecker.check` — and map each such binder's *index* to
+       `MonomorphicValue.typeArguments(i)`: `TypeStackLoop.establishSignature` binds `typeArguments.lift(i)` against
+       `binders.zipWithIndex`, so the alignment is guaranteed. The resulting ground-carrier set is the ambient set.
+       Empty for the synthetic entry (no carrier binder, pure `Unit` return) — the entry passes with **no
+       synthetic-entry exemption needed**. (A codegen-demanded value mono is full-arity; `GroundValue.Param` reaches
+       only signature twins — assert, don't assume.)
+     - **The ride test.** Stop discarding reference type args (`collectReferences` currently matches
+       `MonomorphicValueReference(vfqn, _)` — that discard is the whole gap). For each contributing reference, recover
+       *its* carrier instantiation positionally from *its own* `OperatorResolvedValue`'s carrier-binder positions
+       (`PostDrainQuoter.resolveAbilityRefs` preserves the impl's type args through the ability→impl rewrite), and
+       contribute iff that instantiation is in the ambient set by **exact `GroundValue` equality** — not head equality;
+       exact is strictly tighter than the checker's `CarrierHead` head test and correctly separates nested
+       same-transformer stacks (`ThrowCarrier[E2, ThrowCarrier[E1, IO]]` ≠ ambient `ThrowCarrier[E1, IO]`), which the
+       head test cannot (masked today only by ability-name `AbilityFQN` granularity).
+     - **Second arm — concrete-carrier impls.** `implement Inf[IO]`'s methods have *no* carrier binder, so the
+       positional join finds nothing; recover the fixed carrier from the impl identity (the `AbilityImplementation`
+       pattern / the method signature's return head) and run the same equality. A missed arm here **under-counts — a
+       fail-safe violation** ([[feedback_gaps_must_be_failsafe]]); gate with a dedicated rejection test (an undeclared
+       `Inf` reaching a `{Console}`-only value must redden).
+     - **Declared side switches to constraint-based.** Use `EffectCarriers.declaredEffects(carrierNames,
+       paramConstraints)` (as the residual checker does), not only `channelDeclaredEffects(orv.effectRow)`: the lifting
+       instances (`implement[S, G ~ Abort] Abort[StateCarrier[S, G]]`) perform on `G` and declare via binder
+       constraints with an *empty* surface row — the known carrier-machinery-impl exception (§5). For user values the
+       two views coincide.
+     - **Pinned-return values — decide, don't inherit.** Today they get no subset check at all (no carrier binder ⇒
+       `checkDeclaredPure` ⇒ applied return ⇒ accepted), and a pinned `{… | IO}` body can perform `Console` via the
+       promiscuous `Suspend` lift unrecorded. Treat the concrete return carrier as the ambient (mirroring
+       `TypeStackLoop.recordConcreteReturnCarrier`) — which also lays the §5 reify-legality foundation: a reference
+       whose carrier is a concrete stack *≠ ambient* is a **capture**, and its row-⊆-pinned-entries check happens right
+       there.
+     - **What accounting can NEVER absorb (goes on the U4-d checklist instead).** Diagnostics for programs that never
+       produce mono facts: `State`/`Throw`/`Abort` leaks dying cryptically in `AbilityResolver`, and
+       `checkDeclaredPure`'s friendly "declared pure but performs" (it rides `unifier.errors`). Those messages must
+       find a home on the uniform checker's boundary *before* U4-d deletes the residual checker, or error quality
+       silently regresses.
+
+     Until U4-c-0 lands and the parity gate below passes, **`EffectResidualChecker` stays the live verifier**
+     (fail-safe — [[feedback_gaps_must_be_failsafe]]), accounting is unwired + gated. Everything below is the original
+     U4-c wiring recipe — still valid, executed *after* U4-c-0. **Wiring finding (2026-07-24): `EffectAccounting` is *not wired
      into the compile pipeline* today** — nothing demands `EffectAccounting.Key` except `EffectAccountingTest`
      (it is a demand-driven `TransformationProcessor`), so despite the "real verification path" framing it currently
      runs *only* in its own test, never on a real compile; `EffectResidualChecker` (unconditional, in-checker) is the
@@ -1508,9 +1583,10 @@ before anything leans on it), the foundation spike second, the checker refactor 
      Id-residue assertion into a hard error; the §9 Cornerstone amendment + doc/skill sweep; verify LSP rendering
      `Id`-free.
 
-  Slice 2 (Bundle A) **is landed** (2026-07-24). Slice 3 (U4-c) turned out **not** mechanical — it is **blocked** on a
-  new run/discharge-subtraction sub-slice (the finding above); it is no longer "delete a verifier" but "build the
-  post-mono residual reconstruction, *then* delete." Slice 1 (U4-a coverage) remains the gating prerequisite for U4-d.
+  Slice 2 (Bundle A) **is landed** (2026-07-24). Slice 3 (U4-c) turned out **not** mechanical, but is no longer blind:
+  it is "build U4-c-0 (the key↔binder-join subtraction, fully specified above), wire both verifiers, prove parity,
+  *then* delete." U4-c-0 is independent of U4-a coverage and can be built next — it runs on the *default* path's mono
+  output and needs no uniform-checker progress. Slice 1 (U4-a coverage) remains the gating prerequisite for U4-d.
   Gate every slice with the existing harness (`lang.test`/`jvm.test`, `UniformCarrierByteIdenticalTest`, HelloWorld,
   eliot-test 11/11, the 32 example mains). The whole flip stays a coupled bundle *on `--effect-channel`* (§0 finding),
   which is why the transitional `--uniform-carrier` gate carries slices 1–4 and only slice 5 unifies the flags.
