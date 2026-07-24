@@ -26,17 +26,24 @@ as the codegen seam does) and **nested-carrier solving** (`CarrierJoin` now unif
 **prefix** pairwise, so the inner binder `G` of `AbortCarrier[AbortCarrier[IO]]` / a nested `DepCarrier`
 solves) — both no-ops on legacy.
 
-**Remaining — the U4-e close-out** (uniform is already the working default; these are cleanup, in no
-strict order): remove `--legacy-carrier` + the vestigial `--effect-channel` and their threading; flip the
-constructor defaults to `true` and **retire the legacy default path** (the `EffectLifter` recognition
-arms, the `Checker` Phase A/B deferral, `defaultArgSlot`/`resolveLadder`, `CheckState.ambientCarriers`)
-— this is where the ~13 raw-mono processor unit tests get updated to the uniform (Id-inserted)
-representation; respell the synthetic main to `runMain`; land the **effectful-`catch`-handler stdlib
-delta** (pinned finding 7); turn the §6 Id-residue assertion into a **hard error**; the §9 Cornerstone
-amendment + doc/skill sweep; verify LSP/diagnostic rendering `Id`-free. (The old U4-d "delete
-default-path machinery" step folds into this close-out — the flip landed with the legacy path still
-present behind `--legacy-carrier`, so deletion is now the close-out's job.) See §10 and the pinned
-findings.
+**Remaining — the U4-e close-out** (uniform is already the working default):
+- **Slice 1 — DONE (2026-07-24, `3aa5b2d4`):** the vestigial `--effect-channel` flag + threading removed
+  (`effectChannelKey`, the `effectChannel` ctor params on `LangProcessors`/`EffectAccountingProcessor`,
+  dropped from the two accounting tests). Inert — accounting already verified unconditionally; lang 233/233,
+  jvm 283/283.
+- **Slice 2 — IN PROGRESS, BLOCKED (pinned finding 11):** remove `--legacy-carrier` + flip the six
+  `uniformCarrier` constructor defaults to `true`, updating the ~13 raw-mono processor unit tests to the
+  uniform (Id-inserted) representation. Flipping the defaults surfaced a **reduce-and-reify folding
+  regression** under uniform (`PostDrainQuoter`'s reification gate can't fold a carrier-headed
+  erased-determined body); the chosen path is **fix folding first** (do NOT re-baseline `ReificationTest` to
+  the un-folded output). Full detail + the sequenced next steps are in §10 close-out slice 2; the
+  root-cause/fix-direction/open-validation-question are in pinned finding 11.
+- **Then — retire the legacy default path** (the `EffectLifter` recognition arms, the `Checker` Phase A/B
+  deferral, `defaultArgSlot`/`resolveLadder`, `CheckState.ambientCarriers`); respell the synthetic main to
+  `runMain`; land the **effectful-`catch`-handler stdlib delta** (pinned finding 7); turn the §6 Id-residue
+  assertion into a **hard error**; the §9 Cornerstone amendment + doc/skill sweep; verify LSP/diagnostic
+  rendering `Id`-free. (The old U4-d "delete default-path machinery" step folds into this close-out.) See §10
+  and the pinned findings.
 
 Per-slice history and commit trails live in the git log — this document keeps only the design, the
 current state, and the path forward.
@@ -187,6 +194,21 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
     flip prerequisite: normalize `Id` *before* those consumers (or make them `Id`-transparent) **and** fix
     the genuine multi-effect/multi-dep miscompiles; gate the re-attempt on the whole jvm.test integration
     suite under uniform, not example-main bytes. See §10 U4-e (BLOCKED).
+11. **The reification staging gate cannot fold a carrier-headed erased-determined body — the close-out
+    slice-2 blocker** (2026-07-24, attempted + reverted). Flipping the raw-mono constructor defaults to
+    uniform surfaced that `PostDrainQuoter`'s compile→runtime reification gate (`tryMaterialise`) evaluates
+    with a **bare** `semEvaluator.eval`, no `resolveAbilityRefs` — so the uniform elaboration's inserted
+    `pure@Effect[Id]`/`runId` around a compile-time-determined runtime body (`name(A)` on an erased
+    `A: Person`) stalls the eval, the read-back fails, and the fold degrades to an un-reduced runtime
+    projection (`name(Person(...))` instead of `Str(Alice)`). Runtime-correct, fail-safe intact (§8 keeps
+    `Type` returns un-wrapped, so `bad[A: Type]: Type = A` still errors), so it is a **quality/feature
+    regression, not a soundness hole** — but it defeats reduce-and-reify Stages 1–2. It is another instance
+    of finding 10 (a post/mid-mono consumer choking on un-erased `Id`), for the reification gate. Fix
+    direction: `resolveAbilityRefs` in `tryMaterialise` — but `ReificationTest`'s stub setup ships no
+    `Effect[Id]` instance, so that fix is a no-op there and the whole thing is **unvalidated for production**;
+    the open question (production regression vs. stub artifact) and the SemExpression-level Id-strip fallback
+    are in §10 close-out slice 2. Do **not** re-baseline `ReificationTest` to the un-folded output — that
+    would paper over the regression (`Fix folding first` was the chosen path, 2026-07-24).
 
 ## 1. The problem
 
@@ -914,12 +936,65 @@ default path byte-identical, gated by the §0 harness.
 
    **Close-out remaining:** remove `--legacy-carrier` and its threading (and flip
    the constructor defaults to `true`, updating the ~13 raw-mono processor unit tests to the uniform
-   representation, retiring the legacy path); land the **effectful-`catch`-handler stdlib delta**
+   representation, retiring the legacy path — **BLOCKED on the reification-folding fix below**); land the
+   **effectful-`catch`-handler stdlib delta**
    atomically (pinned finding 7 — the join solver is now the default, so the stacking cannot occur;
    acceptance: `failUnit catch (err -> printLine(err))` runs and `EffectsThrow` stays green); turn the §6
    Id-residue assertion into a **hard error**; the §9 Cornerstone amendment + doc/skill sweep (`eliot-code`
    global skill, `eliot-layers`, CLAUDE.md effect + monomorphize sections); verify LSP/diagnostic rendering
    `Id`-free.
+
+   **Close-out slice 2 — IN PROGRESS, BLOCKED on a reduce-and-reify folding fix (2026-07-24, pinned
+   finding 11).** Flipping the six `uniformCarrier: Boolean = false` constructor defaults to `true`
+   (`MonomorphicTypeCheckProcessor`, `CompilerMonomorphicTypeCheckProcessor`, `TypeStackLoop` ×2, `Checker`,
+   `LangProcessors`) makes the raw-mono processor unit tests run uniform. That surfaced **15 unit-test
+   failures** in four suites, all needing the uniform (Id-inserted) representation — but one class is a
+   **genuine folding regression**, not just Id-wrapping noise, so this slice was reverted to the green
+   slice-1 state (`3aa5b2d4`) pending the fix:
+   - **`ReificationTest` (5) + the `name(A)` part of `MonomorphicTypeCheckProcessorTest` — the folding
+     regression (pinned finding 11).** Under uniform a runtime value determined by erased `[]`-params has its
+     body carrier-headed, and the `PostDrainQuoter` compile→runtime reification staging gate cannot fold it:
+     `def staticName[A: Person]: String = name(A)` produces raw mono `pure@Effect[Id](runId(pure@Effect[Id](
+     name(runId(pure@Effect[Id](A))))))` → Id-normalizes to `name(Person(...))` **instead of** the folded
+     constant `Str(Alice)`. Runtime-**correct** (the projection runs), fail-safe **intact** (`bad[A: Type]:
+     Type = A` still errors — §8 keeps `Type` returns un-wrapped), so it is a feature/quality regression, not
+     a soundness hole; pre-existing in production since the core flip, masked because `ReificationTest` ran
+     *legacy* via the `false` default. **Root cause:** `PostDrainQuoter.tryMaterialise` evaluates with a
+     **bare** `semEvaluator.eval` and does **not** apply `resolveAbilityRefs` (the compiler-track
+     `reduceWithEscalation` does). The inserted `pure@Effect[Id]` is an **abstract** ability ref
+     (`Qualifier.Ability("Effect")`, module `eliot.carrier`, type-arg `[Id, …]` — left abstract to be *erased*
+     by `IdNormalizer` at the WovenValue seam, never resolved to a concrete impl in the mono body), so the eval
+     stalls on it, read-back fails, the gate falls to structural quote, and the fold degrades to an un-reduced
+     runtime projection. **Fix direction (attempted + reverted):** add `resolveAbilityRefs(expr.value)` in
+     `tryMaterialise` before the eval (align the runtime staging gate with the compiler track). Correct in
+     spirit but a **no-op in `ReificationTest`** because that test's *stub* setup (`ProcessorTest.intStubContent`
+     etc.) ships no `Effect[Id]` runtime instance, so `pure@Effect[Id]` never enters `abilityResolutions` and
+     `resolveAbilityRefs` cannot resolve it. **OPEN QUESTION — production regression vs. stub artifact:** the
+     hypothesis is that in production (full stdlib + jvm `implement Effect[Id]`) `pure@Effect[Id]` *does*
+     resolve during the drain → enters `abilityResolutions` → the `resolveAbilityRefs` fix lets the eval fold →
+     raw body `Id(<constant>)` → `IdNormalizer` erases it → `<constant>`. **VALIDATE** by compiling a
+     reification-style program via the full jvm path (or by adding `Id` + `implement Effect[Id]` stubs to
+     `ReificationTest`) before concluding the fix suffices; if `pure@Effect[Id]` is genuinely left abstract even
+     in production, the fix must instead Id-*strip* the `SemExpression` sub-term before the gate eval
+     (`runId`/`Id`/`pure@Effect[Id]` recognised by module `eliot.lang`/`eliot.carrier` + `Effect`-ability
+     qualifier + `Id` first type-arg, the `SemExpression`-level analogue of `IdNormalizer.isEffectIdMethod`).
+   - **`MonomorphicTypeCheckProcessorTest` (4) + the whole-structure `ReificationTest` cases — pure
+     Id-wrapping noise.** `shouldBe a[IntegerLiteral]`/`StringLiteral`/`MonomorphicValueReference` now sees a
+     `pure@Id(runId(…))` `FunctionApplication`; `whole[A: Person]: Person = A` renders `Id(Person(...))`. These
+     just need the test to **Id-normalize the mono body before asserting** (reuse
+     `IdNormalizer.normalizeValue` + `eraseIdInBody`, exactly as `WovenValueProcessor` does) so the assertion
+     sees the semantic post-normalization form.
+   - **Two more suites NOT yet investigated: `HigherKindedAbility…`-style resolution (5 failures) and
+     `CarrierBookkeepingTest` "leave a carrier-typed storage slot unbound (the discharge-helper shape)" (1).**
+     Likely also uniform-representation updates or ability-resolution-under-uniform differences — the next
+     session must characterise each before re-baselining.
+
+   **Sequenced next steps for slice 2:** (1) land + **validate** the reification-folding fix (above); (2) add a
+   test helper that Id-normalizes the mono body, update the ~13 raw-mono unit tests to the semantic form; (3)
+   flip the six constructor defaults to `true`; (4) characterise + fix the higher-kinded-ability and
+   carrier-bookkeeping unit failures; (5) then remove `--legacy-carrier` + `uniformCarrierKey` and convert the
+   byte-identity transition tests to uniform-only. Only after all unit tests are green under the uniform
+   default can the legacy machinery be deleted (task the memory tracks as the machinery-deletion step).
 
    **History — flip first attempted + reverted 2026-07-24 (pinned finding 10), then unblocked.** The first
    attempt regressed 9 jvm integration tests — programs the 34-example-main byte-identity corpus never
