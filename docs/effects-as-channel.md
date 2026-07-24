@@ -17,59 +17,66 @@ cannot voice ("declared pure but performs an effect", a value whose mono fails) 
 **Uniform-carrier checker — the LIVE DEFAULT (U4-e core flip landed 2026-07-24).** U1
 (Id-normalization), U2 (spike), the U3a bridge, **U4-a** (complete uniform coverage — every value
 return, all PAYLOAD-slot outcomes, the carrier-slot arm, and the Generic arm route uniform), and the
-**U4-e core flip** are all landed, and (close-out slice 2) the six `uniformCarrier` **constructor defaults
-are `true`** too and the **`--legacy-carrier` CLI flag is removed** — the uniform checker is the sole path
-reachable from the CLI (an explicit `uniformCarrier = false` at processor construction still selects the
-legacy branch, pending its deletion). The whole jvm integration suite runs uniform, green. The first flip
-attempt regressed
-9 jvm integration tests (pinned finding 10); it was unblocked by two fixes — **refinement-channel
-Id-transparency** (`RefinementChannelProcessor` normalizes `Id` on its `MonomorphicValue` input up front,
-as the codegen seam does) and **nested-carrier solving** (`CarrierJoin` now unifies the carrier-stack
-**prefix** pairwise, so the inner binder `G` of `AbortCarrier[AbortCarrier[IO]]` / a nested `DepCarrier`
-solves) — both no-ops on legacy.
+**U4-e core flip** are all landed, and close-out **slice 2 is complete**: the six `uniformCarrier`
+constructor defaults were flipped to `true`, the `--legacy-carrier` CLI flag + `uniformCarrierKey` removed,
+the transition tests converted to a uniform-only compile suite, and **the `uniformCarrier` param itself
+deleted** — the uniform checker is now the unconditional path for the runtime track (no flag anywhere). The
+whole jvm integration suite runs uniform, green. The first flip attempt regressed 9 jvm integration tests
+(pinned finding 10); it was unblocked by two fixes — **refinement-channel Id-transparency**
+(`RefinementChannelProcessor` normalizes `Id` on its `MonomorphicValue` input up front, as the codegen seam
+does) and **nested-carrier solving** (`CarrierJoin` now unifies the carrier-stack **prefix** pairwise, so the
+inner binder `G` of `AbortCarrier[AbortCarrier[IO]]` / a nested `DepCarrier` solves).
 
-**Remaining — the U4-e close-out** (uniform is already the working default):
-- **Slice 1 — DONE (2026-07-24, `3aa5b2d4`):** the vestigial `--effect-channel` flag + threading removed
-  (`effectChannelKey`, the `effectChannel` ctor params on `LangProcessors`/`EffectAccountingProcessor`,
-  dropped from the two accounting tests). Inert — accounting already verified unconditionally; lang 233/233,
-  jvm 283/283.
-- **Slice 2 — the flip is LANDED (2026-07-24); only flag/test cleanup + legacy deletion remain.** The six
-  `uniformCarrier` constructor defaults are now `true`, so the raw-mono processor unit tests run uniform too.
-  Getting there needed three fixes, all landed: (a) the **SemExpression-level Id-strip in the staging gate**
-  (`PostDrainQuoter.stripIdMachinery`) so an erased-determined body still folds under uniform (finding 11) —
-  plus a companion resolution-agnostic recognition of the abstract `Effect[Id]` form in `IdNormalizer`; (b)
-  an **Id-normalize-before-assert helper** on the raw-mono unit tests that now see `pure@Id`/`runId` wrapper
-  noise (`MonomorphicTypeCheckProcessorTest`, `MonomorphicTypeCheckTest`); (c) the **`checkReturnBoundary`
-  injectivity fix** (finding 12) — a callee's HKT ability binder (`Container`'s `?F`, flagged as a carrier
-  unfiltered) is resolved by whole-type injectivity `?F := Box`, not split as a carrier, with an arity guard
-  keeping the effectful-body-under-pure-return fail-safe. `ReificationTest` and the higher-kinded-ability +
-  carrier-bookkeeping suites are all green under the uniform default. Then (still slice 2) the
-  **`--legacy-carrier` CLI flag + `uniformCarrierKey` were removed** and the byte-identity transition tests
-  converted to a uniform-only compile suite (`UniformCarrierByteIdenticalTest` → `UniformCarrierCompileTest`;
-  `UniformCarrierConditionalTest` keeps only the accepted-under-uniform half); finally the **`uniformCarrier`
-  checker param itself was removed** and its two dead `if (!uniformCarrier)` branches collapsed (the uniform
-  path is unconditionally live for the runtime track). **Finding (2026-07-24): the §7 "delete the legacy
-  machinery" cannot proceed at the current state — the default path is the *shared substrate*, not a dead
-  branch.** A whole-tree dependency map showed the uniform bridge is a runtime-track routing overlay that
-  reuses `checkAgainstDefault`/`defaultArgSlot`/`resolveLadder`/the `EffectLifter` arms/`CheckState.ambientCarriers`/`CarrierKindChecker`
-  directly, *and* the compile-time track uses that default path permanently (§8); the join-solver replacement
-  (`finalizeAndMaterialize`) is built but **uncalled**. So the real remaining §7 work is an *implementation*
-  (rewire the runtime uniform spine onto the join solver + decide/extend compile-track treatment), not a
-  deletion — details and the full map in §7.
-- **Then — the reframed §7 + close-out follow-ons**: rewire the uniform spine onto `CarrierJoin` (§7) so the
-  recognition arms retire; respell the synthetic main to `runMain`; land the **effectful-`catch`-handler stdlib
-  delta** (pinned finding 7); turn the §6 Id-residue assertion into a **hard error**; the §9 Cornerstone
-  amendment + doc/skill sweep; verify LSP/diagnostic rendering `Id`-free. See §7/§10 and the pinned findings.
+## Handover (2026-07-24)
 
-Per-slice history and commit trails live in the git log — this document keeps only the design, the
-current state, and the path forward.
+**Where we are.** Both halves are the live, unconditional default. The verification channel is done; the
+uniform-carrier checker is the sole checker path (no flag anywhere — U4-e core flip + close-out slices 1 & 2
+are all landed). **Gate — all green, run these to confirm before starting:**
+
+```
+./mill lang.test        # 233/233
+./mill jvm.test         # 283/283   (whole integration suite runs uniform)
+./mill examples.run jvm exe-jar examples/src/ -m HelloWorld -o <out> && java -jar <out>/HelloWorld.jar   # "Hello World!"
+# eliot-test 11/11 — exact command in eliot-test/.claude/CLAUDE.md (args order-strict)
+```
+
+**The next step is an *implementation*, not the "deletion" the old plan implied.** A whole-tree dependency
+map (§7) established that the "legacy"/default checker path is the **shared substrate**, not dead code:
+the compile-time track uses it permanently (§8), the runtime uniform overlay reuses its helpers directly
+(`checkAgainstDefault`/`defaultArgSlot`/`resolveLadder`/the `EffectLifter` arms/`CheckState.ambientCarriers`/
+`CarrierKindChecker`), and the join-solver replacement (`UniformCarrierChecker.finalizeAndMaterialize`/
+`resolveSlot`) is **built but uncalled**. So nothing in the old deletion list can be removed yet.
+
+**Start here (§7):** rewire the runtime uniform spine onto the `CarrierJoin` solver — wire in
+`finalizeAndMaterialize`/`resolveSlot` so `tryBindLift`/`tryPureWrap`/`tryIdDefault`/`mustLift` become
+unreachable at the argument slots — and decide/extend the compile-time-track treatment so the
+`platform == Platform.Runtime` gate can go (a real §8 design tension: §8 wants both tracks carrier-wrapped for
+value bodies, the implementation currently keeps the compile track carrier-free). This is §11's "join-solver
+first live use" — a substantial, risky slice; do it focused, with the gate above as the safety net, and only
+*then* delete the freed recognition arms. Keep the shared bind/`pure` mechanics
+(`wrapBinds`/`bindWrap`/`pureWrapNode`/`runIdNode`, the `$eff$N` convention).
+
+**Close-out follow-ons (independent of §7, each landable on its own):**
+- **synthetic main → `runMain`** (§7) — makes the one run boundary nominal; needs a `runMain` callable to
+  exist first;
+- **effectful-`catch`-handler stdlib delta** (pinned finding 7) — the join solver is now the default so the
+  stacking cannot occur; acceptance: `failUnit catch (err -> printLine(err))` runs *and* `EffectsThrow` stays
+  green;
+- **§6 Id-residue assertion → hard error** (currently a warning);
+- **§9 Cornerstone amendment + doc/skill sweep** (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect +
+  monomorphize sections);
+- **LSP / diagnostic rendering `Id`-free** — a close-out gate (§9).
+
+Slice 1 (the vestigial `--effect-channel` flag removal) and slice 2 (the folding fix + the flip + the
+flag/param removal) are done — per-slice detail is in §10, the pinned findings, and the git log. This
+document keeps only the design, the current state, and the path forward.
 
 ## 0. Current state
 
 **Tree**: `master`; **uniform carriers are the live default** (the U4-e core flip) — and, since close-out
-slice 2, the raw-mono processor unit tests run uniform too (the six ctor defaults are `true`; see Flags).
-All gates green: `./mill lang.test` (233/233) / `./mill jvm.test` (283/283 — the **whole integration suite
-runs uniform**),
+slice 2, there is **no flag at all**: the `uniformCarrier` param was removed, so the raw-mono processor unit
+tests run uniform too (see Flags). All gates green: `./mill lang.test` (233/233) / `./mill jvm.test` (283/283
+— the **whole integration suite runs uniform**),
 HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then
 `java -jar target/HelloWorld.jar`, now compiled uniform), eliot-test 11/11 (exact command in
 `eliot-test/.claude/CLAUDE.md`; args are order-strict). The **uniform-carrier regression suites** (formerly
@@ -89,24 +96,22 @@ over-count reddens valid code — is a standing gate; rejection is `EffectAccoun
 **Verifier**: `EffectAccountingProcessor` (the §5 post-mono verifier) is now the **sole effect
 verifier** (U4-c-2). It is wired as a codegen precondition (`WovenValueProcessor` demands
 `EffectAccounting.Key` via `getFactOrAbort`, U4-c-1) and verifies **unconditionally** (the
-`--effect-channel` gate on verification is gone; the flag is vestigial until U4-e). The pre-mono
+`--effect-channel` gate on verification was removed at close-out slice 1). The pre-mono
 `EffectResidualChecker` is **deleted**; the one diagnostic it voiced that accounting cannot — "declared
 pure but performs an effect", for a value whose mono *fails* — moved to the focused
 `DeclaredPureChecker`, run per value mono from `TypeStackLoop.runPostDrainResolution`. The subset check
 fires only for a value with an *open effect row* (a concrete-carrier `IO[Unit]` return is exempt); a
 leak reddens through accounting with no flag.
 
-**Flags**: **the uniform checker is the LIVE DEFAULT (U4-e core flip, 2026-07-24)** — and, since
-close-out slice 2 (2026-07-24), **the six `uniformCarrier` constructor defaults are `true` too**
-(`MonomorphicTypeCheckProcessor`, `CompilerMonomorphicTypeCheckProcessor`, `TypeStackLoop` ×2, `Checker`,
-`LangProcessors`), so the raw-mono processor unit tests now run uniform as well — the transitional
-"constructor defaults stay `false`" inconsistency is gone. The **`--legacy-carrier` CLI flag and
-`uniformCarrierKey` were also removed** (close-out slice 2): the uniform checker is the sole CLI-reachable
-path, and the byte-identity transition tests were converted to a uniform-only compile suite. The
-`uniformCarrier` param survives (always `true`) with its legacy branches only until the §7 legacy-machinery
-deletion — an explicit `uniformCarrier = false` at processor construction still selects the legacy branch
-should a test need it. The vestigial `--effect-channel` flag (accounting verifies unconditionally, so it
-gated nothing) was **removed** at close-out slice 1.
+**Flags**: **there are none** (as of close-out slice 2, 2026-07-24). The uniform checker is the
+unconditional path for the runtime track; the compile-time track uses the default path by §8 design (the
+`platform == Platform.Runtime` gate, not a flag). Removed across close-out slice 2: the `--legacy-carrier`
+CLI flag, the `uniformCarrierKey` plugin key, and the `uniformCarrier` param itself (from `Checker`,
+`TypeStackLoop`, both mono processors, `LangProcessors`) with its two dead `if (!uniformCarrier)` branches.
+The vestigial `--effect-channel` flag (accounting verifies unconditionally, so it gated nothing) was removed
+at close-out slice 1. What remains of the "default"/pre-uniform path is **not** a switchable legacy but the
+shared substrate the uniform overlay is built on (§7) — deleting it is the §7 *implementation*, not a flag
+flip.
 
 **Component map**:
 
@@ -145,8 +150,8 @@ gated nothing) was **removed** at close-out slice 1.
   `WovenValueProcessor` does, so a `where`-precondition sees an argument's range through the uniform
   path's `Id[Int[range]]` wrapper; the template every future `MonomorphicValue` consumer follows).
 
-**Uniform-path coverage** (now the default; byte-identical to the legacy `--legacy-carrier` path where it
-succeeds, runtime track):
+**Uniform-path coverage** (the runtime-track checker; each row was brought up byte-identical to the
+pre-uniform path it mirrors — that path is now the shared substrate the uniform arms delegate to, §7):
 
 | construct | routes uniform? | how |
 |---|---|---|
@@ -933,14 +938,20 @@ default path byte-identical, gated by the §0 harness.
    `pure@Id` noise (helper), the five higher-kinded ones a **real checker bug** (pinned finding 12); (6) ✓ remove
    the `--legacy-carrier` CLI flag + `uniformCarrierKey` and convert the byte-identity transition tests to a
    uniform-only compile suite (`UniformCarrierByteIdenticalTest` → `UniformCarrierCompileTest`, compile-succeeds
-   over the base + corpus; `UniformCarrierConditionalTest` keeps the accepted-under-uniform half). **Now
-   remaining — the §7 legacy-machinery deletion** (its own step): collapse the always-`true` `uniformCarrier`
-   branches, delete the `EffectLifter` recognition arms / `Checker` Phase A/B / `defaultArgSlot` /
-   `CheckState.ambientCarriers` (re-pointing the accounting writer), respell the synthetic main to `runMain`, and
-   remove the `uniformCarrier` param. **Landed state (all of slice 2 except §7):** `PostDrainQuoter.stripIdMachinery`
-   + `IdNormalizer` abstract-form recognition + the six ctor defaults `true` + the `checkReturnBoundary` injectivity
-   fix (finding 12) + the test-helper adaptations + the flag removal / test conversion. Gate green: lang 233/233,
-   jvm 283/283, HelloWorld, eliot-test 11/11.
+   over the base + corpus; `UniformCarrierConditionalTest` keeps the accepted-under-uniform half); and finally the
+   **`uniformCarrier` param itself was removed** (from `Checker`/`TypeStackLoop`/both mono processors/`LangProcessors`)
+   with its two dead `if (!uniformCarrier)` branches collapsed. **The §7 "machinery deletion" is then RE-SCOPED
+   — not a deletion.** The whole-tree map (§7) showed the default path is the shared substrate, not a dead branch,
+   so the recognition arms / `defaultArgSlot` / `checkAgainstDefault` / `CheckState.ambientCarriers` /
+   `CarrierKindChecker` cannot be removed until the runtime uniform spine is rewired onto the join solver
+   (`finalizeAndMaterialize`, uncalled) *and* the compile-track treatment is resolved (§8). Two prior-plan items
+   were also corrected: the accounting writer `groundAmbientCarriers` re-derives its carriers and does **not**
+   read `CheckState.ambientCarriers` (no "re-point" needed), and the synthetic-main `runMain` respell needs a
+   `runMain` callable to exist first. **Landed state (all of slice 2, incl. the param removal):**
+   `PostDrainQuoter.stripIdMachinery` + `IdNormalizer` abstract-form recognition + the ctor-default flip + the
+   `checkReturnBoundary` injectivity fix (finding 12) + the test-helper adaptations + the flag/param removal +
+   test conversion. Gate green: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11. **The reframed §7
+   implementation is the next step (see the Handover block up top and §7).**
 
    (The first flip attempt's two failure classes and their fixes — refinement-channel Id-transparency,
    nested-carrier prefix-unify — are summarised in finding 10 and the core-flip paragraph above; forensic
