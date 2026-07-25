@@ -1,5 +1,14 @@
 # Effects as a Channel, v2: Uniform Carriers (Id-Uniform) + a Verification Channel
 
+> **SUPERSEDED IN DIRECTION (2026-07-25) by `docs/effects-as-rows.md` (v3).** Robert decided the
+> uniform-carrier approach is the wrong track (checker growth, the recurring carrier-theft class);
+> the successor design is declared suspension + rows-as-channel + elaboration-as-desugar. **This
+> document remains the authoritative description of the LIVE implementation** until v3 migration
+> step R5 replaces it — use it for maintenance fixes to the running machinery. Do **not** start new
+> v2 work: the U5 list is cancelled, and the Handover's forward-looking directives (including "do
+> not reopen the row-calculus fork") no longer bind — v3 *is* that reopening, decided with the
+> evidence recorded in `docs/effects-as-rows.md` §0.
+
 Status: **Variant A — carrier-everywhere / Id-uniform — is the committed foundation (§13, decided
 2026-07-23).** The plan has two halves that can be handed over independently: a **verification
 channel** (post-mono effect accounting) and a **uniform-carrier checker**.
