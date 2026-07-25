@@ -72,7 +72,15 @@ first live use" — a substantial, risky slice; do it focused, with the gate abo
 ("the join must never `Id`-default an ability-constrained carrier meta") now has its table — read
 `CheckState.metaConstraints` in `finalizeAndMaterialize` when a slot carries a live effect constraint.
 
-**Close-out follow-ons (independent of §7, each landable on its own):**
+**§7 is binding, not merely "next" (pattern analysis 2026-07-25 — pinned finding 13).** The blocker history
+is one bug class recurring: a carrier-layer meta solved/stolen/junk-grounded by order-dependent eager
+unification at the finding-7 constraint↔structure seam — and it keeps recurring because the join solver
+built to eliminate it has zero callers. Until §7 lands, do **not** attempt features that touch carrier
+solving (the catch delta above all), and do **not** extend `applyPendingCarrierPins` to new shapes. The two
+mitigations that ARE independent of §7 — the guard-on-junk fail-safe and the catch/Throw shape matrix — are
+spelled out in finding 13.
+
+**Close-out follow-ons (each landable on its own — except the catch delta, now §7-gated per finding 13):**
 - **synthetic main → `runMain`** (§7) — makes the one run boundary nominal; needs a `runMain` callable to
   exist first;
 - **effectful-`catch`-handler stdlib delta** (pinned finding 7) — the *pre-existing row-pinning bug that
@@ -90,8 +98,10 @@ first live use" — a substantial, risky slice; do it focused, with the gate abo
   handler when `G` is a *concrete* carrier (it holds when `G` is the ambient meta). All 7 Throw/`catch`
   jvm.test cases redden (pure identity/`"default"` handlers included — they either miscompile to a dropped
   value under the shared-session suite or hit the same lift error in a clean single-file compile). So the
-  delta needs **checker work**, not just the stdlib edit: extend the row-argument pin to fire for the outer
-  carrier layer even when the base carrier is concrete, or land it inside the §7 join-solver rewire.
+  delta needs **checker work**, not just the stdlib edit — and the decision (2026-07-25, pinned finding 13)
+  is: **land it inside the §7 join-solver rewire; do NOT extend the row-argument pin** to the concrete-`G`
+  case (a third shape-special-case on the substrate §7 replaces — the pattern predicts a fourth shape
+  defeats it). This bullet is therefore no longer "independent of §7".
 - **§6 Id-residue assertion → hard error — DONE (2026-07-24).** `WovenValueProcessor.assertNoIdResidue` (was
   `warnIdResidue`) now `compilerAbort`s at `mv.name` on any surviving `Id`-machinery reference or `Id[X]` type
   instead of warning; the full gate is green under it (lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11), so
@@ -229,8 +239,9 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
    byte-identical to the default `deferredGenericDefault` on both sides; a Phase-B decision keyed on the
    already-computed `retType`, never a Phase-A wrap.
 7. **The effectful-`catch`-handler delta was BLOCKED on a pre-existing pinned-row/open-row pinning bug —
-   now FIXED by U4-f (`0a711135`); the *delta itself* (the effectful `onError: E => G[A]` widening) remains an
-   independent follow-on. This bug was NOT the ambient-stacking / premature-commitment class the uniform
+   now FIXED by U4-f (`0a711135`); the *delta itself* (the effectful `onError: E => G[A]` widening) is NOT an
+   independent follow-on after all — attempted 2026-07-25, it re-triggers the same class one layer out (§10
+   attempted-and-failed note) and is now **§7-gated** (finding 13). This bug was NOT the ambient-stacking / premature-commitment class the uniform
    `CarrierJoin` eliminates (corrected 2026-07-24; the earlier reading — "regresses two-plus sequenced pure
    catches, fixed once uniform is the default" — was wrong).** The delta itself is right: `catch`'s handler parameter `onError: E => A` becomes
    `onError: E => G[A]`, and its body
@@ -364,6 +375,43 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
     `?F := const String` and silently strip the effect, so there the payload mismatch is reported instead. The
     deeper lesson (same class as findings 10/11): a legacy "harmless because unify-first" invariant does not
     transfer to the split-first uniform path — audit every such assumption when the flip surfaces it.
+13. **The recurring blockers are ONE class, and its designed fix is built but uncalled (pattern analysis
+    2026-07-25, prompted by the catch-delta attempt failing one layer out).** Line up the history — finding 7
+    (error slot junk-grounds → lift chosen), the compound-state payload theft (`?F[List[X]] ~ List[A]` ⤳
+    `?F := List`), the equal-arity `?G := Option` steal, the bare-flex-payload regression (also at
+    `Throw.els:54`), the `carrierSlotLift` `VerifyError` (finding 3), and now finding-7-one-layer-out (the
+    widened handler with concrete `G := IO`) — and every one is the same event: **a carrier-layer
+    metavariable solved, stolen, or left-free-then-junk-grounded as a side effect of order-dependent eager
+    unification at the finding-7 constraint↔structure seam.** Each new program shape (block vs. single
+    statement, concrete vs. ambient base carrier, widened vs. original signature) perturbs solving *order*
+    and defeats the previous point patch (pin-if-still-free, payload-fits-first, the bare-flex guard, the
+    capture probe). The recurrence cause is structural: the mechanism designed to eliminate the class — the
+    `CarrierJoin`/`UniformLadder` order-independent join channel (§3) — has **zero callers** (§7). The
+    byte-identity migration made the uniform path a routing overlay on the legacy eager-unify substrate, so
+    the flip renamed the default without replacing the solving mechanism at the argument slots; every
+    non-overlap feature attempted before §7 therefore rolls the dice on the substrate's known weakness.
+    Twice the plan predicted the catch delta would land after a manifestation fix ("once uniform is the
+    default"; "standalone on top of U4-f") and was refuted — manifestation fixes do not transfer.
+    **Binding consequences:**
+    - **No more pin patches.** Do not extend `applyPendingCarrierPins` to the concrete-`G` case — a third
+      shape-special-case on a substrate §7 replaces; the pattern predicts a fourth shape defeats it.
+    - **No carrier-solving features before §7.** The catch delta (and anything else that changes what
+      flows through the argument-slot carrier solving) lands inside or after the §7 rewire, never before.
+    - **Defuse the amplifier (independent of §7, small).** The `where E1 != E2` lift is *selected* by
+      evaluating a guard over a junk-grounded meta — a silently-wrong instance choice that surfaces three
+      steps later as the cryptic `Throw[String, IO]`. Fail-safe rule: ability resolution must not evaluate
+      a `where` guard whose operands include a defaulted/junk-grounded (not genuinely solved) meta — defer,
+      or error naming the slot. This converts the next manifestation into an immediate, located diagnostic.
+    - **Stand up the catch/Throw shape matrix (independent of §7, cheap).** Every recurrence was an
+      uncovered shape combination: {single-statement, block} × {ambient meta, concrete `IO`, pure `Id`} ×
+      {identity, non-identity, effectful handler} × {one, two dischargers} — ~20 tiny cases; U4-f's
+      insufficiency would have been caught in the session that declared finding 7 fixed.
+    - **Inside §7, make discharge row-directed at elaboration** (§4's spec): derive a pinned-row layer's
+      ability arguments from the argument's row constraints at capture time (single source of truth), so a
+      free error-slot meta never exists to junk-ground — the principled form U4-f approximated at the slots.
+    (The rejected row calculus (§10) would also kill the class by construction — the recurrence is evidence
+    the seam is real — but the rejection reasons stand; this finding argues for landing the chosen fix, not
+    reopening the fork.)
 
 ## 1. The problem
 
@@ -840,7 +888,8 @@ carrier during checking, erased by §6 (its compile-time overlay remains for §8
 atomically. Its pre-existing pinned-row/open-row pinning blocker (pinned finding 7) is now **fixed** by the
 U4-f row-argument type-pinning slice (§10, `0a711135`); the delta itself remains to land — but the naive stdlib
 edit is **not** sufficient (it re-triggers a finding-7-class lift selection in the concrete-base-carrier block
-form; §10 U4-f "attempted-and-failed" note), so this delta now carries a checker prerequisite.
+form; §10 U4-f "attempted-and-failed" note), so this delta now carries a checker prerequisite: it lands inside
+or after the §7 join-solver rewire (finding 13), never as a pre-§7 stdlib edit.
 
 ## 8. The compile-time residue
 
@@ -1160,9 +1209,10 @@ default path byte-identical, gated by the §0 harness.
    - **Root cause / seam:** the widened handler changes the carrier/error-slot solving *order* so U4-f's
      pin-if-still-free is defeated for the outer `ThrowCarrier` layer when the base is concrete — the same
      constraint↔structure dual-representation seam finding 7 names, one layer out. **The fix is checker-level,
-     not stdlib:** extend the row-argument pin (`recordRowArgumentPins`/`applyPendingCarrierPins`) to pin the
-     outer carrier layer's ability arguments even when `G` is a concrete carrier, or fold this into the §7
-     join-solver rewire (where the carrier is solved by join and cannot junk-ground). Repro: a two-statement
+     not stdlib:** either extend the row-argument pin (`recordRowArgumentPins`/`applyPendingCarrierPins`) to
+     pin the outer carrier layer's ability arguments even when `G` is a concrete carrier, or fold this into
+     the §7 join-solver rewire (where the carrier is solved by join and cannot junk-ground). **Decided
+     (finding 13): the fold-into-§7 option — do not extend the pin.** Repro: a two-statement
      `IO[Unit]` block with `parseOk`/`parseBad` and identity handlers, against the widened `catch`. The
      stdlib edit was reverted; the gate is back to green.
 
@@ -1171,8 +1221,9 @@ default path byte-identical, gated by the §0 harness.
    but: it is a *fourth* representation of rows (surface, constraints, stacks, channel); a distinct row
    kind cuts against types-are-values; and Eliot's constraint + canonical-stack encoding is precisely the
    evidence-passing form row systems compile into anyway. Every observed failure of the class traces to
-   one missing rule at one boundary — U4-f closes the seam without new machinery. (Per-node rows and `-E`
-   stay rejected per §5/§9.)
+   one missing rule at one boundary — U4-f closed the first such boundary without new machinery; the
+   concrete-`G` outer layer showed the seam extends and is the §7 join solver's job (finding 13), still
+   without a new row kind. (Per-node rows and `-E` stay rejected per §5/§9.)
 
 ### U5 — follow-ups unlocked
 
@@ -1202,6 +1253,11 @@ legality check (§5 check 2) on the ride-test foundation.
 - **Per-consumer Id-transparency is a recurring tax** (findings 10/11 are the same class): until the
   §6 no-residue assertion is a hard error, any new consumer of `MonomorphicValue` or of mid-mono
   `SemExpression`s must get the Id-normalize-first treatment.
+- **Pre-§7 carrier-solving work on the legacy substrate is the standing blocker generator** (pinned
+  finding 13): every feature attempt that touches the argument-slot carrier solving before the §7 rewire
+  has hit the order-dependent eager-unify seam and produced a new blocker; sequence such work after the
+  rewire. The mitigations that land independently of §7 are the guard-on-junk fail-safe and the
+  catch/Throw shape matrix (finding 13).
 
 ## 12. Open questions
 
