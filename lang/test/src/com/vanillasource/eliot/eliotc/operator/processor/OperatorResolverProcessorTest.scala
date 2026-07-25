@@ -359,21 +359,34 @@ class OperatorResolverProcessorTest
 
   // --- effects-as-channel §7 step 3: the carrier-stack recognition tag (finding 14). A *pinned* row `{X[E] | G} A`
   // desugars to the canonical carrier stack `XCarrier[E, G, A]`; the position is marked on `effectRow.returnPinned` /
-  // `pinnedParameterIndices` so the checker can later split it as a carrier slot without re-deriving carrier-ness from
-  // shape or name. Inert for now (nothing routes on it yet). `X` is the pinned entry's ability name; only its
-  // `<Ability>Carrier` survives desugaring, so `X` itself need not be declared. ---
+  // `pinnedParameterIndices` so the checker can later split it as a carrier slot without re-deriving carrier-ness
+  // from shape or name. Since effects-as-rows R2 the *entries* are recorded too (`pinnedParameterEffects` /
+  // `returnPinnedEffects`, in declared = discharge order), so the entry's ability name resolves like an open-row
+  // entry's — the ability must be declared (in real code the `<Ability>Carrier` is colocated with its ability, so one
+  // resolves iff the other does). ---
 
-  "the pinned-row recognition tag" should "mark a discharger-style pinned parameter (catch's `{Throw[E] | G} A` shape)" in {
-    val source = "data Str\ndata XCarrier[E, G, A]\ndef discharge[E, G, A](obj: {X[E] | G} A): Str"
+  "the pinned-row recognition tag" should "record a discharger-style pinned parameter with its entries (catch's `{Throw[E] | G} A` shape)" in {
+    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
+      "def discharge[E, G, A](obj: {X[E] | G} A): Str"
     runEngineForResolvedValue(source, "discharge").asserting { d =>
-      (effectRowReturnPinned(d), effectRowPinnedParams(d)) shouldBe (false, Set(0))
+      (effectRowReturnPinned(d), effectRowPinnedParamEntries(d)) shouldBe (false, Seq((0, Seq("X"))))
     }
   }
 
-  it should "mark a pinned-row return (a value whose type is a carrier stack)" in {
-    val source = "data Str\ndata XCarrier[E, G, A]\ndef make[E, G, A]: {X[E] | G} A"
+  it should "record a pinned-row return with its entries (a value whose type is a carrier stack)" in {
+    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
+      "def make[E, G, A]: {X[E] | G} A"
     runEngineForResolvedValue(source, "make").asserting { m =>
-      (effectRowReturnPinned(m), effectRowPinnedParams(m)) shouldBe (true, Set.empty)
+      (effectRowReturnPinnedEntries(m), effectRowPinnedParams(m)) shouldBe (Seq("X"), Set.empty)
+    }
+  }
+
+  it should "record a multi-entry pinned stack's entries in declared (discharge) order" in {
+    val source = "data Str\ndata XCarrier[G, A]\ndata YCarrier[G, A]\n" +
+      "ability X[F[_]] { def opX: F[Str] }\nability Y[F[_]] { def opY: F[Str] }\n" +
+      "def dischargeBoth[G, A](obj: {X, Y | G} A): Str"
+    runEngineForResolvedValue(source, "dischargeBoth").asserting { d =>
+      effectRowPinnedParamEntries(d) shouldBe Seq((0, Seq("X", "Y")))
     }
   }
 
@@ -401,6 +414,12 @@ class OperatorResolverProcessorTest
 
   private def effectRowPinnedParams(rv: OperatorResolvedValue): Set[Int] =
     rv.effectRow.pinnedParameterIndices
+
+  private def effectRowReturnPinnedEntries(rv: OperatorResolvedValue): Seq[String] =
+    rv.effectRow.returnPinnedEffects.map(_.abilityFQN.abilityName)
+
+  private def effectRowPinnedParamEntries(rv: OperatorResolvedValue): Seq[(Int, Seq[String])] =
+    rv.effectRow.pinnedParameterEffects.map(pe => (pe.parameterIndex, pe.effects.map(_.abilityFQN.abilityName)))
 
   private def signatureShow(rv: OperatorResolvedValue): String =
     rv.signature.value.show

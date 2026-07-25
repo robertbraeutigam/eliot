@@ -135,10 +135,12 @@ object EffectSugarDesugarer {
     *   - *Open* rows populate `returnEffects` / `parameterEffects`: return-position rows are the value's own ambient
     *     row; each value parameter carrying an open row (an effectful callback like `action: A => {Effect} Unit`) is
     *     recorded with its positional index.
-    *   - *Pinned* rows populate `returnPinned` / `pinnedParameterIndices`: a signature position whose top-level type is
-    *     a pinned row (`{Throw[E] | G} A`, which [[rewrite]] collapses to the canonical `<Ability>Carrier` stack) is a
-    *     discharger/handler capture domain the checker will later split as a carrier slot — recorded here, at the one
-    *     point that knows it is a carrier stack, so no downstream phase re-derives carrier-ness from shape or name.
+    *   - *Pinned* rows populate `returnPinnedEffects` / `pinnedParameterEffects`: a signature position whose top-level
+    *     type is a pinned row (`{Throw[E] | G} A`, which [[rewrite]] collapses to the canonical `<Ability>Carrier`
+    *     stack) is a discharger/handler capture domain — recorded here *with its entries in declared (= discharge)
+    *     order* (effects-as-rows R2, docs/effects-as-rows.md Appendix A.6), at the one point that knows it is a
+    *     carrier stack, so no downstream phase re-derives carrier-ness — or the discharged entries — from shape or
+    *     name. Entries are deliberately not deduplicated: a pinned row is a stack, and multiplicity/order matter.
     *
     * Body rows and generic-parameter-bound rows are deliberately excluded — the declared row is the value's public
     * signature only.
@@ -150,26 +152,27 @@ object EffectSugarDesugarer {
         val entries = openRowEntries(arg.typeExpression)
         Option.when(entries.nonEmpty)(EffectRow.ParameterEffects(index, entries))
       },
-      returnPinned = isPinnedRow(function.typeDefinition),
-      pinnedParameterIndices = function.args.zipWithIndex.collect {
-        case (arg, index) if isPinnedRow(arg.typeExpression) => index
-      }.toSet
+      returnPinnedEffects = pinnedRowEntries(function.typeDefinition),
+      pinnedParameterEffects = function.args.zipWithIndex.flatMap { case (arg, index) =>
+        val entries = pinnedRowEntries(arg.typeExpression)
+        Option.when(entries.nonEmpty)(EffectRow.ParameterEffects(index, entries))
+      }
     )
 
   /** The distinct *open*-row (`tail == None`) ability entries anywhere within one signature-position expression. */
   private def openRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
     collectRows(expr).map(_.value).filter(_.tail.isEmpty).flatMap(_.effects).distinctBy(constraintKey)
 
-  /** Whether a signature-position type expression is *itself* — at top level — a **pinned** effect row
-    * (`{Throw[E] | G} A`, i.e. an [[EffectfulType]] with a non-empty effect set and a base tail). Such a position
-    * collapses to a canonical carrier stack and is a discharger/handler capture domain (finding 14). A *nested* pinned
-    * row (e.g. the codomain of a callback `A => {Throw[E] | G} B`) does not make the position itself a carrier stack,
-    * so only the top-level shape counts.
+  /** The entries of a signature-position type expression that is *itself* — at top level — a **pinned** effect row
+    * (`{Throw[E] | G} A`, i.e. an [[EffectfulType]] with a non-empty effect set and a base tail), in declared order.
+    * Such a position collapses to a canonical carrier stack and is a discharger/handler capture domain (finding 14).
+    * A *nested* pinned row (e.g. the codomain of a callback `A => {Throw[E] | G} B`) does not make the position itself
+    * a carrier stack, so only the top-level shape counts. Empty for any non-pinned position.
     */
-  private def isPinnedRow(expr: Sourced[Expression]): Boolean =
+  private def pinnedRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
     expr.value match {
-      case EffectfulType(effects, _, Some(_)) => effects.nonEmpty
-      case _                                  => false
+      case EffectfulType(effects, _, Some(_)) => effects
+      case _                                  => Seq.empty
     }
 
   /** Rewrites the effect-rows of an expression: an *open* `{…} A` node becomes `F[A]` (the carrier is always present

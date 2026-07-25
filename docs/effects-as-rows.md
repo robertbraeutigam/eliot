@@ -229,8 +229,20 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   **one line** (suspension is row-neutral — only pinned slots differ, by subtraction); the suspension
   surface **already parses** (open rows on by-value parameters populate `EffectRow.parameterEffects`
   today); and R2 must additionally record **pinned-slot entries** beside the position tag.
-- **R2 — surface:** arrow row-defaulting; open rows on by-value parameters accepted with the
-  suspension meaning (parser/core only — no behaviour change while v2's desugar still runs).
+- **R2 — surface: DONE (2026-07-25), re-scoped by the R1 findings.** What R2 turned out to be:
+  (i) **pinned-slot entries recorded in `EffectRow`** — `returnPinnedEffects` / `pinnedParameterEffects`
+  (entries in declared = discharge order, not deduplicated), populated by `EffectSugarDesugarer` at the
+  one point that knows; the position-only `returnPinned`/`pinnedParameterIndices` became derived views,
+  so every existing consumer (`Checker.calleePinnedParams`) is untouched and all fact-chain hops ride the
+  existing `map`/`traverse`. The spike's name-based `<Ability>Carrier` inversion was deleted and its
+  nested-stack test passes off the recorded entries — the R2 acceptance criterion. One consequence,
+  fail-safe by direction: a pinned entry's ability name now *resolves* like an open-row entry's, so
+  pinning an ability that is not in scope errors loudly (in real code the carrier is colocated with its
+  ability, so one resolves iff the other does). (ii) The **suspension surface needed no work**: open rows
+  on by-value parameters already parse and populate `parameterEffects` (R1 finding); their v3 *meaning*
+  activates with the R4 desugar. (iii) **Arrow row-defaulting moved to R3**: it is a *reading* rule of
+  the row checker (an unannotated signature arrow reads as a fresh row variable), not a stored fact —
+  nothing to land ahead of its consumer. Gate: lang 1042, jvm 293, HelloWorld, eliot-test 11/11.
 - **R3 — row check, shadow:** the per-definition row checker runs report-only beside v2 on the whole
   corpus; disagreements triaged (each is either a v2 bug or a v3 rule gap).
 - **R4 — elaboration desugar, shadow:** desugar output compiled on a second track; byte-identity as a
@@ -330,11 +342,11 @@ signature's ambient row variable.
 1. **Rows as multisets of (ability, type-args)** — the name-set `Row` collapses `{Throw[A],
    Throw[B]}`; discharge must consume by type-arg match, and the v2 §4 multiplicity rule (no inferred
    order; pin to choose) carries over (answers §9 Q4).
-2. **Record pinned-slot entries in `EffectRow`** beside the position tag (an R2 item): the spike
-   recovers them from the desugared `<Ability>Carrier` stack by naming convention — sanctioned
-   nowhere in production. One nuance the spike hit: only the *outer* stack layer is payload-applied
-   (`ThrowCarrier[E, StateCarrier[S, Id], A]` — the inner layer's base is its last argument), which
-   is exactly the shape knowledge that belongs at the desugar, not at a consumer.
+2. **Record pinned-slot entries in `EffectRow`** beside the position tag — **DONE at R2 (2026-07-25)**:
+   `returnPinnedEffects`/`pinnedParameterEffects` carry the entries in declared order, and the spike now
+   reads them (its name-based stack inversion is deleted). The nuance that motivated this: only the
+   *outer* stack layer is payload-applied (`ThrowCarrier[E, StateCarrier[S, Id], A]` — the inner layer's
+   base is its last argument) — shape knowledge that belongs at the desugar, not at a consumer.
 3. **First-order abilities** (`Show`) are distinguished from effect abilities by their missing HKT
    binder when the method's signature is at hand; the spike assumes effectful when it is not.
 4. **The suspension surface already exists**: open rows on by-value parameters parse today and

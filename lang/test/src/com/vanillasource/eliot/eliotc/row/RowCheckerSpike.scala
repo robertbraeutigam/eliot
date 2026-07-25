@@ -22,13 +22,14 @@ import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression,
   * Spike simplifications, each noted in the doc (Appendix A, "Production deltas"):
   *   - a `Row` is a set of ability *names* — production rows are multisets of (ability, type-args), so
   *     `{Throw[A], Throw[B]}` stays two entries and discharge consumes by type-arg match;
-  *   - pinned-slot entries are recovered from the desugared `<Ability>Carrier` stack by the naming convention —
-  *     production records the entries beside the position tag in `EffectRow` at the desugar (R2), so no name-based
-  *     recognition survives;
   *   - a function-valued argument's *latent* row joins the receiving call conservatively ("the callee may run it") —
   *     production threads a row variable per arrow instead;
   *   - an ability method with no [[OperatorResolvedValue]] in the lookup map is assumed effectful (production
   *     distinguishes first-order abilities by their missing HKT binder, as [[EffectCarriers]] does).
+  *
+  * Since R2, pinned-slot entries are read from the recorded `EffectRow.pinnedParameterEffects` (populated by the
+  * desugar in declared order) — the spike's original name-based `<Ability>Carrier` stack inversion is deleted, which
+  * is itself the R2 acceptance criterion: the recorded entries suffice for discharge subtraction, nesting included.
   */
 object RowCheckerSpike {
 
@@ -144,30 +145,15 @@ object RowCheckerSpike {
   private def paramCount(fqn: ValueFQN, values: Map[ValueFQN, OperatorResolvedValue]): Int =
     values.get(fqn).map(orv => SignatureView.of(orv.signature).parameters.size).getOrElse(0)
 
-  /** The ability entries a pinned parameter's declared carrier stack discharges, read off the desugared
-    * `<Ability>Carrier[…]` chain (outermost first, descending each layer's base position). Spike-only name-based
-    * inversion — production records these entries in `EffectRow` beside the position tag (R2).
+  /** The ability entries a pinned parameter's declared stack discharges, read from the recorded
+    * `EffectRow.pinnedParameterEffects` (populated by the desugar in declared order — never re-derived from the
+    * desugared carrier stack's shape or name).
     */
-  private def pinnedEntries(orv: OperatorResolvedValue, index: Int): Row = {
-    val view = SignatureView.of(orv.signature)
-    if (index < view.parameters.size) collectStack(view.parameters(index).value, outer = true) else Set.empty
-  }
-
-  /** Walk a desugared carrier stack `<A>Carrier[abilityArgs…, base, payload]`. Only the *outer* layer is applied to
-    * the payload; inner layers are `Type -> Type` shapes whose base is their *last* argument
-    * (`ThrowCarrier[E, StateCarrier[S, Id], A]`).
-    */
-  private def collectStack(tpe: OperatorResolvedExpression, outer: Boolean): Row = {
-    val (head, args) = spine(tpe)
-    val minArgs      = if (outer) 2 else 1
-    head match {
-      case ValueReference(name, _) if name.value.name.name.endsWith("Carrier") && args.size >= minArgs =>
-        val ability   = name.value.name.name.dropRight("Carrier".length)
-        val baseIndex = if (outer) args.size - 2 else args.size - 1
-        Set(ability) ++ collectStack(args(baseIndex).value, outer = false)
-      case _                                                                                           => Set.empty
-    }
-  }
+  private def pinnedEntries(orv: OperatorResolvedValue, index: Int): Row =
+    orv.effectRow.pinnedParameterEffects
+      .find(_.parameterIndex == index)
+      .map(_.effects.map(_.abilityFQN.abilityName).toSet)
+      .getOrElse(Set.empty)
 
   /** Peel the leading parameter/generic binders of a definition's runtime — the definition's row is the row of its
     * fully-applied body (the latent row of the outer lambdas), which is what `derived ⊆ declared` checks.
