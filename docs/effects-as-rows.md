@@ -257,8 +257,20 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   metadata loss — the latter a genuine latent defect fixed in the layer merge. Arrow row-defaulting landed
   as the checker's conservative-latent reading rule (A.5). Gate: lang + jvm (295) green, HelloWorld,
   eliot-test 11/11.
-- **R4 — elaboration desugar, shadow:** desugar output compiled on a second track; byte-identity as a
-  safety oracle where the output should match v2's elaboration (it is an oracle, not a hard gate).
+- **R4 — elaboration desugar, shadow: FIRST SLICE DONE (2026-07-25).** The elaborator core exists —
+  `lang/src/com/vanillasource/eliot/eliotc/row/RowElaborator.scala`, unwired, decision-free (every choice
+  reads declared rows/slot modes via `RowChecker`, never a type) — covering strict-slot bind hoisting
+  (leftmost-outermost), block/`val` sequencing over the applied-lambda desugar, the uniform pure-wrap rule
+  (a pure node in a carrier position — innermost continuations and declared-row boundaries alike), mixed
+  and multi-argument calls, suspended/pinned/run-boundary slot pass-through, and the pure-code identity
+  (empty row ⇒ byte-identical output, no `Id`). Acceptance: `RowElaboratorTest` compiles each
+  direct-style program *and its hand-written explicit-monadic twin* through the real pipeline and asserts
+  the elaborated body is **structurally identical** (α-renamed binders) to the twin — 9 shapes green.
+  The machinery nodes are spelled by the same FQNs the v2 checker splices (`WellKnownTypes.effect*FQN`),
+  so the output is today's explicit monadic core by construction. **Remaining R4 slices**: pure arguments
+  at suspended slots (conditional-arm `pure`-wrap), the discharge-region `Id` instantiation + boundary
+  `runId` (A.4), user-lambda codomains (arrow latent rows), and the end-to-end shadow compile of
+  elaborated output (needs a pipeline injection seam or source re-rendering — design in the next slice).
 - **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
   slices (per-slice gate: lang + jvm tests, HelloWorld, eliot-test).
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory

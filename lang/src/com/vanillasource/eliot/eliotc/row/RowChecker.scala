@@ -147,6 +147,29 @@ object RowChecker {
   private def pinnedReturnEntries(orv: OperatorResolvedValue): Row =
     orv.effectRow.returnPinnedEffects.map(_.abilityFQN).toSet
 
+  /** The row a single expression derives in the given parameter environment — the [[RowElaborator]]'s effectfulness
+    * test (an expression is *effectful* iff its row is non-empty; a carrier-typed *value* — a reified computation —
+    * derives the empty row and is not effectful).
+    */
+  def expressionRow(expr: OperatorResolvedExpression, env: Map[String, Row], universe: Universe): Row =
+    valueRow(expr, env, universe).row
+
+  /** What a saturated reference to `fqn` alone performs (its declared row / its ability) — the callee half of the
+    * derivation rule, exposed for the [[RowElaborator]].
+    */
+  def calleeRow(fqn: ValueFQN, universe: Universe): Row =
+    calleeContribution(fqn, universe).row
+
+  /** The declared rows of a definition's parameters by binder name (suspended slots, effectful-callback arrows) —
+    * exposed for the [[RowElaborator]], which elaborates in the same environment the checker derives in.
+    */
+  def parameterRowsOf(orv: OperatorResolvedValue, paramNames: Seq[String]): Map[String, Row] =
+    parameterEnvironment(orv, SignatureView.of(orv.signature), paramNames)
+
+  /** Peel the leading binders of a runtime body, collecting their names — exposed for the [[RowElaborator]]. */
+  def peelBinders(expr: OperatorResolvedExpression): (Seq[String], OperatorResolvedExpression) =
+    peelLambdas(expr)
+
   /** A derivation in progress: the row performed plus the referenced names the universe could not resolve. */
   private case class Derivation(row: Row, unknown: Set[ValueFQN]) {
     def |+|(other: Derivation): Derivation      = Derivation(row ++ other.row, unknown ++ other.unknown)
