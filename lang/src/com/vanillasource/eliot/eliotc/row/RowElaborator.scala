@@ -116,6 +116,10 @@ object RowElaborator {
             val binder      = freshBinder()
             val (argElab, _) = core(arg)
             (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
+          } else if (suspended.contains(index)) {
+            // A declared-suspended slot receives a computation: an effectful argument passes unrun; a pure argument
+            // is lifted into the carrier (`if(c, "a")`'s pure arm becomes `pure("a")`).
+            (accArgs :+ elaborate(arg, needCarrier = true), accBinds)
           } else {
             val (argElab, _) = core(arg)
             (accArgs :+ argElab, accBinds)

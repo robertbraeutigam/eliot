@@ -108,16 +108,32 @@ class RowElaboratorTest
     }
   }
 
+  // --- suspended slots: an effectful argument passes unrun; a pure argument lifts into the carrier — v2's
+  // pure-wrap arm, now a declared-slot-mode read. ---
+
+  it should "pure-wrap a pure argument at a declared-suspended slot and pass an effectful one unrun" in {
+    val branchy = "def branch[A](c: Str, t: {Con} A, f: {Con} A): {Con} A\n"
+    compareToTwin(
+      branchy + "def d: {Con} Str = branch(strA, pureStr, readLine)",
+      branchy + "def t: {Con} Str = branch(strA, pure(pureStr), readLine)",
+      extraNames = Seq("branch")
+    )
+  }
+
   /** Elaborate `d` from `direct` and structurally compare with `t`'s compiled runtime from `twin`. */
-  private def compareToTwin(direct: String, twin: String): IO[org.scalatest.Assertion] =
+  private def compareToTwin(direct: String, twin: String, extraNames: Seq[String] = Seq.empty): IO[org.scalatest.Assertion] =
     for {
-      d      <- elaborated(prelude + direct, "d")
-      t      <- runtimeOf(prelude + twin, "t")
+      d      <- elaborated(prelude + direct, "d", extraNames)
+      t      <- runtimeOf(prelude + twin, "t", extraNames)
     } yield canonical(d._1) shouldBe canonical(t)
 
   /** The elaborated body of `name` plus its original runtime (both as expressions). */
-  private def elaborated(source: String, name: String): IO[(OperatorResolvedExpression, OperatorResolvedExpression)] =
-    universeOf(source, name).map { universe =>
+  private def elaborated(
+      source: String,
+      name: String,
+      extraNames: Seq[String] = Seq.empty
+  ): IO[(OperatorResolvedExpression, OperatorResolvedExpression)] =
+    universeOf(source, name, extraNames).map { universe =>
       val orv = universe.values(vfqn(name))
       val el  = RowElaborator
         .elaborate(orv, universe)
@@ -125,8 +141,8 @@ class RowElaboratorTest
       (el.value, orv.runtime.get.value)
     }
 
-  private def runtimeOf(source: String, name: String): IO[OperatorResolvedExpression] =
-    universeOf(source, name).map(_.values(vfqn(name)).runtime.get.value)
+  private def runtimeOf(source: String, name: String, extraNames: Seq[String]): IO[OperatorResolvedExpression] =
+    universeOf(source, name, extraNames).map(_.values(vfqn(name)).runtime.get.value)
 
   /** Canonical structural rendering: binders α-renamed in traversal order, positions and type arguments ignored. */
   private def canonical(expr: OperatorResolvedExpression): String = {
@@ -148,7 +164,7 @@ class RowElaboratorTest
 
   private def vfqn(name: String): ValueFQN = ValueFQN(testModule, QualifiedName(name, Qualifier.Default))
 
-  private def universeOf(source: String, target: String): IO[RowChecker.Universe] =
+  private def universeOf(source: String, target: String, extraNames: Seq[String] = Seq.empty): IO[RowChecker.Universe] =
     for {
       generator <- IncrementalFactGenerator.create(SequentialCompilerProcessors(processors), None)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
@@ -162,7 +178,7 @@ class RowElaboratorTest
                        generator.registerFact(PathScan(modulePath, Seq(impFile), Platform.Compiler)) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, imp.content)))
                    }
-      keys       = (names :+ target).map(vfqn)
+      keys       = (names ++ extraNames :+ target).map(vfqn)
       orvs      <- keys.traverse(k => generator.getFact(OperatorResolvedValue.Key(k)))
       errors    <- generator.currentErrors()
     } yield {

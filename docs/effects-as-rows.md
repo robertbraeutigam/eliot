@@ -265,12 +265,14 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   and multi-argument calls, suspended/pinned/run-boundary slot pass-through, and the pure-code identity
   (empty row ⇒ byte-identical output, no `Id`). Acceptance: `RowElaboratorTest` compiles each
   direct-style program *and its hand-written explicit-monadic twin* through the real pipeline and asserts
-  the elaborated body is **structurally identical** (α-renamed binders) to the twin — 9 shapes green.
+  the elaborated body is **structurally identical** (α-renamed binders) to the twin — 10 shapes green,
+  including the suspended-slot rule (a pure argument at a declared-suspended slot lifts via `pure`, an
+  effectful one passes unrun — v2's `tryPureWrap` arm as a declared-slot-mode read).
   The machinery nodes are spelled by the same FQNs the v2 checker splices (`WellKnownTypes.effect*FQN`),
-  so the output is today's explicit monadic core by construction. **Remaining R4 slices**: pure arguments
-  at suspended slots (conditional-arm `pure`-wrap), the discharge-region `Id` instantiation + boundary
-  `runId` (A.4), user-lambda codomains (arrow latent rows), and the end-to-end shadow compile of
-  elaborated output (needs a pipeline injection seam or source re-rendering — design in the next slice).
+  so the output is today's explicit monadic core by construction. **Remaining R4 slices**: the
+  discharge-region `Id` instantiation + boundary `runId` (A.4), user-lambda codomains (arrow latent
+  rows), and the end-to-end shadow compile of elaborated output (needs a pipeline injection seam or
+  source re-rendering — design in the next slice).
 - **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
   slices (per-slice gate: lang + jvm tests, HelloWorld, eliot-test).
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory
