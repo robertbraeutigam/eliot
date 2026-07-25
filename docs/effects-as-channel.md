@@ -35,8 +35,9 @@ are all landed). **U4-f (row-argument type-pinning, `0a711135`) and U4-g (effect
 two §7 elaboration fixes, `c7b30952`) are landed** — the catch-handler discharge story is now complete for both
 pure and effectful handlers, and the two §7 elaboration primitives finding 13 prescribed (row-directed pinning
 *at elaboration*; single-node `carrierSlotLift`) are in place. What **remains** for §7 is the join-solver **spine**
-rewire itself (the capture arm) + the §8 gate — see *Start here* below. **Gate — all green, run these to confirm
-before starting:**
+rewire itself (the capture arm) + the §8 gate. **A spine attempt after `59a1130a` (2026-07-25) FAILED and was
+discarded, leaving no record** (pinned finding 15) — do not go at the spine directly again; follow **the mandated
+sequence** below. **Gate — all green, run these to confirm before starting:**
 
 ```
 ./mill lang.test        # green (mill task counter 233/233)
@@ -63,7 +64,7 @@ files still fail" note (they were already green on baseline — verified by stas
 Gate green under it (`lang.test` / `jvm.test` — the new non-identity-handler case is in `ExamplesIntegrationTest2`
 — HelloWorld, eliot-test 11/11).
 
-**Start here: the §7 spine rewire — now narrowed to ONE arm (2026-07-25 code audit).** The runtime argument
+**The target: the §7 spine rewire — narrowed to ONE arm (2026-07-25 code audit).** The runtime argument
 path is *already* almost entirely join-solver-based; the audit (§7) found the remaining legacy eager-unify is a
 **single arm**:
 
@@ -109,6 +110,56 @@ carrier-ness) — but the capture-arm *routing* still needs domain-side recognit
 Platform.Runtime`; the compile-time track runs the default (carrier-free) path *by design* today (§8), but §8's
 text wants both tracks carrier-wrapped for value bodies. Dropping the gate is a **design decision, not a mechanical
 edit** — resolve it (or keep the gate with a documented rationale) before the recognition arms can be deleted.
+**Resolved by recommendation (2026-07-25): keep the gate, permanently — see §8 *Resolution*.** The §7 deletion
+target weakens to *unreachable from the runtime track*, which is sufficient (the finding-13 bug class lives at
+the runtime capture seam).
+
+**START HERE — the mandated sequence for the next attempt (set 2026-07-25, after the failed spine attempt,
+pinned finding 15). Work strictly in this order; each step lands green on its own before the next begins:**
+
+1. **Record every attempt — always, before discarding the tree.** A short note in this doc (approach, what
+   broke, symptom) even for a revert. The finding-13 pattern analysis derives its authority from the
+   recurrence history; an unrecorded failure (finding 15) donates nothing and forces re-derivation.
+2. **Land the two §7-independent mitigations (finding 13, both still open, both cheap):**
+   - the **catch/Throw shape matrix** (~20 tiny cases: {single-statement, block} × {ambient meta, concrete
+     `IO`, pure `Id`} × {identity, non-identity, effectful handler} × {one, two dischargers}) — the net that
+     catches an insufficient rewire *in the session that writes it*. Cases that fail today are a feature:
+     they map the residual seam before the rewire; record them as expected-fail with the symptom.
+   - the **guard-on-junk fail-safe**: ability resolution must not evaluate a `where` guard whose operands
+     include a defaulted/junk-grounded (not genuinely solved) meta — defer, or error naming the slot.
+3. **Land finding 14's recognition tag as its own behavior-neutral slice** (design in finding 14's
+   *Recommended design* addendum: fact-carried per-parameter metadata following the `EffectRow` precedent —
+   NOT SemValue/expression threading). Tests assert the tag lands exactly on pinned-row/discharger
+   parameters and never on data types (`List`/`Option`); zero routing change; full gate green.
+4. **Only then route the capture arm — smallest shape first, byte-identity-driven (the U4-a discipline).**
+   First slice: *tagged single-layer pinned domains with an open-row actual* (the `catch` shape) only;
+   everything else stays on the whole-unify fallback. Verify byte-identity across the examples corpus (as
+   the 34/34 flip-readiness check did), then expand shape by shape (concrete-`G`, multi-layer, doomed)
+   until the whole-unify arm is unreachable — delete it only then. Keep `eagerRowPinIntoDomain` as the
+   row-directed derivation *inside* the join (it IS the finding-13 §4 spec, not a patch to retire).
+
+**Do NOT (each has already caused a failure or is a pre-registered prediction):**
+
+- **Do not attempt the spine rewire without steps 2–3 in place** — that is the exact predicted failure
+  (finding 14: "sequence it before touching `uniformCaptureSlot`"; the discarded attempt is consistent
+  with that prediction).
+- **Do not classify carrier-ness by name or shape** (`<Ability>Carrier` string-matching, the LSP reverse
+  table, "has an `Effect` impl") — misrecognition *miscompiles* in both directions (finding 14).
+- **No pin patches**: do not extend `applyPendingCarrierPins` or add new eager-pin special cases
+  (finding 13; U4-g's `eagerRowPinIntoDomain` is the last sanctioned one — it becomes the join's
+  row-directed derivation, not a template for more).
+- **No carrier-solving features before step 4 lands** (finding 13 is binding — the catch-delta precedent:
+  a feature ships *inside* its checker fix, never on the bare substrate).
+- **Do not reopen the row-calculus fork** (§10 rejected-alternative record) and do not carrier-wrap the
+  compile track (§8 *Resolution*).
+- **Do not big-bang the rewire.** Every landed slice of this migration was micro (U4-a(i), U4-a(ii)-0..3,
+  U4-f, U4-g — each byte-identity-driven, gate-green); the whole-spine attempts are the ones that failed.
+
+**The bounded worst case (why the sequence is safe to attempt):** if step 4 fails again *with* steps 2–3 in
+place, the retreat position is sound — the current state is green, `eagerRowPinIntoDomain` closes the known
+junk-ground, and after step 2 the remaining seam fails loud with located diagnostics. The cost of stopping is
+the standing finding-13 feature freeze, not correctness. With the tag in place, step 4's only *miscompiling*
+(rather than loud-failing) hazard — classification guesswork — is gone.
 
 **§7 is binding, not merely "next" (pattern analysis 2026-07-25 — pinned finding 13).** The blocker history
 is one bug class recurring: a carrier-layer meta solved/stolen/junk-grounded by order-dependent eager
@@ -465,6 +516,33 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
     classification. U4-g's row-directed pin does **not** need this (it reads the *argument's* row, not the
     *domain's* carrier-ness); the capture-arm *routing* does. This is the concrete next blocker for the spine
     rewire — sequence it (or the §8 fork) before touching `uniformCaptureSlot`.
+    **Recommended design for the tag (2026-07-25 advisory pass — adopt unless it fails in the small): follow
+    the fact-carried precedent, not expression threading.** Open rows already ride as declaration-level
+    metadata (`NamedValue.effectRow` → `ResolvedValue.effectRow`, forwarded per the lean-fact-flow rule) —
+    the pinned-row tag should ride the same way. `EffectSugarDesugarer` is the single point where
+    `{Throw[E] | G} A` collapses to `ThrowCarrier[E,G,A]`: record there, **per parameter position** (and the
+    return), "this domain is a canonical carrier stack" and forward it on the fact chain; the checker
+    consults the *callee's* per-parameter tag when classifying the expected slot (`classifyExpectedSlot`).
+    This is positional/by-construction (§9's "never a carrier-ness query" holds), adds no `SemValue` node,
+    and avoids threading a marker through the resolve/operator expression trees. **Two tag sources** cover
+    the known capture domains: (i) the pinned-row desugar; (ii) compiler-generated boundary slots (the
+    synthetic main's `IO[A]`, later `runMain`) tag their own slot at generation. **Verify in the small
+    first**: the association parameter-position ↔ the domain the checker sees at the slot must survive
+    currying/instantiation (`inferSpine` is positional; U4-f's `CarrierKindChecker.recordCarrierMetas`
+    binder→meta substitution env is the precedent for callee-side elaboration bookkeeping).
+15. **A §7 spine attempt was made and FAILED (2026-07-25, after `59a1130a`) — and left no record.** The
+    attempt was fully discarded (no commit, no stash, no reflog trace, no notes), so *what* broke is lost;
+    only the outcome is known. The failure is consistent with the pre-registered prediction (finding 14: the
+    capture-arm routing is blocked on the recognition primitive; "sequence it before touching
+    `uniformCaptureSlot`"), but the evidence to confirm or refine that is gone. Two lessons, both binding:
+    - **Process rule: every attempt leaves a record** — a short note in this doc (approach, what broke,
+      symptom) *before* the working tree is discarded, even for a full revert. The finding-13 pattern
+      analysis derives its authority from the recurrence history; an unrecorded failure donates nothing and
+      forces the next session to re-derive it.
+    - **The sequence is now mandated, not advisory** (Handover *START HERE*): mitigations (step 2) → the
+      recognition tag (step 3) → shape-by-shape capture-arm routing (step 4). Big-bang spine rewires have
+      repeatedly failed on this substrate; the micro-slice discipline (U4-a(i), U4-a(ii)-0..3, U4-f, U4-g —
+      each byte-identity-driven, gate-green) is the only approach that has ever landed.
 
 ## 1. The problem
 
@@ -931,7 +1009,13 @@ error-slot junk-ground), but the *mechanism* is still eager whole-unify. Routing
 (`classifyExpectedSlot` → `resolveSlot`/`finalizeAndMaterialize`) is blocked on **finding 14**: no clean
 positional primitive tags a concrete/pinned carrier stack (`ThrowCarrier`/`IO`) as a `CarrierSlot`, and a
 guess miscompiles. That recognition tag (threaded from the callee's pinned-row parameter at elaboration) is the
-concrete prerequisite for (b); the §8 fork is the prerequisite for (a).
+concrete prerequisite for (b); the §8 fork is the prerequisite for (a) — resolved by recommendation as
+keep-the-gate (§8 *Resolution*), which retires (a) entirely: the deletion target is *unreachable from the
+runtime track*, not *deleted from the tree*.
+
+**A spine attempt post-`59a1130a` failed and was discarded with no record (pinned finding 15).** The next
+attempt follows the Handover's mandated sequence — the finding-13 mitigations → the finding-14 recognition
+tag (fact-carried design) → shape-by-shape capture-arm routing — never the spine directly.
 
 The bind/`pure` *mechanics* (`wrapBinds`/`bindWrap`/`tryPureWrap`/`pureWrapNode`/`runIdNode`, the
 `$eff$N` splice convention) are **permanently shared** — the uniform bridge is constructed with
@@ -976,6 +1060,16 @@ discharge carrier is a **data** constructor, joined nowhere as a runtime carrier
 compile-track `{Throw[String]}` discharge stays a type-level `Either` fold. The rule that keeps
 this sound is mechanical: the carrier machinery (`split`, the join, the ladder) is invoked **only
 on runtime term judgments**; the NbE/signature path never calls it.
+
+**Resolution (recommended 2026-07-25 — adopt by default): keep the `platform == Platform.Runtime` gate,
+permanently.** The §7 dependency map already concluded `checkAgainstDefault`/`defaultArgSlot`/`resolveLadder`
+are the *compile-time checker*, not legacy; nothing observable depends on compile-track value bodies running
+uniform (the compile track's product is checking + reduction results, not codegen); and wrapping them spends
+risk on exactly the failure mode this section warns against (`Id` entangled into type-level evaluation). The
+consequence for §7: its deletion target weakens from "deleted from the tree" to "**unreachable from the
+runtime track**" — sufficient, because the finding-13 bug class lives at the runtime capture seam. The
+"both tracks carrier-wrapped for value bodies" aspiration earlier in this section is *retired* with this
+resolution; revisit only if a concrete compile-track need appears (none known).
 
 ## 9. Held invariants and interactions
 
@@ -1287,6 +1381,14 @@ default path byte-identical, gated by the §0 harness.
    concrete-`G` outer layer showed the seam extends and is the §7 join solver's job (finding 13), still
    without a new row kind. (Per-node rows and `-E` stay rejected per §5/§9.)
 
+8. **§7 spine attempt — FAILED, discarded, unrecorded (2026-07-25, post-`59a1130a`).** An attempt at the
+   join-solver spine rewire did not succeed and was reverted leaving no trace; what broke is lost (pinned
+   finding 15, including the process rule it establishes: every attempt leaves a record before the tree is
+   discarded). The next attempt follows the Handover's mandated *START HERE* sequence — the finding-13
+   mitigations (shape matrix + guard-on-junk), then the finding-14 recognition tag (fact-carried design) as
+   a behavior-neutral slice, then shape-by-shape capture-arm routing under byte-identity — with §8 resolved
+   by decision (keep the gate).
+
 ### U5 — follow-ups unlocked
 
 Row-bearing diagnostics everywhere; the evaluation-order decision (resolved-argument order vs
@@ -1301,7 +1403,10 @@ legality check (§5 check 2) on the ride-test foundation.
   and there is no clean positional primitive today — only the `<Ability>Carrier` naming convention and a
   hardcoded LSP reverse table, both of which *miscompile* on misrecognition. The principled fix threads a tag
   from the callee's pinned-row parameter at elaboration (the desugar currently leaves no marker), so it is real
-  work, not a one-liner. Sequence it before touching `uniformCaptureSlot`.
+  work, not a one-liner. Sequence it before touching `uniformCaptureSlot`. A post-`59a1130a` spine attempt
+  failed and was discarded unrecorded (pinned finding 15); the Handover's *START HERE* sequence is now
+  mandated (mitigations → the tag, fact-carried design in finding 14 → shape-by-shape routing), and every
+  future attempt must leave a record before its tree is discarded.
 - **Join-solver correctness at its first live use** (the §7 spine rewire): deferred lift materialization
   must be total, and an ability-constrained carrier meta must never default to `Id` (pinned finding 4). A
   missed insertion is a loud type/codegen error, not silence — but budget for the tail. The finding-4
