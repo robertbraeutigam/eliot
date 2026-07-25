@@ -2,11 +2,12 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
-import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, GroundValueRenderer}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -150,14 +151,18 @@ class AbilityResolver(
       groundArgs: Seq[GroundValue]
   ): CheckIO[Boolean] =
     liftF(getFactIfProduced(AbilityImplementation.Key(ref.value, groundArgs, platform))).flatMap { factOpt =>
-      val argsShown = groundArgs.map(_.show).mkString("[", ", ", "]")
+      val argsShown = groundArgs.map(GroundValueRenderer.render).mkString("[", ", ", "]")
       factOpt.map(_.resolution) match {
         case None                                                        => pure(false)
         case Some(AbilityImplementation.Resolution.Resolved(_, _))       => pure(false)
         case Some(AbilityImplementation.Resolution.NoImplementation)     =>
           liftF(
             compilerError(
-              ref.as(s"No ability implementation found for ability '$abilityName' with type arguments $argsShown.")
+              ref.as(
+                sideEffectOnPureCarrier(abilityName, groundArgs).getOrElse(
+                  s"No ability implementation found for ability '$abilityName' with type arguments $argsShown."
+                )
+              )
             ) >> abort[Boolean]
           )
         case Some(AbilityImplementation.Resolution.Rejected(messages))   =>
@@ -172,6 +177,25 @@ class AbilityResolver(
           )
       }
     }
+
+  /** The one unresolvable ability demand that has a story worth telling instead of an ability name: `Suspend` at the
+    * identity carrier `Id`. `Id` has no `Suspend` instance **by design** (docs/effects-as-channel.md §6) — that absence
+    * is precisely what stops real I/O from running in a pure computation — so this demand always means the same thing:
+    * a side-effecting action reached a computation whose carrier is (or was pinned to) the pure base. The generic
+    * wording would instead hand the user `with type arguments [Id]`, naming machinery they never wrote and cannot act
+    * on, and it is reported inside the stdlib carrier instance that lifted the demand, not at their own call.
+    *
+    * [[None]] for every other demand, which keeps the generic message — this only rewords a failure, never creates or
+    * suppresses one.
+    */
+  private def sideEffectOnPureCarrier(abilityName: String, groundArgs: Seq[GroundValue]): Option[String] =
+    Option.when(
+      abilityName == EffectMachinery.suspendAbilityName && groundArgs.exists(_.typeFQN.contains(WellKnownTypes.idFQN))
+    )(
+      "This performs a side effect, but the computation it runs in is pure: its effect row is pinned to the identity " +
+        "base 'Id', which carries only the pure control effects (Abort, Throw, State, Dep, Writer). Discharge or run " +
+        "the side effect before this point, or pin the row to a base carrier that can perform it."
+    )
 
   /** The number of ability-level type parameters of the ability owning `methodVfqn` — read off the ability *marker*'s
     * signature (the synthetic value named after the ability, sharing the method's `Ability(name)` qualifier), whose

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.lsp.index
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
+import com.vanillasource.eliot.eliotc.monomorphize.channel.{IdNormalizer, RefinementTable}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.lsp.virtual.VfsUris
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
@@ -67,10 +67,34 @@ object TypeHintIndex {
   def build(values: Seq[MonomorphicValue], refinements: Seq[RefinementTable]): TypeHintIndex = {
     val intervalsByKey = refinements.map(rt => (rt.vfqn, rt.typeArguments) -> unambiguousIntervals(rt)).toMap
     new TypeHintIndex(
-      values.flatMap(value => hintsOf(value, intervalsByKey.getOrElse((value.vfqn, value.typeArguments), Map.empty)))
+      values
+        .map(idNormalized)
+        .flatMap(value => hintsOf(value, intervalsByKey.getOrElse((value.vfqn, value.typeArguments), Map.empty)))
         .groupBy(hint => uriKey(hint.uri))
     )
   }
+
+  /** Id-normalize a value before indexing it — the same erasure the codegen seam
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValueProcessor]]) applies, for the same reason.
+    *
+    * [[MonomorphicValue]] is the **pre-erasure** fact: between elaboration and the `WovenValue` seam the checker's own
+    * identity-carrier machinery is still in the tree — `Id[X]` types, and `runId`/`Id`/`pure@Effect[Id]` nodes the
+    * checker inserted *at the user's own source range* to settle a pure boundary (`def sign(f: Bool): String = if(f,
+    * "+") else "-"`). Indexed raw, those become hover hints for machinery the user never wrote. Every consumer of a
+    * pre-seam fact owes this normalization (docs/effects-as-channel.md §11 — the recurring per-consumer tax); the
+    * downstream no-residue assertion cannot catch a missing one, since it runs *after* the seam.
+    *
+    * Erasure only *drops* wrapper nodes, so every surviving node keeps its own source range and its
+    * [[RefinementTable]] interval (keyed by range) still joins. Rendering carries its own `Id` fallback
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValueRenderer]]); this removes the machinery itself.
+    */
+  private def idNormalized(value: MonomorphicValue): MonomorphicValue =
+    value.copy(
+      signature = IdNormalizer.eraseIdTypes(value.signature),
+      runtime = value.runtime.map(body =>
+        IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(value.vfqn, value.signature, body))
+      )
+    )
 
   /** Collapse a table's per-node metas to a position-keyed `[min, max]` map, keeping a position only when every entry at
     * it agrees on one meta: a position carrying two or more distinct metas is dropped rather than displayed ambiguously.

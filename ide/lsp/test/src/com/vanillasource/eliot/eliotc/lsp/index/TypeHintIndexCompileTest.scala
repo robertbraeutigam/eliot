@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
 import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
-import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValueRenderer, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.pos.Position
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
@@ -23,7 +23,10 @@ import scala.jdk.CollectionConverters.*
   * LangPlugin, StdlibPlugin; no JVM backend); [[LspPlugin]] demands `UsedNames(main)`, which forces a
   * [[MonomorphicValue]] for every reachable instantiation, and the index is built from those facts exactly as the
   * service builds it. `greeting`'s body exercises a string literal and a call; `main`'s body exercises a whole-value
-  * reference whose type is the value's signature.
+  * reference whose type is the value's signature; `guarded` exercises a carrier stack over `IO`; and `parsed` / `sign`
+  * exercise **discharge-to-pure**, where the checker settles the residual carrier to `Id` and splices its machinery
+  * (`runId`, `pure@Effect[Id]`) at the user's own source ranges — the shape that makes the §9 "no carrier machinery in
+  * hover" gate non-trivial.
   */
 class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val imports     = "import eliot.effect.Console\nimport eliot.effect.Throw"
@@ -31,7 +34,14 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
   private val guardedLine = """def guarded: {Throw[String]} String = raise("nope")"""
   private val mainLine    = """   greeting"""
   private val catchLine   = """   printLine(guarded catch (e -> e))"""
-  private val source      = s"$imports\n$line1\n$guardedLine\ndef main: {Console} Unit = {\n$mainLine\n$catchLine\n}"
+  private val pureLine    = """   printLine(parsed)"""
+  // A discharge-to-pure: `parsed` has no effect row, so this instantiation of `guarded` runs on the identity carrier
+  // and the checker inserts `Id` machinery (a `runId` / `pure@Effect[Id]` node) at these very source ranges.
+  private val parsedLine  = """def parsed: String = guarded catch (e -> e)"""
+  private val signLine    = """def sign(f: Bool): String = if(f, "+") else "-""""
+  private val signUseLine = """   printLine(sign(true))"""
+  private val source      =
+    s"$imports\n$line1\n$guardedLine\ndef main: {Console} Unit = {\n$mainLine\n$catchLine\n$pureLine\n$signUseLine\n}\n$parsedLine\n$signLine"
 
   // `printLine`/`raise` are import-required (`Console`/`Throw` live in `eliot.effect`, not auto-imported), so the two
   // import lines push `greeting` to line 3, `guarded` to line 4 and `main`'s block body to lines 6–7.
@@ -40,6 +50,9 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
   private val greetingPosition  = Position(6, mainLine.indexOf("greeting") + 2) // inside the `greeting` reference in `main`
   private val guardedPosition   = Position(7, catchLine.indexOf("guarded") + 2) // inside the `guarded` reference under `catch`
   private val keywordPosition   = Position(3, 1)                                // the `def` keyword — no expression node
+  private val parsedLineNumber  = 11                                            // `parsed`, after `main`'s closing brace
+  private val signLineNumber    = 12                                            // `sign`, the if..else discharge-to-pure
+  private val pureGuardedPosition = Position(parsedLineNumber, parsedLine.indexOf("guarded") + 2)
 
   "type hints" should "report the concrete type of a string literal" in {
     renderedTypesAt(stringPosition).asserting(_ shouldBe Seq("String"))
@@ -59,12 +72,50 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
     renderedTypesAt(guardedPosition).asserting(_ shouldBe Seq("{Throw[String] | IO} String"))
   }
 
+  // The `Id` *base* is kept on purpose: `{Throw[String] | Id} String` is the legal surface spelling of a stack pinned
+  // to the pure base, and it is a different type from the open row `{Throw[String]} String`. What must never surface
+  // is carrier machinery — see the sweep below.
+  it should "render a stack over the pure base as a row pinned to Id" in {
+    renderedTypesAt(pureGuardedPosition).asserting(_ shouldBe Seq("{Throw[String] | Id} String"))
+  }
+
+  /** The effects-as-channel §9 gate: hover never shows carrier machinery. Swept over *every* position of the
+    * discharge-to-pure definition, because the machinery the checker inserts there (`runId`, `pure@Effect[Id]`, an
+    * `Id[String]`-typed node) sits at the user's own ranges — which is why the index Id-normalizes its input rather
+    * than relying on rendering alone.
+    */
+  it should "never surface carrier machinery or an Id payload wrapper anywhere in a discharge-to-pure definition" in {
+    renderedTypesAcross(parsedLineNumber, parsedLine.length).asserting(_.filter(machinery) shouldBe Seq.empty)
+  }
+
+  it should "keep an if..else discharged into a pure return free of carrier machinery too" in {
+    renderedTypesAcross(signLineNumber, signLine.length).asserting(_.filter(machinery) shouldBe Seq.empty)
+  }
+
+  // The same sweep, positively: the `{Abort}` the `else` discharges *is* present at that line, rendered as a row. Without
+  // this the machinery assertion above would also pass on a line the index simply failed to cover.
+  it should "render the discharged row of an if..else at the line it is written" in {
+    renderedTypesAcross(signLineNumber, signLine.length).asserting(_ should contain("{Abort | Id} String"))
+  }
+
   it should "report nothing where there is no expression node" in {
     typesAt(keywordPosition).asserting(_ shouldBe None)
   }
 
   private def renderedTypesAt(position: Position): IO[Seq[String]] =
     typesAt(position).map(_.fold(Seq.empty[String])(_._2.map(GroundValueRenderer.render)))
+
+  /** Carrier machinery that must never reach a user: a carrier type name, or the identity carrier's payload wrapper. */
+  private def machinery(rendered: String): Boolean = rendered.contains("Carrier") || rendered.contains("Id[")
+
+  /** Every distinct type rendered at any column of one source line. */
+  private def renderedTypesAcross(line: Int, columns: Int): IO[Seq[String]] =
+    withCompiledWorkspace { (uri, index) =>
+      (1 to columns)
+        .flatMap(column => index.typeHintsAt(uri, Position(line, column)).toSeq.flatMap(_._2))
+        .distinct
+        .map(GroundValueRenderer.render)
+    }
 
   private def typesAt(position: Position) =
     withCompiledWorkspace((uri, index) => index.typeHintsAt(uri, position))

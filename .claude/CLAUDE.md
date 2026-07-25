@@ -466,10 +466,18 @@ no `-E`).
 constructors, `Id` is ordinary `data`, and effect flow through generics is ordinary instantiation. No side channel
 does type-like work behind the type system's back.
 
-**User-facing text stays in payload/row vocabulary**: `Id` and carrier names (`ThrowCarrier`, `AbortCarrier`, `IO`)
-must never be rendered to users — hover composes the payload type with rows, and diagnostics speak effects. (This
-invariant is currently **not** upheld by `SemValuePrinter`, `AbilityResolver`'s argument list, and
-`GroundValueRenderer`; it is a tracked close-out gate, `docs/effects-as-channel.md` §9.)
+**User-facing text stays in payload/row vocabulary**: carrier machinery names (`ThrowCarrier`, `AbortCarrier`, …) and
+the `Id[X]` payload wrapper are never rendered to users. One inverter does it —
+`effect/EffectRowRendering` (generic over the value representation) driven by
+`EffectCarrierNaming.abilityNameOfCarrier` — used by `monomorphize/fact/GroundValueRenderer` (LSP hover,
+ability-demand diagnostics) and `unify/SemValuePrinter` (`Expected:`/`Actual:` lines), so a carrier stack always reads
+as the pinned row that spells it (`{Abort | IO} String`). **Recognizing carrier-ness by name is sanctioned here and
+nowhere else** — a misrendering is cosmetic, the same guess in the checker miscompiles. Two deliberate rules: `Id[X]`
+is erased to `X`, but an `Id` **row base is kept** (`{Throw[E] | Id} A` is legal surface and is *not* the open row
+`{Throw[E]} A`). The one demand with a story rather than a name — `Suspend` at `Id` — gets a purpose-built message
+("performs a side effect, but the computation it runs in is pure"). A consumer of a **pre-`WovenValue`** fact must
+still Id-normalize its input (the LSP's `TypeHintIndex` does), since rendering hides the names but not the inserted
+machinery *nodes*.
 
 ## Language Cornerstone: Total by Default (No Recursion; `Inf` is the Opt-Out)
 

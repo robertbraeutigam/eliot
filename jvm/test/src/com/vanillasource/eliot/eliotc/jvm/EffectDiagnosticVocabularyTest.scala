@@ -1,0 +1,89 @@
+package com.vanillasource.eliot.eliotc.jvm
+
+import cats.effect.IO
+import cats.effect.testing.scalatest.AsyncIOSpec
+import com.vanillasource.eliot.eliotc.compiler.Compiler
+import org.scalatest.flatspec.AsyncFlatSpec
+import org.scalatest.matchers.should.Matchers
+
+import java.nio.file.{Files, Path}
+
+/** The effects-as-channel §9 gate on the *diagnostic* side: an error a user reads speaks payload and effect-row
+  * vocabulary, never carrier machinery. Carriers (`AbortCarrier`, `ThrowCarrier`, …) and the identity carrier `Id` are
+  * compiler-internal — `Throw.els` says so in as many words ("Plumbing only — application code never names it") — so a
+  * message naming them tells the user about a type no surface syntax even spells.
+  *
+  * Both programs here are *expected to fail*: what is asserted is how the failure reads. They are compiled over the
+  * real base layer (`lang` + `stdlib` + `jvm`), because the shapes only arise once the carriers are the concrete
+  * platform ones.
+  */
+class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+
+  /** A documented limitation (CLAUDE.md, the effect section): a discharger consumes the *carrier*, so it must receive
+    * the effectful call as an expression — a `val` sequences the carrier away, leaving a bare `String` the `else` can
+    * no longer discharge. The mismatch is legitimate; before this gate it reported `Expected: AbortCarrier(IO, String)`.
+    */
+  private val valBoundDischarge =
+    """def setting(key: String): {Abort} String = abort
+      |
+      |def main: {Console} Unit = {
+      |   val host = setting("host")
+      |   printLine(host else "localhost")
+      |}
+      |""".stripMargin
+
+  /** A side effect reaching a computation pinned to the pure base: the `TestCase` field's row is pinned to `Id`, which
+    * has no `Suspend` instance *by design*, so `printLine` cannot run there. The demand surfaces as `Suspend[Id]` —
+    * before this gate it read "No ability implementation found for ability 'Suspend' with type arguments [Id]".
+    */
+  private val sideEffectOnPureBase =
+    """import eliot.lang.Id
+      |
+      |data TestCase(name: String, body: {Throw[String] | Id} Unit)
+      |
+      |def bad: TestCase = TestCase("x", printLine("hi"))
+      |
+      |def main: {Console} Unit = printLine(name(bad))
+      |""".stripMargin
+
+  "a type-mismatch diagnostic" should "render a carrier-headed expectation as its pinned effect row" in {
+    compileErrors(valBoundDischarge).asserting(_.mkString should include("{Abort | IO} String"))
+  }
+
+  it should "name no carrier machinery" in {
+    compileErrors(valBoundDischarge).asserting(_.mkString should not include "Carrier")
+  }
+
+  "a side effect on the pure identity base" should "be explained in effect vocabulary, not as a missing instance" in {
+    compileErrors(sideEffectOnPureBase).asserting(
+      _.mkString should include("performs a side effect, but the computation it runs in is pure")
+    )
+  }
+
+  it should "not report it as an unimplemented machinery ability" in {
+    compileErrors(sideEffectOnPureBase).asserting(_.mkString should not include "ability 'Suspend'")
+  }
+
+  /** Compile the program (module `Test`) over the base layer roots and return everything the user is shown for each
+    * error — its message *and* its description lines, which is where the `Expected:` / `Actual:` types live. Never
+    * raises on the errors themselves, since every program here is expected to fail.
+    */
+  private def compileErrors(source: String): IO[Seq[String]] =
+    for {
+      sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-diag-src"))
+      targetDir  <- IO.blocking(Files.createTempDirectory("eliot-diag-target"))
+      _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
+      args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++ layerPathArgs
+      sessionOpt <- Compiler.createSession(args)
+      session    <- IO.fromOption(sessionOpt)(new IllegalStateException("Could not create the compilation session."))
+      result     <- session.compileOnce()
+      _          <- IO.raiseWhen(result.errors.isEmpty)(new IllegalStateException("Expected the program not to compile."))
+    } yield result.errors.flatMap(error => error.message +: error.description)
+
+  private def layerPathArgs: List[String] = {
+    val repoRoot             =
+      Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
+    def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
+    List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
+  }
+}

@@ -46,8 +46,12 @@ miscompile) plus 5 benign carrier solves. **`tryUnifyCommitting` is therefore NO
 routing the 5 residual carrier captures is churn with real risk (the `Id`-split timing) and zero correctness benefit —
 so there is **no valuable capture-routing slice left**. **The §9 doc/skill sweep is DONE too (2026-07-25, §10 item
 14)** — CLAUDE.md carries a new *Effects Are a Channel* cornerstone and no longer names the deleted
-`EffectResidualChecker`. **The NEXT step is the LSP / diagnostic `Id`-free rendering gate**, now audited and scoped in
-the close-out list below (three leak sites with reproductions); after that, the U5 items. The §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
+`EffectResidualChecker`. **The LSP / diagnostic `Id`-free rendering gate is DONE too (2026-07-25, §10 item 15)** — one
+shared inverter (`effect/EffectRowRendering`) now serves hover, `Expected:`/`Actual:` lines and ability-demand
+diagnostics, and the LSP index Id-normalizes its pre-erasure input. **With that every close-out follow-on is landed and
+the remaining open work is the U5 list** (§10 U5) — plus one small carry-over the rendering slice surfaced but did not
+fix: the `Suspend`-at-`Id` error is *worded* well now but still *located* inside the stdlib carrier instance that
+lifted the demand, not at the user's call. The §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
 and was discarded, leaving no record** (pinned finding 15) — the mandated sequence (mitigations → tag → shape-by-shape
 routing) is what unblocked it; keep following **the mandated sequence** below. **Gate — all green, run these to
 confirm before starting:**
@@ -280,30 +284,13 @@ ships *inside* its checker fix when it needs one (the catch-delta precedent).
   the global `eliot-code` skill's discharge vocabulary, the effectful-handler delta and the pure-carrier testing
   recipe were corrected. `eliot-layers` was audited and needed no change. Every claim was re-verified against the tree
   or by compiling a probe.
-- **LSP / diagnostic rendering `Id`-free — the NEXT step; audited and scoped (2026-07-25, §10 item 14).** Both
-  surfaces leak today, with concrete reproductions. Scope, smallest-first:
-  1. `AbilityResolver.scala:153` (`groundArgs.map(_.show)`) — the **worst** leak: the *designed* error for "you did
-     I/O in a pure context" reads `No ability implementation found for ability 'Suspend' with type arguments [Id].`
-     It is on the happy path of a common mistake and names machinery the user cannot act on.
-  2. `unify/SemValuePrinter` — carrier/`Id`-blind; the `Expected:`/`Actual:` lines of any mismatch on a
-     carrier-headed judgment print `AbortCarrier(IO, String)` / `ThrowCarrier[String, Id, String]`. Reproduction:
-     `def m: {Console} Unit = { val host = setting("host") \n printLine(host else "d") }` (the documented
-     val-bound-binder limitation) ⤳ `Expected: AbortCarrier(IO, String)`.
-  3. `ide/lsp/.../GroundValueRenderer` — inverts carrier stacks back to pinned rows, but has **no `Id` handling at
-     all**, and its `carrierInfo` table misses partially-applied carriers (`ThrowCarrier[String, IO]` prints raw).
-     Root cause is upstream: the hover index is built from **`MonomorphicValue`**, the *pre*-erasure fact
-     (`EliotCompilationService` → `TypeHintIndex`), so it is a consumer that never got the Id-normalize-first
-     treatment — the recurring tax of §11. `assertNoIdResidue` cannot catch it (it runs after the seam).
-     Reproduction: any discharge-to-pure shape (`def parsed: String = parseBad catch (e -> e)`) hovers as
-     `{Throw[String] | Id} String`; an inserted `runId` node hovers as `Id[String] -> String`.
-  Suggested surface: move the row inversion **down** out of the LSP into `eliotc.effect` (beside
-  `EffectCarrierNaming`, whose doc already anticipates this) as a shared `GroundValue → Option[String]`, with
-  `IdNormalizer.eraseIdTypes` applied up front and an `Id` base suppressed (`{Throw[E]} A`, not `{Throw[E] | Id} A`);
-  then delegate from `GroundValueRenderer`, `SemValuePrinter` and `AbilityResolver`. No test asserts Id-free
-  rendering anywhere today — add a unit `GroundValueRendererTest` plus a hover test whose `main` chain keeps the tail
-  pure. Note `{Throw[E] | Id} A` *is* legal surface the user may write, so suppression is a rendering choice for
-  inferred types, not a claim the spelling is invalid; `IO` reaching hover is currently *asserted* by
-  `TypeHintIndexCompileTest`, so that expectation has to be revisited deliberately.
+- **LSP / diagnostic rendering `Id`-free — DONE (2026-07-25, §10 item 15).** All three audited leak sites are closed
+  by one shared inverter; the §9 invariant is now upheld and regression-tested (`GroundValueRendererTest`,
+  `EffectDiagnosticVocabularyTest`, the `TypeHintIndexCompileTest` machinery sweep). Detail in §10 item 15.
+
+**With that, every close-out follow-on is landed. The remaining open work is the U5 list** (§10 U5): row-bearing
+diagnostics everywhere, the evaluation-order decision (§12), `Suspended` for first-class platform actions, the MCU
+lowering, reduce-and-reify's carrier-based observation ordering, and the reify-legality check.
 
 Slice 1 (the vestigial `--effect-channel` flag removal) and slice 2 (the folding fix + the flip + the
 flag/param removal) are done — per-slice detail is in §10, the pinned findings, and the git log. This
@@ -1244,10 +1231,14 @@ whole-unify arm stays as the data-container unify, with every theft-risk carrier
   metadata that never flows back into types.
 - **LSP**: hover composes the payload type with declared/derived rows from the channel;
   `GroundValueRenderer` keeps stack→pinned-row rendering; `Id` and carriers are never rendered to
-  users — error messages likewise (a U4-e gate). **NOT YET UPHELD** (audited 2026-07-25): three sites leak —
-  `AbilityResolver`'s type-argument list, `unify/SemValuePrinter`, and `GroundValueRenderer` (whose input,
-  `MonomorphicValue`, is the pre-erasure fact). Scope and reproductions are in the Handover close-out list; this is
-  the next step.
+  users — error messages likewise (a U4-e gate). **UPHELD since 2026-07-25 (§10 item 15).** One inverter,
+  `effect/EffectRowRendering` (generic over the value representation, driven by
+  `EffectCarrierNaming.abilityNameOfCarrier`), serves `monomorphize/fact/GroundValueRenderer` (hover +
+  ability-demand diagnostics) and `unify/SemValuePrinter` (`Expected:`/`Actual:`). Refined by that work: what must
+  never be rendered is **carrier machinery names and the `Id[X]` payload wrapper**; an **`Id` row base is kept**
+  (`{Throw[E] | Id} A` is legal surface, and rendering it as the open row `{Throw[E]} A` would show two different
+  types identically). Recognizing carrier-ness **by name is sanctioned for rendering only** — cosmetic if wrong, a
+  miscompile in the checker (finding 14).
 
 ## 10. Migration: landed phases and the path forward
 
@@ -1741,6 +1732,60 @@ default path byte-identical, gated by the §0 harness.
     **Byproduct: the LSP/diagnostic `Id`-free gate is now audited and scoped** (three leak sites, root cause,
     reproductions, suggested surface, missing tests) — see the Handover close-out list. It is the next step.
 
+15. **LSP / diagnostic `Id`-free rendering — LANDED (2026-07-25).** The last close-out follow-on; the §9 invariant
+    ("`Id` and carriers are never rendered to users") is now upheld and regression-tested.
+
+    **One inverter, three consumers.** `effect/EffectRowRendering` holds the carrier-stack ⤳ pinned-row inversion,
+    generic over the value representation (a caller supplies `peel` and `render`) so the *same* logic serves ground
+    types and the checker's semantic values — a second copy is the thing that drifts. It is driven by the new
+    `EffectCarrierNaming.abilityNameOfCarrier`, the documented inverse of the forward `<Ability>Carrier` convention
+    (name suffix **plus** colocation with the ability's module), which replaces the LSP's hardcoded four-entry table —
+    that table silently missed `WriterCarrier` and every future carrier. Consumers: `monomorphize/fact/
+    GroundValueRenderer` (moved down from `ide/lsp` into `lang`, since two non-LSP callers need it),
+    `unify/SemValuePrinter`, and `check/AbilityResolver` (which replaced `Show[GroundValue]` — the terse *debug*
+    instance that drops type arguments — in its type-argument list).
+
+    **The full/partial application problem, solved without an arity table.** Whether a carrier application's last
+    argument is the payload or the base is the one thing the inversion needs and the naming convention does not say.
+    `GroundValue` answers it exactly: `valueType == Type` means applied to a result (`ThrowCarrier[E, G, A]`), an
+    arrow kind means payload-unapplied (`ThrowCarrier[E, G]`, the `F[_]` shape) — so a partial carrier renders as a
+    payload-less row `{Abort | IO}` instead of leaking, which the old LSP table could not do. `SemValue` has no such
+    signal, so `SemValuePrinter` treats ≥2 arguments as payload-applied: exact for the type positions it serves (an
+    `Expected:`/`Actual:` line is a type) and cosmetic if a future shape falls outside — never a typing decision.
+
+    **Two deliberate `Id` rules** (the audit had suggested suppressing the base; that would be wrong):
+    - `Id[X]` renders as `X` — pure machinery, erased.
+    - an `Id` **row base is kept**: `{Throw[String] | Id} String` is exactly the surface a user writes for a stack
+      pinned to the pure base, and it is a *different type* from the open row `{Throw[String]} String`, whose carrier
+      the caller chooses. Suppressing it would render two different types identically.
+
+    **The worst leak got a message, not a rendering.** `Suspend` at `Id` is unresolvable *by design* (`Id` has no
+    `Suspend` instance — that absence is what keeps I/O out of pure code), so the demand always means one thing. It
+    now reads "This performs a side effect, but the computation it runs in is pure: its effect row is pinned to the
+    identity base 'Id'…" instead of "No ability implementation found for ability 'Suspend' with type arguments [Id]".
+    `AbilityResolver.sideEffectOnPureCarrier` only *rewords* an already-failing demand — it never creates or
+    suppresses one. **Still open (out of scope, worth a later slice):** the *location*. The demand genuinely arises
+    inside the stdlib carrier instance that lifted it, so this error is reported at `jvm/eliot/eliot/effect/Throw.els`
+    rather than at the user's call — a located-diagnostic problem, not a vocabulary one.
+
+    **Root cause on the LSP side, fixed at the source.** Hover is built from `MonomorphicValue`, the *pre*-erasure
+    fact, so `TypeHintIndex.build` now Id-normalizes each value exactly as the codegen seam does. Rendering alone was
+    *not* enough, and the tripwire proved it: with normalization disabled, hovering the plain `"Hello World!"` string
+    literal reports `Seq("String", "String -> String", "String", "String -> String")` — the inserted `runId` nodes sit
+    at the user's own ranges, and rendering hides their *names* but not their existence. (`assertNoIdResidue` cannot
+    catch this: it runs *after* the seam.)
+
+    **Tests added** (there were none asserting Id-free rendering anywhere): `GroundValueRendererTest` (12 cases over
+    hand-built values — `Id` payload erasure in nested and arrow positions, single-layer / nested / payload-less rows,
+    a convention-following `WriterCarrier`, and a non-carrier `TruckCarrier` left alone); `EffectDiagnosticVocabulary
+    Test` in jvm (both expected-to-fail programs, asserting message *and* description lines, since `Expected:`/
+    `Actual:` live in `CompilerError.description`); and in `TypeHintIndexCompileTest` a discharge-to-pure `parsed` and
+    an `if..else` `sign`, with a machinery sweep over every column of their lines plus a positive assertion that the
+    row *is* rendered there (so the sweep cannot pass vacuously on an uncovered line — it did, at first, from an
+    off-by-one).
+
+    Gate: lang 233/233, jvm 283/283, ide.lsp 383/383, HelloWorld, eliot-test 11/11.
+
 ### U5 — follow-ups unlocked
 
 Row-bearing diagnostics everywhere; the evaluation-order decision (resolved-argument order vs
@@ -1773,8 +1818,11 @@ legality check (§5 check 2) on the ride-test foundation.
 - **Accounting under-count hazards** (the fail-safe direction — a leak passing silently): the
   countermeasures are standing (the rejection tests; abort-on-missing reads). Over-count is
   self-announcing — a red compile on valid code.
-- **`Id`/carriers leaking into user-facing text**: diagnostics and LSP rendering must stay
-  payload/row vocabulary — a close-out gate (§9).
+- **`Id`/carriers leaking into user-facing text — RETIRED (§10 item 15, 2026-07-25).** Diagnostics and LSP
+  rendering go through one inverter (`effect/EffectRowRendering`) and are regression-tested. What stays binding:
+  name-based carrier recognition is **rendering-only**; a user-facing message never uses `Show[GroundValue]` (the
+  terse debug instance); and a consumer of a pre-`WovenValue` fact must Id-normalize, since rendering hides
+  machinery names but not machinery nodes.
 - **Per-consumer Id-transparency is a recurring tax** (findings 10/11 are the same class): any new consumer
   of `MonomorphicValue` or of mid-mono `SemExpression`s must get the Id-normalize-first treatment. The §6
   no-residue assertion is now a **hard error** (2026-07-24, see the close-out follow-ons), so a missed

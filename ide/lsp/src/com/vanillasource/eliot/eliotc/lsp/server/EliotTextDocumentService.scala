@@ -1,7 +1,8 @@
 package com.vanillasource.eliot.eliotc.lsp.server
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, GroundValueRenderer}
+import com.vanillasource.eliot.eliotc.lsp.index.CompletionIndex
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValueRenderer
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither

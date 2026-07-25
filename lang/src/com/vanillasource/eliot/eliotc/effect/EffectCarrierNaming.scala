@@ -16,16 +16,38 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
   *
   * The carrier of an effect ability carries the ability's non-carrier type arguments in its *leading* slots, then the
   * base carrier, then the result type (`Throw[E, F]` ⤳ `ThrowCarrier[E, base, result]`), so the base is always the
-  * last spine element of the (result-unapplied) carrier value. The reverse direction (a ground carrier stack → its
-  * surface row) is held by the LSP's `GroundValueRenderer`, which additionally needs each ability's argument count
-  * without a signature at hand.
+  * last spine element of the (result-unapplied) carrier value. The reverse direction (a carrier stack → its surface
+  * row) is [[abilityNameOfCarrier]] here, assembled into a row by
+  * [[com.vanillasource.eliot.eliotc.effect.EffectRowRendering]].
   */
 object EffectCarrierNaming {
 
+  private val carrierSuffix = "Carrier"
+
   /** The canonical carrier type name realizing an effect ability, by the `<Ability>Carrier` convention. */
-  def carrierName(abilityName: String): String = abilityName + "Carrier"
+  def carrierName(abilityName: String): String = abilityName + carrierSuffix
 
   /** The canonical carrier type FQN realizing an effect ability — a type-namespace name colocated with the ability. */
   def carrierFQN(abilityFQN: AbilityFQN): ValueFQN =
     ValueFQN(abilityFQN.moduleName, QualifiedName(carrierName(abilityFQN.abilityName), Qualifier.Type))
+
+  /** The inverse of [[carrierName]]: the effect ability a type FQN is the canonical carrier of, or [[None]] if it does
+    * not follow the convention. Both halves of the convention are required — the name must be `<Ability>Carrier` *and*
+    * it must be colocated with that ability, i.e. live in the module the ability names (`ThrowCarrier` in
+    * `eliot.effect.Throw`). Requiring colocation costs nothing (the forward direction builds exactly that FQN) and
+    * makes a coincidental `FooCarrier` in an unrelated module a non-match.
+    *
+    * '''Rendering only.''' This inverse exists so a carrier stack can be shown to a user as the pinned row that spells
+    * it, instead of leaking machinery names. It must **never** drive a typing, routing or elaboration decision:
+    * recognizing carrier-ness by name miscompiles in both directions, and the sanctioned signal there is the
+    * elaboration-threaded tag (`EffectRow.pinnedParameterIndices` / `RunBoundaryFunction`) — see
+    * docs/effects-as-channel.md finding 14 and the *Effects Are a Channel* cornerstone. A wrong answer here is a
+    * cosmetic misrendering; a wrong answer in the checker is a miscompile.
+    */
+  def abilityNameOfCarrier(fqn: ValueFQN): Option[String] = {
+    val name = fqn.name.name
+    Option
+      .when(name.length > carrierSuffix.length && name.endsWith(carrierSuffix))(name.dropRight(carrierSuffix.length))
+      .filter(_ == fqn.moduleName.name)
+  }
 }

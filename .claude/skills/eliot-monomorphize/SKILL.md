@@ -61,11 +61,13 @@ monomorphize/
 │   ├── Unifier.scala           (pattern unification; pure definitional equality; carrierRoles map; flushPostponed)
 │   ├── UnifyResult.scala       (Unified / Contradiction)
 │   ├── UnifyError.scala        (context + optional expected/actual)
-│   └── SemValuePrinter.scala   (human-readable SemValue rendering for error messages — NOTE: carrier/Id-blind today,
-│                                so a mismatch on a carrier-headed judgment leaks `AbortCarrier(IO, String)`; a
-│                                tracked close-out gate, docs/effects-as-channel.md §9)
+│   └── SemValuePrinter.scala   (human-readable SemValue rendering for error messages; carrier stacks print as pinned
+│                                rows and `Id[X]` as `X` — see GroundValueRenderer below, one inverter for both)
 ├── fact/
 │   ├── GroundValue.scala       (output: Direct, Structure, Type)
+│   ├── GroundValueRenderer.scala (the USER-FACING rendering — LSP hover + ability-demand diagnostics. Carrier stacks
+│   │                            become pinned rows via effect/EffectRowRendering, `Id[X]` becomes `X`, an `Id` row
+│   │                            BASE is kept. `Show[GroundValue]` stays the terse debug instance — never user-facing)
 │   ├── MonomorphicValue.scala  (runtime output fact: signature + runtime, keyed by (vfqn, typeArgs))
 │   ├── CompilerMonomorphicValue.scala (compiler-track output fact — a DISTINCT type; cannot name MonomorphicValue.Key)
 │   ├── MonomorphicExpression.scala (output expression ADT; type slots are ground)
@@ -427,8 +429,15 @@ Authoritative design: `docs/effects-as-channel.md`. Same template as the refinem
   demands that fact, so an undeclared effect blocks codegen. The checker keeps only `DeclaredPureChecker`.
 - **`Id` is erased at the `WovenValue` seam** (`IdNormalizer`), with `assertNoIdResidue` a hard error on survivors.
   **Any new consumer of `MonomorphicValue` or of mid-mono `SemExpression`s must Id-normalize first** — this is a
-  recurring tax (the LSP hover index is a known outstanding case), and the residue assertion fires only *downstream*
-  of the seam, so it cannot catch a consumer that reads earlier.
+  recurring tax (the LSP's `TypeHintIndex` pays it in `TypeHintIndex.idNormalized`), and the residue assertion fires
+  only *downstream* of the seam, so it cannot catch a consumer that reads earlier. Rendering hides the machinery
+  *names*; only normalizing removes the machinery *nodes* (an un-normalized hover index attributes a spurious
+  `String -> String` — an inserted `runId` — to the user's own ranges).
+- **Nothing user-facing prints a carrier or `Id[X]`.** One inverter (`effect/EffectRowRendering`, driven by
+  `EffectCarrierNaming.abilityNameOfCarrier`) serves both `fact/GroundValueRenderer` and `unify/SemValuePrinter`.
+  Recognizing carrier-ness **by name is sanctioned for rendering only** — cosmetic if wrong, whereas the same guess in
+  the checker miscompiles. Do not add a second inverter, and do not reach for `Show[GroundValue]` (the terse debug
+  instance that drops type arguments) in a message a user reads.
 
 ### PostDrainQuoter — the sole SemValue→GroundValue transition
 

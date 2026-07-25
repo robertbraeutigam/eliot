@@ -13,8 +13,15 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN}
   */
 object EffectMachinery {
 
+  /** The machinery ability a *side-effecting* action rides: every fine effect that actually touches the world
+    * (`Console`, `Log`, `FileSystem`) is implemented over `Suspend`, so a demand for it is the compiler asking "can
+    * this carrier perform a side effect?". Notably the identity carrier `Id` has no `Suspend` instance *by design*
+    * (docs/effects-as-channel.md §6), which is what keeps I/O out of a pure computation.
+    */
+  val suspendAbilityName: String = "Suspend"
+
   /** The abilities the compiler inserts and recognises but the user never names. */
-  private val machineryAbilities: Set[String] = Set("Effect", "Suspend")
+  private val machineryAbilities: Set[String] = Set("Effect", suspendAbilityName)
 
   /** The internal effect machinery, never a user-facing effect: a `flatMap`/`pure`/`map`/`suspend` call (hand-written or
     * inserted by this phase) must not be counted as "using an effect" by the declared-effect check.
