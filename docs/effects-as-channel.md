@@ -34,9 +34,14 @@ uniform-carrier checker is the sole checker path (no flag anywhere — U4-e core
 are all landed). **U4-f (row-argument type-pinning, `0a711135`) and U4-g (effectful-`catch`-handler delta + its
 two §7 elaboration fixes, `c7b30952`) are landed** — the catch-handler discharge story is now complete for both
 pure and effectful handlers, and the two §7 elaboration primitives finding 13 prescribed (row-directed pinning
-*at elaboration*; single-node `carrierSlotLift`) are in place. What **remains** for §7 is the join-solver **spine**
-rewire itself (the capture arm) + the §8 gate. **A spine attempt after `59a1130a` (2026-07-25) FAILED and was
-discarded, leaving no record** (pinned finding 15) — do not go at the spine directly again; follow **the mandated
+*at elaboration*; single-node `carrierSlotLift`) are in place. **Steps 2, 3, and step 4's FIRST SLICE are all
+landed (2026-07-25):** the finding-13 mitigations (guard-on-junk + shape matrix), the finding-14 recognition tag
+(`EffectRow.pinnedParameterIndices`), and the capture-arm join routing **for the catch-shape class** (byte-identity
+verified across a 14-program corpus; tripwire-confirmed the join fires — §10 items 9/10/11). What **remains** for §7
+is **expanding step 4 shape by shape** (concrete-`G` base, multi-layer, doomed) until the `uniformCaptureSlot`
+whole-unify is unreachable, then deleting it; the §8 gate stays (kept permanently by resolution). **An earlier spine
+attempt after `59a1130a` (2026-07-25) FAILED and was discarded, leaving no record** (pinned finding 15) — the
+mandated sequence (mitigations → tag → shape-by-shape routing) is what unblocked it; keep following **the mandated
 sequence** below. **Gate — all green, run these to confirm before starting:**
 
 ```
@@ -159,12 +164,23 @@ pinned finding 15). Work strictly in this order; each step lands green on its ow
    **(i)** (the pinned-row desugar) is landed; source **(ii)** (compiler-generated boundary slots — the synthetic
    main's `IO[A]`, later `runMain`) is a follow-on, not needed for step 4's first slice (the `catch` shape is
    source (i)). Gate: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11. **Next is step 4.**
-4. **Only then route the capture arm — smallest shape first, byte-identity-driven (the U4-a discipline).**
-   First slice: *tagged single-layer pinned domains with an open-row actual* (the `catch` shape) only;
-   everything else stays on the whole-unify fallback. Verify byte-identity across the examples corpus (as
-   the 34/34 flip-readiness check did), then expand shape by shape (concrete-`G`, multi-layer, doomed)
-   until the whole-unify arm is unreachable — delete it only then. Keep `eagerRowPinIntoDomain` as the
-   row-directed derivation *inside* the join (it IS the finding-13 §4 spec, not a patch to retire).
+4. **Route the capture arm — smallest shape first, byte-identity-driven. FIRST SLICE LANDED (2026-07-25).**
+   The catch-shape class — a callee's **tagged** single-layer pinned-row parameter (`{E | G} A`, base a
+   generic meta) receiving an **open-row effectful actual** — now routes through the JOIN solver
+   (`classifyExpectedSlot` with the tag ⤳ `CarrierSlot` ⤳ `resolveArgumentSlot`'s pass-join: split the
+   domain's carrier off first, join the actual's carrier toward it, unify payloads) instead of
+   `uniformCaptureSlot`'s eager whole-unify. The step-3 tag is consumed by threading it through the spine loop:
+   `calleePinnedParams` reads the head callee's `pinnedParameterIndices` and the fold passes a per-slot `pinned`
+   flag (`applyInferred` → `checkArgumentSlot` → `uniformPayloadSlot` → `uniformCaptureSlot`); a new
+   `forcePinnedCarrier` flag on `classifyExpectedSlot`/`resolveArgumentSlot`/`uniformArgumentSlot` forces the
+   carrier-split from the tag. `eagerRowPinIntoDomain` runs **inside** the join (finding-13 §4, kept). Guarded
+   to the first slice by `singleLayerPinnedDomain` + `carrierMeta.nonEmpty`; **everything else** (multi-layer
+   pinned domains, concrete-payload actuals, doomed shapes) stays on the whole-unify fallback. **Byte-identity
+   verified**: a 14-program discharger corpus (Throw/Abort/State/Dep/two-throws/ordering/multi/testable/blocks/
+   if-demo + controls) is disassembly-IDENTICAL before/after (stash-and-diff), and a tripwire confirmed the join
+   path *fires* for the catch shape (not a no-op). Gate: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11.
+   **NEXT: expand shape by shape** (concrete-`G` base, multi-layer, doomed) until the whole-unify arm is
+   unreachable — delete it only then. §10 item 11.
 
 **Do NOT (each has already caused a failure or is a pre-registered prediction):**
 
@@ -1476,6 +1492,42 @@ default path byte-identical, gated by the §0 harness.
     **(ii)** (compiler-generated boundary slots — synthetic main's `IO[A]`, later `runMain`) is a follow-on, not
     needed for step 4's first slice (the `catch` shape is source (i)). Gate: lang 233/233, jvm 283/283, HelloWorld,
     eliot-test 11/11.
+
+11. **Step 4 — capture-arm join routing, FIRST SLICE — LANDED (2026-07-25).** The genuinely-legacy arm (the
+    `uniformCaptureSlot` whole-unify) is now routed through the join solver for the **catch-shape class** — the one
+    shape the whole §7 sequence was built to reach — with the whole-unify kept as the fallback for every other
+    shape. This is the first live caller of the recognition tag (step 3) and closes the loop the prior spine
+    attempts (finding 15) could not.
+    - **What routes**: a callee parameter the tag marks pinned (`pinnedParameterIndices`), whose domain is a
+      **single-layer** pinned carrier stack (`{E | G} A` ⤳ `<Ability>Carrier[…]`, base a generic meta), receiving
+      an **open-row effectful actual** (`?F[T]`, a carrier meta). The join splits the domain's carrier off first
+      (`Carrier.split`), `joinToward`s the actual's carrier (`?F := ThrowCarrier[String, ?G]`), and unifies the
+      payloads (`?A := String`) — provably the same solution the whole-unify reached by partial-application
+      injectivity, but carrier-split-first so no container can steal the carrier meta.
+    - **How the tag is consumed** (the finding-14 threading): `calleePinnedParams` reads the spine head callee's
+      `SaturatedValue.…effectRow.pinnedParameterIndices`; the fold index is the value-parameter index (generics
+      are peeled / on the reference, never spine applications), so a per-slot `pinned: Boolean` threads
+      `inferSpineApplications` → `applyInferred` → `checkArgumentSlot` → `uniformPayloadSlot` →
+      `uniformCaptureSlot`. A new defaulted `forcePinnedCarrier` on
+      `classifyExpectedSlot`/`resolveArgumentSlot`/`uniformArgumentSlot` forces the carrier-split from the tag
+      (never a shape/name guess — finding 14). `eagerRowPinIntoDomain` runs **inside** the join (finding-13 §4,
+      kept, not retired).
+    - **Guard (first slice, U4-a discipline)**: `pinned && !doomed && carrierMeta.nonEmpty &&
+      singleLayerPinnedDomain(domain)`. Multi-layer pinned domains, concrete-payload actuals, and doomed
+      (`mustLiftBeforeUnify`) shapes all stay on the whole-unify / bind fallback, unchanged.
+    - **Verification**: a 14-program discharger corpus (`EffectsThrow`/`Abort`/`State`/`TwoDeps`/`TwoThrows`/
+      `Ordering`/`Multi`/`Testable`/`Blocks`/`IfDemo`/`DischargeDemo` + `HelloWorld`/`Match`/`Arithmetic`
+      controls) is **disassembly-IDENTICAL** before/after (git-stash the slice, compile both, `javap`-diff); a
+      **tripwire** (a temporary throw in the join branch) confirmed the join path *fires* for the catch shape, so
+      the byte-identity is genuine, not a no-op fallback. Gate: lang 233/233, jvm 283/283, HelloWorld, eliot-test
+      11/11. Diff: `Checker.scala` (the threading + `uniformCaptureSlot` join branch + `singleLayerPinnedDomain` +
+      `calleePinnedParams`) and `UniformCarrierChecker.scala` (the `forcePinnedCarrier` flag).
+    - **Compile track unaffected**: `pinned` is consumed only in the runtime `plainDomain` branch (gated
+      `platform == Runtime`), so the `platform == Platform.Runtime` §8 gate holds and the compile track is
+      byte-identical (part of the corpus check via the borrowed `eliot-compiler/` bodies).
+    - **NEXT**: expand shape by shape (concrete-`G` base, multi-layer nested stacks, then the doomed/mismatch
+      leaves) until the `tryUnifyCommitting` whole-unify in `uniformCaptureSlot` is unreachable — delete it only
+      then (the §7 deletion target: *unreachable from the runtime track*).
 
 ### U5 — follow-ups unlocked
 

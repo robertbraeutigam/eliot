@@ -708,10 +708,15 @@ class Checker(
                             case _                                                                 =>
                               infer(head).map((_, apps))
                           }
-      (built, records) <- rest.foldLeftM((start, Vector.empty[SlotRecord])) {
-                            case (((targetExpr, targetType), recs), (target, arg)) =>
-                              applyInferred(target, targetExpr, targetType, arg).map { case (expr, tpe, record) =>
-                                ((expr, tpe), recs :+ record)
+      // §7 step 4 (finding 14): the head callee's carrier-stack recognition tag — the value-parameter positions whose
+      // declared type is a pinned row (`catch`'s `computation`). The fold index below is the value-parameter index
+      // (generics are peeled / on the reference, never spine applications), so `pinnedParams.contains(i)` classifies
+      // the i-th slot. Empty for a non-value-reference head (a lambda, a nested application).
+      pinnedParams     <- calleePinnedParams(head)
+      (built, records) <- rest.zipWithIndex.foldLeftM((start, Vector.empty[SlotRecord])) {
+                            case (((targetExpr, targetType), recs), ((target, arg), index)) =>
+                              applyInferred(target, targetExpr, targetType, arg, pinnedParams.contains(index)).map {
+                                case (expr, tpe, record) => ((expr, tpe), recs :+ record)
                               }
                           }
       hadDeferred       = records.exists(_.outcome.isInstanceOf[SlotOutcome.Deferred])
@@ -719,6 +724,20 @@ class Checker(
       result           <- assembleSpine(built, finalRecords, hadDeferred)
     } yield result
   }
+
+  /** The head callee's **pinned-row recognition tag** (docs/effects-as-channel.md §7 step 4, finding 14): the set of
+    * its value-parameter positions whose declared type is a pinned row (a canonical carrier stack), read from the
+    * callee's `OperatorResolvedValue.effectRow.pinnedParameterIndices` via its [[SaturatedValue]]. Empty for a head that
+    * is not a plain value reference (an immediately-applied lambda, a nested application) or whose fact is absent — so
+    * the join routing simply never fires there and the whole-unify path is unchanged.
+    */
+  private def calleePinnedParams(head: Sourced[OperatorResolvedExpression]): CheckIO[Set[Int]] =
+    head.value match {
+      case OperatorResolvedExpression.ValueReference(vfqn, _) =>
+        liftF(getFactIfProduced(SaturatedValue.Key(vfqn.value, platform)))
+          .map(_.map(_.value.effectRow.pinnedParameterIndices).getOrElse(Set.empty))
+      case _                                                  => pure(Set.empty)
+    }
 
   /** The outcome of resolving one spine argument slot. */
   private sealed trait SlotOutcome {
@@ -892,7 +911,8 @@ class Checker(
       target: Sourced[OperatorResolvedExpression],
       targetExpr: SemExpression,
       targetType: SemValue,
-      arg: Sourced[OperatorResolvedExpression]
+      arg: Sourced[OperatorResolvedExpression],
+      pinned: Boolean
   ): CheckIO[(SemExpression, SemValue, SlotRecord)] =
     for {
       (updatedTarget, peeled) <- instantiatePolymorphic(targetExpr, targetType)
@@ -906,7 +926,7 @@ class Checker(
                                        _       <- doUnify(peeled, p, target.as("Not a function."))
                                      } yield p
                                  }
-      outcome                 <- checkArgumentSlot(arg, vpi.domain)
+      outcome                 <- checkArgumentSlot(arg, vpi.domain, pinned)
       argExpr                  = outcome.slotExpr
       // For a lifted argument the dependent codomain is applied to the fresh binder's neutral, not the action value —
       // the slot's value is the bound result. (Today all codomains are constant, so this is future-proofing, not a
@@ -953,7 +973,11 @@ class Checker(
     * entry, which folds in the effectful-signatures kind acceptance (W2b) exactly as the return-boundary
     * [[checkAgainst]] does).
     */
-  private def checkArgumentSlot(arg: Sourced[OperatorResolvedExpression], domain: SemValue): CheckIO[SlotOutcome] =
+  private def checkArgumentSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      domain: SemValue,
+      pinned: Boolean
+  ): CheckIO[SlotOutcome] =
     arg.value match {
       case _: OperatorResolvedExpression.FunctionLiteral                                            =>
         check(arg, domain).map(SlotOutcome.Resolved.apply)
@@ -974,7 +998,7 @@ class Checker(
           plainDomain        <- if (uniform) uniformPlainValueType(forcedDomain) else pure(false)
           carrierDomain      <- if (uniform && !plainDomain) lifter.effectCarrierSplit(forcedDomain).map(_.nonEmpty)
                                 else pure(false)
-          outcome            <- if (plainDomain) uniformPayloadSlot(arg, argExpr, argType, forcedDomain)
+          outcome            <- if (plainDomain) uniformPayloadSlot(arg, argExpr, argType, forcedDomain, pinned)
                                 else if (carrierDomain) uniformCarrierSlot(arg, argExpr, argType, forcedDomain)
                                 else defaultArgSlot(arg, argExpr, argType, forcedDomain)
         } yield outcome
@@ -1029,7 +1053,8 @@ class Checker(
       arg: Sourced[OperatorResolvedExpression],
       argExpr: SemExpression,
       argType: SemValue,
-      domain: SemValue
+      domain: SemValue,
+      pinned: Boolean
   ): CheckIO[SlotOutcome] =
     for {
       (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
@@ -1054,7 +1079,7 @@ class Checker(
                                        case None    => pure(false)
                                      }
       outcome                     <- if (payloadFits) uniformArgumentSlot(arg, updatedExpr, domain)
-                                     else uniformCaptureSlot(arg, updatedExpr, instantiated, domain)
+                                     else uniformCaptureSlot(arg, updatedExpr, instantiated, domain, pinned)
     } yield outcome
 
   /** The no-fit branch of [[uniformPayloadSlot]] (U4-a(ii)): an actual whose payload does not fit the plain domain is
@@ -1078,14 +1103,33 @@ class Checker(
       arg: Sourced[OperatorResolvedExpression],
       updatedExpr: SemExpression,
       instantiated: SemValue,
-      domain: SemValue
+      domain: SemValue,
+      pinned: Boolean
   ): CheckIO[SlotOutcome] =
     for {
       // The argument's own carrier meta, read *before* the capture unify solves it — the row-argument type-pinning
       // rules (docs/effects-as-channel.md §7/§10) need its id to look its declared ability constraints up.
       carrierMeta <- lifter.effectCarrierSplit(instantiated).map(_.collect { case (VMeta(id, _), _) => id.value })
       doomed      <- lifter.mustLiftBeforeUnify(instantiated, domain)
+      // §7 step 4 (finding 14): route the capture through the JOIN solver — not the eager whole-unify — when the callee's
+      // tagged pinned-row parameter (`catch`'s `{Throw[E] | G} A` ⤳ `ThrowCarrier[E, G, A]`) receives an open-row
+      // effectful actual. The join splits the domain's carrier stack off first (`Carrier.split`), joins the actual's
+      // carrier toward it, and unifies payloads — the same solution the whole-unify reaches by partial-application
+      // injectivity, but with the carrier meta split off first so it can never be stolen. Guarded to the **first slice**:
+      // a single-layer pinned domain (`{E | G} A`, base a generic meta) + an open-row-carrier actual. Every other capture
+      // (multi-layer pinned domains, concrete-payload actuals, doomed shapes) stays on the whole-unify fallback below,
+      // and `mustLiftBeforeUnify` doomed shapes take their bind arm first, unchanged.
+      joinRoutable <- if (pinned && !doomed && carrierMeta.nonEmpty) singleLayerPinnedDomain(domain) else pure(false)
       outcome     <- if (doomed) uniformArgumentSlot(arg, updatedExpr, domain)
+                     else if (joinRoutable)
+                       for {
+                         // The eager row-directed pin (finding 13 §4) runs *inside* the join too — it derives the domain's
+                         // error slot from the argument's row constraints, so the join solves `?F := ThrowCarrier[String, ?G]`
+                         // with the error slot already `String` rather than junk-grounding.
+                         _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
+                         out <- uniformArgumentSlot(arg, updatedExpr, domain, forcePinnedCarrier = true)
+                         _   <- carrierMeta.traverse_(recordRowArgumentPins(_, arg))
+                       } yield out
                      else
                        for {
                          // §7 row-directed-at-elaboration pin (finding 13 §4): pin the *pinned-row domain*'s carrier-layer
@@ -1102,6 +1146,26 @@ class Checker(
                                 }
                        } yield out
     } yield outcome
+
+  /** Whether `domain` is a **single-layer** pinned carrier stack — a `<Ability>Carrier[…]` application whose base (the
+    * carrier's last stack slot, before the payload) is still a bare metavariable (the generic tail `G` of `{E | G} A`),
+    * not itself a nested carrier. The first-slice guard for the §7 step-4 join routing (finding 14): a discharger's
+    * `{E | G} A` domain (`catch`/`runThrow`/`else`/`runStateToPair`/`provide`) is always single-layer at the capture,
+    * so this admits exactly the catch-shape class; a pre-nested stack (a multi-layer pinned domain) is left on the
+    * whole-unify fallback.
+    */
+  private def singleLayerPinnedDomain(domain: SemValue): CheckIO[Boolean] =
+    force(domain).flatMap {
+      case VTopDef(_, _, Spine.SApp(prefix, _)) =>
+        prefix.toList.lastOption match {
+          case Some(base) => force(base).map {
+              case VMeta(_, Spine.SNil) => true
+              case _                    => false
+            }
+          case None       => pure(false)
+        }
+      case _                                    => pure(false)
+    }
 
   /** Row-directed discharge pinning **at elaboration** (docs/effects-as-channel.md §7, finding 13 §4): when an open-row
     * argument (`?F ~ Throw[String]`) is captured whole into a pinned-row parameter *domain* (`ThrowCarrier[E, G, A]`),
@@ -1287,11 +1351,12 @@ class Checker(
   private def uniformArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
       argExpr: SemExpression,
-      domain: SemValue
+      domain: SemValue,
+      forcePinnedCarrier: Boolean = false
   ): CheckIO[SlotOutcome] =
     for {
       headed  <- uniformChecker.intoCarrierHeadedTerm(argExpr, arg)
-      outcome <- uniformChecker.resolveArgumentSlot(arg, headed, headed.expressionType, domain)
+      outcome <- uniformChecker.resolveArgumentSlot(arg, headed, headed.expressionType, domain, forcePinnedCarrier)
     } yield outcome match {
       case UniformCarrierChecker.UniformSlotOutcome.Passed(slotExpr)      => SlotOutcome.Resolved(slotExpr)
       case UniformCarrierChecker.UniformSlotOutcome.Bound(slotExpr, bind) => SlotOutcome.Bound(slotExpr, bind)

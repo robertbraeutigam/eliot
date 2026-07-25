@@ -179,12 +179,22 @@ class UniformCarrierChecker(
   /** Classify an *expected* application slot via the uniform ladder, reading the effect-carrier tag from the value's
     * carrier bookkeeping (the surviving positional recognition — on the expected side, never a shape guess about the
     * actual). See [[UniformLadder.classifyExpected]].
+    *
+    * `forcePinnedCarrier` (docs/effects-as-channel.md §7 step 4, finding 14) is the fact-carried **pinned-row
+    * recognition tag** consulted at the capture seam: a callee parameter whose declared type is a pinned row
+    * (`catch`'s `{Throw[E] | G} A` ⤳ `ThrowCarrier[E, G, A]`) is a canonical carrier stack the value's own ambient
+    * `effectCarrierSplit` does *not* recognise (a discharge stack is neither the ambient nor a role-flagged meta).
+    * The caller sets this true from the callee's `EffectRow.pinnedParameterIndices`, so the domain is split as a
+    * carrier slot by the tag rather than by a shape/name guess (which would miscompile — finding 14).
     */
-  def classifyExpectedSlot(expected: SemValue): CheckIO[UniformLadder.ExpectedSlot] =
+  def classifyExpectedSlot(
+      expected: SemValue,
+      forcePinnedCarrier: Boolean = false
+  ): CheckIO[UniformLadder.ExpectedSlot] =
     for {
       forced <- force(expected)
       tagged <- effectCarrierSplit(forced).map(_.nonEmpty)
-    } yield UniformLadder.classifyExpected(forced, _ => tagged)
+    } yield UniformLadder.classifyExpected(forced, _ => tagged || forcePinnedCarrier)
 
   /** Resolve one application slot's *decision* through the uniform ladder, threading the updated unifier back into the
     * state. Returns the [[UniformLadder.Outcome]]; the caller collects the deferred lift (if any) and materialises it at
@@ -245,10 +255,11 @@ class UniformCarrierChecker(
       arg: Sourced[OperatorResolvedExpression],
       argExpr: SemExpression,
       argType: SemValue,
-      expected: SemValue
+      expected: SemValue,
+      forcePinnedCarrier: Boolean = false
   ): CheckIO[UniformCarrierChecker.UniformSlotOutcome] =
     for {
-      slot          <- classifyExpectedSlot(expected)
+      slot          <- classifyExpectedSlot(expected, forcePinnedCarrier)
       forcedActual  <- force(argType)
       unifier       <- inspect(_.unifier)
       (updated, out) = UniformLadder.resolveSlot(unifier, forcedActual, slot, arg.as("Type mismatch."))
