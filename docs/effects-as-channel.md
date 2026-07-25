@@ -79,8 +79,19 @@ first live use" — a substantial, risky slice; do it focused, with the gate abo
   blocked it is now FIXED (U4-f, §10, committed `0a711135`)*; the remaining piece is the delta proper:
   widen `catch`'s handler from `onError: E => A` to `onError: E => G[A]` (its body
   `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`) so the handler may itself
-  perform effects. This is a standalone stdlib change on top of U4-f; acceptance
-  `failUnit catch (err -> printLine(err))` runs **and** `EffectsThrow` green.
+  perform effects. Acceptance `failUnit catch (err -> printLine(err))` runs **and** `EffectsThrow` green.
+  **NOT a standalone stdlib change after all — ATTEMPTED 2026-07-25, it re-triggers a finding-7-class lift
+  selection (details in §10 U4-f "attempted-and-failed" note).** The exact specified delta compiles+runs a
+  *single-statement, meta-ambient* case (`def main: {Console} Unit = printLine(parseOk catch (err -> err))`),
+  but a **block body with a concrete base carrier** (`def main: IO[Unit] = { printLine(p catch h); … }`)
+  fails to compile: `No ability implementation found for ability 'Throw' with type arguments [String, IO]`
+  at the `where E1 != E2` lift (`jvm/eliot/eliot/effect/Throw.els:54`) — the outer `ThrowCarrier` layer's
+  error slot junk-grounds, which U4-f's `applyPendingCarrierPins` does **not** prevent under the widened
+  handler when `G` is a *concrete* carrier (it holds when `G` is the ambient meta). All 7 Throw/`catch`
+  jvm.test cases redden (pure identity/`"default"` handlers included — they either miscompile to a dropped
+  value under the shared-session suite or hit the same lift error in a clean single-file compile). So the
+  delta needs **checker work**, not just the stdlib edit: extend the row-argument pin to fire for the outer
+  carrier layer even when the base carrier is concrete, or land it inside the §7 join-solver rewire.
 - **§6 Id-residue assertion → hard error — DONE (2026-07-24).** `WovenValueProcessor.assertNoIdResidue` (was
   `warnIdResidue`) now `compilerAbort`s at `mv.name` on any surviving `Id`-machinery reference or `Id[X]` type
   instead of warning; the full gate is green under it (lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11), so
@@ -827,7 +838,9 @@ carrier during checking, erased by §6 (its compile-time overlay remains for §8
 
 **Stdlib deltas stay additive**: the effectful-handler `catch` (`onError: E => G[A]`) is designed to land
 atomically. Its pre-existing pinned-row/open-row pinning blocker (pinned finding 7) is now **fixed** by the
-U4-f row-argument type-pinning slice (§10, `0a711135`); the delta itself remains to land.
+U4-f row-argument type-pinning slice (§10, `0a711135`); the delta itself remains to land — but the naive stdlib
+edit is **not** sufficient (it re-triggers a finding-7-class lift selection in the concrete-base-carrier block
+form; §10 U4-f "attempted-and-failed" note), so this delta now carries a checker prerequisite.
 
 ## 8. The compile-time residue
 
@@ -1121,6 +1134,37 @@ default path byte-identical, gated by the §0 harness.
    Still to land (independent follow-on, not part of U4-f): the **stdlib delta** (`onError: E => G[A]` + the
    `flatMap`/`foldEither` body) for an *effectful* handler, with the standing acceptance
    (`failUnit catch (err -> printLine(err))` runs, `EffectsThrow` stays green).
+
+   **ATTEMPTED AND FAILED — 2026-07-25 (the delta is NOT a standalone stdlib change; needs checker work).**
+   Applying the exact specified delta to `stdlib/eliot/eliot/effect/Throw.els` (widen `onError: E => A` →
+   `E => G[A]`, body `map(e -> foldEither(onError, a -> a, e), …)` → `flatMap(e -> foldEither(onError,
+   a -> pure(a), e), …)`) does **not** land green — it re-triggers a **finding-7-class lift selection** in
+   the concrete-base-carrier case:
+   - **What works:** a single-statement, *meta-ambient* main — `def main: {Console} Unit = printLine(parseOk
+     catch (err -> err))` — compiles and runs `"parsed-value"`. Here `catch`'s `G` unifies with the ambient
+     meta `?F ~ Console` and U4-f's row-argument pin (`?E := String`) holds.
+   - **What breaks:** a **block body with a concrete base carrier** — `def main: IO[Unit] = { printLine(parseOk
+     catch (err -> err)); printLine(parseBad catch (err -> err)) }` — fails to compile with `No ability
+     implementation found for ability 'Throw' with type arguments [String, IO]` at the lift body
+     `def raise[A](err: E2): ThrowCarrier[E1, G, A] = ThrowCarrier(map(a -> Right(a), raise(err)))`
+     (`jvm/eliot/eliot/effect/Throw.els:54`, the `where E1 != E2` instance). The **outer** `ThrowCarrier`
+     layer's error slot (`E1`) junk-grounds (≠ `String`), so the guard `E1 != E2` holds and the lift is
+     chosen; its inner `raise` then demands the nonexistent `Throw[String, IO]`. U4-f's
+     `applyPendingCarrierPins` pins the slot only in the meta-ambient case; under the widened handler with a
+     **concrete** `G := IO` the pin does not reach the outer layer's error slot.
+   - **Blast radius:** all 7 Throw/`catch` cases in `jvm.test` redden (the pure identity `err -> err` and
+     `err -> "default"` handlers too — the widening moves their body from a bare-`A` `Generic` slot to a
+     `G[A]` carrier slot, which the two-Throws case then miscompiles at runtime, and the block+IO cases hit
+     the lift error). So the "pure handlers stay backward-compatible via auto-lift" expectation is **false in
+     practice** for the concrete-carrier block form.
+   - **Root cause / seam:** the widened handler changes the carrier/error-slot solving *order* so U4-f's
+     pin-if-still-free is defeated for the outer `ThrowCarrier` layer when the base is concrete — the same
+     constraint↔structure dual-representation seam finding 7 names, one layer out. **The fix is checker-level,
+     not stdlib:** extend the row-argument pin (`recordRowArgumentPins`/`applyPendingCarrierPins`) to pin the
+     outer carrier layer's ability arguments even when `G` is a concrete carrier, or fold this into the §7
+     join-solver rewire (where the carrier is solved by join and cannot junk-ground). Repro: a two-statement
+     `IO[Unit]` block with `parseOk`/`parseBad` and identity handlers, against the widened `catch`. The
+     stdlib edit was reverted; the gate is back to green.
 
    **Rejected alternative (recorded so it is not re-proposed): a first-class row calculus**
    (Koka/Leijen-style row types with dedicated row unification). It would fix this class by construction,
