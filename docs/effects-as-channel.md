@@ -39,9 +39,13 @@ SECOND SLICE (tag source (ii)) are all landed (2026-07-25):** the finding-13 mit
 matrix), the finding-14 recognition tag (`EffectRow.pinnedParameterIndices`), the capture-arm join routing **for the
 catch-shape class** (byte-identity verified across a 14-program corpus; tripwire-confirmed the join fires — §10 items
 9/10/11), and the **synthetic-main `IO[A]` boundary** now routed through the join too (**tag source (ii)** — §10 item
-12). What **remains** for §7 is **expanding step 4 shape by shape** (the untagged concrete-carrier params `runId`'s
-`Id[A]` etc., data-container recognition) until the `uniformCaptureSlot` whole-unify is unreachable, then deleting it;
-the §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
+12). **§7's capture-routing is now COMPLETE-in-purpose (§10 item 13, evidence-based):** an instrumentation probe
+established that every finding-13-risk carrier capture is on the join, and that the whole-unify arm's remaining traffic
+is 35/40 legitimate **data-container** captures (which *must* stay on whole-unify — routing them is the finding-14
+miscompile) plus 5 benign carrier solves. **`tryUnifyCommitting` is therefore NOT deletable and should not be**, and
+routing the 5 residual carrier captures is churn with real risk (the `Id`-split timing) and zero correctness benefit —
+so there is **no valuable capture-routing slice left**. The remaining open work is elsewhere (the §9 doc/skill sweep,
+the LSP `Id`-free rendering, the U5 items). The §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
 and was discarded, leaving no record** (pinned finding 15) — the mandated sequence (mitigations → tag → shape-by-shape
 routing) is what unblocked it; keep following **the mandated sequence** below. **Gate — all green, run these to
 confirm before starting:**
@@ -1608,13 +1612,40 @@ default path byte-identical, gated by the §0 harness.
       joinRoutable=true`) — an initial run had `pinned=false` because `runMainVfqn`'s module was wrong (a `.els` file's
       module is its **full path incl. filename** — `eliot.jvm.IO`, not `eliot.jvm`); the fix made the tag match. Gate:
       lang 233/233, jvm 283/283, HelloWorld builds+runs, eliot-test 11/11.
-    - **NEXT**: the remaining `tryUnifyCommitting` captures are the **untagged concrete-carrier params** (`runId`'s
-      `x: Id[A]`, `AbortCarrier`/`StateCarrier` params) and **genuine data containers** (`Either`/`Pair`/`Option`).
-      `Id[A]` carries the timing subtlety from item 11's map (`Carrier.split(Id) = Bottom` ⇒ `joinToward(?G, Bottom)`
-      contributes nothing, so `?G` defaults to `Id` only at finalize — not byte-identical to whole-unify's eager
-      solve); the data containers must stay **off** the carrier path (classifying them as a `CarrierSlot` is the
-      finding-14 miscompile). Deleting `tryUnifyCommitting` remains a larger recognition follow-on with no correctness
-      urgency (the finding-13 seam is closed).
+    - **NEXT**: see item 13 — instrumentation established that the capture-routing work is **functionally complete**,
+      and that deleting `tryUnifyCommitting` is neither achievable nor desirable.
+
+13. **The capture-routing is COMPLETE-in-purpose; `tryUnifyCommitting` is NOT deletable and should not be (evidence,
+    2026-07-25).** After source (ii) landed, a branch-distribution probe over a 10-program discharger corpus
+    (HelloWorld / EffectsThrow / State / TwoThrows / Abort / Ordering / Multi / DischargeDemo / Blocks / IfDemo)
+    counted **71 captures** reaching `uniformCaptureSlot`:
+    - **31 → the join** — every finding-13-risk carrier capture: the pinned-row dischargers (source (i)) *and* the
+      synthetic-main `IO` boundary (source (ii)). This is the theft class §7 exists to close, and it is **fully
+      routed**.
+    - **40 → whole-unify (`tryUnifyCommitting`)**, which split cleanly by whether a *carrier metavariable* is even
+      present:
+      - **35 are genuine data containers** (`carrierMeta=None`: `String` ×11, `Option` ×9, `Pair` ×7, `Either` ×6,
+        `Database` ×2). These have **no carrier meta to steal**, so they are *not* finding-13 seams; a whole-type unify
+        is the *correct* mechanism for them, and classifying them as a `CarrierSlot` would be the **finding-14
+        miscompile**. They **belong** on whole-unify by design.
+      - **5 are benign carrier captures** (`carrierMeta=Some`, all `pinned=false`): 3× `Id[?A]` (discharge-to-`Id`
+        boundaries) and 2× `AbortCarrier[?G, ?A]` (the carrier *instance* internals — `Effect[AbortCarrier]`'s
+        `fa: AbortCarrier[G, A]`, not a pinned-row param). Whole-unify solves each by plain injectivity (`?F := Id` /
+        `?F := AbortCarrier`) — a **correct** solve, never a theft.
+    **Consequences (do not re-derive):**
+    - **`tryUnifyCommitting` cannot be removed** — 35/40 of its traffic is legitimate data-container captures that
+      must not go through the carrier join. The original "delete the whole-unify arm" endpoint conflated *carrier*
+      captures (route via join) with *data-container* captures (correctly whole-unify); the latter are the majority and
+      are here to stay. `tryUnifyCommitting` is the shared substrate's data-container unify, not a legacy carrier arm.
+    - **Routing the 5 remaining carrier captures is churn, not progress** — they are already correct (benign injective
+      solves, no finding-13 risk), so moving them to the join buys **zero** correctness and spends real risk: the
+      `Id[?A]` ones hit the `Carrier.split(Id) = Bottom` timing subtlety (item 11 — `?F` defaults to `Id` only at
+      finalize, a resolution-order change, not merely non-byte-identical), and the `AbortCarrier`-instance ones would
+      perturb the carrier instances' own bodies. Tagging `runId`/the carrier instances is **not** recommended.
+    - **§7's capture-routing has achieved its purpose.** The finding-13 theft class is fully on the join; everything
+      still on whole-unify is either a data container (correct there) or a benign carrier solve (correct there). There
+      is no valuable capture-routing slice left. The remaining open work is elsewhere (the doc/skill sweep §9, the LSP
+      `Id`-free rendering, the U5 items) — not more capture shapes.
 
 ### U5 — follow-ups unlocked
 
