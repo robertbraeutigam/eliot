@@ -179,8 +179,12 @@ pinned finding 15). Work strictly in this order; each step lands green on its ow
    verified**: a 14-program discharger corpus (Throw/Abort/State/Dep/two-throws/ordering/multi/testable/blocks/
    if-demo + controls) is disassembly-IDENTICAL before/after (stash-and-diff), and a tripwire confirmed the join
    path *fires* for the catch shape (not a no-op). Gate: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11.
-   **NEXT: expand shape by shape** (concrete-`G` base, multi-layer, doomed) until the whole-unify arm is
-   unreachable — delete it only then. §10 item 11.
+   **The whole pinned-capture class is now on the join** (instrumentation over the corpus found **zero** pinned
+   captures and **zero** mismatches left on whole-unify — the finding-13 seam is fully closed). The remaining
+   whole-unify usage is **non-pinned** captures (the synthetic-main `IO[A]` boundary, untagged concrete-carrier
+   params, and genuine data containers), so deleting whole-unify is a **larger recognition follow-on**, not a
+   mechanical shape sweep — see §10 item 11's *Remaining scope, MAPPED*. **NEXT** (when resumed): tag **source
+   (ii)** (synthetic-main `IO[A]`) first, byte-identity-verified.
 
 **Do NOT (each has already caused a failure or is a pre-registered prediction):**
 
@@ -1525,9 +1529,32 @@ default path byte-identical, gated by the §0 harness.
     - **Compile track unaffected**: `pinned` is consumed only in the runtime `plainDomain` branch (gated
       `platform == Runtime`), so the `platform == Platform.Runtime` §8 gate holds and the compile track is
       byte-identical (part of the corpus check via the borrowed `eliot-compiler/` bodies).
-    - **NEXT**: expand shape by shape (concrete-`G` base, multi-layer nested stacks, then the doomed/mismatch
-      leaves) until the `tryUnifyCommitting` whole-unify in `uniformCaptureSlot` is unreachable — delete it only
-      then (the §7 deletion target: *unreachable from the runtime track*).
+    - **Remaining scope, MAPPED by instrumentation (2026-07-25).** A temporary `System.err` probe in
+      `uniformCaptureSlot` over the whole 12-program discharger corpus established two facts that **re-scope**
+      the doc's earlier "concrete-`G` base, multi-layer, doomed" next-shapes list:
+      1. **Zero** *pinned* captures reach the whole-unify fallback — the first slice already routes the **entire**
+         pinned-discharger capture class (the finding-13 seam). The "concrete-`G` base" and "multi-layer" shapes
+         **do not occur** at a real capture: every stdlib discharger's parameter is a *single-entry* pinned row
+         (`{Throw[E] | G}`, …) whose base `G` is still a fresh meta at the capture (the return context pins it only
+         *after* the argument slots), so `singleLayerPinnedDomain` already admits them all. Relaxing that guard
+         would route nothing new.
+      2. **Zero** mismatches, and **all** remaining whole-unify calls are `pinned=false` **captures that succeed** —
+         into a mix of *carrier* domains (`IO[?A]`, `Id[?A]`, `AbortCarrier[?G,?A]`, `StateCarrier[…]` — the
+         synthetic-main boundary and untagged concrete-carrier params like `runId`'s `x: Id[A]`) and genuine
+         *data-container* domains (`Either`, `Pair`, `Option`, and nullary `String`/`Database`).
+      So making `tryUnifyCommitting` unreachable is **not** "a few more pinned shapes"; it needs (a) recognising
+      **non-pinned carrier** domains (tag source (ii) for compiler-generated boundaries; a concrete-carrier tag for
+      `Id[A]`/`IO[A]` params — `Id` is compiler-owned so not a finding-14 guess, but note a subtlety found this
+      session: routing an `Id[A]` domain through the CarrierSlot join is **not byte-identical** — `Carrier.split`
+      yields `Bottom`, and `joinToward(?G, Bottom)` is a *no-contribution* so `?G` is **not** eagerly solved to `Id`
+      the way the whole-unify does; it defaults to `Id` only at finalize, changing timing), and (b) keeping the
+      **data-container** captures on a non-carrier path (classifying `Either`/`Pair`/`Option` as a `CarrierSlot`
+      would be the finding-14 miscompile). This is a larger recognition effort, not a mechanical shape sweep — the
+      finding-13 bug class (§7's raison d'être) is already fully closed by the first slice.
+    - **NEXT**: the whole-unify deletion is a **larger** follow-on (per the map above), not the immediate next step;
+      the finding-13 seam is closed. When resumed, start with tag **source (ii)** (the synthetic-main `IO[A]`
+      boundary — the one compiler-generated carrier capture), byte-identity-verified, before any concrete-carrier /
+      data-container recognition.
 
 ### U5 — follow-ups unlocked
 
