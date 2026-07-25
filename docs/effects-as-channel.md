@@ -49,9 +49,12 @@ so there is **no valuable capture-routing slice left**. **The §9 doc/skill swee
 `EffectResidualChecker`. **The LSP / diagnostic `Id`-free rendering gate is DONE too (2026-07-25, §10 item 15)** — one
 shared inverter (`effect/EffectRowRendering`) now serves hover, `Expected:`/`Actual:` lines and ability-demand
 diagnostics, and the LSP index Id-normalizes its pre-erasure input. **With that every close-out follow-on is landed and
-the remaining open work is the U5 list** (§10 U5) — plus one small carry-over the rendering slice surfaced but did not
-fix: the `Suspend`-at-`Id` error is *worded* well now but still *located* inside the stdlib carrier instance that
-lifted the demand, not at the user's call. The §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
+the remaining open work is the U5 list** (§10 U5) — plus the carry-over the rendering slice surfaced: the
+`Suspend`-at-`Id` error is *worded* well now but still *located* inside the stdlib carrier instance that lifted the
+demand. **That carry-over was investigated and is a feature, not a slice** (§10 item 16): the engine's demand chain
+does not contain the user's value (mono is breadth-first from `UsedNames`, so monos are siblings) and `UsedNames` has
+no edges, so the principled fix is verifying an instance's own `~` constraints at resolution time — a coherence change
+needing its own sequenced piece. The §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
 and was discarded, leaving no record** (pinned finding 15) — the mandated sequence (mitigations → tag → shape-by-shape
 routing) is what unblocked it; keep following **the mandated sequence** below. **Gate — all green, run these to
 confirm before starting:**
@@ -1785,6 +1788,42 @@ default path byte-identical, gated by the §0 harness.
     off-by-one).
 
     Gate: lang 233/233, jvm 283/283, ide.lsp 383/383, HelloWorld, eliot-test 11/11.
+
+16. **The `Suspend`-at-`Id` diagnostic *location* — investigated 2026-07-25, NOT landed; it is a feature, not a
+    slice.** Recorded per the finding-15 rule (every attempt leaves a record) so the next reader does not re-derive
+    it. Nothing was committed; the probes were reverted.
+
+    **The problem is narrower than it looked.** Ordinary missing-instance errors are located *correctly*, at the
+    user's own demand — verified with two probes (`show(true)` with no `Show[Bool]` reports at the user's call; the
+    `State`+`Throw` missing cross-lift reports at the user's discharge chain). The mislocation is one specific class:
+    a demand that arises **inside a stdlib instance body**, because that instance's own binder constraint
+    (`implement[E, G[_] ~ Suspend & Effect] Suspend[ThrowCarrier[E, G]]`) is unsatisfiable at the instantiation the
+    user forced. The error then lands at `jvm/eliot/eliot/effect/Throw.els:31`, inside the lift instance.
+
+    **Two cheap routes were tried and are dead ends:**
+    - *The engine's demand chain* (`CompilationProcess.activeFactKeys`) does **not** contain the user's value.
+      Instrumented, the chain at the failure is `MonomorphicValue(Throw::suspend@impl(Suspend, ThrowCarrier[E,G]),
+      [String, Id]) <- UsedNames(main) <- UsedNames(L2::main)`: monomorphization is driven **breadth-first from
+      `UsedNames`**, so every value's mono is a *sibling*, never nested inside the mono that caused it. There is no
+      caller on the chain to blame.
+    - *A reverse used-graph lookup* is not available either: `UsedNames` is `Map[ValueFQN, UsageStats]`, a flat set
+      with **no edges**, so "which user value forced this instantiation" cannot be answered without recording them.
+
+    **The principled fix is to verify a candidate instance's own ability constraints at resolution time**
+    (`AbilityImplementationProcessor.verifyImplementation` today checks the type *pattern* and the `where` guard, but
+    not the binders' `~` constraints). Then `Console[ThrowCarrier[String, Id]]` would **decline** at the user's
+    `printLine("hi")` — correctly located by construction — instead of resolving optimistically and dying inside the
+    instance body. That is a **coherence change with real blast radius**: it alters candidate selection (a declined
+    candidate can change an ambiguity verdict), and it makes the impl processor demand `AbilityImplementation`
+    recursively, which the engine's cyclic-demand backstop would turn into a hard failure for a self-referential
+    instance. It also needs an "arguments are ground" gate so a still-abstract constraint is not mistaken for an
+    unsatisfiable one. Worth doing, but as its own sequenced piece with its own corpus — not folded into a
+    diagnostics slice.
+
+    A rejected middle option, recorded so it is not re-proposed: adding a "reached while instantiating …" context line
+    from the innermost mono key. It is additive and safe, but the only thing it can name is the carrier instance and
+    its type arguments — i.e. it would reintroduce exactly the machinery vocabulary item 15 removed, while still not
+    telling the user where in *their* code the row is pinned.
 
 ### U5 — follow-ups unlocked
 
