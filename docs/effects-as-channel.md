@@ -31,13 +31,16 @@ inner binder `G` of `AbortCarrier[AbortCarrier[IO]]` / a nested `DepCarrier` sol
 
 **Where we are.** Both halves are the live, unconditional default. The verification channel is done; the
 uniform-carrier checker is the sole checker path (no flag anywhere — U4-e core flip + close-out slices 1 & 2
-are all landed). **U4-f (row-argument type-pinning) is landed and committed** (`0a711135`, 2026-07-25) — the
-last catch-handler soundness gap is closed; see the U4-f block below and §10. **Gate — all green, run these to
-confirm before starting:**
+are all landed). **U4-f (row-argument type-pinning, `0a711135`) and U4-g (effectful-`catch`-handler delta + its
+two §7 elaboration fixes, `c7b30952`) are landed** — the catch-handler discharge story is now complete for both
+pure and effectful handlers, and the two §7 elaboration primitives finding 13 prescribed (row-directed pinning
+*at elaboration*; single-node `carrierSlotLift`) are in place. What **remains** for §7 is the join-solver **spine**
+rewire itself (the capture arm) + the §8 gate — see *Start here* below. **Gate — all green, run these to confirm
+before starting:**
 
 ```
-./mill lang.test        # 233/233
-./mill jvm.test         # 283/283   (whole integration suite runs uniform)
+./mill lang.test        # green (mill task counter 233/233)
+./mill jvm.test         # green (262 tests; whole integration suite runs uniform)
 ./mill examples.run jvm exe-jar examples/src/ -m HelloWorld -o <out> && java -jar <out>/HelloWorld.jar   # "Hello World!"
 # eliot-test 11/11 — exact command in eliot-test/.claude/CLAUDE.md (args order-strict)
 ```
@@ -60,17 +63,52 @@ files still fail" note (they were already green on baseline — verified by stas
 Gate green under it (`lang.test` / `jvm.test` — the new non-identity-handler case is in `ExamplesIntegrationTest2`
 — HelloWorld, eliot-test 11/11).
 
-**Start here: the §7 implementation** — the join-solver rewire, now unblocked by U4-f's `metaConstraints`
-bookkeeping. Rewire the runtime uniform spine onto the `CarrierJoin` solver: wire in
-`finalizeAndMaterialize`/`resolveSlot` so `tryBindLift`/`tryPureWrap`/`tryIdDefault`/`mustLift` become
-unreachable at the argument slots, and decide/extend the compile-time-track treatment so the
-`platform == Platform.Runtime` gate can go (a real §8 design tension: §8 wants both tracks carrier-wrapped for
-value bodies, the implementation currently keeps the compile track carrier-free). This is §11's "join-solver
-first live use" — a substantial, risky slice; do it focused, with the gate above as the safety net, and only
-*then* delete the freed recognition arms. Keep the shared bind/`pure` mechanics
-(`wrapBinds`/`bindWrap`/`pureWrapNode`/`runIdNode`, the `$eff$N` convention). Note pinned finding 4's guard
-("the join must never `Id`-default an ability-constrained carrier meta") now has its table — read
-`CheckState.metaConstraints` in `finalizeAndMaterialize` when a slot carries a live effect constraint.
+**Start here: the §7 spine rewire — now narrowed to ONE arm (2026-07-25 code audit).** The runtime argument
+path is *already* almost entirely join-solver-based; the audit (§7) found the remaining legacy eager-unify is a
+**single arm**:
+
+- **Already `Carrier.split`-first / join-based (no work):** the payload-bind arm (`printLine(readLine)`, the
+  compound-state `List[X]`→`List[A]`), the carrier-slot **effectful** arm (`uniformArgumentSlot` → the join
+  pass-join), and the Generic arm (`resolveGenericSlot`). The return boundary runs through `checkReturnBoundary`.
+- **The carrier-slot *pure* arm (`uniformCarrierSlot`'s `tryPureWrap`) is join-*equivalent* already** — a pure arm
+  has no carrier to join (its carrier is bottom, contributing nothing), so `tryPureWrap`'s clean single
+  `pure@Effect[?G]` node IS what the join model produces; the `?G` meta is solved later / `Id`-defaulted /
+  Id-normalized. Retiring `tryPureWrap` here is a **near-rename, not a real fix** — do not spend the risk budget on
+  it. (`tryBindLift`/`tryIdDefault`/`mustLift` are already unreachable from the runtime *argument* path — they
+  survive only on the return boundary / compile track; see §7.)
+- **The one genuinely-legacy arm: the CAPTURE arm** (`Checker.uniformCaptureSlot`'s `tryUnifyCommitting`
+  whole-unify + `mustLiftBeforeUnify`). This is where a carrier-layer meta is still stolen/junk-grounded by
+  order-dependent eager unification — the finding-13 seam. U4-g's `eagerRowPinIntoDomain` fixed the *pin* (the
+  error slot no longer junk-grounds), but the *mechanism* is still whole-unify, not the `Carrier.split`-first join.
+
+Routing the capture arm through the join solver (`classifyExpectedSlot` → `resolveSlot`/`finalizeAndMaterialize`,
+the two dormant methods) hits the **primary blocker** below. The **secondary blocker** is the §8 design fork
+(compile-track carrier-free vs both-wrapped) — needed to drop the `platform == Platform.Runtime` gate. Do this
+focused, gate above as the safety net; keep the shared bind/`pure` mechanics
+(`wrapBinds`/`bindWrap`/`pureWrapNode`/`runIdNode`, the `$eff$N` convention). Finding 4's guard ("the join must
+never `Id`-default an ability-constrained carrier meta") has its table (`CheckState.metaConstraints`) to read in
+`finalizeAndMaterialize`.
+
+**Blocker 1 (primary) — no clean positional primitive to classify a concrete/pinned carrier stack as a
+`CarrierSlot`.** The capture case's expected domain is a *concrete* carrier stack (`catch`'s `ThrowCarrier[E,G,A]`,
+`runMain`'s `IO[A]`), NOT the value's own ambient — so `EffectLifter.effectCarrierSplit` (which recognises only
+role-flagged metas + the value's `ambientCarriers` heads) returns `None` for it, and the current path handles it
+as a plain domain with a *no-payload-fit → whole-unify* fallback. For the join model, `classifyExpectedSlot` must
+instead tag it a `CarrierSlot` so the carrier is split off first (`?F` joins `ThrowCarrier[E,G]`, payload unifies)
+— but distinguishing a carrier constructor (`ThrowCarrier`/`IO`) from a Functor/data constructor (`List`,
+`Option`) has **no clean primitive today**: the only signals are the `<Ability>Carrier` naming convention
+(`effect.EffectCarrierNaming`) and a **hardcoded reverse table** in the LSP's `GroundValueRenderer`
+(`("Throw","ThrowCarrier")`…). A wrong classification *miscompiles* (classify `List` as a carrier ⇒ the theft;
+classify `ThrowCarrier` as data ⇒ a wrong bind), so this needs the **principled positional tag threaded from the
+callee's pinned-row parameter at elaboration** (finding 13 §4 / finding 14) — the desugar collapses `{Throw[E]|G}
+A` → `ThrowCarrier[E,G,A]` with **no residual marker**, so a tag must be added there and carried to the checker.
+U4-g's row-directed pin *sidesteps* this for the pin (it derives from the *argument's* row, not the *domain's*
+carrier-ness) — but the capture-arm *routing* still needs domain-side recognition. This is finding 14.
+
+**Blocker 2 (secondary) — the §8 compile-track fork.** Every uniform routing site is gated `platform ==
+Platform.Runtime`; the compile-time track runs the default (carrier-free) path *by design* today (§8), but §8's
+text wants both tracks carrier-wrapped for value bodies. Dropping the gate is a **design decision, not a mechanical
+edit** — resolve it (or keep the gate with a documented rationale) before the recognition arms can be deleted.
 
 **§7 is binding, not merely "next" (pattern analysis 2026-07-25 — pinned finding 13).** The blocker history
 is one bug class recurring: a carrier-layer meta solved/stolen/junk-grounded by order-dependent eager
@@ -107,10 +145,10 @@ document keeps only the design, the current state, and the path forward.
 
 ## 0. Current state
 
-**Tree**: `master`; **uniform carriers are the live default** (the U4-e core flip) — and, since close-out
-slice 2, there is **no flag at all**: the `uniformCarrier` param was removed, so the raw-mono processor unit
-tests run uniform too (see Flags). All gates green: `./mill lang.test` (233/233) / `./mill jvm.test` (283/283
-— the **whole integration suite runs uniform**),
+**Tree**: `master` (latest: U4-g, `c7b30952`); **uniform carriers are the live default** (the U4-e core flip)
+— and, since close-out slice 2, there is **no flag at all**: the `uniformCarrier` param was removed, so the
+raw-mono processor unit tests run uniform too (see Flags). All gates green: `./mill lang.test` / `./mill jvm.test`
+(262 tests — the **whole integration suite runs uniform**),
 HelloWorld builds+runs (`./mill examples.run jvm exe-jar examples/src/ -m HelloWorld` then
 `java -jar target/HelloWorld.jar`, now compiled uniform), eliot-test 11/11 (exact command in
 `eliot-test/.claude/CLAUDE.md`; args are order-strict). The **uniform-carrier regression suites** (formerly
@@ -194,7 +232,8 @@ pre-uniform path it mirrors — that path is now the shared substrate the unifor
 | **conditional bodies** (`if`/`else`/`fold`) | **yes** — byte-identical | The whole `IfDemo` surface: return boundary + discharger capture + `fold`'s bare-`A` `Generic` arms all route uniform. |
 | **argument → CARRIER-SLOT arm** (`if`'s `value: {Abort} T` = `?G[T]`, a discharger's `fallback: G[A]`) | **yes** — pure pure-wraps first, effectful pass-joins (U4-a(ii)) | `uniformCarrierSlot`: a **pure** actual (`None : Option[?E]`) pure-wraps (`EffectLifter.tryPureWrap`) *before* the default ladder's stealing equal-arity unify — fixing `if(c, None) else Some(x)`, which the **default path rejects**; an **effectful** actual (`if(flag, printLine("on"))`) routes through the uniform CarrierSlot **pass-join** (`uniformArgumentSlot` — the actual's carrier meta joins the domain's, payloads unify, the action passes through), byte-identical to the default whole-unify (no longer a `defaultArgSlot` hand-off). |
 | **argument → GENERIC arm** (`fold`'s bare-`A`, a discarded type-param slot) | **yes** — ride-up-vs-bind (U4-a(i)) | The still-bare-flex `Generic` domain's Phase-B deferred decision routes through `UniformCarrierChecker.resolveGenericSlot` → `UniformLadder.resolveGenericSlot`: `occursInValue(metaId, retType)` ⇒ **pass-through** the whole action (transparent callee — `fold`'s selected arm, `identity`), else **bind** the payload and sequence the effect (non-transparent callee — a discarded type-param slot). Byte-identical to the default `deferredGenericDefault` (pinned finding 6 discharged). |
-| **the non-`E`-pinning `catch` handler** | **yes** — fixed (U4-f, `0a711135`) | The pre-existing pinned-row/open-row pinning bug (`E` unpinned ⇒ the `where E1 != E2` lift is chosen ⇒ `Throw[String, IO]`), a live bug for *every* non-`E`-pinning handler in *any* position, is fixed by the U4-f row-argument type-pinning slice (§10). The remaining *effectful*-handler `onError: E => G[A]` stdlib delta is an independent follow-on (Handover close-out list). |
+| **the non-`E`-pinning `catch` handler** | **yes** — fixed (U4-f, `0a711135`) | The pre-existing pinned-row/open-row pinning bug (`E` unpinned ⇒ the `where E1 != E2` lift is chosen ⇒ `Throw[String, IO]`), a live bug for *every* non-`E`-pinning handler in *any* position, is fixed by the U4-f row-argument type-pinning slice (§10). |
+| **the *effectful* `catch` handler** (`onError: E => G[A]`) | **yes** — landed (U4-g, `c7b30952`) | The handler may itself perform effects on the same carrier (`catch (err -> printLine(err))`). Landed with its two §7 elaboration fixes: row-directed pinning *at elaboration* (`eagerRowPinIntoDomain`, so the concrete-`G` error slot never junk-grounds) + single-node `carrierSlotLift` at the return boundary (a pure handler body's finding-3 double-wrap → a runtime `ClassCastException`). §10 U4-g. |
 | function/polytype/`VType` returns, guard/calc-return/W3, **compile-time track** | **no → default** | `checkAgainstDefault` / §8 boundary — *by design*, permanent. |
 
 **Background — conditionals are ordinary functions (no FQN ever hardcoded).** `fold[A](c,
@@ -382,26 +421,50 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
     non-overlap feature attempted before §7 therefore rolls the dice on the substrate's known weakness.
     Twice the plan predicted the catch delta would land after a manifestation fix ("once uniform is the
     default"; "standalone on top of U4-f") and was refuted — manifestation fixes do not transfer.
-    **Binding consequences:**
-    - **No more pin patches.** Do not extend `applyPendingCarrierPins` to the concrete-`G` case — a third
-      shape-special-case on a substrate §7 replaces; the pattern predicts a fourth shape defeats it.
-    - **No carrier-solving features before §7.** The catch delta (and anything else that changes what
-      flows through the argument-slot carrier solving) lands inside or after the §7 rewire, never before.
-    - **Defuse the amplifier (independent of §7, small).** The `where E1 != E2` lift is *selected* by
+    **Binding consequences (status after U4-g, 2026-07-25):**
+    - **No more pin patches — HELD.** U4-g did *not* extend `applyPendingCarrierPins`; it added a *separate*
+      eager pin (`eagerRowPinIntoDomain`, the row-directed-at-elaboration form below), keeping the deferred pin
+      as an untouched backstop.
+    - **No carrier-solving features before §7 — the catch delta LANDED inside the row-directed fix (U4-g), not
+      before.** The effectful-`catch`-handler delta shipped *with* its two §7 elaboration fixes (row-directed pin
+      + single-node `carrierSlotLift`), so this consequence was satisfied, not violated. Anything else that
+      changes argument-slot carrier solving still waits for the spine rewire.
+    - **Defuse the amplifier (independent of §7, small) — STILL OPEN.** The `where E1 != E2` lift is *selected* by
       evaluating a guard over a junk-grounded meta — a silently-wrong instance choice that surfaces three
       steps later as the cryptic `Throw[String, IO]`. Fail-safe rule: ability resolution must not evaluate
       a `where` guard whose operands include a defaulted/junk-grounded (not genuinely solved) meta — defer,
-      or error naming the slot. This converts the next manifestation into an immediate, located diagnostic.
-    - **Stand up the catch/Throw shape matrix (independent of §7, cheap).** Every recurrence was an
+      or error naming the slot. (U4-g's eager pin removes the *specific* junk-ground for row-captured error
+      slots, but the general fail-safe — any guard over any defaulted meta — is not yet in place.)
+    - **Stand up the catch/Throw shape matrix (independent of §7, cheap) — STILL OPEN.** Every recurrence was an
       uncovered shape combination: {single-statement, block} × {ambient meta, concrete `IO`, pure `Id`} ×
-      {identity, non-identity, effectful handler} × {one, two dischargers} — ~20 tiny cases; U4-f's
-      insufficiency would have been caught in the session that declared finding 7 fixed.
-    - **Inside §7, make discharge row-directed at elaboration** (§4's spec): derive a pinned-row layer's
-      ability arguments from the argument's row constraints at capture time (single source of truth), so a
-      free error-slot meta never exists to junk-ground — the principled form U4-f approximated at the slots.
+      {identity, non-identity, effectful handler} × {one, two dischargers} — ~20 tiny cases. U4-g added the
+      *effectful-handler* corner (`ExamplesIntegrationTest2` "an effectful catch handler"); the full matrix is
+      still worth standing up.
+    - **Inside §7, make discharge row-directed at elaboration (§4's spec) — LANDED (U4-g).** Derive a pinned-row
+      layer's ability arguments from the argument's row constraints at capture time (single source of truth),
+      so a free error-slot meta never exists to junk-ground. Realized as `Checker.eagerRowPinIntoDomain` (pins
+      the *domain*'s carrier-layer slots from the *argument*'s `metaConstraints`, before the whole-unify), the
+      principled form U4-f approximated at the slots. This is the pin half; the *full* capture-arm join routing
+      (splitting the domain's carrier off first) still needs finding 14's recognition primitive.
     (The rejected row calculus (§10) would also kill the class by construction — the recurrence is evidence
     the seam is real — but the rejection reasons stand; this finding argues for landing the chosen fix, not
     reopening the fork.)
+14. **The capture-arm spine rewire is blocked on a carrier-stack recognition primitive (2026-07-25 code audit).**
+    Routing the last legacy arm — the capture whole-unify in `uniformCaptureSlot` — through the join solver
+    requires `classifyExpectedSlot` to tag a *concrete/pinned carrier stack* domain (`catch`'s `ThrowCarrier[E,G,A]`,
+    `runMain`'s `IO[A]`) as a `CarrierSlot`, so the carrier is `Carrier.split` off before payload unification.
+    But `effectCarrierSplit` recognises only role-flagged metas + the value's own `ambientCarriers` — a *discharge*
+    stack is neither — and there is **no other clean positional primitive**: distinguishing carrier constructors
+    (`ThrowCarrier`/`IO`) from Functor/data constructors (`List`/`Option`) exists today only as the
+    `<Ability>Carrier` naming convention (`EffectCarrierNaming`) and a hardcoded reverse table in the LSP's
+    `GroundValueRenderer`. Misrecognition **miscompiles** (data-as-carrier ⇒ the theft; carrier-as-data ⇒ a wrong
+    bind), so a shape/name guess is out. The principled fix is a **positional tag threaded from the callee's
+    pinned-row parameter at elaboration**: the desugar (`EffectSugarDesugarer`) collapses `{Throw[E]|G} A` →
+    `ThrowCarrier[E,G,A]` with *no residual marker*, so the marker must be added there (analogous to how open
+    rows record `EffectRow` metadata) and carried through resolve/operator to the checker's expected-slot
+    classification. U4-g's row-directed pin does **not** need this (it reads the *argument's* row, not the
+    *domain's* carrier-ness); the capture-arm *routing* does. This is the concrete next blocker for the spine
+    rewire — sequence it (or the §8 fork) before touching `uniformCaptureSlot`.
 
 ## 1. The problem
 
@@ -858,6 +921,18 @@ the mechanical deletion this section originally described. The one piece that **
 respelling the synthetic main `apply(block(main), unit)` → `runMain(<user main>)` — needs a
 `runMain` callable to exist first and is deferred with the rest.
 
+**Narrowed target (2026-07-25 code audit — see the Handover *Start here* for the full breakdown).** (b) is
+not "the whole spine" — the audit found the runtime argument path is *already* almost entirely join-based
+(payload-bind, carrier-slot-effectful, and Generic all run `Carrier.split`-first; the return boundary runs
+through `checkReturnBoundary`; the carrier-slot *pure* arm's `tryPureWrap` is join-*equivalent*, a near-rename
+not worth risk). The **one** genuinely-legacy arm is the **capture** whole-unify in `uniformCaptureSlot`
+(`tryUnifyCommitting` + `mustLiftBeforeUnify`). U4-g's `eagerRowPinIntoDomain` fixed its *pin* (no more
+error-slot junk-ground), but the *mechanism* is still eager whole-unify. Routing it through the join model
+(`classifyExpectedSlot` → `resolveSlot`/`finalizeAndMaterialize`) is blocked on **finding 14**: no clean
+positional primitive tags a concrete/pinned carrier stack (`ThrowCarrier`/`IO`) as a `CarrierSlot`, and a
+guess miscompiles. That recognition tag (threaded from the callee's pinned-row parameter at elaboration) is the
+concrete prerequisite for (b); the §8 fork is the prerequisite for (a).
+
 The bind/`pure` *mechanics* (`wrapBinds`/`bindWrap`/`tryPureWrap`/`pureWrapNode`/`runIdNode`, the
 `$eff$N` splice convention) are **permanently shared** — the uniform bridge is constructed with
 `lifter.effectCarrierSplit` and reuses these; they were never on the deletion list.
@@ -1221,6 +1296,12 @@ legality check (§5 check 2) on the ride-test foundation.
 
 ## 11. Risks
 
+- **Carrier-stack recognition is the primary §7 blocker (pinned finding 14).** The capture-arm join routing
+  needs `classifyExpectedSlot` to tag a concrete/pinned carrier stack (`ThrowCarrier`/`IO`) as a `CarrierSlot`,
+  and there is no clean positional primitive today — only the `<Ability>Carrier` naming convention and a
+  hardcoded LSP reverse table, both of which *miscompile* on misrecognition. The principled fix threads a tag
+  from the callee's pinned-row parameter at elaboration (the desugar currently leaves no marker), so it is real
+  work, not a one-liner. Sequence it before touching `uniformCaptureSlot`.
 - **Join-solver correctness at its first live use** (the §7 spine rewire): deferred lift materialization
   must be total, and an ability-constrained carrier meta must never default to `Id` (pinned finding 4). A
   missed insertion is a loud type/codegen error, not silence — but budget for the tail. The finding-4
@@ -1243,8 +1324,10 @@ legality check (§5 check 2) on the ride-test foundation.
 - **Pre-§7 carrier-solving work on the legacy substrate is the standing blocker generator** (pinned
   finding 13): every feature attempt that touches the argument-slot carrier solving before the §7 rewire
   has hit the order-dependent eager-unify seam and produced a new blocker; sequence such work after the
-  rewire. The mitigations that land independently of §7 are the guard-on-junk fail-safe and the
-  catch/Throw shape matrix (finding 13).
+  rewire. U4-g (the effectful-catch-handler delta) landed *inside* the row-directed-elaboration fix finding 13
+  prescribed, so it is *not* a counter-example — it shipped with its checker fix, not on the bare substrate.
+  The mitigations that still land independently of §7 are the guard-on-junk fail-safe and the catch/Throw
+  shape matrix (finding 13, both still open).
 
 ## 12. Open questions
 
