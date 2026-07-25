@@ -222,9 +222,13 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
 
 ## 8. Migration plan (each step lands green on its own; v2 stays live until R5)
 
-- **R1 — spike (no wiring):** a standalone row checker over one resolved file + the `Id`-residue and
-  compile-track questions of §3/§5 answered on paper against the spike. Exit: the row rules written as
-  inference rules; `sign`/`catch`/`foldLeft`-chain/`choose`/`pick` worked examples.
+- **R1 — spike (no wiring): DONE (2026-07-25).** The standalone row checker lives in test sources
+  (`lang/test/src/com/vanillasource/eliot/eliotc/row/RowCheckerSpike.scala` + `RowCheckerSpikeTest.scala`,
+  12 green cases through the real pipeline to `OperatorResolvedValue`), the row rules and worked examples
+  are Appendix A, and the §9 questions 1/2/4 are answered there. Headline findings: the derivation rule is
+  **one line** (suspension is row-neutral — only pinned slots differ, by subtraction); the suspension
+  surface **already parses** (open rows on by-value parameters populate `EffectRow.parameterEffects`
+  today); and R2 must additionally record **pinned-slot entries** beside the position tag.
 - **R2 — surface:** arrow row-defaulting; open rows on by-value parameters accepted with the
   suspension meaning (parser/core only — no behaviour change while v2's desugar still runs).
 - **R3 — row check, shadow:** the per-definition row checker runs report-only beside v2 on the whole
@@ -238,12 +242,101 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
 
 ## 9. Open questions
 
-1. §3's `Id`-at-discharge recommendation — confirm in R1 that boundary-`runId` insertion is fully
-   syntax-directed for nested/multi-effect discharge stacks.
-2. Row-variable scoping for local lambdas and `let`-bound functions (fresh per arrow vs shared with
-   the ambient) — R1.
+1. **ANSWERED (R1, Appendix A.4):** `Id`-at-discharge is fully syntax-directed, including nested
+   stacks — rows never involve `Id` at all; the capture boundary is the pinned argument position, the
+   elaborated stack's shape and order come verbatim from the declared pinned spelling, and the base
+   carrier is the enclosing region's carrier, `Id` exactly when the enclosing residual row is empty.
+2. **ANSWERED (R1, Appendix A.5):** one latent row per arrow. The spike joins a function-valued
+   argument's latent row conservatively at the receiving call; production mints a fresh row variable
+   per unannotated arrow with `latent ⊆ var`, and calling a function-typed parameter contributes its
+   declared arrow row (the `{Effect}` machinery marker denoting the ambient variable).
 3. Whether accounting can eventually retire (post-R5 experience) — not before.
-4. Multi-instance rows (`{Throw[A], Throw[B]}`) — v2's rule (no inferred discharge order; pin to
-   choose) carries over; restate in row terms in R1.
+4. **ANSWERED (R1, Appendix A.6):** production rows are multisets of (ability, type-args) — the
+   spike's name-set `Row` collapses `{Throw[A], Throw[B]}`. Discharge at a pinned slot consumes by
+   type-arg match; two same-ability entries with a non-pinning handler have no canonical order and
+   stay a diagnostic asking for a pin (v2 §4's rule, carried over verbatim).
 5. The exact fate of `Checker.scala`'s non-effect Phase-A/B remnants — whether spine inference
    simplifies further once slots are effect-free.
+
+## Appendix A. The R1 spike: row rules, worked examples, findings (2026-07-25)
+
+Spike code: `lang/test/src/com/vanillasource/eliot/eliotc/row/RowCheckerSpike.scala` (the standalone
+checker, ~190 lines including docs) and `RowCheckerSpikeTest.scala` (12 cases, each compiled through
+the real pipeline to `OperatorResolvedValue` and row-checked with **no types, no carriers, no
+metavariables**). All green inside the ordinary `./mill lang.test` gate.
+
+### A.1 The rules
+
+A `Row` is a set of effect-ability entries (production: multiset of (ability, type-args) — A.6).
+Judgments are per definition, over the operator-resolved body, reading only *declared* information:
+
+- **value-of**: `row(literal) = row(λ) = row(under-applied ref) = ∅`; `row(saturated call f(a₁…aₙ))
+  = declared(f) ∪ ⋃ᵢ contrib(aᵢ)`; `row(applied λ)` (the block/`val` desugar) `= row(bound arg) ∪
+  row(body)`.
+- **contrib** at slot *i*: `contrib(aᵢ) = (row(aᵢ) ∪ latent(aᵢ)) ∖ pinnedEntries(f, i)` — the
+  subtraction applies only when slot *i* is pinned (`EffectRow.pinnedParameterIndices`); every
+  non-pinned slot — strict *or suspended* — contributes identically.
+- **latent**: `latent(λx.e) = row(e)`; `latent(under-applied ref f) = declared(f)`; else `∅`.
+- **declared**: the open-row return entries ∪ the effects constrained on the signature's carrier
+  binders (machinery excluded) — an effect-ability method's contribution is its own ability.
+- **check**: `row(peeled body) ⊆ declared`, reported per definition at the definition ("performs the
+  effect 'X' but does not declare it").
+
+### A.2 The central finding: suspension is row-neutral
+
+The doc's §2 sketched suspended slots as needing their own derivation treatment. The spike shows they
+need none: whether a slot is strict (bind now) or declared-suspended (pass the computation) changes
+only *when* the effect runs — elaboration's business — never whether the caller must declare it
+(declaration-level conservatism, exactly v2 accounting's stance on a generic consumer running an arm
+twice). The *only* slot mode that touches derivation is pinned capture, as subtraction. Verified by
+the strict-vs-suspended twin test deriving identical results. Consequence: the row checker's
+derivation is smaller than estimated, and slot modes matter only to the elaboration desugar.
+
+### A.3 Worked examples (each is a green test)
+
+| example | result |
+|---|---|
+| `use(items)` with `items: {Con} Str`, `use` effect-oblivious (the `foldLeft`-chain shape; dot chains hit the same spine) | derived `{Con}` = declared; `use` needs no declaration |
+| `choose(readLine, readLine)` and `pick(readLine, pure)` — v2's one irreducibly instantiation-dependent pair | identical derivations by the one strict rule |
+| `def leaky: Str = readLine` | leak `{Con}` located at `leaky` (subsumes `DeclaredPureChecker`, with a good location) |
+| `catchX(failing, h)` under a **pure** return (the `sign` shape) | derived `∅` — discharge-to-pure with **zero `Id` anywhere** |
+| `catchX(failing, hEff)` with an **effectful handler** | handler's latent `{Con}` joins; derived `{Con}` |
+| `catchX(failLog, h)` with `failLog: {X, Con}` (partial discharge) | `{X}` subtracted, residual `{Con}` rides |
+| `catchBoth(failTwo, h)` over `{X, Y \| G}` (nested two-effect stack) | both entries subtracted; nesting fully syntax-directed |
+| `forever(printLine(…))` with/without `Nf` declared (the `Inf` shape) | ordinary entry: rides the union, leaks when omitted |
+| `{ val x = readLine … }` | the applied-lambda desugar sequences the binder's row |
+
+### A.4 `Id` at discharge (answers §9 Q1)
+
+Rows never mention `Id` — the pure-boundary examples derive `∅` with no identity carrier anywhere in
+the row story. `Id` appears only in the *elaboration* of a discharge region under a pure residual:
+the capture boundary is the pinned argument position (syntactically fixed), the stack's layers and
+their order come verbatim from the declared pinned spelling (the nested example's entries are read
+off the declared stack, outer→inner), and the base carrier is the enclosing region's carrier — `Id`
+exactly when the enclosing residual row is empty, with `runId` at that same boundary. Every input to
+that decision is declared; nothing depends on solver state.
+
+### A.5 Latent rows and lambda scoping (answers §9 Q2)
+
+One latent row per arrow. The spike implements the conservative form — a function-valued argument's
+latent row joins the receiving call ("the callee may run it") — which is sound and declaration-level.
+Production replaces the conservative join with a fresh row variable per unannotated signature arrow
+(`latent ⊆ var`, solved by union), and calling a function-typed *parameter* contributes that
+parameter's declared arrow row, with the `{Effect}` machinery marker denoting the enclosing
+signature's ambient row variable.
+
+### A.6 Production deltas (what the spike deliberately simplified)
+
+1. **Rows as multisets of (ability, type-args)** — the name-set `Row` collapses `{Throw[A],
+   Throw[B]}`; discharge must consume by type-arg match, and the v2 §4 multiplicity rule (no inferred
+   order; pin to choose) carries over (answers §9 Q4).
+2. **Record pinned-slot entries in `EffectRow`** beside the position tag (an R2 item): the spike
+   recovers them from the desugared `<Ability>Carrier` stack by naming convention — sanctioned
+   nowhere in production. One nuance the spike hit: only the *outer* stack layer is payload-applied
+   (`ThrowCarrier[E, StateCarrier[S, Id], A]` — the inner layer's base is its last argument), which
+   is exactly the shape knowledge that belongs at the desugar, not at a consumer.
+3. **First-order abilities** (`Show`) are distinguished from effect abilities by their missing HKT
+   binder when the method's signature is at hand; the spike assumes effectful when it is not.
+4. **The suspension surface already exists**: open rows on by-value parameters parse today and
+   populate `EffectRow.parameterEffects` (they are *rejected* later, at checking) — so R2's surface
+   work is reinterpretation plus arrow row-defaulting, not new grammar.
