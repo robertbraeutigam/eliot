@@ -59,8 +59,8 @@ def runThrow[E, G[_], A](obj: {Throw[E] | G} A): G[Either[E, A]]
 def orRaise[E, A](e: Either[E, A]): {Throw[E]} A = foldEither(err -> raise(err), a -> a, e)
 
 /**
- * Run a `{Throw[E]}` computation, recovering any raised error to a value of the *same* type as the success with
- * `onError`. The everyday way to discharge `Throw` — reads like an exception handler and never exposes `Either`:
+ * Run a `{Throw[E]}` computation, recovering any raised error with `onError`. The everyday way to discharge `Throw` —
+ * reads like an exception handler and never exposes `Either`:
  *
  * ```eliot
  * // Parse the configuration from a string
@@ -70,8 +70,10 @@ def orRaise[E, A](e: Either[E, A]): {Throw[E]} A = foldEither(err -> raise(err),
  * def configOrDefault(config: String): Configuration = parseConfiguration(config) catch (_ -> emptyConfiguration)
  * ```
  *
- * On success it yields the computed value; on `raise(err)` it yields `onError(err)`.
+ * The handler runs on the *same* carrier `G`, so recovery may itself perform effects — e.g. log and recover:
+ * `readConfig catch (err -> printLine(err))`. A pure recovery value is lifted automatically (`_ -> emptyConfiguration`
+ * above). On success it yields the computed value; on `raise(err)` it yields `onError(err)`.
  */
 infix left
-def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): G[A] =
-   map(e -> foldEither(onError, a -> a, e), runThrow(computation))
+def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => G[A]): G[A] =
+   flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))

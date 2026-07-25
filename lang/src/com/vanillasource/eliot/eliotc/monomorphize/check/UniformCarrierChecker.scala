@@ -364,19 +364,40 @@ object UniformCarrierChecker {
     case class Bound(slotExpr: SemExpression, bind: EffectLifter.Bind) extends UniformSlotOutcome
   }
 
-  /** Re-carry a **pure** (`Id`-headed) actual into an effect-carrier slot: `pure[carrier, payload](runId(argExpr))`,
-    * built entirely from [[EffectLifter]]'s extracted node mechanics. The `runId` projects the payload out of the pure
-    * `Id`-carried actual and `pure` re-wraps it at the expected `carrier` (a carrier meta the join solves, or a concrete
-    * carrier). When the carrier defaults to `Id` the whole thing (`pure@Effect[Id](runId(Id(x)))`) is erased by the
-    * Id-normalization stage — no machinery ships for a pure conditional. `carrier` is the carrier as a [[SemValue]]
-    * ([[Carrier.toSemValue]]).
+  /** Re-carry a **pure** (`Id`-headed) actual into an effect-carrier slot as a **single** clean `pure@Effect[carrier]`
+    * node (docs/effects-as-channel.md §3, pinned finding 3). When `argExpr` is itself the checker-inserted
+    * `pure@Effect[Id](inner)` wrapper (as `intoCarrierHeadedTerm` produces for a pure body/actual), its payload `inner`
+    * is unwrapped and re-carried directly — `pure@Effect[carrier](inner)` — **not** `pure@Effect[carrier](runId(pure@Id(inner)))`.
+    * The double-wrap is semantically identical but its inner `pure@Id` confuses the codegen `Id`-normalizer's
+    * impl-keyed erasure of the *outer* `pure` when `carrier` resolves to a **non-`Id`** carrier (the effectful-handler
+    * discharge — a pure `catch` handler `err -> err` into `?G[A]`), mis-erasing it and shipping a raw payload where a
+    * `G[..]` is expected (a runtime `ClassCastException`). Emitting the single node is finding 3's fix, now also at the
+    * return boundary. For an `Id`-carried actual that is *not* the `pure@Id` wrapper node, the payload is projected with
+    * `runId` as before. When `carrier` defaults to `Id` the whole node erases downstream — no machinery ships for pure
+    * code. `carrier` is the carrier as a [[SemValue]] ([[Carrier.toSemValue]]).
     */
   def carrierSlotLift(carrier: SemValue, payload: SemValue, argExpr: SemExpression, source: Sourced[?]): SemExpression =
     EffectLifter.pureWrapNode(
       carrier,
       payload,
       Evaluator.applyValue(carrier, payload),
-      EffectLifter.runIdNode(payload, argExpr, source),
+      unwrapPureId(argExpr).getOrElse(EffectLifter.runIdNode(payload, argExpr, source)),
       source
     )
+
+  /** The payload of a checker-inserted `pure@Effect[Id](inner)` wrapper node ([[EffectLifter.pureWrapNode]] at the `Id`
+    * carrier, as [[UniformCarrierChecker.intoCarrierHeadedTerm]] emits for a pure term), recognised by the abstract
+    * `pure` FQN and its `Id` carrier type-argument — so [[carrierSlotLift]] can re-carry `inner` directly rather than
+    * round-tripping it through `runId` (avoiding the double-wrap; see there). [[None]] for any other node.
+    */
+  private def unwrapPureId(expr: SemExpression): Option[SemExpression] = expr.expression match {
+    case SemExpression.FunctionApplication(target, argument) =>
+      target.value.expression match {
+        case SemExpression.ValueReference(vf, Seq(carrier, _))
+            if vf.value == WellKnownTypes.effectPureFQN && carrier == EffectLifter.idCarrier =>
+          Some(argument.value)
+        case _ => None
+      }
+    case _ => None
+  }
 }

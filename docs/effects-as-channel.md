@@ -80,28 +80,18 @@ solving (the catch delta above all), and do **not** extend `applyPendingCarrierP
 mitigations that ARE independent of §7 — the guard-on-junk fail-safe and the catch/Throw shape matrix — are
 spelled out in finding 13.
 
-**Close-out follow-ons (each landable on its own — except the catch delta, now §7-gated per finding 13):**
+**Close-out follow-ons (each landable on its own):**
 - **synthetic main → `runMain`** (§7) — makes the one run boundary nominal; needs a `runMain` callable to
   exist first;
-- **effectful-`catch`-handler stdlib delta** (pinned finding 7) — the *pre-existing row-pinning bug that
-  blocked it is now FIXED (U4-f, §10, committed `0a711135`)*; the remaining piece is the delta proper:
-  widen `catch`'s handler from `onError: E => A` to `onError: E => G[A]` (its body
-  `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`) so the handler may itself
-  perform effects. Acceptance `failUnit catch (err -> printLine(err))` runs **and** `EffectsThrow` green.
-  **NOT a standalone stdlib change after all — ATTEMPTED 2026-07-25, it re-triggers a finding-7-class lift
-  selection (details in §10 U4-f "attempted-and-failed" note).** The exact specified delta compiles+runs a
-  *single-statement, meta-ambient* case (`def main: {Console} Unit = printLine(parseOk catch (err -> err))`),
-  but a **block body with a concrete base carrier** (`def main: IO[Unit] = { printLine(p catch h); … }`)
-  fails to compile: `No ability implementation found for ability 'Throw' with type arguments [String, IO]`
-  at the `where E1 != E2` lift (`jvm/eliot/eliot/effect/Throw.els:54`) — the outer `ThrowCarrier` layer's
-  error slot junk-grounds, which U4-f's `applyPendingCarrierPins` does **not** prevent under the widened
-  handler when `G` is a *concrete* carrier (it holds when `G` is the ambient meta). All 7 Throw/`catch`
-  jvm.test cases redden (pure identity/`"default"` handlers included — they either miscompile to a dropped
-  value under the shared-session suite or hit the same lift error in a clean single-file compile). So the
-  delta needs **checker work**, not just the stdlib edit — and the decision (2026-07-25, pinned finding 13)
-  is: **land it inside the §7 join-solver rewire; do NOT extend the row-argument pin** to the concrete-`G`
-  case (a third shape-special-case on the substrate §7 replaces — the pattern predicts a fourth shape
-  defeats it). This bullet is therefore no longer "independent of §7".
+- **effectful-`catch`-handler stdlib delta** (pinned finding 7) — **LANDED (U4-g, 2026-07-25).** `catch`'s handler
+  is now `onError: E => G[A]` (body `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`), so
+  the handler may itself perform effects; `failUnit catch (err -> printLine(err))` runs `boom` and pure/effectful
+  handlers compose. The concrete-`G` seam finding 13 flagged was closed by the two §7 elaboration fixes it prescribed
+  — **row-directed discharge pinning *at elaboration*** (`Checker.eagerRowPinIntoDomain`: the pinned-row domain's
+  error slot is pinned from the *argument's* row constraints before the whole-unify, so it never junk-grounds — the
+  finding 13 §4 form, *not* an extension of U4-f's deferred pin) and the **single-node `carrierSlotLift`** at the
+  return boundary (finding 3: the pure handler body's double-wrap was mis-erased into a `ClassCastException`). Full
+  detail in §10 U4-g. The remaining full-spine join rewire still stands (below);
 - **§6 Id-residue assertion → hard error — DONE (2026-07-24).** `WovenValueProcessor.assertNoIdResidue` (was
   `warnIdResidue`) now `compilerAbort`s at `mv.name` on any surviving `Id`-machinery reference or `Id[X]` type
   instead of warning; the full gate is green under it (lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11), so
@@ -1180,41 +1170,38 @@ default path byte-identical, gated by the §0 harness.
    handlers already works (their handlers pin `E`); the only open multi-layer case is **non-typed** handlers on
    a same-ability stack (the §4 multiplicity rule), deferred as above.
 
-   Still to land (independent follow-on, not part of U4-f): the **stdlib delta** (`onError: E => G[A]` + the
-   `flatMap`/`foldEither` body) for an *effectful* handler, with the standing acceptance
-   (`failUnit catch (err -> printLine(err))` runs, `EffectsThrow` stays green).
-
-   **ATTEMPTED AND FAILED — 2026-07-25 (the delta is NOT a standalone stdlib change; needs checker work).**
-   Applying the exact specified delta to `stdlib/eliot/eliot/effect/Throw.els` (widen `onError: E => A` →
-   `E => G[A]`, body `map(e -> foldEither(onError, a -> a, e), …)` → `flatMap(e -> foldEither(onError,
-   a -> pure(a), e), …)`) does **not** land green — it re-triggers a **finding-7-class lift selection** in
-   the concrete-base-carrier case:
-   - **What works:** a single-statement, *meta-ambient* main — `def main: {Console} Unit = printLine(parseOk
-     catch (err -> err))` — compiles and runs `"parsed-value"`. Here `catch`'s `G` unifies with the ambient
-     meta `?F ~ Console` and U4-f's row-argument pin (`?E := String`) holds.
-   - **What breaks:** a **block body with a concrete base carrier** — `def main: IO[Unit] = { printLine(parseOk
-     catch (err -> err)); printLine(parseBad catch (err -> err)) }` — fails to compile with `No ability
-     implementation found for ability 'Throw' with type arguments [String, IO]` at the lift body
-     `def raise[A](err: E2): ThrowCarrier[E1, G, A] = ThrowCarrier(map(a -> Right(a), raise(err)))`
-     (`jvm/eliot/eliot/effect/Throw.els:54`, the `where E1 != E2` instance). The **outer** `ThrowCarrier`
-     layer's error slot (`E1`) junk-grounds (≠ `String`), so the guard `E1 != E2` holds and the lift is
-     chosen; its inner `raise` then demands the nonexistent `Throw[String, IO]`. U4-f's
-     `applyPendingCarrierPins` pins the slot only in the meta-ambient case; under the widened handler with a
-     **concrete** `G := IO` the pin does not reach the outer layer's error slot.
-   - **Blast radius:** all 7 Throw/`catch` cases in `jvm.test` redden (the pure identity `err -> err` and
-     `err -> "default"` handlers too — the widening moves their body from a bare-`A` `Generic` slot to a
-     `G[A]` carrier slot, which the two-Throws case then miscompiles at runtime, and the block+IO cases hit
-     the lift error). So the "pure handlers stay backward-compatible via auto-lift" expectation is **false in
-     practice** for the concrete-carrier block form.
-   - **Root cause / seam:** the widened handler changes the carrier/error-slot solving *order* so U4-f's
-     pin-if-still-free is defeated for the outer `ThrowCarrier` layer when the base is concrete — the same
-     constraint↔structure dual-representation seam finding 7 names, one layer out. **The fix is checker-level,
-     not stdlib:** either extend the row-argument pin (`recordRowArgumentPins`/`applyPendingCarrierPins`) to
-     pin the outer carrier layer's ability arguments even when `G` is a concrete carrier, or fold this into
-     the §7 join-solver rewire (where the carrier is solved by join and cannot junk-ground). **Decided
-     (finding 13): the fold-into-§7 option — do not extend the pin.** Repro: a two-statement
-     `IO[Unit]` block with `parseOk`/`parseBad` and identity handlers, against the widened `catch`. The
-     stdlib edit was reverted; the gate is back to green.
+7. **U4-g — effectful-`catch`-handler delta + its two §7 elaboration fixes — LANDED (2026-07-25).** The stdlib
+   delta (`onError: E => A` → `E => G[A]`, body `map(e -> foldEither(onError, a -> a, e), …)` → `flatMap(e ->
+   foldEither(onError, a -> pure(a), e), …)`) now lands green, together with the two checker fixes finding 13
+   prescribed for the concrete-`G` seam — *neither is an extension of U4-f's deferred pin* (finding 13's
+   prohibition holds). Acceptance met: `failUnit catch (err -> printLine(err))` compiles and runs `boom`; a pure
+   handler `err -> err` and an effectful `err -> printLine(err)` compose in one `{Console}` block; the full gate is
+   green (lang, jvm 262 incl. the new `ExamplesIntegrationTest2` "an effectful catch handler" case, HelloWorld,
+   eliot-test 11/11). The two fixes:
+   - **Row-directed discharge pinning *at elaboration*** (finding 13 §4 — `Checker.eagerRowPinIntoDomain`, called
+     from `uniformCaptureSlot` **before** the capturing whole-unify). When an open-row argument (`?F ~ Throw[String]`)
+     is captured into a pinned-row *domain* (`ThrowCarrier[?E, ?G, ?A]`), the domain's carrier-layer ability slots
+     (`?E`) are pinned directly from the *argument's* row constraints (`CheckState.metaConstraints` +
+     `findCarrierLayerSlots` + `EffectCarrierNaming`) — so `?E` is `String` before the whole-unify and *never a free
+     meta that junk-grounds to `Type`* and selects the `where E1 != E2` lift. This is the principled form U4-f
+     approximated at the slots, and it reaches the outer layer even when the base `G` is concrete (`IO`) — the case
+     U4-f's post-drain pin-if-still-free (`recordRowArgumentPins`, kept as the multi-layer/late-handler backstop)
+     missed. Fail-safe: no matching layer ⇒ no pin (whole-unify runs unchanged); an already-solved slot is left
+     untouched (misfire misses the pin, never accepts a wrong typing).
+   - **Single-node `carrierSlotLift`** (finding 3, now also at the *return boundary* — `UniformCarrierChecker.carrierSlotLift`
+     + `unwrapPureId`). The widened handler's *pure* body (`err -> err`) into the `?G[A]` codomain first hit
+     `checkReturnBoundary`'s `carrierSlotLift`, which emitted the finding-3 double-wrap
+     `pure@Effect[?G](runId(pure@Id(err)))`. When `?G` resolves to a **non-`Id`** carrier (`IO`/`ThrowCarrier`) the
+     codegen `Id`-normalizer mis-erases the *outer* `pure` (its impl-keyed erasure confused by the inner `pure@Id`),
+     shipping a raw payload where a `G[..]` is expected → a runtime `ClassCastException` (`String` → `IO$IO`). The fix
+     unwraps the checker-inserted `pure@Id(inner)` wrapper and re-carries `inner` in a **single** clean
+     `pure@Effect[?G](inner)`. This is finding 3's fix (previously applied only at the argument slot), now needed at
+     the return boundary because the effectful handler is the first case with a pure body into a *non-`Id`*
+     effect-carrier return.
+   The **full §7 join-solver spine rewire** (routing the capture arm through `classifyExpectedSlot`/`resolveSlot`/
+   `finalizeAndMaterialize`, retiring `mustLiftBeforeUnify`/`tryUnifyCommitting` at the argument slots) and the §8
+   compile-track gate removal + recognition-arm deletion **still remain** — U4-g lands the row-directed-elaboration
+   *pin* and the effectful-handler feature it unblocks, not the whole spine.
 
    **Rejected alternative (recorded so it is not re-proposed): a first-class row calculus**
    (Koka/Leijen-style row types with dedicated row unification). It would fix this class by construction,

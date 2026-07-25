@@ -1082,17 +1082,64 @@ class Checker(
   ): CheckIO[SlotOutcome] =
     for {
       // The argument's own carrier meta, read *before* the capture unify solves it — the row-argument type-pinning
-      // rule (docs/effects-as-channel.md §10 U4-f) needs its id to look its declared ability constraints up.
+      // rules (docs/effects-as-channel.md §7/§10) need its id to look its declared ability constraints up.
       carrierMeta <- lifter.effectCarrierSplit(instantiated).map(_.collect { case (VMeta(id, _), _) => id.value })
       doomed      <- lifter.mustLiftBeforeUnify(instantiated, domain)
       outcome     <- if (doomed) uniformArgumentSlot(arg, updatedExpr, domain)
                      else
-                       tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
-                         case true  =>
-                           carrierMeta.traverse_(recordRowArgumentPins(_, arg)).as(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
-                         case false => commitMismatch(instantiated, domain, arg, updatedExpr)
-                       }
+                       for {
+                         // §7 row-directed-at-elaboration pin (finding 13 §4): pin the *pinned-row domain*'s carrier-layer
+                         // ability slots from the argument's own row constraints **before** the capturing whole-unify, so a
+                         // free error-slot meta never exists to junk-ground. Complements the post-drain
+                         // [[recordRowArgumentPins]] below (kept as the multi-layer/late-handler backstop).
+                         _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
+                         out <- tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
+                                  case true  =>
+                                    carrierMeta
+                                      .traverse_(recordRowArgumentPins(_, arg))
+                                      .as(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+                                  case false => commitMismatch(instantiated, domain, arg, updatedExpr)
+                                }
+                       } yield out
     } yield outcome
+
+  /** Row-directed discharge pinning **at elaboration** (docs/effects-as-channel.md §7, finding 13 §4): when an open-row
+    * argument (`?F ~ Throw[String]`) is captured whole into a pinned-row parameter *domain* (`ThrowCarrier[E, G, A]`),
+    * pin the domain's carrier-layer ability slots (`E := String`) *before* the capturing whole-unify, directly from the
+    * argument's own row constraints ([[CheckState.metaConstraints]]).
+    *
+    * Deriving the pin from the argument's row — the single source of truth: the `E` the user means is the one the
+    * computation's row declares — at capture time means a free error-slot meta never exists to junk-ground to `Type`
+    * and select the `where E1 != E2` lift (the pinned-finding-7 class), **even when the base carrier `G` is concrete**
+    * (`IO`), the case the post-drain pin-if-still-free ([[recordRowArgumentPins]]) misses because the outer layer's
+    * error slot junk-grounds before it runs. This is the principled form U4-f approximated at the slots.
+    *
+    * Fail-safe: a constraint whose ability has no matching carrier layer in the domain records no pin (the whole-unify
+    * runs unchanged), and a domain slot already solved to a value is left untouched (pin-if-still-free) so an
+    * explicitly-typed slot is never overwritten — misfiring can only miss the pin, never accept a wrong typing.
+    */
+  private def eagerRowPinIntoDomain(
+      actualCarrierMetaId: Int,
+      domain: SemValue,
+      at: Sourced[OperatorResolvedExpression]
+  ): CheckIO[Unit] =
+    inspect(_.metaConstraints.getOrElse(actualCarrierMetaId, Seq.empty)).flatMap {
+      _.traverse_ { constraint =>
+        val nonCarrierArgs = constraint.args.dropRight(1)
+        if (nonCarrierArgs.isEmpty) pure(())
+        else
+          findCarrierLayerSlots(domain, EffectCarrierNaming.carrierFQN(constraint.abilityFQN)).flatMap {
+            case Some(slots) =>
+              nonCarrierArgs.zip(slots).traverse_ { case (value, slot) =>
+                force(slot).flatMap {
+                  case VMeta(_, Spine.SNil) => doUnify(slot, value, at.as("Row-argument effect pinning (elaboration)."))
+                  case _                    => pure(())
+                }
+              }
+            case None        => pure(())
+          }
+      }
+    }
 
   /** Row-argument type-pinning (docs/effects-as-channel.md §10 U4-f): an *open-row* argument — a carrier metavariable
     * `?F` constrained `Throw[String]` — captured whole into a *pinned-row* parameter domain (`{Throw[E] | G} A` ⤳
