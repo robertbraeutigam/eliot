@@ -4,7 +4,7 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
-import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, RunBoundaryFunction}
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   allRoots,
   compilerRoots,
@@ -83,7 +83,10 @@ class LangPlugin extends CompilerPlugin {
               // The native-binding merger built inside LangProcessors must consult every native contributor that other
               // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
               // initialize, so the roster is already final here.
-              configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq
+              configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
+            // The run-boundary carrier-capture tags (effects-as-channel source (ii)): the jvm plugin registers
+            // `eliot.jvm::runMain` in its configure(), which is already final here. Empty when no platform contributes one.
+            runBoundaryFunctions = configuration.getOrElse(RunBoundaryFunction.configKey, Set.empty)
           )
         )
       )

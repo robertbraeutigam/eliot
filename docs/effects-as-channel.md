@@ -34,15 +34,17 @@ uniform-carrier checker is the sole checker path (no flag anywhere — U4-e core
 are all landed). **U4-f (row-argument type-pinning, `0a711135`) and U4-g (effectful-`catch`-handler delta + its
 two §7 elaboration fixes, `c7b30952`) are landed** — the catch-handler discharge story is now complete for both
 pure and effectful handlers, and the two §7 elaboration primitives finding 13 prescribed (row-directed pinning
-*at elaboration*; single-node `carrierSlotLift`) are in place. **Steps 2, 3, and step 4's FIRST SLICE are all
-landed (2026-07-25):** the finding-13 mitigations (guard-on-junk + shape matrix), the finding-14 recognition tag
-(`EffectRow.pinnedParameterIndices`), and the capture-arm join routing **for the catch-shape class** (byte-identity
-verified across a 14-program corpus; tripwire-confirmed the join fires — §10 items 9/10/11). What **remains** for §7
-is **expanding step 4 shape by shape** (concrete-`G` base, multi-layer, doomed) until the `uniformCaptureSlot`
-whole-unify is unreachable, then deleting it; the §8 gate stays (kept permanently by resolution). **An earlier spine
-attempt after `59a1130a` (2026-07-25) FAILED and was discarded, leaving no record** (pinned finding 15) — the
-mandated sequence (mitigations → tag → shape-by-shape routing) is what unblocked it; keep following **the mandated
-sequence** below. **Gate — all green, run these to confirm before starting:**
+*at elaboration*; single-node `carrierSlotLift`) are in place. **Steps 2, 3, step 4's FIRST SLICE, and step 4's
+SECOND SLICE (tag source (ii)) are all landed (2026-07-25):** the finding-13 mitigations (guard-on-junk + shape
+matrix), the finding-14 recognition tag (`EffectRow.pinnedParameterIndices`), the capture-arm join routing **for the
+catch-shape class** (byte-identity verified across a 14-program corpus; tripwire-confirmed the join fires — §10 items
+9/10/11), and the **synthetic-main `IO[A]` boundary** now routed through the join too (**tag source (ii)** — §10 item
+12). What **remains** for §7 is **expanding step 4 shape by shape** (the untagged concrete-carrier params `runId`'s
+`Id[A]` etc., data-container recognition) until the `uniformCaptureSlot` whole-unify is unreachable, then deleting it;
+the §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
+and was discarded, leaving no record** (pinned finding 15) — the mandated sequence (mitigations → tag → shape-by-shape
+routing) is what unblocked it; keep following **the mandated sequence** below. **Gate — all green, run these to
+confirm before starting:**
 
 ```
 ./mill lang.test        # green (mill task counter 233/233)
@@ -183,8 +185,10 @@ pinned finding 15). Work strictly in this order; each step lands green on its ow
    captures and **zero** mismatches left on whole-unify — the finding-13 seam is fully closed). The remaining
    whole-unify usage is **non-pinned** captures (the synthetic-main `IO[A]` boundary, untagged concrete-carrier
    params, and genuine data containers), so deleting whole-unify is a **larger recognition follow-on**, not a
-   mechanical shape sweep — see §10 item 11's *Remaining scope, MAPPED*. **NEXT** (when resumed): tag **source
-   (ii)** (synthetic-main `IO[A]`) first, byte-identity-verified.
+   mechanical shape sweep — see §10 item 11's *Remaining scope, MAPPED*. **Tag source (ii) — LANDED (2026-07-25,
+   §10 item 12):** the synthetic-main `IO[A]` boundary is now routed through the join. **NEXT** (when resumed): the
+   untagged concrete-carrier params (`runId`'s `x: Id[A]` — but note the `Id`-split-is-`Bottom` timing subtlety §10
+   item 11), then data-container recognition, until `tryUnifyCommitting` is unreachable and can be deleted.
 
 **Do NOT (each has already caused a failure or is a pre-registered prediction):**
 
@@ -219,8 +223,9 @@ LANDED 2026-07-25 (step 2)**; see the START HERE step 2 record and finding 13. *
 finding-14 recognition tag).
 
 **Close-out follow-ons (each landable on its own):**
-- **synthetic main → `runMain`** (§7) — makes the one run boundary nominal; needs a `runMain` callable to
-  exist first;
+- **synthetic main → `runMain`** (§7) — **LANDED (2026-07-25, §10 item 12)**, together with tag source (ii): the
+  synthesized entry now calls the nominal `runMain(main)` (not the anonymous `apply(block(main), unit)` chain), and its
+  `io: IO[A]` capture routes through the join. Not byte-identical (+1 `runMain$Unit` wrapper), but full-gate-green;
 - **effectful-`catch`-handler stdlib delta** (pinned finding 7) — **LANDED (U4-g, 2026-07-25).** `catch`'s handler
   is now `onError: E => G[A]` (body `flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))`), so
   the handler may itself perform effects; `failUnit catch (err -> printLine(err))` runs `boom` and pure/effectful
@@ -1553,8 +1558,51 @@ default path byte-identical, gated by the §0 harness.
       finding-13 bug class (§7's raison d'être) is already fully closed by the first slice.
     - **NEXT**: the whole-unify deletion is a **larger** follow-on (per the map above), not the immediate next step;
       the finding-13 seam is closed. When resumed, start with tag **source (ii)** (the synthetic-main `IO[A]`
-      boundary — the one compiler-generated carrier capture), byte-identity-verified, before any concrete-carrier /
-      data-container recognition.
+      boundary — the one compiler-generated carrier capture), before any concrete-carrier / data-container recognition.
+      **DONE — see item 12.**
+
+12. **Step 4 — tag source (ii): the synthetic-main `IO[A]` boundary — LANDED (2026-07-25).** The one
+    compiler-generated carrier capture — the user `main`'s ambient `?F[Unit]` binding to the concrete platform carrier
+    `IO` — now routes through the join solver, closing the finding-14 recognition for a *concrete platform carrier*
+    (`IO`) as opposed to a pinned-row stack (source (i)).
+    - **The nominal boundary (the "synthetic main → runMain" follow-on, now unblocked).** `SyntheticMainSourceProcessor`
+      respells the entry from the anonymous `apply(block(main), unit)` chain to `runMain(main)` (the jvm
+      `def runMain[A](io: IO[A]): A`, which already existed). This makes the run boundary **nominal** — a single named
+      callee `runMain` whose parameter 0 is *the* carrier capture — which is what gives the checker a taggable slot. (It
+      is **not** byte-identical: `runMain` emits as its own `runMain$Unit` method, +1 call frame in the entry path;
+      verified running + full-gate-green, which is the bar here, not byte-identity — the byte-identity discipline is for
+      the checker-routing overlay, not this source-generation change. Confirmed by stash-diff: the *only* codegen delta
+      vs the baseline is the `runMain$Unit` wrapper.)
+    - **The tag — platform-contributed, not a shape/name guess (finding 14).** `IO[A]` cannot be spelled as a pinned row
+      (`IO` is a `Suspend`-riding carrier with no ability) and is jvm-owned (lang must never name it), so source (i)'s
+      `EffectRow` desugar tag cannot reach it. Instead the **platform that owns the carrier declares the boundary by
+      construction**, via the same cross-layer config channel `ContributedBinding.extraNativeLabelsKey` already uses:
+      a new lang fact `monomorphize/fact/RunBoundaryFunction` + config key (`RunBoundaryFunction.configKey`), produced
+      by `monomorphize/processor/RunBoundaryFunctionProcessor` (registered unconditionally in `LangProcessors`, so the
+      key always has a producer — it declines every FQN a layer did not register). `JvmPlugin.configure` adds
+      `eliot.jvm.IO::runMain`; `LangPlugin.initialize` reads the key and threads it to `LangProcessors`. `Checker.calleePinnedParams`
+      unions parameter 0 into the recognition tag when the fact is present — so the checker reads carrier-ness from the
+      curated platform declaration, never from `IO`'s shape (which is indistinguishable from a data container like
+      `Option[A]`).
+    - **The guard.** `singleLayerPinnedDomain` → renamed `singleLayerCarrierDomain`, its empty-`prefix` case flipped
+      `false → true`: a flat concrete carrier `IO[A]` (`Con(IO, [])`, no error/state/base slots) is a single-layer
+      carrier the join admits. Safe because the method is only consulted behind the tag (`pinned`), whose source-(i)
+      domains always carry a non-empty prefix (`ThrowCarrier[…, G, A]`) — so the empty-prefix branch fires *only* for
+      the runMain/`IO` boundary.
+    - **Verification.** The join solves `?F := IO`, `A := Unit` — the **same solution** the whole-unify reached, so the
+      routing is **byte-identical to the plain `runMain` respell** (stash-diff of the two `runMain`-form builds:
+      identical bytecode), confirming the join is correct, not just non-crashing. A `System.err` diagnostic confirmed
+      the join path *fires* for the `IO[?0]` boundary (`pinned=true, doomed=false, carrierMeta=Some(1),
+      joinRoutable=true`) — an initial run had `pinned=false` because `runMainVfqn`'s module was wrong (a `.els` file's
+      module is its **full path incl. filename** — `eliot.jvm.IO`, not `eliot.jvm`); the fix made the tag match. Gate:
+      lang 233/233, jvm 283/283, HelloWorld builds+runs, eliot-test 11/11.
+    - **NEXT**: the remaining `tryUnifyCommitting` captures are the **untagged concrete-carrier params** (`runId`'s
+      `x: Id[A]`, `AbortCarrier`/`StateCarrier` params) and **genuine data containers** (`Either`/`Pair`/`Option`).
+      `Id[A]` carries the timing subtlety from item 11's map (`Carrier.split(Id) = Bottom` ⇒ `joinToward(?G, Bottom)`
+      contributes nothing, so `?G` defaults to `Id` only at finalize — not byte-identical to whole-unify's eager
+      solve); the data containers must stay **off** the carrier path (classifying them as a `CarrierSlot` is the
+      finding-14 miscompile). Deleting `tryUnifyCommitting` remains a larger recognition follow-on with no correctness
+      urgency (the finding-13 seam is closed).
 
 ### U5 — follow-ups unlocked
 

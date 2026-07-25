@@ -7,7 +7,12 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{BodyValueReferences, CompilerMonomorphicValue, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{
+  BodyValueReferences,
+  CompilerMonomorphicValue,
+  GroundValue,
+  RunBoundaryFunction
+}
 import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -725,17 +730,31 @@ class Checker(
     } yield result
   }
 
-  /** The head callee's **pinned-row recognition tag** (docs/effects-as-channel.md §7 step 4, finding 14): the set of
-    * its value-parameter positions whose declared type is a pinned row (a canonical carrier stack), read from the
-    * callee's `OperatorResolvedValue.effectRow.pinnedParameterIndices` via its [[SaturatedValue]]. Empty for a head that
-    * is not a plain value reference (an immediately-applied lambda, a nested application) or whose fact is absent — so
-    * the join routing simply never fires there and the whole-unify path is unchanged.
+  /** The head callee's **carrier-stack recognition tag** (docs/effects-as-channel.md §7 step 4, finding 14): the set of
+    * its value-parameter positions whose expected slot is a canonical carrier stack the checker must split before
+    * payload unification. Two disjoint sources are unioned:
+    *
+    *   - **source (i)** — the value-parameter positions whose declared type is a *pinned row* (`catch`'s
+    *     `computation: {Throw[E] | G} A`), read from the callee's `OperatorResolvedValue.effectRow.pinnedParameterIndices`
+    *     via its [[SaturatedValue]];
+    *   - **source (ii)** — a platform **run boundary** ([[RunBoundaryFunction]]; the jvm `runMain`), whose carrier
+    *     capture is its parameter 0 (`io: IO[A]`). A concrete platform carrier like `IO` cannot be spelled as a pinned
+    *     row and is not lang-nameable, so the owning platform declares the boundary by construction and the checker reads
+    *     it here — never guessing carrier-ness from the domain's shape (which would miscompile a data container, finding
+    *     14).
+    *
+    * Empty for a head that is not a plain value reference (an immediately-applied lambda, a nested application) or whose
+    * facts are both absent — so the join routing simply never fires there and the whole-unify path is unchanged.
     */
   private def calleePinnedParams(head: Sourced[OperatorResolvedExpression]): CheckIO[Set[Int]] =
     head.value match {
       case OperatorResolvedExpression.ValueReference(vfqn, _) =>
-        liftF(getFactIfProduced(SaturatedValue.Key(vfqn.value, platform)))
-          .map(_.map(_.value.effectRow.pinnedParameterIndices).getOrElse(Set.empty))
+        for {
+          declared <- liftF(getFactIfProduced(SaturatedValue.Key(vfqn.value, platform)))
+                        .map(_.map(_.value.effectRow.pinnedParameterIndices).getOrElse(Set.empty))
+          boundary <- liftF(getFactIfProduced(RunBoundaryFunction.Key(vfqn.value)))
+                        .map(_.map(_ => Set(0)).getOrElse(Set.empty[Int]))
+        } yield declared ++ boundary
       case _                                                  => pure(Set.empty)
     }
 
@@ -1119,7 +1138,7 @@ class Checker(
       // a single-layer pinned domain (`{E | G} A`, base a generic meta) + an open-row-carrier actual. Every other capture
       // (multi-layer pinned domains, concrete-payload actuals, doomed shapes) stays on the whole-unify fallback below,
       // and `mustLiftBeforeUnify` doomed shapes take their bind arm first, unchanged.
-      joinRoutable <- if (pinned && !doomed && carrierMeta.nonEmpty) singleLayerPinnedDomain(domain) else pure(false)
+      joinRoutable <- if (pinned && !doomed && carrierMeta.nonEmpty) singleLayerCarrierDomain(domain) else pure(false)
       outcome     <- if (doomed) uniformArgumentSlot(arg, updatedExpr, domain)
                      else if (joinRoutable)
                        for {
@@ -1147,14 +1166,22 @@ class Checker(
                        } yield out
     } yield outcome
 
-  /** Whether `domain` is a **single-layer** pinned carrier stack — a `<Ability>Carrier[…]` application whose base (the
-    * carrier's last stack slot, before the payload) is still a bare metavariable (the generic tail `G` of `{E | G} A`),
-    * not itself a nested carrier. The first-slice guard for the §7 step-4 join routing (finding 14): a discharger's
-    * `{E | G} A` domain (`catch`/`runThrow`/`else`/`runStateToPair`/`provide`) is always single-layer at the capture,
-    * so this admits exactly the catch-shape class; a pre-nested stack (a multi-layer pinned domain) is left on the
-    * whole-unify fallback.
+  /** Whether `domain` is a **single-layer** carrier stack the §7 step-4 join routing admits (finding 14) — always
+    * consulted behind the callee's recognition tag ([[calleePinnedParams]]), so it only ever classifies a domain already
+    * known to be a carrier capture; it merely tells a single-layer stack (route through the join) from a pre-nested
+    * multi-layer one (leave on the whole-unify fallback). Two single-layer shapes qualify:
+    *
+    *   - a **pinned-row stack** `<Ability>Carrier[…, G, A]` (source (i): `catch`/`runThrow`/`else`/`runStateToPair`/
+    *     `provide`'s `{E | G} A`) whose base — the carrier's last stack slot, before the payload — is still a bare
+    *     metavariable (the generic tail `G`), not itself a nested carrier;
+    *   - a **flat concrete carrier** `IO[A]` (source (ii): the jvm run boundary `runMain`) — a `Con` with an *empty*
+    *     stack prefix (no error/state/base slots), so its `split` yields just the payload. This is the empty-`prefix`
+    *     case; it is a carrier by the tag, so admitting it routes `?F[Unit] ~ IO[A]` through the pass-join (`?F := IO`)
+    *     instead of the eager whole-unify.
+    *
+    * A pre-nested stack (a multi-layer pinned domain, base a concrete carrier) is left on the whole-unify fallback.
     */
-  private def singleLayerPinnedDomain(domain: SemValue): CheckIO[Boolean] =
+  private def singleLayerCarrierDomain(domain: SemValue): CheckIO[Boolean] =
     force(domain).flatMap {
       case VTopDef(_, _, Spine.SApp(prefix, _)) =>
         prefix.toList.lastOption match {
@@ -1162,7 +1189,7 @@ class Checker(
               case VMeta(_, Spine.SNil) => true
               case _                    => false
             }
-          case None       => pure(false)
+          case None       => pure(true) // a flat concrete carrier (`IO[A]`) — empty prefix, so no base slot to nest
         }
       case _                                    => pure(false)
     }

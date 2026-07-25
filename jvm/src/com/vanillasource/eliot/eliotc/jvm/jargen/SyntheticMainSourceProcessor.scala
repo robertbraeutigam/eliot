@@ -48,12 +48,26 @@ object SyntheticMainSourceProcessor {
   /** The synthesized entry-point value: `main::main`, what the jar's `Main-Class` bootstraps. */
   val syntheticMainVfqn: ValueFQN = ValueFQN(ModuleName(Seq(), "main"), QualifiedName("main", Qualifier.Default))
 
-  /** The carrier-path wrapper: `block`'s expected `IO[A]` binds the user `main`'s carrier to `IO` by unification, and
-    * `apply(_, unit)` forces the thunk, so the value runs the effects and returns `Unit`.
+  /** The platform **run boundary** the synthesized entry calls (`def runMain[A](io: IO[A]): A`, in `eliot.jvm.IO`).
+    * Its `io: IO[A]` parameter is the one compiler-generated **carrier capture**: the user `main`'s inferable carrier
+    * `?F[Unit]` binds to `IO` there. The jvm plugin registers this FQN as a
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction]] so the checker classifies that parameter's
+    * expected slot as a carrier slot and routes it through the join solver — the effects-as-channel carrier-stack
+    * recognition tag, source (ii) (docs/effects-as-channel.md §7 step 4 / finding 14). `IO` is jvm-owned, so this
+    * nominal boundary (not the anonymous `block`/`apply` chain) is what gives the checker a taggable slot without lang
+    * ever naming `IO`.
+    */
+  val runMainVfqn: ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("runMain", Qualifier.Default))
+
+  /** The carrier-path wrapper: calling `runMain` (whose `io: IO[A]` binds the user `main`'s carrier to `IO`) makes the
+    * run boundary **nominal**, and running the thunk returns `Unit`. Naming `runMain` (rather than inlining
+    * `apply(block(main), unit)`) gives the checker the single taggable carrier-capture slot source (ii) routes through
+    * the join ([[runMainVfqn]]).
     */
   private def carrierMainSource(mainVfqn: ValueFQN): String =
     s"""
        |import eliot.jvm.IO
-       |def main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name.name}), unit)
+       |def main: Unit = runMain(${mainVfqn.moduleName.show}::${mainVfqn.name.name})
        |""".stripMargin
 }

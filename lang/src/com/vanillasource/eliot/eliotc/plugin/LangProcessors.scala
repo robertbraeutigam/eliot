@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.block.processor.BlockDesugaringProcessor
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleAbilitiesProcessor,
   ModuleConstructorsProcessor,
@@ -33,6 +33,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   DataTypeNativesProcessor,
   MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
+  RunBoundaryFunctionProcessor,
   SystemNativesProcessor,
   UserValueNativesProcessor
 }
@@ -71,12 +72,19 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     extra native processor onto this list passes that processor's label here so the [[BindingMergerProcessor]]
   *     consults it. The base labels ([[ContributedBinding.langNativeLabels]]) are always included — the contributors
   *     that own them are always in this list.
+  *   - `runBoundaryFunctions` — the platform **run-boundary** value FQNs (the jvm plugin's `eliot.jvm::runMain`) whose
+  *     carrier parameter the checker routes through the join solver
+  *     ([[com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction]], effects-as-channel tag source (ii)).
+  *     `LangPlugin` passes the set the platform plugins registered through
+  *     [[com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction.configKey]]; empty in a lang-only build
+  *     (and in tests), where the tag processor then declines every FQN.
   */
 object LangProcessors {
   def apply(
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
       maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
-      extraNativeBindingLabels: Seq[String] = Seq.empty
+      extraNativeBindingLabels: Seq[String] = Seq.empty,
+      runBoundaryFunctions: Set[ValueFQN] = Set.empty
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
@@ -109,6 +117,7 @@ object LangProcessors {
     ),
     MonomorphicTypeCheckProcessor(),
     CompilerMonomorphicTypeCheckProcessor(),
+    RunBoundaryFunctionProcessor(runBoundaryFunctions),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(),
     WovenValueProcessor(),
