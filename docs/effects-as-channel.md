@@ -1748,13 +1748,23 @@ default path byte-identical, gated by the §0 harness.
     `unify/SemValuePrinter`, and `check/AbilityResolver` (which replaced `Show[GroundValue]` — the terse *debug*
     instance that drops type arguments — in its type-argument list).
 
-    **The full/partial application problem, solved without an arity table.** Whether a carrier application's last
-    argument is the payload or the base is the one thing the inversion needs and the naming convention does not say.
-    `GroundValue` answers it exactly: `valueType == Type` means applied to a result (`ThrowCarrier[E, G, A]`), an
-    arrow kind means payload-unapplied (`ThrowCarrier[E, G]`, the `F[_]` shape) — so a partial carrier renders as a
-    payload-less row `{Abort | IO}` instead of leaking, which the old LSP table could not do. `SemValue` has no such
-    signal, so `SemValuePrinter` treats ≥2 arguments as payload-applied: exact for the type positions it serves (an
-    `Expected:`/`Actual:` line is a type) and cosmetic if a future shape falls outside — never a typing decision.
+    **The full/partial application problem — first solved WRONGLY, corrected the same day.** Whether a carrier
+    application's last argument is the payload or the base is the one thing the inversion needs and the naming
+    convention does not say. This slice first claimed `GroundValue.valueType` answered it exactly (`Type` ⟹
+    payload-applied, an arrow kind ⟹ the `F[_]` shape). **That was false**: a quoted `GroundValue` carries
+    `valueType = Type` for *every* structure, the nullary type constructor `IO` included — measured, not assumed. The
+    unit test constructed an arrow kind that does not occur in practice, so it passed while the real shape mis-split
+    by one slot: an ability's carrier argument `ThrowCarrier[String, StateCarrier[String, IO]]` printed as
+    `{Throw | String} {State | String} IO` instead of `{Throw[String], State[String] | IO}` — confidently wrong, and
+    strictly worse than the old table, which at least degraded to raw names when it did not match.
+    **The correction: the context comes from the caller, because the value cannot supply it.**
+    `GroundValueRenderer` has two entry points — `render` (a *type*: carriers are payload-applied) and
+    `renderConstructor` (a *type constructor*: an ability's `F[_]` argument, so the last argument is the base). The
+    base slot is peeled in constructor form, ability arguments and payloads in type form; `AbilityResolver` renders
+    its ability arguments as constructors. `SemValue` has no signal at all, so `SemValuePrinter` treats ≥2 arguments
+    as payload-applied: exact for the type positions it serves (an `Expected:`/`Actual:` line is a type), cosmetic if
+    a future shape falls outside — never a typing decision. **Lesson worth keeping: a hand-built unit test can only
+    falsify a claim about the data if the value it builds is one the compiler actually produces.**
 
     **Two deliberate `Id` rules** (the audit had suggested suppressing the base; that would be wrong):
     - `Id[X]` renders as `X` — pure machinery, erased.

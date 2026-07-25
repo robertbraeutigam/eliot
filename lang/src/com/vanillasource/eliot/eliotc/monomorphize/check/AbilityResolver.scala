@@ -151,7 +151,9 @@ class AbilityResolver(
       groundArgs: Seq[GroundValue]
   ): CheckIO[Boolean] =
     liftF(getFactIfProduced(AbilityImplementation.Key(ref.value, groundArgs, platform))).flatMap { factOpt =>
-      val argsShown = groundArgs.map(GroundValueRenderer.render).mkString("[", ", ", "]")
+      // An ability's type arguments are rendered as **type constructors**: a carrier argument sits in the ability's
+      // `F[_]` slot, so its last argument is the base carrier, not a payload (`GroundValueRenderer`'s two entry points).
+      val argsShown = groundArgs.map(GroundValueRenderer.renderConstructor).mkString("[", ", ", "]")
       factOpt.map(_.resolution) match {
         case None                                                        => pure(false)
         case Some(AbilityImplementation.Resolution.Resolved(_, _))       => pure(false)

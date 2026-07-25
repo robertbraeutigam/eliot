@@ -20,6 +20,16 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
   *     name is ever shown ([[EffectRowRendering]]);
   *   - the identity carrier's **payload wrapper** `Id[X]` as plain `X`.
   *
+  * '''Two entry points, because the value cannot tell you which it is.''' A carrier's last argument is its payload in
+  * `ThrowCarrier[E, G, A]` but its *base* in the payload-unapplied `ThrowCarrier[E, G]` (the shape a carrier takes in
+  * an `F[_]` slot), and those two are structurally indistinguishable without the ability's argument count: `Abort`
+  * takes none, `Throw` takes one, so a two-argument application is a full `AbortCarrier[G, A]` *or* a partial
+  * `ThrowCarrier[E, G]`. `GroundValue.valueType` does **not** help — it is `Type` for every structure, including the
+  * nullary type constructor `IO`. So the caller states its context: [[render]] for a **type**, [[renderConstructor]]
+  * for a **type constructor** (an ability's `F[_]` argument). Getting this wrong is how
+  * `ThrowCarrier[String, StateCarrier[String, IO]]` once printed as `{Throw | String} {State | String} IO` instead of
+  * `{Throw[String], State[String] | IO}` — a confidently wrong reading of the same characters.
+  *
   * '''Two deliberate decisions about `Id`''' (docs/effects-as-channel.md §9 — `Id` and carriers are never rendered to
   * users):
   *   - `Id[X]` is **erased** to `X`. It is pure machinery the checker inserts at a pure boundary and the
@@ -32,20 +42,30 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
   */
 object GroundValueRenderer {
 
-  /** Render a ground value as a one-line type string. */
-  def render(value: GroundValue): String = value match {
-    case GroundValue.Type                                                                  => "Type"
-    case GroundValue.Direct(direct, _)                                                     => direct.toString
+  /** Render a ground **type** as a one-line string: a carrier application here is applied to its payload, so
+    * `ThrowCarrier[E, G, A]` reads `{Throw[E] | G} A`.
+    */
+  def render(value: GroundValue): String = go(value, appliedToPayload = true)
+
+  /** Render a ground **type constructor** — a value occupying an `F[_]` slot, such as an ability's carrier argument.
+    * A carrier application here is *not* applied to a payload, so `ThrowCarrier[E, G]` reads `{Throw[E] | G}` and its
+    * last argument is correctly read as the base rather than as a payload.
+    */
+  def renderConstructor(value: GroundValue): String = go(value, appliedToPayload = false)
+
+  private def go(value: GroundValue, appliedToPayload: Boolean): String = value match {
+    case GroundValue.Type                                                              => "Type"
+    case GroundValue.Direct(direct, _)                                                 => direct.toString
     // `Id[X] ⤳ X`: the identity carrier is a newtype over its payload and pure machinery — never shown. Matched with a
     // trailing wildcard for the same reason `GroundValue.carrierFQN` does: only the payload slot is load-bearing.
-    case GroundValue.Structure(name, payload +: _, _) if name === WellKnownTypes.idFQN     => render(payload)
-    case structure: GroundValue.Structure                                                  =>
+    case GroundValue.Structure(name, payload +: _, _) if name === WellKnownTypes.idFQN => render(payload)
+    case structure: GroundValue.Structure                                              =>
       structure.asFunctionType match {
         case Some((from, to)) => s"${renderOperand(from)} -> ${render(to)}"
-        case None             => pinnedRow(structure).getOrElse(application(structure))
+        case None             => pinnedRow(structure, appliedToPayload).getOrElse(application(structure))
       }
-    case GroundValue.Param(index, Nil, _)                                                  => s"?p$index"
-    case GroundValue.Param(index, args, _)                                                 =>
+    case GroundValue.Param(index, Nil, _)                                              => s"?p$index"
+    case GroundValue.Param(index, args, _)                                             =>
       s"?p$index[${args.map(render).mkString(", ")}]"
   }
 
@@ -60,14 +80,13 @@ object GroundValueRenderer {
     if (structure.args.isEmpty) structure.typeName.name.name
     else s"${structure.typeName.name.name}[${structure.args.map(render).mkString(", ")}]"
 
-  /** A canonical-carrier application rendered as the pinned row that spells it. Whether the last argument is the
-    * payload or the base is read off `valueType`: a structure whose type is `Type` is applied to a result
-    * (`ThrowCarrier[E, G, A]`), while a partially applied one (`ThrowCarrier[E, G]`, the shape a carrier takes in an
-    * `F[_]` slot) still has an arrow kind. That is an exact signal, not a guess about arity.
+  /** A canonical-carrier application rendered as the pinned row that spells it, split according to the caller's
+    * context (see the class doc). Ability arguments and the payload are types; the base slot is a type constructor,
+    * so [[peel]] reads nested layers in the payload-unapplied form.
     */
-  private def pinnedRow(structure: GroundValue.Structure): Option[String] =
+  private def pinnedRow(structure: GroundValue.Structure, appliedToPayload: Boolean): Option[String] =
     EffectRowRendering
-      .layerOf(structure.typeName, structure.args, appliedToPayload = structure.valueType === GroundValue.Type)
+      .layerOf(structure.typeName, structure.args, appliedToPayload)
       .map(EffectRowRendering.row(_, peel, render))
 
   private def peel(value: GroundValue): Option[EffectRowRendering.Layer[GroundValue]] = value match {

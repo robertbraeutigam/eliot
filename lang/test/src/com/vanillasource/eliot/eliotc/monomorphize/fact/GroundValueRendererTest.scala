@@ -21,10 +21,11 @@ class GroundValueRendererTest extends AnyFlatSpec with Matchers {
     GroundValue.Structure(fqn, args, GroundValue.Type)
 
   /** A carrier applied to its ability arguments and base but *not* to a payload — the shape a carrier takes in an
-    * `F[_]` slot. Its kind is an arrow, which is exactly how the renderer tells the two apart.
+    * `F[_]` slot. Structurally it is an ordinary application: quoted ground values carry `valueType = Type` for
+    * *every* structure (a nullary `IO` included), so nothing about the value itself distinguishes it from a fully
+    * applied one. Only the reading context does, which is why it is rendered through `renderConstructor`.
     */
-  private def partial(fqn: ValueFQN, args: GroundValue*): GroundValue =
-    GroundValue.Structure(fqn, args, con(WellKnownTypes.functionDataTypeFQN, GroundValue.Type, GroundValue.Type))
+  private def constructor(fqn: ValueFQN, args: GroundValue*): GroundValue = con(fqn, args*)
 
   private val throwCarrier  = typeFQN(Seq("eliot", "effect"), "Throw", "ThrowCarrier")
   private val stateCarrier  = typeFQN(Seq("eliot", "effect"), "State", "StateCarrier")
@@ -72,12 +73,24 @@ class GroundValueRendererTest extends AnyFlatSpec with Matchers {
   }
 
   it should "flatten a nested carrier stack leftmost-outermost" in {
-    val stack = con(throwCarrier, string, partial(stateCarrier, string, id), unit)
+    val stack = con(throwCarrier, string, constructor(stateCarrier, string, id), unit)
     render(stack) shouldBe "{Throw[String], State[String] | Id} Unit"
   }
 
   it should "render a payload-unapplied carrier as a row without a payload" in {
-    render(partial(abortCarrier, io)) shouldBe "{Abort | IO}"
+    GroundValueRenderer.renderConstructor(constructor(abortCarrier, io)) shouldBe "{Abort | IO}"
+  }
+
+  // Regression: read as a *type*, `ThrowCarrier[String, StateCarrier[String, IO]]` splits one slot off and printed
+  // `{Throw | String} {State | String} IO` — a confidently wrong reading. An ability's carrier argument is an `F[_]`,
+  // so it must be read as a type constructor. `valueType` cannot tell the two apart (it is `Type` for both).
+  it should "read an ability's carrier argument as a constructor, not as a payload-applied type" in {
+    val stack = constructor(throwCarrier, string, constructor(stateCarrier, string, io))
+    GroundValueRenderer.renderConstructor(stack) shouldBe "{Throw[String], State[String] | IO}"
+  }
+
+  it should "render a single-layer carrier constructor with its ability argument in the row, not the base" in {
+    GroundValueRenderer.renderConstructor(constructor(throwCarrier, string, io)) shouldBe "{Throw[String] | IO}"
   }
 
   it should "recognize any carrier following the naming convention, not a fixed table" in {

@@ -46,6 +46,31 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
       |def main: {Console} Unit = printLine(name(bad))
       |""".stripMargin
 
+  /** A genuinely missing cross-lift (`State` over a `Throw` layer has no instance), which is the everyday way a
+    * *carrier stack* reaches an ability-demand message. Written without dot-chaining on purpose, so the failure is the
+    * missing instance rather than anything the chain does to it.
+    */
+  private val missingCrossLift =
+    """def counted: {State[String], Throw[String]} String = {
+      |   putState("seen")
+      |   raise("boom")
+      |}
+      |
+      |def main: {Console} Unit =
+      |   printLine(foldEither(e -> e, s -> s, runStateToValue("i", runThrow(counted))))
+      |""".stripMargin
+
+  "an ability-demand diagnostic" should "render a carrier-stack argument as one pinned row" in {
+    compileErrors(missingCrossLift).asserting(_.mkString should include("{Throw[String], State[String] | IO}"))
+  }
+
+  // Regression: an ability's carrier argument is an `F[_]`, so its last argument is the base, not a payload. Read as a
+  // payload-applied type it split one slot off and printed `{Throw | String} {State | String} IO` — wrong, and
+  // confidently so. `GroundValue.valueType` cannot tell the two apart; only the reading context can.
+  it should "not mistake the ability argument of a carrier for its base" in {
+    compileErrors(missingCrossLift).asserting(_.mkString should not include "{Throw | String}")
+  }
+
   "a type-mismatch diagnostic" should "render a carrier-headed expectation as its pinned effect row" in {
     compileErrors(valBoundDischarge).asserting(_.mkString should include("{Abort | IO} String"))
   }

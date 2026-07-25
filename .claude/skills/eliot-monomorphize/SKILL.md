@@ -67,7 +67,10 @@ monomorphize/
 │   ├── GroundValue.scala       (output: Direct, Structure, Type)
 │   ├── GroundValueRenderer.scala (the USER-FACING rendering — LSP hover + ability-demand diagnostics. Carrier stacks
 │   │                            become pinned rows via effect/EffectRowRendering, `Id[X]` becomes `X`, an `Id` row
-│   │                            BASE is kept. `Show[GroundValue]` stays the terse debug instance — never user-facing)
+│   │                            BASE is kept. TWO entry points: `render` (a type) vs `renderConstructor` (an `F[_]`
+│   │                            slot) — a carrier's last arg is its payload in one and its BASE in the other, and
+│   │                            NOTHING in the value says which: `valueType` is `Type` for every structure, `IO`
+│   │                            included. `Show[GroundValue]` stays the terse debug instance — never user-facing)
 │   ├── MonomorphicValue.scala  (runtime output fact: signature + runtime, keyed by (vfqn, typeArgs))
 │   ├── CompilerMonomorphicValue.scala (compiler-track output fact — a DISTINCT type; cannot name MonomorphicValue.Key)
 │   ├── MonomorphicExpression.scala (output expression ADT; type slots are ground)
