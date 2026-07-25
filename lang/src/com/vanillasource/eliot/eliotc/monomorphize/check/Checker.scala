@@ -821,16 +821,51 @@ class Checker(
                                                              }
                                                          else deferredGenericDefault(record, id, updated, instantiated, domain)
                             } yield outcome
-                          case _                     =>
-                            // The bare [[resolveLadder]], not [[resolveGuardedLadder]]: the W2b guard-kind acceptance
-                            // never applied on the deferred re-entry (a Deferred slot is always effect-carrier-headed,
-                            // never a `Type`-kind guard carrier), so keeping it off here preserves the pre-dedup
-                            // behaviour exactly.
+                          case VMeta(_, _)           =>
+                            // A meta-*applied* domain (`?G[?A]`, a generic container parameter) — the carrier can still
+                            // legitimately ride up into it, so the ladder decides as before.
                             resolveLadder(record.arg, argExpr, argType, domain, allowBindLift = true)
+                          case _                     =>
+                            sequenceBeforeUnify(record, argExpr, argType, domain)
                         }
       } yield record.copy(outcome = outcome)
     case _                                              => pure(record)
   }
+
+  /** Phase B for a deferred slot whose domain later rigidified to a **rigid-headed, non-carrier** type — sequence the
+    * argument *before* attempting whole-unification.
+    *
+    * A deferred slot's argument is effect-carrier-headed by construction (that is the deferral condition). Running the
+    * ordinary ladder here puts plain `unify` first, and against a rigid *data* head that unification does not fail —
+    * it **steals the carrier meta**. `?F[T]` versus `Either[?E, ?A]` decomposes injectively into `?F := Either[?E]`
+    * and `?A := T`, so the value's own ambient carrier is solved to a partially applied data constructor. It
+    * type-checks, bind-lift is never reached, and the error surfaces far away as the enclosing expression having the
+    * container type instead of the payload type — `outcome.foldEither(e -> e, s -> s)` reporting
+    * `Expected: String / Actual: Either(String, String)` while the identical `foldEither(e -> e, s -> s, outcome)`
+    * compiles. It bites exactly when the domain's arguments are still flex: a *concrete* `Either[String, String]`
+    * domain makes the same decomposition fail on arity/payload, which is why only the generic case was broken.
+    *
+    * This is the finding-13 premature-commitment class (docs/effects-as-channel.md §7) at the Generic slot: a carrier
+    * position must never be settled by first-contact unification. Sequencing first is the join model's answer — split
+    * the carrier off, fit the payload — and it is *speculative* ([[EffectLifter.tryBindLift]] uses `tryUnify` and
+    * commits nothing on failure), so a payload that does not fit falls back to the full ladder and every previously
+    * working shape keeps its outcome. A **carrier-headed** domain is excluded: there the carrier genuinely unifies,
+    * and splitting it off would be the mirror-image mistake.
+    */
+  private def sequenceBeforeUnify(
+      record: SlotRecord,
+      argExpr: SemExpression,
+      argType: SemValue,
+      domain: SemValue
+  ): CheckIO[SlotOutcome] =
+    lifter.effectCarrierSplit(domain).flatMap {
+      case Some(_) => resolveLadder(record.arg, argExpr, argType, domain, allowBindLift = true)
+      case None    =>
+        lifter.tryBindLift(record.arg, argExpr, argType, domain).flatMap {
+          case Some((slotRef, bind)) => pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
+          case None                  => resolveLadder(record.arg, argExpr, argType, domain, allowBindLift = true)
+        }
+    }
 
   /** The default (carrier-based) Phase-B decision for a still-bare-flex Generic domain — the live path when
     * `uniformCarrier` is off (and on the compile-time track), kept verbatim as [[UniformCarrierChecker.resolveGenericSlot]]'s

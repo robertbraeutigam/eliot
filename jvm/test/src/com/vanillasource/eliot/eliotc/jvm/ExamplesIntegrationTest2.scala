@@ -751,4 +751,56 @@ import eliot.effect.Console
         |   runStateToPair("before", swap("after")))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
+  // A deferred Generic slot whose domain later rigidifies to a *generic data container* — the dot operator's own
+  // `.[A, B](a: A, f: Function[A, B]): B`, whose `A` is bare when the effectful subject is checked and only becomes
+  // `Either[?E, ?A]` once the function argument lands. The ladder's unify arm then decomposed `?F[T] ~ Either[?E, ?A]`
+  // *successfully* — solving the ambient carrier meta to a partially applied data constructor (`?F := Either[?E]`) —
+  // so bind-lift never ran and the whole chain came out typed `Either[String, String]` instead of `String`, while the
+  // identical `foldEither(e -> e, s -> s, outcome)` compiled. A concrete `Either[String, String]` domain never showed
+  // it (the same decomposition fails on the payload), which is why only the generic shape was broken. Phase B now
+  // sequences before whole-unify against a rigid non-carrier domain (`Checker.sequenceBeforeUnify`).
+  "a discharger dot-chained into a generic container fold" should "sequence the effect rather than steal the carrier" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.effect.Throw
+        |
+        |def bad: {Throw[String]} String = raise("boom")
+        |
+        |def main: IO[Unit] = printLine(bad.runThrow.foldEither(e -> e, s -> s))""".stripMargin
+    ).asserting(_ shouldBe "boom")
+  }
+
+  it should "agree with the same call written subject-last" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.effect.Throw
+        |
+        |def bad: {Throw[String]} String = raise("boom")
+        |def outcome: {Console} Either[String, String] = runThrow(bad)
+        |
+        |def main: IO[Unit] = {
+        |   printLine(outcome.foldEither(e -> e, s -> s))
+        |   printLine(foldEither(e -> e, s -> s, outcome))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "boom\nboom")
+  }
+
+  // The same shape with an effect riding alongside the discharged one: `Console` stays on the ambient carrier while
+  // `Throw` is discharged, so the sequenced bind must run the print before folding the Either.
+  it should "keep a co-riding effect running while the discharged one folds" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.effect.Throw
+        |
+        |def noisy: {Console, Throw[String]} String = {
+        |   printLine("working")
+        |   raise("boom")
+        |}
+        |
+        |def main: IO[Unit] = printLine(noisy.runThrow.foldEither(e -> e, s -> s))""".stripMargin
+    ).asserting(_ shouldBe "working\nboom")
+  }
 }

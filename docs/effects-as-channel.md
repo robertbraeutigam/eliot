@@ -1835,6 +1835,44 @@ default path byte-identical, gated by the §0 harness.
     its type arguments — i.e. it would reintroduce exactly the machinery vocabulary item 15 removed, while still not
     telling the user where in *their* code the row is pinned.
 
+17. **Carrier theft at the Generic slot — FOUND AND FIXED (2026-07-25).** A live instance of the finding-13
+    premature-commitment class that survived every earlier sweep, because it is on the **deferred Generic** path, not
+    the capture path §7 mapped.
+
+    **Symptom.** A discharger dot-chained into a generic container fold produced a *wrongly typed* expression, while
+    the identical call written subject-last compiled and ran:
+
+    ```eliot
+    printLine(outcome.foldEither(e -> e, s -> s))   // Expected: String / Actual: Either(String, String)
+    printLine(foldEither(e -> e, s -> s, outcome))  // compiles, prints "boom"
+    ```
+
+    **Mechanism.** `.` is ordinary Eliot — `infix left below apply def .[A, B](a: A, f: Function[A, B]): B` — so the
+    subject lands in the *bare* generic slot `A`. Phase A defers it (bare flex domain + carrier-headed argument); the
+    function argument then rigidifies `A` to `Either[?E, ?A]`; Phase B ran the ordinary ladder, whose **first arm is
+    plain `unify`** — and against a rigid data head with still-flex arguments that unification does not fail, it
+    *succeeds by stealing the carrier*: `?F[T] ~ Either[?E, ?A]` decomposes injectively into `?F := Either[?E]` and
+    `?A := T`, solving the value's own ambient carrier meta to a partially applied data constructor. Bind-lift is
+    never reached. A **concrete** `Either[String, String]` domain makes the same decomposition fail on the payload,
+    which is exactly why only the generic shape was broken and why the corpus never caught it.
+
+    **Fix** (`Checker.sequenceBeforeUnify`): at a deferred slot whose domain rigidified to a **rigid-headed,
+    non-carrier** type, sequence *before* attempting whole-unification — split the carrier off and fit the payload,
+    the join model's answer. It is speculative (`tryBindLift` uses `tryUnify` and commits nothing on failure), so a
+    payload that does not fit falls back to the full ladder. A **carrier-headed** domain keeps unify-first (there the
+    carrier genuinely unifies), and a **meta-applied** domain (`?G[?A]`) is untouched, so a carrier can still ride up
+    into a generic container parameter.
+
+    **Evidence.** All 17 effect/conditional/dot example programs are **byte-identical** before and after — a pure
+    no-op for everything that already compiled — plus lang 233, jvm 283, ide.lsp 383, HelloWorld, eliot-test 11/11.
+    Three run-asserting regression tests in `ExamplesIntegrationTest2` (the dot chain, its subject-last twin
+    agreeing, and a co-riding `Console` still printing before the fold).
+
+    **Generalization worth keeping:** "every theft-risk carrier capture is on the join" (item 13) was true *of
+    captures*. Theft is possible anywhere a carrier meta can meet a rigid constructor under first-contact
+    unification, and the deferred-Generic path was the remaining one. When auditing for this class, look for
+    `unify`-first ladders reachable with a carrier-headed actual, not only for `tryUnifyCommitting`.
+
 ### U5 — follow-ups unlocked
 
 Row-bearing diagnostics everywhere; the evaluation-order decision (resolved-argument order vs
