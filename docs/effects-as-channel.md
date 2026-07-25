@@ -44,8 +44,10 @@ established that every finding-13-risk carrier capture is on the join, and that 
 is 35/40 legitimate **data-container** captures (which *must* stay on whole-unify — routing them is the finding-14
 miscompile) plus 5 benign carrier solves. **`tryUnifyCommitting` is therefore NOT deletable and should not be**, and
 routing the 5 residual carrier captures is churn with real risk (the `Id`-split timing) and zero correctness benefit —
-so there is **no valuable capture-routing slice left**. The remaining open work is elsewhere (the §9 doc/skill sweep,
-the LSP `Id`-free rendering, the U5 items). The §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
+so there is **no valuable capture-routing slice left**. **The §9 doc/skill sweep is DONE too (2026-07-25, §10 item
+14)** — CLAUDE.md carries a new *Effects Are a Channel* cornerstone and no longer names the deleted
+`EffectResidualChecker`. **The NEXT step is the LSP / diagnostic `Id`-free rendering gate**, now audited and scoped in
+the close-out list below (three leak sites with reproductions); after that, the U5 items. The §8 gate stays (kept permanently by resolution). **An earlier spine attempt after `59a1130a` (2026-07-25) FAILED
 and was discarded, leaving no record** (pinned finding 15) — the mandated sequence (mitigations → tag → shape-by-shape
 routing) is what unblocked it; keep following **the mandated sequence** below. **Gate — all green, run these to
 confirm before starting:**
@@ -271,9 +273,37 @@ ships *inside* its checker fix when it needs one (the catch-delta precedent).
   instead of warning; the full gate is green under it (lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11), so
   zero `Id` residue is now *proven*, not assumed. Tripwire confirmed live: neutering `IdNormalizer.normalizeValue`
   reddens the build with the residue error. The `Logging` mixin + `ValueFQN` import (now unused) were dropped.
-- **§9 Cornerstone amendment + doc/skill sweep** (`eliot-code` global skill, `eliot-layers`, CLAUDE.md effect +
-  monomorphize sections);
-- **LSP / diagnostic rendering `Id`-free** — a close-out gate (§9).
+- **§9 Cornerstone amendment + doc/skill sweep — DONE (2026-07-25, §10 item 14).** CLAUDE.md gained a new
+  *Effects Are a Channel (Uniform Carriers)* cornerstone and its effect/monomorphize pipeline entries were rewritten
+  onto the live design (`EffectAccountingProcessor` + `DeclaredPureChecker`, not the deleted `EffectResidualChecker`);
+  the `eliot-monomorphize` skill's file tree, post-drain sequence, collaborator table and anti-patterns were updated;
+  the global `eliot-code` skill's discharge vocabulary, the effectful-handler delta and the pure-carrier testing
+  recipe were corrected. `eliot-layers` was audited and needed no change. Every claim was re-verified against the tree
+  or by compiling a probe.
+- **LSP / diagnostic rendering `Id`-free — the NEXT step; audited and scoped (2026-07-25, §10 item 14).** Both
+  surfaces leak today, with concrete reproductions. Scope, smallest-first:
+  1. `AbilityResolver.scala:153` (`groundArgs.map(_.show)`) — the **worst** leak: the *designed* error for "you did
+     I/O in a pure context" reads `No ability implementation found for ability 'Suspend' with type arguments [Id].`
+     It is on the happy path of a common mistake and names machinery the user cannot act on.
+  2. `unify/SemValuePrinter` — carrier/`Id`-blind; the `Expected:`/`Actual:` lines of any mismatch on a
+     carrier-headed judgment print `AbortCarrier(IO, String)` / `ThrowCarrier[String, Id, String]`. Reproduction:
+     `def m: {Console} Unit = { val host = setting("host") \n printLine(host else "d") }` (the documented
+     val-bound-binder limitation) ⤳ `Expected: AbortCarrier(IO, String)`.
+  3. `ide/lsp/.../GroundValueRenderer` — inverts carrier stacks back to pinned rows, but has **no `Id` handling at
+     all**, and its `carrierInfo` table misses partially-applied carriers (`ThrowCarrier[String, IO]` prints raw).
+     Root cause is upstream: the hover index is built from **`MonomorphicValue`**, the *pre*-erasure fact
+     (`EliotCompilationService` → `TypeHintIndex`), so it is a consumer that never got the Id-normalize-first
+     treatment — the recurring tax of §11. `assertNoIdResidue` cannot catch it (it runs after the seam).
+     Reproduction: any discharge-to-pure shape (`def parsed: String = parseBad catch (e -> e)`) hovers as
+     `{Throw[String] | Id} String`; an inserted `runId` node hovers as `Id[String] -> String`.
+  Suggested surface: move the row inversion **down** out of the LSP into `eliotc.effect` (beside
+  `EffectCarrierNaming`, whose doc already anticipates this) as a shared `GroundValue → Option[String]`, with
+  `IdNormalizer.eraseIdTypes` applied up front and an `Id` base suppressed (`{Throw[E]} A`, not `{Throw[E] | Id} A`);
+  then delegate from `GroundValueRenderer`, `SemValuePrinter` and `AbilityResolver`. No test asserts Id-free
+  rendering anywhere today — add a unit `GroundValueRendererTest` plus a hover test whose `main` chain keeps the tail
+  pure. Note `{Throw[E] | Id} A` *is* legal surface the user may write, so suppression is a rendering choice for
+  inferred types, not a claim the spelling is invalid; `IO` reaching hover is currently *asserted* by
+  `TypeHintIndexCompileTest`, so that expectation has to be revisited deliberately.
 
 Slice 1 (the vestigial `--effect-channel` flag removal) and slice 2 (the folding fix + the flip + the
 flag/param removal) are done — per-slice detail is in §10, the pinned findings, and the git log. This
@@ -1214,7 +1244,10 @@ whole-unify arm stays as the data-container unify, with every theft-risk carrier
   metadata that never flows back into types.
 - **LSP**: hover composes the payload type with declared/derived rows from the channel;
   `GroundValueRenderer` keeps stack→pinned-row rendering; `Id` and carriers are never rendered to
-  users — error messages likewise (a U4-e gate).
+  users — error messages likewise (a U4-e gate). **NOT YET UPHELD** (audited 2026-07-25): three sites leak —
+  `AbilityResolver`'s type-argument list, `unify/SemValuePrinter`, and `GroundValueRenderer` (whose input,
+  `MonomorphicValue`, is the pre-erasure fact). Scope and reproductions are in the Handover close-out list; this is
+  the next step.
 
 ## 10. Migration: landed phases and the path forward
 
@@ -1675,6 +1708,38 @@ default path byte-identical, gated by the §0 harness.
       still on whole-unify is either a data container (correct there) or a benign carrier solve (correct there). There
       is no valuable capture-routing slice left. The remaining open work is elsewhere (the doc/skill sweep §9, the LSP
       `Id`-free rendering, the U5 items) — not more capture shapes.
+
+14. **§9 Cornerstone amendment + doc/skill sweep — LANDED (2026-07-25); and the LSP/diagnostic gate audited.** A
+    documentation-only slice (no compiler code touched), taken as the next step after item 13 closed capture-routing.
+
+    **What was stale and is now fixed.** The project `CLAUDE.md` still told every session that verification lives in
+    `monomorphize/check/EffectResidualChecker` — a file deleted at U4-c-2 — which is the single most misleading
+    residue of this migration. It now describes the live design: `channel/EffectAccountingProcessor` as the sole
+    verifier (derived-by-walk, ride-tested against `MonomorphicValue.ambientCarriers`, wired as a codegen precondition
+    via `WovenValueProcessor`'s `getFactOrAbort`), with `check/DeclaredPureChecker` holding the one diagnostic
+    accounting cannot voice. Its monomorphize entry gained the uniform-carrier bridge, the shared-substrate note, and
+    the "verification is not here" pointer. The **Cornerstone amendment** is a new section, *Effects Are a Channel
+    (Uniform Carriers)*, stating the five invariants a future task must not violate: carrier-headed by construction
+    (never by recognition); `Id` is ordinary `data`, erased at the `WovenValue` seam, with the per-consumer
+    normalize-first tax called out; carrier metas solve by **join**; carrier-ness is recognized by **tag** only; rows
+    never flow back into types. The `eliot-monomorphize` skill's file tree (which listed neither `carrier/` nor the
+    effect half of `channel/`), post-drain sequence, collaborator table and anti-pattern list were brought current —
+    including three new review-rejects (name/shape carrier classification, eager carrier unification, reading
+    `MonomorphicValue` without Id-normalizing). The global `eliot-code` skill's user-facing vocabulary moved from
+    "residual check" to "post-monomorphization accounting", gained the U4-g effectful-handler delta, and its
+    pure-carrier testing recipe now uses the shipped `eliot.lang.Id` instead of hand-rolling one. `eliot-layers` was
+    audited and needed no change.
+
+    **Method — every claim re-verified, not copied forward.** The two "documented limitations" were re-probed and
+    both still hold: a `val`-bound binder cannot be discharged (`Expected: AbortCarrier(IO, String)`), and a handler
+    taking a declared carrier-typed parameter cannot return a bare pure type (`Cannot resolve type`). The
+    diagnostic-split claim was re-probed too: a `Console` leak gets the friendly accounting message, a `Throw` leak
+    still fails earlier and cryptically at `AbilityResolver`. Both new `eliot-code` code samples were compiled and
+    run. The cross-lift matrix note (`State`+`Throw` has no instance) was re-checked against the jvm layer's
+    `implement`s and is still accurate.
+
+    **Byproduct: the LSP/diagnostic `Id`-free gate is now audited and scoped** (three leak sites, root cause,
+    reproductions, suggested surface, missing tests) — see the Handover close-out list. It is the next step.
 
 ### U5 — follow-ups unlocked
 

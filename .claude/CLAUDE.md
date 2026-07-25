@@ -150,33 +150,49 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    effects). Effect **verification no longer lives here**: the entire pre-mono `effect/` phase (`EffectCheckProcessor`,
    `DeclaredEffectChecker`, `EffectUsageCollector`, `EffectAccounting`, `CalleeSignatures`,
    `EffectDischargeSummaryProcessor`, the `EffectCheckedValue`/`EffectDischargeSummary` facts) was deleted, and with it
-   the `-E` negative-row syntax and the `dischargedEffects` field on the whole fact chain. Verification moved into
-   the **monomorphize checker**
-   (`monomorphize/check/EffectResidualChecker`, run from `TypeStackLoop.runPostDrainResolution` for each value mono):
-   compute the value's **residual effect set** — the abilities demanded on its *own ambient carrier* — and require
-   `residual ⊆ declared`. `Inf` rides the ambient like any effect, so the same subset test propagates it (load-bearing:
-   `Inf[IO]` resolves, so without this an undeclared `Inf` would compile). The friendly diagnostic ("performs the
-   effect 'X' but does not declare it") is emitted for `Console`/`Log`/`Inf` leaks whose instance resolves at the base
-   carrier; `State`/`Throw`/`Abort` leaks fail earlier at `AbilityResolver` (sound, cryptic). **Discharge falls out
+   the `-E` negative-row syntax and the `dischargedEffects` field on the whole fact chain. Verification is now a
+   **post-monomorphization channel** (`docs/effects-as-channel.md` §5): `monomorphize/channel/EffectAccountingProcessor`
+   — a rider on `MonomorphicValue`, built on the `RefinementChannelProcessor` template — is the **sole effect
+   verifier**. It derives each mono'd value's effect row by a bottom-up walk of its *checked* body (every ability
+   reference already resolved to its concrete impl) and requires `derived ⊆ declared` for a value with an open row.
+   Each reference's contribution is gated by the **ride test**: it counts only if it performs its effect on the
+   value's *own* ambient carrier, compared by exact `GroundValue` equality against the callee's forwarded
+   `MonomorphicValue.ambientCarriers`. Accounting is wired as a **codegen precondition** (`WovenValueProcessor` demands
+   `EffectAccounting` via `getFactOrAbort`) and verifies unconditionally, so an undeclared effect blocks code
+   generation rather than merely warning. `Inf` is an ordinary row entry and rides like any effect, so the same subset
+   test propagates it (load-bearing: `Inf[IO]` resolves, so without this an undeclared `Inf` would compile). The
+   friendly diagnostic ("This value performs the effect 'X' but does not declare it; add it to its { ... } effect set.")
+   is emitted for `Console`/`Log`/`Inf` leaks whose instance resolves at the base carrier; `State`/`Throw`/`Abort`
+   leaks fail earlier at `AbilityResolver` ("No ability implementation found for ability 'Throw' …" — sound, cryptic).
+   **Discharge falls out
    structurally, with no annotation**: a discharger's consumed effect lands on an *inner transformer carrier*
-   (`StateCarrier[S, G]`, not the caller's ambient `G`), so it is simply absent from the residual — which is why
-   dot-chained and wrapper-reached discharge (`p.runStateToValue(s0)` inside a `{Console}` body) now just compiles, and
-   why there is nothing to spell as `-E`. **Discharge-to-a-pure-value works**: the **identity carrier `Id`**
+   (`StateCarrier[S, G]`, not the caller's ambient `G`), so the ride test simply drops it from the derived row — which
+   is why dot-chained and wrapper-reached discharge (`p.runStateToValue(s0)` inside a `{Console}` body) just compiles,
+   and why there is nothing to spell as `-E`. **Discharge-to-a-pure-value works**: the **identity carrier `Id`**
    (`eliot.lang.Id` — abstract `type Id[A]`/`def runId` in the *lang* layer's `eliot/` root, since the checker inserts
    it by fixed FQN; `data Id[A](runId: A)` + `implement Effect[Id]` in jvm and the `lang/eliot-compiler` overlay;
    deliberately NO `Suspend[Id]`, so real I/O can never run on it — only the pure control effects `Abort`/`Throw`/`State`
    can), and the checker's **pure-boundary Id defaulting** (`EffectLifter.tryIdDefault`, consulted from the
    return-boundary ladder and the `let` expectation in `Checker`) solves a fully-discharged body's still-flex residual
    carrier to `Id` and unwraps it with an inserted `runId` — so `def sign(f: Bool): String = if(f, "+") else "-"` (and
-   `catch`/`runStateTo…` under pure returns, chains, block `val`s) just works. Remaining boundary cases, **documented
-   limitations, not bugs**: a discharger consumes the *carrier*, so it must receive the effectful call as an expression
+   `catch`/`runStateTo…` under pure returns, chains, block `val`s) just works. A discharger's **handler may itself
+   perform effects** — `catch`'s is `onError: E => G[A]` on the *same* carrier `G`, so
+   `failUnit catch (err -> printLine(err))` and a pure `_ -> emptyConfig` both work. Remaining boundary cases,
+   **documented limitations, not bugs** (both re-verified 2026-07-25): a discharger consumes the *carrier*, so it must
+   receive the effectful call as an expression
    (`printLine(x else "d")`), never a `val`-bound binder — a `val x = <effectful>` sequences the carrier away via
-   `flatMap`; and a handler whose effects enter via a **declared carrier-typed parameter**
-   (`def getOr(x: {Abort} String, d: String)`) must still return a carrier-headed type (`G[A]`), not a bare pure type —
-   that carrier is caller-chosen and can never default to `Id`. The "declared pure but performs effects" fail-safe
-   (`EffectResidualChecker.checkDeclaredPure`) is discharge- and Id-aware: a genuine undischarged effect under a pure
-   nullary return is reported ("performs an effect but is declared pure"), while a fully-discharged residual (which
-   Id-defaults with no committed mismatch) is accepted.
+   `flatMap`, and discharging the binder fails with "Type mismatch. Expected: AbortCarrier(IO, String)"; and a handler
+   whose effects enter via a **declared carrier-typed parameter**
+   (`def getOr(x: {Abort} String, d: String): String`) must still return a carrier-headed type (`G[A]`), not a bare
+   pure type — that carrier is caller-chosen and can never default to `Id` (it fails with "Cannot resolve type").
+   The "declared pure but performs effects" fail-safe is the focused
+   `monomorphize/check/DeclaredPureChecker` (run from `TypeStackLoop.runPostDrainResolution` after the final drain) —
+   the one effect diagnostic accounting *cannot* voice, because it concerns a value whose mono **fails** (a pure
+   nullary return cannot host the effect, so the carrier never resolves and no `MonomorphicValue` fact is produced).
+   It is discharge- and Id-aware: a genuine undischarged effect under a pure nullary return is reported ("performs an
+   effect but is declared pure"), while a fully-discharged body (which Id-defaults with no committed mismatch) is
+   accepted; a value *with* an ambient carrier is skipped (accounting owns it) and an *applied* return (`IO[Unit]`,
+   `Pair[..]`) is exempt.
    Effect rows may also be **pinned** (`{Throw[E] | Id} A`, `docs/effect-row-tails.md`): a tail after `|` makes the row
    a *concrete type* — the canonical carrier stack over the base, built in core by the `<Ability>Carrier` naming
    convention (`EffectSugarDesugarer`), entries leftmost-outermost = discharge order, no carrier generic minted. Stored
@@ -195,7 +211,23 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    (`stdlib/eliot/eliot/carrier/Effect.els`/`Suspend.els`) so `map`/`flatMap`/`pure`/`suspend` never enter user scope;
    `WellKnownTypes.effectModule` points there, `EffectMachinery` matches by bare name and is unaffected.
 10. ability: Checks and returns a type-specific ability implementation.
-11. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.) Also hosts the **effect auto-lift** (`check/EffectLifter`): the bind/`pure` decision for an effectful term in a pure position is check-mode elaboration per concrete instantiation — undecidable from declared signatures alone — with flex argument slots deferred until later arguments rigidify them (Phase A/B in `Checker.inferSpine`).
+11. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks
+    all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the
+    former standalone `eval` phase, which was removed.) It is also where the **effect system lives end to end** — see
+    the *Effects Are a Channel* cornerstone below:
+    - the **effect auto-lift** (`check/EffectLifter`): the bind/`pure` decision for an effectful term in a pure
+      position is check-mode elaboration per concrete instantiation — undecidable from declared signatures alone —
+      with flex argument slots deferred until later arguments rigidify them (Phase A/B in `Checker.inferSpine`);
+    - the **uniform-carrier bridge** (`check/UniformCarrierChecker`, constructed in `Checker` as `uniformChecker`):
+      the live, unconditional path for **runtime**-track value returns and argument slots — carrier-headed judgments,
+      the classify-by-expected-slot ladder, and the **join solver** for carrier metas. The compile-time track keeps the
+      default ladder (`checkAgainstDefault`/`defaultArgSlot`) permanently by design, so the `EffectLifter` arms and the
+      default ladder are the **shared substrate** the bridge sits on, not a deletable legacy path;
+    - **verification is NOT here** — `derived ⊆ declared` is post-mono (`channel/EffectAccountingProcessor`, phase 9
+      above); the checker keeps only the `check/DeclaredPureChecker` fail-safe for values whose mono fails;
+    - `check/CarrierKindChecker` (HKT kind seeding + post-drain verification), `check/CalculatedReturnResolver`
+      (calculated returns + effectful-guard discharge) and `check/AbilityResolver` (ability saturation) are the other
+      non-equality collaborators, each hooked from `TypeStackLoop.runPostDrainResolution`.
 12. used: Collects all the used value names starting at a given "main".
 13. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
@@ -395,6 +427,49 @@ never silent acceptance of wrong typing (cf. [[feedback_gaps_must_be_failsafe]])
 
 Principle: *we prove a definition correct for every input it does take, not every input it could take — and reject
 any program in which some input it does take is wrong.*
+
+## Language Cornerstone: Effects Are a Channel (Uniform Carriers)
+
+The user writes **effect rows** (`def main: {Console} Unit`); the compiler works in **carriers**. These are two
+different things on purpose, and keeping them apart is what makes effects free of special cases. Authoritative
+design: `docs/effects-as-channel.md` (§3 elaboration, §5 verification, §6 `Id`-normalization, §9 invariants).
+
+**Every runtime term judgment is carrier-headed, carrier outermost — by construction, never by recognition.** There
+is no "carried" vs. "uncarried" code and therefore no boundary between them: calls, chaining, conditionals and
+blocks all behave identically under one rule. A *pure* term is carried by the **identity carrier `Id`**, which is
+ordinary `data` (`data Id[A](runId: A)` + `implement Effect[Id]`, deliberately **no** `Suspend[Id]` so real I/O can
+never run on it). `Id` exists only between elaboration and normalization: the `IdNormalizer` erases it at the
+`WovenValue` seam, and `WovenValueProcessor.assertNoIdResidue` is a **hard build error** on any survivor — zero `Id`
+residue is proven, not assumed. Consequence, a recurring tax: **any new consumer of `MonomorphicValue` or of
+mid-mono `SemExpression`s must Id-normalize first** (the LSP hover index is a known outstanding case).
+
+**Carrier metas solve by *join*, never by first-contact unification** (`monomorphize/carrier/CarrierJoin`): `Id` is
+bottom, one non-`Id` winner, a conflict is a mismatch, unsolved defaults to `Id` — *except* an ability-constrained
+carrier meta, which ability resolution must solve. Eagerly unifying a carrier position is the historical
+premature-commitment bug class and must not be reintroduced.
+
+**Carrier-ness is recognized by a tag threaded from elaboration — never by name or shape.** A pinned row
+(`{Throw[E] | G} A`) desugars to a carrier stack with no residual marker, so the marker is added at the desugar and
+carried on the fact: `EffectRow.returnPinned` / `EffectRow.pinnedParameterIndices` (source (i)), plus the
+platform-contributed `RunBoundaryFunction` for compiler-generated boundaries like the synthetic main's `IO[A]`
+(source (ii)). Classifying by the `<Ability>Carrier` naming convention, an LSP reverse table, or "has an `Effect`
+instance" **miscompiles in both directions** and is prohibited.
+
+**Rows are the user surface and the verifier's vocabulary — they never flow back into types.** `EffectRow` is
+checker-adjacent bookkeeping (like `paramConstraints`) and rendering metadata; verification is a separate
+**channel**: post-mono syntactic accounting (`derived ⊆ declared`, phase 9 above), derived from ground
+instantiations, wired as a codegen precondition. *Forward what is declared, derive what is done* — a forwarded
+per-operation verdict would be a checker self-report and is rejected, as is any negative-effect surface (there is
+no `-E`).
+
+**Cornerstone fidelity**: this is *more* types-are-values-faithful, not less — carriers are ordinary type
+constructors, `Id` is ordinary `data`, and effect flow through generics is ordinary instantiation. No side channel
+does type-like work behind the type system's back.
+
+**User-facing text stays in payload/row vocabulary**: `Id` and carrier names (`ThrowCarrier`, `AbortCarrier`, `IO`)
+must never be rendered to users — hover composes the payload type with rows, and diagnostics speak effects. (This
+invariant is currently **not** upheld by `SemValuePrinter`, `AbilityResolver`'s argument list, and
+`GroundValueRenderer`; it is a tracked close-out gate, `docs/effects-as-channel.md` §9.)
 
 ## Language Cornerstone: Total by Default (No Recursion; `Inf` is the Opt-Out)
 

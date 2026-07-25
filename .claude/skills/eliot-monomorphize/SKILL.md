@@ -36,17 +36,34 @@ monomorphize/
 │   ├── GuardChannel.scala      (the Left/Right guard read-back protocol shared with the ability processor)
 │   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification; flags every HKT instantiation meta effectCarrier)
 │   ├── EffectLifter.scala      (the effect auto-lift: bind-lift/pure-wrap arms + Effect.flatMap/map/pure splices)
+│   ├── UniformCarrierChecker.scala (the uniform-carrier bridge: carrier-headed judgments, classify-by-expected-slot,
+│   │                            the join solver — runtime track only; see docs/effects-as-channel.md)
+│   ├── DeclaredPureChecker.scala (the "declared pure but performs an effect" fail-safe — the only effect check left
+│   │                            in the checker; the subset check is post-mono, in channel/)
 │   ├── AbilityResolver.scala   (ability-ref collection + resolve-abilities saturation pass)
 │   └── Track.scala             (Runtime/Compiler strategy: platform + 4 per-track hooks, no platform match in the core)
+├── carrier/                    (the uniform-carrier algebra, docs/effects-as-channel.md §3)
+│   ├── Carrier.scala           (carrier-stack split/rebuild; Carrier.split, Bottom = no carrier)
+│   ├── CarrierJoin.scala       (carrier metas solve by JOIN, not first-contact unify: Id bottom, one non-Id winner,
+│   │                            conflict = "Conflicting effect carriers."; unifies nested stack prefixes pairwise)
+│   └── UniformLadder.scala     (resolveSlot: the slot-classification ladder over the join)
 ├── channel/
 │   ├── RefinementChannelProcessor.scala (post-pass flow analysis over MonomorphicValue: ^Meta transfers/merges,
 │   │                                     ^Where precondition demands)
-│   └── RefinementTable.scala   (per-node meta values keyed by source position; read by reconcile/backend/LSP)
+│   ├── RefinementTable.scala   (per-node meta values keyed by source position; read by reconcile/backend/LSP)
+│   ├── EffectAccountingProcessor.scala (the SOLE effect verifier: derived ⊆ declared per mono key, ride-tested
+│   │                            against MonomorphicValue.ambientCarriers; a codegen precondition)
+│   ├── EffectAccounting.scala  (its fact: the derived row per (vfqn, typeArgs))
+│   ├── IdNormalizer.scala      (erases the identity carrier: Id[X] ⤳ X in bodies, types and keys)
+│   └── WovenValueProcessor.scala (the Id-normalization seam + assertNoIdResidue, a HARD error on any survivor;
+│                                demands EffectAccounting, so an undeclared effect blocks codegen)
 ├── unify/
 │   ├── Unifier.scala           (pattern unification; pure definitional equality; carrierRoles map; flushPostponed)
 │   ├── UnifyResult.scala       (Unified / Contradiction)
 │   ├── UnifyError.scala        (context + optional expected/actual)
-│   └── SemValuePrinter.scala   (human-readable SemValue rendering for error messages)
+│   └── SemValuePrinter.scala   (human-readable SemValue rendering for error messages — NOTE: carrier/Id-blind today,
+│                                so a mismatch on a carrier-headed judgment leaks `AbortCarrier(IO, String)`; a
+│                                tracked close-out gate, docs/effects-as-channel.md §9)
 ├── fact/
 │   ├── GroundValue.scala       (output: Direct, Structure, Type)
 │   ├── MonomorphicValue.scala  (runtime output fact: signature + runtime, keyed by (vfqn, typeArgs))
@@ -55,7 +72,9 @@ monomorphize/
 │   ├── NativeBinding.scala     (Platform-keyed: vfqn → SemValue for the evaluator)
 │   ├── ContributedBinding.scala (Key(vfqn, label); NOT platform-keyed — one contribution serves both tracks)
 │   ├── BindingContribution.scala (Leaf(SemValue) | Body(SaturatedValue))
-│   └── BodyValueReferences.scala (memoized per-value body reference set for transitive binding prefetch)
+│   ├── BodyValueReferences.scala (memoized per-value body reference set for transitive binding prefetch)
+│   └── RunBoundaryFunction.scala (carrier-stack recognition tag source (ii): a platform-contributed FQN whose
+│                                parameter 0 is a run boundary — the synthetic main's IO[A]; see effects-as-channel)
 └── processor/
     ├── MonomorphicTypeCheckProcessor.scala   (runtime entry point → TypeStackLoop, Track.Runtime)
     ├── CompilerMonomorphicTypeCheckProcessor.scala (compiler entry point → TypeStackLoop, Track.Compiler; native-leaf boundary)
@@ -288,15 +307,19 @@ machinery; `readBackBody` dispatches to it).
 A fixed sequence, `TypeStackLoop.runPostDrainResolution` (no external design doc — it is described here and in its doc
 comments):
 
+- **Pending carrier pins** (`checker.applyPendingCarrierPins`, U4-f): apply the deferred pins recorded when an open-row
+  argument was captured into a pinned-row parameter — *before* ability resolution, so a discharger's `Throw[String]`
+  resolves against the native carrier instance instead of the free error slot junk-grounding. Self-draining; a no-op
+  when no pins exist.
 - **Saturation** (`resolveAbilitiesToFixedPoint`): drain the unifier — so the resolver sees every solution the previous
   round injected — then try to resolve the still-unresolved ability references; loop while any reference newly resolves.
-- **Finalization** (once): carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`), the
-  calculated-return fail-safe, and **effect verification** (`EffectResidualChecker`, value monos only, not the
-  signature twin): compute the value's residual effect set — the abilities demanded on its own ambient carrier — and
-  require `residual ⊆ declared`. Runs here, after ability resolution and the final drain but before defaulting, so a
-  reference's carrier argument is solved to the ambient (concrete `IO` or a still-abstract carrier meta) with the
-  ambient identity intact. A finalization step can commit new solutions (the kind check unifies a solution's kind
+- **Finalization** (once): carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`) and the
+  calculated-return fail-safe. A finalization step can commit new solutions (the kind check unifies a solution's kind
   against its expectation), so the runner drains once more before defaulting.
+- **The declared-pure fail-safe** (`DeclaredPureChecker`, value monos only — a signature twin passes `None`): run
+  *after* that drain, so the committed mismatch is visible, and *before* `defaultUnsolvedMetas` collapses an abstract
+  ambient carrier to `Type`. This is the **only** effect check left in the checker; the `derived ⊆ declared` subset
+  check is post-mono (`channel/EffectAccountingProcessor`) and the old `EffectResidualChecker` is deleted.
 - **Finalizer** (`defaultUnsolvedMetas`): every still-unsolved meta defaults to `VType` — what remains unsolved after
   the fixed point is an unconstrained (phantom) instantiation.
 - **Postponement flush** (`Unifier.flushPostponed`): any constraint still postponed after the finalizer is an equality
@@ -329,7 +352,8 @@ boundary), and invoked from named hook points:
 |---|---|---|
 | `check/CalculatedReturnResolver` — `checker.calcReturns` (D7 + W2b) | non-local inference (fill a bare return from the callee's mono body) **and** effectful-guard discharge | `Checker.infer`/`applyInferred`; `TypeStackLoop` `installReturnMeta` / `dischargeGuardedSignature` |
 | `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` post-drain → `verifyCarrierKinds` |
-| `check/EffectResidualChecker` — `checker.effectResidual` | effect *verification*: the residual `⊆` declared subset check (`Inf` included) + the declared-pure fail-safe. Discharge falls out structurally — a discharged effect rides an inner transformer carrier, not the ambient, so it is simply absent from the residual. This replaced the deleted pre-mono `effect/` phase; there is no `-E` syntax or discharge summary | `TypeStackLoop.runPostDrainResolution` post-drain (value monos only) |
+| `check/DeclaredPureChecker` — `checker.declaredPure` | the **one** effect check left in the checker: the "declared pure but performs an effect" fail-safe, for a value whose mono *fails* (a pure nullary return cannot host the effect ⟹ no `MonomorphicValue` fact ⟹ post-mono accounting never runs). A value *with* an ambient carrier is skipped; an *applied* return (`IO[Unit]`, `Pair[..]`) is exempt. Discharge- and Id-aware: it fires only on a committed mismatch, so a fully-discharged pure body is accepted | `TypeStackLoop.runPostDrainResolution` post-drain (value monos only) |
+| `check/UniformCarrierChecker` — `checker.uniformChecker` | the **uniform-carrier** bridge (docs/effects-as-channel.md §3): carrier-headed judgments, the classify-by-expected-slot ladder, and the `CarrierJoin` solver. Live and unconditional for **runtime**-track value returns and argument slots (`platform == Platform.Runtime`, a permanent gate — §8); the compile track and declined shapes fall back to `checkAgainstDefault`/`defaultArgSlot`. Splices via `EffectLifter`'s `pureWrapNode`/`bindWrap`, sharing the one `$eff$N` counter — which is why the default ladder is the bridge's **shared substrate**, not a deletable legacy path | `Checker.checkReturnBoundary` / `resolveArgumentSlot`; constructed with `lifter.effectCarrierSplit` |
 | `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain → `resolveAbilities` |
 | `check/EffectLifter` — `checker.lifter` | the effect auto-lift (docs/effect-lift-in-checker.md): the bind-lift / pure-wrap ladder arms + their doomed-postponement pre-arms, `effectCarrierSplit` (flagged metas + re-forced `ambientCarriers` heads), and the `Effect.flatMap`/`map`/`pure` `SemExpression` splices (`[C, T', R]` type args; `$eff$N` binders off `CheckState.liftCounter`; `bindWrap` unifies the bind's carrier with the core's) | the one shared `Checker.resolveLadder`/`resolveFailureLadder`, with the bind-lift arm gated by `allowBindLift` (`true` only at argument slots — a return boundary never strips a carrier, so it passes `false` and the doomed shape commits the eager mismatch) and pure-wrap on both; `typeImmediateLambda` (the let-bind rule: effectful bound value ⟹ sequence, with the continuation *inferred*, never checked against the carrier expectation); `inferSpine` → `wrapBinds` |
 
@@ -378,6 +402,33 @@ hard use-site error. Everything else is ⊤ (no entry; bignum layout — sound, 
 walked (so nested `where` demands fire) but never record. Consumers: the reconcile pass stamps the table onto the body,
 the JVM backend decodes machine widths from it, the LSP hover shows value ranges. Refinements flow strictly
 **downstream** of type formation — they never feed back into the checker or unifier.
+
+### The effect channel (`channel/` + `carrier/`) — the other post-pass
+
+Authoritative design: `docs/effects-as-channel.md`. Same template as the refinement channel — a rider on
+`MonomorphicValue`, strictly downstream of typing.
+
+- **Checking is carrier-uniform.** Every runtime term judgment is carrier-headed, carrier outermost, *by
+  construction*; a pure term rides the identity carrier `Id`. `UniformCarrierChecker` is the live, unconditional path
+  for runtime-track returns and argument slots; the compile track keeps the default ladder permanently (a design
+  decision, not a TODO), so `checkAgainstDefault`/`defaultArgSlot`/the `EffectLifter` arms are the **shared
+  substrate** — do not "delete the legacy path".
+- **Carrier metas solve by join** (`carrier/CarrierJoin`), never by first-contact unification: `Id` bottom, one
+  non-`Id` winner, conflict = mismatch, unsolved defaults to `Id` — *except* an ability-constrained carrier meta
+  (`CheckState.metaConstraints`), which ability resolution must solve. Eager unification of a carrier position is the
+  historical premature-commitment bug class.
+- **Carrier-ness is tag-driven, never guessed.** A slot is a carrier slot because the callee's fact says so —
+  `EffectRow.pinnedParameterIndices` (from the pinned-row desugar) or `RunBoundaryFunction` (platform-contributed).
+  Classifying by the `<Ability>Carrier` name, by shape, or by "has an `Effect` instance" **miscompiles in both
+  directions** — `tryUnifyCommitting`'s remaining traffic is legitimate *data-container* capture (`Either`, `Pair`,
+  `Option`, `String`) that must NOT go through the carrier join.
+- **Verification is post-mono.** `EffectAccountingProcessor` derives each mono'd value's row from its checked body
+  (ride-tested against `MonomorphicValue.ambientCarriers`) and requires `derived ⊆ declared`; `WovenValueProcessor`
+  demands that fact, so an undeclared effect blocks codegen. The checker keeps only `DeclaredPureChecker`.
+- **`Id` is erased at the `WovenValue` seam** (`IdNormalizer`), with `assertNoIdResidue` a hard error on survivors.
+  **Any new consumer of `MonomorphicValue` or of mid-mono `SemExpression`s must Id-normalize first** — this is a
+  recurring tax (the LSP hover index is a known outstanding case), and the residue assertion fires only *downstream*
+  of the seam, so it cannot catch a consumer that reads earlier.
 
 ### PostDrainQuoter — the sole SemValue→GroundValue transition
 
@@ -519,6 +570,16 @@ quiet-probe pattern.
   bans, and it is exactly what docs/effect-lift-in-checker.md removed.
 - **Re-inlining a non-equality side-car into `Checker`.** A new lattice relation / inference back-edge / kind rule gets
   its *own* collaborator constructed with injected primitives — never grown into `Checker`, never folded into `unify`.
+- **Deciding carrier-ness by name or shape** (`<Ability>Carrier` string matching, the LSP reverse table, "has an
+  `Effect` instance"). Misrecognition *miscompiles in both directions* — classify a data container as a carrier and the
+  join steals its type argument; classify a carrier as data and you get a wrong bind. Recognition is **tag-only**
+  (`EffectRow.pinnedParameterIndices` / `RunBoundaryFunction`); if a new shape needs routing, add a tag source.
+- **Eagerly unifying a carrier position, or adding another eager-pin special case.** Carrier metas solve by join
+  (`carrier/CarrierJoin`); `applyPendingCarrierPins`/`eagerRowPinIntoDomain` are the last sanctioned pins, not a
+  template. First-contact carrier unification is the recurring theft/junk-ground bug class.
+- **Reading `MonomorphicValue` (or a mid-mono `SemExpression`) without Id-normalizing first.** `Id` is live between
+  elaboration and the `WovenValue` seam; a consumer upstream of that seam sees `Id[X]` types and `runId`/`pure@Id`
+  nodes, and `assertNoIdResidue` cannot catch it (it runs *after* erasure).
 - **Special-casing a concrete type (e.g. `Int`) in the checker/unifier.** Recognise the *ability protocol* by name
   (`eitherFQN`, `PatternMatch`/`TypeMatch`, the `^Meta`/`^Where` companion namespaces), never the type.
 - **Returning `false` (not a `VStuckNative`) from a native on non-concrete args.** `&&`/`fold`/arithmetic must stay stuck
