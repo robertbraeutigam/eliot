@@ -243,8 +243,20 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   activates with the R4 desugar. (iii) **Arrow row-defaulting moved to R3**: it is a *reading* rule of
   the row checker (an unannotated signature arrow reads as a fresh row variable), not a stored fact —
   nothing to land ahead of its consumer. Gate: lang 1042, jvm 293, HelloWorld, eliot-test 11/11.
-- **R3 — row check, shadow:** the per-definition row checker runs report-only beside v2 on the whole
-  corpus; disagreements triaged (each is either a v2 bug or a v3 rule gap).
+- **R3 — row check, shadow: DONE (2026-07-25).** The spike graduated to production code —
+  `lang/src/com/vanillasource/eliot/eliotc/row/RowChecker.scala`, still **unwired** (consumed only by its
+  unit suite `RowCheckerTest`, 16 cases, and the shadow sweep) — with FQN-based rows, first-order-ability
+  detection, suspended-parameter environments, run-boundary handling, and per-result coverage reporting
+  (`unknownCallees`). The shadow sweep (`jvm/test/.../RowShadowSweepTest`) compiles a combined real
+  program (Console blocks, `catch` pure+effectful, State at IO, Abort under a local Id carrier,
+  discharge-to-pure) plus an `Inf` super-loop through the live v2 pipeline over the full
+  `lang`/`stdlib`/`jvm` layers in a cold session, then row-checks **every** body-carrying
+  `OperatorResolvedValue` the compile demanded — stdlib dischargers, jvm ability implementations and the
+  synthetic entry included. **Result: zero disagreements with v2**, after triaging the two the sweep
+  caught (Appendix A.7): the nominal-run return form (`def main: IO[Unit]`) and the accessor-merge row
+  metadata loss — the latter a genuine latent defect fixed in the layer merge. Arrow row-defaulting landed
+  as the checker's conservative-latent reading rule (A.5). Gate: lang + jvm (295) green, HelloWorld,
+  eliot-test 11/11.
 - **R4 — elaboration desugar, shadow:** desugar output compiled on a second track; byte-identity as a
   safety oracle where the output should match v2's elaboration (it is an oracle, not a hard gate).
 - **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
@@ -272,10 +284,10 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
 
 ## Appendix A. The R1 spike: row rules, worked examples, findings (2026-07-25)
 
-Spike code: `lang/test/src/com/vanillasource/eliot/eliotc/row/RowCheckerSpike.scala` (the standalone
-checker, ~190 lines including docs) and `RowCheckerSpikeTest.scala` (12 cases, each compiled through
-the real pipeline to `OperatorResolvedValue` and row-checked with **no types, no carriers, no
-metavariables**). All green inside the ordinary `./mill lang.test` gate.
+Spike code: promoted at R3 to `lang/src/com/vanillasource/eliot/eliotc/row/RowChecker.scala` (the
+production checker, still unwired) with `lang/test/.../row/RowCheckerTest.scala` (16 cases, each
+compiled through the real pipeline to `OperatorResolvedValue` and row-checked with **no types, no
+carriers, no metavariables**). All green inside the ordinary `./mill lang.test` gate.
 
 ### A.1 The rules
 
@@ -352,3 +364,27 @@ signature's ambient row variable.
 4. **The suspension surface already exists**: open rows on by-value parameters parse today and
    populate `EffectRow.parameterEffects` (they are *rejected* later, at checking) — so R2's surface
    work is reinterpretation plus arrow row-defaulting, not new grammar.
+
+### A.7 The R3 shadow-sweep triage (both findings fixed, sweep now clean)
+
+The first cold sweep over the real corpus found exactly two disagreement classes; both were
+information gaps, not rule gaps, and the derivation rule survived unchanged:
+
+1. **The nominal-run return** (`def main: IO[Unit]`): a definition returning the platform's concrete
+   run carrier is v2-exempt (the subset check fires only for open-row values) — it is the *nominal
+   run* spelling of a boundary, where the concrete carrier captures the whole row. The row checker
+   mirrors it by declared information only: the run-carrier head is read off the **registered run
+   boundary's own first parameter** (`runMain(io: IO[A])` ⇒ `IO`, the `RunBoundaryFunction` registry —
+   tag source (ii)), never guessed from a name; a return headed by it sets `RowResult.runCaptured`.
+2. **The accessor merge dropped row metadata — a genuine latent defect, fixed in the layer merge.**
+   The stdlib's abstract discharger signature (`def runAbort[G[_], A](obj: {Abort | G} A): G[Option[A]]`)
+   carries the R2 pinned entries; its concrete twin is the jvm `data AbortCarrier(runAbort: …)`
+   *accessor*, whose synthesized definition carries an empty `EffectRow` — and the merge's
+   body-preference silently discarded the abstract twin's row. `UnifiedModuleValueProcessor` now merges
+   the row metadata fieldwise (signature equality is already verified, so every layer's row describes
+   the same signature; the layer that spells a position in effect vocabulary supplies the entries).
+   Live v2 consequence, deliberate and gate-verified: `Checker.calleePinnedParams` now sees the pinned
+   tag for accessor-merged dischargers (`runAbort`/`runThrow`/`runStateTo…`), extending the join-solver
+   routing to those capture shapes — the residual whole-unify traffic v2's §10 item 13 left unrouted
+   for want of a benefit; the row metadata is that benefit, and the full behavioral gate (295 jvm
+   output-asserting tests, catch shape matrix included, HelloWorld, eliot-test 11/11) is green under it.

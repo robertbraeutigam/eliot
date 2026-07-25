@@ -61,12 +61,33 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
           UnifiedModuleValue(
             chosen.vfqn,
             chosen.dictionary,
-            chosen.namedValue,
+            chosen.namedValue.copy(effectRow = mergeEffectRows(values, chosen)),
             chosen.privateNames,
             platform
           ).pure[CompilerIO]
       }
     }
+
+  /** Merge the declared effect-row metadata across all co-located declarations, fieldwise: the chosen value's field
+    * wins when populated, else the first layer that recorded one supplies it. Signature equality is already verified
+    * (`hasSameSignatures`), so every layer's row describes the *same* signature — a layer that spells a position in
+    * effect vocabulary (the abstract `runThrow(obj: {Throw[E] | G} A)`) records row metadata that a layer spelling the
+    * structurally identical type directly (the jvm `data ThrowCarrier(runThrow: G[Either[E, A]])` accessor) cannot,
+    * and the merge must not lose it to body preference (effects-as-rows R3 finding, docs/effects-as-rows.md
+    * Appendix A.7).
+    */
+  private def mergeEffectRows(
+      values: Seq[ModuleValue],
+      chosen: ModuleValue
+  ): com.vanillasource.eliot.eliotc.ast.fact.EffectRow[NamedValue.CoreAbilityConstraint] = {
+    val rows = chosen.namedValue.effectRow +: values.map(_.namedValue.effectRow)
+    chosen.namedValue.effectRow.copy(
+      returnEffects = rows.map(_.returnEffects).find(_.nonEmpty).getOrElse(Seq.empty),
+      parameterEffects = rows.map(_.parameterEffects).find(_.nonEmpty).getOrElse(Seq.empty),
+      returnPinnedEffects = rows.map(_.returnPinnedEffects).find(_.nonEmpty).getOrElse(Seq.empty),
+      pinnedParameterEffects = rows.map(_.pinnedParameterEffects).find(_.nonEmpty).getOrElse(Seq.empty)
+    )
+  }
 
   /** Trace an *actual* override — an overlay implementation superseding at least one platform implementation. */
   private def logOverride(
