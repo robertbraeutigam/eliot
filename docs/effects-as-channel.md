@@ -73,8 +73,11 @@ changes codegen, verify **correctness + the gate** instead.
 map (§7) established that the "legacy"/default checker path is the **shared substrate**, not dead code:
 the compile-time track uses it permanently (§8), the runtime uniform overlay reuses its helpers directly
 (`checkAgainstDefault`/`defaultArgSlot`/`resolveLadder`/the `EffectLifter` arms/`CheckState.ambientCarriers`/
-`CarrierKindChecker`), and the join-solver replacement (`UniformCarrierChecker.finalizeAndMaterialize`/
-`resolveSlot`) is **built but uncalled**. So nothing in the old deletion list can be removed yet.
+`CarrierKindChecker`), and the join-solver replacement is now **live on the capture arm** (steps 4 i/ii:
+`Checker` → `resolveArgumentSlot` → `UniformLadder.resolveSlot`), with `finalizeAndMaterialize` itself still
+production-uncalled (unit-tested; the landed shapes needed no deferred-lift materialization). Nothing in the
+old deletion list can be removed — and per §10 item 13, `tryUnifyCommitting` *should not* be: it is the
+shared substrate's data-container unify.
 
 **U4-f (§10): row-argument type-pinning — LANDED (`0a711135`, 2026-07-25).** The pinned-finding-7 catch-handler
 bug is fixed: an open-row argument (`parseBad : {Throw[String]}`) captured into a pinned-row parameter
@@ -87,7 +90,8 @@ files still fail" note (they were already green on baseline — verified by stas
 Gate green under it (`lang.test` / `jvm.test` — the new non-identity-handler case is in `ExamplesIntegrationTest2`
 — HelloWorld, eliot-test 11/11).
 
-**The target: the §7 spine rewire — narrowed to ONE arm (2026-07-25 code audit).** The runtime argument
+**The target: the §7 spine rewire — narrowed to ONE arm (2026-07-25 code audit); since LANDED for the whole
+theft-risk class (steps 3–4, §10 items 9–13) — kept as the audit record.** The runtime argument
 path is *already* almost entirely join-solver-based; the audit (§7) found the remaining legacy eager-unify is a
 **single arm**:
 
@@ -135,7 +139,10 @@ text wants both tracks carrier-wrapped for value bodies. Dropping the gate is a 
 edit** — resolve it (or keep the gate with a documented rationale) before the recognition arms can be deleted.
 **Resolved by recommendation (2026-07-25): keep the gate, permanently — see §8 *Resolution*.** The §7 deletion
 target weakens to *unreachable from the runtime track*, which is sufficient (the finding-13 bug class lives at
-the runtime capture seam).
+the runtime capture seam). *(Since re-scoped once more by §10 item 13: even runtime-track unreachability is
+abandoned as an endpoint — the whole-unify arm's remaining traffic is legitimate data-container unification
+plus benign carrier solves, so it stays; the endpoint actually reached is "every theft-risk carrier capture
+routes through the join".)*
 
 **START HERE — the mandated sequence for the next attempt (set 2026-07-25, after the failed spine attempt,
 pinned finding 15). Work strictly in this order; each step lands green on its own before the next begins:**
@@ -202,9 +209,13 @@ pinned finding 15). Work strictly in this order; each step lands green on its ow
    whole-unify usage is **non-pinned** captures (the synthetic-main `IO[A]` boundary, untagged concrete-carrier
    params, and genuine data containers), so deleting whole-unify is a **larger recognition follow-on**, not a
    mechanical shape sweep — see §10 item 11's *Remaining scope, MAPPED*. **Tag source (ii) — LANDED (2026-07-25,
-   §10 item 12):** the synthetic-main `IO[A]` boundary is now routed through the join. **NEXT** (when resumed): the
-   untagged concrete-carrier params (`runId`'s `x: Id[A]` — but note the `Id`-split-is-`Bottom` timing subtlety §10
-   item 11), then data-container recognition, until `tryUnifyCommitting` is unreachable and can be deleted.
+   §10 item 12):** the synthetic-main `IO[A]` boundary is now routed through the join. **STEP 4 IS COMPLETE — there
+   is no NEXT slice (superseded 2026-07-25 by the §10 item 13 evidence).** The residual whole-unify traffic is 35
+   genuine data containers (which *belong* on whole-unify — routing them is the finding-14 miscompile) plus 5 benign
+   carrier solves (`runId`'s `Id[?A]` and the `AbortCarrier`-instance internals — correct injective solves, where the
+   `Id`-split-is-`Bottom` timing subtlety of §10 item 11 makes routing risk-for-nothing). Do **not** resume the old
+   "until `tryUnifyCommitting` is unreachable and can be deleted" endpoint — `tryUnifyCommitting` is the shared
+   substrate's data-container unify and stays; see §10 item 13's *Consequences*.
 
 **Do NOT (each has already caused a failure or is a pre-registered prediction):**
 
@@ -217,26 +228,30 @@ pinned finding 15). Work strictly in this order; each step lands green on its ow
   (finding 13; U4-g's `eagerRowPinIntoDomain` is the last sanctioned one — it becomes the join's
   row-directed derivation, not a template for more).
 - **No carrier-solving features before step 4 lands** (finding 13 is binding — the catch-delta precedent:
-  a feature ships *inside* its checker fix, never on the bare substrate).
+  a feature ships *inside* its checker fix, never on the bare substrate). **Discharged**: step 4 landed
+  2026-07-25 and the freeze is lifted (see the paragraph below); the catch-delta precedent — a feature ships
+  inside its checker fix when it needs one — remains good practice.
 - **Do not reopen the row-calculus fork** (§10 rejected-alternative record) and do not carrier-wrap the
   compile track (§8 *Resolution*).
 - **Do not big-bang the rewire.** Every landed slice of this migration was micro (U4-a(i), U4-a(ii)-0..3,
   U4-f, U4-g — each byte-identity-driven, gate-green); the whole-spine attempts are the ones that failed.
 
-**The bounded worst case (why the sequence is safe to attempt):** if step 4 fails again *with* steps 2–3 in
+**The bounded worst case (historical rationale — step 4 has since landed):** if step 4 fails again *with* steps 2–3 in
 place, the retreat position is sound — the current state is green, `eagerRowPinIntoDomain` closes the known
 junk-ground, and after step 2 the remaining seam fails loud with located diagnostics. The cost of stopping is
 the standing finding-13 feature freeze, not correctness. With the tag in place, step 4's only *miscompiling*
 (rather than loud-failing) hazard — classification guesswork — is gone.
 
-**§7 is binding, not merely "next" (pattern analysis 2026-07-25 — pinned finding 13).** The blocker history
-is one bug class recurring: a carrier-layer meta solved/stolen/junk-grounded by order-dependent eager
-unification at the finding-7 constraint↔structure seam — and it keeps recurring because the join solver
-built to eliminate it has zero callers. Until §7 lands, do **not** attempt features that touch carrier
-solving (the catch delta above all), and do **not** extend `applyPendingCarrierPins` to new shapes. The two
-mitigations that ARE independent of §7 — the guard-on-junk fail-safe and the catch/Throw shape matrix — **both
-LANDED 2026-07-25 (step 2)**; see the START HERE step 2 record and finding 13. **Next is step 3** (the
-finding-14 recognition tag).
+**§7 was binding — and has now discharged (pattern analysis 2026-07-25, pinned finding 13; completion §10
+item 13).** The blocker history was one bug class recurring: a carrier-layer meta solved/stolen/junk-grounded
+by order-dependent eager unification at the finding-7 constraint↔structure seam — and it kept recurring
+because the join solver built to eliminate it had zero callers. That condition no longer holds: steps 2–4 are
+landed and instrumentation shows **every** theft-risk carrier capture routes through the join (§10 item 13).
+**The finding-13 carrier-solving feature freeze is therefore LIFTED** — new features that touch carrier solving
+ride the join path (tagged/pinned shapes). What survives the freeze as *permanent* rules: no
+`applyPendingCarrierPins` extensions or new eager-pin special cases (the join's row-directed derivation is the
+mechanism now), no carrier-ness classification by name or shape (finding 14 — use the tag), and a feature still
+ships *inside* its checker fix when it needs one (the catch-delta precedent).
 
 **Close-out follow-ons (each landable on its own):**
 - **synthetic main → `runMain`** (§7) — **LANDED (2026-07-25, §10 item 12)**, together with tag source (ii): the
@@ -526,7 +541,10 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
     deeper lesson (same class as findings 10/11): a legacy "harmless because unify-first" invariant does not
     transfer to the split-first uniform path — audit every such assumption when the flip surfaces it.
 13. **The recurring blockers are ONE class, and its designed fix is built but uncalled (pattern analysis
-    2026-07-25, prompted by the catch-delta attempt failing one layer out).** Line up the history — finding 7
+    2026-07-25, prompted by the catch-delta attempt failing one layer out).** *(Status: the fix has since been
+    wired live — the capture routing landed and every theft-risk capture is on the join, §10 items 9–13; the
+    feature freeze this finding imposed is LIFTED, see START HERE. The analysis below stands as the record of
+    why the mandated sequence existed.)* Line up the history — finding 7
     (error slot junk-grounds → lift chosen), the compound-state payload theft (`?F[List[X]] ~ List[A]` ⤳
     `?F := List`), the equal-arity `?G := Option` steal, the bare-flex-payload regression (also at
     `Throw.els:54`), the `carrierSlotLift` `VerifyError` (finding 3), and now finding-7-one-layer-out (the
@@ -1062,20 +1080,26 @@ the uniform bridge a thin **routing overlay that reuses the default path as its 
   and `effectCarrierSplit` is the *sole* reader of `CheckState.ambientCarriers`. `CarrierKindChecker`
   flags the effect-carrier role the uniform `effectCarrierSplit` reads, and runs on every
   instantiation on both tracks.
-- **The join-solver replacement is built but uncalled.** `UniformCarrierChecker.finalizeAndMaterialize`
-  / `resolveSlot` (the §3 decision-free spine that would let the recognition arms retire) have **no
-  callers** — the uniform spine still routes through the legacy `tryBindLift`/`tryPureWrap`/
-  `tryIdDefault`/`wrapBinds` mechanics.
+- **The join-solver replacement — since live on the capture arm (steps 4 i/ii, 2026-07-25).** Every tagged
+  carrier capture now routes `Checker` → `resolveArgumentSlot` → `UniformLadder.resolveSlot`;
+  `finalizeAndMaterialize` / the `UniformCarrierChecker.resolveSlot` wrapper remain production-uncalled
+  (unit-tested — the landed shapes needed no deferred-lift materialization). The rest of the uniform spine
+  still routes through the `tryBindLift`/`tryPureWrap`/`tryIdDefault`/`wrapBinds` mechanics — **by design
+  now** (§10 item 13; `tryPureWrap` is join-equivalent, see the Handover audit).
 
 So the real prerequisite for deleting the default helpers is **not** removing a flag; it is (a)
 extending the uniform bridge to cover the compile-time track (so the `platform == Platform.Runtime`
 gate can go — a §8 design decision) and (b) rewiring the runtime uniform spine onto the join solver
 (`finalizeAndMaterialize`, currently uncalled) so the `EffectLifter` recognition arms and
 `defaultArgSlot`/`checkAgainstDefault` become genuinely unreachable. That is a substantial
-implementation effort (§11's "join-solver first live use"), tracked as the remaining §7 work — not
+implementation effort (§11's "join-solver first live use"), then tracked as the remaining §7 work — not
 the mechanical deletion this section originally described. The one piece that **is** independent —
 respelling the synthetic main `apply(block(main), unit)` → `runMain(<user main>)` — needs a
-`runMain` callable to exist first and is deferred with the rest.
+`runMain` callable to exist first and is deferred with the rest. **Status (2026-07-25): superseded.** (a) is
+retired by the §8 *Resolution* (keep the gate, permanently). (b) landed *for the theft-risk class* (steps 4
+i/ii) and was then closed by evidence (§10 item 13): the whole-unify arm's remaining traffic is legitimate
+data-container unification plus benign carrier solves, so the default helpers stay and the deletion endpoint
+is abandoned, not pending. The `runMain` respell also landed (§10 item 12).
 
 **Narrowed target (2026-07-25 code audit — see the Handover *Start here* for the full breakdown).** (b) is
 not "the whole spine" — the audit found the runtime argument path is *already* almost entirely join-based
@@ -1113,10 +1137,11 @@ carrier during checking, erased by §6 (its compile-time overlay remains for §8
 
 **Stdlib deltas stay additive**: the effectful-handler `catch` (`onError: E => G[A]`) is designed to land
 atomically. Its pre-existing pinned-row/open-row pinning blocker (pinned finding 7) is now **fixed** by the
-U4-f row-argument type-pinning slice (§10, `0a711135`); the delta itself remains to land — but the naive stdlib
-edit is **not** sufficient (it re-triggers a finding-7-class lift selection in the concrete-base-carrier block
-form; §10 U4-f "attempted-and-failed" note), so this delta now carries a checker prerequisite: it lands inside
-or after the §7 join-solver rewire (finding 13), never as a pre-§7 stdlib edit.
+U4-f row-argument type-pinning slice (§10, `0a711135`); the naive stdlib edit alone was **not** sufficient (it
+re-triggers a finding-7-class lift selection in the concrete-base-carrier block form; §10 U4-f
+"attempted-and-failed" note), so the delta carried a checker prerequisite — and it **LANDED exactly that way
+(U4-g, `c7b30952`)**: inside its two §7 elaboration fixes (`eagerRowPinIntoDomain` + the single-node
+`carrierSlotLift`), never as a bare pre-§7 stdlib edit. The precedent stands for future stdlib deltas.
 
 ## 8. The compile-time residue
 
@@ -1147,7 +1172,9 @@ risk on exactly the failure mode this section warns against (`Id` entangled into
 consequence for §7: its deletion target weakens from "deleted from the tree" to "**unreachable from the
 runtime track**" — sufficient, because the finding-13 bug class lives at the runtime capture seam. The
 "both tracks carrier-wrapped for value bodies" aspiration earlier in this section is *retired* with this
-resolution; revisit only if a concrete compile-track need appears (none known).
+resolution; revisit only if a concrete compile-track need appears (none known). *(The deletion target was
+subsequently re-scoped once more — §10 item 13: even runtime-track unreachability is abandoned; the
+whole-unify arm stays as the data-container unify, with every theft-risk carrier capture on the join.)*
 
 ## 9. Held invariants and interactions
 
@@ -1207,9 +1234,11 @@ default path byte-identical, gated by the §0 harness.
   `monomorphize/carrier/` package and the `UniformCarrierChecker` bridge, wired into the `Checker`
   behind `--uniform-carrier` with tight per-shape gates and verbatim default fallbacks; coverage
   per the §0 table, incl. two non-overlap wins the default path rejects.
-  `CarrierJoin`/`finalizeAndMaterialize` are built but uncalled (first live use: the §7 spine rewire;
-  the catch-handler was expected to be it, but its row-pinning bug — finding 7 — was fixed separately by
-  U4-f without touching the join solver, `0a711135`).
+  The join ladder's first live use arrived with the §7 capture routing (steps 4 i/ii —
+  `resolveArgumentSlot` → `UniformLadder.resolveSlot`); `finalizeAndMaterialize` itself remains
+  production-uncalled (unit-tested; the landed shapes needed no deferred-lift materialization). (The
+  catch-handler was expected to be the first live use, but its row-pinning bug — finding 7 — was fixed
+  separately by U4-f without touching the join solver, `0a711135`.)
   The v1 erasure path is fully deleted (weaver at U3-0a; `desugarChannel`/abstain/relaxation
   at U4-b Bundle A).
 
@@ -1656,19 +1685,19 @@ legality check (§5 check 2) on the ride-test foundation.
 
 ## 11. Risks
 
-- **Carrier-stack recognition is the primary §7 blocker (pinned finding 14).** The capture-arm join routing
-  needs `classifyExpectedSlot` to tag a concrete/pinned carrier stack (`ThrowCarrier`/`IO`) as a `CarrierSlot`,
-  and there is no clean positional primitive today — only the `<Ability>Carrier` naming convention and a
-  hardcoded LSP reverse table, both of which *miscompile* on misrecognition. The principled fix threads a tag
-  from the callee's pinned-row parameter at elaboration (the desugar currently leaves no marker), so it is real
-  work, not a one-liner. Sequence it before touching `uniformCaptureSlot`. A post-`59a1130a` spine attempt
-  failed and was discarded unrecorded (pinned finding 15); the Handover's *START HERE* sequence is now
-  mandated (mitigations → the tag, fact-carried design in finding 14 → shape-by-shape routing), and every
-  future attempt must leave a record before its tree is discarded.
-- **Join-solver correctness at its first live use** (the §7 spine rewire): deferred lift materialization
-  must be total, and an ability-constrained carrier meta must never default to `Id` (pinned finding 4). A
-  missed insertion is a loud type/codegen error, not silence — but budget for the tail. The finding-4
-  bookkeeping (`CheckState.metaConstraints`) now exists (built by U4-f), so the rewire can read it directly.
+- **Carrier-stack recognition (the primary §7 blocker, pinned finding 14) — RETIRED (step 3, 2026-07-25).**
+  The principled fix landed exactly as prescribed and *before* `uniformCaptureSlot` was touched: the tag is
+  threaded from the callee's pinned-row parameter at elaboration (`EffectRow.returnPinned` +
+  `pinnedParameterIndices`, source (i)) and platform-contributed for the synthetic-main boundary
+  (`RunBoundaryFunction`, source (ii)); no name/shape guessing anywhere. What remains binding: recognition is
+  *by tag only* — the `<Ability>Carrier` naming convention and the LSP reverse table still *miscompile* on
+  misrecognition and must never drive routing. The finding-15 rule also stands: every future attempt must
+  leave a record before its tree is discarded.
+- **Join-solver correctness at its first live use (the §7 spine rewire) — RETIRED (step 4, 2026-07-25).** The
+  join is now live on the capture arm (catch-shape class + synthetic-main `IO[A]`): byte-identity verified over
+  the 14-program corpus for source (i), gate-green for source (ii), tripwire-confirmed firing. The finding-4
+  invariant (an ability-constrained carrier meta must never default to `Id`, read from
+  `CheckState.metaConstraints`) held; it remains a permanent invariant for any future join-path work.
 - **Row-argument type-pinning (U4-f) — RETIRED (`0a711135`).** An open-row argument passed to a pinned-row
   parameter now pins the parameter's ability type arguments (`{Throw[String]}` ⇒ the pinned
   `ThrowCarrier[E, _]`'s `E := String`). The high-blast-radius concern (touching coherence resolution / the
@@ -1681,16 +1710,18 @@ legality check (§5 check 2) on the ride-test foundation.
   self-announcing — a red compile on valid code.
 - **`Id`/carriers leaking into user-facing text**: diagnostics and LSP rendering must stay
   payload/row vocabulary — a close-out gate (§9).
-- **Per-consumer Id-transparency is a recurring tax** (findings 10/11 are the same class): until the
-  §6 no-residue assertion is a hard error, any new consumer of `MonomorphicValue` or of mid-mono
-  `SemExpression`s must get the Id-normalize-first treatment.
-- **Pre-§7 carrier-solving work on the legacy substrate is the standing blocker generator** (pinned
-  finding 13): every feature attempt that touches the argument-slot carrier solving before the §7 rewire
-  has hit the order-dependent eager-unify seam and produced a new blocker; sequence such work after the
-  rewire. U4-g (the effectful-catch-handler delta) landed *inside* the row-directed-elaboration fix finding 13
-  prescribed, so it is *not* a counter-example — it shipped with its checker fix, not on the bare substrate.
-  The mitigations that still land independently of §7 are the guard-on-junk fail-safe and the catch/Throw
-  shape matrix (finding 13, both still open).
+- **Per-consumer Id-transparency is a recurring tax** (findings 10/11 are the same class): any new consumer
+  of `MonomorphicValue` or of mid-mono `SemExpression`s must get the Id-normalize-first treatment. The §6
+  no-residue assertion is now a **hard error** (2026-07-24, see the close-out follow-ons), so a missed
+  normalize fails loud at compile time instead of surfacing downstream — the tax remains, but it can no
+  longer be paid silently.
+- **Pre-§7 carrier-solving work on the legacy substrate (the standing blocker generator, pinned finding 13)
+  — RETIRED (2026-07-25).** Every pre-rewire feature attempt that touched argument-slot carrier solving hit
+  the order-dependent eager-unify seam; the §7 capture routing has now landed and every theft-risk carrier
+  capture is on the join (§10 item 13), so the feature freeze is lifted (see START HERE). The step-2
+  mitigations (the guard-on-junk fail-safe and the catch/Throw shape matrix) both landed 2026-07-25. The
+  catch-delta precedent stands as practice: a feature ships *inside* its checker fix when it needs one, never
+  on the bare substrate.
 
 ## 12. Open questions
 
