@@ -142,10 +142,23 @@ pinned finding 15). Work strictly in this order; each step lands green on its ow
      This is the amplifier defusal the step-4 rewire leans on: if that rewire junk-grounds a carrier slot
      again, the guard fails loud here instead of miscompiling. (It does **not** fire on any current program —
      mode #2, a guard reduced over junk, is unreachable post-U4-g; it is defense-in-depth for step 4.)
-3. **Land finding 14's recognition tag as its own behavior-neutral slice** (design in finding 14's
-   *Recommended design* addendum: fact-carried per-parameter metadata following the `EffectRow` precedent —
-   NOT SemValue/expression threading). Tests assert the tag lands exactly on pinned-row/discharger
-   parameters and never on data types (`List`/`Option`); zero routing change; full gate green.
+3. **Land finding 14's recognition tag as its own behavior-neutral slice — DONE (2026-07-25).** Realized
+   exactly as the *Recommended design* prescribed: **fact-carried, following the `EffectRow` precedent, no
+   SemValue/expression threading.** The pinned info rides *inside* `EffectRow` (which every value fact already
+   carries and forwards via `map`/`traverse`), so the plumbing touched only **two files**: `EffectRow.scala`
+   gains `returnPinned: Boolean` + `pinnedParameterIndices: Set[Int]` (both `C`-independent, carried through
+   `map`/`traverse` unchanged — so the whole FunctionDefinition→…→OperatorResolvedValue chain forwards them
+   with no per-fact edit), and `EffectSugarDesugarer.declaredEffectRow` populates them from each signature
+   position that is *itself* a top-level pinned row (`isPinnedRow`: an `EffectfulType` with a non-empty effect
+   set and a base tail — the shape the desugar collapses to `<Ability>Carrier[…]`). Recorded at the one point
+   that knows it is a carrier stack; **inert** — nothing reads `returnPinned`/`pinnedParameterIndices` yet
+   (`classifyExpectedSlot` untouched). Tests (`OperatorResolverProcessorTest`, through the full resolve→operator
+   chain): the tag marks a discharger-style pinned parameter (`{X[E] | G} A` at index 0, the `catch` shape) and
+   a pinned-row return, and stays empty for a data-type parameter (`Box[Str]`) and an *open*-row parameter
+   (`{Susp} Str`, which still populates `parameterEffects` — the two channels are disjoint). Only tag source
+   **(i)** (the pinned-row desugar) is landed; source **(ii)** (compiler-generated boundary slots — the synthetic
+   main's `IO[A]`, later `runMain`) is a follow-on, not needed for step 4's first slice (the `catch` shape is
+   source (i)). Gate: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11. **Next is step 4.**
 4. **Only then route the capture arm — smallest shape first, byte-identity-driven (the U4-a discipline).**
    First slice: *tagged single-layer pinned domains with an open-row actual* (the `catch` shape) only;
    everything else stays on the whole-unify fallback. Verify byte-identity across the examples corpus (as
@@ -538,8 +551,10 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
     classification. U4-g's row-directed pin does **not** need this (it reads the *argument's* row, not the
     *domain's* carrier-ness); the capture-arm *routing* does. This is the concrete next blocker for the spine
     rewire — sequence it (or the §8 fork) before touching `uniformCaptureSlot`.
-    **Recommended design for the tag (2026-07-25 advisory pass — adopt unless it fails in the small): follow
-    the fact-carried precedent, not expression threading.** Open rows already ride as declaration-level
+    **Recommended design for the tag — ADOPTED and LANDED (step 3, 2026-07-25). It rode inside `EffectRow`
+    itself (`returnPinned` + `pinnedParameterIndices`), so the plumbing was two files, not a new field per fact;
+    tag source (i) only, inert — see the START HERE step 3 record and §10 item 10.** (advisory pass 2026-07-25:
+    follow the fact-carried precedent, not expression threading.) Open rows already ride as declaration-level
     metadata (`NamedValue.effectRow` → `ResolvedValue.effectRow`, forwarded per the lean-fact-flow rule) —
     the pinned-row tag should ride the same way. `EffectSugarDesugarer` is the single point where
     `{Throw[E] | G} A` collapses to `ThrowCarrier[E,G,A]`: record there, **per parameter position** (and the
@@ -1436,6 +1451,31 @@ default path byte-identical, gated by the §0 harness.
      rewire junk-grounds a carrier slot again, the guard fails loud here instead of miscompiling. Diff:
      `AbilityImplementationProcessor.scala` (the decline arm + `mentionsDefaultedUniverse` helper), plus the two
      test files. Gate: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11.
+
+10. **Step 3 — the finding-14 carrier-stack recognition tag — LANDED (2026-07-25), behavior-neutral.** The
+    by-construction primitive step 4's capture-arm routing needs: a per-position mark of which signature slots
+    are *pinned* rows (canonical carrier stacks). Realized exactly as finding 14's *Recommended design*
+    prescribed — **fact-carried, `EffectRow` precedent, no SemValue/expression threading** — and, because the
+    mark rides *inside* `EffectRow` (already threaded through every value fact via `map`/`traverse`), the
+    plumbing touched only **two files**:
+    - `EffectRow.scala` gains `returnPinned: Boolean = false` + `pinnedParameterIndices: Set[Int] = Set.empty`.
+      Both are `C`-independent, so `map`/`traverse` carry them through unchanged and the whole
+      FunctionDefinition→NamedValue→ResolvedValue→BlockDesugaredValue→MatchDesugaredValue→OperatorResolvedValue
+      chain forwards them with **no per-fact edit** (the two defaults keep every existing `EffectRow(open, params)`
+      construction and every positional test compiling).
+    - `EffectSugarDesugarer.declaredEffectRow` populates them: a signature position is tagged when its **top-level**
+      type is a pinned row — `isPinnedRow` = an `EffectfulType` with a non-empty effect set and a base tail, the
+      exact shape `rewrite` collapses to `<Ability>Carrier[…]`. Recorded before the rewrite erases the `{…}` node,
+      at the one point that knows it is a carrier stack (finding 14's "never a carrier-ness query").
+    **Inert**: nothing reads `returnPinned`/`pinnedParameterIndices` yet — `classifyExpectedSlot` is untouched, so
+    zero routing change (step 4 wires the read). Tests (`OperatorResolverProcessorTest`, mirroring the open-row
+    Phase-1 tests, verified through the full resolve→operator chain): a discharger-style pinned parameter
+    (`{X[E] | G} A` ⤳ index 0, the `catch` shape) and a pinned-row return are tagged; a data-type parameter
+    (`Box[Str]`) and an *open*-row parameter (`{Susp} Str`) are **not** — the open row still lands in
+    `parameterEffects`, so the two channels are disjoint. Only tag source **(i)** (the pinned-row desugar); source
+    **(ii)** (compiler-generated boundary slots — synthetic main's `IO[A]`, later `runMain`) is a follow-on, not
+    needed for step 4's first slice (the `catch` shape is source (i)). Gate: lang 233/233, jvm 283/283, HelloWorld,
+    eliot-test 11/11.
 
 ### U5 — follow-ups unlocked
 

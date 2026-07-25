@@ -128,11 +128,20 @@ object EffectSugarDesugarer {
     }
   }
 
-  /** The effects-as-channel **declared row** (docs/effects-as-channel.md §4, Phase 1): the *open* effect-row entries at
-    * each signature position of `function`, captured before [[rewrite]] collapses the `{…}` nodes onto the carrier.
-    * Return-position rows are the value's own ambient row; each value parameter carrying an open row (an effectful
-    * callback like `action: A => {Effect} Unit`) is recorded with its positional index. Body rows and
-    * generic-parameter-bound rows are deliberately excluded — the declared row is the value's public signature only.
+  /** The effects-as-channel **declared row** (docs/effects-as-channel.md §4, Phase 1) plus the **carrier-stack
+    * recognition tag** (finding 14 / §7 step 3): both captured from `function`'s signature before [[rewrite]] collapses
+    * the `{…}` nodes.
+    *
+    *   - *Open* rows populate `returnEffects` / `parameterEffects`: return-position rows are the value's own ambient
+    *     row; each value parameter carrying an open row (an effectful callback like `action: A => {Effect} Unit`) is
+    *     recorded with its positional index.
+    *   - *Pinned* rows populate `returnPinned` / `pinnedParameterIndices`: a signature position whose top-level type is
+    *     a pinned row (`{Throw[E] | G} A`, which [[rewrite]] collapses to the canonical `<Ability>Carrier` stack) is a
+    *     discharger/handler capture domain the checker will later split as a carrier slot — recorded here, at the one
+    *     point that knows it is a carrier stack, so no downstream phase re-derives carrier-ness from shape or name.
+    *
+    * Body rows and generic-parameter-bound rows are deliberately excluded — the declared row is the value's public
+    * signature only.
     */
   private def declaredEffectRow(function: FunctionDefinition): EffectRow[GenericParameter.AbilityConstraint] =
     EffectRow(
@@ -140,12 +149,28 @@ object EffectSugarDesugarer {
       function.args.zipWithIndex.flatMap { case (arg, index) =>
         val entries = openRowEntries(arg.typeExpression)
         Option.when(entries.nonEmpty)(EffectRow.ParameterEffects(index, entries))
-      }
+      },
+      returnPinned = isPinnedRow(function.typeDefinition),
+      pinnedParameterIndices = function.args.zipWithIndex.collect {
+        case (arg, index) if isPinnedRow(arg.typeExpression) => index
+      }.toSet
     )
 
   /** The distinct *open*-row (`tail == None`) ability entries anywhere within one signature-position expression. */
   private def openRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
     collectRows(expr).map(_.value).filter(_.tail.isEmpty).flatMap(_.effects).distinctBy(constraintKey)
+
+  /** Whether a signature-position type expression is *itself* — at top level — a **pinned** effect row
+    * (`{Throw[E] | G} A`, i.e. an [[EffectfulType]] with a non-empty effect set and a base tail). Such a position
+    * collapses to a canonical carrier stack and is a discharger/handler capture domain (finding 14). A *nested* pinned
+    * row (e.g. the codomain of a callback `A => {Throw[E] | G} B`) does not make the position itself a carrier stack,
+    * so only the top-level shape counts.
+    */
+  private def isPinnedRow(expr: Sourced[Expression]): Boolean =
+    expr.value match {
+      case EffectfulType(effects, _, Some(_)) => effects.nonEmpty
+      case _                                  => false
+    }
 
   /** Rewrites the effect-rows of an expression: an *open* `{…} A` node becomes `F[A]` (the carrier is always present
     * then — a row anywhere in the signature introduced it); a *pinned* node (`{Throw[E], State[S] | Id} A`) becomes its

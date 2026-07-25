@@ -357,11 +357,50 @@ class OperatorResolverProcessorTest
     }
   }
 
+  // --- effects-as-channel §7 step 3: the carrier-stack recognition tag (finding 14). A *pinned* row `{X[E] | G} A`
+  // desugars to the canonical carrier stack `XCarrier[E, G, A]`; the position is marked on `effectRow.returnPinned` /
+  // `pinnedParameterIndices` so the checker can later split it as a carrier slot without re-deriving carrier-ness from
+  // shape or name. Inert for now (nothing routes on it yet). `X` is the pinned entry's ability name; only its
+  // `<Ability>Carrier` survives desugaring, so `X` itself need not be declared. ---
+
+  "the pinned-row recognition tag" should "mark a discharger-style pinned parameter (catch's `{Throw[E] | G} A` shape)" in {
+    val source = "data Str\ndata XCarrier[E, G, A]\ndef discharge[E, G, A](obj: {X[E] | G} A): Str"
+    runEngineForResolvedValue(source, "discharge").asserting { d =>
+      (effectRowReturnPinned(d), effectRowPinnedParams(d)) shouldBe (false, Set(0))
+    }
+  }
+
+  it should "mark a pinned-row return (a value whose type is a carrier stack)" in {
+    val source = "data Str\ndata XCarrier[E, G, A]\ndef make[E, G, A]: {X[E] | G} A"
+    runEngineForResolvedValue(source, "make").asserting { m =>
+      (effectRowReturnPinned(m), effectRowPinnedParams(m)) shouldBe (true, Set.empty)
+    }
+  }
+
+  it should "NOT mark a data-type parameter or an open-row parameter (only the open row feeds the entries)" in {
+    // `box: Box[Str]` is a plain data type; `eff: {Susp} Str` is an OPEN row. Neither is a pinned carrier stack, so the
+    // pinned tag stays empty — while the open row still populates `parameterEffects` at its index, showing the two
+    // channels are disjoint.
+    val source =
+      "data Str\ndata Box[X]\nability Susp[F[_]] { def d(v: Str): F[Str] }\n" +
+        "def f(box: Box[Str], eff: {Susp} Str): Str"
+    runEngineForResolvedValue(source, "f").asserting { f =>
+      (effectRowReturnPinned(f), effectRowPinnedParams(f), effectRowParameters(f)) shouldBe
+        (false, Set.empty, Seq((1, Seq("Susp"))))
+    }
+  }
+
   private def effectRowReturn(rv: OperatorResolvedValue): Seq[String] =
     rv.effectRow.returnEffects.map(_.abilityFQN.abilityName)
 
   private def effectRowParameters(rv: OperatorResolvedValue): Seq[(Int, Seq[String])] =
     rv.effectRow.parameterEffects.map(pe => (pe.parameterIndex, pe.effects.map(_.abilityFQN.abilityName)))
+
+  private def effectRowReturnPinned(rv: OperatorResolvedValue): Boolean =
+    rv.effectRow.returnPinned
+
+  private def effectRowPinnedParams(rv: OperatorResolvedValue): Set[Int] =
+    rv.effectRow.pinnedParameterIndices
 
   private def signatureShow(rv: OperatorResolvedValue): String =
     rv.signature.value.show
