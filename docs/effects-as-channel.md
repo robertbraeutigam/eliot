@@ -120,13 +120,28 @@ pinned finding 15). Work strictly in this order; each step lands green on its ow
 1. **Record every attempt — always, before discarding the tree.** A short note in this doc (approach, what
    broke, symptom) even for a revert. The finding-13 pattern analysis derives its authority from the
    recurrence history; an unrecorded failure (finding 15) donates nothing and forces re-derivation.
-2. **Land the two §7-independent mitigations (finding 13, both still open, both cheap):**
-   - the **catch/Throw shape matrix** (~20 tiny cases: {single-statement, block} × {ambient meta, concrete
-     `IO`, pure `Id`} × {identity, non-identity, effectful handler} × {one, two dischargers}) — the net that
-     catches an insufficient rewire *in the session that writes it*. Cases that fail today are a feature:
-     they map the residual seam before the rewire; record them as expected-fail with the symptom.
-   - the **guard-on-junk fail-safe**: ability resolution must not evaluate a `where` guard whose operands
-     include a defaulted/junk-grounded (not genuinely solved) meta — defer, or error naming the slot.
+2. **Land the two §7-independent mitigations (finding 13) — DONE (2026-07-25).**
+   - the **catch/Throw shape matrix** — LANDED as `jvm/test/.../CatchShapeMatrixTest.scala` (22 cases:
+     Groups A–D = the well-typed grid {single-statement, block} × {ambient meta, concrete `IO`, pure `Id`} ×
+     {identity, non-identity, effectful handler} × {one, two dischargers}; Group E = the ill-typed
+     over-discharge boundary). **Result: the whole well-typed grid is green** — U4-f + U4-g closed the seam
+     for every well-typed catch shape, so there is no well-typed expected-fail to record. The only failing
+     shape is *ill-typed* over-discharge (two same-typed `catch`es over one collapsed `{Throw[String]}`
+     layer), which maps the finding-13 identity-vs-non-identity asymmetry (Group E: identity absorbs it,
+     non-identity junk-grounds and fails — mode #1, a pending/abstract ref, "Function not implemented"); §7
+     does **not** make an over-discharge compile, so these are pinned as current-behaviour, not expected-fails.
+   - the **guard-on-junk fail-safe** — LANDED in `AbilityImplementationProcessor.dischargeGuard`: a guarded
+     candidate whose matched operands include the **defaulted universe** `GroundValue.Type` (the read-back of
+     a slot unification never solved) is **declined** rather than discharged — so a guard verdict is never
+     computed over junk (which would silently *select* an instance on a nonsense comparison, `Type != String`
+     ⤳ the lift). Resolution falls through to `NoImplementation`, reported located at the demanding use site.
+     Provably safe: no real guard compares the universe (`Throw`/`Dep` self-lifts compare error/key types,
+     `Coerce`/`InRange` compare numbers), so it only ever fires on genuine junk. Unit-tested in
+     `AbilityGuardDischargeTest` (a generic `implement[A] Show[A] where …` at `Show[Type]` declines; at a real
+     type resolves; an *unguarded* generic impl at `Type` still resolves — the fail-safe is guard-specific).
+     This is the amplifier defusal the step-4 rewire leans on: if that rewire junk-grounds a carrier slot
+     again, the guard fails loud here instead of miscompiling. (It does **not** fire on any current program —
+     mode #2, a guard reduced over junk, is unreachable post-U4-g; it is defense-in-depth for step 4.)
 3. **Land finding 14's recognition tag as its own behavior-neutral slice** (design in finding 14's
    *Recommended design* addendum: fact-carried per-parameter metadata following the `EffectRow` precedent —
    NOT SemValue/expression threading). Tests assert the tag lands exactly on pinned-row/discharger
@@ -166,8 +181,9 @@ is one bug class recurring: a carrier-layer meta solved/stolen/junk-grounded by 
 unification at the finding-7 constraint↔structure seam — and it keeps recurring because the join solver
 built to eliminate it has zero callers. Until §7 lands, do **not** attempt features that touch carrier
 solving (the catch delta above all), and do **not** extend `applyPendingCarrierPins` to new shapes. The two
-mitigations that ARE independent of §7 — the guard-on-junk fail-safe and the catch/Throw shape matrix — are
-spelled out in finding 13.
+mitigations that ARE independent of §7 — the guard-on-junk fail-safe and the catch/Throw shape matrix — **both
+LANDED 2026-07-25 (step 2)**; see the START HERE step 2 record and finding 13. **Next is step 3** (the
+finding-14 recognition tag).
 
 **Close-out follow-ons (each landable on its own):**
 - **synthetic main → `runMain`** (§7) — makes the one run boundary nominal; needs a `runMain` callable to
@@ -480,17 +496,23 @@ property whose absence killed the v1 weaver's `fold`/`if` hardcode.
       before.** The effectful-`catch`-handler delta shipped *with* its two §7 elaboration fixes (row-directed pin
       + single-node `carrierSlotLift`), so this consequence was satisfied, not violated. Anything else that
       changes argument-slot carrier solving still waits for the spine rewire.
-    - **Defuse the amplifier (independent of §7, small) — STILL OPEN.** The `where E1 != E2` lift is *selected* by
-      evaluating a guard over a junk-grounded meta — a silently-wrong instance choice that surfaces three
-      steps later as the cryptic `Throw[String, IO]`. Fail-safe rule: ability resolution must not evaluate
-      a `where` guard whose operands include a defaulted/junk-grounded (not genuinely solved) meta — defer,
-      or error naming the slot. (U4-g's eager pin removes the *specific* junk-ground for row-captured error
-      slots, but the general fail-safe — any guard over any defaulted meta — is not yet in place.)
-    - **Stand up the catch/Throw shape matrix (independent of §7, cheap) — STILL OPEN.** Every recurrence was an
-      uncovered shape combination: {single-statement, block} × {ambient meta, concrete `IO`, pure `Id`} ×
-      {identity, non-identity, effectful handler} × {one, two dischargers} — ~20 tiny cases. U4-g added the
-      *effectful-handler* corner (`ExamplesIntegrationTest2` "an effectful catch handler"); the full matrix is
-      still worth standing up.
+    - **Defuse the amplifier (independent of §7, small) — LANDED (2026-07-25, step 2).** The `where E1 != E2`
+      lift was *selected* by evaluating a guard over a junk-grounded meta — a silently-wrong instance choice
+      that surfaces three steps later as a cryptic unresolved carrier. The **general** fail-safe is now in
+      `AbilityImplementationProcessor.dischargeGuard`: a guarded candidate whose matched operands include the
+      defaulted universe `GroundValue.Type` is **declined**, so a guard verdict is never computed over junk —
+      resolution falls through to `NoImplementation`, reported located at the demanding use site. Provably safe
+      (no real guard compares the universe); unit-tested in `AbilityGuardDischargeTest`. Does not fire on any
+      current program (mode #2 is unreachable post-U4-g) — it is the defense-in-depth net step 4's rewire leans
+      on. See the START HERE step 2 record.
+    - **Stand up the catch/Throw shape matrix (independent of §7, cheap) — LANDED (2026-07-25, step 2).**
+      `jvm/test/.../CatchShapeMatrixTest.scala` — 22 cases: the well-typed grid {single-statement, block} ×
+      {ambient meta, concrete `IO`, pure `Id`} × {identity, non-identity, effectful handler} × {one, two
+      dischargers} (Groups A–D) **all green** (U4-f + U4-g closed the seam for every well-typed catch shape, so
+      no well-typed expected-fail exists), plus Group E = the *ill-typed* over-discharge boundary mapping the
+      identity-vs-non-identity asymmetry (identity absorbs, non-identity junk-grounds to a pending/abstract ref).
+      The finding was that the residual seam is **not** in any well-typed catch shape; it is the ill-typed
+      over-discharge (not a §7 target) and the guard-over-junk mode (now netted by the fail-safe above).
     - **Inside §7, make discharge row-directed at elaboration (§4's spec) — LANDED (U4-g).** Derive a pinned-row
       layer's ability arguments from the argument's row constraints at capture time (single source of truth),
       so a free error-slot meta never exists to junk-ground. Realized as `Checker.eagerRowPinIntoDomain` (pins
@@ -1388,6 +1410,32 @@ default path byte-identical, gated by the §0 harness.
    mitigations (shape matrix + guard-on-junk), then the finding-14 recognition tag (fact-carried design) as
    a behavior-neutral slice, then shape-by-shape capture-arm routing under byte-identity — with §8 resolved
    by decision (keep the gate).
+
+9. **Step 2 — the two finding-13 mitigations — LANDED (2026-07-25).** Both §7-independent nets are in place,
+   the safe retreat position for a future step-4 attempt.
+   - **The catch/Throw shape matrix** (`jvm/test/.../CatchShapeMatrixTest.scala`, 22 cases). Groups A–D — the
+     full well-typed grid {single-statement, block} × {ambient meta, concrete `IO`, pure `Id`} × {identity,
+     non-identity, effectful handler} × {one, two dischargers} — **all compile and run green**. The finding
+     recorded: U4-f + U4-g closed the seam for *every well-typed catch shape*, so there is no well-typed
+     expected-fail. Group E maps the one remaining failing shape — *ill-typed* over-discharge (two same-typed
+     `catch`es over one collapsed `{Throw[String]}` layer) — and the finding-13 identity-vs-non-identity
+     asymmetry it exposes: an identity handler pins `E := A` and absorbs it ("first"), a non-identity handler
+     leaves the second layer's error slot free so it junk-grounds to a pending/abstract ref ("Function not
+     implemented", mode #1). §7 does **not** make an over-discharge compile, so Group E pins current behaviour,
+     not an expected-fail.
+   - **The guard-on-junk fail-safe** (`AbilityImplementationProcessor.dischargeGuard`; unit-tested in
+     `AbilityGuardDischargeTest`). A guarded candidate whose matched operands include — or structurally contain
+     — the **defaulted universe** `GroundValue.Type` (the read-back of a slot unification never solved) is
+     **declined** rather than discharged. So a guard verdict is never *computed over junk* (mode #2: the
+     `where E1 != E2` lift silently selected by `Type != String` ⤳ a cryptic unresolved carrier three steps
+     later); resolution falls through to `NoImplementation`, reported located at the demanding use site. The
+     junk-detector descends into constructor `args` only, never a value's `valueType` (every `Structure` carries
+     `valueType = Type`). Provably safe — no real guard compares the universe (`Throw`/`Dep` self-lifts compare
+     error/key types; `Coerce`/`InRange` compare numbers) — so it fires only on genuine junk, and on no current
+     program (mode #2 is unreachable post-U4-g). It is the amplifier defusal step 4's rewire leans on: if that
+     rewire junk-grounds a carrier slot again, the guard fails loud here instead of miscompiling. Diff:
+     `AbilityImplementationProcessor.scala` (the decline arm + `mentionsDefaultedUniverse` helper), plus the two
+     test files. Gate: lang 233/233, jvm 283/283, HelloWorld, eliot-test 11/11.
 
 ### U5 — follow-ups unlocked
 

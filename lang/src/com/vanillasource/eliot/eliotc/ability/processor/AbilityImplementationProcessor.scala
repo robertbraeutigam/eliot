@@ -180,6 +180,18 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     *
     * Fail-safe: a real guard is discharged only over faithfully-traced bindings — a `metaToGround`-collapsed binding
     * could compare equal wrongly (§3.1), so an untraced match is an internal error rather than a silent wrong verdict.
+    *
+    * Second fail-safe — the guard-on-junk defusal (docs/effects-as-channel.md, finding 13, the amplifier): a match
+    * may trace a guard operand faithfully to the **defaulted universe** `GroundValue.Type` — the read-back of a
+    * type-argument slot unification never solved (e.g. an effect-carrier error slot `?E` that junk-grounded before the
+    * `Throw` self-lift's `where E1 != E2` guard is reduced). Reducing the guard over that junk silently *selects* an
+    * instance on a nonsense comparison (`Type != String` ⤳ the lift), which surfaces three steps later as a cryptic
+    * unresolved carrier. So a guarded candidate whose operands include the defaulted universe is **declined** rather
+    * than discharged — resolution falls through to `NoImplementation`, which the demanding use site reports *located*
+    * (never a silent wrong instance choice). No legitimate guard compares the universe (the `Throw`/`Dep` self-lifts
+    * compare error/key types; `Coerce`/`InRange` compare numbers), so this only ever fires on genuine junk. This is the
+    * §7-independent mitigation the join-solver rewire (step 4) leans on: if that rewire ever junk-grounds a carrier
+    * slot again, the guard fails loud here instead of miscompiling.
     */
   private def dischargeGuard(
       vfqn: ValueFQN,
@@ -193,7 +205,20 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       error[CompilerIO](
         s"Internal: cannot discharge the guard of '${vfqn.name.name}' — a matched type parameter was not faithfully traced."
       ) >> abort[Verdict]
+    else if (matched.groundArgs.exists(mentionsDefaultedUniverse)) decline
     else readGuardVerdict(markerVfqn, matched.groundArgs).flatMap(interpretGuard(_, keep))
+  }
+
+  /** A guard operand that is — or structurally contains — the defaulted universe [[GroundValue.Type]]: the read-back
+    * of a type-argument slot unification never solved (defaulted at finalization, or produced by the matcher's
+    * `metaToGround` fallback). Descends into constructor `args` **only**, never a value's `valueType` — every
+    * [[GroundValue.Structure]] carries `valueType = Type`, so descending there would flag every operand. See the
+    * second fail-safe in [[dischargeGuard]].
+    */
+  private def mentionsDefaultedUniverse(g: GroundValue): Boolean = g match {
+    case GroundValue.Type                  => true
+    case GroundValue.Structure(_, args, _) => args.exists(mentionsDefaultedUniverse)
+    case _                                 => false
   }
 
   /** Read the marker's guard verdict from its **signature twin's** compile-time monomorphization (signature-unification

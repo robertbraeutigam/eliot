@@ -102,6 +102,22 @@ class AbilityGuardDischargeTest
   private def facts(guardClause: String): Seq[CompilerFact] =
     baseFacts ++ compilerScan(Seq("test"), "M", moduleContent(guardClause)).collect { case f: CompilerFact => f }
 
+  /** A **generic** guarded implementation `implement[A] Show[A] where <guard>`: its one leading type parameter `A`
+    * binds to the query's argument, so the guard is discharged over that binding — the shape needed to exercise the
+    * guard-on-junk fail-safe, since a concrete `implement Show[Widget]` has no leading parameter to junk-ground.
+    */
+  private def genericModuleContent(guardClause: String): String =
+    s"""import eliot.lang.Function
+       |import eliot.lang.Bool
+       |import eliot.lang.Either
+       |
+       |ability Show[A] { def show(x: A): A }
+       |
+       |implement[A] Show[A] $guardClause {
+       |   def show(x: A): A = x
+       |}
+       |""".stripMargin
+
   private val showVfqn        = ValueFQN(moduleName, QualifiedName("show", Qualifier.Ability("Show")))
   private val widgetArg: GroundValue =
     GroundValue.Structure(ValueFQN(moduleName, QualifiedName("Widget", Qualifier.Type)), Seq.empty, GroundValue.Type)
@@ -109,6 +125,20 @@ class AbilityGuardDischargeTest
   private def resolve(guardClause: String): IO[(Option[AbilityImplementation], Seq[TestError])] =
     runGeneratorWithFacts(facts(guardClause), AbilityImplementation.Key(showVfqn, Seq(widgetArg), Platform.Compiler))
       .map { case (impl, errors) => (impl, toTestErrors(errors)) }
+
+  /** Resolve the generic guarded impl at an arbitrary query argument, so a call can pass the **defaulted universe**
+    * `GroundValue.Type` in the operand slot (the junk a junk-grounded carrier slot reads back as).
+    */
+  private def resolveGeneric(
+      guardClause: String,
+      queryArg: GroundValue
+  ): IO[(Option[AbilityImplementation], Seq[TestError])] =
+    runGeneratorWithFacts(
+      baseFacts ++ compilerScan(Seq("test"), "M", genericModuleContent(guardClause)).collect { case f: CompilerFact =>
+        f
+      },
+      AbilityImplementation.Key(showVfqn, Seq(queryArg), Platform.Compiler)
+    ).map { case (impl, errors) => (impl, toTestErrors(errors)) }
 
   private def resolvedName(guardClause: String): IO[Option[String]] =
     resolve(guardClause).map { case (impl, _) => impl.flatMap(_.resolution.resolved).map(_._1.name.name) }
@@ -147,5 +177,38 @@ class AbilityGuardDischargeTest
 
   it should "produce no error in the producer when the guard rejects — the demander reports the message" in {
     resolve("""where Left("nope")""").asserting { case (_, errors) => errors shouldBe Seq.empty }
+  }
+
+  // ---- The guard-on-junk fail-safe (docs/effects-as-channel.md, finding 13 / step 2 of the §7 sequence) ----
+
+  "the generic guarded impl at a genuine type argument" should "discharge the guard normally and resolve" in {
+    // The baseline: `where fold(false, false, true)` reduces to `true` over the real operand `A := Widget`, so the
+    // guarded candidate is kept.
+    resolveGeneric("where fold(false, false, true)", widgetArg)
+      .map { case (impl, _) => impl.flatMap(_.resolution.resolved).map(_._1.name.name) }
+      .asserting(_ shouldBe Some("show"))
+  }
+
+  "a guarded impl whose operand junk-grounded to the universe" should "decline rather than reduce the guard over junk" in {
+    // The fail-safe: `A := Type` (the defaulted universe — what a junk-grounded carrier slot reads back as). Without
+    // it, `fold(false, false, true)` would still reduce to `true` and silently keep the candidate on a junk operand;
+    // with it, the guard is not discharged and the outcome falls through to `NoImplementation`, which the demanding
+    // use site reports located — never a silent wrong instance choice.
+    resolveGeneric("where fold(false, false, true)", GroundValue.Type)
+      .map { case (impl, _) => impl.map(_.resolution) }
+      .asserting(_ shouldBe Some(Resolution.NoImplementation))
+  }
+
+  it should "produce no error in the producer — the junk decline surfaces at the demanding use site" in {
+    resolveGeneric("where fold(false, false, true)", GroundValue.Type)
+      .asserting { case (_, errors) => errors shouldBe Seq.empty }
+  }
+
+  "an UNguarded generic impl at the universe" should "still resolve (the fail-safe is guard-specific)" in {
+    // The fail-safe fires only for a real `where` guard: an unguarded generic impl keeps verbatim at any argument,
+    // including the universe, exactly as before — the junk decline is scoped to guard discharge, not all resolution.
+    resolveGeneric("", GroundValue.Type)
+      .map { case (impl, _) => impl.flatMap(_.resolution.resolved).map(_._1.name.name) }
+      .asserting(_ shouldBe Some("show"))
   }
 }
