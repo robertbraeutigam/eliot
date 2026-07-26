@@ -91,6 +91,14 @@ class Checker(
   private[check] val uniformChecker: UniformCarrierChecker =
     new UniformCarrierChecker(force, lifter.effectCarrierSplit)
 
+  /** The post-drain **mode resolver** (docs/effects-as-rows.md A.8.7): finishes the suspended slot-mode obligations
+    * ([[CheckState.modeObligations]]) and deferred `let` bindings ([[CheckState.letObligations]]) from the solved meta
+    * store at post-drain quiescence — the replacement of the former mid-spine Phase-B decision on the runtime track.
+    * Driven only from [[TypeStackLoop]]'s post-drain fixpoint, before ability resolution in each round. See
+    * [[ModeResolver]].
+    */
+  private[check] val modeResolver: ModeResolver = new ModeResolver(force, doUnify, lifter)
+
   /** The "declared pure but performs an effect" fail-safe: the one effect diagnostic the post-mono
     * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]] cannot voice (its value's mono
     * fails, so no fact is produced). The `derived ⊆ declared` subset check now lives entirely in that processor
@@ -725,9 +733,39 @@ class Checker(
                               }
                           }
       hadDeferred       = records.exists(_.outcome.isInstanceOf[SlotOutcome.Deferred])
-      finalRecords     <- records.traverse(resolveDeferredSlot)
-      result           <- assembleSpine(built, finalRecords, hadDeferred)
+      finalRecords     <- records.traverse(resolveDeferredSlot(_, built._2))
+      // A.8.6 corollary 2, checker-side (docs/effects-as-rows.md A.8.7): a spine that holds a *suspended* slot has a
+      // deferred core, and mid-spine binds must not be wrapped around it — the wrap's map/flatMap choice reads the
+      // core's still-undecided carrier-ness (a flex core defaults to `map`), a first-contact commitment that silently
+      // reorders effects once the suspension resolves (`andThen(printLine(..), abort)`). The bound slots become
+      // born-hoist obligations instead: the guaranteed splice-restart re-spells the whole chain leftmost-outermost
+      // by the desugar's own rule, with the suspension deferred inside it.
+      hasSuspension     = finalRecords.exists(_.outcome.isInstanceOf[SlotOutcome.Suspended])
+      adjusted         <- if (hasSuspension) finalRecords.traverse(suspendBoundSlot(built._2)) else pure(finalRecords)
+      result           <- assembleSpine(built, adjusted, hadDeferred)
     } yield result
+  }
+
+  /** Convert one mid-spine [[SlotOutcome.Bound]] of a suspension-holding spine into a born-hoist obligation (see the
+    * call site above): the mode is already known — the slot is a payload, the bind said so — only the *placement* must
+    * wait for the splice, so the obligation is recorded already `Hoist`-classified and the slot passes the original
+    * argument expression provisionally (the restart discards this attempt's judgment wholesale).
+    */
+  private def suspendBoundSlot(spineType: SemValue)(record: SlotRecord): CheckIO[SlotRecord] = record.outcome match {
+    case SlotOutcome.Bound(_, bind) =>
+      modify(
+        _.recordModeObligation(
+          CheckState.ModeObligation(
+            record.arg,
+            bind.actionType,
+            bind.payload,
+            record.retType,
+            spineType,
+            status = CheckState.ModeObligation.Status.Hoist
+          )
+        )
+      ).as(record.copy(outcome = SlotOutcome.Suspended(bind.action)))
+    case _                          => pure(record)
   }
 
   /** The head callee's **carrier-stack recognition tag** (docs/effects-as-channel.md §7 step 4, finding 14): the set of
@@ -777,6 +815,14 @@ class Checker(
 
     /** Phase-A deferral (bare flex domain + effect-carrier-headed argument); decided in Phase B. */
     case class Deferred(slotExpr: SemExpression, argType: SemValue, domain: SemValue) extends SlotOutcome
+
+    /** A.8.7 suspension (runtime track): the computation met a bare-generic slot, whose mode only the instantiation
+      * decides — recorded as a [[CheckState.ModeObligation]] and resolved at post-drain quiescence by
+      * [[ModeResolver]], never mid-spine. The slot expression is the instantiated argument, passed through
+      * provisionally: correct as-is for the pass/capture resolutions, and discarded wholesale by the splice-restart
+      * for a hoist.
+      */
+    case class Suspended(slotExpr: SemExpression) extends SlotOutcome
   }
 
   /** One spine slot's record: the intermediate application node's [[Sourced]] target and argument, the instantiated
@@ -791,35 +837,30 @@ class Checker(
       outcome: SlotOutcome
   )
 
-  /** Phase B: decide a deferred slot. A domain rigidified by later arguments runs the full ladder
-    * ([[resolveLadder]] — unify / coerce / bind-lift); a still-flex one prefers pass-through: the carrier-headed
-    * argument type unifies into the slot, the effectful result propagates upward, and the parent's slot decides (this
-    * is how `identity(readLine)` and eliminator branches resolve, with no special case).
+  /** Phase B: decide a deferred slot.
+    *
+    * On the **runtime** track there is no mid-spine decision anymore (docs/effects-as-rows.md A.8.7): the deferred
+    * computation becomes a **suspended obligation** — recorded with its instantiated type, the slot's domain meta and
+    * the spine's result type, with *no* unification into the slot (first-contact unification is itself a mode
+    * decision) — and the post-drain [[ModeResolver]] classifies it against the solved store at quiescence.
+    *
+    * On the **compiler** track the mid-spine decision is kept (the §8 boundary — the compile-time track keeps the
+    * default ladder by design): a domain rigidified by later arguments runs the full ladder ([[resolveLadder]] —
+    * unify / bind-lift), a rigid non-carrier one sequences first ([[sequenceBeforeUnify]]), and a still-flex one
+    * takes the ride-up-vs-bind default ([[deferredGenericDefault]]).
     */
-  private def resolveDeferredSlot(record: SlotRecord): CheckIO[SlotRecord] = record.outcome match {
-    case SlotOutcome.Deferred(argExpr, argType, domain) =>
+  private def resolveDeferredSlot(record: SlotRecord, spineType: SemValue): CheckIO[SlotRecord] = record.outcome match {
+    case SlotOutcome.Deferred(argExpr, argType, domain) if platform == Platform.Runtime =>
+      modify(_.recordModeObligation(CheckState.ModeObligation(record.arg, argType, domain, record.retType, spineType)))
+        .as(record.copy(outcome = SlotOutcome.Suspended(argExpr)))
+    case SlotOutcome.Deferred(argExpr, argType, domain)                                 =>
       for {
         forcedDomain <- force(domain)
         outcome      <- forcedDomain match {
                           case VMeta(id, Spine.SNil) =>
                             for {
                               (updated, instantiated) <- instantiatePolymorphic(argExpr, argType)
-                              // Effects-as-channel U4-a(i) (docs/effects-as-channel.md §10): under the transitional gate
-                              // on the runtime track, route the Generic arm's ride-up-vs-bind decision through the
-                              // uniform bridge ([[UniformCarrierChecker.resolveGenericSlot]] → [[UniformLadder]]) — the
-                              // successor of [[deferredGenericDefault]], byte-identical to it wherever the default path
-                              // succeeds (the same `occursInValue(id, retType)` test; PassWhole ⤳ `Resolved`, Bound ⤳
-                              // the same `$eff$N`/`Bind` node the default `tryBindLift` produces).
-                              outcome                 <- if (platform == Platform.Runtime)
-                                                           uniformChecker
-                                                             .resolveGenericSlot(record.arg, updated, instantiated, id, record.retType)
-                                                             .map {
-                                                               case UniformCarrierChecker.UniformSlotOutcome.Passed(e)       =>
-                                                                 SlotOutcome.Resolved(e): SlotOutcome
-                                                               case UniformCarrierChecker.UniformSlotOutcome.Bound(ref, bnd) =>
-                                                                 SlotOutcome.Bound(ref, bnd): SlotOutcome
-                                                             }
-                                                         else deferredGenericDefault(record, id, updated, instantiated, domain)
+                              outcome                 <- deferredGenericDefault(record, id, updated, instantiated, domain)
                             } yield outcome
                           case VMeta(_, _)           =>
                             // A meta-*applied* domain (`?G[?A]`, a generic container parameter) — the carrier can still
@@ -829,7 +870,7 @@ class Checker(
                             sequenceBeforeUnify(record, argExpr, argType, domain)
                         }
       } yield record.copy(outcome = outcome)
-    case _                                              => pure(record)
+    case _                                                                              => pure(record)
   }
 
   /** Phase B for a deferred slot whose domain later rigidified to a **rigid-headed, non-carrier** type — sequence the
@@ -1514,6 +1555,18 @@ class Checker(
                                   } yield resolved
                                 case None                     =>
                                   for {
+                                    // A.8.7: a bound type still a *bare metavariable* is unclassifiable at build time —
+                                    // the binding's bind-vs-plain mode is the bound instantiation's to decide (e.g. a
+                                    // `val` over a generic-returning call whose suspended argument adopts a carrier only
+                                    // at quiescence). Build the plain `let` and record a let obligation; a bound type
+                                    // resolved carrier-headed by quiescence gets the desugar's binding rewrite spliced
+                                    // ([[ModeResolver.pendingLetTargets]]) and the mono restarted.
+                                    forcedArg            <- force(argType)
+                                    _                    <- forcedArg match {
+                                                              case VMeta(_, Spine.SNil) if platform == Platform.Runtime =>
+                                                                modify(_.recordLetObligation(CheckState.LetObligation(arg, argType)))
+                                                              case _                                                    => pure(())
+                                                            }
                                     _                    <- modify(_.bindValueParam(paramName.value, argType))
                                     (bodyExpr, bodyType) <- expected match {
                                                               case Some(exp) => check(body, exp).map(e => (e, exp))

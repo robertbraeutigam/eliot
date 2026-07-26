@@ -1,10 +1,11 @@
 # Effects as Rows, v3: Declared Suspension + a Desugared Elaboration
 
 Status: **R1–R4 COMPLETE; R5 FLIP LANDED under the A.8.6 resolution, row verification wired, and the
-resolver design DECIDED (A.8.7: post-drain resolution at quiescence) — 2026-07-26, full gate green.
-Next: implement the A.8.7 resolver, then the checker-machinery deletion slices against it.** Successor
-direction to `docs/effects-as-channel.md` (v2, whose checker machinery remains live underneath — it
-finishes the deferred positions until the deletion slices replace it with the A.8.7 resolver). The row
+A.8.7 RESOLVER IMPLEMENTED AND LIVE (post-drain resolution at quiescence; runtime generic-slot modes are
+now suspended obligations, classified at quiescence, with splice-and-restart) — 2026-07-26, full gate
+green. Next: the checker-machinery deletion slices against the resolver.** Successor direction to
+`docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
+arms — stays live underneath until the deletion slices retire it against the resolver). The row
 checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
 `derived ⊆ declared` per definition in the pipeline (bounded per A.8.6), and the
 elaboration desugar (`lang/.../row/RowElaborator`) is twin-verified, **shadow-compiled end to end**
@@ -806,3 +807,54 @@ residue bounded staging always implied — mid-spine resolution would leave stri
 slices then proceed against the resolver: the ladders, the `EffectLifter` arms, the pinning mechanisms,
 the slot routers and Phase A/B's resolution logic all die; what Phase A/B leaves behind is exactly the
 obligation queue, re-owned by the resolver.
+
+**Landed (2026-07-26): the resolver is implemented and live; full gate green** (every module suite,
+HelloWorld, the discharge examples, the shadow compile; the acceptance shapes — `choose`/`pick`, the
+dot-chained discharger, `foldLeft`'s accumulator, `andThen(printLine(..), abort)` — all pass). The
+shape as built:
+
+- **Suspension** (`Checker.resolveDeferredSlot`, runtime track only): a Phase-A `Deferred` record no
+  longer takes any mid-spine decision — it is recorded as a `CheckState.ModeObligation` (arg node, its
+  instantiated carrier-headed type, the slot's domain meta, the app node's result type, and the whole
+  spine's result type) with **no unification into the slot**, and the slot passes the argument
+  provisionally (`SlotOutcome.Suspended`). The compiler track keeps the v2 mid-spine decision verbatim
+  (the §8 boundary).
+- **The resolver** (`monomorphize/check/ModeResolver`, a `CalculatedReturnResolver`-style CheckIO peer):
+  driven from `TypeStackLoop`'s post-drain fixpoint — each round is drain → **mode resolution** →
+  ability resolution, so an adopted carrier resolves its instances in the same round. Solved domains
+  classify as designed: carrier-headed / applied-meta ⟹ pass (unify, one committed Expected/Actual on
+  contradiction); rigid non-carrier ⟹ hoist when the computation's *payload* speculatively fits, else
+  whole-unify (the capture — dot-chained discharge — exactly v2's `sequenceBeforeUnify` discipline).
+  Still-flex at full quiescence ⟹ the v2 default kept: ride-up occurs-check → adopt, else hoist.
+- **Splice + restart**: hoists are spliced by `RowElaborator.spliceResolvedModes` — the desugar's own
+  `bindNodes`/`pureWrap` builders, targets matched by node identity, `$row$N` numbering continued — and
+  `TypeStackLoop.process` restarts the mono on the rewritten body (fueled loop; each restart strictly
+  reduces deferred positions). A signature twin can never request a restart (asserted).
+
+Landing it over the corpus forced three corollaries, each an instance of the A.8.6 discipline rather
+than a new judgment call:
+
+1. **The splice applies the desugar's core rule with the mode known.** A hoisted chain's innermost
+   continuation must be classifiable on the re-check: a bare-generic core tail
+   (`identity($row$1) : ?A`) meeting the machinery's carrier codomain is stolen by first-contact
+   unification. The resolver reads the *spine's* solved result type off the store — rigid non-carrier ⟹
+   the core is a payload and the splice `pure`-wraps it (the eager `assemble` rule, finished late);
+   carrier-headed or undetermined ⟹ left bare.
+2. **A suspension-holding spine wraps no mid-spine binds** (corollary 2 of A.8.6, checker-side). With a
+   suspended slot the core's carrier-ness is undecided, and `wrapBinds`' flex-core `map` default is a
+   first-contact commitment that silently reorders effects (`andThen(printLine("trying"), abort)`
+   printed nothing). Bound slots of such a spine become **born-hoist obligations** — mode known
+   (payload), placement deferred — and the guaranteed splice-restart re-spells the whole chain
+   leftmost-outermost with the suspension deferred inside.
+3. **The deferred `let` is an obligation of its own.** A `val`/statement binding over a
+   bare-metavariable bound type cannot decide bind-vs-plain at build time; it is recorded
+   (`CheckState.LetObligation`) and, at full quiescence, a bound type that resolved carrier-headed gets
+   the desugar's binding rewrite spliced (`(x -> rest)(bound)` ⟹ `flatMap(x -> rest, bound)`) — without
+   this, a post-drain adoption under an already-built plain `let` would store the computation unrun (a
+   silently dropped effect).
+
+Spelling note: a hoisted generic slot now reads as the desugar's one-bind-combinator form —
+`flatMap` over a `pure`-wrapped core — where v2's mid-spine bind spelled `map`; behaviourally
+identical, and the `MonomorphicTypeCheckTest` lift-group expectations were updated to the new
+spellings. Next: the deletion slices — the ladders, `EffectLifter` arms, pinning mechanisms, slot
+routers and the compiler-track Phase-B remnant retire piece by piece against this same gate.

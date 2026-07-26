@@ -1161,8 +1161,10 @@ class MonomorphicTypeCheckTest
   // binds; where the desugar writes the binds it uses **one bind combinator** — a pure continuation is `pure`-wrapped
   // under `flatMap` rather than selecting `map`, since the desugar reads declarations only and never the
   // continuation's inferred type (the two are behaviourally identical). **Generic-headed slots are deferred**
-  // (A.8.6): their mode is the instantiation's, so the desugar writes nothing there and the checker finishes the
-  // node — those shapes keep the checker's own `map`/pass-through spellings.
+  // (A.8.6): their mode is the instantiation's, so the desugar writes nothing there; the checker suspends the
+  // computation as a mode obligation and the post-drain resolver (A.8.7) finishes it at quiescence — a payload
+  // instantiation splices the desugar's own hoist (the same `flatMap`+`pure` spelling, restart-checked), a
+  // carrier-headed one passes the computation through.
 
   "the effect elaboration" should "sequence a direct-style printLine(readLine) with Effect.flatMap" in {
     liftedBody("import eliot.effect.Console\ndef echo: {Console} Unit = printLine(readLine)")
@@ -1197,12 +1199,13 @@ class MonomorphicTypeCheckTest
 
   it should "bind an effectful subject dotted into a function-typed parameter (the dot-inline regression)" in {
     // `readLine.f` — `.`'s `a: A` slot is generic-headed, hence deferred (A.8.6): the desugar has no dot rule of any
-    // kind, the checker rigidifies `A` to `String` and bind-lifts (map, pure core), and the carrier-headed result
-    // then bind-lifts again into printLine's `String` slot (flatMap).
+    // kind. The A.8.7 resolver reads `A := String` off the solved store (payload) and splices the desugar's hoist
+    // (`flatMap` over a `pure`-wrapped dot core), and the carrier-headed result then bind-lifts again into
+    // printLine's `String` slot.
     liftedBody(
       "import eliot.effect.Console\ndef call(f: Function[String, String]): {Console} Unit = printLine(readLine.f)",
       name = "call"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
   }
 
   it should "wrap a pure body under a carrier return with Effect.pure" in {
@@ -1213,18 +1216,22 @@ class MonomorphicTypeCheckTest
   // --- The extended regression matrix (Step 5) ---
 
   it should "lift a deferred generic slot once a later argument rigidifies it (deferral order)" in {
+    // `"x"` rigidifies `A := String`; the resolver classifies the suspended `readLine` as payload and splices the
+    // desugar's hoist — the one-bind-combinator spelling (`flatMap` over a `pure`-wrapped core), not the v2
+    // checker's `map`.
     liftedBody(
       "import eliot.effect.Console\ndef pick[A](x: A, y: A): A = x\ndef echo: {Console} String = pick(readLine, \"x\")"
-    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("map"))
+    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap"))
   }
 
   it should "lift a deferred generic slot a sibling argument rigidifies (multi-argument eliminator)" in {
     // The eliminator's first slot takes a plain value: the original spelling passed the body-less `none`, whose `A`
     // nothing determined, so the value never checked and every assertion held vacuously on an empty body. `ifNone`'s
-    // `B` is deferred; the `s -> s` lambda rigidifies it to `String`, so the checker bind-lifts the read there.
+    // `B` is deferred; the `s -> s` lambda rigidifies it to `String`, so the resolver hoists the read there (the
+    // desugar's `flatMap`+`pure` spelling).
     liftedBody(
       "import eliot.effect.Console\ndef foldOr[A, B](o: A, ifNone: B, ifSome: Function[A, B]): B = ifNone\ndef echo: {Console} String = foldOr(\"k\", readLine, s -> s)"
-    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("map"))
+    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap", "pure"))
   }
 
   it should "bind nested effectful arguments innermost-first (bind of a bind)" in {
@@ -1233,12 +1240,15 @@ class MonomorphicTypeCheckTest
     ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
   }
 
-  it should "pass a deferred generic slot through and lift at the parent instead" in {
-    // `identity`'s `a: A` is deferred: the computation flows through (`A` adopts the carrier) and the carrier-headed
-    // result bind-lifts once, at `printLine`'s declared-concrete slot.
+  it should "hoist a deferred generic slot its enclosing strict slot rigidifies, then bind at the parent" in {
+    // `identity`'s `a: A` is deferred; `printLine`'s `String` slot rigidifies `A := String` before quiescence, so the
+    // resolver classifies the suspended `readLine` as payload and hoists it inside the argument
+    // (`flatMap($row -> pure(identity($row)), readLine)`), and the carrier-headed result bind-lifts again at
+    // `printLine`'s declared-concrete slot. (v2 adopted mid-spine instead — pass-through, one bind at the parent —
+    // behaviourally identical: readLine runs exactly once, before printLine.)
     liftedBody(
       "import eliot.effect.Console\ndef identity[A](a: A): A = a\ndef echo: {Console} Unit = printLine(identity(readLine))"
-    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap"))
+    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap", "flatMap"))
   }
 
   it should "bind an effectful argument nested under a second strict slot (the updateState shape)" in {

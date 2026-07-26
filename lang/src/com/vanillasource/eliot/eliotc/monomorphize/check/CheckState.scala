@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -59,6 +59,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   canonical carrier stack (docs/effects-as-channel.md §10 U4-f, the capture arm). Applied at post-drain finalize
   *   **only if the target slot is still free**, so an explicitly-typed handler that legitimately pinned the slot
   *   itself wins — pin-if-still-free is order-independent and never a spurious conflict.
+  * @param modeObligations
+  *   The suspended slot-mode obligations (docs/effects-as-rows.md A.8.7): one per runtime-track computation that met a
+  *   bare-generic argument slot during checking. Recorded by the spine loop instead of deciding the slot mid-spine
+  *   (first-contact unification *is* a mode decision); classified against the solved meta store at post-drain
+  *   quiescence by [[ModeResolver]].
+  * @param letObligations
+  *   The deferred `val`/statement bindings (docs/effects-as-rows.md A.8.7): a runtime-track `let` whose bound type was
+  *   a bare metavariable at build time — the binding's bind-vs-plain mode is the bound instantiation's to decide, so
+  *   the `let` is built plain and re-decided at quiescence: a bound type resolved carrier-headed gets the desugar's
+  *   binding rewrite spliced ([[com.vanillasource.eliot.eliotc.row.RowElaborator.spliceResolvedModes]]).
   */
 case class CheckState(
     gamma: Env,
@@ -69,8 +79,18 @@ case class CheckState(
     ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
     liftCounter: Int = 0,
     metaConstraints: Map[Int, Seq[CheckState.MetaConstraint]] = Map.empty,
-    pendingPins: Seq[CheckState.PendingPin] = Seq.empty
+    pendingPins: Seq[CheckState.PendingPin] = Seq.empty,
+    modeObligations: Vector[CheckState.ModeObligation] = Vector.empty,
+    letObligations: Vector[CheckState.LetObligation] = Vector.empty
 ) {
+
+  /** Record a suspended slot-mode obligation (A.8.7). See [[modeObligations]]. */
+  def recordModeObligation(obligation: CheckState.ModeObligation): CheckState =
+    copy(modeObligations = modeObligations :+ obligation)
+
+  /** Record a deferred `let` binding whose mode the bound instantiation decides (A.8.7). See [[letObligations]]. */
+  def recordLetObligation(obligation: CheckState.LetObligation): CheckState =
+    copy(letObligations = letObligations :+ obligation)
 
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
@@ -193,4 +213,62 @@ object CheckState {
     * [[pendingPins]].
     */
   case class PendingPin(slot: SemValue, value: SemValue, context: Sourced[String])
+
+  /** One suspended slot-mode obligation (docs/effects-as-rows.md A.8.7): a carrier-headed computation met a
+    * bare-generic argument slot, whose mode only the instantiation decides. Held open — the argument's type is *not*
+    * unified into the slot — until post-drain quiescence, where [[ModeResolver]] classifies the solved `domain`:
+    * payload ⟹ the desugar's strict-hoist rewrite (splice + restart), carrier-headed / pinned ⟹ pass the computation
+    * through (unify), still-unsolved ⟹ the v2 default (adopt when the meta rides into `retType`, hoist otherwise).
+    *
+    * @param argNode
+    *   The argument's node in the checked body — the splice anchor (compared by reference identity, since the checker
+    *   threads the body's own [[Sourced]] nodes).
+    * @param argType
+    *   The argument's instantiated, effect-carrier-headed type.
+    * @param domain
+    *   The slot's domain — a bare metavariable at suspension time; forced at classification.
+    * @param retType
+    *   The application node's result type, for the ride-up occurs-check of the unsolved default.
+    * @param spineType
+    *   The whole spine's result type — read at splice time to apply the desugar's core rule with the mode known: a
+    *   hoisted core whose solved spine result is a rigid non-carrier is a *payload* and is `pure`-wrapped as the
+    *   chain's innermost continuation (the re-check must never meet a bare-generic continuation tail against the
+    *   machinery's carrier codomain, which first-contact unification would steal).
+    */
+  case class ModeObligation(
+      argNode: Sourced[OperatorResolvedExpression],
+      argType: SemValue,
+      domain: SemValue,
+      retType: SemValue,
+      spineType: SemValue,
+      status: ModeObligation.Status = ModeObligation.Status.Pending
+  )
+
+  object ModeObligation {
+
+    /** The lifecycle of a suspended obligation within the post-drain fixpoint. */
+    sealed trait Status
+
+    object Status {
+
+      /** Not yet classifiable — the slot's domain is still a bare metavariable. */
+      case object Pending extends Status
+
+      /** Classified as pass-through/capture: the computation's type was unified into the slot. */
+      case object Passed extends Status
+
+      /** Classified as payload: the argument must be hoisted — the desugar's rewrite is spliced and the mono
+        * restarts.
+        */
+      case object Hoist extends Status
+    }
+  }
+
+  /** One deferred `let` binding (docs/effects-as-rows.md A.8.7): the bound expression's type was a bare metavariable
+    * when the `let` was built, so bind-vs-plain could not be decided and the `let` was built plain. At quiescence a
+    * bound type resolved carrier-headed means the binding must sequence: the desugar's binding rewrite is spliced
+    * (`flatMap(x -> rest, bound)`) and the mono restarts. `argNode` is the bound expression's node in the checked
+    * body (the splice anchor, by reference identity).
+    */
+  case class LetObligation(argNode: Sourced[OperatorResolvedExpression], argType: SemValue)
 }
