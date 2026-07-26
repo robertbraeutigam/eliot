@@ -1,13 +1,18 @@
 # Effects as Rows, v3: Declared Suspension + a Desugared Elaboration
 
-Status: **R1–R4 COMPLETE (2026-07-26) — shadow-verified, not yet flipped.** Successor direction to
-`docs/effects-as-channel.md` (v2, still the live implementation). The row checker (`lang/.../row/RowChecker`)
-sweeps the real corpus with zero v2 disagreements (R3), and the elaboration desugar
-(`lang/.../row/RowElaborator`) is twin-verified on 30 shapes and **shadow-compiled end to end**: the full
-corpus — stdlib, jvm layer bodies and the synthetic entry included — recompiled from pre-elaborated facts
-runs behaviorally identically (R4, `RowElaborationShadowCompileTest`). Both remain **unwired**; v2 stays
-the live, green default and nothing changes behaviour until **R5 (the flip)** — the next step, starting
-with the §6 semantic-break corpus audit. Progress detail per step: §8.
+Status: **R1–R4 COMPLETE; R5 STARTED then PAUSED on an open design question (2026-07-26).** Successor
+direction to `docs/effects-as-channel.md` (v2, which remains the live, green implementation — nothing
+below has changed behaviour). The row checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero
+v2 disagreements (R3), and the elaboration desugar (`lang/.../row/RowElaborator`) is twin-verified on 30
+shapes and **shadow-compiled end to end** (R4, `RowElaborationShadowCompileTest`).
+
+**R5 wired the desugar into the pipeline as a real phase and ran it over the whole corpus** — which
+exposed what twin shapes could not: for positions that flow through a callee's **generic binders**, the
+fact that decides slot mode and lift placement is an *instantiation*, not a declaration. Three of the five
+rules that surfaced are genuine information gaps and stand on their own; two are not, and one of those was
+reverse-engineered from the dot-chained discharger — a rule shaped by an idiom, in a language whose dot
+operator must stay an ordinary function. **The open question, the full record and the three ways out are
+Appendix A.8.** The work is uncommitted and paused there. Progress detail per step: §8.
 
 **One-sentence summary.** Make suspension *declared* in signatures instead of inferred from genericity;
 then effect elaboration (where `flatMap`/`pure`/thunks go) becomes a syntax-directed **desugar phase**
@@ -326,8 +331,17 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   boundaries v2 Id-defaults at** — a definition's pure return and a `val` binding — never at argument
   slots, where the still-flex base must instead flow to the slot's expected type (the pervasive
   hand-monadic `runId(runAbort(x))` / `.runThrow.runId` shape would otherwise double-unwrap).
-- **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
-  slices (per-slice gate: lang + jvm tests, HelloWorld, eliot-test).
+- **R5 — flip: STARTED, PAUSED on a design question (2026-07-26).** The seam landed as designed —
+  elaboration is an ordinary phase (`RowElaboratedValue`, produced by `RowElaborationProcessor` between
+  the recursion gate and saturation, with a demand-driven universe that fetches exactly what elaboration
+  consults rather than guessing it). Running the elaborator over the *whole* corpus rather than over twin
+  shapes then forced five rules R4 did not have. Three are genuine information gaps (a bare `[F[_]]` is
+  not a carrier; `runId` only at a declared discharge; a concrete carrier-typed parameter is data) and
+  stand on their own. The other two — hoist-iff-the-row-is-non-empty, and *relaying* a slot mode through
+  a callee's generic binder — are where the deciding fact is an **instantiation**, not a declaration, and
+  the second was reverse-engineered from the dot-chained discharger. **Full record, including the gate
+  state and the three ways out, is Appendix A.8.** Nothing is committed; the checker's effect machinery
+  has not been deleted.
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory
   sweep, v2 doc marked superseded.
 
@@ -455,3 +469,136 @@ information gaps, not rule gaps, and the derivation rule survived unchanged:
    routing to those capture shapes — the residual whole-unify traffic v2's §10 item 13 left unrouted
    for want of a benefit; the row metadata is that benefit, and the full behavioral gate (295 jvm
    output-asserting tests, catch shape matrix included, HelloWorld, eliot-test 11/11) is green under it.
+
+### A.8 The R5 flip: what wiring the elaborator into the pipeline revealed (2026-07-26)
+
+R5's first slice — making the pipeline *consume* elaborated bodies — landed as designed. Running the
+elaborator over the whole corpus rather than over twin shapes then exposed a class of gaps R4's
+acceptance could not: **the desugar must decide slot modes and lift placement that flow through a
+callee's generic binders, and those are not always readable from declarations.** This section records
+the seam, every rule the corpus forced, the one that is a red flag, and the design question they add
+up to. The work is **paused here pending that decision** — nothing below is committed.
+
+#### A.8.1 The seam (landed, uncontroversial)
+
+Elaboration is an ordinary phase in the value chain, one fact wide:
+
+`OperatorResolvedValue` → `NamedValuesRewrittenValue` → `RecursionCheckedValue` → **`RowElaboratedValue`**
+→ `SaturatedValue` → …
+
+- `lang/src/.../row/fact/RowElaboratedValue.scala` carries the `OperatorResolvedValue` with its body
+  rewritten and **every other field untouched** — which is why the *sideways* reads later phases perform
+  for a callee's signature, fixity or effect row keep reading `OperatorResolvedValue` directly. Only
+  `SaturatedValueProcessor` (the sole body consumer downstream) was repointed.
+- `lang/src/.../row/processor/RowElaborationProcessor.scala` runs it, placed **after** the recursion
+  gate (which walks the *user's* reference graph, before any machinery call is spliced in).
+- **The universe is built by demand, not guessed.** Elaboration consults the declared signature, row and
+  slot modes of every callee it meets, plus one alias level inside those signatures and the registered
+  run boundaries — and *which* names those are depends on classifications made along the way, so the set
+  cannot be read off the body. `RowChecker.Universe` therefore gained an `onMiss` callback: the
+  processor elaborates against what it holds, fetches exactly what was missed, and repeats until a round
+  misses nothing new. Guessing the set instead would silently fall back to the unknown-callee
+  approximations, and a wrong slot mode changes *when* an effect runs — which no later phase catches.
+- Position fidelity: `assemble` now returns the **original** nodes when nothing changed. Rebuilding an
+  equal spine re-attributes it to per-argument positions, which silently moves every diagnostic anchored
+  at a call (caught by an existing "too many type arguments" location assertion).
+
+#### A.8.2 The rules the corpus forced
+
+Each entry: the shape that broke, the rule, and whether it is stated in the design's own vocabulary or
+reverse-engineered from an idiom.
+
+1. **A bare `[F[_]]` is not a carrier** — *principled*. `def id[F[_]](x: F[A]): F[A]` and a
+   constructor-class `ability Container[F[_]] { def wrap(s: String): F[String] }` were classified as
+   carrier-returning, so `def f: Box[String] = wrap(s)` got a spurious `runId` and `id(someBox)` a
+   spurious `pure`. `EffectCarriers.declaredCarrierBinders` now asks which binders a signature *declares*
+   as carriers: ability-constrained (`[G[_] ~ Effect]`, every `{E}`-minted binder), or the base of a
+   declared **pinned** row (`runAbort[G[_], A](obj: {Abort | G} A)` — deliberately unconstrained, so
+   nothing else marks it), or — for an ability method — its ability's own binder. `Console` and
+   `Container` are the same shape and stay the same shape; what separates them is the *use site*.
+2. **`runId` only at a declared discharge** — *principled, and stronger than R4's rule*. A carrier-valued
+   node at a pure boundary was unwrapped unconditionally, which is wrong for anything whose carrier the
+   context supplies. `runId` now requires the node to be a call that **captures a row in a pinned
+   parameter** (or a run boundary): a discharger has *consumed* the row, so what remains rides a carrier
+   nothing constrains — `Id` by declaration (A.4). A merely carrier-*returning* call has discharged
+   nothing: the desugar writes nothing and unification decides (`def f: Box[String] = wrap(s)` takes
+   `Box`; an undeclared effect under a pure return is a leak the row check reports). This also restored
+   the friendly declared-pure diagnostic, which the unconditional rule had replaced with a stray
+   "Name not defined.".
+3. **A concrete carrier-typed parameter is data** — *principled*. `implement Effect[IO]`'s own
+   `fa: IO[A]` was read as a suspended computation and hoisted, rewriting the very machinery elaboration
+   emits (`IO(IO(IO(Type)))`). A parameter holds a computation only when its declared type is headed by
+   one of the definition's **own carrier binders**, or is a **pinned stack** (`computation: {Dep[X] | G} A`).
+   Symmetrically, a `pure`-lift now requires the node to be **definitely pure**: not-carrier-valued also
+   covers everything the desugar cannot classify (a lambda binder whose type only inference knows), and
+   only an *atomic* declared type says "payload" — an applied one may be a carrier stack the desugar
+   cannot name.
+4. **Hoist iff the argument's row is non-empty** — *principled in vocabulary, but already incomplete*.
+   `foldLeft(pure(unit), …)` and `foldOption(fallback, …)` fold **over** computations: the accumulator is
+   data, and binding it strips the carrier the slot exists to receive. Carrier-valued-ness alone cannot
+   tell those from `readLine`; the *row* can — `pure(x)` and a `fallback: G[A]` parameter have the empty
+   row, `readLine` has `{Console}`. This is the design's own vocabulary, and it keeps the §6 semantic
+   break exactly where it belongs. **But it is not sufficient as stated**: a *discharging* call also has
+   an empty row and still must be sequenced, which is the one remaining lang failure
+   (`printLine(catchX(failing, h))` under an ambient carrier no longer hoists). The fix is another clause
+   — and "another clause" is the pattern this section is really about.
+5. **Carrier instantiation through generics, and relayed slot modes** — *the red flag*. Two shapes:
+   `list.foreach(action)` and `foreach`'s own `foldLeft` body need to know that a callee's **bare generic
+   return** was instantiated at a carrier by one of its arguments; and `firstDep.provide(Database(…))`
+   needs to know that a computation reaching a bare generic slot is **captured**, not run. The rules
+   added were: propagate "this argument instantiates this generic at a carrier" from arguments to the
+   return, and *relay* a slot mode — if a slot is typed by a bare generic that another slot's declared
+   arrow takes as its **domain**, and that arrow's argument is an **under-applied call whose next
+   parameter is pinned**, the slot inherits pinned.
+
+#### A.8.3 Why rule 5 is a red flag
+
+The relay rule names nothing: no FQN check, no `.`-specific branch, and it fires for any combinator of
+that shape. But it exists because `a.f(b)` is `.(a, f(b))`, and it only handles depth 1 — an
+under-applied call, not a lambda, not a longer chain. **The dot operator is an ordinary user-land
+function and must stay one**; a rule that has to be invented so that one idiom elaborates is a rule
+shaped by the idiom, whatever its stated generality. It is also plainly inference: it propagates a mode
+across a generic binder through a higher-order argument, which is what the *checker* does with types.
+
+Read together with rule 4's missing clause, the five rules are one signal: a declared-only desugar keeps
+being asked to re-derive, one shape at a time, what v2's type-directed checker knew for free. Rules 1–3
+are genuine information gaps (R4 read the wrong declared fact) and stand on their own. Rules 4 and 5 are
+where the information is not in the declarations at all.
+
+#### A.8.4 The design question this poses
+
+**Can the elaboration desugar decide slot mode and lift placement for positions that flow through a
+callee's generic binders, from declarations alone?** The corpus says: not for the two shapes above,
+because the deciding fact is an *instantiation* (`B := F[Unit]`, `A := {Dep[X] | G} String`), not a
+declaration. §3's premise — elaboration is a desugar, decision-free, before checking — holds for every
+shape where the mode is spelled on the callee's own parameter; it does not obviously hold where the mode
+arrives through a generic.
+
+Three directions, none of them taken:
+
+- **(a) Declare it.** Make the surface carry what the relay rule guesses: a combinator that forwards a
+  slot to a pinned/suspended parameter says so. Costs surface; keeps the desugar decision-free; needs an
+  answer for `.` itself, which is where it hurts (`.`'s `A` is *any* slot of *any* callee).
+- **(b) Stage it.** Let elaboration run with some type information — after (or interleaved with) enough
+  checking to know the instantiation. Gives up "elaboration is a desugar" as an absolute, and moves the
+  boundary v3 drew with v2 rather than erasing it.
+- **(c) Bound it.** Keep the desugar declaration-only and accept that these shapes do not elaborate —
+  then R5 cannot delete v2's checker machinery for them, and the effect surface loses dot-chained
+  discharge (a shipped, documented idiom).
+
+#### A.8.5 State of the tree at the pause
+
+Uncommitted, and deliberately so: rule 5 is in the working tree and neither of us believes in it.
+
+- Wiring (A.8.1) and rules 1–4: implemented.
+- Gate: **lang 1076 passed / 1 failed** (the rule-4 discharge clause, above); **jvm 275 passed / 21
+  failed** (State/Dep/file-io/Inf integration programs — all downstream of rules 4 and 5).
+- Test updates already made and independently sound: the `MonomorphicTypeCheckTest` lift group was
+  rewritten to v3's shapes (strict-by-default; one bind combinator, `pure` under `flatMap` instead of
+  selecting `map`) and renamed to "the effect elaboration"; `liftedBody` now **fails** when a value
+  produces no monomorphic body instead of returning an empty name list — which surfaced one assertion in
+  that group that had been passing vacuously since it was written (`foldOr(none, …)`: `none`'s `A` was
+  determined by nothing, so nothing ever compiled).
+- The stub `IO` in `ProcessorTest` gained the run boundary `runMain`, and `MonomorphicTypeCheckTest`
+  registers it — the harness now declares `IO` a carrier head exactly as a real build does, instead of
+  the elaborator having to infer it.
