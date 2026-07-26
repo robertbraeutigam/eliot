@@ -20,8 +20,9 @@ import java.nio.file.{Files, Path}
 class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   /** A documented limitation (CLAUDE.md, the effect section): a discharger consumes the *carrier*, so it must receive
-    * the effectful call as an expression — a `val` sequences the carrier away, leaving a bare `String` the `else` can
-    * no longer discharge. The mismatch is legitimate; before this gate it reported `Expected: AbortCarrier(IO, String)`.
+    * the effectful call as an expression — a `val` sequences the effect onto `main`'s ambient carrier, where it is
+    * never discharged. The per-definition row verification reports exactly that, at `main`, in effect vocabulary
+    * (before it, the failure surfaced downstream as a type mismatch against the pinned expectation).
     */
   private val valBoundDischarge =
     """def setting(key: String): {Abort} String = abort
@@ -30,6 +31,18 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
       |   val host = setting("host")
       |   printLine(host else "localhost")
       |}
+      |""".stripMargin
+
+  /** A pure value where a pinned computation is expected (`resume`'s declared parameter is the reified
+    * `{Abort | IO} String`) — a legitimate type mismatch whose `Expected:` line must render the carrier stack as its
+    * pinned row, never as `AbortCarrier(...)`.
+    */
+  private val pinnedMismatch =
+    """import eliot.jvm.IO
+      |
+      |def resume(c: {Abort | IO} String): {Console} Unit = printLine(c else "localhost")
+      |
+      |def main: {Console} Unit = resume("plain")
       |""".stripMargin
 
   /** A side effect reaching a computation pinned to the pure base: the `TestCase` field's row is pinned to `Id`, which
@@ -72,10 +85,20 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
   }
 
   "a type-mismatch diagnostic" should "render a carrier-headed expectation as its pinned effect row" in {
-    compileErrors(valBoundDischarge).asserting(_.mkString should include("{Abort | IO} String"))
+    compileErrors(pinnedMismatch).asserting(_.mkString should include("{Abort | IO} String"))
   }
 
   it should "name no carrier machinery" in {
+    compileErrors(pinnedMismatch).asserting(_.mkString should not include "Carrier")
+  }
+
+  "the val-bound discharge limitation" should "read as an effect leak at the definition, in row vocabulary" in {
+    compileErrors(valBoundDischarge).asserting(
+      _.mkString should include("performs the effect 'Abort' but does not declare it")
+    )
+  }
+
+  it should "name no carrier machinery either" in {
     compileErrors(valBoundDischarge).asserting(_.mkString should not include "Carrier")
   }
 

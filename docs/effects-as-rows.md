@@ -181,8 +181,11 @@ removes it. `Id` keeps its "no `Suspend[Id]`" safety property. To be verified in
 **Deleted (checker layer, ≈2,000+ lines):** `EffectLifter` (433) with all arms
 (`mustLiftBeforeUnify`, `tryBindLift`, `tryPureWrap`, `tryIdDefault`); `UniformCarrierChecker` (414);
 the `carrier/` package (404: `Carrier`, `CarrierJoin`, `UniformLadder`); `IdNormalizer` (308) +
-`PostDrainQuoter.stripIdMachinery` (or trivialized per §3); `DeclaredPureChecker` (subsumed — 
-"declared pure but performs an effect" becomes an ordinary row-subset failure with a good location);
+`PostDrainQuoter.stripIdMachinery` (or trivialized per §3); `DeclaredPureChecker` (**corrected by the
+A.8.6 landing: NOT subsumable pre-mono** — a no-ambient definition's carrier-ability call may be a
+constructor-class use (`def f: Box[String] = wrap(s)`, `Container[Box]`), indistinguishable from a leak
+without the instantiation, so the row check does not enforce there and `DeclaredPureChecker` — which is
+mono-failure-triggered, hence instantiation-informed — stays until the resolver era);
 `CarrierKindChecker`'s carrier-role seeding; and inside `Checker.scala` the ladders
 (`resolveLadder`/`resolveFailureLadder`), Phase A/B deferral (`SlotOutcome.Deferred`,
 `resolveDeferredSlot`, `sequenceBeforeUnify`, `deferredGenericDefault`), all four pinning mechanisms
@@ -699,3 +702,30 @@ The shadow-compile changed-count tripwire was relaxed to `> 0` (deferral legitim
 definitions; the tripwire only guards against identity degradation). Next: the R5 deletion slices —
 the checker's effect machinery goes cold piece by piece against this same gate, Phase A/B last,
 replaced by the ground-instantiation resolver.
+
+**Landed, second slice (2026-07-26): the per-definition row verification is wired** —
+`RowElaborationProcessor.verifyRow` enforces `derived ⊆ declared` before elaboration, located at the
+definition, in accounting's own wording; a leak aborts the value, so the user gets one friendly error
+instead of the downstream symptoms (this replaces the cryptic `AbilityResolver` demand for a
+`State`/`Throw`/`Abort` leak from an ambient-declaring definition, and turns the val-bound-discharge
+limitation into a located "performs the effect 'Abort' but does not declare it"). Wiring it over the
+corpus forced the same honesty the elaborator needed, and drew the enforcement boundary in three
+declared conditions:
+
+- **only for a definition that declares an ambient** (non-empty declared row / pinned return). The
+  constructor-class idiom (`def f: Box[String] = wrap(s)` with `Container[Box]`, a row-spelled
+  combinator instantiated at a concrete carrier) proves a callee-row contribution's *ridership* is an
+  instantiation fact — a no-ambient definition cannot be enforced from declarations. Consequence,
+  corrected in §4: `DeclaredPureChecker` is **not** subsumed pre-mono; being mono-failure-triggered it
+  is instantiation-informed, and it stays until the resolver era (as does the purpose-built
+  `Suspend`-at-`Id` message for pinned-to-pure stores);
+- **only under full coverage** (no unknown callees);
+- **only with no uncertain contributions**: a rowed argument meeting a *bare-generic* slot moved to a
+  new `uncertain` channel in the derivation (`Derivation.deferred`) — the dot-chained discharge
+  (`counter.runStateToValue("init")` in a `{Console}` body) captures it there while a strict
+  instantiation runs it, the same A.8.6 fact on the row side — and any uncertainty disables pre-mono
+  enforcement for the definition. R1's "suspension is row-neutral" survives *where suspension is
+  declared*; it is the *bare-generic* slot whose row destination is instantiation-decided.
+
+The post-mono `EffectAccountingProcessor` remains the unconditional ground-truth verifier gating
+codegen in every case the pre-mono check declines.

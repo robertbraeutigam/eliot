@@ -80,7 +80,8 @@ object RowChecker {
       derived: Row,
       declared: Row,
       unknownCallees: Set[ValueFQN],
-      runCaptured: Boolean = false
+      runCaptured: Boolean = false,
+      uncertain: Row = Set.empty
   ) {
 
     /** The effects performed but not declared — non-empty is the v3 diagnostic "performs the effect 'X' but does not
@@ -125,7 +126,8 @@ object RowChecker {
         derivation.row,
         declaredRow(orv) ++ pinnedReturnEntries(orv),
         derivation.unknown,
-        runCaptured = headOf(view.returnType.value).exists(runCarrierHeads(universe).contains)
+        runCaptured = headOf(view.returnType.value).exists(runCarrierHeads(universe).contains),
+        uncertain = derivation.uncertainRow
       )
     }
 
@@ -191,10 +193,19 @@ object RowChecker {
     peelLambdas(expr)
 
   /** A derivation in progress: the row performed plus the referenced names the universe could not resolve. */
-  private case class Derivation(row: Row, unknown: Set[ValueFQN]) {
-    def |+|(other: Derivation): Derivation      = Derivation(row ++ other.row, unknown ++ other.unknown)
-    def minus(entries: Row): Derivation         = copy(row = row -- entries)
+  private case class Derivation(row: Row, unknown: Set[ValueFQN], uncertainRow: Row = Set.empty) {
+    def |+|(other: Derivation): Derivation        =
+      Derivation(row ++ other.row, unknown ++ other.unknown, uncertainRow ++ other.uncertainRow)
+    def minus(entries: Row): Derivation           = copy(row = row -- entries)
     def clearedWhen(cleared: Boolean): Derivation = if (cleared) copy(row = Set.empty) else this
+
+    /** Mark this contribution **instantiation-uncertain** (A.8.6): its row entries reached a slot typed by a bare
+      * generic, where the mode is the instantiation's — a dot-chained discharger *captures* the computation there
+      * (the row must not join), while a strict instantiation runs it (it must). The entries move out of the certain
+      * row: the definition's leak check skips them, and their presence disables pre-mono enforcement for the
+      * definition — the post-mono accounting (exact ride test at ground instantiations) remains their verifier.
+      */
+    def deferred: Derivation = if (row.isEmpty) this else Derivation(Set.empty, unknown, uncertainRow ++ row)
   }
 
   private object Derivation {
@@ -230,14 +241,21 @@ object RowChecker {
     head match {
       case ValueReference(name, _)                      =>
         val orvOpt      = universe.lookup(name.value)
-        val saturated   = args.size >= orvOpt.map(o => SignatureView.of(o.signature).parameters.size).getOrElse(0)
+        val view        = orvOpt.map(o => SignatureView.of(o.signature))
+        val binders     = orvOpt.map(EffectCarriers.declaredCarrierBinders).getOrElse(Set.empty)
+        val saturated   = args.size >= view.map(_.parameters.size).getOrElse(0)
         val callee      = if (saturated) calleeContribution(name.value, universe) else Derivation.empty
         val runBoundary = universe.runBoundaries.contains(name.value)
         args.zipWithIndex
           .map { case (arg, i) =>
-            argumentContribution(arg.value, env, universe)
+            val contribution = argumentContribution(arg.value, env, universe)
               .minus(pinnedEntries(orvOpt, i))
               .clearedWhen(runBoundary && i == 0)
+            // A rowed contribution meeting a slot typed by a bare generic is instantiation-uncertain (a dot-chained
+            // discharger captures it there; a strict instantiation runs it) — see [[Derivation.deferred]].
+            if (view.flatMap(_.parameters.lift(i)).map(_.value).exists(genericHeadedSlot(_, binders)))
+              contribution.deferred
+            else contribution
           }
           .foldLeft(callee)(_ |+| _)
       case FunctionLiteral(_, _, body) if args.nonEmpty =>
@@ -257,6 +275,16 @@ object RowChecker {
         Derivation.empty
     }
   }
+
+  /** Whether a declared slot type is headed by a *bare generic* — a `ParameterReference` head that is not one of the
+    * callee's declared carrier binders (`a: A`, `initial: B`, `x: F[A]` with a bare `F[_]`). Such a slot's mode is
+    * the instantiation's to decide (A.8.6), so a rowed contribution meeting it is uncertain.
+    */
+  private def genericHeadedSlot(tpe: OperatorResolvedExpression, carriers: Set[String]): Boolean =
+    spine(tpe)._1 match {
+      case ParameterReference(name) => !carriers.contains(name.value)
+      case _                        => false
+    }
 
   /** The contribution of an argument at a (non-pinned) slot: the effects of evaluating it, plus — conservatively — the
     * latent row of a function value passed in (the callee may run it).
