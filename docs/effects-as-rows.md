@@ -1,18 +1,18 @@
 # Effects as Rows, v3: Declared Suspension + a Desugared Elaboration
 
-Status: **R1–R4 COMPLETE; R5 STARTED then PAUSED on an open design question (2026-07-26).** Successor
-direction to `docs/effects-as-channel.md` (v2, which remains the live, green implementation — nothing
-below has changed behaviour). The row checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero
+Status: **R1–R4 COMPLETE; R5 IN PROGRESS under the A.8.6 resolution (2026-07-26).** Successor
+direction to `docs/effects-as-channel.md` (v2, which remains the live, green implementation until the
+flip completes). The row checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero
 v2 disagreements (R3), and the elaboration desugar (`lang/.../row/RowElaborator`) is twin-verified on 30
 shapes and **shadow-compiled end to end** (R4, `RowElaborationShadowCompileTest`).
 
 **R5 wired the desugar into the pipeline as a real phase and ran it over the whole corpus** — which
 exposed what twin shapes could not: for positions that flow through a callee's **generic binders**, the
-fact that decides slot mode and lift placement is an *instantiation*, not a declaration. Three of the five
-rules that surfaced are genuine information gaps and stand on their own; two are not, and one of those was
-reverse-engineered from the dot-chained discharger — a rule shaped by an idiom, in a language whose dot
-operator must stay an ordinary function. **The open question, the full record and the three ways out are
-Appendix A.8.** The work is uncommitted and paused there. Progress detail per step: §8.
+fact that decides slot mode and lift placement is an *instantiation*, not a declaration (the full record
+is Appendix A.8). **The resolution, decided 2026-07-26, is bounded staging (A.8.6)**: the desugar decides
+every declaration-decided position and **explicitly defers** the instantiation-decided ones — it never
+guesses. Deferred positions are finished by the checker: today by v2's live machinery, at end state by
+one small resolver that replaces it. Progress detail per step: §8.
 
 **One-sentence summary.** Make suspension *declared* in signatures instead of inferred from genericity;
 then effect elaboration (where `flatMap`/`pure`/thunks go) becomes a syntax-directed **desugar phase**
@@ -78,9 +78,12 @@ Two further observations seal it:
 ## 1. The user model (three rules)
 
 1. **Effects run where they are written.** An effectful expression in any plain position performs its
-   effects at that position; they join the enclosing definition's row. Strict call-by-value, always,
-   regardless of the callee's genericity. `pick(readLine, "x")` and `choose(readLine, readLine)` both
-   run their reads at the call site.
+   effects at that position; they join the enclosing definition's row. Strict call-by-value wherever the
+   callee's signature gives the slot a shape. *(Amended by A.8.6: at a slot typed by a **bare generic**
+   the signature is silent, and the mode is the use site's instantiation — a computation flowing to a
+   discharger's pinned parameter through `.` stays captured; `pick(readLine, "x")` still runs its read
+   at the call site once the sibling argument fixes the instantiation. Either way the row joins the
+   caller's row — mode never changes the row, only where the binds go.)*
 2. **Suspension is declared.** A parameter that must *not* run its argument declares an open row:
    `whenTrue: {G} A` receives the computation unrun. `if[T](c: Bool, value: {Abort} T)` already spells
    this — v3 makes the syntax mean what it looks like it means. Pure arguments fit suspended slots
@@ -146,10 +149,23 @@ shape v2's checker *output* has today, so monomorphization, ability resolution (
   `assertNoIdResidue`, the per-consumer normalization tax) has nothing to exist for.
 
 Every placement decision reads *declared* information (slot modes, callee rows) — no types needed, no
-instantiation-dependence, hence a desugar. The checker then checks the elaborated program as ordinary
-code: `flatMap` is an application like any other. **This is not v1's weaver**: v1 erased and tried to
-*reconstruct* placement post-mono with no signal; v3 never erases — the signal is in signatures, read
-before checking.
+instantiation-dependence, hence a desugar — **for every position whose mode the callee's own signature
+spells** (amended by A.8.6; the R5 corpus run proved that is not every position). The checker then
+checks the elaborated program as ordinary code: `flatMap` is an application like any other. **This is
+not v1's weaver**: v1 erased and tried to *reconstruct* placement post-mono with no signal; v3 never
+erases — the signal is in signatures, read before checking.
+
+**The whitelist (the anti-accretion guardrail, binding on every future change).** The elaborator may
+consult exactly these facts and nothing else: a callee's declared parameter types and return type (slot
+carrier-headedness, carrier-codomain arrows, atomic-vs-applied shape), its declared row and carrier
+binders (`EffectCarriers.declaredCarrierBinders`), its pinned metadata
+(`EffectRow.pinnedParameterIndices` / `returnPinnedEffects`), the run-boundary registry, and one level
+of type-alias expansion inside those signatures. A decision that cannot be made from the whitelist is
+**deferred — the elaborator writes nothing** — never approximated by a new syntactic rule. In
+particular, a rule that inspects a *sibling argument's expression shape* to decide a slot's mode is
+prohibited: that is inference, and inference lives in the resolver (A.8.6), not the desugar. The
+fail-safe direction is built in: a missing rewrite leaves direct-style code the checker either
+elaborates (transition) or rejects loudly; a wrong rewrite silently changes when an effect runs.
 
 **The `Id` residue question** (discharge under a pure return: `def sign(f: Bool): String =
 if(f, "+") else "-"` — the discharge region needs *some* carrier). Recommended resolution: the desugar
@@ -213,11 +229,13 @@ Signature changes (small, enumerable):
 - Lazy combinators (`orElse` fallbacks, any future `&&`/`||`): declare suspension; dischargers,
   `Effect`/`Suspend`, `printLine`/`readLine`, `Inf.forever`: unchanged.
 
-**Semantic break (the one real cost):** an effectful argument at a plain generic slot now runs at the
-call site — code relying on implicit suspension-via-genericity changes behaviour. Audit expectation:
-almost all real suspension flows through `fold`/`if` (declared) and dischargers (pinned); direct
-reliance is rare. The migration must grep the corpus (stdlib, examples, eliot-test) for effectful
-arguments meeting bare generic slots and classify each.
+**Semantic break — narrowed to nearly nothing by A.8.6:** the original plan made an effectful argument
+at a plain generic slot run at the call site unconditionally. Under bounded staging a *bare generic*
+slot's mode is instead resolved from its instantiation — which is v2's behaviour — so dot-chained
+discharge, `foreach`, `provide` and the `choose`/`pick` pair all keep their current semantics, and the
+planned corpus audit for implicit-suspension reliance is moot. The break that remains is only at slots
+with a *declared concrete* payload type: an effectful argument there always runs at the call site
+(hoisted by the desugar), which is also what v2 does. Effectively no user-visible semantics change.
 
 ## 7. What this preserves of the cornerstones
 
@@ -331,7 +349,7 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   boundaries v2 Id-defaults at** — a definition's pure return and a `val` binding — never at argument
   slots, where the still-flex base must instead flow to the slot's expected type (the pervasive
   hand-monadic `runId(runAbort(x))` / `.runThrow.runId` shape would otherwise double-unwrap).
-- **R5 — flip: STARTED, PAUSED on a design question (2026-07-26).** The seam landed as designed —
+- **R5 — flip: IN PROGRESS under the A.8.6 resolution (2026-07-26).** The seam landed as designed —
   elaboration is an ordinary phase (`RowElaboratedValue`, produced by `RowElaborationProcessor` between
   the recursion gate and saturation, with a demand-driven universe that fetches exactly what elaboration
   consults rather than guessing it). Running the elaborator over the *whole* corpus rather than over twin
@@ -339,9 +357,10 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   not a carrier; `runId` only at a declared discharge; a concrete carrier-typed parameter is data) and
   stand on their own. The other two — hoist-iff-the-row-is-non-empty, and *relaying* a slot mode through
   a callee's generic binder — are where the deciding fact is an **instantiation**, not a declaration, and
-  the second was reverse-engineered from the dot-chained discharger. **Full record, including the gate
-  state and the three ways out, is Appendix A.8.** Nothing is committed; the checker's effect machinery
-  has not been deleted.
+  the second was reverse-engineered from the dot-chained discharger. **The full record is Appendix A.8;
+  the decision — bounded staging: the desugar defers instantiation-decided positions instead of
+  guessing them, and one small resolver replaces v2's Phase A/B as the last deletion slice — is
+  A.8.6.** The checker's effect machinery is deleted only after the deferral-based flip is green.
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory
   sweep, v2 doc marked superseded.
 
@@ -602,3 +621,50 @@ Uncommitted, and deliberately so: rule 5 is in the working tree and neither of u
 - The stub `IO` in `ProcessorTest` gained the run boundary `runMain`, and `MonomorphicTypeCheckTest`
   registers it — the harness now declares `IO` a carrier head exactly as a real build does, instead of
   the elaborator having to infer it.
+
+#### A.8.6 Resolution: bounded staging (decided 2026-07-26)
+
+**The decision is (b), tightly bounded.** The A.8.4 question — can the desugar decide slot mode and
+lift placement for positions flowing through a callee's generic binders from declarations alone — is
+answered *no*, and the design stops pretending otherwise. §0's audit already identified the
+generic-slot mode as the one irreducibly instantiation-dependent decision of v2's eight elaboration
+sites; R5's corpus run is the proof that declaring suspension removes it for direct slots but not for
+slots reached *through* a generic. The correction is not more rules — it is making the one
+type-informed decision **explicit, singular, and owned**:
+
+1. **The desugar decides every declaration-decided position and explicitly defers the rest.** Where
+   the deciding fact is an instantiation — a computation meeting a bare-generic slot, a call whose
+   declared return is a bare generic — the elaborator **writes nothing**: no hoist, no `pure`, no
+   `runId`. Deferral is the only sanctioned reaction to missing declared information (the §3
+   whitelist). Rule 5 (both halves: carrier-instantiation propagation and relayed slot modes) is
+   deleted, never committed. Rule 4 keeps its row test and gains its one missing — declared — clause:
+   a *discharging* argument (its callee captures a pinned slot or is a run boundary) sequences even
+   though its row is empty. `definitelyPure` tightens symmetrically: only a declared-atomic/concrete
+   result is definitely pure; a bare-generic result is unclassifiable, hence deferred.
+2. **Deferred positions are finished by the checker.** During the transition that is v2's live
+   machinery, unchanged — a deferred node is direct-style code, which is exactly what the v2 checker
+   elaborates today, and elaborated fragments are indistinguishable from hand-written monadic code it
+   already accepts. So the flip can go green *before* any deletion starts, with the desugar owning
+   the declaration-decided majority and v2 owning the deferred residue.
+3. **The end state replaces v2's Phase A/B with one small resolver** (est. 150–300 lines, beside the
+   row machinery, not in the checker's unification path). It reads the *solved* instantiation of a
+   deferred slot — post-drain or at mono, where instantiations are ground by construction — classifies
+   it three ways (payload → the desugar's strict-hoist rule; carrier-headed → suspended pass-through;
+   pinned stack → capture), and applies the desugar's own placement rules. The binding constraint:
+   **mode resolution must never intercept unification mid-flight** — if a mode were needed before
+   checking can proceed, the v2 ordering machinery (ladders, Phase A/B sequencing) would creep back.
+   The `choose`/`pick` pair is the acceptance test for exactly that risk. Deletion of v2's machinery
+   proceeds in slices only after the deferral-based flip is green; Phase A/B goes last, replaced by
+   the resolver.
+
+**What this concedes and what it keeps.** "Elaboration is a desugar" weakens to "a desugar plus
+exactly one type-informed decision, made where types are ground." In exchange: the §4 deletion list
+survives intact (the theft class, the ladders, the Id apparatus, `EffectLifter`, `UniformCarrierChecker`
+all still die — Phase A/B is *replaced*, by something smaller in kind); the §6 semantic break narrows
+to nothing user-visible (bare-generic slots keep v2's instantiation-determined behaviour, so
+dot-chained discharge, `foreach`, `provide` and `choose`/`pick` are unchanged); and the dot operator
+stays an ordinary function with no rule shaped after it. The rejected alternatives: (a) declaring
+mode-forwarding in the surface fails precisely at `.` (its `A` can forward to any slot of any callee)
+and still needs annotations for lambdas and deep chains; (c) bounding the desugar loses dot-chained
+discharge, a shipped idiom. Note (a)'s special case "make `.` compiler magic" would not even close the
+class — `foreach`'s own `foldLeft` body needs the same instantiation fact with no dot in sight.
