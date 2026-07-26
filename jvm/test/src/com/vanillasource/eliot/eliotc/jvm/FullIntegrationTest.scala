@@ -117,7 +117,15 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }
   }
 
-  private def runJar(jarPath: Path, stdin: String): IO[String] = IO.blocking {
+  private def runJar(jarPath: Path, stdin: String): IO[String] = FullIntegrationTest.runJar(jarPath, stdin)
+}
+
+object FullIntegrationTest {
+
+  /** Run an executable jar in-process (a fresh classloader over the jar), feeding `stdin` and capturing standard
+    * output. Shared by the integration suites and the R4 shadow-compile experiment.
+    */
+  def runJar(jarPath: Path, stdin: String): IO[String] = IO.blocking {
     val classLoader = new URLClassLoader(Array(jarPath.toUri.toURL), ClassLoader.getPlatformClassLoader)
     try {
       val mainClass   = classLoader.loadClass("main")
@@ -143,9 +151,6 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       classLoader.close()
     }
   }
-}
-
-object FullIntegrationTest {
 
   /** The single resident compilation session shared across every integration suite in this test JVM. Building it is
     * deferred to first use and done exactly once (a plain `lazy val` — suites run serially, so no synchronization is

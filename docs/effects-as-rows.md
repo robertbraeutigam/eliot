@@ -305,8 +305,22 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   capture), a pure captured argument lifts via `pure`, and a pinned-return body is itself the captured
   computation (pure body ⇒ `pure`-wrapped, effectful body untouched). The nominal-run rule also fixed a
   latent wrong-`runId` on `def main: IO[Unit]`-shaped bodies.
-  **Remaining R4 slice**: the end-to-end shadow compile of elaborated output (needs a pipeline injection
-  seam or source re-rendering — design in the next slice).
+  The **end-to-end shadow compile landed 2026-07-26 — R4 is COMPLETE.** The seam is fact injection:
+  `CompilationSession.compileOnce(seedFacts = …)` registers facts before the run, and a registered fact
+  preempts its processor, so everything downstream regenerates from it — no production pipeline change.
+  The experiment (`jvm/test/.../RowElaborationShadowCompileTest`) compiles the R3 sweep's combined corpus
+  normally, elaborates **every** body-carrying runtime `OperatorResolvedValue` the compile demanded
+  (stdlib dischargers, jvm ability implementations — `Effect[StateCarrier]` et al. — and the synthetic
+  entry included), then recompiles the same sources with the elaborated values seeded. Oracle:
+  **behavioral identity** — run B compiles clean and its executable prints exactly run A's output
+  (byte-identity of jars is deliberately not the gate; `$row$N` binders legitimately rename lambda
+  classes). Two rules were corrected by the experiment, both declared-shape reads: (i) a **nominal-run
+  typed callee** (`prog : IO[Pair[..]]`) is carrier-valued (the run-carrier head from the boundary
+  registry, A.7), and applied-result shapes see through **over-application** (an accessor returning an
+  arrow with carrier codomain: `runStateCarrier(fa)(s)`); (ii) `runId` is inserted **only at the two
+  boundaries v2 Id-defaults at** — a definition's pure return and a `val` binding — never at argument
+  slots, where the still-flex base must instead flow to the slot's expected type (the pervasive
+  hand-monadic `runId(runAbort(x))` / `.runThrow.runId` shape would otherwise double-unwrap).
 - **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
   slices (per-slice gate: lang + jvm tests, HelloWorld, eliot-test).
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory

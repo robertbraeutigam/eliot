@@ -143,7 +143,7 @@ object RowElaborator {
         case ValueReference(name, _) if args.nonEmpty             =>
           elaborateCall(expr, name.value, args, region)
         case ValueReference(name, _)                              =>
-          (expr, saturatedBare(name.value) && calleeCarrierValued(name.value))
+          (expr, calleeCarrierValued(name.value, argCount = 0))
         case ParameterReference(name) if args.isEmpty             =>
           // A suspended parameter (declared carrier-headed) holds its computation unrun: referencing it yields a
           // carrier value.
@@ -171,8 +171,7 @@ object RowElaborator {
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val calleeOrv     = universe.values.get(callee)
       val calleeView    = calleeOrv.map(o => SignatureView.of(o.signature))
-      val saturated     = args.size >= calleeView.map(_.parameters.size).getOrElse(0)
-      val calleeCarrier = saturated && calleeCarrierValued(callee)
+      val calleeCarrier = calleeCarrierValued(callee, args.size)
       val pinned        = calleeOrv.map(_.effectRow.pinnedParameterIndices).getOrElse(Set.empty)
       val runBoundary   = universe.runBoundaries.contains(callee)
       val calleeBinders = calleeView.map(EffectCarriers.carrierBinders).getOrElse(Set.empty)
@@ -229,8 +228,11 @@ object RowElaborator {
       (assemble(expr, finalArgs, binds, resultCarrier), binds.nonEmpty || resultCarrier)
     }
 
-    /** One strict-slot argument: a carrier-valued argument is hoisted under the region's carrier, or — with no
-      * region carrier — unwrapped in place with `runId` (a discharge at base `Id`, A.4); a value passes inline.
+    /** One strict-slot argument: a carrier-valued argument is hoisted under the region's carrier; with no region
+      * carrier it passes through *unchanged* — `runId` is inserted only at the two boundaries the v2 checker
+      * defaults at (a definition's pure return, a `val` binding), never at an argument slot, where the carrier must
+      * instead flow to the slot's expected type (the hand-monadic `runId(runAbort(x))` shape: the explicit accessor
+      * absorbs the still-flex base). A value passes inline.
       */
     private def strictArgument(
         accArgs: Seq[Sourced[OperatorResolvedExpression]],
@@ -242,8 +244,6 @@ object RowElaborator {
       if (argCarrier && region) {
         val binder = freshBinder()
         (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
-      } else if (argCarrier) {
-        (accArgs :+ argElab.as(runIdWrap(argElab)), accBinds)
       } else {
         (accArgs :+ argElab, accBinds)
       }
@@ -270,17 +270,40 @@ object RowElaborator {
       }
     }
 
-    /** Whether a saturated reference to `callee` yields a carrier computation: its declared return is headed by one
-      * of its own carrier binders (`readLine : F[Str]`, a discharger's `G[A]` — declared shape, tag-free). For a
-      * callee outside the universe (an effect-ability method resolved by qualifier only) the declared row decides.
+    /** Whether applying `callee` to `argCount` arguments yields a carrier computation: the declared type remaining
+      * after consuming the arguments — the return, further arrow-applied for arguments beyond the declared
+      * parameters (an over-applied accessor: `runStateCarrier(fa)(s)` applies the accessor's `S => G[Pair[A, S]]`
+      * result) — is headed by one of the callee's own carrier binders or by a platform *run carrier*
+      * (`prog : IO[Pair[..]]`, the nominal-run spelling — Appendix A.7). Declared shape, tag-free; an under-applied
+      * reference is a value. For a callee outside the universe (an effect-ability method resolved by qualifier only)
+      * the declared row decides.
       */
-    private def calleeCarrierValued(callee: ValueFQN): Boolean =
+    private def calleeCarrierValued(callee: ValueFQN, argCount: Int): Boolean =
       universe.values.get(callee) match {
         case Some(orv) =>
           val view = SignatureView.of(orv.signature)
-          carrierHeaded(view.returnType.value, EffectCarriers.carrierBinders(view))
+          argCount >= view.parameters.size && {
+            val applied = arrowApplied(view.returnType.value, argCount - view.parameters.size)
+            carrierHeaded(applied, EffectCarriers.carrierBinders(view)) || runCarrierHead(applied)
+          }
         case None      =>
           RowChecker.calleeRow(callee, universe).nonEmpty
+      }
+
+    /** The declared type remaining after applying an arrow-shaped type to `extra` further arguments. */
+    private def arrowApplied(tpe: OperatorResolvedExpression, extra: Int): OperatorResolvedExpression =
+      if (extra <= 0) tpe
+      else
+        asArrowLike(tpe) match {
+          case Some((_, cod)) => arrowApplied(cod.value, extra - 1)
+          case None           => tpe
+        }
+
+    /** Whether a type expression is headed by a platform run carrier (read off the run-boundary registry). */
+    private def runCarrierHead(tpe: OperatorResolvedExpression): Boolean =
+      spine(tpe)._1 match {
+        case ValueReference(name, _) => RowChecker.runCarrierHeads(universe).contains(name.value)
+        case _                       => false
       }
 
     /** Rebuild a handler lambda with its (fully peeled) body elaborated as a carrier region: the declared codomain
@@ -302,12 +325,6 @@ object RowElaborator {
       val (innerElab, innerCarrier) = core(lambda.as(inner), region)
       (lambda.as(rewrap(lambda.value, innerElab)), innerCarrier)
     }
-
-    /** A bare (argument-less) reference performs its row only when the callee is nullary — an under-applied function
-      * reference is a value whose row is latent.
-      */
-    private def saturatedBare(callee: ValueFQN): Boolean =
-      universe.values.get(callee).forall(o => SignatureView.of(o.signature).parameters.isEmpty)
 
     /** Whether calling the function-typed parameter `name` with `argCount` arguments yields a carrier computation:
       * the declared arrow's final codomain is carrier-headed on this definition's own binders, and the call

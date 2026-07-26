@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, FactCache, FactCacheData}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
 import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
 import com.vanillasource.eliot.eliotc.visualization.TrackedCompilerProcessor.wrapProcessor
@@ -41,14 +41,22 @@ final class CompilationSession private (
     * error.
     *
     * @param tracker optional fact-flow visualization; omit in server mode.
+    * @param seedFacts facts registered into the generator before the run — a registered fact preempts its processor,
+    *   so a seeded key is served as-is and everything downstream regenerates from it. This is the fact-injection seam
+    *   shadow experiments use (e.g. the effects-as-rows R4 shadow compile pre-registers elaborated
+    *   `OperatorResolvedValue`s); production runs pass none.
     * @return the live generator (queryable for LSP features) plus the run's diagnostics.
     */
-  def compileOnce(tracker: Option[FactVisualizationTracker] = None): IO[CompilationResult] =
+  def compileOnce(
+      tracker: Option[FactVisualizationTracker] = None,
+      seedFacts: Seq[CompilerFact] = Seq.empty
+  ): IO[CompilationResult] =
     compileLock.lock.surround {
       for {
         prior     <- cache.get
         wrapped    = tracker.fold(processors)(t => processors.wrapWith(wrapProcessor(_, t)))
         generator <- IncrementalFactGenerator.create(wrapped, prior, strictAccounting = true)
+        _         <- seedFacts.traverse_(generator.registerFact)
         _         <- targetPlugin.run(effectiveConfiguration, generator)
         nextCache <- generator.buildCacheData()
         _         <- cache.set(Some(nextCache)) // last effect ⇒ a cancelled run keeps the old cache

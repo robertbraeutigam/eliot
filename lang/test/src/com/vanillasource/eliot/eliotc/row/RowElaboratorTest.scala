@@ -172,10 +172,12 @@ class RowElaboratorTest
     )
   }
 
-  it should "unwrap a discharge at a strict argument slot in place when the region has no ambient carrier" in {
+  it should "pass a discharge at a strict argument slot through unchanged when the region has no carrier" in {
+    // No runId at argument slots — v2 Id-defaults only at return boundaries and `val` bindings; the argument's
+    // still-flex base must flow to the slot's expected type (the hand-monadic `runId(runAbort(x))` shape).
     compareToTwin(
       dischargePrelude + "def d: Str = use(catchX(failing, s -> pureStr))",
-      dischargePrelude + "def t: Str = use(runId(catchX(failing, s -> pure(pureStr))))",
+      dischargePrelude + "def t: Str = use(catchX(failing, s -> pure(pureStr)))",
       extraNames = dischargeNames
     )
   }
