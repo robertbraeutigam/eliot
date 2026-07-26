@@ -296,9 +296,17 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   arguments. Consequence: the region's *ambient* flag is now "declared return carrier-headed", not
   "declared user row non-empty" — a machinery-marker signature (`foreach`) has an empty user row but a
   real ambient carrier.
-  **Remaining R4 slices**: compound computations at pinned slots + pinned-*return* bodies, and the
-  end-to-end shadow compile of elaborated output (needs a pipeline injection seam or source re-rendering
-  — design in the next slice).
+  The **pinned-region slice landed 2026-07-26** (30 twin shapes total): region carrier-ness became a
+  *positional* flag threaded through the elaboration (like `needCarrier`), starting at the definition —
+  true when the declared return is carrier-headed, **pinned** (`{X | G} A`), or headed by a **platform
+  run carrier** (the nominal-run spelling, read off the run-boundary registry) — and flipping to true
+  inside every **pinned or run-boundary argument**: a captured compound computation binds on the
+  pinned/run stack even under a pure definition (`catchX(use(boom), h)` hoists `boom` *inside* the
+  capture), a pure captured argument lifts via `pure`, and a pinned-return body is itself the captured
+  computation (pure body ⇒ `pure`-wrapped, effectful body untouched). The nominal-run rule also fixed a
+  latent wrong-`runId` on `def main: IO[Unit]`-shaped bodies.
+  **Remaining R4 slice**: the end-to-end shadow compile of elaborated output (needs a pipeline injection
+  seam or source re-rendering — design in the next slice).
 - **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
   slices (per-slice gate: lang + jvm tests, HelloWorld, eliot-test).
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory

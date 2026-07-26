@@ -114,9 +114,10 @@ object RowChecker {
 
   /** The platform run-carrier type heads, read off each registered run boundary's *own* declared first parameter
     * (`runMain(io: IO[A])` ⇒ `IO`) — declared information, never a name/shape guess. A definition returning such a
-    * carrier (`def main: IO[Unit]`) is the nominal-run spelling of a boundary and captures its whole row.
+    * carrier (`def main: IO[Unit]`) is the nominal-run spelling of a boundary and captures its whole row. Also
+    * exposed for the [[RowElaborator]]: a nominal-run body is a carrier region.
     */
-  private def runCarrierHeads(universe: Universe): Set[ValueFQN] =
+  def runCarrierHeads(universe: Universe): Set[ValueFQN] =
     universe.runBoundaries.flatMap { boundary =>
       universe.values
         .get(boundary)

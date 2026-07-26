@@ -259,20 +259,82 @@ class RowElaboratorTest
     )
   }
 
+  // --- pinned/run-boundary captures are their own carrier regions: a compound captured computation binds on the
+  // pinned/run stack even under a pure definition, and a pure captured argument lifts via pure. A pinned *return*
+  // makes the whole body a carrier region; a nominal-run return (IOish[Str]) likewise. ---
+
+  it should "elaborate a compound pinned argument as its own carrier region (binds on the pinned stack)" in {
+    compareToTwin(
+      dischargePrelude + "def d: Str = catchX(use(boom), s -> pureStr)",
+      dischargePrelude + "def t: Str = runId(catchX(flatMap(x -> pure(use(x)), boom), s -> pure(pureStr)))",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "pure-lift a pure argument at a pinned slot" in {
+    compareToTwin(
+      dischargePrelude + "def d: Str = catchX(pureStr, s -> pureStr)",
+      dischargePrelude + "def t: Str = runId(catchX(pure(pureStr), s -> pure(pureStr)))",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "pure-wrap a pure body under a pinned return (the body is the captured computation)" in {
+    compareToTwin(
+      dischargePrelude + "def d[G[_]]: {X | G} Str = pureStr",
+      dischargePrelude + "def t[G[_]]: {X | G} Str = pure(pureStr)",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "leave an effectful body under a pinned return untouched" in {
+    compareToTwin(
+      dischargePrelude + "def d[G[_]]: {X | G} Str = boom",
+      dischargePrelude + "def t[G[_]]: {X | G} Str = boom",
+      extraNames = dischargeNames
+    )
+  }
+
+  private val runPrelude = "data IOish[A]\ndef runIt[A](io: IOish[A]): A\n"
+
+  it should "treat a nominal-run return as a carrier region (main: IO[Unit] shape, no runId)" in {
+    compareToTwin(
+      runPrelude + "def d: IOish[Str] = readLine",
+      runPrelude + "def t: IOish[Str] = readLine",
+      extraNames = Seq("runIt"),
+      runBoundaries = Set("runIt")
+    )
+  }
+
+  it should "elaborate a compound run-boundary argument on the run carrier under a pure definition" in {
+    compareToTwin(
+      runPrelude + "def d: Str = runIt({\nval x = readLine\nprintLine(x)\n})",
+      runPrelude + "def t: Str = runIt(flatMap(x -> printLine(x), readLine))",
+      extraNames = Seq("runIt"),
+      runBoundaries = Set("runIt")
+    )
+  }
+
   /** Elaborate `d` from `direct` and structurally compare with `t`'s compiled runtime from `twin`. */
-  private def compareToTwin(direct: String, twin: String, extraNames: Seq[String] = Seq.empty): IO[org.scalatest.Assertion] =
+  private def compareToTwin(
+      direct: String,
+      twin: String,
+      extraNames: Seq[String] = Seq.empty,
+      runBoundaries: Set[String] = Set.empty
+  ): IO[org.scalatest.Assertion] =
     for {
-      d      <- elaborated(prelude + direct, "d", extraNames)
-      t      <- runtimeOf(prelude + twin, "t", extraNames)
+      d      <- elaborated(prelude + direct, "d", extraNames, runBoundaries)
+      t      <- runtimeOf(prelude + twin, "t", extraNames, runBoundaries)
     } yield canonical(d._1) shouldBe canonical(t)
 
   /** The elaborated body of `name` plus its original runtime (both as expressions). */
   private def elaborated(
       source: String,
       name: String,
-      extraNames: Seq[String] = Seq.empty
+      extraNames: Seq[String] = Seq.empty,
+      runBoundaries: Set[String] = Set.empty
   ): IO[(OperatorResolvedExpression, OperatorResolvedExpression)] =
-    universeOf(source, name, extraNames).map { universe =>
+    universeOf(source, name, extraNames, runBoundaries).map { universe =>
       val orv = universe.values(vfqn(name))
       val el  = RowElaborator
         .elaborate(orv, universe)
@@ -280,8 +342,13 @@ class RowElaboratorTest
       (el.value, orv.runtime.get.value)
     }
 
-  private def runtimeOf(source: String, name: String, extraNames: Seq[String]): IO[OperatorResolvedExpression] =
-    universeOf(source, name, extraNames).map(_.values(vfqn(name)).runtime.get.value)
+  private def runtimeOf(
+      source: String,
+      name: String,
+      extraNames: Seq[String],
+      runBoundaries: Set[String] = Set.empty
+  ): IO[OperatorResolvedExpression] =
+    universeOf(source, name, extraNames, runBoundaries).map(_.values(vfqn(name)).runtime.get.value)
 
   /** Canonical structural rendering: binders α-renamed in traversal order, positions and type arguments ignored. */
   private def canonical(expr: OperatorResolvedExpression): String = {
@@ -303,7 +370,12 @@ class RowElaboratorTest
 
   private def vfqn(name: String): ValueFQN = ValueFQN(testModule, QualifiedName(name, Qualifier.Default))
 
-  private def universeOf(source: String, target: String, extraNames: Seq[String] = Seq.empty): IO[RowChecker.Universe] =
+  private def universeOf(
+      source: String,
+      target: String,
+      extraNames: Seq[String] = Seq.empty,
+      runBoundaries: Set[String] = Set.empty
+  ): IO[RowChecker.Universe] =
     for {
       generator <- IncrementalFactGenerator.create(SequentialCompilerProcessors(processors), None)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
@@ -327,6 +399,6 @@ class RowElaboratorTest
       errors    <- generator.currentErrors()
     } yield {
       if (errors.nonEmpty) throw new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}")
-      RowChecker.Universe(orvs.flatten.map(orv => orv.vfqn -> orv).toMap)
+      RowChecker.Universe(orvs.flatten.map(orv => orv.vfqn -> orv).toMap, runBoundaries.map(vfqn))
     }
 }

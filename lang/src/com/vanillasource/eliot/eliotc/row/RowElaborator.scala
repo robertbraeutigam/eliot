@@ -27,32 +27,31 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     parameter holds its computation unrun); *calling* a function-typed parameter is carrier-valued when the
   *     declared arrow's final codomain is carrier-headed and the call saturates it.
   *
-  * The rules:
+  * Elaboration is positional over two context flags: `needCarrier` (does this *position* expect a computation) and
+  * the **region carrier flag** (does the enclosing region have a carrier to bind on). The region flag starts at the
+  * definition — true when the declared return is carrier-headed, *pinned* (`{X | G} A`), or headed by a platform run
+  * carrier (the nominal-run spelling) — and flips to true inside every **pinned or run-boundary argument** (the
+  * captured computation's binds ride the pinned/run stack even under a pure definition) and inside every
+  * carrier-codomain lambda body. The rules:
   *
-  *   - a **carrier-valued argument at a strict slot** is hoisted under the ambient carrier:
+  *   - a **carrier-valued argument at a strict slot** is hoisted under the region's carrier:
   *     `printLine(readLine)` becomes `flatMap($row$1 -> printLine($row$1), readLine)`, left-to-right arguments
   *     nesting leftmost-outermost;
   *   - a **carrier-valued `val`/statement binding** (the block desugar's applied lambda `(x -> rest)(e)`) becomes
   *     `flatMap(x -> rest', e')`; a pure binding stays an applied lambda;
   *   - a **pure expression in a carrier position** — the innermost continuation of a bind chain, a pure body under a
-  *     declared row, a pure argument at a declared-suspended slot — is wrapped `pure(expr)`;
-  *   - a **suspended or pinned slot** receives its argument unhoisted — the computation passes as a value;
-  *   - **discharge under an empty residual row** (Appendix A.4): where a carrier-valued node meets a region with no
-  *     ambient carrier — a pure definition's body, binding, or strict argument slot — the region's base carrier is
-  *     `Id` by declaration, and the node is unwrapped with `runId(...)` at that same boundary. Under an ambient
-  *     carrier it binds like any effectful call. `Id` never appears anywhere else;
+  *     declared row, a pure argument at a declared-suspended, pinned or run-boundary slot — is wrapped `pure(expr)`;
+  *   - **discharge under an empty residual row** (Appendix A.4): where a carrier-valued node meets a value position
+  *     in a region with *no* carrier — a pure definition's body, binding, or strict argument slot — the region's
+  *     base carrier is `Id` by declaration, and the node is unwrapped with `runId(...)` at that same boundary. In a
+  *     carrier region it binds like any effectful call. `Id` never appears anywhere else;
   *   - a **lambda argument** elaborates its body: *forced* to a carrier region at a declared carrier-codomain slot
   *     (`onError: E => G[A]`, `action: A => {Effect} Unit` — a pure body is `pure`-wrapped), *naturally* at a plain
   *     arrow slot (an effectful body becomes a bind chain, a pure body is untouched);
   *   - **pure code is untouched**: a definition with an empty declared row and a pure body elaborates to itself,
   *     byte-for-byte — no `Id`, nothing to erase.
   *
-  * The region's **ambient-carrier-ness** is the definition's declared return being carrier-headed — NOT its declared
-  * user row: a machinery-marker signature (`foreach(action: A => {Effect} Unit): {Effect} Unit`) has an empty user
-  * row but a real ambient carrier.
-  *
-  * Not yet elaborated (later R4 slices): compound computations at pinned slots, pinned-*return* bodies, and the
-  * end-to-end shadow compile of elaborated output.
+  * Not yet elaborated (later R4 slice): the end-to-end shadow compile of elaborated output.
   */
 object RowElaborator {
 
@@ -65,10 +64,21 @@ object RowElaborator {
       val view               = SignatureView.of(orv.signature)
       val ownBinders         = EffectCarriers.carrierBinders(view)
       val paramTypes         = paramNames.takeRight(view.parameters.size).zip(view.parameters.map(_.value)).toMap
-      val ambient            = carrierHeaded(view.returnType.value, ownBinders)
-      val elab               = new Elaboration(paramTypes, ownBinders, universe, ambient)
-      val newBody            = elab.elaborate(runtime.as(body), needCarrier = ambient)
+      val topCarrier         = carrierHeaded(view.returnType.value, ownBinders) ||
+        orv.effectRow.returnPinnedEffects.nonEmpty ||
+        runCarrierReturn(view, universe)
+      val elab               = new Elaboration(paramTypes, ownBinders, universe)
+      val newBody            = elab.elaborate(runtime.as(body), needCarrier = topCarrier, region = topCarrier)
       runtime.as(rewrap(runtime.value, newBody))
+    }
+
+  /** Whether a definition's declared return is headed by a platform *run carrier* (`def main: IO[Unit]`, the
+    * nominal-run spelling) — the head read off the registered run boundaries, per [[RowChecker.runCarrierHeads]].
+    */
+  private def runCarrierReturn(view: SignatureView, universe: RowChecker.Universe): Boolean =
+    spine(view.returnType.value)._1 match {
+      case ValueReference(name, _) => RowChecker.runCarrierHeads(universe).contains(name.value)
+      case _                       => false
     }
 
   /** Re-attach the peeled parameter binders around the elaborated body. */
@@ -79,23 +89,27 @@ object RowElaborator {
     }
 
   /** One definition's elaboration pass: carries the declared parameter types and the definition's own carrier
-    * binders (the shape reads behind carrier-valued-ness), the region's ambient-carrier-ness (the flag that decides
-    * bind-vs-`runId` for carrier-valued nodes at value positions), and mints the `$row$N` binders.
+    * binders (the shape reads behind carrier-valued-ness) and mints the `$row$N` binders. The positional `region`
+    * flag (does the enclosing region have a carrier to bind on) travels as a parameter — it decides
+    * bind-vs-`runId` for carrier-valued nodes at value positions and flips inside pinned/run-boundary captures.
     */
   private final class Elaboration(
       paramTypes: Map[String, OperatorResolvedExpression],
       ownBinders: Set[String],
-      universe: RowChecker.Universe,
-      ambient: Boolean
+      universe: RowChecker.Universe
   ) {
     private var nextBinder = 0
 
     /** Elaborate `expr` for a position of known polarity: a carrier position (`needCarrier`) `pure`-wraps a pure
       * node; a value position unwraps a carrier-valued node with `runId` — which is reached only in a region with no
-      * ambient carrier (a pure definition's boundary), where the residual carrier is `Id` by declaration (A.4).
+      * carrier (a pure definition's boundary), where the residual carrier is `Id` by declaration (A.4).
       */
-    def elaborate(expr: Sourced[OperatorResolvedExpression], needCarrier: Boolean): Sourced[OperatorResolvedExpression] = {
-      val (elaborated, carrierValued) = core(expr)
+    def elaborate(
+        expr: Sourced[OperatorResolvedExpression],
+        needCarrier: Boolean,
+        region: Boolean
+    ): Sourced[OperatorResolvedExpression] = {
+      val (elaborated, carrierValued) = core(expr, region)
       if (needCarrier && !carrierValued) elaborated.as(pureWrap(elaborated))
       else if (!needCarrier && carrierValued) elaborated.as(runIdWrap(elaborated))
       else elaborated
@@ -104,27 +118,30 @@ object RowElaborator {
     /** Elaborate a node, returning it with its carrier-valued-ness (is the *result node* a carrier computation — a
       * bind chain, an effectful or discharging call, a suspended-parameter reference — as opposed to a plain value).
       */
-    private def core(expr: Sourced[OperatorResolvedExpression]): (Sourced[OperatorResolvedExpression], Boolean) = {
+    private def core(
+        expr: Sourced[OperatorResolvedExpression],
+        region: Boolean
+    ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val (head, args) = spine(expr.value)
       head match {
         case FunctionLiteral(name, tpe, body) if args.sizeIs == 1 =>
           // The block desugar's binding: `val x = e; rest` / `e; rest` as `(x -> rest)(e)`.
           val bound                     = args.head
-          val (boundElab, boundCarrier) = core(bound)
-          if (boundCarrier && ambient) {
-            val continuation = expr.as(FunctionLiteral(name, tpe, elaborate(body, needCarrier = true)))
+          val (boundElab, boundCarrier) = core(bound, region)
+          if (boundCarrier && region) {
+            val continuation = expr.as(FunctionLiteral(name, tpe, elaborate(body, needCarrier = true, region)))
             (expr.as(bindNodes(continuation, boundElab)), true)
           } else {
-            // No ambient carrier: a carrier-valued binding is a discharge whose base is `Id` — unwrap at the binding.
+            // No region carrier: a carrier-valued binding is a discharge whose base is `Id` — unwrap at the binding.
             val boundFinal          = if (boundCarrier) boundElab.as(runIdWrap(boundElab)) else boundElab
-            val (bodyElab, bodyCar) = core(body)
+            val (bodyElab, bodyCar) = core(body, region)
             (expr.as(applyChain(expr.as(FunctionLiteral(name, tpe, bodyElab)), Seq(boundFinal))), bodyCar)
           }
         case _: FunctionLiteral if args.isEmpty                   =>
           // A bare lambda in a non-slot position: elaborate its body naturally; the lambda itself is a value.
-          (elaborateLambdaNatural(expr)._1, false)
+          (elaborateLambdaNatural(expr, region)._1, false)
         case ValueReference(name, _) if args.nonEmpty             =>
-          elaborateCall(expr, name.value, args)
+          elaborateCall(expr, name.value, args, region)
         case ValueReference(name, _)                              =>
           (expr, saturatedBare(name.value) && calleeCarrierValued(name.value))
         case ParameterReference(name) if args.isEmpty             =>
@@ -134,14 +151,14 @@ object RowElaborator {
         case ParameterReference(name)                             =>
           // Calling a function-typed parameter: carrier-valued when its declared arrow's final codomain is
           // carrier-headed and the call saturates it (`action(s)` inside a callback-taking definition).
-          elaborateArguments(expr, args, resultCarrier = paramCallCarrier(name.value, args.size))
+          elaborateArguments(expr, args, resultCarrier = paramCallCarrier(name.value, args.size), region)
         case _                                                    =>
           (expr, false)
       }
     }
 
     /** Elaborate a call to a named value: arguments by their declared slot mode, then hoist each carrier-valued
-      * strict-slot argument into a `flatMap` around the core call (leftmost argument outermost) — or, with no ambient
+      * strict-slot argument into a `flatMap` around the core call (leftmost argument outermost) — or, with no region
       * carrier to hoist under, unwrap it in place with `runId`. The core call is carrier-valued iff the callee's
       * declared return is — including a bare-generic return a lambda argument's declared codomain instantiates at a
       * carrier.
@@ -149,7 +166,8 @@ object RowElaborator {
     private def elaborateCall(
         expr: Sourced[OperatorResolvedExpression],
         callee: ValueFQN,
-        args: Seq[Sourced[OperatorResolvedExpression]]
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        region: Boolean
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val calleeOrv     = universe.values.get(callee)
       val calleeView    = calleeOrv.map(o => SignatureView.of(o.signature))
@@ -165,12 +183,13 @@ object RowElaborator {
         ) { case ((accArgs, accBinds, accInst), (arg, index)) =>
           val declaredSlot = calleeView.flatMap(_.parameters.lift(index)).map(_.value)
           if (pinned.contains(index) || (runBoundary && index == 0)) {
-            // A pinned/run-boundary slot captures the computation whole.
-            (accArgs :+ core(arg)._1, accBinds, accInst)
+            // A pinned/run-boundary slot captures the computation whole — and is its own carrier region: internal
+            // binds ride the pinned/run stack even under a pure definition; a pure argument lifts via `pure`.
+            (accArgs :+ elaborate(arg, needCarrier = true, region = true), accBinds, accInst)
           } else if (declaredSlot.exists(s => carrierHeaded(s, calleeBinders))) {
-            // A declared-suspended slot (carrier-headed parameter type) receives a computation: an effectful argument
-            // passes unrun; a pure argument is lifted into the carrier (`if(c, "a")`'s pure arm becomes `pure("a")`).
-            (accArgs :+ elaborate(arg, needCarrier = true), accBinds, accInst)
+            // A declared-suspended slot (carrier-headed parameter type) receives a computation on the *caller's*
+            // carrier: an effectful argument passes unrun; a pure argument is lifted (`if(c, "a")` ⇒ `pure("a")`).
+            (accArgs :+ elaborate(arg, needCarrier = true, region), accBinds, accInst)
           } else if (isBareLambda(arg.value)) {
             if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders))) {
               // A handler/callback at a carrier-codomain slot (`onError: E => G[A]`, `action: A => {Effect} Unit`):
@@ -179,14 +198,14 @@ object RowElaborator {
             } else {
               // A lambda at a plain arrow slot elaborates naturally; a carrier-valued body instantiates the slot's
               // bare-generic codomain at a carrier — recorded for the return shape (the generic-eliminator rule).
-              val (lamElab, bodyCarrier) = elaborateLambdaNatural(arg)
+              val (lamElab, bodyCarrier) = elaborateLambdaNatural(arg, region)
               val inst                   = declaredSlot
                 .filter(_ => bodyCarrier)
                 .flatMap(s => bareGenericCodomain(s, calleeBinders))
               (accArgs :+ lamElab, accBinds, accInst ++ inst)
             }
           } else {
-            val (accA, accB) = strictArgument(accArgs, accBinds, arg)
+            val (accA, accB) = strictArgument(accArgs, accBinds, arg, region)
             (accA, accB, accInst)
           }
         }
@@ -200,25 +219,27 @@ object RowElaborator {
     private def elaborateArguments(
         expr: Sourced[OperatorResolvedExpression],
         args: Seq[Sourced[OperatorResolvedExpression]],
-        resultCarrier: Boolean
+        resultCarrier: Boolean,
+        region: Boolean
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val (finalArgs, binds) =
         args.foldLeft((Seq.empty[Sourced[OperatorResolvedExpression]], Seq.empty[(String, Sourced[OperatorResolvedExpression])])) {
-          case ((accArgs, accBinds), arg) => strictArgument(accArgs, accBinds, arg)
+          case ((accArgs, accBinds), arg) => strictArgument(accArgs, accBinds, arg, region)
         }
       (assemble(expr, finalArgs, binds, resultCarrier), binds.nonEmpty || resultCarrier)
     }
 
-    /** One strict-slot argument: a carrier-valued argument is hoisted under the ambient carrier, or — with no ambient
-      * carrier — unwrapped in place with `runId` (a discharge at base `Id`, A.4); a value passes inline.
+    /** One strict-slot argument: a carrier-valued argument is hoisted under the region's carrier, or — with no
+      * region carrier — unwrapped in place with `runId` (a discharge at base `Id`, A.4); a value passes inline.
       */
     private def strictArgument(
         accArgs: Seq[Sourced[OperatorResolvedExpression]],
         accBinds: Seq[(String, Sourced[OperatorResolvedExpression])],
-        arg: Sourced[OperatorResolvedExpression]
+        arg: Sourced[OperatorResolvedExpression],
+        region: Boolean
     ): (Seq[Sourced[OperatorResolvedExpression]], Seq[(String, Sourced[OperatorResolvedExpression])]) = {
-      val (argElab, argCarrier) = core(arg)
-      if (argCarrier && ambient) {
+      val (argElab, argCarrier) = core(arg, region)
+      if (argCarrier && region) {
         val binder = freshBinder()
         (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
       } else if (argCarrier) {
@@ -262,20 +283,23 @@ object RowElaborator {
           RowChecker.calleeRow(callee, universe).nonEmpty
       }
 
-    /** Rebuild a handler lambda with its (fully peeled) body elaborated as a carrier region. */
+    /** Rebuild a handler lambda with its (fully peeled) body elaborated as a carrier region: the declared codomain
+      * is a carrier, so the body always has one to bind on.
+      */
     private def elaborateLambdaForced(lambda: Sourced[OperatorResolvedExpression]): Sourced[OperatorResolvedExpression] = {
       val (_, inner) = RowChecker.peelBinders(lambda.value)
-      lambda.as(rewrap(lambda.value, elaborate(lambda.as(inner), needCarrier = true)))
+      lambda.as(rewrap(lambda.value, elaborate(lambda.as(inner), needCarrier = true, region = true)))
     }
 
     /** Rebuild a lambda with its (fully peeled) body elaborated naturally, returning whether the body came out
       * carrier-valued (an effectful body is a bind chain; a pure body is untouched).
       */
     private def elaborateLambdaNatural(
-        lambda: Sourced[OperatorResolvedExpression]
+        lambda: Sourced[OperatorResolvedExpression],
+        region: Boolean
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val (_, inner)                = RowChecker.peelBinders(lambda.value)
-      val (innerElab, innerCarrier) = core(lambda.as(inner))
+      val (innerElab, innerCarrier) = core(lambda.as(inner), region)
       (lambda.as(rewrap(lambda.value, innerElab)), innerCarrier)
     }
 
