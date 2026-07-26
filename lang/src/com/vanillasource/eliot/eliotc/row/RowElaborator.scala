@@ -14,9 +14,20 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * The rewrite is decision-free — every choice reads *declared* information (the callee's row, slot modes and
   * signature shape via [[RowChecker]] and the R2 `EffectRow` metadata), never a type or an instantiation. The central
   * notion is **carrier-valued-ness**: an elaborated node either *is* a carrier computation (an effectful call, a bind
-  * chain, a discharger call, a suspended-parameter reference) or is a plain value. A call is carrier-valued exactly
-  * when its callee's declared return is headed by one of the callee's own carrier binders (`readLine : F[Str]`,
-  * `catchX : G[A]`) — declared shape, never a name/kind guess. The rules:
+  * chain, a discharger call, a suspended-parameter reference) or is a plain value. Recognition is by declared shape:
+  *
+  *   - a *call* is carrier-valued when its callee's declared return is headed by one of the callee's own carrier
+  *     binders (`readLine : F[Str]`, `catchX : G[A]`) — or when the return is a *bare* generic binder that a lambda
+  *     argument's declared arrow codomain instantiates at a carrier (the generic-eliminator shape `apply(f, a) : B`
+  *     with an effectful `f`);
+  *   - a *parameter slot* is declared-suspended when its declared type is carrier-headed (`whenTrue: {G} A` desugars
+  *     to `F[A]`) — an arrow-typed callback (`action: A => {Effect} Unit`, codomain `F[Unit]`) is NOT suspended: the
+  *     lambda is a value, only its *body* is a computation;
+  *   - a *parameter reference* is carrier-valued when the parameter's declared type is carrier-headed (a suspended
+  *     parameter holds its computation unrun); *calling* a function-typed parameter is carrier-valued when the
+  *     declared arrow's final codomain is carrier-headed and the call saturates it.
+  *
+  * The rules:
   *
   *   - a **carrier-valued argument at a strict slot** is hoisted under the ambient carrier:
   *     `printLine(readLine)` becomes `flatMap($row$1 -> printLine($row$1), readLine)`, left-to-right arguments
@@ -25,23 +36,23 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     `flatMap(x -> rest', e')`; a pure binding stays an applied lambda;
   *   - a **pure expression in a carrier position** — the innermost continuation of a bind chain, a pure body under a
   *     declared row, a pure argument at a declared-suspended slot — is wrapped `pure(expr)`;
-  *   - a **suspended or pinned slot** (declared on the callee's `EffectRow`) receives its argument unhoisted — the
-  *     computation passes as a value; a suspended *parameter* referenced in the body is already carrier-valued and is
-  *     never re-wrapped;
+  *   - a **suspended or pinned slot** receives its argument unhoisted — the computation passes as a value;
   *   - **discharge under an empty residual row** (Appendix A.4): where a carrier-valued node meets a region with no
   *     ambient carrier — a pure definition's body, binding, or strict argument slot — the region's base carrier is
-  *     `Id` by declaration, and the node is unwrapped with `runId(...)` at that same boundary. Under a non-empty
-  *     residual row there is nothing to unwrap: the discharger's result rides the ambient carrier like any effectful
-  *     call. `Id` never appears anywhere else;
-  *   - a **handler lambda at a carrier-codomain slot** (the declared parameter is an arrow ending in the callee's own
-  *     carrier binder, `onError: E => G[A]`) elaborates its body as a carrier region: an effectful body is already a
-  *     computation, a pure body is `pure`-wrapped;
+  *     `Id` by declaration, and the node is unwrapped with `runId(...)` at that same boundary. Under an ambient
+  *     carrier it binds like any effectful call. `Id` never appears anywhere else;
+  *   - a **lambda argument** elaborates its body: *forced* to a carrier region at a declared carrier-codomain slot
+  *     (`onError: E => G[A]`, `action: A => {Effect} Unit` — a pure body is `pure`-wrapped), *naturally* at a plain
+  *     arrow slot (an effectful body becomes a bind chain, a pure body is untouched);
   *   - **pure code is untouched**: a definition with an empty declared row and a pure body elaborates to itself,
   *     byte-for-byte — no `Id`, nothing to erase.
   *
-  * Not yet elaborated (later R4 slices): lambdas at plain (latent-row) arrow slots and `{Effect}`-marker callback
-  * arrows, compound computations at pinned slots, pinned-*return* definitions, and the end-to-end shadow compile of
-  * elaborated output.
+  * The region's **ambient-carrier-ness** is the definition's declared return being carrier-headed — NOT its declared
+  * user row: a machinery-marker signature (`foreach(action: A => {Effect} Unit): {Effect} Unit`) has an empty user
+  * row but a real ambient carrier.
+  *
+  * Not yet elaborated (later R4 slices): compound computations at pinned slots, pinned-*return* bodies, and the
+  * end-to-end shadow compile of elaborated output.
   */
 object RowElaborator {
 
@@ -51,9 +62,11 @@ object RowElaborator {
   def elaborate(orv: OperatorResolvedValue, universe: RowChecker.Universe): Option[Sourced[OperatorResolvedExpression]] =
     orv.runtime.map { runtime =>
       val (paramNames, body) = RowChecker.peelBinders(runtime.value)
-      val env                = RowChecker.parameterRowsOf(orv, paramNames)
-      val ambient            = RowChecker.declaredRow(orv).nonEmpty
-      val elab               = new Elaboration(env, universe, ambient)
+      val view               = SignatureView.of(orv.signature)
+      val ownBinders         = EffectCarriers.carrierBinders(view)
+      val paramTypes         = paramNames.takeRight(view.parameters.size).zip(view.parameters.map(_.value)).toMap
+      val ambient            = carrierHeaded(view.returnType.value, ownBinders)
+      val elab               = new Elaboration(paramTypes, ownBinders, universe, ambient)
       val newBody            = elab.elaborate(runtime.as(body), needCarrier = ambient)
       runtime.as(rewrap(runtime.value, newBody))
     }
@@ -65,11 +78,16 @@ object RowElaborator {
       case _                                => newBody.value
     }
 
-  /** One definition's elaboration pass: carries the parameter environment, the region's ambient-carrier-ness (a
-    * declared non-empty row — the flag that decides bind-vs-`runId` for carrier-valued nodes at value positions), and
-    * mints the `$row$N` binders.
+  /** One definition's elaboration pass: carries the declared parameter types and the definition's own carrier
+    * binders (the shape reads behind carrier-valued-ness), the region's ambient-carrier-ness (the flag that decides
+    * bind-vs-`runId` for carrier-valued nodes at value positions), and mints the `$row$N` binders.
     */
-  private final class Elaboration(env: Map[String, RowChecker.Row], universe: RowChecker.Universe, ambient: Boolean) {
+  private final class Elaboration(
+      paramTypes: Map[String, OperatorResolvedExpression],
+      ownBinders: Set[String],
+      universe: RowChecker.Universe,
+      ambient: Boolean
+  ) {
     private var nextBinder = 0
 
     /** Elaborate `expr` for a position of known polarity: a carrier position (`needCarrier`) `pure`-wraps a pure
@@ -91,8 +109,8 @@ object RowElaborator {
       head match {
         case FunctionLiteral(name, tpe, body) if args.sizeIs == 1 =>
           // The block desugar's binding: `val x = e; rest` / `e; rest` as `(x -> rest)(e)`.
-          val bound                       = args.head
-          val (boundElab, boundCarrier)   = core(bound)
+          val bound                     = args.head
+          val (boundElab, boundCarrier) = core(bound)
           if (boundCarrier && ambient) {
             val continuation = expr.as(FunctionLiteral(name, tpe, elaborate(body, needCarrier = true)))
             (expr.as(bindNodes(continuation, boundElab)), true)
@@ -102,24 +120,31 @@ object RowElaborator {
             val (bodyElab, bodyCar) = core(body)
             (expr.as(applyChain(expr.as(FunctionLiteral(name, tpe, bodyElab)), Seq(boundFinal))), bodyCar)
           }
+        case _: FunctionLiteral if args.isEmpty                   =>
+          // A bare lambda in a non-slot position: elaborate its body naturally; the lambda itself is a value.
+          (elaborateLambdaNatural(expr)._1, false)
         case ValueReference(name, _) if args.nonEmpty             =>
           elaborateCall(expr, name.value, args)
         case ValueReference(name, _)                              =>
           (expr, saturatedBare(name.value) && calleeCarrierValued(name.value))
         case ParameterReference(name) if args.isEmpty             =>
-          // A suspended parameter holds its computation unrun: referencing it yields a carrier value.
-          (expr, env.getOrElse(name.value, Set.empty).nonEmpty)
+          // A suspended parameter (declared carrier-headed) holds its computation unrun: referencing it yields a
+          // carrier value.
+          (expr, paramTypes.get(name.value).exists(t => carrierHeaded(t, ownBinders)))
+        case ParameterReference(name)                             =>
+          // Calling a function-typed parameter: carrier-valued when its declared arrow's final codomain is
+          // carrier-headed and the call saturates it (`action(s)` inside a callback-taking definition).
+          elaborateArguments(expr, args, resultCarrier = paramCallCarrier(name.value, args.size))
         case _                                                    =>
-          // Lambdas at plain slots, applied parameter references, literals: values in this slice.
           (expr, false)
       }
     }
 
-    /** Elaborate a saturated/partial call spine: arguments by their declared slot mode, then hoist each carrier-valued
+    /** Elaborate a call to a named value: arguments by their declared slot mode, then hoist each carrier-valued
       * strict-slot argument into a `flatMap` around the core call (leftmost argument outermost) — or, with no ambient
       * carrier to hoist under, unwrap it in place with `runId`. The core call is carrier-valued iff the callee's
-      * declared return is; with hoisted binds around a pure core, the innermost continuation is `pure`-wrapped by the
-      * uniform rule.
+      * declared return is — including a bare-generic return a lambda argument's declared codomain instantiates at a
+      * carrier.
       */
     private def elaborateCall(
         expr: Sourced[OperatorResolvedExpression],
@@ -131,47 +156,96 @@ object RowElaborator {
       val saturated     = args.size >= calleeView.map(_.parameters.size).getOrElse(0)
       val calleeCarrier = saturated && calleeCarrierValued(callee)
       val pinned        = calleeOrv.map(_.effectRow.pinnedParameterIndices).getOrElse(Set.empty)
-      val suspended     = calleeOrv.map(_.effectRow.parameterEffects.map(_.parameterIndex).toSet).getOrElse(Set.empty)
       val runBoundary   = universe.runBoundaries.contains(callee)
       val calleeBinders = calleeView.map(EffectCarriers.carrierBinders).getOrElse(Set.empty)
 
-      val (finalArgs, binds) = args.zipWithIndex.foldLeft((Seq.empty[Sourced[OperatorResolvedExpression]], Seq.empty[(String, Sourced[OperatorResolvedExpression])])) {
-        case ((accArgs, accBinds), (arg, index)) =>
-          val declaredSlot = calleeView.flatMap(_.parameters.lift(index))
+      val (finalArgs, binds, instantiated) =
+        args.zipWithIndex.foldLeft(
+          (Seq.empty[Sourced[OperatorResolvedExpression]], Seq.empty[(String, Sourced[OperatorResolvedExpression])], Set.empty[String])
+        ) { case ((accArgs, accBinds, accInst), (arg, index)) =>
+          val declaredSlot = calleeView.flatMap(_.parameters.lift(index)).map(_.value)
           if (pinned.contains(index) || (runBoundary && index == 0)) {
             // A pinned/run-boundary slot captures the computation whole.
-            (accArgs :+ core(arg)._1, accBinds)
-          } else if (suspended.contains(index)) {
-            // A declared-suspended slot receives a computation: an effectful argument passes unrun; a pure argument
-            // is lifted into the carrier (`if(c, "a")`'s pure arm becomes `pure("a")`).
-            (accArgs :+ elaborate(arg, needCarrier = true), accBinds)
-          } else if (isBareLambda(arg.value) && declaredSlot.exists(s => carrierCodomain(s.value, calleeBinders))) {
-            // A handler at a carrier-codomain slot (`onError: E => G[A]`): its body is a carrier region.
-            (accArgs :+ arg.as(elaborateLambda(arg)), accBinds)
-          } else {
-            val (argElab, argCarrier) = core(arg)
-            if (argCarrier && ambient) {
-              val binder = freshBinder()
-              (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
-            } else if (argCarrier) {
-              // No ambient carrier: the argument is a discharge at base `Id` — unwrap in place (A.4).
-              (accArgs :+ argElab.as(runIdWrap(argElab)), accBinds)
+            (accArgs :+ core(arg)._1, accBinds, accInst)
+          } else if (declaredSlot.exists(s => carrierHeaded(s, calleeBinders))) {
+            // A declared-suspended slot (carrier-headed parameter type) receives a computation: an effectful argument
+            // passes unrun; a pure argument is lifted into the carrier (`if(c, "a")`'s pure arm becomes `pure("a")`).
+            (accArgs :+ elaborate(arg, needCarrier = true), accBinds, accInst)
+          } else if (isBareLambda(arg.value)) {
+            if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders))) {
+              // A handler/callback at a carrier-codomain slot (`onError: E => G[A]`, `action: A => {Effect} Unit`):
+              // its body is a carrier region — a pure body lifts via `pure`.
+              (accArgs :+ elaborateLambdaForced(arg), accBinds, accInst)
             } else {
-              (accArgs :+ argElab, accBinds)
+              // A lambda at a plain arrow slot elaborates naturally; a carrier-valued body instantiates the slot's
+              // bare-generic codomain at a carrier — recorded for the return shape (the generic-eliminator rule).
+              val (lamElab, bodyCarrier) = elaborateLambdaNatural(arg)
+              val inst                   = declaredSlot
+                .filter(_ => bodyCarrier)
+                .flatMap(s => bareGenericCodomain(s, calleeBinders))
+              (accArgs :+ lamElab, accBinds, accInst ++ inst)
             }
+          } else {
+            val (accA, accB) = strictArgument(accArgs, accBinds, arg)
+            (accA, accB, accInst)
           }
-      }
+        }
 
-      if (binds.isEmpty) {
-        (expr.as(applyChain(expr.as(spine(expr.value)._1), finalArgs)), calleeCarrier)
+      val resultCarrier = calleeCarrier ||
+        calleeView.exists(v => bareGenericReturn(v).exists(instantiated.contains))
+      (assemble(expr, finalArgs, binds, resultCarrier), binds.nonEmpty || resultCarrier)
+    }
+
+    /** Elaborate a call with no declared slot information (an applied function-typed parameter): every slot strict. */
+    private def elaborateArguments(
+        expr: Sourced[OperatorResolvedExpression],
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        resultCarrier: Boolean
+    ): (Sourced[OperatorResolvedExpression], Boolean) = {
+      val (finalArgs, binds) =
+        args.foldLeft((Seq.empty[Sourced[OperatorResolvedExpression]], Seq.empty[(String, Sourced[OperatorResolvedExpression])])) {
+          case ((accArgs, accBinds), arg) => strictArgument(accArgs, accBinds, arg)
+        }
+      (assemble(expr, finalArgs, binds, resultCarrier), binds.nonEmpty || resultCarrier)
+    }
+
+    /** One strict-slot argument: a carrier-valued argument is hoisted under the ambient carrier, or — with no ambient
+      * carrier — unwrapped in place with `runId` (a discharge at base `Id`, A.4); a value passes inline.
+      */
+    private def strictArgument(
+        accArgs: Seq[Sourced[OperatorResolvedExpression]],
+        accBinds: Seq[(String, Sourced[OperatorResolvedExpression])],
+        arg: Sourced[OperatorResolvedExpression]
+    ): (Seq[Sourced[OperatorResolvedExpression]], Seq[(String, Sourced[OperatorResolvedExpression])]) = {
+      val (argElab, argCarrier) = core(arg)
+      if (argCarrier && ambient) {
+        val binder = freshBinder()
+        (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
+      } else if (argCarrier) {
+        (accArgs :+ argElab.as(runIdWrap(argElab)), accBinds)
       } else {
-        val coreCall = expr.as(applyChain(expr.as(spine(expr.value)._1), finalArgs))
-        val coreElab = if (calleeCarrier) coreCall else coreCall.as(pureWrap(coreCall))
-        val wrapped  = binds.foldRight(coreElab) { case ((binder, action), acc) =>
+        (accArgs :+ argElab, accBinds)
+      }
+    }
+
+    /** Reassemble a call from its elaborated arguments and hoisted binds: the core call, `pure`-wrapped when binds
+      * exist around a non-carrier core (the innermost continuation must be a computation), then the binds folded
+      * rightward so the leftmost argument's action is outermost.
+      */
+    private def assemble(
+        expr: Sourced[OperatorResolvedExpression],
+        finalArgs: Seq[Sourced[OperatorResolvedExpression]],
+        binds: Seq[(String, Sourced[OperatorResolvedExpression])],
+        resultCarrier: Boolean
+    ): Sourced[OperatorResolvedExpression] = {
+      val coreCall = expr.as(applyChain(expr.as(spine(expr.value)._1), finalArgs))
+      if (binds.isEmpty) coreCall
+      else {
+        val coreElab = if (resultCarrier) coreCall else coreCall.as(pureWrap(coreCall))
+        binds.foldRight(coreElab) { case ((binder, action), acc) =>
           val continuation = acc.as(FunctionLiteral(acc.as(binder), None, acc))
           acc.as(bindNodes(continuation, action))
         }
-        (wrapped, true)
       }
     }
 
@@ -189,9 +263,20 @@ object RowElaborator {
       }
 
     /** Rebuild a handler lambda with its (fully peeled) body elaborated as a carrier region. */
-    private def elaborateLambda(lambda: Sourced[OperatorResolvedExpression]): OperatorResolvedExpression = {
+    private def elaborateLambdaForced(lambda: Sourced[OperatorResolvedExpression]): Sourced[OperatorResolvedExpression] = {
       val (_, inner) = RowChecker.peelBinders(lambda.value)
-      rewrap(lambda.value, elaborate(lambda.as(inner), needCarrier = true))
+      lambda.as(rewrap(lambda.value, elaborate(lambda.as(inner), needCarrier = true)))
+    }
+
+    /** Rebuild a lambda with its (fully peeled) body elaborated naturally, returning whether the body came out
+      * carrier-valued (an effectful body is a bind chain; a pure body is untouched).
+      */
+    private def elaborateLambdaNatural(
+        lambda: Sourced[OperatorResolvedExpression]
+    ): (Sourced[OperatorResolvedExpression], Boolean) = {
+      val (_, inner)                = RowChecker.peelBinders(lambda.value)
+      val (innerElab, innerCarrier) = core(lambda.as(inner))
+      (lambda.as(rewrap(lambda.value, innerElab)), innerCarrier)
     }
 
     /** A bare (argument-less) reference performs its row only when the callee is nullary — an under-applied function
@@ -200,14 +285,48 @@ object RowElaborator {
     private def saturatedBare(callee: ValueFQN): Boolean =
       universe.values.get(callee).forall(o => SignatureView.of(o.signature).parameters.isEmpty)
 
-    /** Whether a declared parameter type is an arrow whose final codomain is carrier-headed (`E => G[A]`). */
-    private def carrierCodomain(paramType: OperatorResolvedExpression, carriers: Set[String]): Boolean =
-      asArrowLike(paramType).exists { case (_, cod) => carrierHeaded(finalCodomain(cod.value), carriers) }
+    /** Whether calling the function-typed parameter `name` with `argCount` arguments yields a carrier computation:
+      * the declared arrow's final codomain is carrier-headed on this definition's own binders, and the call
+      * saturates the arrow.
+      */
+    private def paramCallCarrier(name: String, argCount: Int): Boolean =
+      paramTypes.get(name).exists { tpe =>
+        val (domains, codomain) = arrowChainLike(tpe)
+        domains.nonEmpty && argCount >= domains.size && carrierHeaded(codomain, ownBinders)
+      }
 
-    private def finalCodomain(tpe: OperatorResolvedExpression): OperatorResolvedExpression =
+    /** Whether a declared parameter type is an arrow whose final codomain is carrier-headed (`E => G[A]`). */
+    private def carrierCodomain(paramType: OperatorResolvedExpression, carriers: Set[String]): Boolean = {
+      val (domains, codomain) = arrowChainLike(paramType)
+      domains.nonEmpty && carrierHeaded(codomain, carriers)
+    }
+
+    /** The *bare generic* final codomain of a declared arrow parameter type — a plain (non-carrier) binder name, the
+      * one a carrier-valued lambda body instantiates at a carrier (`f: A => B` gives `B`). [[None]] for a non-arrow
+      * or a carrier-headed/concrete codomain.
+      */
+    private def bareGenericCodomain(paramType: OperatorResolvedExpression, carriers: Set[String]): Option[String] = {
+      val (domains, codomain) = arrowChainLike(paramType)
+      Option.when(domains.nonEmpty)(codomain).flatMap {
+        case ParameterReference(name) if !carriers.contains(name.value) => Some(name.value)
+        case _                                                          => None
+      }
+    }
+
+    /** A callee's return type as a bare generic binder name, if it is one (`weird[A, B](…): B` gives `B`). */
+    private def bareGenericReturn(view: SignatureView): Option[String] =
+      view.returnType.value match {
+        case ParameterReference(name) if !EffectCarriers.carrierBinders(view).contains(name.value) => Some(name.value)
+        case _                                                                                     => None
+      }
+
+    /** Unfold a declared type into its arrow domains and final codomain, seeing through the `=>` alias. */
+    private def arrowChainLike(tpe: OperatorResolvedExpression): (Seq[OperatorResolvedExpression], OperatorResolvedExpression) =
       asArrowLike(tpe) match {
-        case Some((_, cod)) => finalCodomain(cod.value)
-        case None           => tpe
+        case Some((dom, cod)) =>
+          val (rest, codomain) = arrowChainLike(cod.value)
+          (dom.value +: rest, codomain)
+        case None             => (Seq.empty, tpe)
       }
 
     /** View a type expression as an arrow, seeing through one level of type alias (`Str => G[A]` reaches this phase

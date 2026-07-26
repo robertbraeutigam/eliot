@@ -282,9 +282,23 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   mechanical find: the surface `=>` reaches the operator phase as the **unexpanded operator-named alias**
   (Default namespace), so the elaborator sees through one alias level by expanding the alias's own
   declared body over its binders (`asArrowLike` — universe lookup + substitution, no evaluation).
-  **Remaining R4 slices**: lambdas at plain latent-row arrow slots and `{Effect}`-marker callback arrows,
-  compound computations at pinned slots + pinned-*return* bodies, and the end-to-end shadow compile of
-  elaborated output (needs a pipeline injection seam or source re-rendering — design in the next slice).
+  The **callback/latent-arrow slice landed 2026-07-26** (24 twin shapes total): an `{Effect}`-marker
+  callback slot (`action: A => {Effect} Unit` — the codomain desugars to the callee's minted carrier) is
+  a **carrier-codomain slot, not a suspended slot** — the slot classifications became purely
+  shape-declared (suspended = the declared parameter type itself carrier-headed; carrier-codomain = a
+  declared arrow ending in the callee's carrier binder), which fixed the `parameterEffects`-index
+  conflation of the two. A lambda at a **plain arrow slot elaborates naturally** (effectful body → bind
+  chain, pure body untouched), and a carrier-valued body **instantiates a bare-generic codomain at a
+  carrier**, making a generic-eliminator call (`weird[A, B](f: A => B, a: A): B`) carrier-valued by
+  declared binder plumbing plus the elaborated argument's shape — still no types. Calling a
+  **function-typed parameter** (`action(s)` on the callee side) is carrier-valued when its declared
+  arrow's final codomain is carrier-headed and the call saturates it, with strict hoisting of its
+  arguments. Consequence: the region's *ambient* flag is now "declared return carrier-headed", not
+  "declared user row non-empty" — a machinery-marker signature (`foreach`) has an empty user row but a
+  real ambient carrier.
+  **Remaining R4 slices**: compound computations at pinned slots + pinned-*return* bodies, and the
+  end-to-end shadow compile of elaborated output (needs a pipeline injection seam or source re-rendering
+  — design in the next slice).
 - **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
   slices (per-slice gate: lang + jvm tests, HelloWorld, eliot-test).
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory

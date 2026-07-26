@@ -195,6 +195,70 @@ class RowElaboratorTest
     )
   }
 
+  // --- callback lambdas: an `{Effect}`-marker arrow slot (`action: A => {Effect} B` — codomain on the callee's
+  // minted carrier) is a carrier-codomain slot, NOT a suspended slot: the lambda passes as a value, its body is a
+  // carrier region. A lambda at a plain arrow slot elaborates naturally; a carrier-valued body instantiates a
+  // bare-generic codomain at a carrier (the generic-eliminator rule). ---
+
+  private val eachPrelude = "def each(s: Str, action: Str => {Effect} Str): {Effect} Str\n"
+
+  it should "pass an effectful lambda at an Effect-marker callback slot untouched (not suspended, not pure-wrapped)" in {
+    compareToTwin(
+      eachPrelude + "def d: {Con} Str = each(strA, x -> printLine(x))",
+      eachPrelude + "def t: {Con} Str = each(strA, x -> printLine(x))",
+      extraNames = Seq("each")
+    )
+  }
+
+  it should "pure-wrap the body of a pure lambda at an Effect-marker callback slot" in {
+    compareToTwin(
+      eachPrelude + "def d: {Con} Str = each(strA, x -> use(x))",
+      eachPrelude + "def t: {Con} Str = each(strA, x -> pure(use(x)))",
+      extraNames = Seq("each")
+    )
+  }
+
+  it should "elaborate a block-bodied lambda at a plain arrow slot naturally (generic eliminator)" in {
+    val weird = "def weird[A, B](f: A => B, a: A): B\n"
+    compareToTwin(
+      weird + "def d: {Con} Str = weird(x -> {\nval y = readLine\nprintLine(y)\n}, strA)",
+      weird + "def t: {Con} Str = weird(x -> flatMap(y -> printLine(y), readLine), strA)",
+      extraNames = Seq("weird")
+    )
+  }
+
+  it should "treat a generic-eliminator call as carrier-valued when the lambda instantiates its return at a carrier" in {
+    val weird = "def weird[A, B](f: A => B, a: A): B\n"
+    compareToTwin(
+      weird + "def d: {Con} Str = weird(x -> printLine(x), strA)",
+      weird + "def t: {Con} Str = weird(x -> printLine(x), strA)",
+      extraNames = Seq("weird")
+    )
+  }
+
+  it should "leave a pure lambda at a plain arrow slot untouched and pure-wrap the pure call" in {
+    val weird = "def weird[A, B](f: A => B, a: A): B\n"
+    compareToTwin(
+      weird + "def d: {Con} Str = weird(x -> use(x), strA)",
+      weird + "def t: {Con} Str = pure(weird(x -> use(x), strA))",
+      extraNames = Seq("weird")
+    )
+  }
+
+  it should "elaborate a callback-calling body on the callee side (applied function-typed parameter)" in {
+    compareToTwin(
+      "def d(s: Str, action: Str => {Effect} Str): {Effect} Str = action(s)",
+      "def t(s: Str, action: Str => {Effect} Str): {Effect} Str = action(s)"
+    )
+  }
+
+  it should "hoist an effectful argument of an applied function-typed parameter" in {
+    compareToTwin(
+      "def d(action: Str => {Effect} Str): {Con} Str = action(readLine)",
+      "def t(action: Str => {Effect} Str): {Con} Str = flatMap(x -> action(x), readLine)"
+    )
+  }
+
   /** Elaborate `d` from `direct` and structurally compare with `t`'s compiled runtime from `twin`. */
   private def compareToTwin(direct: String, twin: String, extraNames: Seq[String] = Seq.empty): IO[org.scalatest.Assertion] =
     for {
