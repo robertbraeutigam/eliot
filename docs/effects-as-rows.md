@@ -1,10 +1,12 @@
 # Effects as Rows, v3: Declared Suspension + a Desugared Elaboration
 
-Status: **R1–R4 COMPLETE; R5 FLIP LANDED under the A.8.6 resolution (2026-07-26) — elaboration is live
-in the pipeline, full gate green; the checker-machinery deletion slices are next.** Successor
+Status: **R1–R4 COMPLETE; R5 FLIP LANDED under the A.8.6 resolution, row verification wired, and the
+resolver design DECIDED (A.8.7: post-drain resolution at quiescence) — 2026-07-26, full gate green.
+Next: implement the A.8.7 resolver, then the checker-machinery deletion slices against it.** Successor
 direction to `docs/effects-as-channel.md` (v2, whose checker machinery remains live underneath — it
-finishes the deferred positions until the deletion slices replace it with the A.8.6 resolver). The row
-checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), and the
+finishes the deferred positions until the deletion slices replace it with the A.8.7 resolver). The row
+checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
+`derived ⊆ declared` per definition in the pipeline (bounded per A.8.6), and the
 elaboration desugar (`lang/.../row/RowElaborator`) is twin-verified, **shadow-compiled end to end**
 (R4, `RowElaborationShadowCompileTest`), and wired as a real phase (`RowElaborationProcessor`).
 
@@ -14,7 +16,8 @@ fact that decides slot mode and lift placement is an *instantiation*, not a decl
 is Appendix A.8). **The resolution, decided 2026-07-26, is bounded staging (A.8.6)**: the desugar decides
 every declaration-decided position and **explicitly defers** the instantiation-decided ones — it never
 guesses. Deferred positions are finished by the checker: today by v2's live machinery, at end state by
-one small resolver that replaces it. Progress detail per step: §8.
+the **A.8.7 resolver** — a post-drain peer that classifies each deferred obligation against the
+quiescent meta store and splices the desugar's own rewrite. Progress detail per step: §8.
 
 **One-sentence summary.** Make suspension *declared* in signatures instead of inferred from genericity;
 then effect elaboration (where `flatMap`/`pure`/thunks go) becomes a syntax-directed **desugar phase**
@@ -364,8 +367,13 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   a callee's generic binder — are where the deciding fact is an **instantiation**, not a declaration, and
   the second was reverse-engineered from the dot-chained discharger. **The full record is Appendix A.8;
   the decision — bounded staging: the desugar defers instantiation-decided positions instead of
-  guessing them, and one small resolver replaces v2's Phase A/B as the last deletion slice — is
-  A.8.6.** The checker's effect machinery is deleted only after the deferral-based flip is green.
+  guessing them — is A.8.6, which also records the landed state: the deferral-based flip is live and
+  green, and the per-definition row verification is wired (bounded to ambient-declaring definitions,
+  full coverage, no bare-generic-slot uncertainty). The resolver that replaces v2's machinery for the
+  deferred residue is designed in **A.8.7** (post-drain resolution at quiescence: suspended
+  obligations, classification against the solved store, splice via the desugar's own rules, loop
+  restart; mid-spine resolution rejected).** Deletion slices proceed only against the implemented
+  resolver, Phase A/B last.
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory
   sweep, v2 doc marked superseded.
 
@@ -729,3 +737,72 @@ declared conditions:
 
 The post-mono `EffectAccountingProcessor` remains the unconditional ground-truth verifier gating
 codegen in every case the pre-mono check declines.
+
+#### A.8.7 The resolver design: post-drain resolution at quiescence (decided 2026-07-26)
+
+The A.8.6 end state needs one type-informed component: something that finishes the desugar's deferred
+positions once the instantiation is known. Two architectures were weighed; **the decision is post-drain
+resolution** — the resolver runs only when unification is at rest.
+
+**The forced core, common to any design.** First-contact unification is itself a mode decision: in
+`pick(readLine, "x")`, eagerly unifying `readLine : F[Str]` into `pick`'s `A` silently commits
+pass-through (`A := F[Str]`), and `"x"` then mismatches — unfixable later without retracting solved
+metas, which a mutable meta store must never do. So under *any* design, a computation meeting a
+bare-generic slot must not unify eagerly; it becomes a **suspended obligation** — (position, slot meta,
+argument judgment) — held open until resolved. That much of Phase A/B's *mechanism* survives no matter
+what; the decision is only about **who resolves the obligation and when**.
+
+**Rejected: mid-spine resolution (a slimmed Phase A/B).** Resolve each obligation as soon as a sibling
+rigidifies its meta, inside the same spine walk, and continue checking with the result — v2's
+architecture with the lifter's arm collection swapped for the desugar's 3-way rule. Its virtue is early
+resolution; its cost is structural and is precisely v2's bug record: resolution runs while other metas
+are half-solved, so *ordering becomes a correctness concern* (which sibling first, what the
+resolution's own unifications may capture) — all four of v2's highest-impact bugs were this shape, and
+shortening the arms does not remove the interleaving that makes ordering load-bearing. Early errors,
+its one advantage, lost most of their value when the row verification started reporting effect leaks
+pre-mono at the user's own location; a post-drain mode error still carries the node's original
+`Sourced` position, so only the internal phase is later.
+
+**Decided: the post-drain resolver.** Checking runs to drain with obligations held; by quiescence,
+everything the rest of the body can determine about the slot metas is determined. Then, as a peer of
+the existing `runPostDrainResolution` hooks:
+
+1. classify each obligation against the **solved** meta store, three ways: payload → the desugar's
+   strict-hoist rewrite; carrier-headed → suspended pass-through; pinned stack → capture;
+2. a **still-unsolved** meta defaults to pass-through — the argument's carrier is adopted
+   (`choose(readLine, readLine)`: nothing rigidifies `A`, the branches instantiate it at the carrier —
+   v2's default, kept);
+3. the chosen rewrite is **spliced as a tree rewrite and the loop re-checks** — the placement rules
+   are `RowElaborator`'s own, applied with the mode now known (one rulebook: the desugar finishing its
+   job late, never a second in-checker implementation of placement). Each restart strictly reduces the
+   obligation count, so the loop terminates;
+4. hook ordering in the post-drain fixpoint: mode resolution runs **before** ability resolution, so an
+   adopted carrier can still have its instances resolved in the same round.
+
+Why this is the cleaner architecture, beyond taste: (i) ordering ceases to be a correctness concern —
+the classifier runs when nothing else is running, so the theft window is structurally absent, the same
+way the row channel made theft absent for rows; (ii) one rulebook, since resolution is
+rewrite-then-recheck rather than patching an in-flight judgment; (iii) the architectural slot already
+exists and is debugged — `CalculatedReturnResolver` already does post-drain body rewrites with restart,
+`AbilityResolver`/`CarrierKindChecker` are peers of the same kind; (iv) it is the use-site-verification
+cornerstone applied to elaboration: decide where knowledge is maximal.
+
+**Guardrails** (same discipline as the §3 whitelist):
+
+- *The resolver's contract*: it may **read** solved metas and **splice** desugar rewrites that trigger
+  a re-check. It may never run inside unification, never retract a solution, never grow an ordering
+  arm.
+- *The tripwire*: if a shape genuinely requires resolving an obligation *before* the drain can finish
+  soundly, that is a stop-and-redecide signal — not a license for a mid-flight arm. The sanctioned
+  degree of freedom is the ordering among post-drain hooks, nothing finer.
+
+**Acceptance tests**: `choose`/`pick` (unsolved default vs. sibling-rigidified payload), the
+dot-chained discharger (capture through `.`'s bare generic), `foldLeft`'s accumulator (carrier
+pass-through), plus the full gate.
+
+**Honest residue.** "The checker ends with zero effect code" becomes "the checker ends with zero
+effect *decisions*": one obligation queue held during checking, one post-drain peer. That is the
+residue bounded staging always implied — mid-spine resolution would leave strictly more. The deletion
+slices then proceed against the resolver: the ladders, the `EffectLifter` arms, the pinning mechanisms,
+the slot routers and Phase A/B's resolution logic all die; what Phase A/B leaves behind is exactly the
+obligation queue, re-owned by the resolver.
