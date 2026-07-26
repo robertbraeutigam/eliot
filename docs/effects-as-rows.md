@@ -1,8 +1,13 @@
 # Effects as Rows, v3: Declared Suspension + a Desugared Elaboration
 
-Status: **DESIGN — not landed.** Successor direction to `docs/effects-as-channel.md` (v2, the live
-implementation). Decision pending a spike (§8 R1). v2 stays the live, green default throughout; nothing
-in this document changes behaviour until the migration plan (§8) is executed.
+Status: **R1–R4 COMPLETE (2026-07-26) — shadow-verified, not yet flipped.** Successor direction to
+`docs/effects-as-channel.md` (v2, still the live implementation). The row checker (`lang/.../row/RowChecker`)
+sweeps the real corpus with zero v2 disagreements (R3), and the elaboration desugar
+(`lang/.../row/RowElaborator`) is twin-verified on 30 shapes and **shadow-compiled end to end**: the full
+corpus — stdlib, jvm layer bodies and the synthetic entry included — recompiled from pre-elaborated facts
+runs behaviorally identically (R4, `RowElaborationShadowCompileTest`). Both remain **unwired**; v2 stays
+the live, green default and nothing changes behaviour until **R5 (the flip)** — the next step, starting
+with the §6 semantic-break corpus audit. Progress detail per step: §8.
 
 **One-sentence summary.** Make suspension *declared* in signatures instead of inferred from genericity;
 then effect elaboration (where `flatMap`/`pure`/thunks go) becomes a syntax-directed **desugar phase**
