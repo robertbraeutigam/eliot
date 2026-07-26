@@ -32,8 +32,15 @@ class RowElaboratorTest
     "ability Effect[F[_]] { def flatMap[A, B](f: A => F[B], fa: F[A]): F[B]\n" +
       "def pure[A](a: A): F[A]\ndef map[A, B](f: A => B, fa: F[A]): F[B] }"
 
+  /** The `eliot.lang.Id` identity-carrier stub — pure-residual discharge twins name `runId`, resolving to the same
+    * FQN ([[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.runIdFQN]]) the elaborator mints at the
+    * boundary (Appendix A.4).
+    */
+  private val idStub = "type Id[A]\ndef runId[A](obj: Id[A]): A"
+
   private val prelude =
     """import eliot.carrier.Effect
+      |import eliot.lang.Id
       |data Str
       |ability Con[F[_]] { def readLine: F[Str]
       |def printLine(s: Str): F[Str] }
@@ -44,7 +51,16 @@ class RowElaboratorTest
       |def strB: Str
       |""".stripMargin
 
-  private val names = Seq("use", "concat2", "pureStr", "strA", "strB")
+  /** The discharge environment: an effect ability `X` with its carrier and a catch-shaped discharger. */
+  private val dischargePrelude =
+    """data XCarrier[G, A]
+      |ability X[F[_]] { def boom[A]: F[A] }
+      |def catchX[G[_], A](computation: {X | G} A, handler: Str => G[A]): G[A]
+      |def failing: {X} Str = boom
+      |""".stripMargin
+
+  private val names          = Seq("use", "concat2", "pureStr", "strA", "strB")
+  private val dischargeNames = Seq("catchX", "failing")
 
   "the row elaborator" should "hoist an effectful argument at a strict slot into a flatMap" in {
     compareToTwin(
@@ -120,6 +136,65 @@ class RowElaboratorTest
     )
   }
 
+  // --- discharge regions (Appendix A.4): a discharger call is carrier-valued by its declared return; under an empty
+  // residual row its base carrier is Id, unwrapped with runId at that same boundary; under an ambient carrier it
+  // rides like any effectful call. Handler lambdas at carrier-codomain slots elaborate as carrier regions. ---
+
+  it should "unwrap a pure-residual discharge with runId and pure-wrap the pure handler body" in {
+    compareToTwin(
+      dischargePrelude + "def d: Str = catchX(failing, s -> pureStr)",
+      dischargePrelude + "def t: Str = runId(catchX(failing, s -> pure(pureStr)))",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "leave a discharge with an effectful handler riding the ambient carrier untouched" in {
+    compareToTwin(
+      dischargePrelude + "def d: {Con} Str = catchX(failing, s -> printLine(s))",
+      dischargePrelude + "def t: {Con} Str = catchX(failing, s -> printLine(s))",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "bind a val-bound discharge under an ambient carrier via flatMap" in {
+    compareToTwin(
+      dischargePrelude + "def d: {Con} Str = {\nval x = catchX(failing, s -> pureStr)\nprintLine(x)\n}",
+      dischargePrelude + "def t: {Con} Str = flatMap(x -> printLine(x), catchX(failing, s -> pure(pureStr)))",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "unwrap a val-bound discharge with runId when the region has no ambient carrier" in {
+    compareToTwin(
+      dischargePrelude + "def d: Str = {\nval x = catchX(failing, s -> pureStr)\nuse(x)\n}",
+      dischargePrelude + "def t: Str = {\nval x = runId(catchX(failing, s -> pure(pureStr)))\nuse(x)\n}",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "unwrap a discharge at a strict argument slot in place when the region has no ambient carrier" in {
+    compareToTwin(
+      dischargePrelude + "def d: Str = use(catchX(failing, s -> pureStr))",
+      dischargePrelude + "def t: Str = use(runId(catchX(failing, s -> pure(pureStr))))",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "hoist a discharge at a strict argument slot under an ambient carrier via flatMap" in {
+    compareToTwin(
+      dischargePrelude + "def d: {Con} Str = printLine(catchX(failing, s -> pureStr))",
+      dischargePrelude + "def t: {Con} Str = flatMap(x -> printLine(x), catchX(failing, s -> pure(pureStr)))",
+      extraNames = dischargeNames
+    )
+  }
+
+  it should "forward a suspended parameter as a carrier value without re-wrapping" in {
+    compareToTwin(
+      "def d(v: {Con} Str): {Con} Str = v",
+      "def t(v: {Con} Str): {Con} Str = v"
+    )
+  }
+
   /** Elaborate `d` from `direct` and structurally compare with `t`'s compiled runtime from `twin`. */
   private def compareToTwin(direct: String, twin: String, extraNames: Seq[String] = Seq.empty): IO[org.scalatest.Assertion] =
     for {
@@ -170,7 +245,8 @@ class RowElaboratorTest
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file), Platform.Compiler))
-      imports    = systemImports :+ SystemImport("Effect", effectStub, Seq("eliot", "carrier"))
+      imports    = systemImports :+ SystemImport("Effect", effectStub, Seq("eliot", "carrier")) :+
+                     SystemImport("Id", idStub)
       _         <- imports.traverse { imp =>
                      val modulePath = imp.moduleName.toPath
                      val impFile    = java.net.URI.create(modulePath.toString)
@@ -178,7 +254,11 @@ class RowElaboratorTest
                        generator.registerFact(PathScan(modulePath, Seq(impFile), Platform.Compiler)) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, imp.content)))
                    }
-      keys       = (names ++ extraNames :+ target).map(vfqn)
+      // The `=>` alias's own definition is part of the universe so the elaborator can see through it to the arrow
+      // (`handler: Str => G[A]` reaches the operator phase as the unexpanded alias application; an operator-named
+      // alias lives in the Default namespace, exactly like the equivalent `def`).
+      arrowAlias = ValueFQN(ModuleName2.systemFunctionModuleName, QualifiedName("=>", Qualifier.Default))
+      keys       = (names ++ extraNames :+ target).map(vfqn) :+ arrowAlias
       orvs      <- keys.traverse(k => generator.getFact(OperatorResolvedValue.Key(k)))
       errors    <- generator.currentErrors()
     } yield {

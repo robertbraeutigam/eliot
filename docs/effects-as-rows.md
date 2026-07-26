@@ -257,7 +257,7 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   metadata loss — the latter a genuine latent defect fixed in the layer merge. Arrow row-defaulting landed
   as the checker's conservative-latent reading rule (A.5). Gate: lang + jvm (295) green, HelloWorld,
   eliot-test 11/11.
-- **R4 — elaboration desugar, shadow: FIRST SLICE DONE (2026-07-25).** The elaborator core exists —
+- **R4 — elaboration desugar, shadow: DISCHARGE SLICE DONE (2026-07-26).** The elaborator core exists —
   `lang/src/com/vanillasource/eliot/eliotc/row/RowElaborator.scala`, unwired, decision-free (every choice
   reads declared rows/slot modes via `RowChecker`, never a type) — covering strict-slot bind hoisting
   (leftmost-outermost), block/`val` sequencing over the applied-lambda desugar, the uniform pure-wrap rule
@@ -265,14 +265,26 @@ types, and the only carrier-typed code is code the desugar wrote or the user pin
   and multi-argument calls, suspended/pinned/run-boundary slot pass-through, and the pure-code identity
   (empty row ⇒ byte-identical output, no `Id`). Acceptance: `RowElaboratorTest` compiles each
   direct-style program *and its hand-written explicit-monadic twin* through the real pipeline and asserts
-  the elaborated body is **structurally identical** (α-renamed binders) to the twin — 10 shapes green,
+  the elaborated body is **structurally identical** (α-renamed binders) to the twin — 17 shapes green,
   including the suspended-slot rule (a pure argument at a declared-suspended slot lifts via `pure`, an
   effectful one passes unrun — v2's `tryPureWrap` arm as a declared-slot-mode read).
   The machinery nodes are spelled by the same FQNs the v2 checker splices (`WellKnownTypes.effect*FQN`),
-  so the output is today's explicit monadic core by construction. **Remaining R4 slices**: the
-  discharge-region `Id` instantiation + boundary `runId` (A.4), user-lambda codomains (arrow latent
-  rows), and the end-to-end shadow compile of elaborated output (needs a pipeline injection seam or
-  source re-rendering — design in the next slice).
+  so the output is today's explicit monadic core by construction.
+  The **discharge slice (A.4) landed 2026-07-26**: the elaborator's effectfulness notion became
+  **carrier-valued-ness** — a call is a carrier computation exactly when its callee's declared return is
+  headed by one of the callee's own carrier binders (`readLine : F[Str]`, `catchX : G[A]`; declared
+  shape, no tag) — and a carrier-valued node meeting a region with *no* ambient carrier (a pure
+  definition's boundary, `val` binding, or strict argument slot) is unwrapped with `runId` at that same
+  boundary, the region's base carrier being `Id` by declaration; under an ambient carrier it binds like
+  any effectful call. Handler lambdas at declared carrier-codomain slots (`onError: E => G[A]`) elaborate
+  their bodies as carrier regions (effectful body = already a computation, pure body = `pure`-wrapped),
+  and a suspended-parameter reference is itself carrier-valued (never re-wrapped when forwarded). One
+  mechanical find: the surface `=>` reaches the operator phase as the **unexpanded operator-named alias**
+  (Default namespace), so the elaborator sees through one alias level by expanding the alias's own
+  declared body over its binders (`asArrowLike` — universe lookup + substitution, no evaluation).
+  **Remaining R4 slices**: lambdas at plain latent-row arrow slots and `{Effect}`-marker callback arrows,
+  compound computations at pinned slots + pinned-*return* bodies, and the end-to-end shadow compile of
+  elaborated output (needs a pipeline injection seam or source re-rendering — design in the next slice).
 - **R5 — flip:** mono consumes elaborated facts; the checker's effect machinery goes cold; delete in
   slices (per-slice gate: lang + jvm tests, HelloWorld, eliot-test).
 - **R6 — closeout:** stdlib signature updates (§6), CLAUDE.md cornerstone rewrite, skills/memory
