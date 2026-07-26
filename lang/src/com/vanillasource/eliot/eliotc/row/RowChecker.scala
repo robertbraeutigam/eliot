@@ -43,11 +43,28 @@ object RowChecker {
 
   /** The declared world the checker reads: the operator-resolved values by name, plus the platform-registered run
     * boundaries (values whose first parameter captures the whole row — jvm's `runMain`).
+    *
+    * A batch consumer (a sweep, a test) holds every value up front. A *demand-driven* consumer (the pipeline
+    * processor) cannot: it must know which names the derivation actually consults before it can fetch them. That is
+    * what `onMiss` is for — every consultation of a name the map does not hold reports it, so the processor can fetch
+    * the reported names and re-run until nothing is missing. Without it a demand-driven consumer would have to guess
+    * the consulted set and would silently fall back to the "unknown callee" approximations on a wrong guess.
     */
   case class Universe(
       values: Map[ValueFQN, OperatorResolvedValue],
-      runBoundaries: Set[ValueFQN] = Set.empty
-  )
+      runBoundaries: Set[ValueFQN] = Set.empty,
+      onMiss: ValueFQN => Unit = _ => ()
+  ) {
+
+    /** Consult a *referenced* name (a callee, a type alias, a run boundary), reporting a miss. Reading the value
+      * currently under check goes directly to [[values]] instead — its absence is not a derivation gap.
+      */
+    def lookup(fqn: ValueFQN): Option[OperatorResolvedValue] = {
+      val found = values.get(fqn)
+      if (found.isEmpty) onMiss(fqn)
+      found
+    }
+  }
 
   /** One definition's verdict: what its body derives vs. what its signature declares, plus the referenced names the
     * universe could not resolve (coverage information for a shadow sweep — an unknown callee means the derivation may
@@ -119,8 +136,8 @@ object RowChecker {
     */
   def runCarrierHeads(universe: Universe): Set[ValueFQN] =
     universe.runBoundaries.flatMap { boundary =>
-      universe.values
-        .get(boundary)
+      universe
+        .lookup(boundary)
         .flatMap(orv => SignatureView.of(orv.signature).parameters.headOption)
         .flatMap(param => headOf(param.value))
     }
@@ -147,6 +164,20 @@ object RowChecker {
     */
   private def pinnedReturnEntries(orv: OperatorResolvedValue): Row =
     orv.effectRow.returnPinnedEffects.map(_.abilityFQN).toSet
+
+  /** The row a single expression derives in the given parameter environment — the [[RowElaborator]]'s test for
+    * whether an argument must *run* at its call site. An expression *performs* iff its row is non-empty; a
+    * carrier-typed **value** — a reified computation such as `pure(x)`, or a parameter holding one — derives the
+    * empty row and is data to pass on, not work to sequence.
+    */
+  def expressionRow(expr: OperatorResolvedExpression, env: Map[String, Row], universe: Universe): Row =
+    valueRow(expr, env, universe).row
+
+  /** The declared rows of a definition's parameters by binder name (suspended slots, effectful-callback arrows) —
+    * exposed for the [[RowElaborator]], which elaborates in the same environment the checker derives in.
+    */
+  def parameterRowsOf(orv: OperatorResolvedValue, paramNames: Seq[String]): Map[String, Row] =
+    parameterEnvironment(orv, SignatureView.of(orv.signature), paramNames)
 
   /** What a saturated reference to `fqn` alone performs (its declared row / its ability) — the callee half of the
     * derivation rule, exposed for the [[RowElaborator]] (its carrier-valued fallback for callees outside the
@@ -198,7 +229,7 @@ object RowChecker {
     val (head, args) = spine(expr)
     head match {
       case ValueReference(name, _)                      =>
-        val orvOpt      = universe.values.get(name.value)
+        val orvOpt      = universe.lookup(name.value)
         val saturated   = args.size >= orvOpt.map(o => SignatureView.of(o.signature).parameters.size).getOrElse(0)
         val callee      = if (saturated) calleeContribution(name.value, universe) else Derivation.empty
         val runBoundary = universe.runBoundaries.contains(name.value)
@@ -249,7 +280,7 @@ object RowChecker {
         val (head, args) = spine(expr)
         head match {
           case ValueReference(name, _)
-              if universe.values.get(name.value).exists(o => args.size < SignatureView.of(o.signature).parameters.size) =>
+              if universe.lookup(name.value).exists(o => args.size < SignatureView.of(o.signature).parameters.size) =>
             calleeContribution(name.value, universe)
           case ParameterReference(name) if args.isEmpty =>
             Derivation.of(env.getOrElse(name.value, Set.empty))
@@ -269,14 +300,14 @@ object RowChecker {
         val ability = AbilityFQN(fqn.moduleName, abilityName)
         if (machinery(ability)) Derivation.empty
         else
-          universe.values.get(fqn) match {
+          universe.lookup(fqn) match {
             case Some(orv) =>
               val effectful = EffectCarriers.carrierBinders(SignatureView.of(orv.signature)).nonEmpty
               if (effectful) Derivation.of(Set(ability)) else Derivation.empty
             case None      => Derivation.of(Set(ability)) |+| Derivation.unknown(fqn)
           }
       case _                              =>
-        universe.values.get(fqn) match {
+        universe.lookup(fqn) match {
           case Some(orv) => Derivation.of(declaredRow(orv))
           case None      => Derivation.unknown(fqn)
         }

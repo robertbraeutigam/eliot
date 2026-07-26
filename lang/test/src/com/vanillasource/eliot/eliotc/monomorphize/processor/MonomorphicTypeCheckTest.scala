@@ -20,7 +20,8 @@ class MonomorphicTypeCheckTest
     extends ProcessorTest(
       (LangProcessors(
         systemModules = ProcessorTest.coreAmbientModules,
-        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)
+        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel),
+        runBoundaryFunctions = Set(MonomorphicTypeCheckTest.stubRunMainVfqn)
       ) :+ StdlibNativesProcessor())*
     ) {
 
@@ -953,7 +954,7 @@ class MonomorphicTypeCheckTest
     * so the W1 tests can exercise both a fully-applied `IO[Unit]` and the bare-`IO` guardrail. `Bool` is declared
     * locally in each snippet (it is not an ambient module).
     */
-  private val w1Imports: Seq[SystemImport] = ambientStubsWith("IO" -> "type IO[A]")
+  private val w1Imports: Seq[SystemImport] = ambientStubsWith("IO" -> "type IO[A]\ndef runMain[A](io: IO[A]): A")
 
   private def runW1(
       source: String,
@@ -1148,14 +1149,22 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("boom" at "foo"))
   }
 
-  // --- The checker-side effect lift (docs/effect-lift-in-checker.md, Step 4) ---
+  // --- The effect elaboration (docs/effects-as-rows.md §3) ---
 
-  // The former effect-phase rewrite-shape assertions, as *monomorphic body* assertions: the auto-lift is type-directed
-  // elaboration in the checker now, so the sequenced `Effect.flatMap`/`map`/`pure` shape materialises in the
-  // monomorphic output (here at the stub `IO` carrier, resolved against the stub instances in `effectLiftImports` —
-  // the real-impl behaviour is pinned end-to-end in the jvm `ExamplesIntegrationTest`).
+  // Rewrite-shape assertions read off the *monomorphic body*: direct-style code is elaborated into explicit monadic
+  // core by the `RowElaborator` desugar before the checker sees it, so the sequenced `Effect.flatMap`/`pure` shape
+  // materialises in the monomorphic output (here at the stub `IO` carrier, resolved against the stub instances in
+  // `effectLiftImports` — the real-impl behaviour is pinned end-to-end in the jvm `ExamplesIntegrationTest`).
+  //
+  // Three rules explain every shape below. **Strict at declared-concrete slots**: an effectful argument whose slot
+  // has a declared payload type runs at the call site and its result is bound, so nesting effectful calls nests
+  // binds; where the desugar writes the binds it uses **one bind combinator** — a pure continuation is `pure`-wrapped
+  // under `flatMap` rather than selecting `map`, since the desugar reads declarations only and never the
+  // continuation's inferred type (the two are behaviourally identical). **Generic-headed slots are deferred**
+  // (A.8.6): their mode is the instantiation's, so the desugar writes nothing there and the checker finishes the
+  // node — those shapes keep the checker's own `map`/pass-through spellings.
 
-  "the checker-side effect lift" should "sequence a direct-style printLine(readLine) with Effect.flatMap" in {
+  "the effect elaboration" should "sequence a direct-style printLine(readLine) with Effect.flatMap" in {
     liftedBody("import eliot.effect.Console\ndef echo: {Console} Unit = printLine(readLine)")
       .asserting(_ should contain("flatMap"))
   }
@@ -1166,7 +1175,9 @@ class MonomorphicTypeCheckTest
     ).asserting(_.count(_ == "flatMap") shouldBe 1)
   }
 
-  it should "pass an effectful eliminator branch through unsequenced (emergent from the flex-slot deferral)" in {
+  // A bare generic slot is *deferred* (A.8.6): its mode is the instantiation's, so the desugar writes nothing and
+  // the checker passes the computations through unsequenced — the branches instantiate `A` at the carrier.
+  it should "pass an effectful eliminator branch through unsequenced (the deferred generic slot)" in {
     liftedBody(
       "import eliot.effect.Console\ndef echo: {Console} String = choose(readLine, readLine)\ndef choose[A](x: A, y: A): A = x"
     ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq.empty)
@@ -1178,15 +1189,16 @@ class MonomorphicTypeCheckTest
     ).asserting(_ should contain("flatMap"))
   }
 
-  it should "thread effects through a block, selecting map for the pure tail statement" in {
+  it should "thread effects through a block, lifting the pure tail statement" in {
     liftedBody(
       "import eliot.effect.State\ndef echo(next: String): {State[String]} String = {\n  val old = state\n  putState(next)\n  old\n}"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
   }
 
   it should "bind an effectful subject dotted into a function-typed parameter (the dot-inline regression)" in {
-    // `readLine.f` — `.`'s flex `a: A` slot defers, `f` rigidifies it to `String`, Phase B bind-lifts (map, pure core),
-    // and the carrier-headed result then bind-lifts again into printLine's `String` slot (flatMap).
+    // `readLine.f` — `.`'s `a: A` slot is generic-headed, hence deferred (A.8.6): the desugar has no dot rule of any
+    // kind, the checker rigidifies `A` to `String` and bind-lifts (map, pure core), and the carrier-headed result
+    // then bind-lifts again into printLine's `String` slot (flatMap).
     liftedBody(
       "import eliot.effect.Console\ndef call(f: Function[String, String]): {Console} Unit = printLine(readLine.f)",
       name = "call"
@@ -1200,40 +1212,43 @@ class MonomorphicTypeCheckTest
 
   // --- The extended regression matrix (Step 5) ---
 
-  it should "lift a deferred flex slot once a later argument rigidifies it (deferral order)" in {
+  it should "lift a deferred generic slot once a later argument rigidifies it (deferral order)" in {
     liftedBody(
       "import eliot.effect.Console\ndef pick[A](x: A, y: A): A = x\ndef echo: {Console} String = pick(readLine, \"x\")"
     ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("map"))
   }
 
-  it should "pass an effectful eliminator branch through while its slot stays flex (the emergent branch rule)" in {
+  it should "lift a deferred generic slot a sibling argument rigidifies (multi-argument eliminator)" in {
+    // The eliminator's first slot takes a plain value: the original spelling passed the body-less `none`, whose `A`
+    // nothing determined, so the value never checked and every assertion held vacuously on an empty body. `ifNone`'s
+    // `B` is deferred; the `s -> s` lambda rigidifies it to `String`, so the checker bind-lifts the read there.
     liftedBody(
-      "import eliot.effect.Console\ndef foldOr[A, B](o: Option[A], ifNone: B, ifSome: Function[A, B]): B = ifNone\ndef echo: {Console} String = foldOr(none, readLine, s -> s)"
-    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq.empty)
+      "import eliot.effect.Console\ndef foldOr[A, B](o: A, ifNone: B, ifSome: Function[A, B]): B = ifNone\ndef echo: {Console} String = foldOr(\"k\", readLine, s -> s)"
+    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("map"))
   }
 
   it should "bind nested effectful arguments innermost-first (bind of a bind)" in {
     liftedBody(
       "import eliot.effect.Console\ndef url(s: String): String = s\ndef echo: {Console} Unit = printLine(url(readLine))"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
   }
 
-  it should "pass a still-flex deferred slot through and lift at the parent instead" in {
+  it should "pass a deferred generic slot through and lift at the parent instead" in {
+    // `identity`'s `a: A` is deferred: the computation flows through (`A` adopts the carrier) and the carrier-headed
+    // result bind-lifts once, at `printLine`'s declared-concrete slot.
     liftedBody(
       "import eliot.effect.Console\ndef identity[A](a: A): A = a\ndef echo: {Console} Unit = printLine(identity(readLine))"
     ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap"))
   }
 
-  it should "bind-lift a still-flex deferred slot whose non-transparent callee cannot carry the effect up" in {
-    // The counterpart of the `identity` case above. `putState[S, F](s: S): F[Unit]`'s `S` domain is a flex meta, so
-    // `putState(keep(state))` defers to Phase B still flex — but unlike `identity`, `S` is absent from the `F[Unit]`
-    // result, so adopting the read's carrier into `S` would strand it (never grounded → "contains unresolved
-    // variable"). The fix bind-lifts here instead, threading the read: `map` sequences `keep(state)`, `flatMap`
-    // sequences `putState`. This is what lets `updateState(f) = putState(f(state))` type-check.
+  it should "bind an effectful argument nested under a second strict slot (the updateState shape)" in {
+    // The counterpart of the `identity` case above, and what lets `updateState(f) = putState(f(state))` type-check:
+    // `state` runs and binds at `keep`'s strict slot, and the resulting computation binds again into `putState`'s.
+    // Nothing about `putState[S, F](s: S): F[Unit]`'s `S` needs solving first — the desugar is type-free.
     liftedBody(
       "import eliot.effect.State\ndef keep(s: String): String = s\ndef upd: {State[String]} Unit = putState(keep(state))",
       name = "upd"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "map"))
+    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
   }
 
   it should "leave a carrier-typed storage slot unbound (the discharge-helper shape)" in {
@@ -1288,7 +1303,10 @@ class MonomorphicTypeCheckTest
   // `AbilityResolver` reports the failed demand at the reference). The instances keep the demands resolvable; the
   // emitted refs carry the same local names (`flatMap`/`pure`/`printLine`), so the shape assertions read unchanged.
   private val effectLiftImports: Seq[SystemImport] = ambientStubsWith(
-    "IO"       -> "type IO[A]",
+    // The stub run boundary, mirroring the jvm layer's `eliot.jvm.IO::runMain`: it is what makes `IO` a *carrier*
+    // head by declaration (effects-as-channel tag source (ii)) rather than by its name, for both the checker's
+    // capture routing and the row elaboration's stored-computation annotations.
+    "IO"       -> "type IO[A]\ndef runMain[A](io: IO[A]): A",
     "Option"   -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
     // The ambient stub plus the real `.` operator (mirroring `stdlib/.../Function.els`), for the dotted-subject case.
     "Function" ->
@@ -1328,12 +1346,14 @@ class MonomorphicTypeCheckTest
       source,
       MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
       effectLiftImports
-    ).map(
-      _._2.values
+    ).map { case (errors, facts) =>
+      facts.values
         .collectFirst { case mv: MonomorphicValue if mv.vfqn.name.name == name => mv }
         .flatMap(mv => mv.runtime.map(body => referencedNames(idNormalized(mv, body))))
-        .getOrElse(Seq.empty)
-    )
+        // A value that failed to check has no body, and an empty name list would silently satisfy every
+        // "no lift machinery" assertion in this group — so the absence is a failure, not a result.
+        .getOrElse(fail(s"'$name' produced no monomorphic body: ${toTestErrors(errors).mkString(", ")}"))
+    }
 
   /** Id-normalize a monomorphic value's runtime body as `WovenValueProcessor` does before codegen (see [[liftedBody]]). */
   private def idNormalized(mv: MonomorphicValue, body: Sourced[MonomorphicExpression.Expression]): MonomorphicExpression.Expression =
@@ -1358,4 +1378,13 @@ class MonomorphicTypeCheckTest
     case MonomorphicExpression.FunctionLiteral(_, _, body)       => referencedNames(body.value.expression)
     case _                                                       => Seq.empty
   }
+}
+
+object MonomorphicTypeCheckTest {
+
+  /** The stub counterpart of the jvm layer's `eliot.jvm.IO::runMain`, registered as this suite's run boundary so the
+    * stub `IO` is a declared carrier head exactly as it is in a real build.
+    */
+  val stubRunMainVfqn: ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("runMain", Qualifier.Default))
 }

@@ -1,6 +1,16 @@
 package com.vanillasource.eliot.eliotc.effect.processor
 
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{SignatureView, asArrow}
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
+  FunctionApplication,
+  FunctionLiteral,
+  ParameterReference,
+  SignatureView,
+  ValueReference,
+  asArrow
+}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 
@@ -25,6 +35,53 @@ object EffectCarriers {
     */
   def carrierBinders(view: SignatureView): Set[String] =
     view.binders.filter(isHktBinder).map(_.name.value).toSet
+
+  /** A definition's **declared** carrier binders: the higher-kinded binders that the definition's own signature says
+    * carry effects, as opposed to a bare higher-kinded generic (`def id[F[_]](x: F[A]): F[A]`, `data Box[A]`'s
+    * constructor-class abstractions) which is an ordinary type-constructor parameter and carries nothing.
+    *
+    * Where [[carrierBinders]] answers "which binder *could* a computation ride" — the shape question, used where the
+    * carrier is known from context — this answers "which binder *does* this signature declare as a carrier", which is
+    * what a phase reading only declarations (the effects-as-rows elaboration) must ask before deciding that a call is
+    * a computation. A binder qualifies when:
+    *
+    *   - it is **ability-constrained** (`[G[_] ~ Effect]`, and every binder the `{E}` effect-row sugar mints);
+    *   - it heads a **pinned row** the signature discharges (`runAbort[G[_], A](obj: {Abort | G} A): G[Option[A]]` —
+    *     the base carrier of a pinned stack is deliberately unconstrained, so nothing else marks it);
+    *   - the definition is an **ability method**, whose return rides its ability's own binder with no constraint of
+    *     its own (`Console`'s `printLine : F[Unit]`).
+    *
+    * Note the third case is by ability membership, not by which ability: `Console[F[_]]` and a constructor-class
+    * `Container[F[_]]` are the same shape and are treated the same — a method of either yields its ability's carrier.
+    * What keeps a `Container` use from being mistaken for an effect is the *use site*: a declared return that can
+    * host the carrier (`def f: Box[String] = wrap(s)`) takes it, and only a return that cannot (a bare `String`)
+    * discharges.
+    */
+  def declaredCarrierBinders(value: OperatorResolvedValue): Set[String] = {
+    val view      = SignatureView.of(value.signature)
+    val allBinders = carrierBinders(view)
+    value.vfqn.name.qualifier match {
+      case Qualifier.Ability(_) => allBinders
+      case _                    =>
+        val pinnedTypes =
+          value.effectRow.pinnedParameterIndices.toSeq.flatMap(index => view.parameters.lift(index).map(_.value)) ++
+            Option.when(value.effectRow.returnPinnedEffects.nonEmpty)(view.returnType.value)
+        allBinders.filter(binder =>
+          value.paramConstraints.get(binder).exists(_.nonEmpty) ||
+            pinnedTypes.exists(occurs(binder, _))
+        )
+    }
+  }
+
+  /** Whether a binder name occurs anywhere in a type expression. */
+  private def occurs(binder: String, tpe: OperatorResolvedExpression): Boolean = tpe match {
+    case ParameterReference(name)          => name.value == binder
+    case FunctionApplication(target, arg)  => occurs(binder, target.value) || occurs(binder, arg.value)
+    case FunctionLiteral(_, paramType, body) =>
+      paramType.exists(pt => occurs(binder, pt.value)) || occurs(binder, body.value)
+    case ValueReference(_, typeArgs)       => typeArgs.exists(ta => occurs(binder, ta.value))
+    case _                                 => false
+  }
 
   /** The user-facing effects a value *declares*: the ability FQNs constrained on its `carriers`, with the internal
     * machinery abilities (`Effect`/`Suspend`) removed — those are inserted by the compiler, never declared as

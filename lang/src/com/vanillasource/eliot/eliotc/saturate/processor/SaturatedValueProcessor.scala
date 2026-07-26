@@ -25,7 +25,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.Qualifier as ResolveQualifier
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
+import com.vanillasource.eliot.eliotc.row.fact.RowElaboratedValue
 
 /** Saturates parameter-position bare references to omittable (`auto`-marked) type constructors (implicit-generics,
   * W1).
@@ -50,16 +50,16 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   * A value with no parameter-position bare omittable reference passes its [[OperatorResolvedValue]] through unchanged.
   */
 class SaturatedValueProcessor
-    extends TransformationProcessor[RecursionCheckedValue.Key, SaturatedValue.Key](key =>
-      RecursionCheckedValue.Key(key.vfqn, key.platform)
+    extends TransformationProcessor[RowElaboratedValue.Key, SaturatedValue.Key](key =>
+      RowElaboratedValue.Key(key.vfqn, key.platform)
     ) {
 
   override protected def generateFromKeyAndFact(
       key: SaturatedValue.Key,
-      recursionChecked: RecursionCheckedValue
+      elaborated: RowElaboratedValue
   ): CompilerIO[SaturatedValue] = {
-    given Platform = recursionChecked.value.platform
-    val value      = recursionChecked.value
+    given Platform = elaborated.value.platform
+    val value      = elaborated.value
     dataSaturate(value).flatMap {
       case Some(rewritten) => rewritten.pure[CompilerIO]
       case None            => saturate(value)

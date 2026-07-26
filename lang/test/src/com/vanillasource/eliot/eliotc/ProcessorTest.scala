@@ -47,7 +47,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("BigInteger", "type BigInteger"),
     SystemImport("Unit", "type Unit"),
     SystemImport("String", "type String"),
-    SystemImport("IO", "type IO", Seq("eliot", "jvm")),
+    // `IO` carries the jvm layer's run boundary `runMain`, so a suite that registers it (see
+    // `LangProcessors(runBoundaryFunctions = …)`) finds the value declaring the platform carrier head.
+    SystemImport("IO", "type IO\ndef runMain[A](io: IO[A]): A", Seq("eliot", "jvm")),
     SystemImport("PatternMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("TypeMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("Int", ProcessorTest.intStubContent),

@@ -1,10 +1,12 @@
 # Effects as Rows, v3: Declared Suspension + a Desugared Elaboration
 
-Status: **R1–R4 COMPLETE; R5 IN PROGRESS under the A.8.6 resolution (2026-07-26).** Successor
-direction to `docs/effects-as-channel.md` (v2, which remains the live, green implementation until the
-flip completes). The row checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero
-v2 disagreements (R3), and the elaboration desugar (`lang/.../row/RowElaborator`) is twin-verified on 30
-shapes and **shadow-compiled end to end** (R4, `RowElaborationShadowCompileTest`).
+Status: **R1–R4 COMPLETE; R5 FLIP LANDED under the A.8.6 resolution (2026-07-26) — elaboration is live
+in the pipeline, full gate green; the checker-machinery deletion slices are next.** Successor
+direction to `docs/effects-as-channel.md` (v2, whose checker machinery remains live underneath — it
+finishes the deferred positions until the deletion slices replace it with the A.8.6 resolver). The row
+checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), and the
+elaboration desugar (`lang/.../row/RowElaborator`) is twin-verified, **shadow-compiled end to end**
+(R4, `RowElaborationShadowCompileTest`), and wired as a real phase (`RowElaborationProcessor`).
 
 **R5 wired the desugar into the pipeline as a real phase and ran it over the whole corpus** — which
 exposed what twin shapes could not: for positions that flow through a callee's **generic binders**, the
@@ -668,3 +670,32 @@ mode-forwarding in the surface fails precisely at `.` (its `A` can forward to an
 and still needs annotations for lambdas and deep chains; (c) bounding the desugar loses dot-chained
 discharge, a shipped idiom. Note (a)'s special case "make `.` compiler magic" would not even close the
 class — `foreach`'s own `foldLeft` body needs the same instantiation fact with no dot in sight.
+
+**Landed (2026-07-26, same day): the deferral-based flip is wired and the full gate is green** — every
+module suite (lang, jvm, eliotc, LSP), HelloWorld, the discharge examples, and the shadow compile.
+Rule 5 was deleted, rules 1–3 kept, rule 4 completed with the declared discharge clause. Landing the
+deferral over the whole corpus forced four corollaries, all of them *consequences* of the discipline
+rather than new judgment calls:
+
+1. **Payload-by-construction binders.** A block binder bound by an elaborator-*inserted* `flatMap`
+   holds the computation's payload by construction, so a reference to it is definitely pure and may be
+   `pure`-lifted (`swap`'s `old`). This is elaborator-owned information, not inference — without it the
+   checker meets the un-wrapped tail against the machinery's carrier slot and first-contact-unifies the
+   payload meta with the carrier (the State-under-Id miscompile).
+2. **An inserted rewrite must be fully discharged or not made.** A bind chain whose eventual tail is
+   deferred is rolled back whole (the binding stays direct-style for the checker), and hoisting requires
+   a classifiable core — carrier-valued or definitely pure. Otherwise the machinery the elaborator
+   writes puts a deferred node (`resultValue(r)`'s bare `A`, `andThen($row$1, abort)`) into a
+   carrier-typed position the checker then commits wrongly: the readFile `ClassCastException` and the
+   Abort-stack double-wrap were both this shape.
+3. **Pinned captures never boundary-wrap.** Pinned means captured: a pure actual does not lift into a
+   pinned slot — v2 parity, and what preserves the curated val-bound-discharge diagnostic
+   (`Expected: {Abort | IO} String`) instead of a downstream ability demand.
+4. **Untouched code keeps its original nodes, transitively.** A lambda whose body elaborates to itself
+   must not be rebuilt: an equal-but-new node reads as a changed argument upstream and re-attributes the
+   whole application spine, which surfaced as duplicate co-located LSP hover hints.
+
+The shadow-compile changed-count tripwire was relaxed to `> 0` (deferral legitimately rewrites fewer
+definitions; the tripwire only guards against identity degradation). Next: the R5 deletion slices —
+the checker's effect machinery goes cold piece by piece against this same gate, Phase A/B last,
+replaced by the ground-instantiation resolver.

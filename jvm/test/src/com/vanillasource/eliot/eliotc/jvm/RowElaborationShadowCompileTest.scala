@@ -50,7 +50,10 @@ class RowElaborationShadowCompileTest extends AsyncFlatSpec with AsyncIOSpec wit
       b                          <- compileRun(sourceDir, elaborated)
       (_, bJar)                   = b
       outputB                    <- FullIntegrationTest.runJar(bJar, "")
-    } yield (outputB, changed > 5, outputA) shouldBe (outputA, true, outputA)).recover { case e =>
+    // The changed-count tripwire only guards against elaboration silently degrading to identity; under the A.8.6
+    // deferral discipline the desugar legitimately rewrites fewer definitions (instantiation-decided shapes pass
+    // through untouched for the checker), so any positive count is the meaningful bound.
+    } yield (outputB, changed > 0, outputA) shouldBe (outputA, true, outputA)).recover { case e =>
       fail(e.getMessage)
     }
   }

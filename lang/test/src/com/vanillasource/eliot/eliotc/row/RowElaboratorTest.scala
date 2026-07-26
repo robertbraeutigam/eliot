@@ -238,11 +238,14 @@ class RowElaboratorTest
     )
   }
 
-  it should "leave a pure lambda at a plain arrow slot untouched and pure-wrap the pure call" in {
+  it should "defer a call with a generic-headed return (no boundary wrap — A.8.6)" in {
+    // `weird`'s declared return is the bare generic `B`: whether the call is a payload to lift or a computation the
+    // instantiation decides, so the desugar writes nothing — not even the boundary `pure` — and the checker finishes
+    // the node from the solved instantiation.
     val weird = "def weird[A, B](f: A => B, a: A): B\n"
     compareToTwin(
       weird + "def d: {Con} Str = weird(x -> use(x), strA)",
-      weird + "def t: {Con} Str = pure(weird(x -> use(x), strA))",
+      weird + "def t: {Con} Str = weird(x -> use(x), strA)",
       extraNames = Seq("weird")
     )
   }
@@ -273,10 +276,13 @@ class RowElaboratorTest
     )
   }
 
-  it should "pure-lift a pure argument at a pinned slot" in {
+  it should "leave a pure argument at a pinned slot unwrapped (pinned means captured)" in {
+    // Pinned captures take the computation as-is: a pure actual is not lifted — the val-bound-discharge limitation's
+    // "Expected: {Abort | IO} String" mismatch is by design, and a boundary `pure` would silently replace that
+    // curated diagnostic with a downstream ability demand.
     compareToTwin(
       dischargePrelude + "def d: Str = catchX(pureStr, s -> pureStr)",
-      dischargePrelude + "def t: Str = runId(catchX(pure(pureStr), s -> pure(pureStr)))",
+      dischargePrelude + "def t: Str = runId(catchX(pureStr, s -> pure(pureStr)))",
       extraNames = dischargeNames
     )
   }
