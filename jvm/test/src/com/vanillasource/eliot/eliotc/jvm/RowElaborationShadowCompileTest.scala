@@ -34,7 +34,7 @@ class RowElaborationShadowCompileTest extends AsyncFlatSpec with AsyncIOSpec wit
   "the elaboration shadow compile" should "compile and run the combined corpus identically from pre-elaborated facts" in {
     (for {
       sourceDir <- IO.blocking(Files.createTempDirectory("eliot-elab-src"))
-      _         <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), RowShadowSweepTest.combinedProgram))
+      _         <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), EffectCorpus.combinedProgram))
 
       // Run A: the ordinary compile; its fact universe is the elaboration input, its output the behavioral oracle.
       a                          <- compileRun(sourceDir, Seq.empty)
