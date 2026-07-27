@@ -196,39 +196,8 @@ class UniformCarrierChecker(
       tagged <- effectCarrierSplit(forced).map(_.nonEmpty)
     } yield UniformLadder.classifyExpected(forced, _ => tagged || forcePinnedCarrier)
 
-  /** Resolve one application slot's *decision* through the uniform ladder, threading the updated unifier back into the
-    * state. Returns the [[UniformLadder.Outcome]]; the caller collects the deferred lift (if any) and materialises it at
-    * the value boundary via [[finalizeAndMaterialize]]. The node splicing of a materialised lift reuses
-    * [[EffectLifter]]'s mechanics (added at the flip).
-    */
-  def resolveSlot(
-      actual: SemValue,
-      expected: UniformLadder.ExpectedSlot,
-      context: Sourced[String]
-  ): CheckIO[UniformLadder.Outcome] =
-    for {
-      unifier          <- inspect(_.unifier)
-      (updated, outcome) = UniformLadder.resolveSlot(unifier, actual, expected, context)
-      _                <- modify(_.withUnifier(updated))
-    } yield outcome
-
-  /** At the value boundary: default every still-unsolved carrier metavariable to `Id` (the join lattice's boundary rule)
-    * and materialise the recorded deferred lifts decision-free — a carrier that resolved to `Id` yields an *erased*
-    * lift, a non-`Id` one a `pure`/`flatMap` at that carrier. The carrier metas are exactly the higher-kinded
-    * instantiation metas the checker already tracks in [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.carrierRoles]].
-    */
-  def finalizeAndMaterialize(
-      lifts: List[UniformLadder.DeferredLift]
-  ): CheckIO[List[UniformLadder.MaterializedLift]] =
-    for {
-      unifier   <- inspect(_.unifier)
-      carrierIds = unifier.carrierRoles.keySet.toList.map(SemValue.MetaId(_))
-      finalized  = CarrierJoin.finalize(unifier, carrierIds)
-      _         <- modify(_.withUnifier(finalized))
-    } yield UniformLadder.materialize(finalized, lifts)
-
   /** Resolve one application argument slot into an actual [[SemExpression]] outcome — the node-producing counterpart of
-    * the decision-only [[resolveSlot]], and the uniform successor of the checker's `checkArgumentSlot` ladder (a
+    * the uniform successor of the checker's `checkArgumentSlot` ladder (a
     * [[UniformCarrierChecker.UniformSlotOutcome]] mirrors the `SlotOutcome` the spine loop already threads). The
     * classification picks the arm; the ladder runs the join + payload unification; then the node is built by **reusing**
     * [[EffectLifter]]'s insertion mechanics (reshape, not rebuild):
@@ -268,13 +237,13 @@ class UniformCarrierChecker(
                          case (_, UniformLadder.Outcome.PassWhole)      =>
                            pure(UniformCarrierChecker.UniformSlotOutcome.Passed(argExpr))
                          case (UniformLadder.ExpectedSlot.CarrierSlot(cExpected, pExpected),
-                               UniformLadder.Outcome.PassJoin(Some(_)))  =>
+                               UniformLadder.Outcome.PassJoin(true))  =>
                            pure(
                              UniformCarrierChecker.UniformSlotOutcome.Passed(
                                UniformCarrierChecker.carrierSlotLift(Carrier.toSemValue(cExpected), pExpected, argExpr, arg)
                              )
                            )
-                         case (_, UniformLadder.Outcome.PassJoin(None)) =>
+                         case (_, UniformLadder.Outcome.PassJoin(_))    =>
                            pure(UniformCarrierChecker.UniformSlotOutcome.Passed(argExpr))
                          case (UniformLadder.ExpectedSlot.PayloadSlot(shape), UniformLadder.Outcome.Bound(Carrier.Bottom)) =>
                            // A pure (bottom) actual passes its payload directly (`runId`) — no bind. See the doc above:
@@ -290,52 +259,6 @@ class UniformCarrierChecker(
                            }
                          case (s, o)                                    =>
                            throw new IllegalStateException(s"uniform slot outcome mismatch: slot=$s outcome=$o")
-                       }
-    } yield result
-
-  /** Resolve a **Generic** argument slot — a bare flex domain `?metaId` receiving a carrier-headed `argType` — with the
-    * **ride-up-vs-bind** decision the naive pass-through omits (docs/effects-as-channel.md §10 U4-a(i), pinned finding 6),
-    * the uniform successor of the default path's Phase-B deferred-slot decision
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveDeferredSlot]]). The decision is delegated to
-    * [[com.vanillasource.eliot.eliotc.monomorphize.carrier.UniformLadder.resolveGenericSlot]] (`occursInValue(metaId,
-    * retType)`); the node is then built reusing [[EffectLifter]]'s mechanics exactly as [[resolveArgumentSlot]]'s payload
-    * bind does (reshape, not rebuild):
-    *
-    *   - **rides up** (the meta flows into the call's result) ⇒ [[UniformLadder.Outcome.PassWhole]] ⇒ the whole
-    *     carrier-headed action passes through unchanged (`Passed(argExpr)`) — byte-identical to the default
-    *     `doUnify(?metaId, actual)` → `Resolved`;
-    *   - **binds** (the meta is absent from the result) ⇒ [[UniformLadder.Outcome.Bound]] ⇒ the slot receives a fresh
-    *     `$eff$N` reference at the payload and an [[EffectLifter.Bind]] is recorded for the spine's `wrapBinds` (`Bound`)
-    *     — byte-identical to the default `tryBindLift` → `Bound`.
-    *
-    * `argType` is carrier-headed by the elaboration invariant, so [[Carrier.split]] is total; `retType` is passed raw (the
-    * unifier's occurs-check follows solutions, exactly as the default path reads `record.retType`).
-    */
-  def resolveGenericSlot(
-      arg: Sourced[OperatorResolvedExpression],
-      argExpr: SemExpression,
-      argType: SemValue,
-      metaId: MetaId,
-      retType: SemValue
-  ): CheckIO[UniformCarrierChecker.UniformSlotOutcome] =
-    for {
-      forcedActual  <- force(argType)
-      unifier       <- inspect(_.unifier)
-      (updated, out) = UniformLadder.resolveGenericSlot(unifier, forcedActual, metaId, retType, arg.as("Type mismatch."))
-      _             <- modify(_.withUnifier(updated))
-      result        <- out match {
-                         case UniformLadder.Outcome.PassWhole            =>
-                           pure(UniformCarrierChecker.UniformSlotOutcome.Passed(argExpr))
-                         case UniformLadder.Outcome.Bound(actualCarrier) =>
-                           val (_, payload) = Carrier.split(forcedActual)
-                           freshLiftName.map { name =>
-                             UniformCarrierChecker.UniformSlotOutcome.Bound(
-                               SemExpression(payload, SemExpression.ParameterReference(arg.as(name))),
-                               EffectLifter.Bind(name, arg, argExpr, argType, Carrier.toSemValue(actualCarrier), payload)
-                             )
-                           }
-                         case UniformLadder.Outcome.PassJoin(_)          =>
-                           throw new IllegalStateException(s"generic slot yielded a carrier-join outcome: $out")
                        }
     } yield result
 

@@ -54,23 +54,19 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
   /** Force a payload meta to its solution for assertions. */
   private def solved(u: Unifier, id: Int): SemValue = Evaluator.force(meta(id), u.metaStore)
 
-  /** Run a spine of `(actual, expectedSlot)` pairs left-to-right, then default carriers and materialise lifts. */
+  /** Run a spine of `(actual, expectedSlot)` pairs left-to-right, then default the named carrier metas. Returns the
+    * finalized unifier, the slots whose actual was **pure** (the ones the caller re-carries with a `pure` lift —
+    * `Outcome.PassJoin(true)`), and every outcome in order.
+    */
   private def runSpine(
       slots: List[(SemValue, ExpectedSlot)],
       carrierMetaIds: List[Int]
-  ): (Unifier, List[MaterializedLift], List[Outcome]) = {
-    val (u, lifts, outs) = slots.foldLeft((fresh, List.empty[DeferredLift], List.empty[Outcome])) {
-      case ((acc, ls, os), (actual, expected)) =>
-        val (acc2, out) = UniformLadder.resolveSlot(acc, actual, expected, ctx)
-        val added       = out match {
-          case Outcome.PassJoin(Some(l)) => List(l)
-          case Outcome.Bound(c)          => List[DeferredLift](DeferredLift.LiftBind(c))
-          case _                         => Nil
-        }
-        (acc2, ls ++ added, os :+ out)
+  ): (Unifier, List[Outcome], List[Outcome]) = {
+    val (u, outs) = slots.foldLeft((fresh, List.empty[Outcome])) { case ((acc, os), (actual, expected)) =>
+      val (acc2, out) = UniformLadder.resolveSlot(acc, actual, expected, ctx)
+      (acc2, os :+ out)
     }
-    val finalized = CarrierJoin.finalize(u, carrierMetaIds.map(MetaId(_)))
-    (finalized, UniformLadder.materialize(finalized, lifts), outs)
+    (CarrierJoin.finalize(u, carrierMetaIds.map(MetaId(_))), outs.filter(_ == Outcome.PassJoin(true)), outs)
   }
 
   // =================================================================================================================
@@ -139,7 +135,7 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
     val (u, lifts, _) = runSpine(arms, List(9))
     solved(u, 10) shouldBe intT
     CarrierJoin.resolve(u, Carrier.Var(MetaId(9))) shouldBe Carrier.Bottom
-    lifts.map(_.erased) shouldBe List(true, true) // no machinery ships for the pure conditional
+    lifts shouldBe List(Outcome.PassJoin(true), Outcome.PassJoin(true)) // both arms pure, so both lift at the Id-defaulted carrier — no machinery ships
   }
 
   it should "give the same result with the arms swapped (Some first)" in {
@@ -173,7 +169,7 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
     val (u, lifts, _) = runSpine(arms, List(5))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(5))) shouldBe ioCarrier
     solved(u, 6) shouldBe string
-    lifts shouldBe List(MaterializedLift(LiftKind.Pure, ioCarrier)) // the pure arm materialises at the joined carrier
+    lifts shouldBe List(Outcome.PassJoin(true)) // only the pure arm is flagged, and it lifts at the joined carrier
   }
 
   it should "still lift the pure arm when it is seen FIRST (no premature Id commitment)" in {
@@ -183,7 +179,7 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
     )
     val (u, lifts, _) = runSpine(arms, List(5))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(5))) shouldBe ioCarrier
-    lifts shouldBe List(MaterializedLift(LiftKind.Pure, ioCarrier))
+    lifts shouldBe List(Outcome.PassJoin(true))
   }
 
   "a generic slot (fold's arm B)" should "receive the whole carrier-headed action by pass-through" in {
@@ -193,33 +189,11 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
     lifts shouldBe Nil
   }
 
-  // --- The ride-up-vs-bind decision on a Generic slot (U4-a(i), pinned finding 6) -----------------------------------
-
-  "resolveGenericSlot (ride-up: domain meta occurs in retType)" should "pass the whole action through (identity-shaped)" in {
-    // `identity[A](a: A): A` — the domain meta 20 IS the result, so the effect rides up: ?20 := the whole IO[Unit].
-    val (u, out) = UniformLadder.resolveGenericSlot(fresh, io(unit), MetaId(20), meta(20), ctx)
-    out shouldBe Outcome.PassWhole
-    solved(u, 20) shouldBe io(unit)
-  }
-
-  it should "be byte-identical to the plain resolveSlot PassWhole primitive it composes" in {
-    UniformLadder.resolveGenericSlot(fresh, io(unit), MetaId(20), meta(20), ctx) shouldBe
-      UniformLadder.resolveSlot(fresh, io(unit), ExpectedSlot.Generic(MetaId(20)), ctx)
-  }
-
-  "resolveGenericSlot (bind: domain meta absent from retType)" should "bind the effect, filling the slot with the payload" in {
-    // `putState[S, F](s: S): F[Unit]` — the domain meta 20 is ABSENT from the result IO[Unit], so the effect cannot
-    // ride up and must be sequenced here: ?20 := the payload (Unit), the carrier binds.
-    val (u, out) = UniformLadder.resolveGenericSlot(fresh, io(unit), MetaId(20), io(unit), ctx)
-    out shouldBe Outcome.Bound(ioCarrier)
-    solved(u, 20) shouldBe unit
-  }
-
   "runMain(main) with main : ?G[Unit]" should "bind the ambient carrier to the platform's IO, no config key" in {
     val (u, _, out) = runSpine(List(meta(30, unit) -> ExpectedSlot.CarrierSlot(ioCarrier, meta(31))), List(30))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(30))) shouldBe ioCarrier
     solved(u, 31) shouldBe unit
-    out.head shouldBe Outcome.PassJoin(None)
+    out.head shouldBe Outcome.PassJoin(false)
   }
 
   // =================================================================================================================

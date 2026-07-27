@@ -152,48 +152,6 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
     run(ambientIoState, lifter.mustPureWrapBeforeUnify(string, applied(io, unit))) shouldBe false
   }
 
-  // --- tryBindLift (ladder arm 3) ---
-
-  "tryBindLift on a rigid slot receiving a carrier-headed argument" should "record a bind at the payload type" in {
-    val (ids, st) = stateWithMetas(1)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(st.recordEffectCarrier(ids.head), lifter.tryBindLift(anchor, exprOf(actual), actual, string))
-      .map(_._2.payload) shouldBe Some(string)
-  }
-
-  it should "hand the slot a fresh parameter reference typed at the payload" in {
-    val (ids, st) = stateWithMetas(1)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(st.recordEffectCarrier(ids.head), lifter.tryBindLift(anchor, exprOf(actual), actual, string))
-      .map(_._1.expressionType) shouldBe Some(string)
-  }
-
-  it should "thread fresh $eff$N binder names across successive lifts" in {
-    val (ids, st) = stateWithMetas(1)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    val both      = for {
-      first  <- lifter.tryBindLift(anchor, exprOf(actual), actual, string)
-      second <- lifter.tryBindLift(anchor, exprOf(actual), actual, string)
-    } yield Seq(first, second).flatten.map(_._2.name)
-    run(st.recordEffectCarrier(ids.head), both) shouldBe Seq("$eff$0", "$eff$1")
-  }
-
-  it should "not lift a plain constructor mismatch (Box[String] into a String slot)" in {
-    run(CheckState.initial, lifter.tryBindLift(anchor, exprOf(applied(box, string)), applied(box, string), string))
-      .shouldBe(None)
-  }
-
-  it should "not lift when the payload does not unify with the slot (C[Unit] into a String slot)" in {
-    val (ids, st) = stateWithMetas(1)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), unit)
-    run(st.recordEffectCarrier(ids.head), lifter.tryBindLift(anchor, exprOf(actual), actual, string)) shouldBe None
-  }
-
-  it should "lift an ambient-carrier-headed argument (IO[String] into a String slot)" in {
-    run(ambientIoState, lifter.tryBindLift(anchor, exprOf(applied(io, string)), applied(io, string), string))
-      .map(_._2.carrier) shouldBe Some(io)
-  }
-
   // --- tryPureWrap (ladder arm 4) ---
 
   "tryPureWrap against an ambient-carrier-typed expectation" should "wrap with Effect.pure" in {

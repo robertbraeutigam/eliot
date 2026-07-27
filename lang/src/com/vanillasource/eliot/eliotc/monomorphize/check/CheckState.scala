@@ -54,11 +54,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   from [[CarrierKindChecker.recordCarrierMetas]]); read by the row-argument type-pinning rule when a constrained
   *   carrier meta is captured whole into a pinned-row parameter. The same table pinned finding 4 (the `CarrierJoin`
   *   Id-default guard) needs — built once here.
-  * @param pendingPins
-  *   Deferred row-argument type pins ([[CheckState.PendingPin]]) recorded when a constrained carrier meta solved to a
-  *   canonical carrier stack (docs/effects-as-channel.md §10 U4-f, the capture arm). Applied at post-drain finalize
-  *   **only if the target slot is still free**, so an explicitly-typed handler that legitimately pinned the slot
-  *   itself wins — pin-if-still-free is order-independent and never a spurious conflict.
   * @param modeObligations
   *   The suspended slot-mode obligations (docs/effects-as-rows.md A.8.7): one per runtime-track computation that met a
   *   bare-generic argument slot during checking. Recorded by the spine loop instead of deciding the slot mid-spine
@@ -79,7 +74,6 @@ case class CheckState(
     ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
     liftCounter: Int = 0,
     metaConstraints: Map[Int, Seq[CheckState.MetaConstraint]] = Map.empty,
-    pendingPins: Seq[CheckState.PendingPin] = Seq.empty,
     modeObligations: Vector[CheckState.ModeObligation] = Vector.empty,
     letObligations: Vector[CheckState.LetObligation] = Vector.empty
 ) {
@@ -110,10 +104,6 @@ case class CheckState(
   def recordMetaConstraints(id: MetaId, constraints: Seq[CheckState.MetaConstraint]): CheckState =
     if (constraints.isEmpty) this
     else copy(metaConstraints = metaConstraints.updated(id.value, constraints))
-
-  /** Record a deferred row-argument type pin (applied at post-drain finalize, pin-if-still-free). See [[pendingPins]]. */
-  def recordPendingPin(pin: CheckState.PendingPin): CheckState =
-    copy(pendingPins = pendingPins :+ pin)
 
   /** The neutral a runtime value parameter binds to in ρ: a fresh rigid variable at the current ρ level, standing for
     * the parameter's not-yet-known runtime value. Read *before* [[bindValueParam]] so the checker can substitute it into
@@ -207,12 +197,6 @@ object CheckState {
     * slots — are `args.dropRight(1)`.
     */
   case class MetaConstraint(abilityFQN: AbilityFQN, args: Seq[SemValue])
-
-  /** A deferred row-argument type pin: unify the carrier-layer `slot` (a metavariable) with the ability argument
-    * `value` **iff `slot` is still free** at post-drain finalize (docs/effects-as-channel.md §10 U4-f). See
-    * [[pendingPins]].
-    */
-  case class PendingPin(slot: SemValue, value: SemValue, context: Sourced[String])
 
   /** One suspended slot-mode obligation (docs/effects-as-rows.md A.8.7): a carrier-headed computation met a
     * bare-generic argument slot, whose mode only the instantiation decides. Held open — the argument's type is *not*

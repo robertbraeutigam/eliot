@@ -420,11 +420,6 @@ class TypeStackLoop(
       residualBody: Option[Sourced[SemExpression]]
   ): CheckIO[Option[Sourced[OperatorResolvedExpression]]] =
     for {
-      // Row-argument type-pinning (docs/effects-as-channel.md §10 U4-f): apply the deferred pins recorded when an
-      // open-row argument was captured into a pinned-row parameter, before ability resolution runs — so a discharger's
-      // `Throw[String]` resolves against the native carrier instance rather than the free error slot junk-grounding.
-      // (Self-draining so a handler's own later pin of the slot is visible; a no-op with no drain when no pins exist.)
-      _       <- checker.applyPendingCarrierPins
       rewrite <- resolveModesAndAbilitiesToFixedPoint(resolvedValue, abilityRefs, resolvedValue.paramConstraints)
       _       <- rewrite match {
                    case Some(_) => pure(())

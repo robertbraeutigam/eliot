@@ -198,6 +198,13 @@ mono-failure-triggered, hence instantiation-informed — stays until the resolve
 `uniformCarrierSlot`/`payloadFitsDomain`), and the effect branch of `typeImmediateLambda` — the
 checker ends with zero effect code, below the pre-v2 baseline.
 
+**Slice 1 of that list has landed (A.8.8, 2026-07-27)**, driven by an arm-liveness trace over the
+whole gate rather than by inspection: `tryBindLift`, `tryIdDefault`, the `allowBindLift` flag with
+the ladder arms it selected, `sequenceBeforeUnify`/`deferredGenericDefault`, two of the four pinning
+mechanisms (`recordRowArgumentPins`/`applyPendingCarrierPins` — recorded 98 pins, applied 0) and the
+zero-caller uniform methods. What remains of the list needs the rows elaboration to absorb a *live*
+decision, so it is not a dead-code sweep — see A.8.8's closing paragraph for the live-arm map.
+
 **Stays:** `EffectRow` facts and the pinned tags (`returnPinned`/`pinnedParameterIndices` — consumed
 by the desugar instead of the checker); pinned-row surface and semantics; the dischargers and the
 `eliot.carrier`/`eliot.effect` packages; `EffectAccountingProcessor` + `MonomorphicValue.ambientCarriers`
@@ -856,5 +863,56 @@ than a new judgment call:
 Spelling note: a hoisted generic slot now reads as the desugar's one-bind-combinator form —
 `flatMap` over a `pure`-wrapped core — where v2's mid-spine bind spelled `map`; behaviourally
 identical, and the `MonomorphicTypeCheckTest` lift-group expectations were updated to the new
-spellings. Next: the deletion slices — the ladders, `EffectLifter` arms, pinning mechanisms, slot
-routers and the compiler-track Phase-B remnant retire piece by piece against this same gate.
+spellings.
+
+#### A.8.8 Deletion slice 1: the arms the resolver made unreachable (2026-07-27)
+
+The deletion slices are **evidence-driven, not eyeballed**. A temporary arm tracer (a counter per
+decision arm, dumped at JVM exit) was hung on every v2 elaboration arm in `Checker` /
+`EffectLifter` / `UniformCarrierChecker`, platform-tagged, and the *whole* gate was run under it:
+every module suite (871 targets, 1,567 tests) plus a compile of all 40 examples. An arm that fires
+zero times across that corpus is what a slice may delete; anything that fires stays. The map is
+worth keeping in mind for the remaining slices — the live arms are the uniform bridge's slot
+routers (`uniformPayloadSlot` 5.9k, `uniformCarrierSlot` 1.6k, the capture 964), the uniform return
+boundary (6.0k), the compile-track default ladder (62k — the §8 boundary, as designed), the
+suspension recording (205) and the eager row pin (78).
+
+**Deleted in this slice (544 net lines), each with a zero-fire record:**
+
+- **`EffectLifter.tryBindLift`** — all four call sites (the ladder's `preBind` pre-arm, the failure
+  ladder's bind arm, `sequenceBeforeUnify`, `deferredGenericDefault`) fired zero times on *both*
+  tracks. The desugar now writes every bind the elaboration needs, so nothing reaches a
+  checker-inserted one; the surviving bind producers are the uniform bridge's payload slot (51) and
+  the immediately-applied-lambda `let` rule (44), both of which build their `Bind` directly.
+- **`EffectLifter.tryIdDefault`** — all three call sites zero. The uniform return boundary's own
+  discharge-to-pure arm (`checkReturnBoundary`, 59 fires) is what actually lands a fully-discharged
+  body on a pure return now.
+- **The `allowBindLift` flag and the arms it selected.** With the bind-lift and `Id`-default arms
+  gone, position no longer changes the ladder: `resolveLadder` is pure-wrap pre-arm → unify →
+  pure-wrap → mismatch, and `resolveFailureLadder` loses two of its four arms. A carrier the ladder
+  cannot reconcile is now a committed mismatch — the fail-safe direction (a loud error, never a
+  silently stripped effect).
+- **Two of the four pinning mechanisms.** `recordRowArgumentPins` *recorded* 98 deferred pins across
+  the gate and `applyPendingCarrierPins` applied **zero** of them — by post-drain finalize the slot
+  is never still free, because the eager `eagerRowPinIntoDomain` (78 fires) already pinned it. The
+  whole deferred pin-if-still-free path, its `CheckState.PendingPin`/`pendingPins` state and its
+  `TypeStackLoop` hook are gone; the eager pin is the only pinning mechanism left.
+- **The compiler-track Phase-B remnant.** `sequenceBeforeUnify` and `deferredGenericDefault`
+  collapse: their bind-sequencing arms were the `tryBindLift` call sites above (zero), so Phase B is
+  now two arms — a still-bare-flex domain adopts the carrier-headed argument, anything else runs the
+  ladder.
+- **The zero-caller uniform code**: `UniformCarrierChecker.resolveSlot` /
+  `finalizeAndMaterialize` / `resolveGenericSlot` and `UniformLadder.resolveGenericSlot` /
+  `materialize` / `MaterializedLift` / `LiftKind` / the `DeferredLift` hierarchy (which collapses to
+  a `PassJoin(pureActual: Boolean)` flag) — reachable only from their own unit tests.
+
+Gate after the slice: **identical** to before it — 871 targets / 1,567 tests green, the same 36 of
+40 examples compiling (`IfDemo` and the three `Plugin*` fragments were already failing), and the
+effect examples producing byte-identical output.
+
+Still live, so **not** this slice's business: the uniform bridge itself (`UniformCarrierChecker`'s
+return boundary and argument slot, `UniformLadder.resolveSlot`, `Carrier`/`CarrierJoin`), the
+`uniformPayloadSlot`/`uniformCaptureSlot`/`uniformCarrierSlot` routers, `mustLiftBeforeUnify` (the
+capture's doomed test, 10) and `mustPureWrapBeforeUnify`/`tryPureWrap`, the compile-track default
+ladder, and `IdNormalizer`. Those need the *rows* elaboration to take over their remaining
+decisions, which is the next slice's subject — not a dead-code sweep.

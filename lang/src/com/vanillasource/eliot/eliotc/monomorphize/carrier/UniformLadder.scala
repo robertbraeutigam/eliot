@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     pass through by ordinary parametric instantiation, zero compiler knowledge of its name);
   *   - [[ExpectedSlot.CarrierSlot]] — an effect-carrier form (the ambient / a callee's `F ~ Effect` binder, or a known
   *     carrier / pinned stack like `runMain`'s `IO[A]`): **pass-join**, the carrier joins ([[CarrierJoin]]), the payload
-  *     unifies, and a *pure* (bottom-carriered) actual records a deferred [[DeferredLift.LiftPure]];
+  *     unifies, and a *pure* (bottom-carriered) actual is flagged for the caller's re-carrying lift;
   *   - [[ExpectedSlot.PayloadSlot]] — a data / Functor / concrete slot (`printLine`'s `String`, `map`'s `xs: F[A]`):
   *     **bind**, the payload fills the slot and the carrier is sequenced at the call site.
   *
@@ -25,11 +25,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * [[Unifier.isEffectCarrier]] / the value's ambient carriers), never by shape detection of the *actual*. That
   * positional tag is the only "recognition" the uniform foundation keeps.
   *
-  * **Lift materialisation is deferred and decision-free** ([[materialize]]): the bind-vs-pass *decision* is made
-  * eagerly here; only the carrier *identity* for the inserted `pure`/`flatMap` waits for the join to resolve — `Id` ⤳
-  * nothing, a non-`Id` carrier ⤳ `pure`/`flatMap` at that carrier. Node splicing itself reuses the existing
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]] `bindWrap`/`tryPureWrap` mechanics (reshaped, not
-  * rebuilt) in the checker-wiring slice; this module produces the *decisions*.
+  * This module produces the *decisions*; node splicing reuses the existing
+  * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]] `pureWrapNode`/`bindWrap` mechanics (reshaped, not
+  * rebuilt) in the checker-side bridge.
   */
 object UniformLadder {
 
@@ -49,42 +47,20 @@ object UniformLadder {
     case class PayloadSlot(shape: SemValue) extends ExpectedSlot
   }
 
-  /** What the ladder decided at a slot. Any deferred lift ([[Outcome.PassJoin]] / [[Outcome.Bound]]) is collected by
-    * the caller and [[materialize]]d once carriers have joined and defaulted.
-    */
+  /** What the ladder decided at a slot. */
   sealed trait Outcome
   object Outcome {
 
     /** Generic slot: the whole action was passed through as the binder's value. */
     case object PassWhole extends Outcome
 
-    /** Carrier slot: the carrier joined; a pure actual left a deferred `pure`. */
-    case class PassJoin(lift: Option[DeferredLift]) extends Outcome
+    /** Carrier slot: the carrier joined. `pureActual` is set when the actual was pure (bottom-carriered), so the
+      * caller re-carries it into the expected carrier with a `pure` lift.
+      */
+    case class PassJoin(pureActual: Boolean) extends Outcome
 
     /** Payload slot: the effect binds at the call site over `carrier`. */
     case class Bound(carrier: Carrier) extends Outcome
-  }
-
-  /** A recorded lift whose *insertion* is fixed but whose *carrier identity* waits for the join. */
-  sealed trait DeferredLift { def carrier: Carrier }
-  object DeferredLift {
-    case class LiftPure(carrier: Carrier) extends DeferredLift
-    case class LiftBind(carrier: Carrier) extends DeferredLift
-  }
-
-  /** A materialised lift: the resolved carrier decides whether the insertion is real (`pure`/`flatMap` at a non-`Id`
-    * carrier) or **erased** (the carrier defaulted to `Id`).
-    */
-  case class MaterializedLift(kind: LiftKind, carrier: Carrier) {
-
-    /** True when the carrier resolved to `Id`, so no machinery is inserted (the MCU requirement — no effect machinery
-      * ships for pure code).
-      */
-    def erased: Boolean = carrier == Carrier.Bottom
-  }
-
-  enum LiftKind {
-    case Pure, Bind
   }
 
   /** Resolve one application slot: `actual` is the argument's (carrier-headed) type, `expected` the classified slot.
@@ -101,57 +77,19 @@ object UniformLadder {
       case ExpectedSlot.Generic(metaId)         =>
         (commit(unifier, VMeta(metaId, Spine.SNil), actual, context), Outcome.PassWhole)
 
-      // Effect-carrier slot ⇒ carrier joins (Id no-op), payload unifies; ONLY a pure (bottom-carriered) actual records
-      // a deferred pure, keyed on the RESULT carrier — materialised to `pure@Effect[C]` once the join resolves it, or
-      // erased if it defaults to Id.
+      // Effect-carrier slot ⇒ carrier joins (Id no-op), payload unifies; ONLY a pure (bottom-carriered) actual is
+      // flagged, so the caller re-carries it as `pure@Effect[C]` — a node that erases when `C` defaults to `Id`.
       case ExpectedSlot.CarrierSlot(cExpected, pExpected) =>
         val (actualCarrier, actualPayload) = Carrier.split(actual)
         val joined                          = CarrierJoin.joinToward(unifier, actualCarrier, cExpected, context)
         val unified                         = commit(joined, actualPayload, pExpected, context)
-        val deferred                        =
-          if (CarrierJoin.resolve(unifier, actualCarrier) == Carrier.Bottom) Some(DeferredLift.LiftPure(cExpected))
-          else None
-        (unified, Outcome.PassJoin(deferred))
+        val pureActual                      = CarrierJoin.resolve(unifier, actualCarrier) == Carrier.Bottom
+        (unified, Outcome.PassJoin(pureActual))
 
       // Payload slot ⇒ bind: the effect runs at the call site; the payload fills the slot.
       case ExpectedSlot.PayloadSlot(shape)      =>
         val (actualCarrier, actualPayload) = Carrier.split(actual)
         (commit(unifier, actualPayload, shape, context), Outcome.Bound(actualCarrier))
-    }
-
-  /** Resolve a [[ExpectedSlot.Generic]] slot with the **ride-up-vs-bind** decision the naive [[resolveSlot]]
-    * [[Outcome.PassWhole]] omits (docs/effects-as-channel.md §10 U4-a(i), pinned finding 6). A bare flex domain `?metaId`
-    * receiving a carrier-headed `actual` is *not* unconditionally passed whole: whether the whole action rides up as a
-    * first-class value or must be sequenced here depends on whether the domain meta flows into the call's **result**
-    * (`retType`), read by the unifier's occurs-check — the exact test the default path's Phase-B deferral makes
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveDeferredSlot]]):
-    *
-    *   - **rides up** (`metaId` occurs in `retType`) ⇒ **pass-through-whole**: a *transparent* callee whose result flows
-    *     from this domain (`fold`'s selected arm, `identity`, `const`, a data ctor over the slot) — solving `?metaId :=`
-    *     the whole carrier-headed action makes the node carrier-headed, so the effect rides up and the enclosing slot
-    *     decides. Byte-identical to the default `doUnify(?metaId, actual)` → `Resolved`.
-    *   - **does not ride up** (`metaId` absent from `retType`) ⇒ **bind**: a *non-transparent* callee whose result carrier
-    *     is independent of the domain (`putState[S, F](s: S): F[Unit]` — `S` absent from `F[Unit]`) cannot let the effect
-    *     ride up (it would strand the carrier in a type parameter nothing grounds), so the effect sequences here: the
-    *     payload fills the slot (`?metaId :=` the payload) and the carrier binds. Byte-identical to the default
-    *     `tryBindLift` → `Bound`.
-    *
-    * `actual` is carrier-headed by the elaboration invariant, so [[Carrier.split]] is total. This is the ride-aware
-    * resolver the flip's Generic-arm wiring calls; the plain [[resolveSlot]] [[Outcome.PassWhole]] survives only as the
-    * already-decided-ride-up primitive it composes.
-    */
-  def resolveGenericSlot(
-      unifier: Unifier,
-      actual: SemValue,
-      metaId: MetaId,
-      retType: SemValue,
-      context: Sourced[String]
-  ): (Unifier, Outcome) =
-    if (unifier.occursInValue(metaId, retType))
-      resolveSlot(unifier, actual, ExpectedSlot.Generic(metaId), context)
-    else {
-      val (actualCarrier, actualPayload) = Carrier.split(actual)
-      (commit(unifier, actualPayload, VMeta(metaId, Spine.SNil), context), Outcome.Bound(actualCarrier))
     }
 
   /** Classify an *expected* slot type off its elaborated shape (the surviving positional recognition):
@@ -170,18 +108,6 @@ object UniformLadder {
         val (carrier, payload) = Carrier.split(expected)
         ExpectedSlot.CarrierSlot(carrier, payload)
       case _                                      => ExpectedSlot.PayloadSlot(expected)
-    }
-
-  /** Materialise every deferred lift now that carriers have joined and defaulted — **decision-free**: the rule is fixed
-    * (`pure` / `flatMap`), only the carrier was unknown. A carrier resolving to `Id` yields an *erased* lift.
-    */
-  def materialize(unifier: Unifier, lifts: List[DeferredLift]): List[MaterializedLift] =
-    lifts.map { lift =>
-      val kind = lift match {
-        case _: DeferredLift.LiftPure => LiftKind.Pure
-        case _: DeferredLift.LiftBind => LiftKind.Bind
-      }
-      MaterializedLift(kind, CarrierJoin.resolve(unifier, lift.carrier))
     }
 
   private def hasSpine(sv: SemValue): Boolean = sv match {

@@ -23,8 +23,8 @@ import java.net.URI
 /** The checker-side uniform-carrier bridge ([[UniformCarrierChecker]]), over directly constructed [[SemValue]]s and
   * [[CheckState]]s — no pipeline (the harness mirrors [[EffectLifterTest]]). Pins the §12-Q1 check-time carrier-wrapping
   * ([[UniformCarrierChecker.intoCarrierHeaded]]), the expected-slot classification reading the value's real carrier
-  * bookkeeping, and the CheckIO-threaded ladder + boundary finalize/materialize, so the spine-loop flip (U3a-2) can rely
-  * on it.
+  * bookkeeping, the node-producing argument-slot resolution and the return boundary — the parts the live spine still
+  * routes through.
   */
 class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
 
@@ -133,46 +133,6 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
 
   it should "classify a plain data container (List[String]) as a PayloadSlot (told apart only by the tag)" in {
     run(CheckState.initial, checker.classifyExpectedSlot(list(string))) shouldBe ExpectedSlot.PayloadSlot(list(string))
-  }
-
-  // --- resolveSlot (the CheckIO-threaded ladder) ---
-
-  "resolveSlot on an effect-carrier slot receiving an IO actual" should "join the ambient meta to IO in the state" in {
-    val (ids, st) = stateWithMetas(2) // ids(0) = ambient carrier meta, ids(1) = slot payload meta
-    val flagged   = st.recordEffectCarrier(ids.head)
-    val slot      = ExpectedSlot.CarrierSlot(Carrier.Var(ids.head), VMeta(ids(1), Spine.SNil))
-    val (endState, outcome) = runWithState(flagged, checker.resolveSlot(applied(io, unit), slot, ctx))
-    Evaluator.force(VMeta(ids.head, Spine.SNil), endState.unifier.metaStore) shouldBe io
-    outcome shouldBe Outcome.PassJoin(None) // an effectful actual leaves no deferred pure
-  }
-
-  "resolveSlot on an effect-carrier slot receiving a pure actual" should "record a deferred pure and join nothing" in {
-    val (ids, st) = stateWithMetas(2)
-    val flagged   = st.recordEffectCarrier(ids.head)
-    val slot      = ExpectedSlot.CarrierSlot(Carrier.Var(ids.head), VMeta(ids(1), Spine.SNil))
-    run(flagged, checker.resolveSlot(id(unit), slot, ctx)) shouldBe Outcome.PassJoin(Some(DeferredLift.LiftPure(Carrier.Var(ids.head))))
-  }
-
-  // --- finalizeAndMaterialize (boundary defaulting + decision-free materialization) ---
-
-  "finalizeAndMaterialize" should "erase a pure conditional's lift by defaulting its untouched ambient meta to Id" in {
-    val (ids, st) = stateWithMetas(1)
-    val flagged   = st.recordEffectCarrier(ids.head) // ambient carrier meta, never joined by any effectful arm
-    val lift      = DeferredLift.LiftPure(Carrier.Var(ids.head))
-    run(flagged, checker.finalizeAndMaterialize(List(lift))).map(_.erased) shouldBe List(true)
-  }
-
-  it should "materialize a pure arm's lift at the joined non-Id carrier" in {
-    val (ids, st) = stateWithMetas(2)
-    val flagged   = st.recordEffectCarrier(ids.head)
-    // An effectful sibling joined the ambient meta to IO, then the pure arm recorded its deferred lift.
-    val program   = for {
-      _        <- checker.resolveSlot(applied(io, string), ExpectedSlot.CarrierSlot(Carrier.Var(ids.head), VMeta(ids(1), Spine.SNil)), ctx)
-      pureArm  <- checker.resolveSlot(id(string), ExpectedSlot.CarrierSlot(Carrier.Var(ids.head), VMeta(ids(1), Spine.SNil)), ctx)
-      lifts     = pureArm match { case Outcome.PassJoin(Some(l)) => List(l); case _ => Nil }
-      result   <- checker.finalizeAndMaterialize(lifts)
-    } yield result
-    run(flagged, program) shouldBe List(MaterializedLift(LiftKind.Pure, Carrier.Con(ioFQN, Nil)))
   }
 
   // --- carrierSlotLift (the pure-actual re-carry node, reusing EffectLifter mechanics) ---

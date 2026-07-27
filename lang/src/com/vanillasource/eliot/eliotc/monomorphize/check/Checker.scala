@@ -71,11 +71,10 @@ class Checker(
   private[check] val abilityResolver: AbilityResolver =
     new AbilityResolver(resolveAbility, platform)
 
-  /** The type-directed effect auto-lift (docs/effect-lift-in-checker.md): the check-mode elaboration arms of the
-    * resolution ladder (bind-lift at argument positions, pure-wrap against an
-    * ambient-carrier-typed expectation) plus the `Effect.flatMap`/`map`/`pure` node assembly. A non-equality
-    * *elaboration* concern, kept out of this checker's definitional-equality core. Consulted from the shared
-    * resolution ladder ([[resolveLadder]], `allowBindLift` selecting the bind-lift arm at argument positions) and the
+  /** The residual carrier machinery of the v2 effect auto-lift (docs/effect-lift-in-checker.md): the carrier
+    * recognition, the pure-wrap arm of the resolution ladder ([[resolveLadder]]) and the `Effect.flatMap`/`map`/`pure`
+    * node assembly the surviving bind producers splice. A non-equality *elaboration* concern, kept out of this
+    * checker's definitional-equality core. Consulted from the shared resolution ladder and the
     * immediately-applied-lambda `let` rule ([[typeImmediateLambda]]). See [[EffectLifter]].
     */
   private[check] val lifter: EffectLifter = new EffectLifter(force, doUnify)
@@ -86,7 +85,7 @@ class Checker(
     * runtime shapes it declines fall back to the default ladder ([[checkAgainstDefault]]/[[defaultArgSlot]], §8). Its
     * node splicing reuses [[EffectLifter]]'s `pureWrapNode`/`bindWrap` mechanics (reshape, not rebuild), so uniform-path
     * and default-path binders share the one `$eff$N` counter — which is why the default ladder and the `EffectLifter`
-    * arms are the shared substrate the bridge sits on, not a deletable legacy path (see docs/effects-as-channel.md §7).
+    * arms are the shared substrate the bridge sits on (see docs/effects-as-channel.md §7).
     */
   private[check] val uniformChecker: UniformCarrierChecker =
     new UniformCarrierChecker(force, lifter.effectCarrierSplit)
@@ -238,10 +237,8 @@ class Checker(
     } yield result
 
   /** Check-mode resolution at a *return boundary* (a lambda body against its codomain, a def body against its declared
-    * return): the shared [[resolveGuardedLadder]] with the bind-lift arm *disabled* — stripping an effect carrier at a
-    * return boundary would silently drop the effect, so the doomed lift shape gets the pure-boundary Id defaulting
-    * ([[EffectLifter.tryIdDefault]]) and commits the exact mismatch when that does not apply. The ladder can therefore
-    * only ever produce a [[SlotOutcome.Resolved]] here; a [[SlotOutcome.Bound]] is unreachable by construction.
+    * return): the shared [[resolveGuardedLadder]]. The ladder never produces a [[SlotOutcome.Bound]] anymore (its
+    * bind-lift arms were deleted with the effects-as-rows slices), so a non-`Resolved` outcome here is a compiler bug.
     */
   private def checkAgainst(
       tm: Sourced[OperatorResolvedExpression],
@@ -254,10 +251,8 @@ class Checker(
       case false => checkAgainstDefault(tm, expr, inferred, expected)
     }
 
-  /** The default (carrier-based) return-boundary resolution: [[resolveGuardedLadder]] with the bind-lift arm disabled
-    * (see [[checkAgainst]]'s doc). Kept verbatim as the fallback for every boundary the U3a-2b(ii) uniform bridge does
-    * not yet cover — the live path when `uniformCarrier` is off, and under it for everything but the plain pure value
-    * return.
+  /** The default (carrier-based) return-boundary resolution: [[resolveGuardedLadder]] (see [[checkAgainst]]'s doc).
+    * The live path for the whole compile-time track (§8) and for every runtime boundary the uniform bridge declines.
     */
   private def checkAgainstDefault(
       tm: Sourced[OperatorResolvedExpression],
@@ -265,7 +260,7 @@ class Checker(
       inferred: SemValue,
       expected: SemValue
   ): CheckIO[SemExpression] =
-    resolveGuardedLadder(tm, expr, inferred, expected, allowBindLift = false).map {
+    resolveGuardedLadder(tm, expr, inferred, expected).map {
       case SlotOutcome.Resolved(e) => e
       case other                   =>
         throw new IllegalStateException(s"Return-boundary resolution produced a non-Resolved outcome: $other")
@@ -372,7 +367,6 @@ class Checker(
       expr: SemExpression,
       inferred: SemValue,
       expected: SemValue,
-      allowBindLift: Boolean
   ): CheckIO[SlotOutcome] =
     for {
       forcedExpected <- force(expected)
@@ -393,116 +387,59 @@ class Checker(
                         }
       outcome        <- if (guardKind) pure(SlotOutcome.Resolved(expr): SlotOutcome)
                         else if (w3Hole) pure(SlotOutcome.Resolved(expr): SlotOutcome)
-                        else resolveLadder(tm, expr, inferred, expected, allowBindLift)
+                        else resolveLadder(tm, expr, inferred, expected)
     } yield outcome
 
   /** The check-mode resolution ladder proper — the algorithm shared verbatim by return boundaries and argument slots
-    * (R3-1 dedup): polytype instantiation, then the pre-arms for the
-    * doomed-postponement shapes, then the failure ladder ([[resolveFailureLadder]]: unify → lift arms → committed
-    * mismatch). The single behavioural difference is *position*, carried by `allowBindLift`:
+    * (R3-1 dedup): polytype instantiation, then the pure-wrap pre-arm for the shape definitional equality can only
+    * *degenerately* solve, then unify → pure-wrap → committed mismatch.
     *
-    *   - `true` (argument slot): the **bind-lift arm** is consulted — as a pre-arm and in the failure ladder —
-    *     and can produce a [[SlotOutcome.Bound]].
-    *   - `false` (return boundary): the bind-lift arm is omitted (stripping a carrier there would silently drop the
-    *     effect); the doomed `mustLiftBeforeUnify` shape instead tries the pure-boundary Id defaulting
-    *     ([[EffectLifter.tryIdDefault]] — a fully-discharged residual carrier solves to `Id` and unwraps via `runId`)
-    *     and commits the exact mismatch eagerly when that does not apply.
-    *
-    * The pure-wrap arm fires on both.
+    * Position no longer changes the ladder. Under effects-as-rows the desugar writes every bind the elaboration needs
+    * and the post-drain [[ModeResolver]] decides the deferred positions, so the position-dependent arms the v2 ladder
+    * carried — the bind-lift pre-arm and failure arm (argument slots only) and the pure-boundary `Id` defaulting
+    * (return boundaries only) — became unreachable and were deleted with the `allowBindLift` flag that selected them
+    * (docs/effects-as-rows.md §4; every one of their call sites fired zero times across the full gate). A carrier
+    * reaching a pure position that this ladder cannot reconcile is now a committed mismatch, which is the fail-safe
+    * direction: a loud error, never a silently stripped effect.
     */
   private def resolveLadder(
       tm: Sourced[OperatorResolvedExpression],
       expr: SemExpression,
       inferred: SemValue,
-      expected: SemValue,
-      allowBindLift: Boolean
+      expected: SemValue
   ): CheckIO[SlotOutcome] =
     for {
       (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
-      // Pre-arms: the shapes definitional equality can only *postpone*, never solve — a
-      // carrier-meta application against an under-applied rigid head, and its pure-wrap dual.
-      // Waiting for a unification failure would mask the lift behind the doomed postponement
-      // (surfacing only as the post-drain carrier-kind error); see
-      // [[EffectLifter.mustLiftBeforeUnify]]. The bind-lift arm is argument-position only
-      // (`allowBindLift`); at a return boundary the doomed shape commits the eager mismatch.
-      preBind                     <- if (allowBindLift)
-                                       lifter
-                                         .mustLiftBeforeUnify(instantiated, expected)
-                                         .flatMap(
-                                           if (_) lifter.tryBindLift(tm, updatedExpr, instantiated, expected)
-                                           else pure(Option.empty[(SemExpression, EffectLifter.Bind)])
-                                         )
-                                     else pure(Option.empty[(SemExpression, EffectLifter.Bind)])
-      prePure                     <- preBind match {
-                                       case Some(_) => pure(Option.empty[SemExpression])
-                                       case None    =>
-                                         lifter
-                                           .mustPureWrapBeforeUnify(instantiated, expected)
-                                           .flatMap(
-                                             if (_) lifter.tryPureWrap(tm, updatedExpr, instantiated, expected)
-                                             else pure(Option.empty[SemExpression])
-                                           )
-                                     }
-      // At a return boundary (`!allowBindLift`) a carrier-meta application against an
-      // under-applied rigid head has no injective solution — unification could only postpone it
-      // into an opaque post-drain carrier-kind error — and the bind-lift arm never fires there
-      // (stripping would drop the effect), so commit the exact mismatch immediately.
-      doomed                      <- if (allowBindLift) pure(false)
-                                     else
-                                       prePure match {
-                                         case Some(_) => pure(false)
-                                         case None    => lifter.mustLiftBeforeUnify(instantiated, expected)
-                                       }
-      out                         <- (preBind, prePure, doomed) match {
-                                       case (Some((slotRef, bind)), _, _) =>
-                                         pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
-                                       case (_, Some(wrapped), _)         =>
-                                         pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-                                       case (_, _, true)                  =>
-                                         // Pure-boundary Id defaulting: a fully-discharged body's residual carrier is
-                                         // still a flex meta here (`?G[String]` against `String`), which no unification
-                                         // could ever solve. Default it to the identity carrier and unwrap with
-                                         // `runId` ([[EffectLifter.tryIdDefault]]); only when the payload does not fit
-                                         // the declared return commit the exact mismatch as before.
-                                         lifter.tryIdDefault(tm, updatedExpr, instantiated, expected).flatMap {
-                                           case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-                                           case None          => commitMismatch(instantiated, expected, tm, updatedExpr)
-                                         }
-                                       case (_, _, false)                 =>
-                                         resolveFailureLadder(tm, updatedExpr, instantiated, expected, allowBindLift)
+      // The pure-wrap pre-arm: a pure actual against a carrier-meta-headed expectation is the shape unification can
+      // only solve *degenerately* (`?F := const String`), so it must be consulted before definitional equality —
+      // waiting for a failure that never comes would miscompile. See [[EffectLifter.mustPureWrapBeforeUnify]].
+      prePure                     <- lifter
+                                       .mustPureWrapBeforeUnify(instantiated, expected)
+                                       .flatMap(
+                                         if (_) lifter.tryPureWrap(tm, updatedExpr, instantiated, expected)
+                                         else pure(Option.empty[SemExpression])
+                                       )
+      out                         <- prePure match {
+                                       case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+                                       case None          => resolveFailureLadder(tm, updatedExpr, instantiated, expected)
                                      }
     } yield out
 
-  /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: try the bind-lift
-    * arm (argument positions only, `allowBindLift`), then the pure-wrap arm, then — at return boundaries only — the
-    * pure-boundary Id defaulting ([[EffectLifter.tryIdDefault]]: an applied-arity expectation such as
-    * `?G[Pair[S,S]] ~ Pair[String,String]` is not the doomed pre-arm shape, so unification first tries the injective
-    * decomposition `?G := Pair[String]` and contradicts on the payload; the fitting solution is `?G := Id`), and
-    * finally commit the exact mismatch.
+  /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: try the pure-wrap
+    * arm, then commit the exact mismatch.
     */
   private def resolveFailureLadder(
       tm: Sourced[OperatorResolvedExpression],
       updatedExpr: SemExpression,
       instantiated: SemValue,
-      expected: SemValue,
-      allowBindLift: Boolean
+      expected: SemValue
   ): CheckIO[SlotOutcome] =
     tryUnifyCommitting(instantiated, expected, tm.as("Type mismatch.")).flatMap {
       case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
       case false =>
-        (if (allowBindLift) lifter.tryBindLift(tm, updatedExpr, instantiated, expected)
-         else pure(Option.empty[(SemExpression, EffectLifter.Bind)])).flatMap {
-          case Some((slotRef, bind)) => pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
-          case None                  =>
-            lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
-              case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-              case None          =>
-                (if (allowBindLift) pure(Option.empty[SemExpression])
-                 else lifter.tryIdDefault(tm, updatedExpr, instantiated, expected)).flatMap {
-                  case Some(unwrapped) => pure(SlotOutcome.Resolved(unwrapped): SlotOutcome)
-                  case None            => commitMismatch(instantiated, expected, tm, updatedExpr)
-                }
-            }
+        lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
+          case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+          case None          => commitMismatch(instantiated, expected, tm, updatedExpr)
         }
     }
 
@@ -845,9 +782,11 @@ class Checker(
     * decision) — and the post-drain [[ModeResolver]] classifies it against the solved store at quiescence.
     *
     * On the **compiler** track the mid-spine decision is kept (the §8 boundary — the compile-time track keeps the
-    * default ladder by design): a domain rigidified by later arguments runs the full ladder ([[resolveLadder]] —
-    * unify / bind-lift), a rigid non-carrier one sequences first ([[sequenceBeforeUnify]]), and a still-flex one
-    * takes the ride-up-vs-bind default ([[deferredGenericDefault]]).
+    * default ladder by design), reduced by the effects-as-rows deletion slices to the two arms the gate exercises: a
+    * still-bare-flex domain **adopts** the carrier-headed argument (pass-through — the effect rides up into the
+    * domain meta and the enclosing slot decides), and anything else runs the ladder. The bind-sequencing arms of both
+    * (the ride-up-vs-bind default and the sequence-before-unify guard) fired zero times across the full gate on either
+    * track and were deleted with the `tryBindLift` arm they called.
     */
   private def resolveDeferredSlot(record: SlotRecord, spineType: SemValue): CheckIO[SlotRecord] = record.outcome match {
     case SlotOutcome.Deferred(argExpr, argType, domain) if platform == Platform.Runtime =>
@@ -860,90 +799,16 @@ class Checker(
                           case VMeta(id, Spine.SNil) =>
                             for {
                               (updated, instantiated) <- instantiatePolymorphic(argExpr, argType)
-                              outcome                 <- deferredGenericDefault(record, id, updated, instantiated, domain)
-                            } yield outcome
-                          case VMeta(_, _)           =>
-                            // A meta-*applied* domain (`?G[?A]`, a generic container parameter) — the carrier can still
-                            // legitimately ride up into it, so the ladder decides as before.
-                            resolveLadder(record.arg, argExpr, argType, domain, allowBindLift = true)
+                              _                       <- doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
+                            } yield SlotOutcome.Resolved(updated): SlotOutcome
                           case _                     =>
-                            sequenceBeforeUnify(record, argExpr, argType, domain)
+                            // A meta-*applied* domain (`?G[?A]`, a generic container parameter) and a rigidified one
+                            // alike: the carrier can legitimately ride into the domain, so the ladder decides.
+                            resolveLadder(record.arg, argExpr, argType, domain)
                         }
       } yield record.copy(outcome = outcome)
     case _                                                                              => pure(record)
   }
-
-  /** Phase B for a deferred slot whose domain later rigidified to a **rigid-headed, non-carrier** type — sequence the
-    * argument *before* attempting whole-unification.
-    *
-    * A deferred slot's argument is effect-carrier-headed by construction (that is the deferral condition). Running the
-    * ordinary ladder here puts plain `unify` first, and against a rigid *data* head that unification does not fail —
-    * it **steals the carrier meta**. `?F[T]` versus `Either[?E, ?A]` decomposes injectively into `?F := Either[?E]`
-    * and `?A := T`, so the value's own ambient carrier is solved to a partially applied data constructor. It
-    * type-checks, bind-lift is never reached, and the error surfaces far away as the enclosing expression having the
-    * container type instead of the payload type — `outcome.foldEither(e -> e, s -> s)` reporting
-    * `Expected: String / Actual: Either(String, String)` while the identical `foldEither(e -> e, s -> s, outcome)`
-    * compiles. It bites exactly when the domain's arguments are still flex: a *concrete* `Either[String, String]`
-    * domain makes the same decomposition fail on arity/payload, which is why only the generic case was broken.
-    *
-    * This is the finding-13 premature-commitment class (docs/effects-as-channel.md §7) at the Generic slot: a carrier
-    * position must never be settled by first-contact unification. Sequencing first is the join model's answer — split
-    * the carrier off, fit the payload — and it is *speculative* ([[EffectLifter.tryBindLift]] uses `tryUnify` and
-    * commits nothing on failure), so a payload that does not fit falls back to the full ladder and every previously
-    * working shape keeps its outcome. A **carrier-headed** domain is excluded: there the carrier genuinely unifies,
-    * and splitting it off would be the mirror-image mistake.
-    */
-  private def sequenceBeforeUnify(
-      record: SlotRecord,
-      argExpr: SemExpression,
-      argType: SemValue,
-      domain: SemValue
-  ): CheckIO[SlotOutcome] =
-    lifter.effectCarrierSplit(domain).flatMap {
-      case Some(_) => resolveLadder(record.arg, argExpr, argType, domain, allowBindLift = true)
-      case None    =>
-        lifter.tryBindLift(record.arg, argExpr, argType, domain).flatMap {
-          case Some((slotRef, bind)) => pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
-          case None                  => resolveLadder(record.arg, argExpr, argType, domain, allowBindLift = true)
-        }
-    }
-
-  /** The default (carrier-based) Phase-B decision for a still-bare-flex Generic domain — the live path when
-    * `uniformCarrier` is off (and on the compile-time track), kept verbatim as [[UniformCarrierChecker.resolveGenericSlot]]'s
-    * byte-identical fallback:
-    *
-    * Pass-through *adoption*: solve the bare domain meta to the carrier-headed argument type, letting the effect ride up
-    * as a first-class value — sound ONLY for a *transparent* callee whose result flows from this domain meta (`identity`,
-    * `const`, a data ctor over the slot): the meta occurs in the node's result, so after `?id := C[T']` the result is
-    * carrier-headed and the enclosing slot decides. The bare meta is solved directly (the reversed orientation would only
-    * postpone — a meta application against a bare meta is not a pattern).
-    *
-    * For a *non-transparent* callee whose result carrier is independent of the domain (`putState[S, F](s: S): F[Unit]` —
-    * `S` absent from `F[Unit]`), adoption would strand the argument's carrier inside the type parameter, where nothing
-    * ever grounds it ("contains unresolved variable" at quote). The effect cannot ride up, so it must be sequenced here:
-    * bind-lift the argument and pass its payload, exactly as a rigid domain would.
-    */
-  private def deferredGenericDefault(
-      record: SlotRecord,
-      id: MetaId,
-      updated: SemExpression,
-      instantiated: SemValue,
-      domain: SemValue
-  ): CheckIO[SlotOutcome] =
-    for {
-      ridesUp <- inspect(_.unifier.occursInValue(id, record.retType))
-      outcome <- if (ridesUp)
-                   doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
-                     .as(SlotOutcome.Resolved(updated): SlotOutcome)
-                 else
-                   lifter.tryBindLift(record.arg, updated, instantiated, domain).flatMap {
-                     case Some((slotRef, bind)) =>
-                       pure(SlotOutcome.Bound(slotRef, bind): SlotOutcome)
-                     case None                  =>
-                       doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
-                         .as(SlotOutcome.Resolved(updated): SlotOutcome)
-                   }
-    } yield outcome
 
   /** Assemble the spine result: rebuild the application chain when Phase B changed a deferred slot's expression, then
     * fold the recorded effect-binds around the core — the spine's type becomes the outermost wrap's carrier-headed
@@ -1064,9 +929,8 @@ class Checker(
     * ordinary [[check]] (a lambda is never effect-carrier-headed, so neither deferral nor lift applies — and the
     * immediately-applied-lambda `let` shape needs the expected type pushed down). Everything else is inferred once and
     * then either *deferred* (a bare flex domain receiving an effect-carrier-headed argument — Phase B decides) or run
-    * through the shared resolution ladder ([[resolveGuardedLadder]], the argument-position `allowBindLift = true`
-    * entry, which folds in the effectful-signatures kind acceptance (W2b) exactly as the return-boundary
-    * [[checkAgainst]] does).
+    * through the shared resolution ladder ([[resolveGuardedLadder]], which folds in the effectful-signatures kind
+    * acceptance (W2b) exactly as the return-boundary [[checkAgainst]] does).
     */
   private def checkArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
@@ -1093,9 +957,13 @@ class Checker(
           plainDomain        <- if (uniform) uniformPlainValueType(forcedDomain) else pure(false)
           carrierDomain      <- if (uniform && !plainDomain) lifter.effectCarrierSplit(forcedDomain).map(_.nonEmpty)
                                 else pure(false)
-          outcome            <- if (plainDomain) uniformPayloadSlot(arg, argExpr, argType, forcedDomain, pinned)
-                                else if (carrierDomain) uniformCarrierSlot(arg, argExpr, argType, forcedDomain)
-                                else defaultArgSlot(arg, argExpr, argType, forcedDomain)
+          outcome            <- if (plainDomain) {
+                                  uniformPayloadSlot(arg, argExpr, argType, forcedDomain, pinned)
+                                } else if (carrierDomain) {
+                                  uniformCarrierSlot(arg, argExpr, argType, forcedDomain)
+                                } else {
+                                  defaultArgSlot(arg, argExpr, argType, forcedDomain)
+                                }
         } yield outcome
     }
 
@@ -1121,11 +989,11 @@ class Checker(
                                            case Some(_) =>
                                              pure(SlotOutcome.Deferred(updatedExpr, instantiated, forcedDomain))
                                            case None    =>
-                                             resolveGuardedLadder(arg, updatedExpr, instantiated, forcedDomain, allowBindLift = true)
+                                             resolveGuardedLadder(arg, updatedExpr, instantiated, forcedDomain)
                                          }
         } yield out
       case _                    =>
-        resolveGuardedLadder(arg, argExpr, argType, forcedDomain, allowBindLift = true)
+        resolveGuardedLadder(arg, argExpr, argType, forcedDomain)
     }
 
   /** Effects-as-channel U3a-2b(ii), spine wiring (docs/effects-as-channel.md §10) — gated on [[uniformCarrier]]: resolve
@@ -1173,8 +1041,11 @@ class Checker(
                                        case Some(p) => payloadFitsDomain(p, domain, arg.as("Type mismatch."))
                                        case None    => pure(false)
                                      }
-      outcome                     <- if (payloadFits) uniformArgumentSlot(arg, updatedExpr, domain)
-                                     else uniformCaptureSlot(arg, updatedExpr, instantiated, domain, pinned)
+      outcome                     <- if (payloadFits) {
+                                       uniformArgumentSlot(arg, updatedExpr, domain)
+                                     } else {
+                                       uniformCaptureSlot(arg, updatedExpr, instantiated, domain, pinned)
+                                     }
     } yield outcome
 
   /** The no-fit branch of [[uniformPayloadSlot]] (U4-a(ii)): an actual whose payload does not fit the plain domain is
@@ -1215,28 +1086,24 @@ class Checker(
       // (multi-layer pinned domains, concrete-payload actuals, doomed shapes) stays on the whole-unify fallback below,
       // and `mustLiftBeforeUnify` doomed shapes take their bind arm first, unchanged.
       joinRoutable <- if (pinned && !doomed && carrierMeta.nonEmpty) singleLayerCarrierDomain(domain) else pure(false)
-      outcome     <- if (doomed) uniformArgumentSlot(arg, updatedExpr, domain)
-                     else if (joinRoutable)
+      outcome     <- if (doomed) {
+                       uniformArgumentSlot(arg, updatedExpr, domain)
+                     } else if (joinRoutable)
                        for {
                          // The eager row-directed pin (finding 13 §4) runs *inside* the join too — it derives the domain's
                          // error slot from the argument's row constraints, so the join solves `?F := ThrowCarrier[String, ?G]`
                          // with the error slot already `String` rather than junk-grounding.
                          _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
                          out <- uniformArgumentSlot(arg, updatedExpr, domain, forcePinnedCarrier = true)
-                         _   <- carrierMeta.traverse_(recordRowArgumentPins(_, arg))
                        } yield out
                      else
                        for {
                          // §7 row-directed-at-elaboration pin (finding 13 §4): pin the *pinned-row domain*'s carrier-layer
                          // ability slots from the argument's own row constraints **before** the capturing whole-unify, so a
-                         // free error-slot meta never exists to junk-ground. Complements the post-drain
-                         // [[recordRowArgumentPins]] below (kept as the multi-layer/late-handler backstop).
+                         // free error-slot meta never exists to junk-ground.
                          _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
                          out <- tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
-                                  case true  =>
-                                    carrierMeta
-                                      .traverse_(recordRowArgumentPins(_, arg))
-                                      .as(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+                                  case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
                                   case false => commitMismatch(instantiated, domain, arg, updatedExpr)
                                 }
                        } yield out
@@ -1278,8 +1145,9 @@ class Checker(
     * Deriving the pin from the argument's row — the single source of truth: the `E` the user means is the one the
     * computation's row declares — at capture time means a free error-slot meta never exists to junk-ground to `Type`
     * and select the `where E1 != E2` lift (the pinned-finding-7 class), **even when the base carrier `G` is concrete**
-    * (`IO`), the case the post-drain pin-if-still-free ([[recordRowArgumentPins]]) misses because the outer layer's
-    * error slot junk-grounds before it runs. This is the principled form U4-f approximated at the slots.
+    * (`IO`). This is the principled form U4-f approximated at the slots, and — since the effects-as-rows slices
+    * retired the *deferred* pin-if-still-free backstop that never once applied across the gate — the only pinning
+    * mechanism left.
     *
     * Fail-safe: a constraint whose ability has no matching carrier layer in the domain records no pin (the whole-unify
     * runs unchanged), and a domain slot already solved to a value is left untouched (pin-if-still-free) so an
@@ -1299,7 +1167,8 @@ class Checker(
             case Some(slots) =>
               nonCarrierArgs.zip(slots).traverse_ { case (value, slot) =>
                 force(slot).flatMap {
-                  case VMeta(_, Spine.SNil) => doUnify(slot, value, at.as("Row-argument effect pinning (elaboration)."))
+                  case VMeta(_, Spine.SNil) =>
+                    doUnify(slot, value, at.as("Row-argument effect pinning (elaboration)."))
                   case _                    => pure(())
                 }
               }
@@ -1307,39 +1176,6 @@ class Checker(
           }
       }
     }
-
-  /** Row-argument type-pinning (docs/effects-as-channel.md §10 U4-f): an *open-row* argument — a carrier metavariable
-    * `?F` constrained `Throw[String]` — captured whole into a *pinned-row* parameter domain (`{Throw[E] | G} A` ⤳
-    * `ThrowCarrier[E, G, A]`) solves `?F := ThrowCarrier[?E, ?G]` by structure alone, leaving the error slot `?E`
-    * disconnected from the constraint's `String`. Without this connection `?E` junk-grounds to `Type` at
-    * [[TypeStackLoop.defaultUnsolvedMetas]], selecting the `where E1 != E2` lift instance whose inner `raise` demands
-    * the nonexistent `Throw[String, Id]` — the pinned-finding-7 bug.
-    *
-    * For each ability constraint recorded on `?F` ([[CheckState.metaConstraints]]), locate the ability's canonical
-    * carrier layer in `?F`'s solution (by the `<Ability>Carrier` authority, [[EffectCarrierNaming]]) and record a
-    * *deferred* pin of each non-carrier ability argument (`String`) into that layer's leading slot (`?E`). The pin is
-    * applied at post-drain finalize **only if the slot is still free** ([[applyPendingCarrierPins]]) — an
-    * explicitly-typed handler that pinned the slot itself, checked *after* this computation argument, is left to win.
-    * A constraint whose ability has *no* layer in the stack (an effect the base carrier absorbs, or the machinery
-    * `Effect`/`Suspend` whose `<Ability>Carrier` type does not exist) records no pin.
-    */
-  private def recordRowArgumentPins(carrierMetaId: Int, at: Sourced[OperatorResolvedExpression]): CheckIO[Unit] =
-    for {
-      state       <- get
-      solution    <- force(VMeta(MetaId(carrierMetaId), Spine.SNil))
-      _           <- state.metaConstraints.getOrElse(carrierMetaId, Seq.empty).traverse_ { constraint =>
-                       val nonCarrierArgs = constraint.args.dropRight(1)
-                       if (nonCarrierArgs.isEmpty) pure(())
-                       else
-                         findCarrierLayerSlots(solution, EffectCarrierNaming.carrierFQN(constraint.abilityFQN)).flatMap {
-                           case Some(slots) =>
-                             nonCarrierArgs.zip(slots).traverse_ { case (value, slot) =>
-                               modify(_.recordPendingPin(CheckState.PendingPin(slot, value, at.as("Row-argument effect pinning."))))
-                             }
-                           case None        => pure(())
-                         }
-                     }
-    } yield ()
 
   /** The leading (result-unapplied) spine slots of the outermost `carrierFqn` layer within a canonical carrier stack,
     * descending through each layer's *base* (its last spine element) — `ThrowCarrier`'s slots inside
@@ -1350,26 +1186,6 @@ class Checker(
       case VTopDef(fqn, _, spine) if fqn == carrierFqn      => pure(Some(spine.toList))
       case VTopDef(_, _, spine) if spine.toList.nonEmpty    => findCarrierLayerSlots(spine.toList.last, carrierFqn)
       case _                                                => pure(None)
-    }
-
-  /** Apply the deferred row-argument type pins ([[CheckState.pendingPins]]) at post-drain finalize (docs/effects-as-channel.md
-    * §10 U4-f): drain so a handler's own pin of a slot (checked *after* the computation argument) is visible, then unify
-    * each pin's slot with its ability argument **only if the slot is still a free metavariable**. A slot an
-    * explicitly-typed handler already pinned is left untouched (pin-if-still-free — order-independent, never a spurious
-    * conflict); a still-free slot receives the effect type its row directed (`?E := String`), so the discharger resolves
-    * against the native carrier instance rather than junk-grounding to `Type`. A no-op (no drain) when no pins were
-    * recorded — the common path.
-    */
-  private[check] def applyPendingCarrierPins: CheckIO[Unit] =
-    inspect(_.pendingPins).flatMap { pins =>
-      if (pins.isEmpty) pure(())
-      else
-        modify(s => s.withUnifier(s.unifier.drain())) >> pins.traverse_ { pin =>
-          force(pin.slot).flatMap {
-            case VMeta(_, Spine.SNil) => doUnify(pin.slot, pin.value, pin.context)
-            case _                    => pure(())
-          }
-        }
     }
 
   /** Whether an effectful actual's **payload** `p` *genuinely* fits the parameter `domain` — the bind-vs-capture
@@ -1426,11 +1242,14 @@ class Checker(
       // meta joins the domain's, the payloads unify, and the whole action passes through as `Passed`) rather than
       // handing off to [[defaultArgSlot]]. Byte-identical to the default whole-unify (`?F[Unit] ~ ?G[T]` ⇒ `?G := ?F`,
       // `T := Unit`, slot expr unchanged); exercised by `report`'s `if(flag, printLine("on"))` in the byte-identical gate.
-      outcome                     <- if (effectful) uniformArgumentSlot(arg, updatedExpr, domain)
-                                     else
+      outcome                     <- if (effectful) {
+                                       uniformArgumentSlot(arg, updatedExpr, domain)
+                                     } else
                                        lifter.tryPureWrap(arg, updatedExpr, instantiated, domain).flatMap {
-                                         case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-                                         case None          => defaultArgSlot(arg, updatedExpr, instantiated, domain)
+                                         case Some(wrapped) =>
+                                           pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+                                         case None          =>
+                                           defaultArgSlot(arg, updatedExpr, instantiated, domain)
                                        }
     } yield outcome
 
@@ -1519,19 +1338,16 @@ class Checker(
                                     bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
                                     (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
                                     resolved                   <- expected match {
-                                                                    // Definitional equality with the pure-boundary Id
-                                                                    // defaulting as the fallback: a `let` whose wrapped
-                                                                    // carrier is still a flex meta against a rigid pure
-                                                                    // expectation (`?G[String]` ~ `String` — a block
-                                                                    // ending in a fully-discharged computation inside a
-                                                                    // pure def) is the doomed shape unification can only
-                                                                    // postpone (skip it), and an applied-arity
-                                                                    // expectation contradicts on the injective
-                                                                    // decomposition — both then default the carrier to
-                                                                    // `Id` and unwrap ([[EffectLifter.tryIdDefault]]).
-                                                                    // Otherwise commit a single Expected/Actual
-                                                                    // mismatch rather than the unifier's
-                                                                    // per-type-argument spine errors.
+                                                                    // Definitional equality, with the doomed shape
+                                                                    // (`?G[String]` ~ `String`, which unification can
+                                                                    // only postpone) skipped so it commits a single
+                                                                    // Expected/Actual mismatch rather than the
+                                                                    // unifier's per-type-argument spine errors. The
+                                                                    // pure-boundary `Id` fallback that used to sit
+                                                                    // here retired with the effects-as-rows slices —
+                                                                    // a fully-discharged block `val` reaches a pure
+                                                                    // return through the uniform return boundary's own
+                                                                    // discharge ([[UniformCarrierChecker.checkReturnBoundary]]).
                                                                     case Some(exp) =>
                                                                       lifter
                                                                         .mustLiftBeforeUnify(wrappedType, exp)
@@ -1542,13 +1358,9 @@ class Checker(
                                                                         .flatMap {
                                                                           case true  => pure((wrappedExpr, exp))
                                                                           case false =>
-                                                                            lifter.tryIdDefault(body, wrappedExpr, wrappedType, exp).flatMap {
-                                                                              case Some(unwrapped) => pure((unwrapped, exp))
-                                                                              case None            =>
-                                                                                modify(st =>
-                                                                                  st.withUnifier(st.unifier.addMismatch(wrappedType, exp, body.as("Type mismatch.")))
-                                                                                ).as((wrappedExpr, exp))
-                                                                            }
+                                                                            modify(st =>
+                                                                              st.withUnifier(st.unifier.addMismatch(wrappedType, exp, body.as("Type mismatch.")))
+                                                                            ).as((wrappedExpr, exp))
                                                                         }
                                                                     case None      => pure((wrappedExpr, wrappedType))
                                                                   }
