@@ -42,8 +42,12 @@ class CarrierBookkeepingTest
     probe(bareHktValue, "use").asserting(_.map(_.ambientCarriers) shouldBe Some(Set.empty))
   }
 
-  "effect-carrier meta flagging" should "flag the Console ability method's carrier instantiation meta" in {
-    probe(consoleValue, "echo", Seq(ioType)).asserting(_.map(_.effectCarrierMetas) shouldBe Some(1))
+  "effect-carrier meta flagging" should "mint NO carrier meta for the Console ability method — the elaborator wrote the carrier" in {
+    // Effects-as-rows A.11.4: `printLine("x")` reaches the checker as `printLine[F]("x")`, the ambient carrier
+    // written by `RowElaborator` as an explicit leading type argument, and `CarrierKindChecker.recordCarrierMetas`
+    // drops binders already covered by explicit arguments. So the carrier position is rigid from elaboration
+    // onwards and there is no metavariable to flag — which is the whole point of writing it.
+    probe(consoleValue, "echo", Seq(ioType)).asserting(_.map(_.effectCarrierMetas) shouldBe Some(0))
   }
 
   it should "flag a bare higher-kinded binder's instantiation meta (the unfiltered callee-side carrier notion)" in {

@@ -389,7 +389,10 @@ object RowElaborator {
         case ValueReference(name, _) if args.nonEmpty             =>
           elaborateCall(expr, name.value, args, region)
         case ValueReference(name, _)                              =>
-          (expr, calleeCarrierValued(name.value, Seq.empty))
+          // A nullary reference (`readLine`, `state`, `abort`) is a call like any other: if its result rides its own
+          // first binder, the region's carrier is written there too.
+          val discharging = dischargingCallee(name.value)
+          (writeCarrier(expr, name.value, 0, callRegion(region, discharging)), calleeCarrierValued(name.value, Seq.empty))
         case ParameterReference(name) if args.isEmpty             =>
           // A suspended parameter (declared carrier-headed) holds its computation unrun: referencing it yields a
           // carrier value.
@@ -431,7 +434,7 @@ object RowElaborator {
       // Whether this call's own carrier is known to exist: the enclosing region has one, or the call discharges a
       // row and so runs on `Id`. When neither holds the carrier is context-supplied and its slots stay ordinary —
       // lifting a pure argument with `pure` would force `Id` on a call whose carrier the use site chooses.
-      val ownRegion     = callRegion(region, pinned.nonEmpty || runBoundary, expr)
+      val ownRegion     = callRegion(region, pinned.nonEmpty || runBoundary)
       val slotRegion    = ownRegion.exists
       // Hoisting is a rewrite the elaborator must fully discharge: the core it leaves as the chain's innermost
       // continuation must be classifiable — carrier-valued, or a declared-payload result it can `pure`-wrap. A
@@ -485,28 +488,35 @@ object RowElaborator {
             // A.8.6 deferral: a slot typed by a generic-headed type (`a: A`, `initial: B`, `x: F[A]` with bare
             // `F[_]`) has no declared mode — the instantiation decides whether the argument is payload (run here),
             // suspended, or captured (the dot-chained discharger). The argument's interior still elaborates; this
-            // slot writes nothing around it.
-            (accArgs :+ core(arg, region)._1, accBinds)
+            // slot writes nothing around it — *including the carrier*: an argument whose mode is undecided has an
+            // undecided carrier too. `rename("after").runStateToPair("before")` is the witness: the dot's `a: A`
+            // slot eventually feeds a pinned capture, so `rename`'s carrier is the discharge stack
+            // `StateCarrier[String, F]`, not the ambient `F` — writing the ambient there is a type error, and
+            // guessing the stack would be the relayed-slot-mode rule A.8.4 rejected.
+            (accArgs :+ core(arg, unspelled(region))._1, accBinds)
           } else {
             // A declared-concrete slot (or an unknown callee's slot) is strict: the payload is wanted here.
             strictArgument(accArgs, accBinds, arg, region, hoist)
           }
         }
 
-      (assemble(expr, finalArgs, binds, calleeCarrier, region), binds.nonEmpty || calleeCarrier)
+      val head = writeCarrier(expr.as(spine(expr.value)._1), callee, args.size, ownRegion)
+      (assemble(expr, head, finalArgs, binds, calleeCarrier, region), binds.nonEmpty || calleeCarrier)
     }
 
-    /** The carrier a call's *own* result runs on: the enclosing region's when there is one, otherwise `Id` for a
-      * **discharging** call — the A.4 rule that a consumed row leaves a residual nothing else constrains — and no
-      * carrier at all for an ordinary call whose carrier the use site chooses.
+    /** The carrier a call's *own* result runs on: the enclosing region's when there is one; otherwise a
+      * **discharging** call still has one (the row it consumed left a residual), but nothing here names it.
+      *
+      * It is tempting to call that residual `Id` — A.4 says an *unconstrained* residual is `Id` by declaration — and
+      * that is wrong outside the two boundaries where this pass inserts `runId`. The residual is unconstrained only
+      * where the surrounding position cannot host a carrier at all; a discharging call feeding an enclosing
+      * computation has its carrier fixed by that computation instead. `Effect[AbortCarrier[G]]`'s own `flatMap` is
+      * the witness: `runAbort(fa)` discharges under a return this pass reads as carrier-less (`AbortCarrier[G, B]`
+      * is headed by the *instance's* binder, not the method's), yet its carrier is plainly `G`, not `Id`.
       */
-    private def callRegion(
-        enclosing: RegionCarrier,
-        discharging: Boolean,
-        anchor: Sourced[?]
-    ): RegionCarrier =
+    private def callRegion(enclosing: RegionCarrier, discharging: Boolean): RegionCarrier =
       if (enclosing.exists) enclosing
-      else if (discharging) RegionCarrier.Spelled(idCarrierTerm(anchor))
+      else if (discharging) RegionCarrier.Unspelled
       else RegionCarrier.Absent
 
     /** A region known to *have* a carrier by declaration even where this pass cannot name it — a carrier-codomain
@@ -514,6 +524,61 @@ object RowElaborator {
       */
     private def forced(region: RegionCarrier): RegionCarrier =
       if (region.exists) region else RegionCarrier.Unspelled
+
+    /** The same region with its carrier *forgotten* — placement unchanged (a bind still binds), but nothing is
+      * written. Used inside a deferred slot, where the carrier belongs to an instantiation this pass cannot see.
+      */
+    private def unspelled(region: RegionCarrier): RegionCarrier =
+      if (region.exists) RegionCarrier.Unspelled else RegionCarrier.Absent
+
+    /** Write the region's carrier as an explicit leading type argument of a call (A.11.4) — `printLine[F](s)`,
+      * `readLine[F]`, `runAbort[Id](x)` — so the checker never mints a metavariable in carrier position and the
+      * carrier is rigid from elaboration onwards. The reference is returned unchanged wherever the write is not
+      * *declared* to be correct, which is always the fail-safe direction: an unwritten carrier is simply inferred,
+      * exactly as before this step.
+      *
+      * Three conditions, all read off declarations:
+      *
+      *   - the region has a **spellable** carrier (see [[RegionCarrier]]);
+      *   - the reference carries **no type arguments of its own** — a user who wrote them has already decided;
+      *   - the callee's **first** generic binder is one of its declared carriers *and* the type remaining after this
+      *     call's arguments is headed by that same binder, so the result rides it.
+      *
+      * The first-binder restriction is the limit of the mechanism, not a heuristic: `ValueReference.typeArgs` applies
+      * positionally, so writing binder *k* means writing binders `0..k-1` too, and those are payload types this pass
+      * has no declared way to name. It costs nothing in practice — [[EffectSugarDesugarer]] *prepends* the carrier it
+      * mints, and an ability method's own ability parameter leads, which together are every effectful call a user
+      * writes. A hand-written discharger that places its carrier later (`catch[E, G[_] ~ Effect, A]`) keeps it
+      * inferred.
+      */
+    private def writeCarrier(
+        reference: Sourced[OperatorResolvedExpression],
+        callee: ValueFQN,
+        argCount: Int,
+        region: RegionCarrier
+    ): Sourced[OperatorResolvedExpression] =
+      (reference.value, region.term) match {
+        case (ValueReference(name, existing), Some(term)) if existing.isEmpty && ridesFirstBinder(callee, argCount) =>
+          reference.as(ValueReference(name, Seq(term)))
+        case _                                                                                                     =>
+          reference
+      }
+
+    /** Whether applying `callee` to `argCount` arguments yields a result headed by the callee's **first** generic
+      * binder, that binder being one of its declared carriers. See [[writeCarrier]] for why the position matters.
+      */
+    private def ridesFirstBinder(callee: ValueFQN, argCount: Int): Boolean =
+      universe.lookup(callee).exists { orv =>
+        val view     = SignatureView.of(orv.signature)
+        val carriers = EffectCarriers.declaredCarrierBinders(orv)
+        view.binders.headOption.exists { first =>
+          carriers.contains(first.name.value) && argCount >= view.parameters.size &&
+          (spine(arrowApplied(view.returnType.value, argCount - view.parameters.size))._1 match {
+            case ParameterReference(head) => head.value == first.name.value
+            case _                        => false
+          })
+        }
+      }
 
     /** Elaborate a call with no declared slot information (an applied function-typed parameter): every slot strict,
       * hoisting only when the call's own result is classifiable (see `coreClassified` in [[elaborateCall]]).
@@ -530,7 +595,7 @@ object RowElaborator {
           case ((accArgs, accBinds), arg) =>
             strictArgument(accArgs, accBinds, arg, region, region.exists && resultClassified)
         }
-      (assemble(expr, finalArgs, binds, resultCarrier, region), binds.nonEmpty || resultCarrier)
+      (assemble(expr, expr.as(spine(expr.value)._1), finalArgs, binds, resultCarrier, region), binds.nonEmpty || resultCarrier)
     }
 
     /** One strict-slot argument: a carrier-valued argument that *performs* (non-empty row) or *discharges* (empty
@@ -564,6 +629,7 @@ object RowElaborator {
       */
     private def assemble(
         expr: Sourced[OperatorResolvedExpression],
+        head: Sourced[OperatorResolvedExpression],
         finalArgs: Seq[Sourced[OperatorResolvedExpression]],
         binds: Seq[(String, Sourced[OperatorResolvedExpression])],
         resultCarrier: Boolean,
@@ -571,8 +637,10 @@ object RowElaborator {
     ): Sourced[OperatorResolvedExpression] = {
       // Untouched code keeps its original nodes, not equal rebuilt ones: rebuilding re-attributes the application
       // spine to per-argument positions, which silently moves every diagnostic anchored at a call.
-      val unchanged = binds.isEmpty && finalArgs.corresponds(spine(expr.value)._2)(_ eq _)
-      val coreCall  = if (unchanged) expr else expr.as(applyChain(expr.as(spine(expr.value)._1), finalArgs))
+      val unchanged =
+        binds.isEmpty && (head.value.asInstanceOf[AnyRef] eq spine(expr.value)._1.asInstanceOf[AnyRef]) &&
+          finalArgs.corresponds(spine(expr.value)._2)(_ eq _)
+      val coreCall  = if (unchanged) expr else expr.as(applyChain(head, finalArgs))
       if (binds.isEmpty) coreCall
       else {
         val coreElab =
@@ -860,10 +928,6 @@ object RowElaborator {
       region: RegionCarrier
   ): OperatorResolvedExpression =
     applyChain(value.as(ValueReference(value.as(WellKnownTypes.effectPureFQN), region.term.toSeq)), Seq(value))
-
-  /** The identity carrier as a type term — what a discharge whose residual row is empty runs on (A.4). */
-  private def idCarrierTerm(anchor: Sourced[?]): Sourced[OperatorResolvedExpression] =
-    anchor.as(ValueReference(anchor.as(WellKnownTypes.idFQN)))
 
   /** `runId(computation)` — the boundary unwrap of a discharge whose residual row is empty (A.4). */
   private def runIdWrap(value: Sourced[OperatorResolvedExpression]): OperatorResolvedExpression =
