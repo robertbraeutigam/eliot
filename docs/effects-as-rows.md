@@ -6,7 +6,11 @@ now suspended obligations, classified at quiescence, with splice-and-restart) �
 green. Deletion slices 1–3 landed (A.8.8/A.8.9/A.8.10, 2026-07-27): the checker inserts zero binds and
 no longer manufactures `Id`. **Slice 4 is measured (A.8.11) and is a decision, not a retirement — no arm
 is dead; 4a was attempted and reverted (A.8.12), so the order inverts to 4b first. A handover — tree
-state, the open decision, the method, the inventory, the gotchas — is §A.9; start there.** Successor direction to
+state, the open decision, the method, the inventory, the gotchas — is §A.9.**
+**Then a stock-take found the premise under both v2 and v3 — the carrier is a type argument the checker
+*solves* — and a spike validated writing it instead. That is §A.10, and it supersedes the slice-4 plan;
+read A.10 first, then A.9 for the operational detail it still owns (the method, the inventory, the
+gotchas).** Successor direction to
 `docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
 arms — stays live underneath until the deletion slices retire it against the resolver). The row
 checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
@@ -1365,3 +1369,220 @@ The live arm counts, for judging what any change should move, are the table at t
    4b has removed the artifact boundaries it cannot express.
 4. **R6 closeout** — rewrite the CLAUDE.md *Effects Are a Channel* cornerstone for rows, give the stdlib
    its declared-suspension signatures (§6), and run the semantic-break corpus audit.
+
+## Appendix A.10. The stock-take, and the written-carrier spike (2026-07-27)
+
+Slice 4a's revert (A.8.12) was the second consecutive slice to be blocked by the substrate rather than by
+effort, so before resuming, the question asked was not "how do we do 4b" but "is the deletion working at
+all, and is there a decision — including reversing an earlier one — that would greatly simplify this?"
+This section is the answer: the measurement that says no, the premise it exposes, and a spike that
+validates changing it. **It supersedes the A.9.7 plan.**
+
+### A.10.1 The measurement: the deletion is not reducing the checker
+
+Lines of effect machinery under `lang/src`, at three points (measured with `git ls-tree` per commit, not
+from the doc's own claims):
+
+| | `monomorphize/check/` | `monomorphize/carrier/` | `row/` | total |
+| --- | ---: | ---: | ---: | ---: |
+| before v2 (`f7d5c2fb^`, 07-22) | 3,996 | 0 | 0 | **3,996** |
+| before v3 (`d167a786^`, 07-25) | 5,181 | 404 | 0 | **5,585** |
+| now (`c980f2d3`, 07-27) | 5,219 | 394 | 1,282 | **6,895** |
+
+Across the whole v3 window — R1 through three deletion slices — `check/` is **+38 lines** and the effect
+machinery as a whole is **+1,310**. Per slice (`check` + `carrier` + `row`): 5,585 → 6,858 (slice 1) →
+6,830 (slice 2) → 6,895 (slice 3). The slices deleted real code; the new phase, the resolver, the
+obligation vectors and splice-and-restart added more. **v3 has so far added a second effect system beside
+the first rather than replacing it.**
+
+The second symptom is qualitative and visible in this document: every landing since A.8.6 ships a list
+titled "corollaries the corpus forced" — four at the R5 flip, three at A.8.7, one each at slices 2 and 3.
+Each is individually sound and each is shape-specific. That is the pattern A.8.3 correctly named a red
+flag for rule 5; the rule was deleted and the pattern kept.
+
+### A.10.2 The premise neither v2 nor v3 revisited
+
+v2 §13 chose between carriers-inside-checking (Variant A) and carrier-reconstructed-post-mono (Variant B,
+v1's weaver). v3 §0 revisited two further premises — carriers as ordinary types in one unsorted
+unification space, and suspension inferred from genericity. **All three analyses assume the carrier is a
+type argument the checker *solves*.** It is, at exactly one place — `check/Checker.scala:1430-1431`:
+
+```scala
+(peeled, implicitMetas) <- peelLams(tpe)
+_                       <- carriers.recordCarrierMetas(expr, implicitMetas)
+```
+
+Every effectful reference is instantiated with a **fresh metavariable in carrier position**. The whole
+cost structure is downstream of that one fact:
+
+- `?F[X] ~ ?G[Y]` is flex-flex, which pattern unification cannot decompose — the 1,506 sites of A.8.11,
+  i.e. all of slice 4b, and the "Higher-kinded type parameter mismatch" error in A.10.4 below.
+- A flex carrier meta can be captured by first-contact unification — the theft class, `CarrierJoin`, four
+  of v2's five highest-impact bugs, and the guard family documented as uncompletable.
+- A flex carrier needs a lattice bottom so pure code can meet it — `Id`, `Id`-uniformity, `IdNormalizer`,
+  the per-consumer normalization tax, and A.8.12's blocker.
+- A slot's mode cannot be decided before its meta is solved — A.8.7's "forced core", the obligations, the
+  `ModeResolver`, splice-and-restart, and the three boundings on the row check (R5 second slice).
+
+v3 already established the right principle for *placement*: "v1 erased and tried to reconstruct; v3 never
+erases — the signal is in signatures, read before checking." §3 applies it to `flatMap`/`pure` and stops
+one step short. It is not applied to the carrier itself.
+
+### A.10.3 The proposal: the carrier is written, not inferred
+
+The ambient carrier at any point in a definition is a **syntactic** function of that definition's own
+minted binder — `F` in the body, `StateCarrier[S, F]` inside a discharge region, `Id` under a pure
+boundary. `RowElaborator` already computes exactly this, as a positional boolean (A.8's pinned-region
+slice). The proposal is that it compute the **expression** and write it:
+
+```
+printLine("hi")       ⟶   printLine[F]("hi")
+flatMap(readLine, k)  ⟶   flatMap[F](k, readLine[F])
+```
+
+Every carrier position is then **rigid** — the definition's own ρ-bound binder, or a written stack over it
+— and the base is bound once, by the platform's entry point, so both tracks (`IO` on jvm,
+`Either[String, _]` on the compile track) keep working without the elaborator knowing which.
+
+The mechanism exists today; this was verified in the code before the spike, not assumed:
+
+- `resolve/fact/Expression.scala` — `ValueReference(name, typeArgs)` already carries explicit type
+  arguments, threaded through every phase to the checker.
+- `Checker.inferValueReference` applies them: `explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)`.
+- `EffectSugarDesugarer.desugar` mints the carrier as generic parameter **0**
+  (`carrierParam.toSeq ++ function.genericParameters`), so `Seq(carrierExpr)` is the leading argument and
+  the user's own generics still infer.
+- `CarrierKindChecker.recordCarrierMetas` already does `allBinders.drop(explicitArgs.size)` — supply the
+  carrier and **no carrier meta is created at all**.
+- A binder is spelled `ParameterReference(name)` in type position and evaluates against ρ, where
+  `TypeStackLoop.establishSignature` bound it.
+
+What this **dissolves** rather than answers:
+
+- **A.9.2's guardrail question.** Rule 1 (carrier decomposition) is needed only for flex-flex; with rigid
+  heads `unifySpines` already handles it. `Unifier` is not touched, and the cornerstone question about a
+  role-keyed decomposition arm never has to be ruled on.
+- **A.9.3's `Id` question.** `Id` is written explicitly, only inside a declared discharge region under a
+  pure boundary, together with its `runId`. It is then honestly well-typed rather than
+  well-typed-modulo-normalization — which is precisely the property 4a lacked.
+- **A.8.7's forced core.** Hoisting at a bare-generic slot is always well-typed when the carrier is rigid,
+  so slot mode is a *choice* decided a priori by §1 rule 1, not a typing necessity awaiting an
+  instantiation.
+
+### A.10.4 The spike: method
+
+Two env-gated switches in `check/Checker.scala` (`ELIOT_NO_BRIDGE`, ~10 lines, reverted after the run):
+
+1. **bridge off** — `routeArgumentSlot`'s `uniform` flag and `uniformReturnRoutable`'s platform gate both
+   forced false, so every runtime argument slot and return boundary routes to the *default* ladder
+   (pure-wrap pre-arm → unify → pure-wrap → mismatch). No `UniformCarrierChecker`, no `CarrierJoin`, no
+   routers.
+2. **deferral off** — the `SlotOutcome.Deferred` arms of both `defaultArgSlot` and `genericArgSlot`
+   disabled, which removes every producer of `CheckState.ModeObligation` and idles `ModeResolver` and
+   splice-and-restart.
+
+Plus counters (a `ConcurrentHashMap` + shutdown hook, per the A.9.4 tracer recipe) on the three
+node-inserting builders — `EffectLifter.pureWrapNode` / `runIdNode` / `bindWrap` — and on the obligation
+recording in `resolveDeferredSlot`.
+
+**First, which shapes actually need the machinery?** Compiling all 40 examples:
+
+| | compile |
+| --- | ---: |
+| bridge on (the A.9.1 baseline) | 36 / 40 |
+| bridge off | **33 / 40** |
+
+Exactly four regress. `Concat`, `EffectsMulti`, `EffectsTwoDeps` fail with **"Higher-kinded type parameter
+mismatch"** — the flex-flex decomposition of A.8.11, now visible as a user-facing error rather than a
+counter. `EffectsThrow` fails ability selection inside the stdlib's own `jvm/.../Throw.els:54` ("No ability
+implementation found for ability 'Throw' with type arguments [String, IO]"). Separately and unexpectedly,
+**`IfDemo` — a pre-existing baseline failure — compiles with the bridge off**, so at least one of the four
+long-standing example failures is caused by the bridge. Worth a look independently of this decision.
+
+### A.10.5 The spike: results
+
+Those four shapes plus three more were hand-written in the target form — explicit carrier type argument at
+every effectful call and every inserted `flatMap`/`pure`, the carrier being the definition's own declared
+binder or a written stack, `Id` and `runId` written explicitly at discharge-to-pure. All seven compile
+**with the bridge off *and* all deferral off**, with **zero** mode obligations and **zero** checker-inserted
+effect nodes, and produce output byte-identical to the bridge-on baseline:
+
+| spike shape | what it exercises | obligations / inserts |
+| --- | --- | ---: |
+| `XConcat` | sequencing chain, hoist out of `++` | 0 / 0 |
+| `XTwoDeps` | **the dot operator** + nested `DepCarrier` discharge | 0 / 0 |
+| `XMulti` | three effects on one carrier + `provide` | 0 / 0 |
+| `XThrow` | stdlib `catch`/`ThrowCarrier`, guarded instance selection | 0 / 0 |
+| `XPureA` | **A.8.12's blocker**: `catch` to a pure value via written `Id` + `runId` | 0 / 0 |
+| `XPureB` | `foldLeft` accumulator with an effectful combine | 0 / 0 |
+| `XState` | nested `StateCarrier` + `Console` riding through + `Id` discharge + **the dot-chained discharger** | 0 / 0 |
+
+The same counters on the *unconverted* originals with the bridge **on**, for scale: `Concat` 3 obligations,
+`EffectsTwoDeps` 4, `EffectsMulti` 2, `EffectsThrow` 1 bind + 2 `pure` inserts.
+
+**The A.8.12 result is the load-bearing one.**
+
+```
+def recovered: String =
+   runId[String](catch[String, Id](parseBad[ThrowCarrier[String, Id]], err -> pure[Id](err)))
+```
+
+type-checks as ordinary source. 4a failed because a *checker-inserted* `runId` was well-typed only modulo
+Id-erasure, and a source-level splice re-derived the mismatch. When the carrier is **written**,
+`catch[String, Id]` genuinely returns `Id[String]` and `runId` genuinely projects it — there is nothing to
+erase. **The blocker was the inference, not the node.** The same is true of the two shapes this document
+has repeatedly called the hardest: with a rigid carrier, the dot-chained discharger
+(`counter[StateCarrier[String, G]].runStateToPair("init")`) and the nested transformer stacks are ordinary
+applications with nothing to defer.
+
+### A.10.6 What the spike does not prove
+
+1. **It validates the target form, not the elaborator.** Two things were hand-supplied:
+   - the discharge-stack instantiation (`describe[DepCarrier[Database, DepCarrier[Topic, IO]]]`). This one
+     *is* syntax-directed outside-in from the pinned-slot declarations — v3's existing pinned-region rule
+     upgraded from a boolean to an expression. Low risk.
+   - `foldLeft[String, F[String]]` together with `pure[F]("")`. This is the cross-argument fact: an
+     effectful combine makes `foldLeft`'s payload generic `B` carrier-headed through a *sibling*, so the
+     pure `initial` must lift. **This is the one open decision** — the shape is expressible and checks, but
+     *who writes it* is undecided. Two acceptable answers: an order-free per-call join over the callee's
+     declared parameter shapes plus the elaborator's own knowledge of which arguments it made
+     carrier-valued (elaborator-local, not a sibling-expression-shape rule); or declared effect-transparency
+     on higher-order stdlib signatures, which is §6's stdlib work generalized. Note this makes A.8.4's
+     rejected option (a) viable again: (a) failed *only* at `.`, and under written carriers `.` needs no
+     relay rule at all.
+2. **The stdlib must convert too — there is no partial rollout.** With the bridge off,
+   `runStateToValue`'s own body (`runStateToPair(initial, p).map(first)`) fails, because it is still
+   direct-style with an inferred carrier. Not a cost of the design (the elaborator writes its carriers like
+   any other definition's), but the flip is whole-program, and the spike had to route around it.
+3. **Untested**: `Inf`; the compile-time track's `Either` carriers and `CalculatedReturnResolver`; ability
+   instances beyond `Throw`'s `where E1 != E2`; two distinct `State[S]` layers (for which the stdlib has no
+   lift instance today in any case). `main` used the nominal-run `IO[Unit]` form throughout, not a row.
+
+### A.10.7 What remains true, and the revised plan
+
+The one rule this design does **not** promise to remove from the checker, stated up front rather than
+discovered later: *a pure term meeting a **rigid** carrier-headed expected type is `pure`-lifted.* That is
+the default ladder's existing pure-wrap arm — no metas, no ordering, no lattice — and the spike ran on it.
+The §4 promise of *zero* effect code in the checker should be restated as "one order-free local rule".
+
+Revised plan, replacing A.9.7:
+
+1. **Decide the accumulator question** (A.10.6 item 1) — elaborator-local per-call join, or declared
+   effect-transparency in the stdlib. Everything else is mechanical once this is fixed.
+2. **`RowElaborator` writes carrier expressions** instead of positional flags: upgrade the region walk to
+   produce the carrier term, write `typeArgs` at every effectful call and inserted combinator, and write
+   `Id` + `runId` at pure discharge boundaries. The A.8.6 deferral machinery is *removed*, not extended.
+3. **Convert the stdlib and jvm layers** in the same step (item 2 of A.10.6 — whole-program).
+4. **Delete**, in this order, against the A.9.4 method and the byte-identity oracle: the routers and the
+   bridge (`carrier/`, `UniformCarrierChecker`, ~250 lines in `Checker`), then the obligation/resolver path
+   (`ModeResolver`, `CheckState`'s obligation vectors, splice-and-restart in `TypeStackLoop`), then
+   `IdNormalizer` and `CarrierKindChecker`'s carrier seeding. `Unifier` is untouched — **slice 4b as
+   specified in A.8.11/A.9.2 is cancelled**, and with it the cornerstone sign-off it required.
+5. **The semantic-break audit becomes mandatory, not deferred.** "Effects run where written" now applies at
+   bare-generic slots unconditionally, so every laziness-requiring stdlib signature *must* declare
+   suspension (`fold`, `if`, `orElse`, any future `&&`/`||`). The failure mode is behavioural rather than a
+   type error — the weakest fail-safe in the proposal — so enumerate the hoist sites over the corpus with
+   the tracer before the flip, not after.
+6. **R6 closeout** as before, plus: revisit `IfDemo` (A.10.4 — the bridge causes it).
+
+Spike sources: seven `.els` files, rerunnable against the two `Checker` switches described in A.10.4.
