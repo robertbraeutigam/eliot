@@ -597,12 +597,26 @@ ordering, the 4b inventory — is superseded: 4b is cancelled and A.11 owns the 
   plus the error count. Two counting cautions: a postponement is not an error, so `agree` over-counts
   where the plain path would have deferred; and a flex-flex solve recorded in the opposite direction
   shows up as `differ` while being semantically identical — read the samples, not just the counts.
+- **Switch it off, part by part** (A.11.7-R). Where the question is the blunter "is this load-bearing at
+  all?", an env-gated bypass is cheaper *and* stronger evidence than a differential probe: it answers in
+  behaviour rather than in meta solutions. Gate each part **separately**, never only all-at-once — the
+  all-off run said "43 failures, delete nothing", while the per-part runs said the carrier router costs
+  1 test and the payload router 36, which is the whole finding. Cost is one gate + one examples sweep
+  per part (~6 min each).
+- **A firing arm is a question, not a verdict.** Having localized a live part, do not stop at "it is
+  needed": find the *one* arm that decides, and ask what the elaborator would have had to know. That is
+  what turned "the payload router is load-bearing" into "`declaredPayloadResult` refuses a generic head".
 - **Measure twice, before and after** (slice 3's first cut looked like an improvement while dropping a
   fail-safe).
 - **The byte-identity oracle.** Build a baseline in a `git worktree` at the pre-change commit, compile
   all examples in both trees, and compare (1) **program output** and (2) **class content unzipped from
   the jars** — jars themselves are not byte-reproducible (timestamps), and `$row$N` binder numbering can
-  legitimately rename lambda classes. Byte-identity is a safety oracle, not a hard gate.
+  legitimately rename lambda classes. Byte-identity is a safety oracle, not a hard gate. For repeated
+  sweeps a worktree is not needed: drive `Main` directly off `./mill show examples.runClasspath` with the
+  three `--path` layer roots, and store per-example `md5sum` of every unzipped class under a label, so
+  any two labels diff in one loop. **`Concat`, `Effects`, `EffectsMulti` and `IfDemo` read stdin**, so
+  their *output* differs between a run with a tty and one without (a timeout versus `readLine`
+  returning null) with identical bytecode — for those four, class content is the only sound comparison.
 - **Diffing error sets.** Some sessions (the LSP compile) emit hundreds of pre-existing internal-error
   messages; diff the error set against a stashed baseline rather than reading them.
 
@@ -912,14 +926,29 @@ arm runs but whether the default ladder would reach the same result.
    and LSP hover renders `{Throw[IO[String]] | IO} String`. Rule 1 again, plus the row-directed pin.
 4. **The return boundary** costs 8 tests and `Concat`.
 
-**The candidate elaborator rule was built and measured, not just proposed.** Let
-`declaredPayloadResult` accept a generic head — a call whose declared return is one of its own *value*
-binders is a payload, which is what strictness makes true, since every plain-slot argument is a payload
-after hoisting. It works as intended: `++` starts hoisting and `Concat`'s suspension disappears from the
-trace. With it, payload-router-off improves from 5 regressed examples to 2 (`EffectsThrow`, `IfDemo`).
-**But the rule as spelled costs 16 test failures on its own** — some are suites pinning the A.8.6
-spelling it replaces, and some are genuine `State`-family miscompiles. So the rule is the right area and
-is not yet the right rule.
+**The candidate elaborator rule was built and measured, not just proposed.** Two lines, both in
+`RowElaborator`: `declaredPayloadResult` accepts a `ParameterReference` head — a call whose declared
+return is one of its own *value* binders is a payload, which is what strictness makes true, since every
+plain-slot argument is a payload after hoisting — and `definitelyPure`'s `ValueReference` arm gains the
+guard `!carrierHeaded(remaining, declaredCarrierBinders(orv))`, without which a `printLine` call reads
+as pure. It works as intended: `++` flips to `elab/hoist=true` and `Concat`'s `payloadSlot/suspendHoist`
+leaves the trace entirely. With it, payload-router-off improves from 5 regressed examples to 2
+(`EffectsThrow`, `IfDemo`), and the examples stay 37/40 with the router on.
+
+**But the rule as spelled costs 16 test failures.** They are three groups, and only one is a real
+defect:
+
+- **7 — one cascade.** A single compile inside `FullIntegrationTest`'s shared session fails, and every
+  later test in that session dies with `ClassNotFoundException: main` ("type as its payload and run as
+  the bare type" ×4, "fail the build with the author message" ×3). One root cause, not seven.
+- **4 — suites pinning the spelling the rule replaces**: three `RowElaboratorTest` twins (the
+  generic-eliminator shapes, incl. the one literally named "defer a call with a generic-headed return —
+  A.8.6") and `MonomorphicTypeCheckTest`'s "pass an effectful eliminator branch through unsequenced".
+  These assert the deferral; if the rule lands they are rewritten, not fixed.
+- **5 — genuine `State`-family miscompiles** (state threading, `runStateToValue`, the whole-list
+  `State` instance). This is the real cost and the thing to understand before adopting anything.
+
+So the rule is the right area and is not yet the right rule.
 
 **What this means for the plan.**
 
@@ -939,6 +968,29 @@ is not yet the right rule.
   carrier inferred and the whole v2 machinery alive. Here A.11.2-R's "neither mechanism" is what keeps
   the *hoist* in the checker, and therefore the payload router, and therefore the obligation path. The
   cost is again paid downstream rather than at the decision.
+
+**State of the tree at this handover.** No compiler code changed. The instrument — an env-gated
+`ArmTrace` object, a four-part `ELIOT_NO_BRIDGE` switch threaded through `uniformReturnRoutable` /
+`routeArgumentSlot` / `uniformCaptureSlot` / `eagerRowPinIntoDomain`, and the `ELIOT_GENERIC_PAYLOAD`
+probe — is **reverted**; there is no gate anywhere in the effect path, as A.11.0's exit criteria
+require. Gate re-verified after the revert: `./mill __.test` **0 failures**, **37/40** examples
+(`PluginA`/`B`/`C` predate A.11.4), and **class content byte-identical** for all 37 against the
+pre-experiment build. The measured line counts are unchanged from A.11.6 (`check/` 5,097).
+
+**Where to resume, per branch of the decision.**
+
+1. *If A.11.2-R is reopened and the elaborator takes the hoist*: start from the two-line candidate
+   above, and start by understanding the 5 `State` miscompiles — that group, not the pinning suites, is
+   what says whether "a generic-headed return is a payload" is true or merely usually true. The `.`,
+   `==`, `++`, `show`, `putState` sites from A.11.3-R are the acceptance corpus; `payloadSlot/
+   suspendHoist` reaching zero over the whole gate is the mechanical exit test. Only then does the
+   payload router — and with it the obligation path, in one deletion — become dead.
+2. *If A.10's 4b is reopened*: the scope is much smaller than the ~930 lines it was originally costed
+   at, because only two shapes now need it — a data constructor's `F[_]` field and a pinned capture.
+   The two rules are still exactly A.8.11's: carrier decomposition of a flex-flex application, and `Id`
+   as bottom (never *commit* a flex carrier meta). A.9.2's arguments on where they live stand unamended.
+3. *If neither is reopened*: A.11.7–A.11.8 do not proceed, and A.11.0's arithmetic (`check/` → ≈4,150)
+   is not reachable. Say so explicitly rather than letting the roadmap read as merely unfinished.
 
 ## A.11.8 Delete the obligation path, the `Id` apparatus, and the carrier side table
 
