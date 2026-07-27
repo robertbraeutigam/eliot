@@ -182,37 +182,37 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
     run(ambientIoState, lifter.tryPureWrap(anchor, exprOf(unit), unit, applied(io, string))) shouldBe None
   }
 
-  // --- wrapBinds / bindWrap (the machinery-node assembly) ---
+  // --- bindWrap (the machinery-node assembly) ---
 
   private def bindOf(name: String = "$eff$0"): EffectLifter.Bind =
     EffectLifter.Bind(name, anchor, exprOf(applied(io, string)), applied(io, string), io, string)
 
-  "wrapBinds over a pure core" should "select map innermost" in {
-    headRef(run(ambientIoState, lifter.wrapBinds(exprOf(unit), unit, Seq(bindOf())))._1)
+  "bindWrap over a pure core" should "select map innermost" in {
+    headRef(run(ambientIoState, lifter.bindWrap(bindOf(), exprOf(unit), unit))._1)
       .valueName.value shouldBe WellKnownTypes.effectMapFQN
   }
 
   it should "carry the [C, T', R] type arguments on the combinator" in {
-    headRef(run(ambientIoState, lifter.wrapBinds(exprOf(unit), unit, Seq(bindOf())))._1)
+    headRef(run(ambientIoState, lifter.bindWrap(bindOf(), exprOf(unit), unit))._1)
       .typeArguments shouldBe Seq(io, string, unit)
   }
 
   it should "type the wrap at the carrier applied to the core type" in {
-    run(ambientIoState, lifter.wrapBinds(exprOf(unit), unit, Seq(bindOf())))._2 shouldBe applied(io, unit)
+    run(ambientIoState, lifter.bindWrap(bindOf(), exprOf(unit), unit))._2 shouldBe applied(io, unit)
   }
 
-  "wrapBinds over a carrier-headed core" should "select flatMap" in {
-    headRef(run(ambientIoState, lifter.wrapBinds(exprOf(applied(io, unit)), applied(io, unit), Seq(bindOf())))._1)
+  "bindWrap over a carrier-headed core" should "select flatMap" in {
+    headRef(run(ambientIoState, lifter.bindWrap(bindOf(), exprOf(applied(io, unit)), applied(io, unit)))._1)
       .valueName.value shouldBe WellKnownTypes.effectFlatMapFQN
   }
 
   it should "carry the core's payload as the [C, T', R] result argument" in {
-    headRef(run(ambientIoState, lifter.wrapBinds(exprOf(applied(io, unit)), applied(io, unit), Seq(bindOf())))._1)
+    headRef(run(ambientIoState, lifter.bindWrap(bindOf(), exprOf(applied(io, unit)), applied(io, unit)))._1)
       .typeArguments shouldBe Seq(io, string, unit)
   }
 
   it should "keep the core's carrier-headed type as the wrap type" in {
-    run(ambientIoState, lifter.wrapBinds(exprOf(applied(io, unit)), applied(io, unit), Seq(bindOf())))
+    run(ambientIoState, lifter.bindWrap(bindOf(), exprOf(applied(io, unit)), applied(io, unit)))
       ._2 shouldBe applied(io, unit)
   }
 
@@ -233,12 +233,7 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
     Evaluator.force(VMeta(ids.head, Spine.SNil), endState.unifier.metaStore) shouldBe io
   }
 
-  "wrapBinds with two binds" should "use flatMap for the outer bind (its continuation is the inner wrap)" in {
-    headRef(run(ambientIoState, lifter.wrapBinds(exprOf(unit), unit, Seq(bindOf("$eff$0"), bindOf("$eff$1"))))._1)
-      .valueName.value shouldBe WellKnownTypes.effectFlatMapFQN
-  }
-
-  "wrapBinds over a still-flex core type" should "default to map (a wrong default errors loudly downstream)" in {
+  "bindWrap over a still-flex core type" should "default to map (a wrong default errors loudly downstream)" in {
     val (ids, st) = stateWithMetas(2)
     val flagged   = st.recordEffectCarrier(ids.head)
     val bind      = EffectLifter.Bind(
@@ -249,7 +244,7 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
       VMeta(ids.head, Spine.SNil),
       string
     )
-    headRef(run(flagged, lifter.wrapBinds(exprOf(VMeta(ids(1), Spine.SNil)), VMeta(ids(1), Spine.SNil), Seq(bind)))._1)
+    headRef(run(flagged, lifter.bindWrap(bind, exprOf(VMeta(ids(1), Spine.SNil)), VMeta(ids(1), Spine.SNil)))._1)
       .valueName.value shouldBe WellKnownTypes.effectMapFQN
   }
 }

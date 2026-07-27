@@ -159,13 +159,13 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
   "resolveArgumentSlot at a Generic slot" should "pass the whole carrier-headed action through unchanged" in {
     val (ids, st)  = stateWithMetas(1)
     val outcome    = run(st, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), VMeta(ids.head, Spine.SNil)))
-    outcome shouldBe UniformCarrierChecker.UniformSlotOutcome.Passed(exprOf(applied(io, string)))
+    outcome shouldBe exprOf(applied(io, string))
   }
 
   "resolveArgumentSlot at a carrier slot receiving an effectful actual" should "pass it through and join the carrier" in {
     val slotType             = applied(io, string) // IO[String], an IO-ambient CarrierSlot
     val (endState, outcome)  = runWithState(ambientIoState, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), slotType))
-    outcome shouldBe UniformCarrierChecker.UniformSlotOutcome.Passed(exprOf(applied(io, string)))
+    outcome shouldBe exprOf(applied(io, string))
     endState.unifier.errors shouldBe empty
   }
 
@@ -174,25 +174,18 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
     val flagged   = st.recordEffectCarrier(ids.head)
     val slotType  = applied(VMeta(ids.head, Spine.SNil), string) // ?G[String], an effect-carrier CarrierSlot
     val outcome   = run(flagged, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), slotType))
-    headRef(outcome.slotExpr).valueName.value shouldBe WellKnownTypes.effectPureFQN
+    headRef(outcome).valueName.value shouldBe WellKnownTypes.effectPureFQN
   }
 
-  "resolveArgumentSlot at a payload slot receiving an effectful actual" should "bind at the call site" in {
-    val outcome = run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), string))
-    outcome match {
-      case UniformCarrierChecker.UniformSlotOutcome.Bound(slotExpr, bind) =>
-        (slotExpr.expressionType, bind.carrier, bind.payload, bind.name) shouldBe (string, io, string, "$eff$0")
-      case other                                                          => fail(s"expected a Bound outcome, got $other")
-    }
+  "resolveArgumentSlot at a payload slot receiving an effectful actual" should "be rejected as a compiler bug — hoisting is the desugar's rewrite, so the slot suspends instead of reaching here" in {
+    an[IllegalStateException] should be thrownBy
+      run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), string))
   }
 
   "resolveArgumentSlot at a payload slot receiving a pure actual" should "pass its payload directly via runId, not bind (a bind would strip an effectful core's carrier)" in {
-    run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), string)) match {
-      case UniformCarrierChecker.UniformSlotOutcome.Passed(slotExpr) =>
-        (headRef(slotExpr).valueName.value, headRef(slotExpr).typeArguments, slotExpr.expressionType) shouldBe
-          (WellKnownTypes.runIdFQN, Seq(string), string)
-      case other                                                     => fail(s"expected a Passed(runId ...) outcome, got $other")
-    }
+    val outcome = run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), string))
+    (headRef(outcome).valueName.value, headRef(outcome).typeArguments, outcome.expressionType) shouldBe
+      (WellKnownTypes.runIdFQN, Seq(string), string)
   }
 
   // --- intoCarrierHeadedTerm (the eager term-level pure carrier-wrap) ---

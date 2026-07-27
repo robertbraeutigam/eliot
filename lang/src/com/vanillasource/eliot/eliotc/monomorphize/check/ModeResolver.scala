@@ -170,9 +170,10 @@ class ModeResolver(
       _.toList
         .traverse { obligation =>
           for {
-            forced <- force(obligation.spineType)
-            split  <- lifter.effectCarrierSplit(forced)
-          } yield (obligation.argNode, split.isEmpty && forced.isInstanceOf[VTopDef])
+            forced  <- force(obligation.spineType)
+            split   <- lifter.effectCarrierSplit(forced)
+            carrier <- carrierRoleHead(obligation.spineType)
+          } yield (obligation.argNode, split.isEmpty && forced.isInstanceOf[VTopDef] && !carrier)
         }
         .widen[Seq[(Sourced[OperatorResolvedExpression], Boolean)]]
     )
@@ -190,6 +191,19 @@ class ModeResolver(
         )
         .map(_.flatten)
     )
+
+  /** Whether the spine's result was a **carrier-role metavariable application** — the callee's own carrier binder
+    * (`if`'s `{Abort} T` return, a discharger's `G[A]`), read from the *unforced* type so the role tag threaded at
+    * instantiation is still visible. Once that meta is solved to a canonical carrier stack (`AbortCarrier[IO, String]`)
+    * its forced form is an ordinary `VTopDef` that [[EffectLifter.effectCarrierSplit]] does not recognise — and
+    * `pure`-wrapping such a core would wrap a computation in `pure`, which the next round then hoists back out, and
+    * again, forever. The role tag is the elaboration-threaded recognition the cornerstone sanctions; a name/shape guess
+    * about the stack is not.
+    */
+  private def carrierRoleHead(tpe: SemValue): CheckIO[Boolean] = tpe match {
+    case VMeta(id, Spine.SApp(_, _)) => inspect(_.unifier.isEffectCarrier(id.value))
+    case _                           => pure(false)
+  }
 
   private def pendingIndices: CheckIO[List[Int]] =
     inspect(_.modeObligations.zipWithIndex.collect { case (ob, i) if ob.status == Status.Pending => i }.toList)

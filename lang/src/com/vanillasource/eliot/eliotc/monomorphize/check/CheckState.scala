@@ -45,9 +45,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   type-argument application and instantiation — a [[CheckState.CarrierHead.TopDef]] for a concrete instantiation
   *   (`IO`), a [[CheckState.CarrierHead.Meta]] for a peeled one. Recorded once by [[TypeStackLoop]]; read by the
   *   checker-side effect lift (`isEffectCarrierHeaded`, the pure-wrap arm).
-  * @param liftCounter
-  *   The fresh-binder counter for effect-lift-inserted bindings (the established `$eff$N` naming convention; `$` is
-  *   not a user identifier character). Threaded by the effect lifter so synthesized binders are unique within a body.
   * @param metaConstraints
   *   The ability constraints a callee reference declared on each of its freshly-peeled instantiation metas — keyed by
   *   the meta's raw id (docs/effects-as-channel.md §10 U4-f). Recorded at instantiation ([[recordMetaConstraints]],
@@ -72,7 +69,6 @@ case class CheckState(
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
     ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
-    liftCounter: Int = 0,
     metaConstraints: Map[Int, Seq[CheckState.MetaConstraint]] = Map.empty,
     modeObligations: Vector[CheckState.ModeObligation] = Vector.empty,
     letObligations: Vector[CheckState.LetObligation] = Vector.empty

@@ -17,13 +17,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - the **carrier recognition** ([[effectCarrierSplit]]) every effect-aware collaborator reads;
   *   - the two **doomed-postponement probes** ([[mustLiftBeforeUnify]] / [[mustPureWrapBeforeUnify]]) and the
   *     **pure-wrap arm** ([[tryPureWrap]] — a pure term into a carrier-typed position, `Effect.pure`);
-  *   - the **bind splicing** ([[wrapBinds]] / [[bindWrap]]) the surviving bind producers feed (the uniform carrier
-  *     bridge's payload-slot bind and the immediately-applied-lambda `let` rule).
+  *   - the **bind splicing** ([[bindWrap]]) the one surviving bind producer feeds — the immediately-applied-lambda
+  *     `let` rule.
   *
   * What the slices removed, because the desugar ([[com.vanillasource.eliot.eliotc.row.RowElaborator]]) now writes the
   * bind and the mode resolver decides the deferred positions, so no gate shape reached them: the `tryBindLift` arm
-  * (every ladder call site was dead) and the pure-boundary `tryIdDefault` arm (superseded by the uniform return
-  * boundary's own `Id` discharge, [[UniformCarrierChecker.checkReturnBoundary]]).
+  * (every ladder call site was dead), the pure-boundary `tryIdDefault` arm (superseded by the uniform return
+  * boundary's own `Id` discharge, [[UniformCarrierChecker.checkReturnBoundary]]), and the `wrapBinds` fold, whose
+  * only caller was the spine loop's mid-spine bind (slice 2 — an argument the elaboration sequences now suspends and
+  * is spliced by [[ModeResolver]] instead).
   *
   * The surviving arms are still not definitional equality: `unify` never lifts — [[tryPureWrap]] verifies its
   * elaboration by *speculative* unification (payload against expected), committing only on success.
@@ -42,8 +44,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * `[abilityParams ++ methodParams]` order ability resolution slices), the continuation a
   * `FunctionLiteral($eff$N, T', core)` under `VPi(T', _ => coreType)`, applied to the action. Because insertion
   * happens *during* the body check, the ordinary `resolve-abilities` saturation pass finds and resolves the inserted
-  * `Effect` references — no new resolution machinery. Fresh binder names come from [[CheckState.liftCounter]] (the
-  * established `$eff$N` convention; `$` is not a user identifier character).
+  * `Effect` references — no new resolution machinery. Its binder name is the `let`'s own, since the sole remaining
+  * bind producer is the immediately-applied-lambda rule.
   *
   * Operates over [[CheckIO]], reading the shared [[CheckState]] (unifier roles, ambient carriers) through
   * `get`/`modify`/`inspect`. It depends on exactly two checker primitives, passed at construction — that narrow
@@ -243,21 +245,6 @@ class EffectLifter(
                                 }
             } yield result
         }
-    }
-
-  /** Fold the recorded binds around the spine core, innermost last-bind-first: the bind nearest the core selects the
-    * combinator by the core's forced type ([[bindWrap]] — `map` lifts a pure core into the carrier, `flatMap` chains a
-    * carrier-headed one), and because each wrap's own result is carrier-headed, every outer bind naturally selects
-    * `flatMap`. Returns the wrapped expression with its (carrier-headed) type — the effect is never dropped, it rides
-    * the wrapping combinator's result type.
-    */
-  def wrapBinds(
-      core: SemExpression,
-      coreType: SemValue,
-      binds: Seq[Bind]
-  ): CheckIO[(SemExpression, SemValue)] =
-    binds.foldRight(pure((core, coreType))) { (bind, acc) =>
-      acc.flatMap { case (expr, tpe) => bindWrap(bind, expr, tpe) }
     }
 
   /** Wrap one bind around a continuation core: `flatMap([C, T', R])(($eff$N : T') -> core, action)` when the core's

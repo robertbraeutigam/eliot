@@ -198,12 +198,17 @@ mono-failure-triggered, hence instantiation-informed — stays until the resolve
 `uniformCarrierSlot`/`payloadFitsDomain`), and the effect branch of `typeImmediateLambda` — the
 checker ends with zero effect code, below the pre-v2 baseline.
 
-**Slice 1 of that list has landed (A.8.8, 2026-07-27)**, driven by an arm-liveness trace over the
-whole gate rather than by inspection: `tryBindLift`, `tryIdDefault`, the `allowBindLift` flag with
-the ladder arms it selected, `sequenceBeforeUnify`/`deferredGenericDefault`, two of the four pinning
-mechanisms (`recordRowArgumentPins`/`applyPendingCarrierPins` — recorded 98 pins, applied 0) and the
-zero-caller uniform methods. What remains of the list needs the rows elaboration to absorb a *live*
-decision, so it is not a dead-code sweep — see A.8.8's closing paragraph for the live-arm map.
+**Slices 1 and 2 of that list have landed (A.8.8/A.8.9, 2026-07-27)**, driven by an arm-liveness
+trace over the whole gate rather than by inspection. Slice 1 (unreachable arms): `tryBindLift`,
+`tryIdDefault`, the `allowBindLift` flag with the ladder arms it selected,
+`sequenceBeforeUnify`/`deferredGenericDefault`, two of the four pinning mechanisms
+(`recordRowArgumentPins`/`applyPendingCarrierPins` — recorded 98 pins, applied 0) and the zero-caller
+uniform methods. Slice 2 (a live decision moved, then deleted): the checker no longer inserts a
+single bind on the runtime track — the bridge's whole `UniformSlotOutcome`/`Bound` path,
+`SlotOutcome.Bound` with `suspendBoundSlot`, the spine's bind fold and `EffectLifter.wrapBinds` are
+gone, the elaboration decision having moved to the desugar and the post-drain resolver. What remains
+of the list is carrier-safe *unification*, which the row channel must absorb next — see A.8.9's
+closing paragraph.
 
 **Stays:** `EffectRow` facts and the pinned tags (`returnPinned`/`pinnedParameterIndices` — consumed
 by the desugar instead of the checker); pinned-row surface and semantics; the dischargers and the
@@ -916,3 +921,66 @@ return boundary and argument slot, `UniformLadder.resolveSlot`, `Carrier`/`Carri
 capture's doomed test, 10) and `mustPureWrapBeforeUnify`/`tryPureWrap`, the compile-track default
 ladder, and `IdNormalizer`. Those need the *rows* elaboration to take over their remaining
 decisions, which is the next slice's subject — not a dead-code sweep.
+
+#### A.8.9 Deletion slice 2: the checker stops inserting binds (2026-07-27)
+
+Slice 1 deleted what the resolver made *unreachable*. Slice 2 is the other half of the method: the
+arms that still fired were traced at **outcome** granularity — not "did the router run" but "which
+decision did it take, on which source shape" (each hit carrying up to 40 distinct sample sites) — and
+the ones that turned out to be *elaboration* decisions were moved to the rows machinery until they
+fired zero times, at which point they were deleted.
+
+**What the finer trace showed.** The routers' 5.9k/1.6k/964 entry counts are almost entirely
+*routing*, not rewriting. Across the whole gate the runtime track's node-inserting decisions were
+only ≈236: the payload-slot **bind** (48), the carrier-slot **pure lift** (40), the return boundary's
+`pureIntoCarrier` (78) and `dischargeToPure` (60), plus 10 doomed-capture binds. Everything else was
+a pass (`purePayloadPass` 4.5k, `passJoin` 1.7k, `effectfulJoin` 3.2k) — the `runId`/`Id` machinery
+that erases downstream.
+
+**Where the surviving binds came from — the dot operator.** Every one of them was a position the
+desugar had *correctly deferred*, not one it missed. `printLine(x.field)` reaches the checker as
+`printLine(.(x, field))`: the callee `.` is an ordinary generic function, its return is its own bare
+binder `B`, so A.8.6 defers — and the deferral propagates outward, because an argument whose mode is
+unknown cannot be classified at the enclosing strict slot either. `printLine`'s slot is
+declaration-*concrete*, so it never reached the suspension path; the bridge bound it mid-spine
+instead. The same shape explains the `++`/`==` cases: a *declaration-generic* slot that a sibling
+argument has already rigidified (`"Hello, " ++ readLine` solves `A := String` from the left operand)
+forced to a concrete domain before the deferral test ever ran.
+
+**The change: two more suspension sites, no new decision.** Both are the A.8.7 obligation queue
+reused, and both classify through `ModeResolver` unchanged:
+
+- **declaration-genericity is read *before* forcing** (`Checker.isDeclarationGeneric`) — a slot whose
+  declared type is one of the callee's binders is a deferred position whether or not a sibling has
+  solved that meta since. A carrier-headed actual there suspends (`genericArgSlot`); a pure one
+  routes normally. This alone was gate-green and output-identical.
+- **a payload slot whose actual is carrier-headed suspends** rather than binding: that *is* the hoist
+  shape, and hoisting is the desugar's rewrite. Same for the doomed capture (`mustLiftBeforeUnify`),
+  which must sequence and never capture.
+
+**One corollary the corpus forced — the core rule needs the carrier *tag*, not the forced shape.**
+Routing the `if(readLine == "yes", …)` shape through the splice diverged ("post-drain mode resolution
+did not converge"): `pendingHoistTargets` classified the hoisted spine's result as a *payload*
+whenever it forced to a non-ambient `VTopDef`, and a discharge stack (`AbortCarrier[IO, String]`) is
+exactly that. So the splice `pure`-wrapped a computation, the next round hoisted it back out, wrapped
+again, forever. The fix reads the **unforced** spine result: a carrier-role-flagged metavariable
+application (`if`'s `{Abort} T` return before its meta was solved) is a computation. That is the
+elaboration-threaded tag the cornerstone sanctions — recognising `AbortCarrier` by name would not be.
+
+**Deleted (evidence: `Runtime/uniformSlot/bound` 48 → 0 over the full gate):** the bridge's
+`UniformSlotOutcome` sum type entirely (`resolveArgumentSlot` now returns the slot expression; the
+payload-slot-with-effectful-actual case is unreachable by construction and throws as a compiler bug),
+`freshLiftName` and the now-unread `CheckState.liftCounter`, the checker's `SlotOutcome.Bound` with
+`suspendBoundSlot` (A.8.7's born-hoist workaround — with no mid-spine bind there is nothing to convert),
+the bind fold in `assembleSpine` and the `paramNeutral` codomain arm it fed, and
+`EffectLifter.wrapBinds`. The one remaining bind producer in the whole checker is the
+immediately-applied-lambda `let` rule, which calls `bindWrap` directly.
+
+Gate after the slice: **identical** — 871 targets green, the same 36 of 40 examples compiling, every
+effect example's output byte-identical to the pre-slice baseline.
+
+Still live for the next slice: the routers themselves (now pure *unification* routing — the
+carrier-slot pure lift, the pinned capture with its eager row pin, `payloadFitsDomain`), the uniform
+return boundary's four arms, `Carrier`/`CarrierJoin`/`UniformLadder`, and `IdNormalizer`. What they do
+is no longer effect *elaboration*; it is carrier-safe unification, which is what §4's "the checker
+ends with zero effect code" needs the row channel to absorb next.

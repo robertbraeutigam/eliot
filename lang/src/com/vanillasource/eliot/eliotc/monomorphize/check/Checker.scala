@@ -420,7 +420,8 @@ class Checker(
                                          else pure(Option.empty[SemExpression])
                                        )
       out                         <- prePure match {
-                                       case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+                                       case Some(wrapped) =>
+                                         pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
                                        case None          => resolveFailureLadder(tm, updatedExpr, instantiated, expected)
                                      }
     } yield out
@@ -435,11 +436,14 @@ class Checker(
       expected: SemValue
   ): CheckIO[SlotOutcome] =
     tryUnifyCommitting(instantiated, expected, tm.as("Type mismatch.")).flatMap {
-      case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+      case true  =>
+        pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
       case false =>
         lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
-          case Some(wrapped) => pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-          case None          => commitMismatch(instantiated, expected, tm, updatedExpr)
+          case Some(wrapped) =>
+            pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
+          case None          =>
+            commitMismatch(instantiated, expected, tm, updatedExpr)
         }
     }
 
@@ -671,38 +675,8 @@ class Checker(
                           }
       hadDeferred       = records.exists(_.outcome.isInstanceOf[SlotOutcome.Deferred])
       finalRecords     <- records.traverse(resolveDeferredSlot(_, built._2))
-      // A.8.6 corollary 2, checker-side (docs/effects-as-rows.md A.8.7): a spine that holds a *suspended* slot has a
-      // deferred core, and mid-spine binds must not be wrapped around it — the wrap's map/flatMap choice reads the
-      // core's still-undecided carrier-ness (a flex core defaults to `map`), a first-contact commitment that silently
-      // reorders effects once the suspension resolves (`andThen(printLine(..), abort)`). The bound slots become
-      // born-hoist obligations instead: the guaranteed splice-restart re-spells the whole chain leftmost-outermost
-      // by the desugar's own rule, with the suspension deferred inside it.
-      hasSuspension     = finalRecords.exists(_.outcome.isInstanceOf[SlotOutcome.Suspended])
-      adjusted         <- if (hasSuspension) finalRecords.traverse(suspendBoundSlot(built._2)) else pure(finalRecords)
-      result           <- assembleSpine(built, adjusted, hadDeferred)
+      result           <- assembleSpine(built, finalRecords, hadDeferred)
     } yield result
-  }
-
-  /** Convert one mid-spine [[SlotOutcome.Bound]] of a suspension-holding spine into a born-hoist obligation (see the
-    * call site above): the mode is already known — the slot is a payload, the bind said so — only the *placement* must
-    * wait for the splice, so the obligation is recorded already `Hoist`-classified and the slot passes the original
-    * argument expression provisionally (the restart discards this attempt's judgment wholesale).
-    */
-  private def suspendBoundSlot(spineType: SemValue)(record: SlotRecord): CheckIO[SlotRecord] = record.outcome match {
-    case SlotOutcome.Bound(_, bind) =>
-      modify(
-        _.recordModeObligation(
-          CheckState.ModeObligation(
-            record.arg,
-            bind.actionType,
-            bind.payload,
-            record.retType,
-            spineType,
-            status = CheckState.ModeObligation.Status.Hoist
-          )
-        )
-      ).as(record.copy(outcome = SlotOutcome.Suspended(bind.action)))
-    case _                          => pure(record)
   }
 
   /** The head callee's **carrier-stack recognition tag** (docs/effects-as-channel.md §7 step 4, finding 14): the set of
@@ -736,8 +710,8 @@ class Checker(
   /** The outcome of resolving one spine argument slot. */
   private sealed trait SlotOutcome {
 
-    /** The expression this slot contributes to the application chain — final for `Resolved` (the ladder ran) and
-      * `Bound` (the fresh `$eff$N` reference), provisional (the uninstantiated argument) for `Deferred`.
+    /** The expression this slot contributes to the application chain — final for `Resolved` (the ladder ran),
+      * provisional (the uninstantiated argument) for `Deferred`.
       */
     def slotExpr: SemExpression
   }
@@ -746,9 +720,6 @@ class Checker(
 
     /** The ladder resolved the slot in place (unified, coerced, or pure-wrapped). */
     case class Resolved(slotExpr: SemExpression) extends SlotOutcome
-
-    /** The bind-lift arm fired: the slot receives the fresh binder reference and the spine wraps the recorded bind. */
-    case class Bound(slotExpr: SemExpression, bind: EffectLifter.Bind) extends SlotOutcome
 
     /** Phase-A deferral (bare flex domain + effect-carrier-headed argument); decided in Phase B. */
     case class Deferred(slotExpr: SemExpression, argType: SemValue, domain: SemValue) extends SlotOutcome
@@ -810,21 +781,17 @@ class Checker(
     case _                                                                              => pure(record)
   }
 
-  /** Assemble the spine result: rebuild the application chain when Phase B changed a deferred slot's expression, then
-    * fold the recorded effect-binds around the core — the spine's type becomes the outermost wrap's carrier-headed
-    * type, so the lifted effect is never dropped. With no binds and no deferral this is the Phase-A build unchanged.
+  /** Assemble the spine result: rebuild the application chain when Phase B changed a deferred slot's expression. The
+    * checker no longer folds effect-binds around a spine core — every argument the elaboration sequences is either
+    * hoisted by the desugar up front or suspended and spliced by the post-drain [[ModeResolver]] — so with no deferral
+    * this is the Phase-A build unchanged.
     */
   private def assembleSpine(
       built: (SemExpression, SemValue),
       records: Vector[SlotRecord],
       hadDeferred: Boolean
-  ): CheckIO[(SemExpression, SemValue)] = {
-    val (builtExpr, resultType) = built
-    val binds                   = records.collect { case SlotRecord(_, _, _, _, SlotOutcome.Bound(_, bind)) => bind }
-    val core                    = if (hadDeferred) rebuildChain(records) else builtExpr
-    if (binds.isEmpty) pure((core, resultType))
-    else lifter.wrapBinds(core, resultType, binds)
-  }
+  ): CheckIO[(SemExpression, SemValue)] =
+    pure((if (hadDeferred) rebuildChain(records) else built._1, built._2))
 
   /** Rebuild the application chain with each slot's final expression (needed only when Phase B changed a deferred
     * slot, so the Phase-A build holds a provisional argument). Node types are the Phase-A computed return types; the
@@ -888,13 +855,7 @@ class Checker(
                                  }
       outcome                 <- checkArgumentSlot(arg, vpi.domain, pinned)
       argExpr                  = outcome.slotExpr
-      // For a lifted argument the dependent codomain is applied to the fresh binder's neutral, not the action value —
-      // the slot's value is the bound result. (Today all codomains are constant, so this is future-proofing, not a
-      // behaviour change; a deferred slot likewise uses the evaluated argument.)
-      argSem                  <- outcome match {
-                                   case SlotOutcome.Bound(_, bind) => inspect(_.paramNeutral(bind.name))
-                                   case _                          => evalExpr(arg.value)
-                                 }
+      argSem                  <- evalExpr(arg.value)
       // The codomain may embed a native applied to the target's instantiation metas — e.g. a dependent result type
       // `Int[add(LMin,RMin), …]`. Those bounds are solved by the argument checks just above, so renormalise the
       // codomain now to re-fire the natives (`add(3,4) ⤳ 7`) before the type reaches unification or quoting. A *bare*
@@ -945,27 +906,82 @@ class Checker(
       case _                                                                                        =>
         for {
           (argExpr, argType) <- infer(arg)
-          forcedDomain       <- force(domain)
-          // Under the transitional gate, both a **plain payload** parameter domain (a concrete value type) and an
-          // **effect-carrier** domain (`?G[T]` — the ambient / a callee's `F ~ Effect` binder; a conditional arm
-          // `value: {Abort} T`, a discharger's `fallback: G[A]`) route through the uniform ladder; a bare flex generic
-          // (`fold`'s bare-`A` arm) and everything else keep the default Phase-A logic (deferral + lift).
-          // Restricted to the **runtime** track, exactly as the return boundary is ([[uniformReturnRoutable]]): the §8
-          // boundary keeps the compile-time track (`eliot-compiler/` value bodies, the `Either` guard discharge)
-          // entirely on the default path — carrier-free — so it stays byte-identical.
-          uniform             = platform == Platform.Runtime
-          plainDomain        <- if (uniform) uniformPlainValueType(forcedDomain) else pure(false)
-          carrierDomain      <- if (uniform && !plainDomain) lifter.effectCarrierSplit(forcedDomain).map(_.nonEmpty)
-                                else pure(false)
-          outcome            <- if (plainDomain) {
-                                  uniformPayloadSlot(arg, argExpr, argType, forcedDomain, pinned)
-                                } else if (carrierDomain) {
-                                  uniformCarrierSlot(arg, argExpr, argType, forcedDomain)
-                                } else {
-                                  defaultArgSlot(arg, argExpr, argType, forcedDomain)
-                                }
+          // A **declaration-generic** slot — the callee's declared parameter type is one of its own binders, so the
+          // domain is a bare metavariable *before forcing*, whether or not a sibling argument has since solved it — is
+          // exactly the position the rows desugar deliberately left undecided (A.8.6 bounded staging). Its mode is an
+          // instantiation fact, so on the runtime track a computation there is **suspended** for the post-drain
+          // [[ModeResolver]] ([[genericArgSlot]]) rather than elaborated mid-spine.
+          outcome            <- if (platform == Platform.Runtime && isDeclarationGeneric(domain))
+                                  genericArgSlot(arg, argExpr, argType, domain, pinned)
+                                else routeArgumentSlot(arg, argExpr, argType, domain, pinned)
         } yield outcome
     }
+
+  /** Whether the slot's *unforced* domain is one of the callee's own generic binders — a bare metavariable, which is
+    * what [[instantiatePolymorphic]] leaves behind when it peels the callee's polytype. Read **before** forcing on
+    * purpose: a sibling argument may already have solved that meta (`"Hello, " ++ readLine` solves `++`'s `A := String`
+    * from the left operand), and the position is a *declaration*-generic one either way — which is what decides whether
+    * the desugar wrote the elaboration or deferred it.
+    */
+  private def isDeclarationGeneric(domain: SemValue): Boolean = domain match {
+    case VMeta(_, Spine.SNil) => true
+    case _                    => false
+  }
+
+  /** A declaration-generic slot on the runtime track (docs/effects-as-rows.md A.8.7): a carrier-headed computation
+    * there **suspends** — no unification into the slot, no mid-spine bind — and the post-drain [[ModeResolver]]
+    * classifies it against the solved store (pass / hoist / capture). A *pure* actual carries no mode question at all
+    * and routes normally ([[routeArgumentSlot]]), with the instantiation already done (a no-op re-instantiation
+    * downstream).
+    */
+  private def genericArgSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
+      argType: SemValue,
+      domain: SemValue,
+      pinned: Boolean
+  ): CheckIO[SlotOutcome] =
+    for {
+      // The suspension decision needs the argument's *instantiated* type — a bare ability-method reference (`readLine`)
+      // infers as a polytype (`VLam`), whose carrier only appears once the binder is peeled to its (flagged) meta.
+      (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
+      split                       <- lifter.effectCarrierSplit(instantiated)
+      outcome                     <- split match {
+                                       case Some(_) =>
+                                         pure(SlotOutcome.Deferred(updatedExpr, instantiated, domain))
+                                       case None    =>
+                                         routeArgumentSlot(arg, updatedExpr, instantiated, domain, pinned)
+                                     }
+    } yield outcome
+
+  /** The three-way slot routing over the *forced* domain: a **plain payload** parameter domain (a concrete value type)
+    * and an **effect-carrier** domain (`?G[T]` — the ambient / a callee's `F ~ Effect` binder; a conditional arm
+    * `value: {Abort} T`, a discharger's `fallback: G[A]`) route through the uniform ladder; everything else keeps the
+    * default Phase-A logic. Restricted to the **runtime** track, exactly as the return boundary is
+    * ([[uniformReturnRoutable]]): the §8 boundary keeps the compile-time track (`eliot-compiler/` value bodies, the
+    * `Either` guard discharge) entirely on the default path — carrier-free — so it stays byte-identical.
+    */
+  private def routeArgumentSlot(
+      arg: Sourced[OperatorResolvedExpression],
+      argExpr: SemExpression,
+      argType: SemValue,
+      domain: SemValue,
+      pinned: Boolean
+  ): CheckIO[SlotOutcome] =
+    for {
+      forcedDomain  <- force(domain)
+      uniform        = platform == Platform.Runtime
+      plainDomain   <- if (uniform) uniformPlainValueType(forcedDomain) else pure(false)
+      carrierDomain <- if (uniform && !plainDomain) lifter.effectCarrierSplit(forcedDomain).map(_.nonEmpty)
+                       else pure(false)
+      outcome       <- if (plainDomain) {
+                         uniformPayloadSlot(arg, argExpr, argType, forcedDomain, pinned)
+                       } else if (carrierDomain) {
+                         uniformCarrierSlot(arg, argExpr, argType, forcedDomain)
+                       } else {
+                         defaultArgSlot(arg, argExpr, argType, forcedDomain)
+                       }
+    } yield outcome
 
   /** The default (carrier-based) Phase-A argument-slot resolution — kept verbatim as the fallback for every slot the
     * U3a-2b(ii) uniform ladder does not cover (the live path when `uniformCarrier` is off, and under it for a
@@ -1041,7 +1057,17 @@ class Checker(
                                        case Some(p) => payloadFitsDomain(p, domain, arg.as("Type mismatch."))
                                        case None    => pure(false)
                                      }
-      outcome                     <- if (payloadFits) {
+      // A carrier-headed actual whose payload fits is the **hoist** shape: the effect runs at the call site and the
+      // payload flows into the slot. That is an elaboration decision, and under effects-as-rows the desugar owns it —
+      // so the slot **suspends** instead of binding mid-spine, and the post-drain [[ModeResolver]] classifies it
+      // (a rigid non-carrier domain with a fitting payload ⟹ hoist) and splices the desugar's own bind chain.
+      // The desugar left this position undecided because the *argument* is generic-headed (`printLine(x.field)` —
+      // the dot operator's return is its bare binder `B`), never because the slot is: a declaration-decided argument
+      // was already hoisted before the checker ever saw it, and arrives here pure.
+      actualCarrier               <- lifter.effectCarrierSplit(instantiated)
+      outcome                     <- if (payloadFits && actualCarrier.nonEmpty) {
+                                       pure(SlotOutcome.Deferred(updatedExpr, instantiated, domain): SlotOutcome)
+                                     } else if (payloadFits) {
                                        uniformArgumentSlot(arg, updatedExpr, domain)
                                      } else {
                                        uniformCaptureSlot(arg, updatedExpr, instantiated, domain, pinned)
@@ -1087,7 +1113,10 @@ class Checker(
       // and `mustLiftBeforeUnify` doomed shapes take their bind arm first, unchanged.
       joinRoutable <- if (pinned && !doomed && carrierMeta.nonEmpty) singleLayerCarrierDomain(domain) else pure(false)
       outcome     <- if (doomed) {
-                       uniformArgumentSlot(arg, updatedExpr, domain)
+                       // The doomed shape must *sequence*, never capture — and sequencing is the desugar's rewrite, so
+                       // the slot suspends and the post-drain [[ModeResolver]] hoists it (its flex payload fits the
+                       // rigid domain, which is the hoist classification).
+                       pure(SlotOutcome.Deferred(updatedExpr, instantiated, domain): SlotOutcome)
                      } else if (joinRoutable)
                        for {
                          // The eager row-directed pin (finding 13 §4) runs *inside* the join too — it derives the domain's
@@ -1103,8 +1132,10 @@ class Checker(
                          // free error-slot meta never exists to junk-ground.
                          _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
                          out <- tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
-                                  case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
-                                  case false => commitMismatch(instantiated, domain, arg, updatedExpr)
+                                  case true  =>
+                                    pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+                                  case false =>
+                                    commitMismatch(instantiated, domain, arg, updatedExpr)
                                 }
                        } yield out
     } yield outcome
@@ -1267,8 +1298,8 @@ class Checker(
 
   /** Bring a routable argument carrier-headed ([[UniformCarrierChecker.intoCarrierHeadedTerm]] — a pure actual becomes
     * `pure@Id`, an effectful actual is left as-is) and resolve it through [[UniformCarrierChecker.resolveArgumentSlot]],
-    * mapping the [[UniformCarrierChecker.UniformSlotOutcome]] onto the checker's [[SlotOutcome]]: a pure payload passes as
-    * `Resolved`; an effectful actual binds as `Bound`, folded by the spine's `wrapBinds`.
+    * which now only ever *passes* the slot: an argument the elaboration must sequence never reaches here — it is
+    * hoisted by the desugar up front, or suspended and spliced by the post-drain [[ModeResolver]].
     */
   private def uniformArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
@@ -1279,10 +1310,7 @@ class Checker(
     for {
       headed  <- uniformChecker.intoCarrierHeadedTerm(argExpr, arg)
       outcome <- uniformChecker.resolveArgumentSlot(arg, headed, headed.expressionType, domain, forcePinnedCarrier)
-    } yield outcome match {
-      case UniformCarrierChecker.UniformSlotOutcome.Passed(slotExpr)      => SlotOutcome.Resolved(slotExpr)
-      case UniformCarrierChecker.UniformSlotOutcome.Bound(slotExpr, bind) => SlotOutcome.Bound(slotExpr, bind)
-    }
+    } yield SlotOutcome.Resolved(outcome)
 
   /** Whether `expr` is an unannotated function literal `(x -> body)`. Its parameter type cannot be inferred from the
     * literal alone; when it is *immediately applied* the type is taken from the argument (see [[typeImmediateLambda]]).
