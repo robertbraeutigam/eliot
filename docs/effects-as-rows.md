@@ -14,7 +14,14 @@ carrier instead, at which point the withdrawal's justification is measured false
 slice-4 plan; read A.10 first, then **§A.11 for the ordered roadmap from this tree to the end state** —
 the inventory of everything that must not survive (machinery, flags, scaffolding, tests, docs), the exit
 criteria, and the ten steps. A.9 still owns the operational detail (the method, the tracer gotchas, the
-byte-identity oracle).** Successor direction to
+byte-identity oracle).**
+**A.11 IS UNDER WAY (2026-07-27): A.11.1 (dead v2 spike + stale gate scaladoc deleted), A.11.3 (corpus
+extracted to `jvm/test/.../EffectCorpus`; the mandatory pre-flip semantic-break audit RUN — result in
+A.11.3-R: the break is `Bool.fold` and nothing else) and A.11.2 (RESOLVED in A.11.2-R: build neither
+accumulator mechanism, a pure `initial` under an effectful combine is a type error the user fixes with
+`pure(…)`) are done. **Next is A.11.4, the core step, now unblocked and with no new elaborator rule.**
+The A.11.5 signature list is settled in that section: exactly `fold` and `foldOption`, spelled `{Effect}`.**
+Successor direction to
 `docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
 arms — stays live underneath until the deletion slices retire it against the resolver). The row
 checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
@@ -1744,6 +1751,21 @@ so the pure `initial` must lift. Two answers, both acceptable, with different su
 **Everything downstream is mechanical once this is fixed**, which is why it is the first real step. Blocking:
 Robert's call.
 
+#### A.11.2-R RESOLVED (2026-07-27): **neither — it is a type error**
+
+Robert's decision, taken with A.11.3-R's measurement in hand: `foldLeft`'s `initial` slot occurs exactly once
+in the whole corpus (`List.foreach`, where the stdlib already writes `pure(unit)` by hand), so no library
+code depends on the compiler inferring the lift, and the question was only ever about user ergonomics.
+
+**Build neither mechanism.** A pure `initial` under an effectful `combine` fails at that argument
+("Expected: {Console} Int, Actual: Int"), and the user writes `pure(0)` — exactly what `foreach` does. The
+elaborator writes the carrier at a user-written `pure` like any other call, so nothing special is needed to
+make the fix work. Signatures are unchanged, §1's "the collections/data library is effect-oblivious" stands,
+and A.11.4 keeps its minimal scope. Both rejected options stay buildable later if this is ever measured to
+bite; neither is built on a hypothetical.
+
+This makes A.11.4 unblocked with **no new elaborator rule**: the accumulator is not a case it handles.
+
 ### A.11.3 Preserve the corpus, then the audit can run
 
 `RowShadowSweepTest.combinedProgram` is now the shared corpus (A.9.1 — the standalone "eliot-test" suite was
@@ -1812,9 +1834,29 @@ byte-identity oracle over all examples.
 
 Whole-program, and this is not optional: the spike showed bridge-off breaks the stdlib's own
 `runStateToValue` body (`runStateToPair(initial, p).map(first)`) because it is still direct-style with an
-inferred carrier. There is no partial rollout. Fold in the §6 signature changes here — declared-suspended
-arms on `fold`, the (textually unchanged) `if`, `orElse`'s fallbacks, plus whatever A.11.3's audit turned
-up.
+inferred carrier. There is no partial rollout. Fold in the §6 signature changes here.
+
+**The signature list, settled** (A.11.3-R measured it, Robert decided the one open case). Exactly two
+signatures change, both spelled with the idiomatic `{Effect}` marker rather than an explicit `G[_] ~ Effect`
+— it desugars to precisely that (one shared inferable carrier `F[_]` per signature plus an `F ~ Effect`
+constraint), and it is what `foreach` already reads as:
+
+```eliot
+def fold[A](condition: Bool, whenTrue: {Effect} A, whenFalse: {Effect} A): {Effect} A { join(whenTrue, whenFalse) }
+def foldOption[A, B](ifNone: {Effect} B, ifSome: A => B, o: Option[A]): {Effect} B
+```
+
+`fold` is what the audit caught (6 sites, the whole §6 break). `foldOption`'s `ifNone` was never measured
+effectful but is the same lazy-branch shape, and its failure mode is silent — an effectful default running on
+`Some` with no diagnostic — so it converts in the same step rather than waiting to be found. Everything else
+is already right: `if` is textually unchanged (`value: {Abort} T` spells suspension already), `Abort.else`'s
+`fallback: G[A]` is declared-suspended already, and `foldEither`/`foldPair` take lambdas and so are lazy by
+construction.
+
+Two implementation snags to expect on `fold`, neither of which changes the decision: it is a **compile-track
+native leaf** (`SystemNativesProcessor` reduces `Bool` `fold`), so gaining a carrier binder changes its arity
+and its native binding; and its `{ join(whenTrue, whenFalse) }` refinement clause now sees carrier-wrapped
+arms.
 
 ### A.11.6 Unbound the row check, and decide `DeclaredPureChecker`
 
