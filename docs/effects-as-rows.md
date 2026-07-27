@@ -7,10 +7,12 @@ green. Deletion slices 1–3 landed (A.8.8/A.8.9/A.8.10, 2026-07-27): the checke
 no longer manufactures `Id`. **Slice 4 is measured (A.8.11) and is a decision, not a retirement — no arm
 is dead; 4a was attempted and reverted (A.8.12), so the order inverts to 4b first. A handover — tree
 state, the open decision, the method, the inventory, the gotchas — is §A.9.**
-**Then a stock-take found the premise under both v2 and v3 — the carrier is a type argument the checker
-*solves* — and a spike validated writing it instead. That is §A.10, and it supersedes the slice-4 plan;
-read A.10 first, then A.9 for the operational detail it still owns (the method, the inventory, the
-gotchas).** Successor direction to
+**Then a stock-take (§A.10) found two things: A.8.6 had *withdrawn* §1 rule 1 rather than refined it, so
+v3's founding decision was never implemented; and the premise under both v2 and v3 — the carrier is a type
+argument the checker *solves* — is what made that withdrawal look necessary. A spike validated writing the
+carrier instead, at which point the withdrawal's justification is measured false. §A.10 supersedes the
+slice-4 plan; read A.10 first, then A.9 for the operational detail it still owns (the method, the
+inventory, the gotchas).** Successor direction to
 `docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
 arms — stays live underneath until the deletion slices retire it against the resolver). The row
 checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
@@ -91,12 +93,9 @@ Two further observations seal it:
 ## 1. The user model (three rules)
 
 1. **Effects run where they are written.** An effectful expression in any plain position performs its
-   effects at that position; they join the enclosing definition's row. Strict call-by-value wherever the
-   callee's signature gives the slot a shape. *(Amended by A.8.6: at a slot typed by a **bare generic**
-   the signature is silent, and the mode is the use site's instantiation — a computation flowing to a
-   discharger's pinned parameter through `.` stays captured; `pick(readLine, "x")` still runs its read
-   at the call site once the sibling argument fixes the instantiation. Either way the row joins the
-   caller's row — mode never changes the row, only where the binds go.)*
+   effects at that position; they join the enclosing definition's row. Strict call-by-value in **every**
+   plain position, including a slot typed by a bare generic: `choose(readLine, readLine)` runs both
+   reads. The only exceptions are the two *declared* ones — rules 2 and 3 below.
 2. **Suspension is declared.** A parameter that must *not* run its argument declares an open row:
    `whenTrue: {G} A` receives the computation unrun. `if[T](c: Bool, value: {Abort} T)` already spells
    this — v3 makes the syntax mean what it looks like it means. Pure arguments fit suspended slots
@@ -104,6 +103,15 @@ Two further observations seal it:
 3. **Pinned means captured** (unchanged from v2). `{Throw[E] | G} A` is a reified computation — an
    ordinary type, usable in `data` fields, discharger parameters, `List[TestCase]`. Open rows never
    appear in types; pinned rows are the only place a type contains a computation.
+
+**Implementation deviation, to be removed (A.10).** Rule 1 above is the design as decided, and it is what
+the code must end at. The tree does **not** implement it today: A.8.6 amended rule 1 mid-flight so that a
+bare-generic slot keeps *v2's* instantiation-determined mode, which is the opposite of the rule at exactly
+that position. That amendment is recorded where it belongs — as history in A.8.6 — and A.10 establishes
+why it was expensive (a deferred position is one the elaborator writes nothing at, so it cannot write the
+carrier either, which is what kept the whole v2 machinery alive) and why its stated justification does not
+hold once the carrier is written. Read rule 1 as normative and A.8.6 as a reversal being undone, not as a
+refinement.
 
 Consequences the user sees:
 
@@ -162,8 +170,11 @@ shape v2's checker *output* has today, so monomorphization, ability resolution (
   `assertNoIdResidue`, the per-consumer normalization tax) has nothing to exist for.
 
 Every placement decision reads *declared* information (slot modes, callee rows) — no types needed, no
-instantiation-dependence, hence a desugar — **for every position whose mode the callee's own signature
-spells** (amended by A.8.6; the R5 corpus run proved that is not every position). The checker then
+instantiation-dependence, hence a desugar. That holds at **every** position, including a bare-generic
+slot: there is no mode to infer there, because rule 1 applies unconditionally (an effectful *call* hoists;
+a pinned- or carrier-typed *value* passes as data — both declared facts). A.8.6 concluded otherwise and
+introduced deferral; A.10.2 records that the conclusion was an artifact of the carrier being *inferred*,
+and A.8.4's question dissolves once it is written. The checker then
 checks the elaborated program as ordinary code: `flatMap` is an application like any other. **This is
 not v1's weaver**: v1 erased and tried to *reconstruct* placement post-mono with no signal; v3 never
 erases — the signal is in signatures, read before checking.
@@ -176,7 +187,11 @@ binders (`EffectCarriers.declaredCarrierBinders`), its pinned metadata
 of type-alias expansion inside those signatures. A decision that cannot be made from the whitelist is
 **deferred — the elaborator writes nothing** — never approximated by a new syntactic rule. In
 particular, a rule that inspects a *sibling argument's expression shape* to decide a slot's mode is
-prohibited: that is inference, and inference lives in the resolver (A.8.6), not the desugar. The
+prohibited: that is inference, not desugaring. (A.8.6 read "deferred" as "handed to a resolver"; under
+A.10 there is no resolver, so a whitelist miss is a genuine design gap to close in the declarations, not
+a position to hand onward. The one candidate — the `foldLeft` accumulator — is A.10.6 item 1, and note
+that an elaborator-local join over the callee's *declared* parameter shapes is inside the whitelist while
+a sibling-expression rule is not.) The
 fail-safe direction is built in: a missing rewrite leaves direct-style code the checker either
 elaborates (transition) or rejects loudly; a wrong rewrite silently changes when an effect runs.
 
@@ -260,13 +275,27 @@ Signature changes (small, enumerable):
 - Lazy combinators (`orElse` fallbacks, any future `&&`/`||`): declare suspension; dischargers,
   `Effect`/`Suspend`, `printLine`/`readLine`, `Inf.forever`: unchanged.
 
-**Semantic break — narrowed to nearly nothing by A.8.6:** the original plan made an effectful argument
-at a plain generic slot run at the call site unconditionally. Under bounded staging a *bare generic*
-slot's mode is instead resolved from its instantiation — which is v2's behaviour — so dot-chained
-discharge, `foreach`, `provide` and the `choose`/`pick` pair all keep their current semantics, and the
-planned corpus audit for implicit-suspension reliance is moot. The break that remains is only at slots
-with a *declared concrete* payload type: an effectful argument there always runs at the call site
-(hoisted by the desugar), which is also what v2 does. Effectively no user-visible semantics change.
+**The semantic break is real, and it is the price of the design — not a cost to be narrowed away.** An
+effectful argument at *any* plain slot, bare-generic included, runs at the call site: `choose(readLine,
+readLine)` performs both reads. Today's behaviour there is v2's, where the mode falls out of how generic
+the callee happens to be at that instantiation — implicit evaluation-order polymorphism, invisible in the
+signature. Removing it is the point of rule 2: after the change, evaluation order is readable from the
+declaration and nowhere else.
+
+Two consequences follow, and both are obligations rather than caveats:
+
+- **Every laziness-requiring signature must declare suspension** — the list above, plus any user-written
+  lazy combinator. This is not optional under rule 1; a combinator that forgets it becomes strict.
+- **The failure mode is behavioural, not a type error**, which makes it the one place this design is
+  weaker than "gaps must be fail-safe" — everything else here rejects loudly. So the **corpus audit is
+  mandatory and runs before the flip**, not at closeout: enumerate every site where the elaborator hoists
+  into a bare-generic slot (the A.9.4 tracer gives this directly) and review each.
+
+*(A.8.6 claimed this break "narrows to nothing user-visible" by keeping v2's behaviour at bare-generic
+slots. That was the founding rule being withdrawn, and its stated justification — that the full rule
+"loses dot-chained discharge, a shipped idiom" — is measured false once the carrier is written: A.10.5's
+`XState` and `XTwoDeps` run dot-chained discharge and the dot operator with zero deferral. The audit is
+therefore back on, and the break is back to being a genuine, bounded cost.)*
 
 ## 7. What this preserves of the cornerstones
 
@@ -658,7 +687,15 @@ Uncommitted, and deliberately so: rule 5 is in the working tree and neither of u
   registers it — the harness now declares `IO` a carrier head exactly as a real build does, instead of
   the elaborator having to infer it.
 
-#### A.8.6 Resolution: bounded staging (decided 2026-07-26)
+#### A.8.6 Resolution: bounded staging (decided 2026-07-26, **REVERSED by A.10**)
+
+> **Superseded.** This section withdrew §1 rule 1 at bare-generic slots, and the record below reads it as a
+> bounded refinement. A.10 establishes that it was a reversal of v3's founding decision, that its stated
+> justification (protecting dot-chained discharge) is false once the carrier is written rather than
+> inferred, and that the deferral it introduced is what kept the entire v2 machinery alive — a deferred
+> position is one the elaborator writes nothing at, so it cannot write the carrier there either. Read this
+> section as history. The plan it produced (A.8.7's resolver, the deletion slices' 4a/4b split) is
+> superseded by A.10.7.
 
 **The decision is (b), tightly bounded.** The A.8.4 question — can the desugar decide slot mode and
 lift placement for positions flowing through a callee's generic binders from declarations alone — is
@@ -1375,8 +1412,27 @@ The live arm counts, for judging what any change should move, are the table at t
 Slice 4a's revert (A.8.12) was the second consecutive slice to be blocked by the substrate rather than by
 effort, so before resuming, the question asked was not "how do we do 4b" but "is the deletion working at
 all, and is there a decision — including reversing an earlier one — that would greatly simplify this?"
-This section is the answer: the measurement that says no, the premise it exposes, and a spike that
-validates changing it. **It supersedes the A.9.7 plan.**
+This section is the answer: the measurement that says no, the two premises it exposes, and a spike that
+validates changing them. **It supersedes the A.9.7 plan.**
+
+**Read this framing first, because it corrects the shape of the problem.** There are two premises here and
+they have very different histories:
+
+- **Slot mode.** "Effects run where they are written; suspension is declared" (§1 rules 1–2) was decided at
+  v3's founding and is the whole reason v3 exists. It was **never implemented**: A.8.6 withdrew it at
+  bare-generic slots six days later, keeping v2's instantiation-determined mode. Nothing about that
+  reversal is being newly decided here — A.10 **reinstates** the original decision, and what is new is only
+  the evidence that A.8.6's justification does not survive the second premise being fixed.
+- **The carrier.** That an effect row's carrier is a type argument the *checker solves* is a premise no
+  analysis has examined — not v2 §13's fork, not v3 §0's two premises. This is the one genuinely new
+  finding, and it is what makes the first premise implementable.
+
+The connection between them is the thing that was missed, and it is mechanical: **a deferred position is
+one the elaborator writes nothing at, so it cannot write the carrier there either.** A.8.6's deferral is
+therefore not a small local concession — it is precisely what forced the carrier to stay inferred, and with
+it the flex-flex decomposition, the theft class, the `Id` apparatus, and the resolver/obligation/restart
+machinery built to manage them. The +1,310 lines of A.10.1 are the cost of the reversal, not of the
+design.
 
 ### A.10.1 The measurement: the deletion is not reducing the checker
 
@@ -1400,7 +1456,7 @@ titled "corollaries the corpus forced" — four at the R5 flip, three at A.8.7, 
 Each is individually sound and each is shape-specific. That is the pattern A.8.3 correctly named a red
 flag for rule 5; the rule was deleted and the pattern kept.
 
-### A.10.2 The premise neither v2 nor v3 revisited
+### A.10.2 The premise no analysis examined — and the decision that was withdrawn
 
 v2 §13 chose between carriers-inside-checking (Variant A) and carrier-reconstructed-post-mono (Variant B,
 v1's weaver). v3 §0 revisited two further premises — carriers as ordinary types in one unsorted
@@ -1427,6 +1483,25 @@ cost structure is downstream of that one fact:
 v3 already established the right principle for *placement*: "v1 erased and tried to reconstruct; v3 never
 erases — the signal is in signatures, read before checking." §3 applies it to `flatMap`/`pure` and stops
 one step short. It is not applied to the carrier itself.
+
+**The withdrawn decision, and why it registered as a refinement rather than a reversal.** The fourth bullet
+above is the load-bearing one for A.8.6: mode is undecidable *because* the carrier is a meta. A.8.6 read
+that undecidability as a fact about the design and amended §1 rule 1 to match, so the founding rule and its
+negation ended up in the same sentence (§1 now marks that deviation explicitly). Three things kept the
+reversal from looking like one:
+
+1. It was recorded as **narrowing a cost** ("the §6 semantic break narrows to nothing user-visible"), and
+   a break that narrows to nothing reads as a win.
+2. Its justification was **protecting a shipped idiom** — "(c) bounding the desugar loses dot-chained
+   discharge" — which is a conservative-sounding reason. A.10.5 measures it false once the carrier is
+   written: `XState`'s `counter[StateCarrier[String, G]].runStateToPair("init")` and `XTwoDeps` run with
+   zero deferral and zero inserted nodes. The idiom was only ever at risk because the carrier was inferred.
+3. **A.8.4 offered three options and the real one was not among them.** "(a) declare it / (b) stage it /
+   (c) bound it" all presuppose there is a mode to decide at a bare-generic slot. With a written carrier
+   there is none: an effectful *call* hoists, a pinned- or carrier-typed *value* passes as data, both
+   declared. The question dissolves — the fourth option nobody had. (Note this also revives (a) for the
+   one residual case, A.10.6 item 1: (a) was rejected *only* because it failed at `.`, and `.` needs no
+   relay rule here.)
 
 ### A.10.3 The proposal: the carrier is written, not inferred
 
@@ -1578,11 +1653,20 @@ Revised plan, replacing A.9.7:
    (`ModeResolver`, `CheckState`'s obligation vectors, splice-and-restart in `TypeStackLoop`), then
    `IdNormalizer` and `CarrierKindChecker`'s carrier seeding. `Unifier` is untouched — **slice 4b as
    specified in A.8.11/A.9.2 is cancelled**, and with it the cornerstone sign-off it required.
-5. **The semantic-break audit becomes mandatory, not deferred.** "Effects run where written" now applies at
-   bare-generic slots unconditionally, so every laziness-requiring stdlib signature *must* declare
-   suspension (`fold`, `if`, `orElse`, any future `&&`/`||`). The failure mode is behavioural rather than a
-   type error — the weakest fail-safe in the proposal — so enumerate the hoist sites over the corpus with
-   the tracer before the flip, not after.
+5. **The semantic-break audit becomes mandatory, not deferred** (§6 is rewritten accordingly). §1 rule 1
+   applies at bare-generic slots unconditionally again, so every laziness-requiring stdlib signature *must*
+   declare suspension (`fold`, `if`, `orElse`, any future `&&`/`||`). The failure mode is behavioural rather
+   than a type error — the weakest fail-safe in the proposal — so enumerate the hoist sites over the corpus
+   with the tracer before the flip, not after.
 6. **R6 closeout** as before, plus: revisit `IfDemo` (A.10.4 — the bridge causes it).
 
 Spike sources: seven `.els` files, rerunnable against the two `Checker` switches described in A.10.4.
+
+**Doc-hygiene note (2026-07-27, part of this pass).** The design sections had drifted to describe the
+*implementation* rather than the decision, which is what let a reversal read as a refinement. Corrected
+here: §1 rule 1 is restored to its decided form with the tree's deviation marked as a deviation; §3's
+"amended by A.8.6" is replaced by why the amendment was an artifact; §3's whitelist no longer treats
+"deferred" as "handed to a resolver" (there is none); §6's semantic break is restored as a real, bounded
+cost with the mandatory audit attached; A.8.6 carries a superseded banner. The rule for future passes:
+**§§1–7 state the decision, §8 and the appendices record what happened to it** — an appendix that changes
+a decision must say so in §§1–7, not amend the rule in place.
