@@ -1053,4 +1053,85 @@ Still live for the next slice: the routers (`uniformPayloadSlot` / `uniformCaptu
 `uniformCarrierSlot`, `payloadFitsDomain`, the pinned capture with its eager row pin), the return
 boundary's remaining arms, `Carrier`/`CarrierJoin`/`UniformLadder` and `IdNormalizer`. With the `Id`
 encoding gone, what those do is visible for what it is — **carrier-safe unification**, the last thing
-§4 needs the row channel to absorb before the checker holds no effect code at all.
+§4 needs absorbed before the checker holds no effect code at all. (This paragraph originally said the
+*row channel* must absorb it; A.8.11 measured what the residual is and corrected that — it is a
+property of the unifier, not of the effect surface.)
+
+#### A.8.11 Slice 4, measured: what "carrier-safe unification" actually is (2026-07-27)
+
+Slice 4 was left with an assumption — that the residual bridge is carrier-safe unification and that *the
+row channel* must absorb it. Before deleting anything, the same method as slices 1–3 was applied, with one
+addition: besides counting arms, a **differential probe** ran the plain whole-type unification
+speculatively at every bridge site (on the pre-state unifier) and compared the meta solutions it would have
+produced against the ones the carrier path actually committed. Over the full gate (871 targets / 1,567
+tests plus a compile of all 40 examples) the bridge was entered 11,844 times:
+
+| verdict | argument slots | return boundaries |
+| --- | ---: | ---: |
+| `agree` — same solutions, no error either way | 5,382 | 4,806 |
+| `differ` — different solutions, no carrier meta involved | 62 | 84 |
+| `differCarrier` — different solutions, a **carrier-role** meta among them | 877 | 629 |
+| one side errors, the other does not | 3 | 1 |
+
+The four error-divergences all come from the mechanism unit suite, not the corpus. The 146 plain `differ`s
+are **orientation only** — flex-flex pairs the carrier path solved `?14 := ?4` and plain unification would
+solve `?4 := ?14`; semantically the same store.
+
+So the whole behavioural delta is the 1,506 `differCarrier` sites, and their samples say the same thing
+every time:
+
+```
+actual = ?22[?21]                expected = ?17[Database]
+carrier path:  ?17 := ?22 , ?21 := Database
+plain unify:   (nothing — postponed)
+```
+
+Ordinary pattern unification cannot decompose a **flex-flex application**: `solveMeta` tries injectivity
+against a *rigid* applied right-hand side and otherwise postpones, so `?F[X] ~ ?G[Y]` is deferred and
+frequently never resolves. The carrier path splits the head off first and unifies head-with-head,
+payload-with-payload. That is not an encoding round trip like slice 3 and not a misplaced elaboration
+decision like slice 2 — it is a real unification capability, and it is what keeps `?F[X] ~ ?G[Y]` from
+being stranded and `Either[E, ?A] ~ ?G[Either[E, ?A]]` from degenerately solving `?G := Id`.
+
+**Carrier-safe unification is therefore exactly two rules**, and nothing else:
+
+1. **Carrier decomposition** — when a judgment is carrier-headed (by the elaboration-threaded positional
+   tag, never by shape or name), split head and payload and unify them separately. This subsumes the
+   flex-flex case ordinary unification postpones, and keeps a payload from ever being matched against a
+   carrier position.
+2. **`Id` is bottom** — an `Id`-resolved side never *commits* a flex carrier meta. Plain unification would
+   decompose `Id[T] ~ ?G[T]` to `?G := Id` (the premature-commitment bug class); the carrier path instead
+   leaves `?G` open and `pure`-lifts the term into it. 40 argument slots and 152 return boundaries across
+   the gate turn on this.
+
+**The consequence for §4: the row channel cannot absorb this.** The row channel is a per-definition,
+pre-mono, syntactic verifier (`derived ⊆ declared`); it does not run inside the NbE checker and solves no
+metavariables. Rule 1 is a property of the *unifier*, not of the effect surface. The closing sentence of
+A.8.10 — "the last thing §4 needs the row channel to absorb" — is wrong on that point, and §4's promise of
+a checker with *zero* effect code can only be met by moving rule 1 into `Unifier` itself, keyed on the
+carrier role the unifier already records.
+
+Residual **node insertion** in the checker is now small and separable from rule 1: `pure` lifts
+(152 return boundaries + 40 slot lifts + 6 ladder pure-wraps on the runtime track) and the `runId` at
+discharge-to-pure. Those are elaboration, and by the v3 discipline they belong to the desugar and the
+post-drain resolver — the same move slices 2 and 3 made for binds and `Id` heads.
+
+The remaining live arms, for the record (runtime track; the compile track's 56,938 default-slot / 79,276
+ladder-unify firings are the §8 boundary and stay):
+
+| arm | firings |
+| --- | ---: |
+| `route/payloadSlot` / `carrierSlot` / `defaultSlot` | 5,474 / 1,592 / 3,255 |
+| `payloadSlot` fits / noFit / suspend | 4,489 / 951 / 34 |
+| `capture` wholeUnify / join / mismatch / doomedSuspend | 694 / 249 / 97 / 8 |
+| `carrierSlot` effectful / pureWrap / fallback | 1,580 / 3 / 9 |
+| `return` effectfulJoin / purePass / pureIntoCarrier | 3,287 / 2,081 / 152 |
+| `ladder` unify / mismatch / pureWrap | 6,398 / 31 / 3 |
+| `eagerPin` applied / already solved | 79 / 23 |
+
+No arm is dead, so unlike slices 1–3 there is nothing here to delete by liveness alone. Slice 4 is an
+architectural move, not a retirement, and it splits cleanly in two: **4a** — the checker stops inserting
+`pure`/`runId` (elaboration moves to the desugar + `ModeResolver`, exactly as slice 2 did for binds),
+leaving the bridge doing nothing but unification; then **4b** — rule 1 moves into `Unifier` as a
+role-keyed decomposition, and `Carrier`/`CarrierJoin`/`UniformLadder`/`UniformCarrierChecker` plus the
+routers (~930 lines) delete.
