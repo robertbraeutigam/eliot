@@ -547,17 +547,15 @@ object RowElaborator {
               // body is untouched. What its codomain instantiates the slot at is the checker's to discover.
               (accArgs :+ elaborateLambdaNatural(arg, region)._1, accBinds)
             }
-          } else if (declaredSlot.exists(s => genericHeaded(s, calleeBinders))) {
-            // A.8.6 deferral: a slot typed by a generic-headed type (`a: A`, `initial: B`, `x: F[A]` with bare
-            // `F[_]`) has no declared mode — the instantiation decides whether the argument is payload (run here),
-            // suspended, or captured (the dot-chained discharger). The argument's interior still elaborates; this
-            // slot writes nothing around it. The *carrier* is still written, by the derived-stack rule
-            // ([[carrierAt]]): `rename("after").runStateToPair("before")` puts `rename` at the dot's `a: A` slot,
-            // and `rename` needs `{State[String]}` the ambient does not provide, so it carries
-            // `StateCarrier[String, F]` — captured, not run.
-            (accArgs :+ core(arg, region)._1, accBinds)
           } else {
-            // A declared-concrete slot (or an unknown callee's slot) is strict: the payload is wanted here.
+            // Every remaining slot is **strict** — a declared-concrete one, an unknown callee's, and (since A.11.5)
+            // a *generic-headed* one (`a: A`, `initial: B`, `x: F[A]` with a bare `F[_]`). The latter used to be
+            // deferred for want of a declared mode (A.8.6), which is what kept the checker's whole
+            // obligation/resolver path alive. It needs no mode of its own now that the carrier is *written*: an
+            // argument that performs on this region's carrier is work to sequence here and hoists, and one carrying
+            // a different carrier — the dot-chained discharger's `rename("after")` under a `{Console}` ambient,
+            // which [[carrierAt]] gives `StateCarrier[String, F]` — does not perform on the ambient at all and so
+            // passes as data, captured rather than run. §1 rule 1 restored: effects run where they are written.
             strictArgument(accArgs, accBinds, arg, region, hoist)
           }
         }
@@ -940,16 +938,6 @@ object RowElaborator {
   private def carrierHeaded(tpe: OperatorResolvedExpression, carriers: Set[String]): Boolean =
     spine(tpe)._1 match {
       case ParameterReference(name) => carriers.contains(name.value)
-      case _                        => false
-    }
-
-  /** Whether a declared type is *generic-headed* on a non-carrier binder (`a: A`, `initial: B`, `x: F[A]` with a
-    * bare `F[_]`): the slot or result it types has no declared mode — the deciding fact is its instantiation, so
-    * the elaborator defers it (A.8.6).
-    */
-  private def genericHeaded(tpe: OperatorResolvedExpression, carriers: Set[String]): Boolean =
-    spine(tpe)._1 match {
-      case ParameterReference(name) => !carriers.contains(name.value)
       case _                        => false
     }
 
