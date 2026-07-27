@@ -15,15 +15,27 @@ part-by-part map and the two previously-closed decisions that have to be reopene
 inside A.9/A.10 are historical). **A.9.4 owns the method** — arm-liveness tracing, the differential
 probe, the byte-identity oracle, the tracer gotchas — and is reused by every remaining step.
 
-**Three open decisions**, all reversals of recorded decisions and so all needing sign-off rather than a
-judgement call in flight: `foldOption`'s suspension (A.11.5-R), and the two A.11.7-R names — reopening
-**A.11.2-R** ("build neither mechanism") so the elaborator can hoist at a generic-return callee, and
-reopening **A.10's cancellation of slice 4b** so carrier decomposition has a home.
+**All three A.11.7-R open decisions are now closed by §1 rule 4** (2026-07-27, Robert). Rule 4 —
+*an effect passes through a position if and only if that position declares it* — is stated in §1, and it
+**reverses A.11.2-R** ("build neither mechanism"): `.`, `foldLeft`'s `initial` and `foldOption`'s
+`ifNone` declare `{Effect}`. With it, `foldOption` converts and **A.10's cancellation of slice 4b
+stands** — the one remaining flex-flex shape is itself a rule-4 violation (§6.1), so the `Unifier` still
+gains nothing. §6.1 is the correction inventory; A.11.7-R's candidate rule is explicitly *not* adopted,
+because it approximates rule 4 instead of declaring it.
 
-**Standing rule for this document: §§1–7 state the decision; §8 and the appendices record what happened
-to it.** An appendix that changes a decision must say so in §§1–7, never amend the rule in place. (This
-rule exists because A.8.6 amended §1 rule 1 in place and a *reversal* consequently read as a refinement
-for six days — see A.10.)
+**Standing rule 1 — where decisions live: §§1–7 state the decision; §8 and the appendices record what
+happened to it.** An appendix that changes a decision must say so in §§1–7, never amend the rule in
+place. (This rule exists because A.8.6 amended §1 rule 1 in place and a *reversal* consequently read as
+a refinement for six days — see A.10.)
+
+**Standing rule 2 — stop on conflict, do not route around it.** If §1's rules appear to conflict with
+each other, with the tree, or with a measurement — or if a step finds itself *narrowing*, *bounding*,
+*deferring*, *approximating*, or *exempting* one of them — **stop work immediately and surface it.** Do
+not land the workaround and record it as a corollary. This applies however local the concession looks;
+every entry in the rule-4 erosion table below was locally reasonable and each cost more than the rule it
+bought out. The tells to stop on, in the vocabulary this project has actually used: "bounded staging",
+"the corpus forced", "narrowed to ~nothing", "a small local concession", "keeps the shipped idiom", "it
+usually holds". A conflict is a decision for Robert, not a judgement call in flight.
 
 **One-sentence summary.** Suspension is *declared* in signatures instead of inferred from genericity, and
 the carrier is *written* by the elaborator instead of solved by the checker; effect elaboration then
@@ -69,7 +81,7 @@ dot operator (`def .[A,B](a: A, f: A => B): B`) puts every chain's subject into 
 the most common operator in the language permanently routed through the most fragile machinery. Under v3
 it is effect-irrelevant by construction.
 
-## 1. The user model (three rules)
+## 1. The user model (four rules)
 
 1. **Effects run where they are written.** An effectful expression in any plain position performs its
    effects there; they join the enclosing definition's row. Strict call-by-value in **every** plain
@@ -82,9 +94,46 @@ it is effect-irrelevant by construction.
 3. **Pinned means captured** (unchanged from v2). `{Throw[E] | G} A` is a reified computation — an
    ordinary type, usable in `data` fields, discharger parameters, `List[TestCase]`. Open rows never
    appear in types; pinned rows are the only place a type contains a computation.
+4. **An effect passes through a position if and only if that position declares it.** *(Rule 4 is the
+   invariant the other three rest on. It is stated last because it was found last, and it outranks every
+   convenience below it.)*
+   - A **plain generic is a payload, always.** `A`, `B`, `T` in `def .[A, B](a: A, f: A => B): B`,
+     `def ++[T ~ Combine[T]](left: T, right: T): T`, `def foldLeft[A, B](initial: B, …): B` can never be
+     instantiated at a computation. A function that transports effects says so: `f: A => {Effect} B`
+     returning `{Effect} B`, `initial: {Effect} B`.
+   - A **rowless slot may not receive a computation.** Not a carrier-headed value, not a pinned capture,
+     not a value whose declared row is non-empty. This is a hard error naming the slot, never a silent
+     re-route.
+   - `{Effect}` is a **row variable**, not a carrier binder. `ρ := {}` is an ordinary instantiation and
+     **must produce no node** — no `Id`, no wrapper, nothing to erase. `dependency.url` (ρ = `{}`) and
+     `items.foreach(x -> printLine(x))` (ρ = `{Console}`) go through the *same* declaration of `.`.
+   - **`Id` is written only at a definition boundary** where a discharge lands on a pure return — never
+     as the spelling of an empty row at a call site.
+
+   Everything the elaborator must decide is then decided by declarations, per call, order-free: a call's
+   result kind and row are its declared return instantiated from the declared types and rows of the
+   arguments given.
 
 Rule 1 is implemented as of A.11.5 (it was withdrawn at bare-generic slots by A.8.6 for six days; A.10
 reinstated it and A.11.5b removed the deferral).
+
+**Rule 4 has been agreed and then worked around at least four times. Its erosion is the single cause of
+every stall recorded in Appendix A.** Recorded so it cannot read as new:
+
+| # | where | how rule 4 was worked around | cost |
+| --- | --- | --- | --- |
+| 1 | A.8.6 | bare-generic slots exempted from rule 1 — mode "belongs to the instantiation" | six days; `ModeResolver`, obligations, splice-restart (~350 lines), reversed by A.10 |
+| 2 | A.11.2-R | declined `{Effect}` on `foldLeft`/`foldOption` — kept an undeclared effect position for ergonomics | the elaborator cannot hoist at a generic-return callee **at all**; the payload router stays alive (A.11.7-R) |
+| 3 | A.11.4c | the derived discharge stack routes a computation through `.`'s **rowless** `A` "as data" | 5 `State`-family miscompiles; makes "a generic is a payload" false, so it cannot be assumed |
+| 4 | A.11.5-R | `foldOption` left with a strict `ifNone` because both declared spellings failed | a silent lazy-branch failure mode, still open |
+
+The A.11.7-R candidate rule (*let `declaredPayloadResult` accept a generic head*) is the same move a
+fifth time: it **approximates** rule 4 in the elaborator instead of **declaring** it in the signature. It
+is not to be adopted in that form.
+
+**Rule 4 outranks the tree.** Where code, a stdlib signature, an example, or a test conflicts with it,
+the rule wins and the artefact is wrong. A test that pins a rule-4 violation is a defect in the test, to
+be corrected, not evidence about the design. The known conflicts to correct are inventoried in §6.
 
 Consequences the user sees:
 
@@ -178,13 +227,19 @@ Three rules complete it:
   payload types the elaborator cannot name. It costs nothing in practice (the desugar *prepends* the
   minted carrier; an ability method's own ability parameter leads); a hand-written discharger placing its
   carrier later (`catch[E, G[_] ~ Effect, A]`) keeps it inferred.
-- **The discharge stack is derived, with no special case for the dot operator** (Robert's decision,
-  A.11.4c): `carrier(call) = stack(callee.declaredRow ∖ ambient.declaredRow) over ambient`. A callee
-  needing more than the ambient provides cannot be running on it, so it runs on the canonical stack of
-  that difference — `rename` needing `{State[String]}` under a `{Console}` ambient carries
-  `StateCarrier[String, F]`, does not perform on the ambient, and passes as data rather than hoisting.
-  This is what makes a dot-chained discharger need no rule of its own; the rejected alternatives were
-  inlining `.` and keeping a `.`-only deferral.
+- **The discharge stack is derived** (A.11.4c): `carrier(call) = stack(callee.declaredRow ∖
+  ambient.declaredRow) over ambient`. A callee needing more than the ambient provides cannot be running
+  on it, so it runs on the canonical stack of that difference — `rename` needing `{State[String]}` under
+  a `{Console}` ambient carries `StateCarrier[String, F]` and does not perform on the ambient. This is
+  what lets a `val` bind a dischargeable computation as data (§5).
+  - **Amended by §1 rule 4 (2026-07-27).** A.11.4c additionally let that computation *pass as data
+    through a rowless slot*, which is how a dot-chained discharger kept working without a rule of its
+    own. That is erosion #3 in the §1 table and the cause of the 5 `State`-family miscompiles A.11.7-R
+    measured: it makes "a plain generic is a payload" false, so nothing downstream may assume it. Under
+    rule 4 the derivation above **stays**; delivering the result to a *rowless* slot is a hard error, and
+    the affected call sites take the direct call instead (§6.1). A.11.4c's rejected alternatives —
+    inlining `.`, and a `.`-only deferral — stay rejected: `.` declares `f: A => {Effect} B` and needs no
+    special case in either direction.
   - **The filter that makes it work, corpus-forced**: an effect the ambient does not declare is *not*
     automatically dischargeable. `Suspend`-riding effects (`Console`, `Log`, `Inf`) have no
     `<Ability>Carrier` at all and are provided by the *base*. Dischargeability is read off **the
@@ -280,10 +335,50 @@ Signature changes:
 - `if[T]` — **textually unchanged** (`value: {Abort} T` now *means* suspended). `Abort.else`'s
   `fallback: G[A]` was already declared-suspended; `foldEither`/`foldPair` take lambdas and are lazy by
   construction.
-- `def foldOption[A, B](ifNone: {Effect} B, …)` — **did not convert; open decision** (A.11.5-R). Both
-  spellings are refuted by the corpus, and nothing in it needs the conversion.
+- `def foldOption[A, B](ifNone: {Effect} B, …)` — **converts** (rule 4). A.11.5-R left it open because
+  both spellings were refuted by the tree; under rule 4 that is a defect in the tree, not evidence about
+  the signature, and the refutations are entries in the correction inventory below.
 
 Every laziness-requiring signature must declare suspension; a combinator that forgets it becomes strict.
+
+### 6.1 Rule-4 correction inventory
+
+Rule 4 outranks the tree, so these are **defects to correct**, not constraints on the design. Measured
+(A.11.3-R for the dot sites, `grep` over `stdlib/`, `jvm/`, `examples/` for the rest); the list is the
+whole known cost.
+
+**Signatures that must declare what they transport** — each currently lets an effect through a rowless
+position:
+
+- `def .[A, B](a: A, f: A => {Effect} B): {Effect} B` — the subject stays a plain, strict slot; the
+  transported row is declared on `f` and comes back out of the dot.
+- `foldLeft`'s `initial: {Effect} B` and `foldOption`'s `ifNone: {Effect} B` — the two A.11.2-R declined.
+
+**Call sites that pass a computation through a rowless slot** — 7 lines, each rewritten to the direct
+call, where the callee's own declared slot (pinned, or carrier-typed) already has the right mode:
+
+| site | now | correction |
+| --- | --- | --- |
+| `examples/src/Blocks.els:33` | `rename("after").runStateToPair("before")` | `runStateToPair("before", rename("after"))` |
+| `examples/src/EffectsState.els:22` | `swap("second").runStateToPair("first")` | direct call |
+| `stdlib/…/effect/State.els:69,76` | `runStateToPair(initial, p).map(first/second)` | `map(first, runStateToPair(initial, p))` |
+| `stdlib/…/effect/Writer.els:54,60` | `runWriterToPair(p).map(first/second)` | direct call |
+| `stdlib/…/collection/List.els:26` | `acc.flatMap(_ -> action(e))` | `flatMap(_ -> action(e), acc)` |
+
+Plus two scaladoc examples in `carrier/Effect.els` (`readLine.flatMap(…)`, `readLine.map(…)`) that teach
+the disallowed form. The infix dischargers are **not** affected: `catch` (`Throw.els:77 infix left`) and
+`else` (`Abort.els:76 infix right`) resolve straight to a direct call with the computation at its pinned
+slot, so `x catch (e -> …)` and `host else "localhost"` are untouched.
+
+**Declarations storing an open carrier**: `jvm/test/…/TerminationIntegrationTest.scala:206`'s
+`data Box[F[_]](action: F[Unit])` — already illegal under rule 3 (a stored row must be pinned), and the
+last source of the flex-flex `?F[X] ~ ?G[Y]` that A.11.7-R found still alive. Correct the shape; do not
+reopen A.10's cancellation of slice 4b to accommodate it.
+
+**Tests pinning a rule-4 violation are wrong and get corrected** — known: three `RowElaboratorTest` twins
+(including the one named "defer a call with a generic-headed return — A.8.6"), `MonomorphicTypeCheckTest`'s
+"pass an effectful eliminator branch through unsequenced", and the 5 `State`-family shapes A.11.7-R
+measured, which fail *because* of erosion 3 in the §1 table.
 
 ## 7. What this preserves of the cornerstones
 
@@ -741,7 +836,14 @@ reduction against pre-v2.**
 
 - **A.11.1** deleted the dead v2 spike (`monomorphize/spike/UniformCarrierSpike` + test, 622 lines) and
   four stale scaladoc references to a `uniformCarrier` gate removed weeks earlier.
-- **A.11.2-R — the accumulator question: build neither mechanism.** An effectful `combine` makes
+- **A.11.2-R — REVERSED by §1 rule 4 (2026-07-27).** It is erosion #2 in the §1 table: declining to
+  declare kept an *undeclared* effect position alive, and the cost was not the accumulator's ergonomics
+  but the elaborator's inability to hoist at a generic-return callee at all — hence the payload router,
+  hence the obligation path (A.11.7-R). `foldLeft`'s `initial` and `foldOption`'s `ifNone` declare
+  `{Effect}`; `pure(0)` is *not* the user's fix, since that is itself a computation at a rowless slot.
+  The original reasoning is kept below because its decider was true and is instructive: a true premise
+  ("the slot occurs once") does not license exempting a rule.
+  **A.11.2-R as recorded on 2026-07-27, superseded:** An effectful `combine` makes
   `foldLeft`'s payload generic carrier-headed through a *sibling*, so a pure `initial` must lift. Decider:
   the slot occurs **exactly once** in the whole corpus (`List.foreach`, where the stdlib already writes
   `pure(unit)` by hand), so no library code depends on inferring it. A pure `initial` under an effectful
@@ -977,7 +1079,16 @@ require. Gate re-verified after the revert: `./mill __.test` **0 failures**, **3
 (`PluginA`/`B`/`C` predate A.11.4), and **class content byte-identical** for all 37 against the
 pre-experiment build. The measured line counts are unchanged from A.11.6 (`check/` 5,097).
 
-**Where to resume, per branch of the decision.**
+**RESOLVED by §1 rule 4 (2026-07-27, Robert), which supersedes the three branches below.** Both
+reopenings A.11.7-R asked for are answered at once, and neither by the mechanism it proposed:
+**A.11.2-R is reversed** (`.`, `foldLeft`, `foldOption` declare `{Effect}`, so a generic-return callee is
+a declared payload and the elaborator hoists — the candidate two-line rule is *not* adopted, since it
+approximates rule 4 rather than declaring it); and **A.10's cancellation of 4b stands**, because the one
+flex-flex shape still alive is `data Box[F[_]]`, itself a rule-4/rule-3 violation to correct (§6.1). The
+5 `State`-family failures the candidate rule cost are not evidence against it — they are erosion #3
+(A.11.4c) failing, exactly as §1 predicts. Branches 1–3 below are kept as the measurement that led here.
+
+**Where to resume, per branch of the decision (historical).**
 
 1. *If A.11.2-R is reopened and the elaborator takes the hoist*: start from the two-line candidate
    above, and start by understanding the 5 `State` miscompiles — that group, not the pinning suites, is
