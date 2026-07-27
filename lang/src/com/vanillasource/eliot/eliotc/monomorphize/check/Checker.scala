@@ -278,7 +278,7 @@ class Checker(
   ): CheckIO[SemExpression] =
     uniformChecker.checkReturnBoundary(expr, expr.expressionType, expected, tm)
 
-  /** Effects-as-channel U3a-2b(ii) (docs/effects-as-channel.md §10) — gated on [[uniformCarrier]]: whether a return
+  /** Effects-as-channel U3a-2b(ii) (docs/effects-as-channel.md §10) — whether a return
     * boundary is a **value** return the uniform bridge resolves today, pure *or* effect-carrier-headed
     * ([[uniformValueReturn]]) — a plain `VTopDef` (`String`, `Unit`, `List[..]`) re-carried via `Id`, or an effect
     * carrier (`?F[Unit]`, the ambient of `main : {Console} Unit`) passed through — provided the body's inferred type
@@ -980,8 +980,8 @@ class Checker(
     } yield outcome
 
   /** The default (carrier-based) Phase-A argument-slot resolution — kept verbatim as the fallback for every slot the
-    * U3a-2b(ii) uniform ladder does not cover (the live path when `uniformCarrier` is off, and under it for a
-    * flex/carrier domain or a slot the uniform path declines). A bare flex domain receiving an effect-carrier-headed
+    * U3a-2b(ii) uniform ladder does not cover (a flex/carrier domain, or a slot the uniform path declines), and the
+    * only path on the compile-time track. A bare flex domain receiving an effect-carrier-headed
     * argument is *deferred* (Phase B decides); everything else runs the shared resolution ladder.
     */
   private def defaultArgSlot(
@@ -1008,7 +1008,7 @@ class Checker(
         resolveGuardedLadder(arg, argExpr, argType, forcedDomain)
     }
 
-  /** Effects-as-channel U3a-2b(ii), spine wiring (docs/effects-as-channel.md §10) — gated on [[uniformCarrier]]: resolve
+  /** Effects-as-channel U3a-2b(ii), spine wiring (docs/effects-as-channel.md §10) — resolve
     * an argument against a **plain payload** parameter domain through the uniform ladder. The argument is instantiated
     * once (peeling a polytype like `readLine`'s `[F ~ Console] F[String]` to its carrier-headed monotype `?F[String]`),
     * then routed through [[uniformArgumentSlot]] when it is a carrier-headed value whose payload fits the domain by pure
@@ -1229,8 +1229,8 @@ class Checker(
       case _                    => unifiesDefinitionally(payload, domain, context)
     }
 
-  /** Effects-as-channel U3a-2b(ii), the conditional-arm slice (docs/effects-as-channel.md §3) — gated on
-    * [[uniformCarrier]] + `Platform.Runtime`: resolve an argument against an **effect-carrier** parameter domain
+  /** Effects-as-channel U3a-2b(ii), the conditional-arm slice (docs/effects-as-channel.md §3) — under
+    * `Platform.Runtime`: resolve an argument against an **effect-carrier** parameter domain
     * (`?G[T]` — a conditional arm `if`'s `value: {Abort} T`, a discharger's `fallback: G[A]`, an effect combinator's
     * `fa: F[A]`). The uniform-carrier property the default path lacks is that at such a slot a carrier meta must be
     * solved by the *payload*, never stolen whole by the actual's head. Two arms, telling **pure** apart from

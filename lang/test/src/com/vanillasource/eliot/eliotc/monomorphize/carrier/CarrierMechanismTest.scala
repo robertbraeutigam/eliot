@@ -13,8 +13,7 @@ import org.scalatest.matchers.should.Matchers
 
 import java.net.URI
 
-/** U3a acceptance suite, ported from the U2 foundation spike
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.spike.UniformCarrierSpikeTest]]) onto the **real** [[SemValue]] /
+/** U3a acceptance suite, ported from the U2 foundation spike (since deleted) onto the **real** [[SemValue]] /
   * [[Unifier]] domain. It exercises the productionised carrier mechanism ([[Carrier]] / [[CarrierJoin]] /
   * [[UniformLadder]]) that the checker-wiring slice consumes — none of it is wired into the checker yet, so the default
   * compiler path is byte-identical.
