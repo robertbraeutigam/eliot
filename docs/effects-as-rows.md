@@ -11,8 +11,10 @@ state, the open decision, the method, the inventory, the gotchas — is §A.9.**
 v3's founding decision was never implemented; and the premise under both v2 and v3 — the carrier is a type
 argument the checker *solves* — is what made that withdrawal look necessary. A spike validated writing the
 carrier instead, at which point the withdrawal's justification is measured false. §A.10 supersedes the
-slice-4 plan; read A.10 first, then A.9 for the operational detail it still owns (the method, the
-inventory, the gotchas).** Successor direction to
+slice-4 plan; read A.10 first, then **§A.11 for the ordered roadmap from this tree to the end state** —
+the inventory of everything that must not survive (machinery, flags, scaffolding, tests, docs), the exit
+criteria, and the ten steps. A.9 still owns the operational detail (the method, the tracer gotchas, the
+byte-identity oracle).** Successor direction to
 `docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
 arms — stays live underneath until the deletion slices retire it against the resolver). The row
 checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
@@ -204,6 +206,13 @@ removes it. `Id` keeps its "no `Suspend[Id]`" safety property. To be verified in
 
 ## 4. What is deleted, what stays, what is added
 
+> **A.11.0 is the authoritative, current inventory** (measured against this tree, with the flags,
+> experiment scaffolding, test suites and docs this section never covered) and **A.11 is the ordered
+> roadmap**. Two corrections to the text below, both settled: the promise of *zero* effect code in the
+> checker is restated as **one order-free local rule** (a pure term meeting a rigid carrier-headed
+> expected type is `pure`-lifted, A.10.7), and `DeclaredPureChecker`'s fate is a decision at A.11.6 rather
+> than the "stays until the resolver era" recorded here — there is no resolver in the end state.
+
 **Deleted (checker layer, ≈2,000+ lines):** `EffectLifter` (433) with all arms
 (`mustLiftBeforeUnify`, `tryBindLift`, `tryPureWrap`, `tryIdDefault`); `UniformCarrierChecker` (414);
 the `carrier/` package (404: `Carrier`, `CarrierJoin`, `UniformLadder`); `IdNormalizer` (308) +
@@ -308,7 +317,13 @@ is a row entry). Platform layers: intact (elaboration is layer-agnostic; `IO` st
 internal representation; v3 makes the internal representation match the slogan — rows never become
 types, and the only carrier-typed code is code the desugar wrote or the user pinned.
 
-## 8. Migration plan (each step lands green on its own; v2 stays live until R5)
+## 8. Migration plan — HISTORICAL (R1–R6 as originally staged)
+
+> **Read A.11, not this section, for what to do next.** This is the record of the R1–R6 staging as it was
+> planned and executed up to the A.8.6 reversal, and parts of it are stale on purpose (R1 describes a
+> `RowCheckerSpike` that R3 promoted and deleted; "v2 stays live until R5" was overtaken by A.8.6 keeping
+> v2 live *past* R5). The live roadmap from the current tree to the end state is **Appendix A.11**.
+
 
 - **R1 — spike (no wiring): DONE (2026-07-25).** The standalone row checker lives in test sources
   (`lang/test/src/com/vanillasource/eliot/eliotc/row/RowCheckerSpike.scala` + `RowCheckerSpikeTest.scala`,
@@ -1640,25 +1655,11 @@ discovered later: *a pure term meeting a **rigid** carrier-headed expected type 
 the default ladder's existing pure-wrap arm — no metas, no ordering, no lattice — and the spike ran on it.
 The §4 promise of *zero* effect code in the checker should be restated as "one order-free local rule".
 
-Revised plan, replacing A.9.7:
-
-1. **Decide the accumulator question** (A.10.6 item 1) — elaborator-local per-call join, or declared
-   effect-transparency in the stdlib. Everything else is mechanical once this is fixed.
-2. **`RowElaborator` writes carrier expressions** instead of positional flags: upgrade the region walk to
-   produce the carrier term, write `typeArgs` at every effectful call and inserted combinator, and write
-   `Id` + `runId` at pure discharge boundaries. The A.8.6 deferral machinery is *removed*, not extended.
-3. **Convert the stdlib and jvm layers** in the same step (item 2 of A.10.6 — whole-program).
-4. **Delete**, in this order, against the A.9.4 method and the byte-identity oracle: the routers and the
-   bridge (`carrier/`, `UniformCarrierChecker`, ~250 lines in `Checker`), then the obligation/resolver path
-   (`ModeResolver`, `CheckState`'s obligation vectors, splice-and-restart in `TypeStackLoop`), then
-   `IdNormalizer` and `CarrierKindChecker`'s carrier seeding. `Unifier` is untouched — **slice 4b as
-   specified in A.8.11/A.9.2 is cancelled**, and with it the cornerstone sign-off it required.
-5. **The semantic-break audit becomes mandatory, not deferred** (§6 is rewritten accordingly). §1 rule 1
-   applies at bare-generic slots unconditionally again, so every laziness-requiring stdlib signature *must*
-   declare suspension (`fold`, `if`, `orElse`, any future `&&`/`||`). The failure mode is behavioural rather
-   than a type error — the weakest fail-safe in the proposal — so enumerate the hoist sites over the corpus
-   with the tracer before the flip, not after.
-6. **R6 closeout** as before, plus: revisit `IfDemo` (A.10.4 — the bridge causes it).
+The two headline consequences for the plan: **slice 4b as specified in A.8.11/A.9.2 is cancelled** (with
+it the `unify` cornerstone sign-off it required — the `Unifier` is not touched), and **the semantic-break
+audit moves from closeout to a pre-flip gate** (§6 is rewritten accordingly). The full ordered roadmap from
+this tree to the end state, including the flags, experiment scaffolding, v1/v2 residue and docs that A.9.7
+did not cover, is **Appendix A.11**.
 
 Spike sources: seven `.els` files, rerunnable against the two `Checker` switches described in A.10.4.
 
@@ -1670,3 +1671,184 @@ here: §1 rule 1 is restored to its decided form with the tree's deviation marke
 cost with the mandatory audit attached; A.8.6 carries a superseded banner. The rule for future passes:
 **§§1–7 state the decision, §8 and the appendices record what happened to it** — an appendix that changes
 a decision must say so in §§1–7, not amend the rule in place.
+
+## Appendix A.11. The roadmap: from this tree to the end state (2026-07-27)
+
+A.9.7 and A.10.7 planned the *checker* work only. This section is the whole remaining path, including the
+things a plan written from inside the checker keeps missing: flags, experiment scaffolding, the v1/v2
+artefacts outside `check/`, the test suites that pin dead machinery, and the docs. **It replaces every
+earlier plan** (§8 is historical, A.9.7 is superseded, A.10.7 defers here).
+
+Each step lands green on its own and is verified by the A.9.4 method — arm-liveness tracing at outcome
+granularity for anything being deleted, the worktree byte-identity oracle for anything being changed.
+
+### A.11.0 The end state, as an inventory
+
+**What must exist.** `EffectSugarDesugarer` (rows → carrier binder + pinned metadata); `row/RowElaborator`
+(the one elaboration owner, now *writing* carrier expressions); `row/RowChecker` (`derived ⊆ declared` per
+definition, **unbounded**); `EffectRow` and its pinned metadata; `EffectCarriers` / `EffectMachinery`;
+`EffectRowRendering` / `EffectCarrierNaming` / `GroundValueRenderer`; `RunBoundaryFunction`;
+`channel/EffectAccountingProcessor` + `MonomorphicValue.ambientCarriers` (the ground fail-safe verifier,
+codegen precondition); the `WovenValue` codegen seam; `AbilityResolver`; the `eliot.carrier` / `eliot.effect`
+packages and their dischargers; `Id` as ordinary `data` — now *honestly* written, with `runId` written beside
+it; the compile-track `Either` discharge. In the checker, exactly **one** effect rule: *a pure term meeting a
+rigid carrier-headed expected type is `pure`-lifted.*
+
+**What must not exist** — grouped as the roadmap deletes them, with today's line counts:
+
+| group | items | lines |
+| --- | --- | ---: |
+| the v2 bridge | `monomorphize/carrier/` (`Carrier` 82, `CarrierJoin` 124, `UniformLadder` 188), `check/UniformCarrierChecker` 289, and in `check/Checker`: `routeArgumentSlot`, `uniformPayloadSlot`, `uniformCaptureSlot`, `uniformCarrierSlot`, `uniformArgumentSlot`, `payloadFitsDomain`, `uniformPayloadOf`, `singleLayerCarrierDomain`, `eagerRowPinIntoDomain`, `findCarrierLayerSlots`, `uniformReturnBoundary`/`uniformReturnRoutable` | ~933 |
+| the obligation/resolver path | `check/ModeResolver` 213; `CheckState.modeObligations`/`letObligations` + `ModeObligation`/`LetObligation` + `recordModeObligation`; `Checker.genericArgSlot`/`defaultArgSlot` deferral arms + `resolveDeferredSlot` + `SlotOutcome.Deferred`/`Suspended`; `TypeStackLoop`'s splice-and-restart, its fuel, and `processIO`'s `Either` return; `RowElaborator.spliceResolvedModes` | ~350 |
+| the `Id` apparatus | `channel/IdNormalizer` 308, `PostDrainQuoter.stripIdMachinery`, `WovenValueProcessor.assertNoIdResidue` | ~340 |
+| the carrier side table | `Unifier.carrierRoles` / `isEffectCarrier` / `CarrierRole`; `CarrierKindChecker`'s carrier-role *seeding* (its kind checking stays); `EffectLifter`'s remainder beyond the one pure-lift arm and the node builders | ~400 |
+| A.8.6's uncertainty | `RowChecker`'s `uncertain` row and `Derivation.deferred`; `RowElaborationProcessor.verifyRow`'s three boundings; and — decided at A.11.6, not assumed — `check/DeclaredPureChecker` 105 | ~150 |
+| flags & experiment scaffolding | `CompilationSession.compileOnce(seedFacts)` (a production API added only for the R4 shadow compile); `jvm/test/.../RowElaborationShadowCompileTest`; the shadow half of `jvm/test/.../RowShadowSweepTest`; `lang/test/.../monomorphize/spike/UniformCarrierSpike` + `…SpikeTest` (**dead v2 scaffolding, still in the tree**); ~5 stale scaladoc references to a `uniformCarrier` gate that no longer exists | ~750 |
+
+**Arithmetic to hold the work to.** `check/` is 5,219 today; the deletions above remove ≈1,070 from it, so
+it lands ≈3,950–4,150 against the **pre-v2 baseline of 3,996** — which is §4's promise, and the number to
+check. The machinery *as a whole* goes 6,895 → ≈5,200: below the pre-v3 5,585, above the pre-v2 3,996, and
+the difference is `row/` — a phase that did not exist, now holding the work the machinery used to do. State
+it that way rather than claiming a net reduction against pre-v2.
+
+**Exit criteria, all mechanically checkable:**
+
+- `grep -rin "uniformCarrier\|CarrierJoin\|UniformLadder\|IdNormalizer\|ModeObligation\|seedFacts" lang/src jvm/src eliotc/src` → empty.
+- No `lang/src/.../monomorphize/carrier/`, no `lang/test/.../monomorphize/spike/`.
+- No env-var, system-property, CLI or constructor gate anywhere in the effect path — one code path only.
+- `check/` at or below 3,996 lines.
+- Full gate green, and **37 of 40 examples compile** (36 today + `IfDemo`, which A.10.4 found the bridge
+  causes).
+- `docs/effects-as-channel.md` retired; the CLAUDE.md cornerstone describes rows and written carriers.
+
+### A.11.1 Free now: delete the dead v2 scaffolding
+
+`lang/test/.../monomorphize/spike/UniformCarrierSpike.scala` (346) + `UniformCarrierSpikeTest.scala` (276)
+are the v2 spike, superseded by the production bridge two weeks ago and referenced by nothing. Delete, and
+purge the ~5 scaladoc references in `Checker`/`UniformLadder` to a `uniformCarrier` flag removed at U4-e —
+they make a reader look for a gate that does not exist. Zero behaviour risk; do it first so every later
+trace runs over a smaller tree.
+
+### A.11.2 Decide the accumulator question
+
+A.10.6 item 1 — an effectful combine makes `foldLeft`'s payload generic carrier-headed through a *sibling*,
+so the pure `initial` must lift. Two answers, both acceptable, with different surface prices:
+
+- **elaborator-local per-call join** over the callee's *declared* parameter shapes plus the elaborator's own
+  record of which arguments it made carrier-valued. Inside the §3 whitelist (declared facts + the
+  elaborator's own output), order-free (a join, not sequential unification), no surface cost.
+- **declared effect-transparency** on higher-order stdlib signatures (`combine: (B, A) => {G} B`,
+  `initial: B`, returning `{G} B`). Zero inference, but it walks back §1's "the entire collections/data
+  library is effect-oblivious" and changes signatures users read.
+
+**Everything downstream is mechanical once this is fixed**, which is why it is the first real step. Blocking:
+Robert's call.
+
+### A.11.3 Preserve the corpus, then the audit can run
+
+`RowShadowSweepTest.combinedProgram` is now the shared corpus (A.9.1 — the standalone "eliot-test" suite was
+folded into it), so it must move to a permanent fixture *before* the shadow harnesses can be deleted in
+A.11.9. Extract it to its own object with no shadow dependency, and repoint `RowShadowSweepTest` and
+`RowElaborationShadowCompileTest` at it.
+
+Then run the **pre-flip semantic-break audit** (§6, and the reason it is a gate rather than closeout):
+instrument the elaborator's hoist decision, run the whole gate plus all 40 examples, and enumerate every
+site where an effectful actual is hoisted into a **bare-generic** slot. Those sites are exactly the
+behaviour that changes, and the failure mode is silent (a lazy combinator becoming strict), so each is
+reviewed by hand. Output is a list, and it either confirms the break is bounded or it identifies the stdlib
+signatures that must declare suspension in A.11.5.
+
+### A.11.4 `RowElaborator` writes carrier expressions
+
+The core step. Upgrade the region walk from a positional boolean to a carrier **term**: the definition's own
+minted binder at the top, `StateCarrier[S, F]` / `DepCarrier[X, F]` / … inside a pinned or run-boundary
+region, `Id` under a pure discharge boundary. Then write it — `typeArgs` at every effectful call, every
+inserted `flatMap`/`pure`, and `runId` beside every `Id` — using the mechanism A.10.3 verified
+(`ValueReference.typeArgs`, carrier at binder 0, `recordCarrierMetas` already skipping explicit args).
+
+**The A.8.6 deferral is removed here, not extended**: rule 1 applies at bare-generic slots (effectful call
+hoists, pinned/carrier-typed value passes as data), so nothing is left for a resolver to finish. The bridge
+is still present and will simply stop firing — which is what the next steps measure before deleting it.
+
+Verify with the twin comparison (`RowElaboratorTest`, twins gaining explicit carrier args) plus the
+byte-identity oracle over all examples.
+
+### A.11.5 Convert the stdlib and jvm layers, same step
+
+Whole-program, and this is not optional: the spike showed bridge-off breaks the stdlib's own
+`runStateToValue` body (`runStateToPair(initial, p).map(first)`) because it is still direct-style with an
+inferred carrier. There is no partial rollout. Fold in the §6 signature changes here — declared-suspended
+arms on `fold`, the (textually unchanged) `if`, `orElse`'s fallbacks, plus whatever A.11.3's audit turned
+up.
+
+### A.11.6 Unbound the row check, and decide `DeclaredPureChecker`
+
+With modes decided from declarations, the R5 second slice's three boundings lose their cause: drop the
+`uncertain` row and `Derivation.deferred`, and enforce `derived ⊆ declared` for every definition (still
+modulo genuinely unknown callees, which is coverage, not uncertainty).
+
+Then **decide, do not assume**, whether `check/DeclaredPureChecker` survives. A.8.6 kept it because a
+no-ambient definition's carrier-ability call may be a constructor-class use, indistinguishable from a leak
+without the instantiation. Under written carriers the elaborator either finds a carrier for an effectful
+body or does not, and can reject at the definition with a located message — which would subsume it. Check
+the two curated diagnostics A.8.12 flagged (`def echo: String = printLine(readLine)`, and an effectful
+lambda body under a rigid pure codomain) before removing anything.
+
+### A.11.7 Delete the bridge
+
+`monomorphize/carrier/`, `UniformCarrierChecker`, and the routers in `Checker`. Trace first and delete only
+zero-fire arms — after A.11.4/A.11.5 the whole group should be cold, and any arm that still fires is a
+missing elaborator rule, i.e. a stop-and-redecide signal, not a reason to keep the arm.
+
+Keep exactly one thing from this group: the pure-lift rule (the default ladder's existing pure-wrap arm,
+against a **rigid** expected type) plus the `pureWrapNode`/`runIdNode` builders, which move to `row/` as the
+elaborator's node constructors.
+
+### A.11.8 Delete the obligation path, the `Id` apparatus, and the carrier side table
+
+Three deletions that only become possible after A.11.7, in this order:
+
+1. **Obligations** — `ModeResolver`, `CheckState`'s obligation vectors, the `Deferred`/`Suspended` outcomes,
+   `resolveDeferredSlot`, `TypeStackLoop`'s splice-and-restart and fuel, `processIO`'s `Either` return, and
+   `RowElaborator.spliceResolvedModes`. `TypeStackLoop` returns to a plain post-drain fixpoint.
+2. **`Id`** — `IdNormalizer`, `stripIdMachinery`, `assertNoIdResidue`. Note *why* this is safe now and record
+   it: `Id` is no longer an encoding the checker manufactures and a normalizer erases; it is written where it
+   belongs and typed honestly (A.10.5), so there is no residue to assert the absence of. `Id` remains
+   ordinary `data` with no `Suspend[Id]` — the soundness guard is unchanged.
+3. **The carrier side table** — `Unifier.carrierRoles`/`isEffectCarrier`/`CarrierRole` and
+   `CarrierKindChecker`'s carrier-role seeding, once nothing seeds or reads them. `CarrierKindChecker`'s
+   HKT kind seeding and post-drain verification are a separate concern and stay. `unify/CarrierRoleTest`
+   goes with the table.
+
+This is also where the cornerstone guardrail is honoured by *not* acting: the `Unifier` gains nothing.
+
+### A.11.9 Remove the experiment scaffolding and fix the test suites
+
+- **`seedFacts`**: `CompilationSession.compileOnce`'s optional parameter exists only for the R4 shadow
+  compile. Remove it with the shadow harness — a production API kept alive by one test is exactly the
+  residue this section exists to catch.
+- **Delete**: `RowElaborationShadowCompileTest`, and the shadow half of `RowShadowSweepTest` (its corpus
+  having moved in A.11.3).
+- **Delete with their machinery**: `carrier/CarrierMechanismTest`, `check/UniformCarrierCheckerTest`,
+  `check/CarrierBookkeepingTest`, `check/EffectLifterTest`, `channel/IdNormalizerTest`,
+  `unify/CarrierRoleTest`.
+- **Rewrite**: the lift group of `MonomorphicTypeCheckTest` (its generic-slot shapes currently assert the
+  *deferred v2* spellings, which stop existing) and `RowElaboratorTest`'s twins (explicit carrier args).
+- **Rename and keep**: `jvm/.../UniformCarrierCompileTest` (244) and `UniformCarrierConditionalTest` (101)
+  are v2-*named* but are behaviour gates over the real base layer — valuable regression coverage of carrier
+  shapes and of programs the pre-uniform path rejected. Rename to something the end state can justify
+  (e.g. `EffectCarrierShapesCompileTest`, `EffectConditionalAcceptanceTest`) and keep every program.
+
+### A.11.10 Docs closeout
+
+- **CLAUDE.md**: rewrite the *Effects Are a Channel (Uniform Carriers)* cornerstone. The uniform/`Id`-headed
+  judgment invariant, the carrier-meta join, and "any new consumer must Id-normalize first" all stop being
+  true; what replaces them is: rows are the surface, the elaborator *writes* the carrier, carriers are never
+  metavariables, `Id` is written where a discharge lands on a pure boundary, and the checker holds one
+  pure-lift rule.
+- **`.claude/skills/eliot-monomorphize/SKILL.md`**: drop the bridge/ladder/join description.
+- **`docs/effects-as-channel.md`** (2,002 lines): retire it. Its live-machinery guidance is deleted code by
+  this point; reduce it to a short historical note pointing here, or delete it and let git hold the history.
+- **This document**: fold A.8/A.9/A.10 into the design sections where they are now settled, and keep the
+  standing rule that §§1–7 state the decision while §8 and the appendices record what happened to it.
+- **`IfDemo`**: fix or retire it, with the A.10.4 finding recorded (the bridge caused it).
