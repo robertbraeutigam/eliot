@@ -1135,3 +1135,60 @@ architectural move, not a retirement, and it splits cleanly in two: **4a** — t
 leaving the bridge doing nothing but unification; then **4b** — rule 1 moves into `Unifier` as a
 role-keyed decomposition, and `Carrier`/`CarrierJoin`/`UniformLadder`/`UniformCarrierChecker` plus the
 routers (~930 lines) delete.
+
+#### A.8.12 Slice 4a attempted: why the boundary nodes cannot move before 4b (2026-07-27)
+
+A.8.11 split slice 4 into **4a** (the checker stops inserting `pure`/`runId`; elaboration moves to the
+desugar and the post-drain resolver, exactly as slice 2 did for binds) and **4b** (carrier-safe
+unification moves into `Unifier`). 4a was implemented and reverted. The finding is that the order is
+wrong: **4a is blocked behind 4b**, and the blocker is not effort but the `Id` encoding itself.
+
+**What was built.** A `CheckState.BoundaryObligation` recorded at the bridge's two node-inserting return
+arms (`pureIntoCarrier`, `dischargeToPure`) instead of building the node; `ModeResolver.pendingBoundaryTargets`
+classified them against the solved store at quiescence; `RowElaborator.spliceResolvedModes` grew a third
+target list and wrapped the marked body node in `pure` / `runId`; `TypeStackLoop` spliced and restarted
+through the existing A.8.7 fuel. The body was handed upstream with the boundary's own type so the
+round's inference was unaffected, and the round's output discarded by the restart.
+
+**Where it breaks.** `catch`'s declared return is its own carrier binder `G[A]`. At a pure use
+(`parsed("x") catch (err -> err)`) that instantiates to `G := Id`, so the boundary is a body of type
+`?F[String]` meeting a declared return of `Id[String]`, and the bridge takes its discharge-to-pure arm:
+default `?F := Id` and wrap the body in `runId`. That node makes the body's type `String` where the
+declaration says `Id[String]` — it is only well-typed *modulo* the downstream `Id`-normalizer, which
+erases the whole `Id` apparatus before codegen. A checker-inserted node can get away with that. A
+**source-level splice cannot**: the restarted check re-derives the body's type from the spliced
+`runId(...)` and reports the mismatch, which is exactly what the corpus produced —
+
+```
+Throw.els:79:55: Type mismatch.
+   flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))
+  Expected: String
+  Actual:   String        (the renderer erases the Id on the expected side)
+```
+
+So a share of the boundary insertions are not elaboration decisions at all — they are the same **`Id`
+encoding artifact** slice 3 removed from the judgment form, still present at declared *returns*
+instantiated at `Id`. They have no source-level spelling because there is nothing to spell: the correct
+elaboration is no node.
+
+**Narrowing does not rescue it.** Deferring only the boundaries whose expected side is a genuinely pure
+type (leaving the `Id`-headed ones on the in-checker node) compiles the whole corpus and passes the
+behavioural gate — jvm suites, all 36 compiling examples, `catch`/`sign`/discharge shapes — but it (i)
+leaves the artifact boundaries, which are most of the discharge family, exactly where they were, and
+(ii) degrades two curated diagnostics: `def echo: String = printLine(readLine)` and an effectful lambda
+body under a rigid pure codomain both stop producing their own message and fall through to the
+cryptic-but-sound "No ability implementation found for ability 'Console' with type arguments [Id]",
+because `DeclaredPureChecker` keys on a *committed mismatch* that the deferral no longer commits in that
+round. Half the work for a diagnostic regression is not a slice worth landing.
+
+(Two incidental defects the attempt surfaced and that are worth remembering when the work resumes: the
+`Effect` and `State` stubs in `MonomorphicTypeCheckTest.effectLiftImports` reference `IO` without
+importing it — latent, because nothing demanded those values before — and any harness whose snippet can
+discharge to a pure value needs an `eliot.lang.Id` stub, since a source-level `runId` resolves as an
+ordinary name where a checker-inserted one does not.)
+
+**Consequence: the split inverts.** Do **4b first** — move carrier decomposition into `Unifier` and
+settle what a declared return instantiated at `Id` means once the checker no longer has an `Id`-shaped
+judgment to lean on — and only then 4a, when every boundary node the checker writes is one the desugar
+could have written. This is the A.8.7 guardrail working as intended: a shape that needs the old
+encoding to stay well-typed is a stop-and-redecide signal, not a place to add an arm.
