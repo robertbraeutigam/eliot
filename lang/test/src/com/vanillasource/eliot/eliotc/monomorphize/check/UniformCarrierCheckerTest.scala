@@ -21,10 +21,10 @@ import org.scalatest.matchers.should.Matchers
 import java.net.URI
 
 /** The checker-side uniform-carrier bridge ([[UniformCarrierChecker]]), over directly constructed [[SemValue]]s and
-  * [[CheckState]]s — no pipeline (the harness mirrors [[EffectLifterTest]]). Pins the §12-Q1 check-time carrier-wrapping
-  * ([[UniformCarrierChecker.intoCarrierHeaded]]), the expected-slot classification reading the value's real carrier
-  * bookkeeping, the node-producing argument-slot resolution and the return boundary — the parts the live spine still
-  * routes through.
+  * [[CheckState]]s — no pipeline (the harness mirrors [[EffectLifterTest]]). Pins the actual-form classification
+  * ([[UniformCarrierChecker.actualForm]] — the recognition that replaced the manufactured `Id` head, A.8.10), the
+  * expected-slot classification reading the value's real carrier bookkeeping, the node-producing argument-slot
+  * resolution and the return boundary — the parts the live spine still routes through.
   */
 class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
 
@@ -90,32 +90,34 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
       case Left(errors)               => fail(s"computation aborted: $errors")
     }
 
-  // --- intoCarrierHeaded (the §12-Q1 check-time wrapping) ---
+  // --- actualForm (the positional recognition that replaced the manufactured Id head) ---
 
-  "intoCarrierHeaded" should "wrap a pure type in Id" in {
-    run(CheckState.initial, checker.intoCarrierHeaded(string)) shouldBe id(string)
+  "actualForm" should "classify a plain type as Pure — never manufacturing an Id head for it" in {
+    run(CheckState.initial, checker.actualForm(string)) shouldBe ActualForm.Pure(string)
   }
 
-  it should "leave an already Id-headed type untouched" in {
-    run(CheckState.initial, checker.intoCarrierHeaded(id(string))) shouldBe id(string)
+  it should "classify a genuine Id-headed type as IdCarried, keeping its payload to project" in {
+    run(CheckState.initial, checker.actualForm(id(string))) shouldBe ActualForm.IdCarried(id(string), string)
   }
 
-  it should "leave an ambient concrete carrier (IO[String]) untouched" in {
-    run(ambientIoState, checker.intoCarrierHeaded(applied(io, string))) shouldBe applied(io, string)
+  it should "classify an ambient concrete carrier (IO[String]) as Carried" in {
+    run(ambientIoState, checker.actualForm(applied(io, string)))
+      .shouldBe(ActualForm.Carried(applied(io, string), Carrier.Con(ioFQN, Nil), string))
   }
 
-  it should "leave an ambient carrier-meta application untouched" in {
+  it should "classify an ambient carrier-meta application as Carried" in {
     val (ids, st) = stateWithMetas(1)
     val carried   = applied(VMeta(ids.head, Spine.SNil), string)
-    run(st.recordEffectCarrier(ids.head), checker.intoCarrierHeaded(carried)) shouldBe carried
+    run(st.recordEffectCarrier(ids.head), checker.actualForm(carried))
+      .shouldBe(ActualForm.Carried(carried, Carrier.Var(ids.head), string))
   }
 
-  it should "never wrap a type-level judgment (VType — the §8 compile-time boundary)" in {
-    run(CheckState.initial, checker.intoCarrierHeaded(VType)) shouldBe VType
+  it should "classify a type-level judgment (VType — the §8 compile-time boundary) as Pure" in {
+    run(CheckState.initial, checker.actualForm(VType)) shouldBe ActualForm.Pure(VType)
   }
 
-  it should "wrap a pure data container (List[String]) in Id, not treat List as a carrier" in {
-    run(CheckState.initial, checker.intoCarrierHeaded(list(string))) shouldBe id(list(string))
+  it should "classify a pure data container (List[String]) as Pure, not treat List as a carrier" in {
+    run(CheckState.initial, checker.actualForm(list(string))) shouldBe ActualForm.Pure(list(string))
   }
 
   // --- classifyExpectedSlot (the surviving positional recognition, on the expected side) ---
@@ -135,23 +137,27 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
     run(CheckState.initial, checker.classifyExpectedSlot(list(string))) shouldBe ExpectedSlot.PayloadSlot(list(string))
   }
 
-  // --- carrierSlotLift (the pure-actual re-carry node, reusing EffectLifter mechanics) ---
+  // --- pureLift (the pure-actual re-carry node, reusing EffectLifter mechanics) ---
 
-  "carrierSlotLift" should "wrap the actual in pure at the expected carrier, over a runId unwrap" in {
-    val node = UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor)
+  "pureLift" should "wrap the actual in pure at the expected carrier" in {
+    val node = UniformCarrierChecker.pureLift(io, string, idCarried = false, exprOf(string), anchor)
     headRef(node).valueName.value shouldBe WellKnownTypes.effectPureFQN
   }
 
   it should "carry the [carrier, payload] type arguments on the pure reference" in {
-    headRef(UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor)).typeArguments shouldBe Seq(io, string)
+    headRef(UniformCarrierChecker.pureLift(io, string, idCarried = false, exprOf(string), anchor)).typeArguments shouldBe Seq(io, string)
   }
 
   it should "type the whole node at carrier[payload]" in {
-    UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor).expressionType shouldBe applied(io, string)
+    UniformCarrierChecker.pureLift(io, string, idCarried = false, exprOf(string), anchor).expressionType shouldBe applied(io, string)
   }
 
-  it should "unwrap the Id-carried actual with runId before re-wrapping" in {
-    headRef(argOf(UniformCarrierChecker.carrierSlotLift(io, string, exprOf(id(string)), anchor))).valueName.value shouldBe WellKnownTypes.runIdFQN
+  it should "wrap a plain actual directly, with no runId round trip" in {
+    argOf(UniformCarrierChecker.pureLift(io, string, idCarried = false, exprOf(string), anchor)) shouldBe exprOf(string)
+  }
+
+  it should "project a genuine Id-carried actual with runId before re-wrapping" in {
+    headRef(argOf(UniformCarrierChecker.pureLift(io, string, idCarried = true, exprOf(id(string)), anchor))).valueName.value shouldBe WellKnownTypes.runIdFQN
   }
 
   // --- resolveArgumentSlot (the node-producing slot resolution) ---
@@ -173,50 +179,33 @@ class UniformCarrierCheckerTest extends AnyFlatSpec with Matchers {
     val (ids, st) = stateWithMetas(1)
     val flagged   = st.recordEffectCarrier(ids.head)
     val slotType  = applied(VMeta(ids.head, Spine.SNil), string) // ?G[String], an effect-carrier CarrierSlot
-    val outcome   = run(flagged, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), slotType))
+    val outcome   = run(flagged, checker.resolveArgumentSlot(anchor, exprOf(string), string, slotType))
     headRef(outcome).valueName.value shouldBe WellKnownTypes.effectPureFQN
   }
 
   "resolveArgumentSlot at a payload slot receiving an effectful actual" should "be rejected as a compiler bug — hoisting is the desugar's rewrite, so the slot suspends instead of reaching here" in {
     an[IllegalStateException] should be thrownBy
-      run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), string))
+      run(ambientIoState, checker.resolveArgumentSlot(anchor, exprOf(applied(io, string)), applied(io, string), string))
   }
 
-  "resolveArgumentSlot at a payload slot receiving a pure actual" should "pass its payload directly via runId, not bind (a bind would strip an effectful core's carrier)" in {
+  "resolveArgumentSlot at a payload slot receiving a pure actual" should "pass the term through untouched — it already IS its payload" in {
+    run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(string), string, string)) shouldBe exprOf(string)
+  }
+
+  "resolveArgumentSlot at a payload slot receiving a genuine Id-carried actual" should "project its payload with runId" in {
     val outcome = run(CheckState.initial, checker.resolveArgumentSlot(anchor, exprOf(id(string)), id(string), string))
     (headRef(outcome).valueName.value, headRef(outcome).typeArguments, outcome.expressionType) shouldBe
       (WellKnownTypes.runIdFQN, Seq(string), string)
   }
 
-  // --- intoCarrierHeadedTerm (the eager term-level pure carrier-wrap) ---
-
-  "intoCarrierHeadedTerm" should "wrap a pure term's value in pure@Effect[Id]" in {
-    val node = run(CheckState.initial, checker.intoCarrierHeadedTerm(exprOf(string), anchor))
-    (headRef(node).valueName.value, headRef(node).typeArguments, node.expressionType) shouldBe
-      (WellKnownTypes.effectPureFQN, Seq(EffectLifter.idCarrier, string), id(string))
-  }
-
-  it should "leave an already Id-headed term unchanged" in {
-    run(CheckState.initial, checker.intoCarrierHeadedTerm(exprOf(id(string)), anchor)) shouldBe exprOf(id(string))
-  }
-
-  it should "leave an already effectful (ambient IO) term unchanged" in {
-    run(ambientIoState, checker.intoCarrierHeadedTerm(exprOf(applied(io, string)), anchor)) shouldBe exprOf(applied(io, string))
-  }
-
-  it should "never wrap a type-level term (VType — the §8 boundary)" in {
-    run(CheckState.initial, checker.intoCarrierHeadedTerm(exprOf(VType), anchor)) shouldBe exprOf(VType)
-  }
-
   // --- checkReturnBoundary (the uniform return-boundary resolver) ---
 
-  "checkReturnBoundary of a pure body against a pure return" should "re-carry via a (downstream-erased) pure@Id lift" in {
-    val node = run(CheckState.initial, checker.checkReturnBoundary(exprOf(id(string)), id(string), string, anchor))
-    (headRef(node).valueName.value, headRef(node).typeArguments) shouldBe (WellKnownTypes.effectPureFQN, Seq(EffectLifter.idCarrier, string))
+  "checkReturnBoundary of a pure body against a pure return" should "emit no node at all — there is no carrier to lift into" in {
+    run(CheckState.initial, checker.checkReturnBoundary(exprOf(string), string, string, anchor)) shouldBe exprOf(string)
   }
 
   "checkReturnBoundary of a pure body against an ambient IO return" should "lift the body into IO with pure@Effect[IO]" in {
-    val node = run(ambientIoState, checker.checkReturnBoundary(exprOf(id(string)), id(string), applied(io, string), anchor))
+    val node = run(ambientIoState, checker.checkReturnBoundary(exprOf(string), string, applied(io, string), anchor))
     (headRef(node).valueName.value, headRef(node).typeArguments) shouldBe (WellKnownTypes.effectPureFQN, Seq(io, string))
   }
 

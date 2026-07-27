@@ -160,8 +160,8 @@ import eliot.effect.Console
   // Effectful `catch` handler (docs/effects-as-channel.md §7): `catch`'s handler is `onError: E => G[A]`, so the
   // recovery may itself perform effects on the same carrier — `catch (err -> printLine(err))` logs the failure and
   // recovers to Unit. The row-directed-at-elaboration pin (finding 13 §4) keeps the discharged computation's error
-  // slot from junk-grounding, and the single-node `carrierSlotLift` (finding 3, at the return boundary) keeps a *pure*
-  // handler body from double-wrapping into a `ClassCastException` — so both effectful and pure handlers compose.
+  // slot from junk-grounding, and the single-node `pureLift` at the return boundary keeps a *pure* handler body from
+  // double-wrapping into a `ClassCastException` — so both effectful and pure handlers compose.
   "an effectful catch handler" should "run its own effect while recovering the raised value" in {
     // A pure handler (`err -> err`, recovering to a value) and an effectful handler (`err -> printLine(err)`, logging on
     // the same `{Console}` carrier) compose in one block. `failUnit` succeeds with `Unit`, so its handler's `printLine`

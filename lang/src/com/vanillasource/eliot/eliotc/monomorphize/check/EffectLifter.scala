@@ -290,8 +290,9 @@ class EffectLifter(
 object EffectLifter {
 
   /** The identity carrier `Id`, in the canonical unapplied [[VTopDef]] form the compiler track pins `Either` carriers
-    * with — the value [[EffectLifter.tryIdDefault]] solves a pure boundary's still-flex residual carrier to, and the
-    * carrier of a pure term under uniform carriers (docs/effects-as-channel.md).
+    * with — the carrier a fully-discharged body's residual meta defaults to at a pure boundary
+    * ([[UniformCarrierChecker.checkReturnBoundary]]). It is no longer *manufactured* for pure judgments: a pure term is
+    * simply not carried (docs/effects-as-rows.md A.8.10), so this only builds the type of a genuine `Id` value.
     */
   val idCarrier: SemValue = VTopDef(WellKnownTypes.idFQN, None, Spine.SNil)
 

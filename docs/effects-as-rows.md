@@ -3,7 +3,8 @@
 Status: **R1–R4 COMPLETE; R5 FLIP LANDED under the A.8.6 resolution, row verification wired, and the
 A.8.7 RESOLVER IMPLEMENTED AND LIVE (post-drain resolution at quiescence; runtime generic-slot modes are
 now suspended obligations, classified at quiescence, with splice-and-restart) — 2026-07-26, full gate
-green. Next: the checker-machinery deletion slices against the resolver.** Successor direction to
+green. Deletion slices 1–3 landed (A.8.8/A.8.9/A.8.10, 2026-07-27): the checker inserts zero binds and
+no longer manufactures `Id`. Next: slice 4, the carrier-safe *unification* routers.** Successor direction to
 `docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
 arms — stays live underneath until the deletion slices retire it against the resolver). The row
 checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
@@ -206,9 +207,12 @@ trace over the whole gate rather than by inspection. Slice 1 (unreachable arms):
 uniform methods. Slice 2 (a live decision moved, then deleted): the checker no longer inserts a
 single bind on the runtime track — the bridge's whole `UniformSlotOutcome`/`Bound` path,
 `SlotOutcome.Bound` with `suspendBoundSlot`, the spine's bind fold and `EffectLifter.wrapBinds` are
-gone, the elaboration decision having moved to the desugar and the post-drain resolver. What remains
-of the list is carrier-safe *unification*, which the row channel must absorb next — see A.8.9's
-closing paragraph.
+gone, the elaboration decision having moved to the desugar and the post-drain resolver. Slice 3
+(A.8.10, an *encoding* removed): the checker no longer manufactures an `Id` head for pure judgments —
+`intoCarrierHeaded`/`intoCarrierHeadedTerm` and the uniform-carrier judgment invariant are deleted, and
+the bridge classifies a term's form instead, so ~95% of the machinery (a wrap the `Id`-normalizer
+existed to erase again) is simply not written. What remains of the list is carrier-safe *unification*,
+which the row channel must absorb next — see A.8.10's closing paragraph.
 
 **Stays:** `EffectRow` facts and the pinned tags (`returnPinned`/`pinnedParameterIndices` — consumed
 by the desugar instead of the checker); pinned-row surface and semantics; the dischargers and the
@@ -984,3 +988,69 @@ carrier-slot pure lift, the pinned capture with its eager row pin, `payloadFitsD
 return boundary's four arms, `Carrier`/`CarrierJoin`/`UniformLadder`, and `IdNormalizer`. What they do
 is no longer effect *elaboration*; it is carrier-safe unification, which is what §4's "the checker
 ends with zero effect code" needs the row channel to absorb next.
+
+#### A.8.10 Deletion slice 3: the checker stops manufacturing `Id` (2026-07-27)
+
+Slices 1 and 2 removed *elaboration* decisions. Slice 3 attacks what was left of the v2 bridge, and the
+outcome trace showed at once that most of it was not a decision at all but an **encoding**.
+
+**The invariant, and what it cost.** v2's uniform bridge made every runtime judgment carrier-headed *by
+construction*: a pure type `T` was wrapped `Id[T]` (`intoCarrierHeaded`) and a pure term was wrapped
+`pure@Effect[Id](term)` (`intoCarrierHeadedTerm`), so `Carrier.split` could peel a carrier off
+unconditionally at every slot and boundary. Downstream the `Id`-normalizer erased the whole apparatus
+again. Traced at outcome granularity over the full gate (871 targets / 1,567 tests plus a compile of all
+40 examples), that round trip was overwhelmingly the identity:
+
+| arm | before | after |
+| --- | ---: | ---: |
+| `intoCarrierHeadedTerm/idWrap` — a pure term wrapped `pure@Effect[Id]` | 6,641 | *arm deleted* |
+| `intoCarrierHeadedTerm/pass` — already headed, nothing to do | 5,282 | *arm deleted* |
+| `uniformSlot/purePayloadPass` — `runId(...)` undoing the wrap at a payload slot | 4,504 | **0** |
+| `uniformSlot/idPayloadUnwrap` — a *genuine* `Id[T]` value projected | — | 2 |
+| `return/pureIntoCarrier` — a pure body lifted into the declared return | 2,233 | 147 |
+| `return/purePass` — a pure body meeting a plain return, **no node** | — | 2,081 |
+| `return/dischargeToPure` — the genuine `runId` at a fully-discharged pure boundary | 57 | 53 |
+| `uniformSlot/carrierPureLift` — a pure actual lifted into a carrier slot | 39 | 37 |
+
+(Counts drift by a few between runs — the pipeline is demand-driven and the suites fork — so read the
+orders of magnitude, not the last digit. The behavioural gate is the byte-identical program output below.)
+
+The 4,504 payload-slot unwraps were exactly `runId(pure@Id(x))` — a wrap the checker had just written,
+stripped one step later — and of 793 distinct `pureIntoCarrier` return-boundary *sites*, 756 lifted into
+`Id` itself. Roughly 95% of the machinery existed to be erased.
+
+**The change.** The bridge no longer wraps; it **classifies**. `UniformCarrierChecker.actualForm` reads
+the same positional recognition the rest of the effect machinery uses (`effectCarrierSplit` — the value's
+ambient carriers and the unifier's carrier-role flags) plus the compiler-owned `Id` head, and yields one
+of three `UniformLadder.ActualForm`s: `Carried(C, T)`, `IdCarried(T)` — a **genuine** `Id[T]` value, the
+identity carrier used as ordinary data inside `runId` / an `Effect[Id]` instance — or `Pure(T)`, a term
+that simply is not on a carrier. Each ladder arm then reads the actual's form beside the expected slot's
+tag, and a pure term needs no node at all unless the position is carrier-**headed**.
+
+**The asymmetry the re-trace caught.** A first cut classified only a literal `Id[T]` as needing its payload
+projected, and `carrierPureLift` collapsed from 39 firings to 1. The missing 38 were computations whose
+*carrier metavariable had already been solved to `Id`*: `Carrier.split` had reported them as pure (the
+`resolve`d carrier is bottom) while `effectCarrierSplit` reports them as carried (the head is still a
+role-flagged meta). Passing such a term through unchanged would put an `Id[..]`-typed value in a `?G[..]`
+slot, and the join — for which `Id` is *no contribution* — would not object. So the `CarrierSlot` arm
+resolves the actual's carrier first and returns `PureLift(projectPayload = true)` when it is bottom, which
+is v2's `PassJoin(pureActual)` verbatim. The same rule at the return boundary is `headed(bodyForm)`. This
+is the fail-safe direction and the reason the slice is measured twice, before and after.
+
+**Deleted:** `intoCarrierHeaded` / `intoCarrierHeadedTerm` and the `Id`-uniform judgment invariant they
+enforced; `isCarrierHeaded`; `carrierSlotLift`'s `unwrapPureId` shortcut (the double-wrap it defended
+against — a `pure@Effect[C](runId(pure@Id(x)))` that mis-erased into a `ClassCastException`, finding 3 —
+can no longer arise, since nothing writes the inner `pure@Id`), the shortcut's host renamed to the honest
+`pureLift`; and `UniformLadder.Outcome.Bound`, whose payload-slot bind arm became `PayloadPass` /
+`PayloadUnwrap` / `PayloadBound` (the last unreachable by construction, a compiler-bug throw at the
+bridge, still exercised by the mechanism suite for its carrier-safety property).
+
+Gate after the slice: **identical** — 871 targets green, the same 36 of 40 examples compiling
+(`IfDemo` and the three `Plugin*` fragments were already failing), and all 36 programs' output
+byte-identical to a baseline worktree built at the pre-slice commit.
+
+Still live for the next slice: the routers (`uniformPayloadSlot` / `uniformCaptureSlot` /
+`uniformCarrierSlot`, `payloadFitsDomain`, the pinned capture with its eager row pin), the return
+boundary's remaining arms, `Carrier`/`CarrierJoin`/`UniformLadder` and `IdNormalizer`. With the `Id`
+encoding gone, what those do is visible for what it is — **carrier-safe unification**, the last thing
+§4 needs the row channel to absorb before the checker holds no effect code at all.

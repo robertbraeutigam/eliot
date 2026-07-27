@@ -266,21 +266,17 @@ class Checker(
         throw new IllegalStateException(s"Return-boundary resolution produced a non-Resolved outcome: $other")
     }
 
-  /** The uniform return boundary (docs/effects-as-channel.md §3, U3a-2b(ii)): bring the body carrier-headed
-    * ([[UniformCarrierChecker.intoCarrierHeadedTerm]] — a pure `T` value ⤳ `pure@Effect[Id](T)`) and resolve it against
-    * the declared return through the bridge ([[UniformCarrierChecker.checkReturnBoundary]] — join the carriers, unify the
-    * payloads, re-carry the pure body). For the plain pure case this slice routes here, every inserted `pure@Id`/`runId`
-    * is erased by the downstream Id-normalization stage, so the emitted body is byte-identical to the default path.
+  /** The uniform return boundary (docs/effects-as-channel.md §3, U3a-2b(ii)): resolve the body against the declared
+    * return through the bridge ([[UniformCarrierChecker.checkReturnBoundary]] — join the carriers, unify the payloads,
+    * lift a pure body into a carrier-headed return). A pure body meeting a plain declared return needs no node at all
+    * (A.8.10 — the checker no longer manufactures an `Id` head just to strip it again downstream).
     */
   private def uniformReturnBoundary(
       tm: Sourced[OperatorResolvedExpression],
       expr: SemExpression,
       expected: SemValue
   ): CheckIO[SemExpression] =
-    for {
-      headed <- uniformChecker.intoCarrierHeadedTerm(expr, tm)
-      result <- uniformChecker.checkReturnBoundary(headed, headed.expressionType, expected, tm)
-    } yield result
+    uniformChecker.checkReturnBoundary(expr, expr.expressionType, expected, tm)
 
   /** Effects-as-channel U3a-2b(ii) (docs/effects-as-channel.md §10) — gated on [[uniformCarrier]]: whether a return
     * boundary is a **value** return the uniform bridge resolves today, pure *or* effect-carrier-headed
@@ -1018,11 +1014,10 @@ class Checker(
     * then routed through [[uniformArgumentSlot]] when it is a carrier-headed value whose payload fits the domain by pure
     * definitional equality:
     *
-    *   - a **pure** actual (a plain `VTopDef` value) ⇒ its payload passes directly (the bridge returns `Passed(runId …)`,
-    *     erased downstream — byte-identical to the default direct pass);
-    *   - an **effectful** actual (`?F[String]`, an ambient/role effect carrier) ⇒ it *binds* (the bridge returns
-    *     `Bound`, folded by the spine's `wrapBinds` into `flatMap`/`map` — the effect runs at the call site, exactly as
-    *     the default `tryBindLift` produces).
+    *   - a **pure** actual (a plain `VTopDef` value) ⇒ it passes directly, with no node at all — it already *is* its
+    *     payload (A.8.10; a manufactured `Id` head used to be wrapped here and stripped again downstream);
+    *   - an **effectful** actual (`?F[String]`, an ambient/role effect carrier) ⇒ the slot **suspends**: sequencing it
+    *     is the *hoist*, which the row desugar owns and the post-drain [[ModeResolver]] splices (A.8.9).
     *
     * A function/polytype/type-level or ill-fitting argument (no carrier-headed payload, or a payload that does not fit)
     * falls back to [[defaultArgSlot]] with the already-instantiated argument (a no-op re-instantiation), so flag-off and
@@ -1043,7 +1038,7 @@ class Checker(
       //     `printLine(readLine)` (`String` fits `String`), and crucially the compound-state case `items : ?F[List[X]]`
       //     into `foldLeft`'s `list : List[A]` (`List[X]` fits `List[A]`, `A := X`), which the default path *rejects*
       //     because the equal-arity unify steals the carrier (`?F := List`, then `Effect[List]` has no instance). A pure
-      //     actual whose payload fits passes directly (`runId`, erased).
+      //     actual whose payload fits passes directly, with no node at all — it already *is* its payload.
       //   - **payload does NOT fit** ⇒ [[uniformCaptureSlot]]: either a **capture** — the whole effectful actual's carrier
       //     partial-applies a carrier-stack / pinned domain (a discharger's `computation: {Abort | G} A` ⤳
       //     `AbortCarrier[G, A]`, `runMain`'s `IO[A]`; the actual's *payload* `Option[?E]` does not fit `AbortCarrier`,
@@ -1068,7 +1063,7 @@ class Checker(
       outcome                     <- if (payloadFits && actualCarrier.nonEmpty) {
                                        pure(SlotOutcome.Deferred(updatedExpr, instantiated, domain): SlotOutcome)
                                      } else if (payloadFits) {
-                                       uniformArgumentSlot(arg, updatedExpr, domain)
+                                       uniformArgumentSlot(arg, updatedExpr, instantiated, domain)
                                      } else {
                                        uniformCaptureSlot(arg, updatedExpr, instantiated, domain, pinned)
                                      }
@@ -1123,7 +1118,7 @@ class Checker(
                          // error slot from the argument's row constraints, so the join solves `?F := ThrowCarrier[String, ?G]`
                          // with the error slot already `String` rather than junk-grounding.
                          _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
-                         out <- uniformArgumentSlot(arg, updatedExpr, domain, forcePinnedCarrier = true)
+                         out <- uniformArgumentSlot(arg, updatedExpr, instantiated, domain, forcePinnedCarrier = true)
                        } yield out
                      else
                        for {
@@ -1253,9 +1248,10 @@ class Checker(
     *   - **effectful actual** (`?F[Unit]`, a carrier-headed sibling) ⇒ [[defaultArgSlot]]: its carrier meta unifies with
     *     `?G` correctly (`?G := ?F`), the same as the default path — no theft hazard, so no reshaping needed.
     *
-    * Reuses [[EffectLifter.tryPureWrap]] unchanged (reshape, not rebuild) — the clean single `pure@Effect[?G](arg)` node
-    * the default path emits, *not* the eager-heading double-wrap `pure(runId(pure@Id(arg)))`, whose inner `pure@Id`
-    * confuses the outer `pure`'s `Effect` instance resolution and mis-erases it. `if`'s `value` arm is a single slot
+    * Reuses [[EffectLifter.tryPureWrap]] unchanged (reshape, not rebuild) — the clean single `pure@Effect[?G](arg)` node,
+    * which is now the only shape there is: with no manufactured `Id` head (A.8.10) the historical double-wrap
+    * `pure(runId(pure@Id(arg)))`, whose inner `pure@Id` confused the outer `pure`'s `Effect` instance resolution and
+    * mis-erased it, can no longer be built. `if`'s `value` arm is a single slot
     * (no pure/effectful *sibling* in one call — that is `fold`'s `Generic` case), so the full `CarrierJoin` lattice is
     * not needed here.
     */
@@ -1274,7 +1270,7 @@ class Checker(
       // handing off to [[defaultArgSlot]]. Byte-identical to the default whole-unify (`?F[Unit] ~ ?G[T]` ⇒ `?G := ?F`,
       // `T := Unit`, slot expr unchanged); exercised by `report`'s `if(flag, printLine("on"))` in the byte-identical gate.
       outcome                     <- if (effectful) {
-                                       uniformArgumentSlot(arg, updatedExpr, domain)
+                                       uniformArgumentSlot(arg, updatedExpr, instantiated, domain)
                                      } else
                                        lifter.tryPureWrap(arg, updatedExpr, instantiated, domain).flatMap {
                                          case Some(wrapped) =>
@@ -1296,21 +1292,20 @@ class Checker(
       plain  <- uniformPlainValueType(forced)
     } yield split.map(_._2).orElse(Option.when(plain)(forced))
 
-  /** Bring a routable argument carrier-headed ([[UniformCarrierChecker.intoCarrierHeadedTerm]] — a pure actual becomes
-    * `pure@Id`, an effectful actual is left as-is) and resolve it through [[UniformCarrierChecker.resolveArgumentSlot]],
-    * which now only ever *passes* the slot: an argument the elaboration must sequence never reaches here — it is
-    * hoisted by the desugar up front, or suspended and spliced by the post-drain [[ModeResolver]].
+  /** Resolve a routable argument through [[UniformCarrierChecker.resolveArgumentSlot]], which now only ever *passes*
+    * the slot: an argument the elaboration must sequence never reaches here — it is hoisted by the desugar up front,
+    * or suspended and spliced by the post-drain [[ModeResolver]].
     */
   private def uniformArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
       argExpr: SemExpression,
+      argType: SemValue,
       domain: SemValue,
       forcePinnedCarrier: Boolean = false
   ): CheckIO[SlotOutcome] =
-    for {
-      headed  <- uniformChecker.intoCarrierHeadedTerm(argExpr, arg)
-      outcome <- uniformChecker.resolveArgumentSlot(arg, headed, headed.expressionType, domain, forcePinnedCarrier)
-    } yield SlotOutcome.Resolved(outcome)
+    uniformChecker
+      .resolveArgumentSlot(arg, argExpr, argType, domain, forcePinnedCarrier)
+      .map(SlotOutcome.Resolved(_))
 
   /** Whether `expr` is an unannotated function literal `(x -> body)`. Its parameter type cannot be inferred from the
     * literal alone; when it is *immediately applied* the type is taken from the argument (see [[typeImmediateLambda]]).

@@ -54,19 +54,28 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
   /** Force a payload meta to its solution for assertions. */
   private def solved(u: Unifier, id: Int): SemValue = Evaluator.force(meta(id), u.metaStore)
 
+  /** A **carried** actual — a judgment the checker's positional recognition tagged as sitting on an effect carrier. */
+  private def carried(judgment: SemValue): ActualForm = {
+    val (carrier, payload) = Carrier.split(judgment)
+    ActualForm.Carried(judgment, carrier, payload)
+  }
+
+  /** A genuine `Id[T]` actual — the identity carrier as ordinary data, whose payload is projected with `runId`. */
+  private def idCarried(payload: SemValue): ActualForm = ActualForm.IdCarried(id(payload), payload)
+
   /** Run a spine of `(actual, expectedSlot)` pairs left-to-right, then default the named carrier metas. Returns the
-    * finalized unifier, the slots whose actual was **pure** (the ones the caller re-carries with a `pure` lift —
-    * `Outcome.PassJoin(true)`), and every outcome in order.
+    * finalized unifier, the slots the caller re-carries with a `pure` lift ([[Outcome.PureLift]]), and every outcome
+    * in order.
     */
   private def runSpine(
-      slots: List[(SemValue, ExpectedSlot)],
+      slots: List[(ActualForm, ExpectedSlot)],
       carrierMetaIds: List[Int]
   ): (Unifier, List[Outcome], List[Outcome]) = {
     val (u, outs) = slots.foldLeft((fresh, List.empty[Outcome])) { case ((acc, os), (actual, expected)) =>
       val (acc2, out) = UniformLadder.resolveSlot(acc, actual, expected, ctx)
       (acc2, os :+ out)
     }
-    (CarrierJoin.finalize(u, carrierMetaIds.map(MetaId(_))), outs.filter(_ == Outcome.PassJoin(true)), outs)
+    (CarrierJoin.finalize(u, carrierMetaIds.map(MetaId(_))), outs.filter { case _: Outcome.PureLift => true; case _ => false }, outs)
   }
 
   // =================================================================================================================
@@ -76,13 +85,13 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
   // --- Case 1: ?F[List[String]] ~ List[A]  (compound-state / eliot.file class, CONCRETE payload) -------------------
 
   "case 1 (?F[List[String]] ~ List[A])" should "unify payload-with-payload, solving A := String, carrier untouched" in {
-    val (u, _, out) = runSpine(List(meta(1, list(string)) -> ExpectedSlot.PayloadSlot(list(meta(2)))), List(1))
+    val (u, _, out) = runSpine(List(carried(meta(1, list(string))) -> ExpectedSlot.PayloadSlot(list(meta(2)))), List(1))
     solved(u, 2) shouldBe string
-    out.head shouldBe Outcome.Bound(Carrier.Var(MetaId(1)))
+    out.head shouldBe Outcome.PayloadBound
   }
 
   it should "never let the container steal the carrier meta (A is String, not List[String])" in {
-    val (u, _, _) = runSpine(List(meta(1, list(string)) -> ExpectedSlot.PayloadSlot(list(meta(2)))), List(1))
+    val (u, _, _) = runSpine(List(carried(meta(1, list(string))) -> ExpectedSlot.PayloadSlot(list(meta(2)))), List(1))
     solved(u, 2) should not be list(string)
   }
 
@@ -97,9 +106,9 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
   // --- Case 4: ?F[?S] ~ List[X]  (compound-state equal-arity, FLEX payload) ----------------------------------------
 
   "case 4 (?F[?S] ~ List[X], equal arity)" should "bind the payload (?S := List[X]), not steal the carrier" in {
-    val (u, _, out) = runSpine(List(meta(1, meta(2)) -> ExpectedSlot.PayloadSlot(list(con("X")))), List(1))
+    val (u, _, out) = runSpine(List(carried(meta(1, meta(2))) -> ExpectedSlot.PayloadSlot(list(con("X")))), List(1))
     solved(u, 2) shouldBe list(con("X"))
-    out.head shouldBe Outcome.Bound(Carrier.Var(MetaId(1)))
+    out.head shouldBe Outcome.PayloadBound
   }
 
   it should "differ from the real unifier's naive theft (?F := List, ?S := X)" in {
@@ -129,19 +138,19 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
 
   "case 3 (if(c, None) else Some(x))" should "solve the element to Int, carrier defaulting to Id, either arm order" in {
     val arms = List(
-      id(opt(meta(11))) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10))), // None
-      id(opt(intT))     -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10)))  // Some(x)
+      idCarried(opt(meta(11))) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10))), // None
+      idCarried(opt(intT))     -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10)))  // Some(x)
     )
     val (u, lifts, _) = runSpine(arms, List(9))
     solved(u, 10) shouldBe intT
     CarrierJoin.resolve(u, Carrier.Var(MetaId(9))) shouldBe Carrier.Bottom
-    lifts shouldBe List(Outcome.PassJoin(true), Outcome.PassJoin(true)) // both arms pure, so both lift at the Id-defaulted carrier — no machinery ships
+    lifts shouldBe List(Outcome.PureLift(projectPayload = true), Outcome.PureLift(projectPayload = true)) // both arms pure, so both lift at the Id-defaulted carrier — no machinery ships
   }
 
   it should "give the same result with the arms swapped (Some first)" in {
     val arms = List(
-      id(opt(intT))     -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10))),
-      id(opt(meta(11))) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10)))
+      idCarried(opt(intT))     -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10))),
+      idCarried(opt(meta(11))) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(9)), opt(meta(10)))
     )
     solved(runSpine(arms, List(9))._1, 10) shouldBe intT
   }
@@ -152,8 +161,8 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
 
   "an all-effectful conditional if(c, printLine(a)) else printLine(b)" should "resolve the ambient carrier to IO" in {
     val arms = List(
-      io(unit) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(3)), meta(4)),
-      io(unit) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(3)), meta(4))
+      carried(io(unit)) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(3)), meta(4)),
+      carried(io(unit)) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(3)), meta(4))
     )
     val (u, lifts, _) = runSpine(arms, List(3))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(3))) shouldBe ioCarrier
@@ -163,37 +172,37 @@ class CarrierMechanismTest extends AnyFlatSpec with Matchers {
 
   "a mixed conditional if(c, readLine) else \"default\"" should "join to IO and lift ONLY the pure arm, order-independently" in {
     val arms = List(
-      io(string) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6)),
-      id(string) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6))
+      carried(io(string)) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6)),
+      idCarried(string) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6))
     )
     val (u, lifts, _) = runSpine(arms, List(5))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(5))) shouldBe ioCarrier
     solved(u, 6) shouldBe string
-    lifts shouldBe List(Outcome.PassJoin(true)) // only the pure arm is flagged, and it lifts at the joined carrier
+    lifts shouldBe List(Outcome.PureLift(projectPayload = true)) // only the pure arm is flagged, and it lifts at the joined carrier
   }
 
   it should "still lift the pure arm when it is seen FIRST (no premature Id commitment)" in {
     val arms = List(
-      id(string) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6)), // pure arm first
-      io(string) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6))
+      idCarried(string) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6)), // pure arm first
+      carried(io(string)) -> ExpectedSlot.CarrierSlot(Carrier.Var(MetaId(5)), meta(6))
     )
     val (u, lifts, _) = runSpine(arms, List(5))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(5))) shouldBe ioCarrier
-    lifts shouldBe List(Outcome.PassJoin(true))
+    lifts shouldBe List(Outcome.PureLift(projectPayload = true))
   }
 
   "a generic slot (fold's arm B)" should "receive the whole carrier-headed action by pass-through" in {
-    val (u, lifts, out) = runSpine(List(io(unit) -> ExpectedSlot.Generic(MetaId(20))), Nil)
+    val (u, lifts, out) = runSpine(List(carried(io(unit)) -> ExpectedSlot.Generic(MetaId(20))), Nil)
     solved(u, 20) shouldBe io(unit) // the suspended action IS the value of B
     out.head shouldBe Outcome.PassWhole
     lifts shouldBe Nil
   }
 
   "runMain(main) with main : ?G[Unit]" should "bind the ambient carrier to the platform's IO, no config key" in {
-    val (u, _, out) = runSpine(List(meta(30, unit) -> ExpectedSlot.CarrierSlot(ioCarrier, meta(31))), List(30))
+    val (u, _, out) = runSpine(List(carried(meta(30, unit)) -> ExpectedSlot.CarrierSlot(ioCarrier, meta(31))), List(30))
     CarrierJoin.resolve(u, Carrier.Var(MetaId(30))) shouldBe ioCarrier
     solved(u, 31) shouldBe unit
-    out.head shouldBe Outcome.PassJoin(false)
+    out.head shouldBe Outcome.PassJoin
   }
 
   // =================================================================================================================

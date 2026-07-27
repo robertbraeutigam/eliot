@@ -4,15 +4,15 @@ import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 
-/** The **uniform-carrier** value of a runtime term judgment (docs/effects-as-channel.md §2–§3), productionised from the
-  * U2 foundation spike ([[com.vanillasource.eliot.eliotc.monomorphize.spike.UniformCarrierSpike]]) onto the real
-  * [[SemValue]] domain. This is the U3a foundation the checker wiring consumes; it is **not yet wired into the
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker]]**, so the default compiler path stays byte-identical.
+/** The **carrier** of a runtime term judgment (docs/effects-as-channel.md §2–§3): the head a computation sits under,
+  * with `Id` as the lattice bottom.
   *
-  * Under uniform carriers every runtime term's checked type is carrier-headed with the carrier *outermost by
-  * construction* — `Id[String]` for a pure string, `IO[String]` for `readLine`, `Id[List[String]]` for a pure list.
-  * Carrierhood is therefore *positional*, never a "is this type a carrier?" query on an arbitrary type — the endgame the
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]] treadmill could not win. A [[Carrier]] is one of:
+  * Carrierhood is *positional* — read from the value's own carrier bookkeeping — never a "is this type a carrier?"
+  * query on an arbitrary type, the endgame the [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]]
+  * treadmill could not win. It is not, however, *universal*: the checker no longer manufactures an `Id` head for a pure
+  * judgment (docs/effects-as-rows.md A.8.10), so a term is classified into a
+  * [[com.vanillasource.eliot.eliotc.monomorphize.carrier.UniformLadder.ActualForm]] and only a genuinely carried one
+  * has a [[Carrier]] to split off. A [[Carrier]] is one of:
   *
   *   - [[Carrier.Bottom]] — the pure carrier `Id` ([[WellKnownTypes.idFQN]]), the **lattice bottom** *everywhere*
   *     (never a concrete carrier value — collapsing this is what keeps a pure arm of a conditional from committing an
@@ -40,8 +40,9 @@ object Carrier {
   /** An unsolved carrier metavariable — bottom until a non-`Id` contribution joins into it. */
   case class Var(id: MetaId) extends Carrier
 
-  /** Split a carrier-headed runtime judgment `C[T]` into its carrier and payload — **positional and total**, because
-    * every runtime term is carrier-headed by construction (the elaboration invariant). A multi-argument carrier stack
+  /** Split a **carrier-headed** runtime judgment `C[T]` into its carrier and payload. Only ever applied to a judgment
+    * the positional recognition already classified as carried (or to an *expected* slot the elaboration tagged), never
+    * to an arbitrary type. A multi-argument carrier stack
     * (`StateCarrier[S, G, A]`) keeps the leading prefix as the carrier and the *last* argument as the payload, exactly
     * as [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.effectCarrierSplit]] does today.
     *

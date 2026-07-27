@@ -14,25 +14,24 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** The **checker-side bridge** for the uniform-carrier foundation (docs/effects-as-channel.md §3, U3a) — it lifts the
   * pure domain mechanism ([[com.vanillasource.eliot.eliotc.monomorphize.carrier.Carrier]] /
   * [[com.vanillasource.eliot.eliotc.monomorphize.carrier.CarrierJoin]] /
-  * [[com.vanillasource.eliot.eliotc.monomorphize.carrier.UniformLadder]], landed in U3a-1) into [[CheckIO]], reading and
-  * writing the shared [[CheckState.unifier]] the way [[EffectLifter]] and [[CarrierKindChecker]] do.
+  * [[com.vanillasource.eliot.eliotc.monomorphize.carrier.UniformLadder]]) into [[CheckIO]], reading and writing the
+  * shared [[CheckState.unifier]] the way [[EffectLifter]] and [[CarrierKindChecker]] do.
   *
-  * It is the **checker-side half of U3a-2**, built and unit-tested in isolation (like [[EffectLifterTest]]) **before the
-  * spine-loop flip constructs and calls it** — so nothing in the default compiler path references it yet and the path
-  * stays byte-identical (it also avoids the `desugarChannel`/`EffectAccounting` coupling the U3-0b finding flagged,
-  * which the actual flip must untangle together). When the flip lands, the [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker]]
-  * constructs this beside [[EffectLifter]] and routes the spine slots through it; the node *splicing* of a materialised
-  * lift reuses [[EffectLifter]]'s existing `bindWrap`/`tryPureWrap` mechanics (reshaped, not rebuilt).
+  * What survives here is **carrier-safe unification**, not effect elaboration: the row desugar
+  * ([[com.vanillasource.eliot.eliotc.row.RowElaborator]]) writes every bind and the post-drain [[ModeResolver]] decides
+  * the positions it deferred, so this bridge only ever *passes* a slot — joining carriers so a carrier meta is never
+  * stolen by first-contact unification, and lifting a pure term into a carrier position with `Effect.pure`.
   *
-  * =The §12-Q1 decision: check-time carrier-wrapping=
+  * =No manufactured `Id` (docs/effects-as-rows.md A.8.10)=
   *
-  * Pure signatures/terms are brought into carrier-headed form **here, at check time** ([[intoCarrierHeaded]]: a pure
-  * `T` ⤳ `Id[T]`), rather than by a `core`-phase desugar rewrite. This localises the uniform elaboration to the
-  * checker (the flip's home), leaves `EffectSugarDesugarer` and the surface untouched, and keeps the change clear of the
-  * `desugarChannel` deletion. The recognition it needs — "is this return already carrier-headed?" — is *not* the
-  * undecidable "is an arbitrary type a carrier?" the [[EffectLifter]] treadmill fought: it is the **positional** read of
-  * the value's own already-recorded carrier bookkeeping ([[CheckState.ambientCarriers]] / [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.carrierRoles]]
-  * via the reused `effectCarrierSplit`) plus the compiler-owned `Id` head.
+  * The v2 form of this bridge made every runtime judgment carrier-headed by **wrapping** pure ones (`T` ⤳ `Id[T]`, the
+  * term ⤳ `pure@Effect[Id](term)`) so its slot arms could split a carrier off unconditionally; the `Id`-normalizer then
+  * erased the apparatus again. An arm-liveness trace over the full gate measured that round trip at ~95% identity, so
+  * the wrapping is gone: a judgment is *classified* instead ([[actualForm]]) by the same positional recognition the
+  * rest of the effect machinery uses — the value's own carrier bookkeeping ([[CheckState.ambientCarriers]] /
+  * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.carrierRoles]] via the reused `effectCarrierSplit`) plus
+  * the compiler-owned `Id` head. It is never the undecidable "is an arbitrary type a carrier?" question the
+  * [[EffectLifter]] treadmill fought.
   *
   * @param force
   *   Force a SemValue through the current meta store — the checker's `force`.
@@ -45,45 +44,42 @@ class UniformCarrierChecker(
     effectCarrierSplit: SemValue => CheckIO[Option[(SemValue, SemValue)]]
 ) {
 
-  /** The identity carrier `Id`, unapplied — the pure carrier a non-carrier-headed judgment is wrapped in. */
-  private val idCarrier: SemValue = VTopDef(WellKnownTypes.idFQN, None, Spine.SNil)
-
-  /** Bring a runtime term judgment into carrier-headed form (the §12-Q1 check-time wrapping): a judgment already headed
-    * by an effect carrier (ambient / role-flagged) or by `Id` is left as-is; anything else is a pure judgment and is
-    * wrapped `Id[tpe]`. A **type-level** judgment ([[SemValue.VType]]) is never wrapped — the §8 compile-time boundary
-    * (the type language stays carrier-free); the caller only ever applies this to runtime term judgments, and this guard
-    * is the defensive backstop.
+  /** Classify a runtime term judgment's **form** — the one recognition the bridge performs, and always the *positional*
+    * one: the value's own carrier bookkeeping ([[CheckState.ambientCarriers]] / the unifier's carrier-role flags, via
+    * the reused `effectCarrierSplit`), plus the compiler-owned `Id` head.
+    *
+    * Before the effects-as-rows slices this was not a classification at all: the checker **manufactured** an `Id` head
+    * for every pure judgment (`T` ⤳ `Id[T]`, the term ⤳ `pure@Effect[Id](term)`) so the slot arms could split a
+    * carrier off unconditionally, and the `Id`-normalizer erased the whole apparatus again downstream. Across the
+    * full gate that round trip was ~95% identity — 6,641 `Id` wraps against 4,504 `runId` unwraps at payload slots,
+    * and 756 of 793 distinct return boundaries lifting into `Id` itself — so the wrapping is gone and a pure judgment
+    * is simply [[UniformLadder.ActualForm.Pure]] (docs/effects-as-rows.md A.8.10). A **genuine** `Id[T]` value (the
+    * identity carrier used as ordinary data, inside `runId` / an `Effect[Id]` instance) stays distinct from a plain
+    * `T`: it is [[UniformLadder.ActualForm.IdCarried]] and its payload is still projected with `runId`.
     */
-  def intoCarrierHeaded(tpe: SemValue): CheckIO[SemValue] =
-    force(tpe).flatMap {
-      case VType  => pure(tpe)
-      case forced =>
-        isCarrierHeaded(forced).map(if (_) tpe else Evaluator.applyValue(idCarrier, tpe))
+  def actualForm(tpe: SemValue): CheckIO[UniformLadder.ActualForm] =
+    for {
+      forced <- force(tpe)
+      split  <- effectCarrierSplit(forced)
+    } yield split match {
+      case Some((carrier, payload)) => UniformLadder.ActualForm.Carried(forced, Carrier.ofHead(carrier), payload)
+      case None                     =>
+        forced match {
+          case VTopDef(fqn, _, Spine.SApp(_, payload)) if fqn == WellKnownTypes.idFQN =>
+            UniformLadder.ActualForm.IdCarried(forced, payload)
+          case _                                                                      => UniformLadder.ActualForm.Pure(forced)
+        }
     }
 
-  /** Bring a runtime term's **value** into carrier-headed form (the term-level dual of [[intoCarrierHeaded]], for the
-    * eager elaboration): a pure term `expr : T` ⤳ `pure@Effect[Id, T](expr) : Id[T]`, so its value matches its
-    * `Id`-carried type (the Id-normalization stage erases the `pure@Id` again). A term already carrier-headed
-    * (ambient/role/`Id`) or type-level (`VType`) is returned unchanged. `infer` uses this on its pure leaves (literals,
-    * pure references) so every judgment is carrier-headed by construction.
-    */
-  def intoCarrierHeadedTerm(expr: SemExpression, source: Sourced[?]): CheckIO[SemExpression] =
-    for {
-      forced <- force(expr.expressionType)
-      headed <- isCarrierHeaded(forced)
-    } yield
-      if (forced == VType || headed) expr
-      else EffectLifter.pureWrapNode(EffectLifter.idCarrier, forced, Evaluator.applyValue(EffectLifter.idCarrier, forced), expr, source)
-
   /** Check a value/lambda **body** against its declared return type (the uniform successor of the checker's
-    * `checkAgainst` return boundary). The declared return is brought into carrier-headed form ([[intoCarrierHeaded]] —
-    * a pure return becomes `Id[T]`), then the body's carrier **joins** the return's and the payloads unify. Three
-    * shapes, told apart by the two carriers (`Carrier.resolve`d), with the payload unified in all of them:
+    * `checkAgainst` return boundary). Both sides are classified ([[actualForm]]), then the body's carrier **joins**
+    * the return's and the payloads unify. Three shapes, told apart by the two carriers (`Carrier.resolve`d), with the
+    * payload unified in all of them:
     *
-    *   - **pure body** (carrier resolves to `Id`/[[Carrier.Bottom]]) into any return: re-carried into the declared
-    *     carrier via [[UniformCarrierChecker.carrierSlotLift]] — `pure@Effect[cExpected](runId(body))`, which erases
-    *     when `cExpected` is `Id` (so a pure body into a pure return costs nothing), and lifts when it is a real carrier
-    *     (a pure body under a `{Console} T` declared return);
+    *   - **pure body** (carrier resolves to `Id`/[[Carrier.Bottom]]) into a carrier-**headed** return: lifted into the
+    *     declared carrier via [[UniformCarrierChecker.pureLift]] — `pure@Effect[cExpected](body)`, a pure body under a
+    *     `{Console} T` declared return. Into a plain declared return there is nothing to lift into and the body stands
+    *     as it is (A.8.10 — the `pure@Id`/`runId` round trip that used to run here is gone);
     *   - **discharge-to-pure** — a still-flex carrier meta body (`?G[T]`, a fully-discharged computation whose residual
     *     carrier `runAbort`/`runThrow` left unbound) meeting a **pure** (`Id`) declared return — the uniform successor
     *     of [[EffectLifter.tryIdDefault]]: default the body carrier to `Id` ([[CarrierJoin.finalize]] over that one
@@ -94,8 +90,6 @@ class UniformCarrierChecker(
     *   - **effectful body into an effect-carrier (non-`Id`) return** (`main : {Console} Unit`'s body): the carriers
     *     **join** and the body passes through unchanged (`?F` solved to the platform's `IO` at the entry, never
     *     defaulted to `Id`).
-    *
-    * Both the return and the body are carrier-headed by the elaboration invariant, so [[Carrier.split]] is total here.
     */
   def checkReturnBoundary(
       bodyExpr: SemExpression,
@@ -104,10 +98,12 @@ class UniformCarrierChecker(
       source: Sourced[?]
   ): CheckIO[SemExpression] =
     for {
-      expected              <- intoCarrierHeaded(declaredReturn).flatMap(force)
-      (cExpected, pExpected) = Carrier.split(expected)
-      forcedBody            <- force(bodyType)
-      (cBody, pBody)         = Carrier.split(forcedBody)
+      expected              <- force(declaredReturn)
+      expectedForm          <- actualForm(expected)
+      (cExpected, pExpected) = (carrierOf(expectedForm), expectedForm.payload)
+      bodyForm              <- actualForm(bodyType)
+      forcedBody             = bodyForm.whole
+      (cBody, pBody)         = (carrierOf(bodyForm), bodyForm.payload)
       unifier               <- inspect(_.unifier)
       resolvedBody           = CarrierJoin.resolve(unifier, cBody)
       result                <- (cExpected, resolvedBody) match {
@@ -141,13 +137,19 @@ class UniformCarrierChecker(
                                          case rigid @ VTopDef(_, _, Spine.SApp(_, _)) =>
                                            modify(s => s.withUnifier(s.unifier.unify(forcedBody, rigid, source.as("Type mismatch."))))
                                              .as(bodyExpr)
-                                         case _                                       =>
+                                         case other                                   =>
                                            modify(s => s.withUnifier(s.unifier.unify(pBody, pExpected, source.as("Type mismatch."))))
                                              .as(EffectLifter.runIdNode(pExpected, bodyExpr, source))
                                        }
                                    }
                                  case _                                 =>
+                                   // A pure body needs a `pure` lift only into a genuinely **headed** return — an
+                                   // effect carrier, or the identity carrier used as ordinary data. Into a plain
+                                   // declared return (`def f: String`) there is nothing to lift into and the body
+                                   // stands as it is: that is the whole `Id`-manufacturing round trip this slice
+                                   // removed (A.8.10).
                                    val bodyIsPure = resolvedBody == Carrier.Bottom
+                                   val lift       = bodyIsPure && headed(expectedForm)
                                    modify(s =>
                                      s.withUnifier(
                                        CarrierJoin
@@ -155,25 +157,35 @@ class UniformCarrierChecker(
                                          .unify(pBody, pExpected, source.as("Type mismatch."))
                                      )
                                    ).as(
-                                     if (bodyIsPure)
-                                       UniformCarrierChecker.carrierSlotLift(Carrier.toSemValue(cExpected), pExpected, bodyExpr, source)
+                                     if (lift)
+                                       UniformCarrierChecker.pureLift(
+                                         Carrier.toSemValue(cExpected),
+                                         pExpected,
+                                         headed(bodyForm),
+                                         bodyExpr,
+                                         source
+                                       )
                                      else bodyExpr
                                    )
                                }
     } yield result
 
-  /** Whether the forced outermost head of `tpe` is already an effect carrier (ambient / role-flagged, via
-    * `effectCarrierSplit`) or the compiler-owned `Id`.
+  /** The [[Carrier]] of a classified form — [[Carrier.Bottom]] for both a pure judgment and a genuine `Id` one, since
+    * `Id` *is* the lattice bottom.
     */
-  def isCarrierHeaded(tpe: SemValue): CheckIO[Boolean] =
-    for {
-      forced <- force(tpe)
-      split  <- effectCarrierSplit(forced)
-    } yield split.nonEmpty || isIdHeaded(forced)
+  private def carrierOf(form: UniformLadder.ActualForm): Carrier = form match {
+    case UniformLadder.ActualForm.Carried(_, carrier, _) => carrier
+    case _                                               => Carrier.Bottom
+  }
 
-  private def isIdHeaded(forced: SemValue): Boolean = forced match {
-    case VTopDef(fqn, _, Spine.SApp(_, _)) => fqn == WellKnownTypes.idFQN
-    case _                                 => false
+  /** Whether a form is carrier-**headed** at all (`C[T]` or `Id[T]`), as opposed to a plain judgment. On the expected
+    * side this decides whether a pure body needs a `pure` lift to fit the return at all; on the body side it decides
+    * whether that lift must first project the body's payload with `runId` (a headed body whose carrier resolved to
+    * `Id` is an `Id[T]` *wrapper*, not a bare value).
+    */
+  private def headed(form: UniformLadder.ActualForm): Boolean = form match {
+    case _: UniformLadder.ActualForm.Pure => false
+    case _                                => true
   }
 
   /** Classify an *expected* application slot via the uniform ladder, reading the effect-carrier tag from the value's
@@ -196,27 +208,25 @@ class UniformCarrierChecker(
       tagged <- effectCarrierSplit(forced).map(_.nonEmpty)
     } yield UniformLadder.classifyExpected(forced, _ => tagged || forcePinnedCarrier)
 
-  /** Resolve one application argument slot into the [[SemExpression]] the slot contributes. The classification picks
-    * the arm; the ladder runs the join + payload unification; then the node is built by **reusing** [[EffectLifter]]'s
-    * insertion mechanics (reshape, not rebuild):
+  /** Resolve one application argument slot into the [[SemExpression]] the slot contributes. The two classifications —
+    * the expected slot's ([[classifyExpectedSlot]]) and the actual's ([[actualForm]]) — pick the arm; the ladder runs
+    * the join + payload unification; then the node, when one is needed at all, is built by **reusing**
+    * [[EffectLifter]]'s insertion mechanics (reshape, not rebuild):
     *
-    *   - [[UniformLadder.ExpectedSlot.Generic]] ⇒ pass the whole carrier-headed action through unchanged (`fold`'s arm);
-    *   - [[UniformLadder.ExpectedSlot.CarrierSlot]] ⇒ pass-join; a **pure** (bottom-carriered) actual is re-carried into
-    *     the expected carrier via [[UniformCarrierChecker.carrierSlotLift]] (`pure@Effect[?G](runId(actual))`, whose
-    *     `?G` the join solves and the Id-normalizer erases when it defaults to `Id`), an already-effectful actual passes
-    *     through;
-    *   - [[UniformLadder.ExpectedSlot.PayloadSlot]] with a **pure** (`Id`, bottom) actual ⇒ **pass** its payload
-    *     directly (`runId`, erased downstream). A pure actual has no effect to sequence.
+    *   - [[UniformLadder.ExpectedSlot.Generic]] ⇒ pass the whole action through unchanged (`fold`'s arm);
+    *   - [[UniformLadder.ExpectedSlot.CarrierSlot]] ⇒ pass-join; a **pure** actual is lifted into the expected carrier
+    *     via [[UniformCarrierChecker.pureLift]] (`pure@Effect[?G](actual)`, whose `?G` the join solves and the
+    *     Id-normalizer erases when it defaults to `Id`), an already-effectful actual passes through;
+    *   - [[UniformLadder.ExpectedSlot.PayloadSlot]] with a **pure** actual ⇒ pass it through: the term already *is*
+    *     its payload, and a pure actual has no effect to sequence. Only a genuine `Id[T]` value needs its payload
+    *     projected (`runId`).
     *
-    * A payload slot receiving an **effectful** actual is the *hoist* shape, and hoisting is the desugar's rewrite: the
+    * A payload slot receiving a **carried** actual is the *hoist* shape, and hoisting is the desugar's rewrite: the
     * caller suspends such a slot instead of resolving it here, and the post-drain
     * [[com.vanillasource.eliot.eliotc.monomorphize.check.ModeResolver]] splices the bind chain
     * (docs/effects-as-rows.md A.8.8). It is therefore unreachable by construction — the checker only routes here for a
     * carrier-slot domain, a pinned capture, or a pure actual — and is reported as a compiler bug rather than being
     * elaborated a second way.
-    *
-    * `argType` is the actual's carrier-headed type (the elaboration invariant); the ladder never sees an un-split
-    * carrier because [[Carrier.split]] peels it off before any payload unification.
     */
   def resolveArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
@@ -227,58 +237,53 @@ class UniformCarrierChecker(
   ): CheckIO[SemExpression] =
     for {
       slot          <- classifyExpectedSlot(expected, forcePinnedCarrier)
-      forcedActual  <- force(argType)
+      form          <- actualForm(argType)
       unifier       <- inspect(_.unifier)
-      (updated, out) = UniformLadder.resolveSlot(unifier, forcedActual, slot, arg.as("Type mismatch."))
+      (updated, out) = UniformLadder.resolveSlot(unifier, form, slot, arg.as("Type mismatch."))
       _             <- modify(_.withUnifier(updated))
     } yield (slot, out) match {
-      case (_, UniformLadder.Outcome.PassWhole)                                                  => argExpr
-      case (UniformLadder.ExpectedSlot.CarrierSlot(cExpected, pExpected), UniformLadder.Outcome.PassJoin(true)) =>
-        UniformCarrierChecker.carrierSlotLift(Carrier.toSemValue(cExpected), pExpected, argExpr, arg)
-      case (_, UniformLadder.Outcome.PassJoin(_))                                                => argExpr
-      case (UniformLadder.ExpectedSlot.PayloadSlot(shape), UniformLadder.Outcome.Bound(Carrier.Bottom)) =>
+      case (_, UniformLadder.Outcome.PassWhole | UniformLadder.Outcome.PassJoin | UniformLadder.Outcome.PayloadPass) =>
+        argExpr
+      case (UniformLadder.ExpectedSlot.CarrierSlot(cExpected, pExpected), UniformLadder.Outcome.PureLift(project))   =>
+        UniformCarrierChecker.pureLift(Carrier.toSemValue(cExpected), pExpected, project, argExpr, arg)
+      case (UniformLadder.ExpectedSlot.PayloadSlot(shape), UniformLadder.Outcome.PayloadUnwrap)                      =>
         EffectLifter.runIdNode(shape, argExpr, arg)
-      case (s, o)                                                                                =>
+      case (_, UniformLadder.Outcome.PayloadBound)                                                                  =>
+        throw new IllegalStateException(
+          s"a carried actual reached a payload slot: the hoist is the desugar's rewrite, so such a slot must suspend ($arg)"
+        )
+      case (s, o)                                                                                                   =>
         throw new IllegalStateException(s"uniform slot outcome mismatch: slot=$s outcome=$o")
     }
 }
 
 object UniformCarrierChecker {
 
-  /** Re-carry a **pure** (`Id`-headed) actual into an effect-carrier slot as a **single** clean `pure@Effect[carrier]`
-    * node (docs/effects-as-channel.md §3, pinned finding 3). When `argExpr` is itself the checker-inserted
-    * `pure@Effect[Id](inner)` wrapper (as `intoCarrierHeadedTerm` produces for a pure body/actual), its payload `inner`
-    * is unwrapped and re-carried directly — `pure@Effect[carrier](inner)` — **not** `pure@Effect[carrier](runId(pure@Id(inner)))`.
-    * The double-wrap is semantically identical but its inner `pure@Id` confuses the codegen `Id`-normalizer's
-    * impl-keyed erasure of the *outer* `pure` when `carrier` resolves to a **non-`Id`** carrier (the effectful-handler
-    * discharge — a pure `catch` handler `err -> err` into `?G[A]`), mis-erasing it and shipping a raw payload where a
-    * `G[..]` is expected (a runtime `ClassCastException`). Emitting the single node is finding 3's fix, now also at the
-    * return boundary. For an `Id`-carried actual that is *not* the `pure@Id` wrapper node, the payload is projected with
-    * `runId` as before. When `carrier` defaults to `Id` the whole node erases downstream — no machinery ships for pure
+  /** Lift a term that is **not** on the position's carrier into it, as a **single** clean `pure@Effect[carrier]` node
+    * (docs/effects-as-channel.md §3, pinned finding 3): a plain judgment is wrapped directly, while a genuine `Id`
+    * value (`idCarried`) has its payload projected with `runId` first, since the identity carrier's own wrapper is
+    * real data and re-carrying it whole would ship an `Id[..]` where a payload is expected.
+    *
+    * Emitting the *single* node matters: a `pure@Effect[carrier](pure@Effect[Id](inner))` double-wrap is semantically
+    * identical but its inner `pure@Id` confuses the codegen `Id`-normalizer's impl-keyed erasure of the *outer* `pure`
+    * when `carrier` resolves to a **non-`Id`** carrier (the effectful-handler discharge — a pure `catch` handler
+    * `err -> err` into `?G[A]`), mis-erasing it and shipping a raw payload where a `G[..]` is expected (a runtime
+    * `ClassCastException`). Since the checker no longer manufactures `Id` heads at all (A.8.10), the double-wrap can
+    * no longer arise. When `carrier` defaults to `Id` the whole node erases downstream — no machinery ships for pure
     * code. `carrier` is the carrier as a [[SemValue]] ([[Carrier.toSemValue]]).
     */
-  def carrierSlotLift(carrier: SemValue, payload: SemValue, argExpr: SemExpression, source: Sourced[?]): SemExpression =
+  def pureLift(
+      carrier: SemValue,
+      payload: SemValue,
+      idCarried: Boolean,
+      argExpr: SemExpression,
+      source: Sourced[?]
+  ): SemExpression =
     EffectLifter.pureWrapNode(
       carrier,
       payload,
       Evaluator.applyValue(carrier, payload),
-      unwrapPureId(argExpr).getOrElse(EffectLifter.runIdNode(payload, argExpr, source)),
+      if (idCarried) EffectLifter.runIdNode(payload, argExpr, source) else argExpr,
       source
     )
-
-  /** The payload of a checker-inserted `pure@Effect[Id](inner)` wrapper node ([[EffectLifter.pureWrapNode]] at the `Id`
-    * carrier, as [[UniformCarrierChecker.intoCarrierHeadedTerm]] emits for a pure term), recognised by the abstract
-    * `pure` FQN and its `Id` carrier type-argument — so [[carrierSlotLift]] can re-carry `inner` directly rather than
-    * round-tripping it through `runId` (avoiding the double-wrap; see there). [[None]] for any other node.
-    */
-  private def unwrapPureId(expr: SemExpression): Option[SemExpression] = expr.expression match {
-    case SemExpression.FunctionApplication(target, argument) =>
-      target.value.expression match {
-        case SemExpression.ValueReference(vf, Seq(carrier, _))
-            if vf.value == WellKnownTypes.effectPureFQN && carrier == EffectLifter.idCarrier =>
-          Some(argument.value)
-        case _ => None
-      }
-    case _ => None
-  }
 }
