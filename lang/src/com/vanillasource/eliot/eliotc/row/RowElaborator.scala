@@ -1,10 +1,13 @@
 package com.vanillasource.eliot.eliotc.row
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
+import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
+import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The effects-as-rows **elaboration desugar** (docs/effects-as-rows.md §3) — rewrite a direct-style definition into
@@ -119,7 +122,14 @@ object RowElaborator {
           name
       }.toSet
       val elab               =
-        new Elaboration(paramTypes, carrierParams, RowChecker.parameterRowsOf(orv, paramNames), ownBinders, universe)
+        new Elaboration(
+          paramTypes,
+          carrierParams,
+          RowChecker.parameterRowsOf(orv, paramNames),
+          ownBinders,
+          universe,
+          EffectCarriers.declaredEffects(ownBinders, orv.paramConstraints)
+        )
       val newBody            = elab.elaborate(runtime.as(body), needCarrier = topCarrier.exists, region = topCarrier)
       runtime.as(rewrap(runtime.value, newBody))
     }
@@ -185,7 +195,8 @@ object RowElaborator {
       carrierParams: Set[String],
       paramRows: Map[String, RowChecker.Row],
       ownBinders: Set[String],
-      universe: RowChecker.Universe
+      universe: RowChecker.Universe,
+      ambientAbilities: Set[AbilityFQN]
   ) {
     private var nextBinder = 0
 
@@ -488,12 +499,11 @@ object RowElaborator {
             // A.8.6 deferral: a slot typed by a generic-headed type (`a: A`, `initial: B`, `x: F[A]` with bare
             // `F[_]`) has no declared mode — the instantiation decides whether the argument is payload (run here),
             // suspended, or captured (the dot-chained discharger). The argument's interior still elaborates; this
-            // slot writes nothing around it — *including the carrier*: an argument whose mode is undecided has an
-            // undecided carrier too. `rename("after").runStateToPair("before")` is the witness: the dot's `a: A`
-            // slot eventually feeds a pinned capture, so `rename`'s carrier is the discharge stack
-            // `StateCarrier[String, F]`, not the ambient `F` — writing the ambient there is a type error, and
-            // guessing the stack would be the relayed-slot-mode rule A.8.4 rejected.
-            (accArgs :+ core(arg, unspelled(region))._1, accBinds)
+            // slot writes nothing around it. The *carrier* is still written, by the derived-stack rule
+            // ([[carrierAt]]): `rename("after").runStateToPair("before")` puts `rename` at the dot's `a: A` slot,
+            // and `rename` needs `{State[String]}` the ambient does not provide, so it carries
+            // `StateCarrier[String, F]` — captured, not run.
+            (accArgs :+ core(arg, region)._1, accBinds)
           } else {
             // A declared-concrete slot (or an unknown callee's slot) is strict: the payload is wanted here.
             strictArgument(accArgs, accBinds, arg, region, hoist)
@@ -525,12 +535,6 @@ object RowElaborator {
     private def forced(region: RegionCarrier): RegionCarrier =
       if (region.exists) region else RegionCarrier.Unspelled
 
-    /** The same region with its carrier *forgotten* — placement unchanged (a bind still binds), but nothing is
-      * written. Used inside a deferred slot, where the carrier belongs to an instantiation this pass cannot see.
-      */
-    private def unspelled(region: RegionCarrier): RegionCarrier =
-      if (region.exists) RegionCarrier.Unspelled else RegionCarrier.Absent
-
     /** Write the region's carrier as an explicit leading type argument of a call (A.11.4) — `printLine[F](s)`,
       * `readLine[F]`, `runAbort[Id](x)` — so the checker never mints a metavariable in carrier position and the
       * carrier is rigid from elaboration onwards. The reference is returned unchanged wherever the write is not
@@ -558,10 +562,103 @@ object RowElaborator {
         region: RegionCarrier
     ): Sourced[OperatorResolvedExpression] =
       (reference.value, region.term) match {
-        case (ValueReference(name, existing), Some(term)) if existing.isEmpty && ridesFirstBinder(callee, argCount) =>
-          reference.as(ValueReference(name, Seq(term)))
-        case _                                                                                                     =>
+        case (ValueReference(name, existing), Some(ambient)) if existing.isEmpty && ridesFirstBinder(callee, argCount) =>
+          carrierAt(callee, ambient) match {
+            case Some(term) => reference.as(ValueReference(name, Seq(term)))
+            case scala.None => reference
+          }
+        case _                                                                                                        =>
           reference
+      }
+
+    /** The carrier a call to `callee` runs on, given this definition's own ambient carrier (A.11.4-R, Robert's
+      * decision).
+      *
+      * A callee whose declared row the ambient already provides runs on the ambient itself. A callee that needs
+      * **more** than the ambient provides cannot be running on it: the extra effects have to be discharged before
+      * they reach this definition's boundary, so the call runs on the canonical carrier stack of that difference
+      * over the ambient —
+      *
+      * {{{
+      * def main: {Console} Unit                                  ambient F provides {Console}
+      * def rename(next: String): {Console, State[String]} Unit    needs {Console, State[String]}
+      * ⇒ rename[StateCarrier[String, F]]("after")                 difference {State[String]}
+      * }}}
+      *
+      * This is what makes a dot-chained discharger need no rule of its own. At `.`'s bare-generic slot the call now
+      * carries `StateCarrier[String, F]`, so it does *not* perform on the ambient, so rule 1 passes it as data
+      * instead of hoisting it — which is exactly right, because a discharger captures its argument rather than
+      * running it. The alternative would have been to inspect the sibling argument to find the discharger, which
+      * the §3 whitelist prohibits.
+      *
+      * The rule reads only declared rows, and it is order-free in the sense that matters: the stack's *order* comes
+      * from the callee's own declared row, not from anything about the call site. [[scala.None]] — write nothing,
+      * the fail-safe direction — whenever the difference contains an effect with no canonical carrier (a
+      * `Suspend`-riding one like `Console`, which cannot be spelled as a stack layer at all; in a valid program
+      * such a difference is a leak the row check reports).
+      */
+    private def carrierAt(
+        callee: ValueFQN,
+        ambient: Sourced[OperatorResolvedExpression]
+    ): Option[Sourced[OperatorResolvedExpression]] = {
+      val discharged = declaredEntries(callee).filter(entry =>
+        !ambientAbilities.contains(entry.abilityFQN) && dischargeableAbilities.contains(entry.abilityFQN)
+      )
+      if (discharged.isEmpty) Some(ambient)
+      else if (discharged.exists(_.typeArgs.exists(hasFreeCalleeBinder(callee, _)))) scala.None
+      else
+        Some(discharged.foldRight(ambient) { (entry, base) =>
+          val carrier = base.as(ValueReference(base.as(EffectCarrierNaming.carrierFQN(entry.abilityFQN))))
+          base.as(applyChain(carrier, entry.typeArgs.map(base.as(_)) :+ base))
+        })
+    }
+
+    /** The effects that are **dischargeable here**: those some signature in this value's universe *pins*.
+      *
+      * This is the second half of [[carrierAt]]'s filter, and it is what keeps the rule from inventing carriers that
+      * do not exist. An effect the ambient does not declare is not automatically discharged onto a layer of its own:
+      * a `Suspend`-riding effect (`Console`, `Log`, `Inf`) has no `<Ability>Carrier` at all and is provided by the
+      * *base* carrier instead. The synthesized entry `def main: Unit = runMain(HelloWorld::main)` is the witness —
+      * it captures a `{Console}` value on `IO`, and a naive difference would "discharge" `Console` onto a
+      * `ConsoleCarrier` that does not and cannot exist.
+      *
+      * Reading it off the universe's pinned rows answers exactly the right question with declared information and no
+      * lookup: an effect is dischargeable in this body iff a discharger for it is among the names this body reaches.
+      * A body with no discharger in scope captures nothing, so it needs no layer — which is self-consistent rather
+      * than merely convenient.
+      */
+    private lazy val dischargeableAbilities: Set[AbilityFQN] =
+      universe.values.values.flatMap { orv =>
+        orv.effectRow.returnPinnedEffects ++ orv.effectRow.pinnedParameterEffects.flatMap(_.effects)
+      }.map(_.abilityFQN).toSet
+
+    /** The effect entries a callee's own ambient carrier is constrained by, with their type arguments and in
+      * declared order — `{State[String], Console}` as `[State[String], Console]`. The machinery constraints
+      * (`Effect`/`Suspend`) are dropped: they are inserted by the compiler, never discharged, and have no carrier
+      * layer of their own.
+      */
+    private def declaredEntries(callee: ValueFQN): Seq[ResolvedAbilityConstraint] =
+      universe
+        .lookup(callee)
+        .toSeq
+        .flatMap { orv =>
+          EffectCarriers
+            .declaredCarrierBinders(orv)
+            .toSeq
+            .sorted
+            .flatMap(binder => orv.paramConstraints.getOrElse(binder, Seq.empty))
+        }
+        .filterNot(entry => EffectMachinery.isMachineryAbility(entry.abilityFQN.abilityName))
+        .map(entry => entry.copy(typeArgs = entry.typeArgs.dropRight(1)))
+
+    /** Whether an effect entry's type argument still mentions one of the *callee's* own binders — a row like
+      * `{State[S]}` generic in its state type. Such an entry cannot be spelled at the call site (the instantiation
+      * decides `S`), so the whole stack is abandoned rather than half-written.
+      */
+    private def hasFreeCalleeBinder(callee: ValueFQN, typeArg: OperatorResolvedExpression): Boolean =
+      universe.lookup(callee).exists { orv =>
+        val binders = SignatureView.of(orv.signature).binders.map(_.name.value).toSet
+        binders.exists(binder => OperatorResolvedExpression.containsVar(typeArg, binder))
       }
 
     /** Whether applying `callee` to `argCount` arguments yields a result headed by the callee's **first** generic
