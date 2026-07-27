@@ -7,13 +7,18 @@ check is **unbounded** with the post-mono `DeclaredPureChecker` deleted as subsu
 `__.test` green, 37/40 examples compiling (`PluginA`/`B`/`C` predate this work), every program
 byte-identical in output and class content.
 
-**Next: A.11.7** (delete the v2 bridge), then A.11.8–A.11.10. The live plan is **Appendix A.11**; it
-replaces every earlier plan (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns the method**
-— arm-liveness tracing, the differential probe, the byte-identity oracle, the tracer gotchas — and is
-reused by every remaining step.
+**A.11.7 is BLOCKED, and its own method is what blocked it.** The bridge was traced and then switched
+off part by part over the whole gate: it is **not cold** — 43 test failures and 5 further examples
+without it, and the failures are silent miscompiles, not diagnostics. **A.11.7-R** records the
+part-by-part map and the two previously-closed decisions that have to be reopened before any of the
+~933 lines can go. The live plan is **Appendix A.11**; it replaces every earlier plan (§8 and the plans
+inside A.9/A.10 are historical). **A.9.4 owns the method** — arm-liveness tracing, the differential
+probe, the byte-identity oracle, the tracer gotchas — and is reused by every remaining step.
 
-**One open decision**: `foldOption`'s suspension (A.11.5-R) — a reversal of the settled signature list,
-not a refinement, so it needs sign-off rather than a judgement call in flight.
+**Three open decisions**, all reversals of recorded decisions and so all needing sign-off rather than a
+judgement call in flight: `foldOption`'s suspension (A.11.5-R), and the two A.11.7-R names — reopening
+**A.11.2-R** ("build neither mechanism") so the elaborator can hoist at a generic-return callee, and
+reopening **A.10's cancellation of slice 4b** so carrier decomposition has a home.
 
 **Standing rule for this document: §§1–7 state the decision; §8 and the appendices record what happened
 to it.** An appendix that changes a decision must say so in §§1–7, never amend the rule in place. (This
@@ -677,7 +682,7 @@ The whole remaining path, including what a plan written from inside the checker 
 experiment scaffolding, the v2 artefacts outside `check/`, the test suites that pin dead machinery, and
 the docs. Each step lands green on its own and is verified by the A.9.4 method.
 
-**Done: A.11.1 – A.11.6. Next: A.11.7.**
+**Done: A.11.1 – A.11.6. A.11.7 is measured and BLOCKED — see A.11.7-R.**
 
 ## A.11.0 The end state, as an inventory
 
@@ -852,10 +857,88 @@ to the A.11.5 build. `check/` 5,219 → 5,097.
 only zero-fire arms — after A.11.4/A.11.5 the whole group should be cold, and **any arm that still fires
 is a missing elaborator rule, i.e. a stop-and-redecide signal**, not a reason to keep the arm.
 
+**This ran, and it returned the stop-and-redecide: the group is not cold. See A.11.7-R** for the
+part-by-part measurement and the two decisions that have to be reopened first. Nothing below this
+paragraph has been executed.
+
 Keep exactly one thing: the pure-lift rule (the default ladder's existing pure-wrap arm against a
 **rigid** expected type) plus the `pureWrapNode`/`runIdNode` builders, which move to `row/` as the
 elaborator's node constructors. Note A.11.5a left one live bridge behaviour to preserve or relocate: a
 payload slot declaring `Id[T]` takes it as data.
+
+## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
+
+A.11.7 said to trace first and delete only zero-fire arms, and that **an arm that still fires is a
+missing elaborator rule, i.e. a stop-and-redecide signal**. The trace was run, and then a stronger
+experiment: switch the bridge off, part by part, over the whole gate (871 targets) *and* all 40
+examples. Everything below is measured; the instrument was env-gated and has been reverted, and the
+tree is back to a green gate with class content byte-identical to the pre-experiment build.
+
+**Entry counts are not the measurement.** With everything on, the routers fire constantly — 4,833
+payload-domain routes, 1,542 carrier-domain, 5,123 uniform return boundaries — but almost all of that
+is *routing*: the whole gate's node-producing outcomes total ≈260 (`return/pureIntoCarrier` 213,
+`PureLift@CarrierSlot` 38, `carrierSlot/pureWrap` 6, `return/dischargeToPure` 4, `PayloadUnwrap` 1,
+`nullaryMismatchRunId` 1). This is the same trap A.8.9 named; the deciding question is not how often an
+arm runs but whether the default ladder would reach the same result.
+
+**The part-by-part map** (test failures out of a 0-failure baseline; examples out of 37/40):
+
+| bridge part switched off | test failures | examples |
+| --- | ---: | --- |
+| *baseline — everything on* | 0 | 37/40 |
+| the carrier-domain router (`uniformCarrierSlot`) | 1 | 37/40 |
+| the uniform return boundary | 8 | 36/40 (−`Concat`) |
+| the capture join + eager row pin | 15 | 36/40 (−`EffectsThrow`) |
+| the payload-domain router (`uniformPayloadSlot`) | 36 | 32/40 |
+| all four | 43 | 32/40 |
+
+**What each live part is actually doing.**
+
+1. **The payload router is the load-bearing one, and its live job is a single arm**:
+   `payloadSlot/suspendHoist` — a carrier-headed actual at a plain payload slot *suspends* so the
+   post-drain `ModeResolver` can hoist it. Those are the sites the A.11.3-R audit counted as "43
+   genuinely strict, where hoisting is ALREADY the behaviour" (`.` 22, `==` 8, `++`, `show`,
+   `putState`, …) — but the audit did not ask *who* hoists them, and the answer is the checker, not the
+   elaborator. `RowElaborator` declines: hoisting needs a classifiable core, and `declaredPayloadResult`
+   returns false for a return headed by one of the callee's own binders, which is exactly `.`'s `B`,
+   `++`'s `A`, `identity`'s `A`. Without the router the effect is *dropped silently* —
+   `printLine(dependency.url)` prints `null`, `EffectsMulti` prints `null` — not diagnosed.
+2. **The carrier router** is live for exactly one shape: an effectful actual into a data constructor's
+   carrier-typed field (`Box(forever(printLine("boxed")))`). Plain unification cannot decompose the
+   flex-flex application `?F[Unit] ~ ?F'[Unit]` and postpones, so the loop never runs. That is
+   **A.8.11 rule 1 (carrier decomposition)**, alive and load-bearing.
+3. **The capture join + eager row pin** is `catch`/`provide`/`runThrow` against a guarded instance —
+   without it, "No ability implementation found for ability 'Throw' with type arguments [String, IO]",
+   and LSP hover renders `{Throw[IO[String]] | IO} String`. Rule 1 again, plus the row-directed pin.
+4. **The return boundary** costs 8 tests and `Concat`.
+
+**The candidate elaborator rule was built and measured, not just proposed.** Let
+`declaredPayloadResult` accept a generic head — a call whose declared return is one of its own *value*
+binders is a payload, which is what strictness makes true, since every plain-slot argument is a payload
+after hoisting. It works as intended: `++` starts hoisting and `Concat`'s suspension disappears from the
+trace. With it, payload-router-off improves from 5 regressed examples to 2 (`EffectsThrow`, `IfDemo`).
+**But the rule as spelled costs 16 test failures on its own** — some are suites pinning the A.8.6
+spelling it replaces, and some are genuine `State`-family miscompiles. So the rule is the right area and
+is not yet the right rule.
+
+**What this means for the plan.**
+
+- **The step ordering in A.11.0/A.11.8 is not achievable**: the bridge *routes into* the obligation path
+  (`payloadSlot/suspendHoist`, `capture/doomedSuspend`). The bridge and the obligation path are one
+  mechanism and are one deletion, not two.
+- **Two closed decisions have to be reopened before any of it can go**, and both are reversals:
+  - **A.11.2-R, "build neither mechanism."** Its decider was that `foldLeft`'s `initial` occurs exactly
+    once in the corpus, so no library code needs the inference. That is still true and is beside the
+    point: the mechanism is needed not for the accumulator but for the elaborator to hoist at a
+    generic-return callee at all — the `.`/`++`/`identity` family, 43 sites the audit already counted.
+  - **A.10's cancellation of slice 4b.** It was cancelled because a written carrier makes every carrier
+    position rigid, so flex-flex `?F[X] ~ ?G[Y]` would not arise. Measured: it still arises — a data
+    constructor's `F[_]` field and a pinned capture both produce it. Carrier decomposition needs a home
+    (A.9.2's open `unify`-guardrail question, verbatim).
+- **The pattern is A.10's, one level down.** A.10 found that A.8.6's local concession was what kept the
+  carrier inferred and the whole v2 machinery alive. Here A.11.2-R's "neither mechanism" is what keeps
+  the *hoist* in the checker, and therefore the payload router, and therefore the obligation path. The
+  cost is again paid downstream rather than at the decision.
 
 ## A.11.8 Delete the obligation path, the `Id` apparatus, and the carrier side table
 
