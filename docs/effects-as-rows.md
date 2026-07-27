@@ -4,7 +4,9 @@ Status: **R1–R4 COMPLETE; R5 FLIP LANDED under the A.8.6 resolution, row verif
 A.8.7 RESOLVER IMPLEMENTED AND LIVE (post-drain resolution at quiescence; runtime generic-slot modes are
 now suspended obligations, classified at quiescence, with splice-and-restart) — 2026-07-26, full gate
 green. Deletion slices 1–3 landed (A.8.8/A.8.9/A.8.10, 2026-07-27): the checker inserts zero binds and
-no longer manufactures `Id`. Next: slice 4, the carrier-safe *unification* routers.** Successor direction to
+no longer manufactures `Id`. **Slice 4 is measured (A.8.11) and is a decision, not a retirement — no arm
+is dead; 4a was attempted and reverted (A.8.12), so the order inverts to 4b first. A handover — tree
+state, the open decision, the method, the inventory, the gotchas — is §A.9; start there.** Successor direction to
 `docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
 arms — stays live underneath until the deletion slices retire it against the resolver). The row
 checker (`lang/.../row/RowChecker`) sweeps the real corpus with zero v2 disagreements (R3), verifies
@@ -1192,3 +1194,174 @@ settle what a declared return instantiated at `Id` means once the checker no lon
 judgment to lean on — and only then 4a, when every boundary node the checker writes is one the desugar
 could have written. This is the A.8.7 guardrail working as intended: a shape that needs the old
 encoding to stay well-typed is a stop-and-redecide signal, not a place to add an arm.
+
+## Appendix A.9. Handover (2026-07-27)
+
+Everything below is the state of the work at commit `1b668fbd`. Read A.8.11 and A.8.12 for the reasoning;
+this section is the operational picture — what is live, what the open decision is, how to measure, what
+to touch, and what will bite.
+
+### A.9.1 Where the work stands
+
+The v3 pipeline is **live and load-bearing**:
+
+- `lang/.../row/RowElaborationProcessor` is a real phase between the recursion gate and saturation,
+  producing `RowElaboratedValue`; only `SaturatedValueProcessor` was repointed. It runs the **desugar**
+  (`RowElaborator`, 761 lines) under the A.8.6 bounded-staging discipline — decide every
+  declaration-decided position, write *nothing* at generic-headed ones — and the **row verification**
+  (`RowChecker`, 363 lines; `derived ⊆ declared` per definition, bounded three ways, see the R5 second
+  slice).
+- `monomorphize/check/ModeResolver` (213 lines) finishes the deferred positions post-drain at quiescence,
+  splicing the desugar's own rewrites through `RowElaborator.spliceResolvedModes` and restarting the mono
+  (`TypeStackLoop.processWithState`, fuel 32).
+- Three deletion slices have landed against that resolver: the arms it made unreachable (A.8.8), every
+  bind the checker used to insert (A.8.9), and the manufactured `Id` head (A.8.10).
+
+What is **left** of v2 in the checker is carrier-safe *unification* plus a small residue of node
+insertion. A.8.11 measured it precisely; A.8.12 established that the residue cannot move first.
+
+**Gate baseline to compare against.** `./mill __.test` → 871 targets green. All 40 examples compile
+except `IfDemo` and `PluginA`/`PluginB`/`PluginC`, which were **already failing before slice 1** — 36/40
+is the correct baseline, not a regression. `HelloWorld` runs. The standalone "eliot-test" suite no longer
+exists; its shapes live in `RowShadowSweepTest.combinedProgram`.
+
+### A.9.2 The open decision (this is what blocks 4b)
+
+Carrier-safe unification is two rules and nothing else (A.8.11):
+
+1. **Carrier decomposition.** When a judgment is carrier-headed — by the elaboration-threaded positional
+   tag, never by name or shape — split head from payload and unify them separately. This is what ordinary
+   pattern unification cannot do for a **flex-flex application**: `Unifier.solveMeta` attempts injectivity
+   decomposition only against a *rigid* applied right-hand side and otherwise postpones, so `?F[X] ~ ?G[Y]`
+   strands. 1,506 sites across the gate depend on it.
+2. **`Id` is bottom.** An `Id`-resolved side never *commits* a flex carrier meta. Plain unification would
+   decompose `Id[T] ~ ?G[T]` to `?G := Id` — the premature-commitment bug class. 40 argument slots and 152
+   return boundaries turn on it.
+
+Meeting §4's promise ("the checker ends with zero effect code") requires rule 1 to move into `Unifier`,
+keyed on the carrier role the unifier **already records** (`Unifier.carrierRoles` / `isEffectCarrier`).
+
+**The decision to take before writing code:** CLAUDE.md's cornerstone guardrail says `unify` is *pure
+definitional equality* — "never a `refinements` map / assignability arm in the unifier". Does a
+carrier-role-keyed decomposition arm violate it? The argument that it does not: decomposing `C[X] ~ D[Y]`
+into `C ~ D` and `X ~ Y` is **decomposition**, the same operation `unifySpines` and `tryDecomposeApplied`
+already perform; it adds no directionality, no widening, no branch joining. The role tag only says *which*
+argument is the payload — the same positional fact `Carrier.split` reads today. The argument that it does:
+it is a second decomposition rule selected by a side-table, and side-tables driving typing decisions are
+exactly what the cornerstone's third guardrail (`RoleHint` must not drive typing) forbids. **This needs
+Robert's sign-off, not a judgement call in flight.** If the answer is no, §4's promise must be scaled back
+instead: keep a thin carrier module permanently and delete only what is provably redundant around it.
+
+Rule 2 has a second half that 4a exposed and that must be settled at the same time: **what does a declared
+return instantiated at `Id` mean?** See A.9.3.
+
+### A.9.3 Why 4a must follow 4b, restated operationally
+
+A share of the boundary nodes the checker writes are **`Id`-erasure artifacts**, not elaboration. The
+canonical one: `catch`'s declared return is its own carrier binder `G[A]`; a pure use instantiates
+`G := Id`; the bridge's discharge-to-pure arm defaults the body carrier and wraps in `runId`, producing a
+body of type `T` against a declared `Id[T]`. Well-typed only because the `Id`-normalizer erases the whole
+apparatus before codegen.
+
+That is fine for a node the checker builds and hands downstream. It is **not** expressible as source: the
+splice-and-restart machinery re-derives the type from the spliced `runId(...)` and reports the mismatch.
+There is no source spelling because the correct elaboration is *no node*. So until 4b decides what an
+`Id`-instantiated declared return is — most cleanly, that it is simply the pure type, with no wrapper for
+the boundary to unwrap — 4a can only move the minority of boundaries that are genuinely
+discharge-to-pure, which is not worth a slice (and, measured, costs two curated diagnostics).
+
+### A.9.4 The method (reuse it; it is what made slices 1–3 correct)
+
+- **Arm-liveness tracing, not inspection.** A temporary `ArmTrace` object (env-gated on `ELIOT_ARM_TRACE`,
+  whose value is the dump directory; a JVM shutdown hook writes one file per process) with a `fire(arm,
+  sample)` call on every arm under consideration. Run the whole gate — `./mill __.test` **and** a compile
+  of all 40 examples — then aggregate. Only delete zero-fire arms.
+- **Trace at outcome granularity, not entry count** (the slice-2 refinement). A router's entry count is
+  mostly routing; what matters is which arm *decided* what. Across the whole gate the checker's real
+  node-inserting decisions were only ~236, against routers firing 5.9k/1.6k/964 times.
+- **The differential probe** (added for slice 4). Where the question is "does this machinery still differ
+  from the ordinary path?", run the ordinary path speculatively on the *pre* state and diff the resulting
+  meta solutions (`metaStore.entries`, restricted to ids neither side had solved before) plus the error
+  count. Classify `agree` / `differ` / `differCarrier` (a differing id for which `unifier.isEffectCarrier`
+  holds) / `plainOnlyFail` / `carrierOnlyFail`, and **sample** each bucket. Two cautions learned: a
+  postponement is not an error, so `agree` over-counts where the plain path would have deferred; and a
+  flex-flex solve recorded in the opposite direction shows up as `differ` while being semantically
+  identical — read the samples, not just the counts.
+- **Measure twice, before and after.** Slice 3's first cut looked like an improvement (`carrierPureLift`
+  39 → 1) and was in fact dropping a fail-safe. The re-trace caught it.
+- **The byte-identity oracle.** Build a baseline in a `git worktree` at the pre-slice commit, compile all
+  examples in both trees, and diff the *program outputs* (not the jars — `$row$N` binder numbering renames
+  lambda classes). Recipe:
+  `for f in examples/src/*.els; do m=$(basename $f .els); ./mill examples.run jvm exe-jar examples/src/ -m $m && timeout 20 java -jar target/$m.jar > out/$m.out; rm -rf target/.eliot-cache; done`
+  Byte-identity is a safety oracle, not a hard gate — a correct, full-gate-green change may legitimately
+  differ.
+
+**Tracer gotchas** (all cost time at least once): the env-var-gated object plus shutdown hook does
+propagate into mill's forked test JVMs, but mill **prefixes every forwarded line with a worker id**, so
+`grep '^SPLICE'` finds nothing — never anchor. Sample keys must carry the range **end** as well as the
+start (elaborator-generated nodes reuse an argument's `Sourced`, so start-only keys conflate distinct
+nodes) and, when the question is about an argument, its spine **head**. And `target/.eliot-cache` must be
+deleted before every run or the pipeline replays facts and the trace comes back empty.
+
+### A.9.5 Inventory — what 4b touches
+
+Deleting on success (~930 lines):
+
+| file | lines | what it is |
+| --- | ---: | --- |
+| `monomorphize/carrier/Carrier.scala` | 82 | the carrier lattice + `split`/`ofHead`/`toSemValue` |
+| `monomorphize/carrier/CarrierJoin.scala` | 124 | the join solver (`resolve`/`join`/`joinToward`/`finalize`) |
+| `monomorphize/carrier/UniformLadder.scala` | 188 | `ExpectedSlot` / `ActualForm` / `Outcome` and `resolveSlot` |
+| `monomorphize/check/UniformCarrierChecker.scala` | 289 | the `CheckIO` bridge: `actualForm`, `checkReturnBoundary`, `resolveArgumentSlot`, `pureLift` |
+| inside `check/Checker.scala` (1,463) | ~250 | `routeArgumentSlot`, `uniformPayloadSlot`, `uniformCaptureSlot`, `uniformCarrierSlot`, `uniformArgumentSlot`, `payloadFitsDomain`, `uniformPayloadOf`, `singleLayerCarrierDomain`, `eagerRowPinIntoDomain`, `findCarrierLayerSlots`, `uniformReturnBoundary`/`uniformReturnRoutable` |
+
+Staying, and why: `EffectLifter` (345) keeps `effectCarrierSplit` — the shared positional recognition every
+other collaborator reads — plus `pureWrapNode`/`runIdNode` as node *builders* for the desugar's splice;
+`ModeResolver` (213) and `CheckState`'s obligation vectors; `IdNormalizer` (308, in
+`monomorphize/channel/`) stays while genuine `Id` values exist; `DeclaredPureChecker` (105) stays until the
+resolver era (A.8.6 corrected §4 on this — a no-ambient definition's carrier-ability call may be a
+constructor-class use, indistinguishable from a leak without the instantiation).
+
+Test suites that pin this machinery directly and will need rewriting rather than deleting:
+`monomorphize/carrier/CarrierMechanismTest`, `monomorphize/check/UniformCarrierCheckerTest`,
+`monomorphize/check/CarrierBookkeepingTest`, `monomorphize/check/EffectLifterTest`, and the lift group of
+`monomorphize/processor/MonomorphicTypeCheckTest` (whose concrete-slot shapes assert v3 `flatMap`+`pure`
+spellings and whose generic-slot shapes assert the checker's deferred v2 spellings).
+
+The live arm counts, for judging what any change should move, are the table at the end of A.8.11.
+
+### A.9.6 Gotchas banked from the 4a attempt
+
+- **A source-level splice must type-check; a checker-inserted node need only survive Id-normalization.**
+  This is the whole content of A.8.12 and the reason to distrust any plan that moves an insertion out of
+  the checker without first removing the `Id` slop it relies on.
+- **`DeclaredPureChecker` keys on a committed mismatch** (`unifier.errors.nonEmpty`). Any change that
+  defers a boundary decision instead of committing it silently loses the friendly "declared pure"
+  diagnostic and falls through to the sound-but-cryptic "No ability implementation found for ability
+  'Console' with type arguments [Id]". Check that diagnostic explicitly after any such change.
+- **`MonomorphicTypeCheckTest.effectLiftImports`' `Effect` and `State` stubs reference `IO` without
+  importing it.** Latent today because nothing demands those values; any change that demands more of the
+  stub modules surfaces it as `Name not defined.` anchored at the text `IO`. Fix is one `import
+  eliot.jvm.IO\n` per stub.
+- **Any harness whose snippet can discharge to a pure value needs an `eliot.lang.Id` stub.** A
+  checker-inserted `runId` carries its `ValueFQN` and never goes through name resolution; a spliced,
+  source-level one does. `SystemImport("Id", "type Id[A]\ndef runId[A](obj: Id[A]): A")` in
+  `ProcessorTest.systemImports` is enough for harnesses that only need the name; a harness that also needs
+  the instance wants the concrete form (`data Id[A](runId: A)` + `implement Effect[Id]`), as
+  `RowShadowSweepTest.combinedProgram` spells it.
+- **`Sourced` identity is the splice's only handle.** `spliceResolvedModes` matches targets by reference
+  identity (`eq`) against the body in `resolvedValue.runtime`, and the restart threads the rewritten body
+  back through `rv.copy(runtime = Some(newBody))` — so the identity holds across restarts. Rebuilding an
+  untouched subtree breaks it (and re-attributes the spine, duplicating LSP hover hints).
+
+### A.9.7 The remaining plan
+
+1. **Decide the `unify` guardrail question** (A.9.2). Everything else waits on it.
+2. **Slice 4b** — carrier decomposition into `Unifier`; settle the `Id`-instantiated declared return;
+   delete the inventory in A.9.5.
+3. **Slice 4a** — the checker stops inserting `pure`/`runId`; the design built in the attempt
+   (`BoundaryObligation` → `ModeResolver.pendingBoundaryTargets` → a third target list in
+   `spliceResolvedModes` → splice and restart) is sound and can be lifted from the reverted work, once
+   4b has removed the artifact boundaries it cannot express.
+4. **R6 closeout** — rewrite the CLAUDE.md *Effects Are a Channel* cornerstone for rows, give the stdlib
+   its declared-suspension signatures (§6), and run the semantic-break corpus audit.
