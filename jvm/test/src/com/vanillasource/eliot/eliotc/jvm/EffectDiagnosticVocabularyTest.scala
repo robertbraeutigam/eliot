@@ -19,18 +19,15 @@ import java.nio.file.{Files, Path}
   */
 class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
-  /** A documented limitation (CLAUDE.md, the effect section): a discharger consumes the *carrier*, so it must receive
-    * the effectful call as an expression — a `val` sequences the effect onto `main`'s ambient carrier, where it is
-    * never discharged. The per-definition row verification reports exactly that, at `main`, in effect vocabulary
-    * (before it, the failure surfaced downstream as a type mismatch against the pinned expectation).
+  /** An effect performed under a return that cannot host a carrier — the everyday "I forgot the effect set" mistake.
+    * The per-definition row verification decides it from declarations and reports it at `helper`, in effect
+    * vocabulary; before A.11.6 it surfaced only after a failed monomorphization, as "performs an effect but is
+    * declared pure", without naming the effect.
     */
-  private val valBoundDischarge =
-    """def setting(key: String): {Abort} String = abort
+  private val pureReturnLeak =
+    """def helper: String = printLine(readLine)
       |
-      |def main: {Console} Unit = {
-      |   val host = setting("host")
-      |   printLine(host else "localhost")
-      |}
+      |def main: {Console} Unit = printLine(helper)
       |""".stripMargin
 
   /** A pure value where a pinned computation is expected (`resume`'s declared parameter is the reified
@@ -92,14 +89,14 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
     compileErrors(pinnedMismatch).asserting(_.mkString should not include "Carrier")
   }
 
-  "the val-bound discharge limitation" should "read as an effect leak at the definition, in row vocabulary" in {
-    compileErrors(valBoundDischarge).asserting(
-      _.mkString should include("performs the effect 'Abort' but does not declare it")
+  "an undeclared effect under a pure return" should "read as an effect leak at the definition, in row vocabulary" in {
+    compileErrors(pureReturnLeak).asserting(
+      _.mkString should include("performs the effect 'Console' but does not declare it")
     )
   }
 
   it should "name no carrier machinery either" in {
-    compileErrors(valBoundDischarge).asserting(_.mkString should not include "Carrier")
+    compileErrors(pureReturnLeak).asserting(_.mkString should not include "Carrier")
   }
 
   "a side effect on the pure identity base" should "be explained in effect vocabulary, not as a missing instance" in {

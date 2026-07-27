@@ -152,8 +152,10 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    `EffectDischargeSummaryProcessor`, the `EffectCheckedValue`/`EffectDischargeSummary` facts) was deleted, and with it
    the `-E` negative-row syntax and the `dischargedEffects` field on the whole fact chain. Verification is now a
    **post-monomorphization channel** (`docs/effects-as-channel.md` §5): `monomorphize/channel/EffectAccountingProcessor`
-   — a rider on `MonomorphicValue`, built on the `RefinementChannelProcessor` template — is the **sole effect
-   verifier**. It derives each mono'd value's effect row by a bottom-up walk of its *checked* body (every ability
+   — a rider on `MonomorphicValue`, built on the `RefinementChannelProcessor` template — is the **ground-truth effect
+   verifier** (the pre-mono per-definition row check, `row/processor/RowElaborationProcessor.verifyRow`, decides what
+   declarations alone settle; accounting verifies every instantiation unconditionally). It derives each mono'd value's
+   effect row by a bottom-up walk of its *checked* body (every ability
    reference already resolved to its concrete impl) and requires `derived ⊆ declared` for a value with an open row.
    Each reference's contribution is gated by the **ride test**: it counts only if it performs its effect on the
    value's *own* ambient carrier, compared by exact `GroundValue` equality against the callee's forwarded
@@ -162,8 +164,8 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    generation rather than merely warning. `Inf` is an ordinary row entry and rides like any effect, so the same subset
    test propagates it (load-bearing: `Inf[IO]` resolves, so without this an undeclared `Inf` would compile). The
    friendly diagnostic ("This value performs the effect 'X' but does not declare it; add it to its { ... } effect set.")
-   is emitted for `Console`/`Log`/`Inf` leaks whose instance resolves at the base carrier; `State`/`Throw`/`Abort`
-   leaks fail earlier at `AbilityResolver` ("No ability implementation found for ability 'Throw' …" — sound, cryptic).
+   is emitted by both verifiers, so they speak one language; a leak whose derivation is decidable from declarations is
+   reported pre-mono, at the definition, before anything downstream runs.
    **Discharge falls out
    structurally, with no annotation**: a discharger's consumed effect lands on an *inner transformer carrier*
    (`StateCarrier[S, G]`, not the caller's ambient `G`), so the ride test simply drops it from the derived row — which
@@ -177,22 +179,21 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    carrier to `Id` and unwraps it with an inserted `runId` — so `def sign(f: Bool): String = if(f, "+") else "-"` (and
    `catch`/`runStateTo…` under pure returns, chains, block `val`s) just works. A discharger's **handler may itself
    perform effects** — `catch`'s is `onError: E => G[A]` on the *same* carrier `G`, so
-   `failUnit catch (err -> printLine(err))` and a pure `_ -> emptyConfig` both work. Remaining boundary cases,
-   **documented limitations, not bugs** (both re-verified 2026-07-25): a discharger consumes the *carrier*, so it must
-   receive the effectful call as an expression
-   (`printLine(x else "d")`), never a `val`-bound binder — a `val x = <effectful>` sequences the carrier away via
-   `flatMap`, and discharging the binder fails with "Type mismatch. Expected: AbortCarrier(IO, String)"; and a handler
-   whose effects enter via a **declared carrier-typed parameter**
+   `failUnit catch (err -> printLine(err))` and a pure `_ -> emptyConfig` both work. A **`val`-bound** computation is
+   dischargeable too (`val host = setting("host")` then `host else "localhost"`) since the elaborator writes the
+   carrier: a call needing more than the ambient declares carries its own discharge stack, so the `val` binds the
+   reified computation as data instead of sequencing it away. The remaining boundary case, a **documented limitation,
+   not a bug**: a handler whose effects enter via a **declared carrier-typed parameter**
    (`def getOr(x: {Abort} String, d: String): String`) must still return a carrier-headed type (`G[A]`), not a bare
    pure type — that carrier is caller-chosen and can never default to `Id` (it fails with "Cannot resolve type").
-   The "declared pure but performs effects" fail-safe is the focused
-   `monomorphize/check/DeclaredPureChecker` (run from `TypeStackLoop.runPostDrainResolution` after the final drain) —
-   the one effect diagnostic accounting *cannot* voice, because it concerns a value whose mono **fails** (a pure
-   nullary return cannot host the effect, so the carrier never resolves and no `MonomorphicValue` fact is produced).
-   It is discharge- and Id-aware: a genuine undischarged effect under a pure nullary return is reported ("performs an
-   effect but is declared pure"), while a fully-discharged body (which Id-defaults with no committed mismatch) is
-   accepted; a value *with* an ambient carrier is skipped (accounting owns it) and an *applied* return (`IO[Unit]`,
-   `Pair[..]`) is exempt.
+   The "declared pure but performs effects" diagnostic is the **pre-mono row verification**'s
+   (`row/processor/RowElaborationProcessor.verifyRow`, effects-as-rows A.11.6): a definition whose return cannot host a
+   carrier (a nullary `String`/`Unit`) and whose derived row is non-empty is rejected at its own definition, naming the
+   effect — the one diagnostic accounting cannot voice, since such a value's mono fails and produces no
+   `MonomorphicValue`. It is discharge-aware structurally (a pinned slot subtracts what it captures; a call routed onto
+   a discharge stack never joins the row), and exempt where the declaration cannot decide: an *applied* or
+   generic-headed return (`IO[Unit]`, `Box[String]`) may itself be the carrier, and a definition with an unknown callee
+   may derive an incomplete row. The post-mono `DeclaredPureChecker` this replaced is deleted.
    Effect rows may also be **pinned** (`{Throw[E] | Id} A`, `docs/effect-row-tails.md`): a tail after `|` makes the row
    a *concrete type* — the canonical carrier stack over the base, built in core by the `<Ability>Carrier` naming
    convention (`EffectSugarDesugarer`), entries leftmost-outermost = discharge order, no carrier generic minted. Stored
@@ -223,8 +224,9 @@ Each of these is a package in the "lang" module, roughly in order of processing:
       the classify-by-expected-slot ladder, and the **join solver** for carrier metas. The compile-time track keeps the
       default ladder (`checkAgainstDefault`/`defaultArgSlot`) permanently by design, so the `EffectLifter` arms and the
       default ladder are the **shared substrate** the bridge sits on, not a deletable legacy path;
-    - **verification is NOT here** — `derived ⊆ declared` is post-mono (`channel/EffectAccountingProcessor`, phase 9
-      above); the checker keeps only the `check/DeclaredPureChecker` fail-safe for values whose mono fails;
+    - **verification is NOT here** — `derived ⊆ declared` is verified twice outside the checker: pre-mono per
+      definition (`row/processor/RowElaborationProcessor.verifyRow`) and post-mono at ground instantiations
+      (`channel/EffectAccountingProcessor`, phase 9 above). The checker holds no effect diagnostic of its own;
     - `check/CarrierKindChecker` (HKT kind seeding + post-drain verification), `check/CalculatedReturnResolver`
       (calculated returns + effectful-guard discharge) and `check/AbilityResolver` (ability saturation) are the other
       non-equality collaborators, each hooked from `TypeStackLoop.runPostDrainResolution`.

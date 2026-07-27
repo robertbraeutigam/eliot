@@ -222,8 +222,8 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "lifted")
   }
 
-  // Fail-safe: a value that performs an effect but is declared with a non-carrier (pure) return type is rejected at the
-  // effect-check phase, not silently miscompiled.
+  // Fail-safe: a value that performs an effect but is declared with a non-carrier (pure) return type is rejected by the
+  // per-definition row verification, not silently miscompiled.
   "an effectful body under a pure return" should "be rejected" in {
     compileForErrors(
       """import eliot.jvm.IO
@@ -231,7 +231,7 @@ import eliot.effect.Console
         |def helper: String = printLine(readLine)
         |
         |def main: IO[Unit] = printLine(helper)""".stripMargin
-    ).asserting(_ should include("performs an effect but is declared pure"))
+    ).asserting(_ should include("performs the effect 'Console' but does not declare it"))
   }
 
   // --- Effects M4: multi-effect composition + propagation + Dep ---

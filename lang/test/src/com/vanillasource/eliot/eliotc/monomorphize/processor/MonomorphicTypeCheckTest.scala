@@ -1285,13 +1285,14 @@ class MonomorphicTypeCheckTest
     ).asserting(_ should contain("Type mismatch." at "box(\"x\")"))
   }
 
-  it should "keep the friendly declared-pure diagnostic for an effectful body under a pure return" in {
-    // `echo` has no carrier binder (a pure `String` return), so it monomorphizes at no type arguments — the
-    // declared-pure fail-safe now runs in the checker (its ambient-carrier-less branch), not the pre-mono phase.
+  it should "report an effectful body under a pure return as an undeclared effect, at the definition" in {
+    // `echo` has no carrier binder and a `String` return, which cannot host one — so the pre-mono row verification
+    // decides it from declarations and names the effect (A.11.6). The post-mono `DeclaredPureChecker` that used to
+    // voice this after a failed monomorphization is gone: this value never reaches the checker at all.
     liftedErrors("import eliot.effect.Console\ndef echo: String = printLine(readLine)", typeArgs = Seq.empty)
       .asserting(
         _ should contain(
-          "This value performs an effect but is declared pure; declare an effect set with { ... } or return an effect carrier." at "echo"
+          "This value performs the effect 'Console' but does not declare it; add it to its { ... } effect set." at "echo"
         )
       )
   }

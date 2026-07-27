@@ -212,6 +212,34 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
   }
 
   // ============================================================================================================
+  // Group F — the **val-bound** discharge, which used to be a documented limitation ("a discharger must receive the
+  // effectful call as an expression, never a `val`-bound binder"). It works since the elaborator writes the carrier
+  // (A.11.4-R): a call needing more than the ambient declares carries its own discharge stack, so the `val` binds the
+  // reified computation as data instead of sequencing it onto the ambient, and the discharger reaches it through the
+  // binder. Asserted on OUTPUT, both branches, so a regression to "sequenced then never discharged" is loud.
+  // ============================================================================================================
+
+  "a val-bound Throw computation" should "be discharged through its binder" in {
+    compileAndRun(throwPrelude + """
+      |def show: {Console} Unit = {
+      |   val outcome = bad
+      |   printLine(outcome catch (err -> err))
+      |}
+      |def main: IO[Unit] = show""".stripMargin).asserting(_ shouldBe "boom")
+  }
+
+  "a val-bound Abort computation" should "take the fallback when it aborts and its value when it does not" in {
+    compileAndRun("""def setting(key: String): {Abort} String = if(key == "host", "example.org") else abort
+      |
+      |def main: {Console} Unit = {
+      |   val host = setting("host")
+      |   val port = setting("port")
+      |   printLine(host else "localhost")
+      |   printLine(port else "8080")
+      |}""".stripMargin).asserting(_ shouldBe "example.org\n8080")
+  }
+
+  // ============================================================================================================
   // Group E — the ILL-TYPED boundary (NOT a §7 target). Two `catch`es of the SAME error type over a single
   // `{Throw[String]}` layer is an over-discharge: same-typed rows collapse to one carrier, so the second `catch` has
   // nothing left to discharge. These cases document the finding-13 identity-vs-non-identity ASYMMETRY at that boundary

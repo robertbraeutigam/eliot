@@ -15,6 +15,7 @@ import com.vanillasource.eliot.eliotc.lsp.virtual.{
 }
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
+import com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
@@ -64,6 +65,13 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
         .updatedWith(
           PathScanner.extraRuntimeMountsKey,
           mounts => (mounts.getOrElse(Seq.empty) :+ new LspMainRootMount).some
+        )
+        // The wrapper roots call the jvm layer's `runMain`; register it as the platform run boundary exactly as the
+        // jvm plugin does, so its carrier capture is recognised here too (the wrapper is not a program that performs
+        // the wrapped module's effects — it *runs* them).
+        .updatedWith(
+          RunBoundaryFunction.configKey,
+          boundaries => (boundaries.getOrElse(Set.empty) + LspMainRootSourceProcessor.runBoundaryVfqn).some
         )
     )
 

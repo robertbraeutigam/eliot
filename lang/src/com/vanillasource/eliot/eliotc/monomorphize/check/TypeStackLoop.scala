@@ -149,7 +149,7 @@ class TypeStackLoop(
       // Post-drain resolution + quoter assembly (shared with the signature twin): drain-and-resolve every metavariable
       // — interleaved with the A.8.7 mode resolution, which may instead decide a body rewrite (`Left`, restarting the
       // mono) — abort on any unification error, then build the `PostDrainQuoter` over the drain-resolved impl bindings.
-      quoterE   <- drainAndBuildQuoter(resolvedValue, abilityRefs, returnMeta, monoEnv, runtime)
+      quoterE   <- drainAndBuildQuoter(resolvedValue, abilityRefs, returnMeta, monoEnv)
       result    <- quoterE match {
                      case Left(newBody) => pure(Left(newBody))
                      case Right(quoter) =>
@@ -208,7 +208,7 @@ class TypeStackLoop(
       // carrier meta is created by the check, so both are present to pin to the compile-time `Either[String]` now.
       _                    <- track.pinCarriers(checker, resolvedValue)
       abilityRefs           = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
-      quoterE              <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv, None)
+      quoterE              <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
       // A twin checks a signature (type-level, and only ever on the compiler track), so it can never accrue the
       // runtime-track mode obligations that request a rewrite — a `Left` here is an internal invariant violation.
       quoter               <- quoterE match {
@@ -373,10 +373,9 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue,
       abilityRefs: Seq[AbilityRef],
       returnMeta: Option[SemValue.VMeta],
-      monoEnv: Env,
-      residualBody: Option[Sourced[SemExpression]]
+      monoEnv: Env
   ): CheckIO[Either[Sourced[OperatorResolvedExpression], PostDrainQuoter]] =
-    runPostDrainResolution(resolvedValue, abilityRefs, returnMeta, residualBody).flatMap {
+    runPostDrainResolution(resolvedValue, abilityRefs, returnMeta).flatMap {
       case Some(newBody) => pure(Left(newBody))
       case None          =>
         for {
@@ -416,8 +415,7 @@ class TypeStackLoop(
   private def runPostDrainResolution(
       resolvedValue: OperatorResolvedValue,
       abilityRefs: Seq[AbilityRef],
-      returnMeta: Option[SemValue.VMeta],
-      residualBody: Option[Sourced[SemExpression]]
+      returnMeta: Option[SemValue.VMeta]
   ): CheckIO[Option[Sourced[OperatorResolvedExpression]]] =
     for {
       rewrite <- resolveModesAndAbilitiesToFixedPoint(resolvedValue, abilityRefs, resolvedValue.paramConstraints)
@@ -428,12 +426,6 @@ class TypeStackLoop(
                        _ <- checker.carriers.verifyCarrierKinds
                        _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
                        _ <- modify(s => s.withUnifier(s.unifier.drain()))
-                       // The "declared pure but performs an effect" fail-safe (the one diagnostic post-mono effect
-                       // accounting cannot voice — its value's mono fails, so no fact is produced). Runs here — after
-                       // the drain left the committed mismatch, before `defaultUnsolvedMetas` collapses an abstract
-                       // ambient carrier to `Type`. Passed the checked body only for a value mono; a signature twin
-                       // passes `None` (its arrow-chain has no runtime effects).
-                       _ <- residualBody.traverse_(body => checker.declaredPure.check(body, resolvedValue))
                        _ <- defaultUnsolvedMetas
                        // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality
                        // obligation the check never discharged. Flush the queue to hard mismatch errors (triaging

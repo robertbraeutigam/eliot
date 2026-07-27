@@ -15,11 +15,12 @@ slice-4 plan; read A.10 first, then **§A.11 for the ordered roadmap from this t
 the inventory of everything that must not survive (machinery, flags, scaffolding, tests, docs), the exit
 criteria, and the ten steps. A.9 still owns the operational detail (the method, the tracer gotchas, the
 byte-identity oracle).**
-**A.11 IS UNDER WAY (2026-07-27): A.11.1, A.11.2, A.11.3, A.11.4 and A.11.5 are done. The elaborator
-**writes the carrier** (A.11.4-R), `Bool.fold` **declares its suspension**, and **the A.8.6 deferral is
-removed** — every plain slot is strict, which is v3's §1 rule 1 finally implemented (A.11.5-R). Gate: full
-`__.test` green, 37/40 examples (PluginA/B/C predate A.11.4), every program byte-identical except `IfDemo`,
-which gains the effectful `fold` arm A.11.4 was silently dropping. **Next is A.11.6.** One item of the
+**A.11 IS UNDER WAY (2026-07-27): A.11.1 through A.11.6 are done. The elaborator
+**writes the carrier** (A.11.4-R), `Bool.fold` **declares its suspension**, **the A.8.6 deferral is
+removed** — every plain slot is strict, which is v3's §1 rule 1 finally implemented (A.11.5-R) — and the row
+check is **unbounded** while `check/DeclaredPureChecker` is **deleted as subsumed** (A.11.6-R). Gate: full
+`__.test` green, 37/40 examples (PluginA/B/C predate A.11.4), every program byte-identical in output and
+class content. **Next is A.11.7** (delete the bridge). One item of the
 settled A.11.5 signature list did **not** convert: `foldOption` is refuted by the corpus in both spellings
 (A.11.5-R) and needs a decision — it is a reversal, not a refinement.**
 Successor direction to
@@ -1710,7 +1711,7 @@ rigid carrier-headed expected type is `pure`-lifted.*
 | the obligation/resolver path | `check/ModeResolver` 213; `CheckState.modeObligations`/`letObligations` + `ModeObligation`/`LetObligation` + `recordModeObligation`; `Checker.genericArgSlot`/`defaultArgSlot` deferral arms + `resolveDeferredSlot` + `SlotOutcome.Deferred`/`Suspended`; `TypeStackLoop`'s splice-and-restart, its fuel, and `processIO`'s `Either` return; `RowElaborator.spliceResolvedModes` | ~350 |
 | the `Id` apparatus | `channel/IdNormalizer` 308, `PostDrainQuoter.stripIdMachinery`, `WovenValueProcessor.assertNoIdResidue` | ~340 |
 | the carrier side table | `Unifier.carrierRoles` / `isEffectCarrier` / `CarrierRole`; `CarrierKindChecker`'s carrier-role *seeding* (its kind checking stays); `EffectLifter`'s remainder beyond the one pure-lift arm and the node builders | ~400 |
-| A.8.6's uncertainty | `RowChecker`'s `uncertain` row and `Derivation.deferred`; `RowElaborationProcessor.verifyRow`'s three boundings; and — decided at A.11.6, not assumed — `check/DeclaredPureChecker` 105 | ~150 |
+| A.8.6's uncertainty | `RowChecker`'s `uncertain` row and `Derivation.deferred`; `RowElaborationProcessor.verifyRow`'s three boundings; and — decided at A.11.6, not assumed — `check/DeclaredPureChecker` 105 | ~150 — **DONE at A.11.6**: all deleted except the *coverage* bounding, plus a new decidability one (a return that may itself carry), and `capturedByStack` added to the derivation |
 | flags & experiment scaffolding | `CompilationSession.compileOnce(seedFacts)` (a production API added only for the R4 shadow compile); `jvm/test/.../RowElaborationShadowCompileTest`; the shadow half of `jvm/test/.../RowShadowSweepTest`; `lang/test/.../monomorphize/spike/UniformCarrierSpike` + `…SpikeTest` (**dead v2 scaffolding, still in the tree**); ~5 stale scaladoc references to a `uniformCarrier` gate that no longer exists | ~750 |
 
 **Arithmetic to hold the work to.** `check/` is 5,219 today; the deletions above remove ≈1,070 from it, so
@@ -2041,6 +2042,69 @@ without the instantiation. Under written carriers the elaborator either finds a 
 body or does not, and can reject at the definition with a located message — which would subsume it. Check
 the two curated diagnostics A.8.12 flagged (`def echo: String = printLine(readLine)`, and an effectful
 lambda body under a rigid pure codomain) before removing anything.
+
+#### A.11.6-R Landed (2026-07-27) — the row check is unbounded, `DeclaredPureChecker` is deleted, and the derivation learned the rule A.11.4c gave the elaborator
+
+**What landed.** `RowChecker`'s `uncertain` row, `Derivation.deferred` and `genericHeadedSlot` are gone: with
+every plain slot strict, a rowed argument at a bare-generic slot joins the caller's row certainly, and the
+five unit cases that asserted deferral now assert the join. `RowElaborationProcessor.verifyRow` lost the
+"only a definition that declares an ambient" bounding, so a **pure-returning** definition that performs an
+effect is now reported pre-mono, at its own definition, naming the effect. `check/DeclaredPureChecker` (105
+lines) and its `TypeStackLoop`/`Checker` wiring are deleted, and `TypeStackLoop`'s `residualBody` parameter
+with them — it existed only to feed that checker.
+
+**The decision on `DeclaredPureChecker`, measured rather than assumed.** Its domain is exactly what the row
+check now enforces (no ambient carrier + a return that cannot host one + a body that performs), its
+discharge-awareness is structural here (pinned subtraction, the capture rule below) rather than a
+committed-mismatch gate, and its message named no effect where the row check names it. Both of A.8.12's
+curated diagnostics were checked: the first (`def echo: String = printLine(readLine)`) is now issued by the
+row check, earlier and better; the second (an effectful lambda body under a rigid pure codomain) never came
+from it at all — it is an ordinary `Type mismatch.` and is unchanged. Deleting it can lose no program: it
+only ever *replaced* a message on a value whose mono had already failed.
+
+**The corpus forced one addition, and it is a rule the tree already had in the other half.** The first cut —
+just removing the boundings — broke `Blocks` and `EffectsState`, both **dot-chained discharge**
+(`rename("after").runStateToPair("before")`). The pinned-slot subtraction cannot see through `.`: the
+computation sits at `.`'s own bare-generic slot, and the discharger it will reach is a *sibling* argument,
+which §3's whitelist forbids inspecting. The answer is A.11.4c's rule, which the elaborator has and the
+derivation did not: a call whose declared row the ambient does **not** provide, for an effect some signature
+in the universe *pins*, runs on a **carrier stack of its own** (`RowChecker.capturedByStack`, mirroring
+`RowElaborator.carrierAt`, which now shares its `dischargeableAbilities`). Its effects land in that stack for
+a consumer to discharge, not on this definition's row. A capture nothing discharges is still rejected — by
+the checker, against the declared return — and post-mono accounting, whose *ride test* against the ground
+ambient carrier this mirrors, remains the unconditional verifier. Keeping the two halves in sync is the
+point: a verifier that counted what the elaborator had just routed elsewhere reports a leak for correct code.
+
+`performs` is measured against the **region's** row, not the definition's: inside a pinned capture the
+region carrier provides the entries that slot pins, and inside a run-boundary argument it provides
+everything (`RowElaborator.regionRow` / `withCapturedRow`, the row half of `RegionCarrier`'s flip). Without
+that widening, an effectful argument inside a `catch`'s captured computation stops binding.
+
+**A second bounding stays, and it is a different one.** A definition declaring no ambient whose declared
+return **could itself be the carrier** — an applied type (`Box[String]`, `IO[Unit]`, `Either[E, A]`) or a
+generic-headed one — is not decidable here: whether `def f: Box[String] = wrap(s)` is a constructor-class use
+or a leak is settled by the instantiation (`RowResult.decidable` / `mayCarry`). That is the same exemption
+`DeclaredPureChecker` applied to an applied return, so nothing regressed by moving it. Only *coverage*
+(`unknownCallees`) and this remain; A.8.6's uncertainty bounding is gone.
+
+**A documented limitation disappeared.** The **val-bound discharge** now works: `val host = setting("host")`
+binds the reified computation (A.11.4c gives the call its own `AbortCarrier` stack, so it is data rather than
+work to sequence on the ambient) and `host else "localhost"` discharges it. Verified on output, both branches
+— `CatchShapeMatrixTest`'s new Group F pins the `Throw` and `Abort` shapes. CLAUDE.md's effect section still
+states this as a limitation and must be corrected at A.11.10. `EffectDiagnosticVocabularyTest`'s leak vehicle
+moved to the pure-return leak (which still fails, and now reads in row vocabulary).
+
+**One synthesized source had to be corrected, not worked around.** The LSP's per-module monomorphization
+wrapper spelled `def main: Unit = apply(block(M::main), unit)` — `runMain`'s body, inlined. The jvm target's
+synthesized entry deliberately does *not* inline it (`SyntheticMainSourceProcessor`: naming `runMain` gives
+the compiler a taggable capture slot), and once the row check enforces pure returns the inlined spelling
+reads as a `Unit` definition performing the user's effects without declaring them — which is what it
+literally says. The wrapper now calls `runMain`, and `LspPlugin` registers that boundary exactly as
+`JvmPlugin` does.
+
+**Gate:** full `__.test` green (lang, jvm, eliotc, LSP), 37/40 examples with PluginA/B/C predating A.11.4,
+and every one of the 37 programs' output **and class content** byte-identical to the A.11.5 build.
+`check/` is 5,219 → 5,097.
 
 ### A.11.7 Delete the bridge
 

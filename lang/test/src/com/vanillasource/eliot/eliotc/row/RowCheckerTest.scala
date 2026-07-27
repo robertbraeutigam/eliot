@@ -58,22 +58,21 @@ class RowCheckerTest
       .asserting(namesOf(_) shouldBe (Set("Con"), Set("Con")))
   }
 
-  // --- the choose/pick pair: a rowed argument at a bare-generic slot is **instantiation-uncertain** (A.8.6) — a
-  // dot-chained discharger captures it there, a strict instantiation runs it — so its entries move to the
-  // `uncertain` channel: never counted as a certain leak, and their presence disables pre-mono enforcement for the
-  // definition (the post-mono accounting, with the exact ride test, remains its verifier). ---
+  // --- the choose/pick pair: a bare-generic slot is a *plain* slot, so a rowed argument meeting it runs at the call
+  // site and joins the caller's row like any other (§1 rule 1, A.11.5). Both arguments of `choose` run — that is the
+  // §6 semantic decision, not an approximation — and `pick`'s effectful sibling behaves identically. ---
 
-  it should "defer choose(readLine, readLine)'s contributions as instantiation-uncertain" in {
+  it should "join choose(readLine, readLine)'s contributions certainly (every plain slot is strict)" in {
     val source = prelude + "def choose[A](x: A, y: A): A = x\ndef echo: {Con} Str = choose(readLine, readLine)"
     rowCheck(source, Seq("choose", "echo", "items", "use"), "echo")
-      .asserting(r => (namesOf(r), r.uncertain.map(_.abilityName)) shouldBe ((Set.empty, Set("Con")), Set("Con")))
+      .asserting(namesOf(_) shouldBe (Set("Con"), Set("Con")))
   }
 
-  it should "defer pick(readLine, pure)'s effectful contribution identically to the all-effectful sibling case" in {
+  it should "join pick(readLine, pure)'s effectful contribution identically to the all-effectful sibling case" in {
     val source =
       prelude + "def pick[A](x: A, y: A): A = x\ndef pureStr: Str\ndef echo: {Con} Str = pick(readLine, pureStr)"
     rowCheck(source, Seq("pick", "pureStr", "echo", "items", "use"), "echo")
-      .asserting(r => (namesOf(r), r.uncertain.map(_.abilityName)) shouldBe ((Set.empty, Set("Con")), Set("Con")))
+      .asserting(namesOf(_) shouldBe (Set("Con"), Set("Con")))
   }
 
   // --- the leak diagnostic: per-definition, located at the offending definition — subsumes v2's
@@ -129,11 +128,10 @@ class RowCheckerTest
       .asserting(r => (r.derived.map(_.abilityName), r.leak) shouldBe (Set("X"), Set.empty))
   }
 
-  // --- suspension stays row-neutral where it is *declared*: a declared-suspended slot (open row on a by-value
-  // parameter) joins certainly, exactly like a concrete strict slot; only a *bare-generic* slot — where nothing is
-  // declared — defers to the uncertain channel. ---
+  // --- suspension is row-neutral: a declared-suspended slot (open row on a by-value parameter) and a plain slot
+  // contribute identically. Suspension changes only *when* an effect runs, never whether the caller declares it. ---
 
-  it should "join a declared-suspended slot certainly and defer a bare-generic slot (A.8.6)" in {
+  it should "join a declared-suspended slot and a plain slot identically (suspension is row-neutral)" in {
     val source = dischargePrelude +
       """def pureStr: Str
         |def branchStrict[A](c: Str, t: A, f: A): A = t
@@ -143,18 +141,17 @@ class RowCheckerTest
         |""".stripMargin
     val names  = Seq("pureStr", "branchStrict", "branchSusp", "useStrict", "useSusp")
     (rowCheck(source, names, "useStrict"), rowCheck(source, names, "useSusp"))
-      .mapN((strict, susp) => (namesOf(strict), strict.uncertain.map(_.abilityName), namesOf(susp)))
-      .asserting(_ shouldBe ((Set.empty, Set("X")), Set("X"), (Set("X"), Set("X"))))
+      .mapN((strict, susp) => (namesOf(strict), namesOf(susp)))
+      .asserting(_ shouldBe ((Set("X"), Set("X")), (Set("X"), Set("X"))))
   }
 
-  // --- a suspended parameter's row counts inside the callee's own body — certainly at a declared slot, uncertainly
-  // where the body forwards it through a bare-generic slot. ---
+  // --- a suspended parameter's row counts inside the callee's own body, wherever the body places it. ---
 
-  it should "defer a suspended parameter's row forwarded through a bare-generic slot" in {
+  it should "join a suspended parameter's row forwarded through a plain slot" in {
     val source = dischargePrelude +
       "def if2[A](c: Str, value: {X} A): {X} A\ndef sel[A](a: A): A = a\ndef both[A](c: Str, v: {X} A): {X} A = sel(v)"
     rowCheck(source, Seq("if2", "sel", "both"), "both")
-      .asserting(r => (namesOf(r), r.uncertain.map(_.abilityName)) shouldBe ((Set.empty, Set("X")), Set("X")))
+      .asserting(namesOf(_) shouldBe (Set("X"), Set("X")))
   }
 
   // --- Inf-alikes are ordinary entries: a divergence ability rides the same union and leaks the same way. ---
@@ -186,13 +183,10 @@ class RowCheckerTest
   // Requires the method's signature in the universe, so the ability-qualified name is fetched too. ---
 
   it should "not count a first-order ability method as an effect" in {
-    // `sh` itself contributes nothing (no carrier binder); `items`'s own row reaches `sh`'s bare-generic `a: A`
-    // slot, so it defers to the uncertain channel like at any other generic slot.
-    val source = prelude + "ability Sh[A] { def sh(a: A): Str }\ndef shown: Str = sh(items)"
+    // `sh` itself contributes nothing (no carrier binder); the only entry derived is its argument's own row.
+    val source = prelude + "ability Sh[A] { def sh(a: A): Str }\ndef shown: {Con} Str = sh(items)"
     rowCheck(source, Seq("items", "use", "shown"), "shown", abilityMethods = Seq(("sh", "Sh")))
-      .asserting(r =>
-        (namesOf(r), r.uncertain.map(_.abilityName), r.unknownCallees) shouldBe ((Set.empty, Set.empty), Set("Con"), Set.empty)
-      )
+      .asserting(r => (namesOf(r), r.unknownCallees) shouldBe ((Set("Con"), Set("Con")), Set.empty))
   }
 
   // --- a platform run boundary (jvm's runMain shape) captures the whole argument row — tag source (ii). ---

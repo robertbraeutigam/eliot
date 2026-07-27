@@ -227,6 +227,37 @@ object RowElaborator {
       */
     private var deferredAtCarrier: Boolean = false
 
+    /** The effects the **current region's** carrier provides — the definition's own declared row, widened inside a
+      * capture. It is what [[performs]] measures against: an effect this carrier provides is work to sequence here,
+      * while one it does not (and a discharger in scope can consume) belongs to a carrier stack of its own and is
+      * data to pass on (`RowChecker.capturedByStack`).
+      *
+      * The widening is the row half of [[RegionCarrier]]'s flip: a *pinned* slot's capture runs on the callee's
+      * stack, which provides exactly the entries that slot pins; a *run-boundary* argument captures the whole row,
+      * so nothing is subtracted there at all.
+      */
+    private var regionRow: Set[AbilityFQN] = ambientAbilities
+
+    /** What the carrier of a capture at `index` provides: the entries that slot pins, or — at a *run boundary*,
+      * which captures the whole row — everything a discharger in scope could consume, so that nothing is read as
+      * belonging to a stack of its own inside it.
+      */
+    private def capturedRowAt(callee: Option[OperatorResolvedValue], index: Int, runBoundary: Boolean): Set[AbilityFQN] =
+      if (runBoundary) dischargeableAbilities
+      else
+        callee
+          .flatMap(_.effectRow.pinnedParameterEffects.find(_.parameterIndex == index))
+          .map(_.effects.map(_.abilityFQN).toSet)
+          .getOrElse(Set.empty)
+
+    /** Elaborate a capture on a region whose carrier provides `provided` beyond the ambient. */
+    private def withCapturedRow[A](provided: Set[AbilityFQN])(body: => A): A = {
+      val outer = regionRow
+      regionRow = regionRow ++ provided
+      try body
+      finally regionRow = outer
+    }
+
     /** Elaborate under a block binder, which shadows any same-named parameter. */
     private def withBinder[A](name: String, holdsCarrier: Boolean, isPayload: Boolean = false)(body: => A): A = {
       val outerCarrier = carrierBinders
@@ -356,7 +387,7 @@ object RowElaborator {
       * there.
       */
     private def performs(expr: OperatorResolvedExpression): Boolean =
-      RowChecker.expressionRow(expr, paramRows, universe).nonEmpty
+      RowChecker.expressionRow(expr, paramRows, regionRow, universe).nonEmpty
 
     /** Whether an elaborated node **discharges** a declared row: it is a call to a callee that captures a row in a
       * pinned parameter (`catch`, `else`, `runStateToPair`, every `run…`) or to a platform run boundary.
@@ -527,7 +558,8 @@ object RowElaborator {
             // pinned means *captured*, and a pure actual does not lift into a capture — the val-bound-discharge
             // limitation's mismatch ("Expected: {Abort | IO} String") is by design, and wrapping would silently
             // replace that curated diagnostic with a downstream ability demand.
-            (accArgs :+ core(arg, captureRegion)._1, accBinds)
+            val captured = withCapturedRow(capturedRowAt(calleeOrv, index, runBoundary))(core(arg, captureRegion)._1)
+            (accArgs :+ captured, accBinds)
           } else if (declaredSlot.exists(s => carrierHeaded(s, calleeBinders))) {
             // A declared-suspended slot (carrier-headed parameter type) receives a computation on the *caller's*
             // carrier: an effectful argument passes unrun; a pure argument is lifted (`if(c, "a")` ⇒ `pure("a")`).
@@ -677,10 +709,7 @@ object RowElaborator {
       * A body with no discharger in scope captures nothing, so it needs no layer — which is self-consistent rather
       * than merely convenient.
       */
-    private lazy val dischargeableAbilities: Set[AbilityFQN] =
-      universe.values.values.flatMap { orv =>
-        orv.effectRow.returnPinnedEffects ++ orv.effectRow.pinnedParameterEffects.flatMap(_.effects)
-      }.map(_.abilityFQN).toSet
+    private lazy val dischargeableAbilities: Set[AbilityFQN] = RowChecker.dischargeableAbilities(universe)
 
     /** The effect entries a callee's own ambient carrier is constrained by, with their type arguments and in
       * declared order — `{State[String], Console}` as `[State[String], Console]`. The machinery constraints

@@ -98,15 +98,6 @@ class Checker(
     */
   private[check] val modeResolver: ModeResolver = new ModeResolver(force, doUnify, lifter)
 
-  /** The "declared pure but performs an effect" fail-safe: the one effect diagnostic the post-mono
-    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]] cannot voice (its value's mono
-    * fails, so no fact is produced). The `derived ⊆ declared` subset check now lives entirely in that processor
-    * (U4-c-2, which deleted the old `EffectResidualChecker`). A non-equality *verification* concern, kept out of this
-    * checker's definitional-equality core. Called from [[TypeStackLoop.runPostDrainResolution]] after the final drain.
-    * See [[DeclaredPureChecker]].
-    */
-  private[check] val declaredPure: DeclaredPureChecker = new DeclaredPureChecker(platform)
-
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
     for {

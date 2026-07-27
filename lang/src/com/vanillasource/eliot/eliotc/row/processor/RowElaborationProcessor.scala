@@ -68,25 +68,23 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
     * of the machinery's downstream symptoms (the cryptic `AbilityResolver` demand for a `State`/`Throw`/`Abort`
     * leak, a mono-time carrier mismatch). The wording matches accounting's, so the two verifiers speak one language.
     *
-    * Enforcement is deliberately bounded twice, in the deferral spirit (A.8.6):
+    * Enforcement is bounded twice, and by what is *undecidable from declarations* rather than by A.8.6's withdrawn
+    * uncertainty (A.11.6):
     *
-    *   - **only for a definition that declares an ambient** (a non-empty declared row / pinned return): its sequenced
-    *     contributions ride that ambient by construction, so "what the body does must fit what the signature
-    *     declares" is decidable from declarations. A definition with *no* ambient is skipped — whether a
-    *     carrier-ability call there is an effect leak or a constructor-class use (`def f: Box[String] = wrap(s)`,
-    *     `Container[Box]`) is decided by the *instantiation* (`F := Box` never rides), which pre-mono derivation
-    *     cannot see; those stay with the mono-informed checkers (`DeclaredPureChecker`, the `Suspend`-at-`Id`
-    *     message) until the A.8.6 resolver era;
-    *   - **only under full coverage** (`unknownCallees` empty): an unknown callee means the derivation may be
-    *     incomplete, and a possibly-wrong pre-mono error is worse than deferring to the post-mono
+    *   - **coverage** (`unknownCallees` empty): an unknown callee means the derivation may be incomplete, and a
+    *     possibly-wrong pre-mono error is worse than deferring to the post-mono
     *     [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]], which stays wired as the
-    *     unconditional ground-truth fail-safe gating codegen.
+    *     unconditional ground-truth fail-safe gating codegen;
+    *   - **decidability** ([[RowChecker.RowResult.decidable]]): a definition declaring no ambient whose return could
+    *     itself be the carrier is the constructor-class shape, which only the instantiation settles.
+    *
+    * What A.11.6 removed is the *third* bounding: enforcement no longer requires a declared ambient at all, so a
+    * pure-returning definition that performs an effect is reported here, in effect vocabulary, at its own
+    * definition — the diagnostic the post-mono `DeclaredPureChecker` used to voice after a failed monomorphization.
     */
   private def verifyRow(value: OperatorResolvedValue, universe: RowChecker.Universe): CompilerIO[Unit] =
     RowChecker.checkValue(value.vfqn, universe) match {
-      case Some(result)
-          if result.declared.nonEmpty && result.leak.nonEmpty &&
-            result.unknownCallees.isEmpty && result.uncertain.isEmpty =>
+      case Some(result) if result.leak.nonEmpty && result.decidable && result.unknownCallees.isEmpty =>
         val names   = result.leak.toSeq.map(_.abilityName).sorted
         val word    = if (names.sizeIs == 1) "effect" else "effects"
         val pronoun = if (names.sizeIs == 1) "it" else "them"

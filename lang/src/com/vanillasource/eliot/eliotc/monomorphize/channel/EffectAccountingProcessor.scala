@@ -37,9 +37,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   *
   * '''Status (U4-c-2, docs/effects-as-channel.md §0/§10).''' This is the **sole subset verifier**, wired as a codegen
   * precondition and verifying **unconditionally** (the old pre-mono `EffectResidualChecker` is deleted; its one remaining
-  * diagnostic, "declared pure but performs an effect", moved to
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]], because that concerns a value whose mono
-  * *fails* and so never reaches accounting). A **concrete-carrier**
+  * diagnostic, "declared pure but performs an effect", is the pre-mono
+  * [[com.vanillasource.eliot.eliotc.row.processor.RowElaborationProcessor]]'s row verification, because that concerns a
+  * value whose mono *fails* and so never reaches accounting — A.11.6). A **concrete-carrier**
   * return (`def main: IO[Unit] = printLine(…)`) has no carrier binder and is exempt from the subset check — its explicitly
   * chosen carrier permits its effects ([[verifySubset]]). The transparent-parameter expansion (`Effect`-marked callback
   * positions) and the reify-legality check are later slices.
@@ -64,10 +64,10 @@ class EffectAccountingProcessor
 
   /** The `derived ⊆ declared` subset check — fired **only for a value with an open effect row** (a constrained carrier
     * binder). A **concrete-carrier** return (`def main: IO[Unit] = printLine(…)`) has no carrier binder, so it declares no
-    * row to be a subset of; its explicitly chosen carrier permits its effects and it is **exempt**, exactly as
-    * [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]] exempts an *applied* return. A genuinely
-    * pure value whose body performs an effect never reaches here — its mono fails first (the effect cannot resolve on no
-    * carrier), and that "declared pure" diagnostic is [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]]'s.
+    * row to be a subset of; its explicitly chosen carrier permits its effects and it is **exempt**, exactly as the
+    * pre-mono row verification exempts a return that may itself carry. A genuinely pure value whose body performs an
+    * effect never reaches here — its mono fails first (the effect cannot resolve on no carrier), and that "declared
+    * pure" diagnostic is the row verification's (A.11.6).
     */
   private def verifySubset(mv: MonomorphicValue, derived: Set[AbilityFQN]): CompilerIO[Unit] =
     getFactIfProduced(OperatorResolvedValue.Key(mv.vfqn, Platform.Runtime)).flatMap {
@@ -170,8 +170,7 @@ class EffectAccountingProcessor
   /** A value's **open effect row**, read off its `OperatorResolvedValue`: its constrained carrier binders
     * (`carrierBinders ∩ paramConstraints` — empty for a concrete-carrier or pure return, non-empty for an `{E...}` row)
     * and the user-facing effects declared on them (machinery excluded). The single source of truth for "declared"
-    * (U4-c-0b), the same reading [[com.vanillasource.eliot.eliotc.monomorphize.check.DeclaredPureChecker]] uses: surface
-    * rows desugar *into* these constraints, and hand-written carrier-generic code (the stdlib dischargers, the lifting
+    * (U4-c-0b): surface rows desugar *into* these constraints, and hand-written carrier-generic code (the stdlib dischargers, the lifting
     * instances `implement[S, G ~ Abort] Abort[StateCarrier[S, G]]`) declares its effects *only* this way. The
     * carrier-binder set is what [[verifySubset]] gates on (an empty set = no row to be a subset of = exempt).
     */

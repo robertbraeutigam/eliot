@@ -6,8 +6,8 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 
-/** The effects-as-rows **per-definition row checker** (docs/effects-as-rows.md §2 / Appendix A) — R3: production code,
-  * but **unwired** into the pipeline; consumed only by its unit tests and the shadow corpus sweep until the R5 flip.
+/** The effects-as-rows **per-definition row checker** (docs/effects-as-rows.md §2 / Appendix A), run by
+  * [[com.vanillasource.eliot.eliotc.row.processor.RowElaborationProcessor]] on every runtime definition.
   *
   * Derives each definition's performed row from its operator-resolved body and checks `derived ⊆ declared` — with no
   * types, no carriers, no metavariables. The one derivation rule (Appendix A.1):
@@ -81,13 +81,26 @@ object RowChecker {
       declared: Row,
       unknownCallees: Set[ValueFQN],
       runCaptured: Boolean = false,
-      uncertain: Row = Set.empty
+      returnMayCarry: Boolean = false
   ) {
 
     /** The effects performed but not declared — non-empty is the v3 diagnostic "performs the effect 'X' but does not
       * declare it", located at this definition.
       */
     def leak: Row = if (runCaptured) Set.empty else derived -- declared
+
+    /** Whether a [[leak]] here is decidable from declarations alone, and so may be *reported* at this definition.
+      *
+      * A definition that declares an ambient always is: its body's contributions ride that ambient by construction.
+      * One that declares none is decidable only when its declared return **cannot itself be the carrier** — a
+      * nullary concrete type (`String`, `Unit`). An *applied* return (`Box[String]`, `IO[Unit]`, `Either[E, A]`) or
+      * a generic-headed one may be exactly what hosts the effect: whether `def f: Box[String] = wrap(s)` is a
+      * constructor-class use or an effect leak is decided by the instantiation (`F := Box` never rides), which no
+      * pre-mono derivation can see. Those stay with the post-mono
+      * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]] and the checker's own
+      * carrier resolution.
+      */
+    def decidable: Boolean = declared.nonEmpty || !returnMayCarry
   }
 
   /** Row-check every checkable definition of the universe: runtime-role, non-type, body-carrying values. */
@@ -114,20 +127,21 @@ object RowChecker {
   def checkValue(vfqn: ValueFQN, universe: Universe): Option[RowResult] =
     universe.values.get(vfqn).map { orv =>
       val view       = SignatureView.of(orv.signature)
+      val declared   = declaredRow(orv) ++ pinnedReturnEntries(orv)
       val derivation = orv.runtime
         .map { r =>
           val (paramNames, body) = peelLambdas(r.value)
           val env                = parameterEnvironment(orv, view, paramNames)
-          valueRow(body, env, universe) |+| latentRow(body, env, universe)
+          valueRow(body, env, declared, universe) |+| latentRow(body, env, declared, universe)
         }
         .getOrElse(Derivation.empty)
       RowResult(
         vfqn,
         derivation.row,
-        declaredRow(orv) ++ pinnedReturnEntries(orv),
+        declared,
         derivation.unknown,
         runCaptured = headOf(view.returnType.value).exists(runCarrierHeads(universe).contains),
-        uncertain = derivation.uncertainRow
+        returnMayCarry = mayCarry(view.returnType.value)
       )
     }
 
@@ -143,6 +157,15 @@ object RowChecker {
         .flatMap(orv => SignatureView.of(orv.signature).parameters.headOption)
         .flatMap(param => headOf(param.value))
     }
+
+  /** Whether a declared type could itself be an effect carrier applied to its payload — an *applied* type
+    * (`Box[String]`, `IO[Unit]`) or one headed by a generic the use site instantiates. A nullary concrete type
+    * (`String`, `Unit`) cannot host a carrier at all, which is what makes a leak under it decidable here.
+    */
+  private def mayCarry(tpe: OperatorResolvedExpression): Boolean = {
+    val (head, args) = spine(tpe)
+    args.nonEmpty || head.isInstanceOf[ParameterReference]
+  }
 
   private def headOf(tpe: OperatorResolvedExpression): Option[ValueFQN] =
     spine(tpe)._1 match {
@@ -167,13 +190,47 @@ object RowChecker {
   private def pinnedReturnEntries(orv: OperatorResolvedValue): Row =
     orv.effectRow.returnPinnedEffects.map(_.abilityFQN).toSet
 
-  /** The row a single expression derives in the given parameter environment — the [[RowElaborator]]'s test for
-    * whether an argument must *run* at its call site. An expression *performs* iff its row is non-empty; a
+  /** The row a single expression derives on the enclosing definition's *ambient* carrier — the [[RowElaborator]]'s
+    * test for whether an argument must *run* at its call site. An expression *performs* iff its row is non-empty; a
     * carrier-typed **value** — a reified computation such as `pure(x)`, or a parameter holding one — derives the
-    * empty row and is data to pass on, not work to sequence.
+    * empty row and is data to pass on, not work to sequence. So does a call whose effects [[capturedByStack]] routes
+    * onto a discharge stack: it runs on a carrier of its own, not on this one.
     */
-  def expressionRow(expr: OperatorResolvedExpression, env: Map[String, Row], universe: Universe): Row =
-    valueRow(expr, env, universe).row
+  def expressionRow(
+      expr: OperatorResolvedExpression,
+      env: Map[String, Row],
+      ambient: Row,
+      universe: Universe
+  ): Row =
+    valueRow(expr, env, ambient, universe).row
+
+  /** The effects some signature in this universe **pins** — the ones a discharger in scope can consume, and so the
+    * only ones a call can be routed onto a carrier stack of its own for (A.11.4-R's corpus-forced filter). A
+    * `Suspend`-riding effect (`Console`, `Log`, `Inf`) has no `<Ability>Carrier` at all and is always provided by
+    * the base carrier, so it never appears here — which is what keeps [[capturedByStack]] from "discharging" an
+    * effect onto a layer that does not and cannot exist.
+    */
+  def dischargeableAbilities(universe: Universe): Set[AbilityFQN] =
+    universe.values.values.flatMap { orv =>
+      orv.effectRow.returnPinnedEffects ++ orv.effectRow.pinnedParameterEffects.flatMap(_.effects)
+    }.map(_.abilityFQN).toSet
+
+  /** The entries of a callee's declared row that do **not** ride the calling definition's ambient carrier: those the
+    * ambient does not declare and a discharger in scope can consume. This is the derivation half of
+    * [[RowElaborator]]'s `carrierAt` (A.11.4-R, Robert's decision) and must stay its mirror — the elaborator gives
+    * such a call a carrier stack of its own (`rename("after")` ⤳ `StateCarrier[String, F]` under a `{Console}`
+    * ambient), so its effects land in that stack for a consumer to discharge rather than on this definition's row.
+    * A verifier that counted them anyway would report a leak for every dot-chained discharge the elaborator had just
+    * routed correctly, and the two would disagree about the same call.
+    *
+    * A capture nothing discharges is not thereby accepted: the stack it carries meets the declared return type and
+    * the checker rejects it, and the post-mono accounting — whose *ride test* against the ground ambient carrier
+    * this rule mirrors — remains the unconditional verifier.
+    */
+  def capturedByStack(calleeRow: Row, ambient: Row, universe: Universe): Row = {
+    val escaping = calleeRow -- ambient
+    if (escaping.isEmpty) Set.empty else escaping.intersect(dischargeableAbilities(universe))
+  }
 
   /** The declared rows of a definition's parameters by binder name (suspended slots, effectful-callback arrows) —
     * exposed for the [[RowElaborator]], which elaborates in the same environment the checker derives in.
@@ -193,19 +250,13 @@ object RowChecker {
     peelLambdas(expr)
 
   /** A derivation in progress: the row performed plus the referenced names the universe could not resolve. */
-  private case class Derivation(row: Row, unknown: Set[ValueFQN], uncertainRow: Row = Set.empty) {
-    def |+|(other: Derivation): Derivation        =
-      Derivation(row ++ other.row, unknown ++ other.unknown, uncertainRow ++ other.uncertainRow)
+  private case class Derivation(row: Row, unknown: Set[ValueFQN]) {
+    def |+|(other: Derivation): Derivation        = Derivation(row ++ other.row, unknown ++ other.unknown)
     def minus(entries: Row): Derivation           = copy(row = row -- entries)
     def clearedWhen(cleared: Boolean): Derivation = if (cleared) copy(row = Set.empty) else this
 
-    /** Mark this contribution **instantiation-uncertain** (A.8.6): its row entries reached a slot typed by a bare
-      * generic, where the mode is the instantiation's — a dot-chained discharger *captures* the computation there
-      * (the row must not join), while a strict instantiation runs it (it must). The entries move out of the certain
-      * row: the definition's leak check skips them, and their presence disables pre-mono enforcement for the
-      * definition — the post-mono accounting (exact ride test at ground instantiations) remains their verifier.
-      */
-    def deferred: Derivation = if (row.isEmpty) this else Derivation(Set.empty, unknown, uncertainRow ++ row)
+    /** Keep only what rides the enclosing definition's ambient carrier — see [[capturedByStack]]. */
+    def ridingOn(ambient: Row, universe: Universe): Derivation = minus(capturedByStack(row, ambient, universe))
   }
 
   private object Derivation {
@@ -236,55 +287,45 @@ object RowChecker {
     * performs nothing itself (its row is latent); a saturated call performs its callee's declared row plus its
     * arguments' contributions, minus what pinned slots capture.
     */
-  private def valueRow(expr: OperatorResolvedExpression, env: Map[String, Row], universe: Universe): Derivation = {
+  private def valueRow(
+      expr: OperatorResolvedExpression,
+      env: Map[String, Row],
+      ambient: Row,
+      universe: Universe
+  ): Derivation = {
     val (head, args) = spine(expr)
     head match {
       case ValueReference(name, _)                      =>
         val orvOpt      = universe.lookup(name.value)
         val view        = orvOpt.map(o => SignatureView.of(o.signature))
-        val binders     = orvOpt.map(EffectCarriers.declaredCarrierBinders).getOrElse(Set.empty)
         val saturated   = args.size >= view.map(_.parameters.size).getOrElse(0)
-        val callee      = if (saturated) calleeContribution(name.value, universe) else Derivation.empty
+        val callee      =
+          if (saturated) calleeContribution(name.value, universe).ridingOn(ambient, universe) else Derivation.empty
         val runBoundary = universe.runBoundaries.contains(name.value)
         args.zipWithIndex
           .map { case (arg, i) =>
-            val contribution = argumentContribution(arg.value, env, universe)
+            argumentContribution(arg.value, env, ambient, universe)
               .minus(pinnedEntries(orvOpt, i))
               .clearedWhen(runBoundary && i == 0)
-            // A rowed contribution meeting a slot typed by a bare generic is instantiation-uncertain (a dot-chained
-            // discharger captures it there; a strict instantiation runs it) — see [[Derivation.deferred]].
-            if (view.flatMap(_.parameters.lift(i)).map(_.value).exists(genericHeadedSlot(_, binders)))
-              contribution.deferred
-            else contribution
           }
           .foldLeft(callee)(_ |+| _)
       case FunctionLiteral(_, _, body) if args.nonEmpty =>
         // An applied lambda — the block/`val` desugar: the bound argument runs, then the continuation.
         args
-          .map(a => argumentContribution(a.value, env, universe))
-          .foldLeft(valueRow(body.value, env, universe))(_ |+| _)
+          .map(a => argumentContribution(a.value, env, ambient, universe))
+          .foldLeft(valueRow(body.value, env, ambient, universe))(_ |+| _)
       case _: FunctionLiteral                           =>
         Derivation.empty
       case ParameterReference(name)                     =>
         // Referencing (or calling) a parameter contributes its declared row — a suspended parameter's effects belong
         // to this definition's row wherever the body places the computation.
         args
-          .map(a => argumentContribution(a.value, env, universe))
+          .map(a => argumentContribution(a.value, env, ambient, universe))
           .foldLeft(Derivation.of(env.getOrElse(name.value, Set.empty)))(_ |+| _)
       case _                                            =>
         Derivation.empty
     }
   }
-
-  /** Whether a declared slot type is headed by a *bare generic* — a `ParameterReference` head that is not one of the
-    * callee's declared carrier binders (`a: A`, `initial: B`, `x: F[A]` with a bare `F[_]`). Such a slot's mode is
-    * the instantiation's to decide (A.8.6), so a rowed contribution meeting it is uncertain.
-    */
-  private def genericHeadedSlot(tpe: OperatorResolvedExpression, carriers: Set[String]): Boolean =
-    spine(tpe)._1 match {
-      case ParameterReference(name) => !carriers.contains(name.value)
-      case _                        => false
-    }
 
   /** The contribution of an argument at a (non-pinned) slot: the effects of evaluating it, plus — conservatively — the
     * latent row of a function value passed in (the callee may run it).
@@ -292,24 +333,30 @@ object RowChecker {
   private def argumentContribution(
       arg: OperatorResolvedExpression,
       env: Map[String, Row],
+      ambient: Row,
       universe: Universe
   ): Derivation =
-    valueRow(arg, env, universe) |+| latentRow(arg, env, universe)
+    valueRow(arg, env, ambient, universe) |+| latentRow(arg, env, ambient, universe)
 
   /** The latent row of a function-valued expression: what it would perform when run. Empty for a non-function value
     * (its effects already ran and are in [[valueRow]]).
     */
-  private def latentRow(expr: OperatorResolvedExpression, env: Map[String, Row], universe: Universe): Derivation =
+  private def latentRow(
+      expr: OperatorResolvedExpression,
+      env: Map[String, Row],
+      ambient: Row,
+      universe: Universe
+  ): Derivation =
     expr match {
       case FunctionLiteral(_, _, body) =>
         val (_, inner) = peelLambdas(body.value)
-        valueRow(inner, env, universe)
+        valueRow(inner, env, ambient, universe)
       case _                           =>
         val (head, args) = spine(expr)
         head match {
           case ValueReference(name, _)
               if universe.lookup(name.value).exists(o => args.size < SignatureView.of(o.signature).parameters.size) =>
-            calleeContribution(name.value, universe)
+            calleeContribution(name.value, universe).ridingOn(ambient, universe)
           case ParameterReference(name) if args.isEmpty =>
             Derivation.of(env.getOrElse(name.value, Set.empty))
           case _                                        =>

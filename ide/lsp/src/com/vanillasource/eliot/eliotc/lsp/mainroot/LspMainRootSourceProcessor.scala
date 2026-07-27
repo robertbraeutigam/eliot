@@ -67,9 +67,23 @@ object LspMainRootSourceProcessor {
     )
   }
 
+  /** The wrapper names the platform run boundary `runMain` rather than inlining its `apply(block(…), unit)` body, for
+    * the same reason the jvm target's synthesized entry does ([[runBoundaryVfqn]]): the boundary is what tells the
+    * compiler this call *captures* the wrapped `main`'s whole effect row. Inlined, the wrapper reads as an ordinary
+    * definition returning `Unit` that performs the user's effects without declaring them, and the per-definition row
+    * verification rejects it — correctly, since nothing in that spelling says a carrier is being run.
+    */
   private def wrapperSource(target: ModuleName): String =
     s"""
        |import eliot.jvm.IO
-       |def main: Unit = apply(block(${target.show}::main), unit)
+       |def main: Unit = runMain(${target.show}::main)
        |""".stripMargin
+
+  /** The platform run boundary [[wrapperSource]] calls (`def runMain[A](io: IO[A]): A`, in the workspace's jvm layer).
+    * Registered by [[com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin]] exactly as the jvm plugin registers it, so
+    * the wrapper's capture is recognised here as it is in a real build. Spelled by name, like the `import eliot.jvm.IO`
+    * the wrapper already carries: the LSP does not depend on the jvm module.
+    */
+  val runBoundaryVfqn: ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("runMain", Qualifier.Default))
 }
