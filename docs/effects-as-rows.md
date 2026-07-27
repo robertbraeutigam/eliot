@@ -1827,6 +1827,10 @@ inserted `flatMap`/`pure`, and `runId` beside every `Id` — using the mechanism
 hoists, pinned/carrier-typed value passes as data), so nothing is left for a resolver to finish. The bridge
 is still present and will simply stop firing — which is what the next steps measure before deleting it.
 
+> **Amended by A.11.4-R**: the carrier-writing half landed here; the *deferral removal* moved to A.11.5,
+> because `Bool.if` is `fold(condition, value, abort)` and making `fold`'s slots strict before `fold`
+> declares suspension makes `if` abort unconditionally. The order is forced, not preferred.
+
 Verify with the twin comparison (`RowElaboratorTest`, twins gaining explicit carrier args) plus the
 byte-identity oracle over all examples.
 
@@ -1877,6 +1881,37 @@ passes as data (21), or `Bool.fold` (6), which A.11.5 converts. With the dot ans
 it `ModeResolver`, the obligation vectors, and `TypeStackLoop`'s splice-and-restart (A.11.8) — is fully
 removable. Without it, none of that can go.
 
+**Resolved (Robert's call): derive the discharge stack, no special case for the dot.** Landed as A.11.4c
+(`7ab3e88d`) — see that commit and `RowElaborator.carrierAt`. A call whose declared row needs effects the
+ambient does not provide cannot be running on the ambient, so it runs on the canonical stack of that
+difference over it. One filter the corpus forced, and it is the interesting half: **an effect the ambient does
+not declare is not automatically dischargeable.** A `Suspend`-riding effect (`Console`, `Log`, `Inf`) has no
+`<Ability>Carrier` and is provided by the *base*; the synthesized entry `def main: Unit =
+runMain(HelloWorld::main)` captures a `{Console}` value on `IO`, and a naive difference killed every example
+with "Could not find `ConsoleCarrier^Type`". The filter reads the universe's own pinned rows — an effect is
+dischargeable in this body iff a discharger for it is among the names the body reaches — which needs no
+lookup (probing for a carrier type that does not exist is itself a hard error) and is self-consistent: a body
+with no discharger in scope captures nothing.
+
+**Still not removed: the deferral itself, and it is now gated on A.11.5 rather than on a decision.**
+`Bool.if` is `fold(condition, value, abort)`; make `fold`'s slots strict before `fold` declares suspension and
+`if` aborts unconditionally. So the order is forced: A.11.5's signature change, then the removal.
+
+**Measured, so A.11.5 starts from facts rather than fear** (probe applied and reverted, examples rebuilt at
+each stage). Giving `fold` its `{Effect}` arms is *tractable* — the type-level uses are not the problem:
+
+| stage | examples compiling | what broke |
+| --- | ---: | --- |
+| A.11.4c as landed | **37/40** | PluginA/B/C only (pre-existing) |
+| `+ fold` gets `{Effect}` arms | 32/40 | `Effect` is not in scope in `Bool.els` — it lives in the import-required `eliot.carrier`, so the file needs `import eliot.carrier.Effect` (per-file, so nothing leaks into the prelude) |
+| `+ that import` | 34/40 | **only** `Compare.min`/`max` — `def min[A ~ Compare](a: A, b: A): A = fold(…)`, a *pure* return meeting `fold`'s now-`F[A]` result |
+
+So every type-level use of `fold` — `where` guards, `Int` bound arithmetic, `TypeLevelMatch` — survives the
+change untouched, which was the real risk (`fold` is a `StdlibNativesProcessor` reduction the checker runs
+during type-level evaluation). What is left is the **pure-boundary `Id` default** for a generic-headed call
+under a pure return, which A.11.4's own `runId` insertion does not currently reach. That is A.11.5's first
+piece of work, and it is one shape, not a class of them.
+
 ### A.11.5 Convert the stdlib and jvm layers, same step
 
 Whole-program, and this is not optional: the spike showed bridge-off breaks the stdlib's own
@@ -1892,6 +1927,13 @@ constraint), and it is what `foreach` already reads as:
 def fold[A](condition: Bool, whenTrue: {Effect} A, whenFalse: {Effect} A): {Effect} A { join(whenTrue, whenFalse) }
 def foldOption[A, B](ifNone: {Effect} B, ifSome: A => B, o: Option[A]): {Effect} B
 ```
+
+**Order within the step, forced by A.11.4-R**: the signature change comes *first*, then the A.8.6 deferral
+removal. `Bool.if` is `fold(condition, value, abort)`, so strict slots before declared suspension make `if`
+abort unconditionally. A.11.4-R also measured the change: it costs `import eliot.carrier.Effect` in
+`Bool.els` (per-file, nothing leaks into the prelude), every type-level use survives untouched, and the one
+remaining break is `Compare.min`/`max` — a pure return meeting `fold`'s now-`F[A]` result, i.e. the
+pure-boundary `Id` default for a generic-headed call, which A.11.4's `runId` insertion does not yet reach.
 
 `fold` is what the audit caught (6 sites, the whole §6 break). `foldOption`'s `ifNone` was never measured
 effectful but is the same lazy-branch shape, and its failure mode is silent — an effectful default running on
