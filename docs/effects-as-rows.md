@@ -15,12 +15,13 @@ slice-4 plan; read A.10 first, then **§A.11 for the ordered roadmap from this t
 the inventory of everything that must not survive (machinery, flags, scaffolding, tests, docs), the exit
 criteria, and the ten steps. A.9 still owns the operational detail (the method, the tracer gotchas, the
 byte-identity oracle).**
-**A.11 IS UNDER WAY (2026-07-27): A.11.1 (dead v2 spike + stale gate scaladoc deleted), A.11.3 (corpus
-extracted to `jvm/test/.../EffectCorpus`; the mandatory pre-flip semantic-break audit RUN — result in
-A.11.3-R: the break is `Bool.fold` and nothing else) and A.11.2 (RESOLVED in A.11.2-R: build neither
-accumulator mechanism, a pure `initial` under an effectful combine is a type error the user fixes with
-`pure(…)`) are done. **Next is A.11.4, the core step, now unblocked and with no new elaborator rule.**
-The A.11.5 signature list is settled in that section: exactly `fold` and `foldOption`, spelled `{Effect}`.**
+**A.11 IS UNDER WAY (2026-07-27): A.11.1, A.11.2, A.11.3, A.11.4 and A.11.5 are done. The elaborator
+**writes the carrier** (A.11.4-R), `Bool.fold` **declares its suspension**, and **the A.8.6 deferral is
+removed** — every plain slot is strict, which is v3's §1 rule 1 finally implemented (A.11.5-R). Gate: full
+`__.test` green, 37/40 examples (PluginA/B/C predate A.11.4), every program byte-identical except `IfDemo`,
+which gains the effectful `fold` arm A.11.4 was silently dropping. **Next is A.11.6.** One item of the
+settled A.11.5 signature list did **not** convert: `foldOption` is refuted by the corpus in both spellings
+(A.11.5-R) and needs a decision — it is a reversal, not a refinement.**
 Successor direction to
 `docs/effects-as-channel.md` (v2, whose remaining checker machinery — the ladders, the concrete-slot
 arms — stays live underneath until the deletion slices retire it against the resolver). The row
@@ -1946,6 +1947,87 @@ Two implementation snags to expect on `fold`, neither of which changes the decis
 native leaf** (`SystemNativesProcessor` reduces `Bool` `fold`), so gaining a carrier binder changes its arity
 and its native binding; and its `{ join(whenTrue, whenFalse) }` refinement clause now sees carrier-wrapped
 arms.
+
+#### A.11.5-R Landed (2026-07-27), in two commits — and one signature that did **not** convert
+
+**A.11.5a (`ae1d11d7`) — `fold` declares its suspension, and a pure boundary names `Id`.** `Bool.fold` is now
+`fold[A](condition: Bool, whenTrue: {Effect} A, whenFalse: {Effect} A): {Effect} A`, with the per-file
+`import eliot.carrier.Effect` A.11.4-R predicted. `IfDemo`'s effectful `fold` arm — silently dropped since
+A.11.4 and recorded there as a caveat — now runs; that line is the **only** behavioural change in the whole
+corpus. Three supporting changes, each forced by a measured failure and each of them a *symmetry* being
+restored rather than a rule being added:
+
+- **The pure-boundary `Id` default** (`RowElaborator.pureBoundaryRegion`), the piece A.11.4's `runId`
+  insertion did not reach. At a value position in a region with no carrier, a call whose result rides its
+  callee's own carrier binder *and* whose binder declares no user effect runs on `Id`: the region is written
+  `Id`, so the arms come out `pure[Id]` and the node `runId(..)`. It **subsumes** the old `discharges` test
+  (every discharger's pinned base carrier is deliberately unconstrained) and is what makes `Compare.min`/`max`
+  compile. An **ability method is excluded outright, machinery or not** — its carrier is chosen by instance
+  resolution from the expected type, which is precisely what makes `def f: Box[String] = wrap(s)`
+  (`Container[F]`) and `def e: Either[String, String] = pure("hello")` (`Effect[Either[String]]`) the same
+  shape, and neither of them this one. Both were caught by the unit gate, not by inspection.
+- **`UniformLadder`**: a payload slot that *declares* `Id[T]` (`runId`'s own `obj`) takes the identity carrier
+  as **data** instead of projecting its payload. Without it the elaborated `runId(fold[Id](..))` met itself as
+  "Expected: Id(Int) / Actual: Int" — the bridge unwrapping exactly what the declaration asked for. This is
+  **A.8.12's blocker in its argument-slot form**, and it dissolves the same way A.10.5 predicted: with the
+  carrier written, `Id` is an honest type rather than an encoding.
+- **`NbeEvaluator`**: the first snag A.11.5 predicted, and its resolution is *not* the one the snag assumed.
+  A written type argument now reaches native leaves, and applying it blindly landed `Id` in `fold`'s first
+  **value** slot. The fix is not to give the native a carrier parameter — the elaborator writes the carrier
+  only where the region is spellable, so a 4-arity native would silently misreduce everywhere else. Instead the
+  native's own declared `paramType` decides: a type parameter takes any type argument, a value parameter only a
+  ground constant (`integerLiteral[128]`, where types-are-values makes a literal an ordinary type argument).
+  **Unsure means not applied**: a dropped argument leaves the native unapplied and loud, an applied one that
+  was never modelled computes the wrong answer silently.
+
+The second predicted snag — `{ join(whenTrue, whenFalse) }` seeing carrier-wrapped arms — **did not
+materialise** with the `{Effect}` spelling. It *does* appear if `fold`'s carrier is spelled as a later binder
+(`fold[A, G[_] ~ Effect]`, tried and discarded): the refinement's `Meta` companion is applied positionally, so
+moving the carrier out of binder 0 misfeeds it ("No ability implementation found for ability 'Meta' with type
+arguments [Unit[Int$Meta]]"). Binder **order** is load-bearing here, which is a second, independent reason the
+settled `{Effect}` spelling is the right one.
+
+**A.11.5b (`cb5e5008`) — the deferral is gone.** `elaborateCall`'s generic-headed-slot branch and the
+`genericHeaded` helper are deleted; every plain slot is strict. Nothing replaced it: an argument that performs
+on this region's carrier hoists, and one carrying a *different* carrier (the dot-chained discharger's
+`rename("after")`, which `carrierAt` gives `StateCarrier[String, F]`) does not perform on the ambient and
+passes as data. The audit's numbers held exactly — 974 of the 1,047 sites hand over a plain value, 21 are
+carrier-typed values the rule passes as data, 43 were already hoisting, and the 6 `fold` arms became
+declared-suspended in A.11.5a. **Gate: every program's output *and every class file* byte-identical to the
+A.11.5a build.** Removing the deferral changed no compiled program.
+
+**`foldOption` did NOT convert, and this is a reversal of the settled signature list that needs sign-off, not
+a refinement.** The list above says exactly two signatures change. `fold` did; `foldOption` was tried in both
+spellings and each is refuted by the corpus:
+
+1. **As specified** (`ifNone: {Effect} B`, `ifSome: A => B` strict): `Effect[AbortCarrier[G]]`'s own `flatMap`
+   passes `a -> runAbort(f(a))` — an *effectful* `ifSome`. Today that types because `B` is instantiated at the
+   carrier type `G[Option[B]]`; with `ifNone` suspended, `B` is forced to the payload and the effectful arm
+   cannot be spelled at all. Type mismatch in `stdlib/.../effect/Abort.els` and `jvm/.../effect/Abort.els`.
+2. **With `ifSome` suspended too** (`ifSome: A => {Effect} B` — note the arrow spelling; `Function[A, {Effect} B]`
+   fails the lexical layer merge, cf. [[gotcha_arrow_alias_not_in_data_or_merge]]): the machinery instances
+   type, but the ordinary *pure* use stops: `o.foldOption("<no value>", s -> s)` now needs its identity arm
+   lifted into the carrier, and the elaborator cannot prove a **lambda binder** pure (`definitelyPure` knows
+   payload-by-construction binders and atomically-typed parameters, not a lambda's own binder), so it defers
+   and leaves `A = F[B]` — "Expected: Option(String) -> String / Actual: Option(IO(String)) -> IO(String)".
+
+So converting `foldOption` needs a capability the elaborator does not have (proving a lambda binder pure from
+its slot's declared domain), and **nothing in the corpus asks for it**: A.11.3-R measured all 5 `ifNone` sites
+holding `pure(..)` or a parameter reference — carrier-typed values that rule 1 passes as data, before and after
+the deferral removal. The risk the conversion was meant to close (an effectful `ifNone` running on `Some`)
+stays open and unrealised. Three ways forward, for the record: build the lambda-binder purity rule; convert
+`foldOption` when a shape actually needs it; or accept the strict `ifNone` permanently and say so in its
+apidoc. **Not decided here.**
+
+One rule was written and then **withdrawn**, and it is worth recording because it looks right: `writeCarrier`
+gained a `ridesAmbient` condition — write the ambient only where the callee *performs* on it, so an
+effect-transparent combinator (`fold`, `foldOption`) inherits its carrier from its arguments instead of being
+committed to the ambient. It fixes a genuine miscommitment (`o.foldOption(..)` with pure arms under a
+`{Console}` definition is a pure selection, not an `IO` one) and the whole example corpus stayed green with it.
+It nevertheless broke `Path.extension` (`def extension(p: Path): Option[String] = fold(isNull(..), None,
+Some(..))`, exercised only by `FileIoIntegrationTest`): with `fold`'s carrier unwritten, the meta never
+resolves and the body quotes as `$bad-apply(Option(String))`. Left in the tree only if some later step needs
+it, and then only with that shape covered.
 
 ### A.11.6 Unbound the row check, and decide `DeclaredPureChecker`
 
