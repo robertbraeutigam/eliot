@@ -1758,6 +1758,41 @@ behaviour that changes, and the failure mode is silent (a lazy combinator becomi
 reviewed by hand. Output is a list, and it either confirms the break is bounded or it identifies the stdlib
 signatures that must declare suspension in A.11.5.
 
+#### A.11.3-R The audit result (2026-07-27): the break is **one stdlib signature**
+
+Method: a temporary `row/RowAudit` recorder on the A.8.6 deferral branch of `RowElaborator.elaborateCall` —
+every argument the elaborator hands to a bare-generic slot, tagged with the enclosing definition, the callee
+and slot index, the declared slot shape, the argument's spine head, and four verdicts (carrier-valued /
+performs / discharges / in a carrier region). Env-gated (`ELIOT_ROW_AUDIT=<file>`), deduplicated in-process,
+appended at JVM exit so it survives mill's forked test JVMs and the 40 separate CLI runs alike. Run over the
+whole test gate (green, all modules) plus every example; instrument reverted after.
+
+**1,047 distinct deferral sites. 974 of them (93%) hand over a plain *value* — nothing to run, no possible
+change.** The 73 carrier-valued ones fall into exactly three groups:
+
+| group | sites | what happens at the flip |
+| --- | ---: | --- |
+| **A. genuinely strict positions** — `.` (22, incl. the 2 dot-chained discharges), `==` (8), `++` (1), `Show.show` (1), `putState` (1), and 10 in hand-written test combinators (`choose`/`pick`/`|>`/`pipe`/`identity`/`first`/`andThen`/`foldOr`/`Box`) | 43 | **nothing** — the operand is always used, so hoisting *is* today's behaviour. The spike already ran `.` (XTwoDeps) and the discharge chain (XState). |
+| **B. carrier-typed *values* inside the carrier machinery** — `AbortCarrier`/`ThrowCarrier` constructor slots (15), `foldOption`'s `ifNone` (5), `foldLeft`'s `initial` (1) — every one holding a `pure(..)`/`flatMap(..)`/`map(..)` result or a parameter reference | 21 | **nothing** — rule 1 passes a carrier-typed value as data. (2 of the carrier-constructor sites do *perform*; both are inside `implement`s that A.11.5 converts anyway.) |
+| **C. `Bool.fold`'s two branch slots** | 6 | **the break.** `fold[A](condition: Bool, whenTrue: A, whenFalse: A): A` is the language's only by-value *eliminator*: under deferral the instantiation makes `A` carrier-headed and only the taken branch runs; under rule 1 both branches hoist and both run. |
+
+So the §6 semantic break, measured, is **`Bool.fold` and nothing else**. Its six sites are `Bool.if`'s own
+body (`fold(condition, value, abort)` — an `abort` that would then always fire), `IfDemo.foldForms:52` (whose
+comment documents "only the chosen branch's `printLine` runs"), and one jvm-test shape. **A.11.5 must give
+`fold` declared-suspended branches** (`whenTrue: {G} A, whenFalse: {G} A): {G} A`); `if` is then textually
+unchanged, since `value: {Abort} T` already spells suspension.
+
+Two things the measurement could *not* settle, both flagged rather than decided:
+
+- **`Option.foldOption`'s `ifNone: B`** is structurally the same lazy-branch shape, but the corpus never
+  passes it anything effectful (all 5 sites hold `pure(..)` or a parameter). Decide it with `fold` in A.11.5
+  rather than waiting for a user to find it. `Either.foldEither` and `Pair.foldPair` take *lambdas*, so they
+  are lazy by construction and unaffected; `Abort.else`'s `fallback: G[A]` is already declared-suspended.
+- **The accumulator (A.11.2)**: `foldLeft`'s `initial` slot appears exactly **once** in the entire corpus —
+  `List.foreach`, where the stdlib already writes the lift by hand (`list.foldLeft(pure(unit), …)`). So no
+  library code depends on the checker inferring it, and the question is purely about *user* code writing a
+  pure `initial` under an effectful `combine`.
+
 ### A.11.4 `RowElaborator` writes carrier expressions
 
 The core step. Upgrade the region walk from a positional boolean to a carrier **term**: the definition's own
