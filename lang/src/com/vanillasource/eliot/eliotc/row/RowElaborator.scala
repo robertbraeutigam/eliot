@@ -67,6 +67,37 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 object RowElaborator {
 
+  /** The carrier a region binds on, in the form the elaborator can *use*.
+    *
+    * The distinction between the last two cases is the whole of A.11.4. A region either has no carrier at all, or has
+    * one the elaborator can **spell** as a term written from the definition's *own* declaration (its minted binder
+    * `F`, the pinned stack its return declares, a platform run carrier, or `Id` at a pure discharge boundary), or has
+    * one that exists but is expressible only in a **callee's** binders — the interior of a pinned capture, whose
+    * declared domain `{Throw[E] | G} A` names the callee's `E`. Deriving that `E` from the argument's own row would
+    * be inference, which is precisely what writing the carrier exists to avoid, so it stays [[Unspelled]] and the
+    * checker solves it exactly as before.
+    *
+    * All three behave identically for *placement*: [[exists]] is what the bind/`pure`/`runId` rules read. Only
+    * [[term]] differs, and a missing term means "write nothing here", which is always the fail-safe direction.
+    */
+  private enum RegionCarrier {
+    case Absent
+    case Unspelled
+    case Spelled(carrierTerm: Sourced[OperatorResolvedExpression])
+
+    /** Whether a carrier exists to bind on — the positional flag every placement rule reads. */
+    def exists: Boolean = this match {
+      case Absent => false
+      case _      => true
+    }
+
+    /** The carrier as a writable type argument, when the elaborator can spell it. */
+    def term: Option[Sourced[OperatorResolvedExpression]] = this match {
+      case Spelled(t) => Some(t)
+      case _          => scala.None
+    }
+  }
+
   /** Elaborate a definition's runtime body. [[None]] for a body-less value. The result mirrors the original
     * [[Sourced]] positions: inserted machinery nodes are attributed to the expression they wrap.
     */
@@ -76,9 +107,7 @@ object RowElaborator {
       val view               = SignatureView.of(orv.signature)
       val ownBinders         = EffectCarriers.declaredCarrierBinders(orv)
       val paramTypes         = paramNames.takeRight(view.parameters.size).zip(view.parameters.map(_.value)).toMap
-      val topCarrier         = carrierHeaded(view.returnType.value, ownBinders) ||
-        orv.effectRow.returnPinnedEffects.nonEmpty ||
-        runCarrierReturn(view, universe)
+      val topCarrier         = topRegionCarrier(orv, view, ownBinders, universe)
       val valueParamNames    = paramNames.takeRight(view.parameters.size)
       // A parameter *holding* a computation: one declared by a carrier binder of this definition (a suspended slot),
       // or one whose declared type is a pinned stack (`computation: {Dep[X] | G} A` — a discharger's captured
@@ -91,9 +120,44 @@ object RowElaborator {
       }.toSet
       val elab               =
         new Elaboration(paramTypes, carrierParams, RowChecker.parameterRowsOf(orv, paramNames), ownBinders, universe)
-      val newBody            = elab.elaborate(runtime.as(body), needCarrier = topCarrier, region = topCarrier)
+      val newBody            = elab.elaborate(runtime.as(body), needCarrier = topCarrier.exists, region = topCarrier)
       runtime.as(rewrap(runtime.value, newBody))
     }
+
+  /** The carrier of a definition's own top-level region, read off its declared return — the three spellings a
+    * definition has for "my body runs on a carrier", each of which names that carrier in the definition's *own*
+    * binders and is therefore always [[RegionCarrier.Spelled]]:
+    *
+    *   - **carrier-headed** (`F[Unit]`, the `{Console} Unit` sugar's lowering): the carrier is the binder itself;
+    *   - **pinned** (`{Throw[E] | G} A` ⤳ `ThrowCarrier[E, G, A]`): the carrier is that stack with its payload
+    *     argument dropped, `ThrowCarrier[E, G]` — `E` and `G` are this definition's own binders, so it is writable
+    *     here even though the *same* stack at a callee's pinned parameter is not (see [[RegionCarrier]]);
+    *   - **nominal-run** (`def main: IO[Unit]`): the carrier is the concrete run carrier, read off the boundary
+    *     registry rather than guessed from the name.
+    *
+    * A pure return has no carrier at all.
+    */
+  private def topRegionCarrier(
+      orv: OperatorResolvedValue,
+      view: SignatureView,
+      ownBinders: Set[String],
+      universe: RowChecker.Universe
+  ): RegionCarrier = {
+    val returnType = view.returnType
+    if (carrierHeaded(returnType.value, ownBinders) || runCarrierReturn(view, universe))
+      RegionCarrier.Spelled(returnType.as(spine(returnType.value)._1))
+    else if (orv.effectRow.returnPinnedEffects.nonEmpty) dropPayloadArgument(returnType)
+    else RegionCarrier.Absent
+  }
+
+  /** A carrier-headed type read as its carrier: the head applied to every argument *but* the payload
+    * (`ThrowCarrier[E, G, A]` ⤳ `ThrowCarrier[E, G]`, `F[Unit]` ⤳ `F`). [[RegionCarrier.Unspelled]] for a type with
+    * no arguments at all, which cannot be carrying anything.
+    */
+  private def dropPayloadArgument(tpe: Sourced[OperatorResolvedExpression]): RegionCarrier = tpe.value match {
+    case FunctionApplication(target, _) => RegionCarrier.Spelled(target)
+    case _                              => RegionCarrier.Unspelled
+  }
 
   /** Whether a definition's declared return is headed by a platform *run carrier* (`def main: IO[Unit]`, the
     * nominal-run spelling) — the head read off the registered run boundaries, per [[RowChecker.runCarrierHeads]].
@@ -178,11 +242,11 @@ object RowElaborator {
     def elaborate(
         expr: Sourced[OperatorResolvedExpression],
         needCarrier: Boolean,
-        region: Boolean
+        region: RegionCarrier
     ): Sourced[OperatorResolvedExpression] = {
       val (elaborated, carrierValued) = core(expr, region)
       if (needCarrier && !carrierValued) {
-        if (definitelyPure(elaborated)) elaborated.as(pureWrap(elaborated))
+        if (definitelyPure(elaborated)) elaborated.as(pureWrap(elaborated, region))
         else {
           deferredAtCarrier = true
           elaborated
@@ -264,7 +328,7 @@ object RowElaborator {
       */
     private def core(
         expr: Sourced[OperatorResolvedExpression],
-        region: Boolean
+        region: RegionCarrier
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val (head, args) = spine(expr.value)
       head match {
@@ -280,7 +344,7 @@ object RowElaborator {
             val (bodyElab, bodyCar) = withBinder(name.value, holdsCarrier = true)(core(body, region))
             (expr.as(applyChain(expr.as(FunctionLiteral(name, tpe, bodyElab)), Seq(boundElab))), bodyCar)
           } else {
-            val bound2 = Option.when(boundCarrier && region) {
+            val bound2 = Option.when(boundCarrier && region.exists) {
               // Attempt the bind rewrite. The inserted bind hands the binder the computation's *payload* — payload
               // by construction, so a later reference to it may be `pure`-lifted. But if the continuation's eventual
               // tail turns out deferred, the rewrite must not stand — an inserted chain may not end in a node the
@@ -297,7 +361,7 @@ object RowElaborator {
               deferredAtCarrier = savedFlag
               if (fullyDischarged) {
                 val continuation = expr.as(FunctionLiteral(name, tpe, continuationBody))
-                Some((expr.as(bindNodes(continuation, boundElab)), true))
+                Some((expr.as(bindNodes(continuation, boundElab, region)), true))
               } else {
                 nextBinder = savedBinder
                 None
@@ -307,7 +371,7 @@ object RowElaborator {
               // No bind inserted (no region carrier, a plain-value bound, or a rolled-back attempt). With no region
               // carrier a *discharging* binding's base is `Id` — unwrap at the binding; any other carrier-valued
               // node keeps its context-supplied carrier (see [[discharges]]).
-              val discharged          = !region && boundCarrier && discharges(boundElab)
+              val discharged          = !region.exists && boundCarrier && discharges(boundElab)
               val boundFinal          = if (discharged) boundElab.as(runIdWrap(boundElab)) else boundElab
               val (bodyElab, bodyCar) =
                 withBinder(name.value, holdsCarrier = false, isPayload = discharged || definitelyPure(boundFinal))(
@@ -356,7 +420,7 @@ object RowElaborator {
         expr: Sourced[OperatorResolvedExpression],
         callee: ValueFQN,
         args: Seq[Sourced[OperatorResolvedExpression]],
-        region: Boolean
+        region: RegionCarrier
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val calleeOrv     = universe.lookup(callee)
       val calleeView    = calleeOrv.map(o => SignatureView.of(o.signature))
@@ -367,7 +431,8 @@ object RowElaborator {
       // Whether this call's own carrier is known to exist: the enclosing region has one, or the call discharges a
       // row and so runs on `Id`. When neither holds the carrier is context-supplied and its slots stay ordinary —
       // lifting a pure argument with `pure` would force `Id` on a call whose carrier the use site chooses.
-      val slotRegion    = region || pinned.nonEmpty || runBoundary
+      val ownRegion     = callRegion(region, pinned.nonEmpty || runBoundary, expr)
+      val slotRegion    = ownRegion.exists
       // Hoisting is a rewrite the elaborator must fully discharge: the core it leaves as the chain's innermost
       // continuation must be classifiable — carrier-valued, or a declared-payload result it can `pure`-wrap. A
       // deferred (generic-headed) core may *be* the computation, so hoisting around it is rolled into deferral: no
@@ -377,7 +442,13 @@ object RowElaborator {
         args.sizeIs >= view.parameters.size &&
         declaredPayloadResult(arrowApplied(view.returnType.value, args.size - view.parameters.size))
       }
-      val hoist          = region && coreClassified
+      val hoist          = region.exists && coreClassified
+      // The carrier region a *pinned or run-boundary* argument captures on: the callee's own stack. The run
+      // boundary's is concrete and writable (`IO`, read off its declared domain); a pinned stack's is spelled in
+      // the callee's binders (`{Throw[E] | G} A`), so it exists but stays unspelled (see [[RegionCarrier]]).
+      val captureRegion  =
+        if (runBoundary) calleeView.flatMap(_.parameters.headOption).map(dropPayloadArgument).getOrElse(RegionCarrier.Unspelled)
+        else RegionCarrier.Unspelled
 
       val (finalArgs, binds) =
         args.zipWithIndex.foldLeft(
@@ -390,7 +461,7 @@ object RowElaborator {
             // pinned means *captured*, and a pure actual does not lift into a capture — the val-bound-discharge
             // limitation's mismatch ("Expected: {Abort | IO} String") is by design, and wrapping would silently
             // replace that curated diagnostic with a downstream ability demand.
-            (accArgs :+ core(arg, region = true)._1, accBinds)
+            (accArgs :+ core(arg, captureRegion)._1, accBinds)
           } else if (declaredSlot.exists(s => carrierHeaded(s, calleeBinders))) {
             // A declared-suspended slot (carrier-headed parameter type) receives a computation on the *caller's*
             // carrier: an effectful argument passes unrun; a pure argument is lifted (`if(c, "a")` ⇒ `pure("a")`).
@@ -402,8 +473,9 @@ object RowElaborator {
           } else if (isBareLambda(arg.value)) {
             if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders))) {
               // A handler/callback at a carrier-codomain slot (`onError: E => G[A]`, `action: A => {Effect} Unit`):
-              // its body is a carrier region — a pure body lifts via `pure`.
-              (accArgs :+ elaborateLambdaForced(arg), accBinds)
+              // its body is a carrier region — a pure body lifts via `pure`. The codomain's carrier is the call's
+              // own result carrier, so the body inherits it when we can spell it, and merely *has* one otherwise.
+              (accArgs :+ elaborateLambdaForced(arg, forced(ownRegion)), accBinds)
             } else {
               // A lambda at a plain arrow slot elaborates naturally: an effectful body becomes a bind chain, a pure
               // body is untouched. What its codomain instantiates the slot at is the checker's to discover.
@@ -421,8 +493,27 @@ object RowElaborator {
           }
         }
 
-      (assemble(expr, finalArgs, binds, calleeCarrier), binds.nonEmpty || calleeCarrier)
+      (assemble(expr, finalArgs, binds, calleeCarrier, region), binds.nonEmpty || calleeCarrier)
     }
+
+    /** The carrier a call's *own* result runs on: the enclosing region's when there is one, otherwise `Id` for a
+      * **discharging** call — the A.4 rule that a consumed row leaves a residual nothing else constrains — and no
+      * carrier at all for an ordinary call whose carrier the use site chooses.
+      */
+    private def callRegion(
+        enclosing: RegionCarrier,
+        discharging: Boolean,
+        anchor: Sourced[?]
+    ): RegionCarrier =
+      if (enclosing.exists) enclosing
+      else if (discharging) RegionCarrier.Spelled(idCarrierTerm(anchor))
+      else RegionCarrier.Absent
+
+    /** A region known to *have* a carrier by declaration even where this pass cannot name it — a carrier-codomain
+      * lambda body, whose slot declares the carrier whatever the context instantiates it at.
+      */
+    private def forced(region: RegionCarrier): RegionCarrier =
+      if (region.exists) region else RegionCarrier.Unspelled
 
     /** Elaborate a call with no declared slot information (an applied function-typed parameter): every slot strict,
       * hoisting only when the call's own result is classifiable (see `coreClassified` in [[elaborateCall]]).
@@ -432,13 +523,14 @@ object RowElaborator {
         args: Seq[Sourced[OperatorResolvedExpression]],
         resultCarrier: Boolean,
         resultClassified: Boolean,
-        region: Boolean
+        region: RegionCarrier
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val (finalArgs, binds) =
         args.foldLeft((Seq.empty[Sourced[OperatorResolvedExpression]], Seq.empty[(String, Sourced[OperatorResolvedExpression])])) {
-          case ((accArgs, accBinds), arg) => strictArgument(accArgs, accBinds, arg, region, region && resultClassified)
+          case ((accArgs, accBinds), arg) =>
+            strictArgument(accArgs, accBinds, arg, region, region.exists && resultClassified)
         }
-      (assemble(expr, finalArgs, binds, resultCarrier), binds.nonEmpty || resultCarrier)
+      (assemble(expr, finalArgs, binds, resultCarrier, region), binds.nonEmpty || resultCarrier)
     }
 
     /** One strict-slot argument: a carrier-valued argument that *performs* (non-empty row) or *discharges* (empty
@@ -452,7 +544,7 @@ object RowElaborator {
         accArgs: Seq[Sourced[OperatorResolvedExpression]],
         accBinds: Seq[(String, Sourced[OperatorResolvedExpression])],
         arg: Sourced[OperatorResolvedExpression],
-        region: Boolean,
+        region: RegionCarrier,
         hoist: Boolean
     ): (Seq[Sourced[OperatorResolvedExpression]], Seq[(String, Sourced[OperatorResolvedExpression])]) = {
       val (argElab, argCarrier) = core(arg, region)
@@ -474,7 +566,8 @@ object RowElaborator {
         expr: Sourced[OperatorResolvedExpression],
         finalArgs: Seq[Sourced[OperatorResolvedExpression]],
         binds: Seq[(String, Sourced[OperatorResolvedExpression])],
-        resultCarrier: Boolean
+        resultCarrier: Boolean,
+        region: RegionCarrier
     ): Sourced[OperatorResolvedExpression] = {
       // Untouched code keeps its original nodes, not equal rebuilt ones: rebuilding re-attributes the application
       // spine to per-argument positions, which silently moves every diagnostic anchored at a call.
@@ -483,10 +576,10 @@ object RowElaborator {
       if (binds.isEmpty) coreCall
       else {
         val coreElab =
-          if (resultCarrier || !definitelyPure(coreCall)) coreCall else coreCall.as(pureWrap(coreCall))
+          if (resultCarrier || !definitelyPure(coreCall)) coreCall else coreCall.as(pureWrap(coreCall, region))
         binds.foldRight(coreElab) { case ((binder, action), acc) =>
           val continuation = acc.as(FunctionLiteral(acc.as(binder), None, acc))
-          acc.as(bindNodes(continuation, action))
+          acc.as(bindNodes(continuation, action, region))
         }
       }
     }
@@ -541,9 +634,12 @@ object RowElaborator {
     /** Rebuild a handler lambda with its (fully peeled) body elaborated as a carrier region: the declared codomain
       * is a carrier, so the body always has one to bind on.
       */
-    private def elaborateLambdaForced(lambda: Sourced[OperatorResolvedExpression]): Sourced[OperatorResolvedExpression] = {
+    private def elaborateLambdaForced(
+        lambda: Sourced[OperatorResolvedExpression],
+        region: RegionCarrier
+    ): Sourced[OperatorResolvedExpression] = {
       val (_, inner) = RowChecker.peelBinders(lambda.value)
-      val innerElab  = elaborate(lambda.as(inner), needCarrier = true, region = true)
+      val innerElab  = elaborate(lambda.as(inner), needCarrier = true, region)
       // An untouched body keeps the original lambda node: rebuilding an equal one reads as a changed argument
       // upstream and re-attributes the whole application spine (see [[assemble]]).
       if (innerElab.value.asInstanceOf[AnyRef] eq inner.asInstanceOf[AnyRef]) lambda
@@ -555,7 +651,7 @@ object RowElaborator {
       */
     private def elaborateLambdaNatural(
         lambda: Sourced[OperatorResolvedExpression],
-        region: Boolean
+        region: RegionCarrier
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
       val (_, inner)                = RowChecker.peelBinders(lambda.value)
       val (innerElab, innerCarrier) = core(lambda.as(inner), region)
@@ -688,7 +784,7 @@ object RowElaborator {
       case FunctionApplication(t, a) if isBareLambda(t.value) && isTarget(bindLets, a)   =>
         val FunctionLiteral(name, tpe, letBody) = t.value: @unchecked
         val continuation                        = t.as(FunctionLiteral(name, tpe, rewrite(letBody)))
-        node.as(bindNodes(continuation, rewrite(a)))
+        node.as(bindNodes(continuation, rewrite(a), RegionCarrier.Unspelled))
       case FunctionApplication(_, _)                                                     => rewriteSpine(node)
       case _                                                                             => node
     }
@@ -720,10 +816,11 @@ object RowElaborator {
       // The core rule with the mode known (the eager `assemble`'s counterpart): a payload core — the resolver read
       // the solved spine result as a rigid non-carrier — becomes the chain's innermost continuation via `pure`.
       val core    =
-        if (targets.nonEmpty && targets.forall(pureCore)) rebuilt.as(pureWrap(rebuilt)) else rebuilt
+        if (targets.nonEmpty && targets.forall(pureCore)) rebuilt.as(pureWrap(rebuilt, RegionCarrier.Unspelled))
+        else rebuilt
       targets.zip(binders).foldRight(core) { case ((argNode, (_, binder)), acc) =>
         val continuation = acc.as(FunctionLiteral(acc.as(binder), None, acc))
-        acc.as(bindNodes(continuation, rewrite(argNode)))
+        acc.as(bindNodes(continuation, rewrite(argNode), RegionCarrier.Unspelled))
       }
     }
 
@@ -741,19 +838,32 @@ object RowElaborator {
     case _                                => 0
   }
 
-  /** `flatMap(continuation, action)` spelled by the machinery FQN — the same node the v2 checker splices. */
+  /** `flatMap[F](continuation, action)` spelled by the machinery FQN, with the region's carrier written as the
+    * `Effect` ability's own binder when this pass can spell it (A.11.4) — an inserted combinator names the carrier it
+    * sequences on rather than leaving the checker to solve it.
+    */
   private def bindNodes(
       continuation: Sourced[OperatorResolvedExpression],
-      action: Sourced[OperatorResolvedExpression]
+      action: Sourced[OperatorResolvedExpression],
+      region: RegionCarrier
   ): OperatorResolvedExpression =
     applyChain(
-      continuation.as(ValueReference(continuation.as(WellKnownTypes.effectFlatMapFQN))),
+      continuation.as(ValueReference(continuation.as(WellKnownTypes.effectFlatMapFQN), region.term.toSeq)),
       Seq(continuation, action)
     )
 
-  /** `pure(value)` spelled by the machinery FQN. */
-  private def pureWrap(value: Sourced[OperatorResolvedExpression]): OperatorResolvedExpression =
-    applyChain(value.as(ValueReference(value.as(WellKnownTypes.effectPureFQN))), Seq(value))
+  /** `pure[F](value)` spelled by the machinery FQN, carrying the region's carrier where spellable (see
+    * [[bindNodes]]).
+    */
+  private def pureWrap(
+      value: Sourced[OperatorResolvedExpression],
+      region: RegionCarrier
+  ): OperatorResolvedExpression =
+    applyChain(value.as(ValueReference(value.as(WellKnownTypes.effectPureFQN), region.term.toSeq)), Seq(value))
+
+  /** The identity carrier as a type term — what a discharge whose residual row is empty runs on (A.4). */
+  private def idCarrierTerm(anchor: Sourced[?]): Sourced[OperatorResolvedExpression] =
+    anchor.as(ValueReference(anchor.as(WellKnownTypes.idFQN)))
 
   /** `runId(computation)` — the boundary unwrap of a discharge whose residual row is empty (A.4). */
   private def runIdWrap(value: Sourced[OperatorResolvedExpression]): OperatorResolvedExpression =
