@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.row
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
 import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
-import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -255,16 +255,65 @@ object RowElaborator {
         needCarrier: Boolean,
         region: RegionCarrier
     ): Sourced[OperatorResolvedExpression] = {
-      val (elaborated, carrierValued) = core(expr, region)
+      val boundary                    = if (needCarrier || region.exists) RegionCarrier.Absent else pureBoundaryRegion(expr)
+      val (elaborated, carrierValued) = core(expr, if (boundary.exists) boundary else region)
       if (needCarrier && !carrierValued) {
         if (definitelyPure(elaborated)) elaborated.as(pureWrap(elaborated, region))
         else {
           deferredAtCarrier = true
           elaborated
         }
-      } else if (!needCarrier && carrierValued && discharges(elaborated)) elaborated.as(runIdWrap(elaborated))
+      } else if (!needCarrier && carrierValued && boundary.exists) elaborated.as(runIdWrap(elaborated))
       else elaborated
     }
+
+    /** The carrier of a **value position in a region with no carrier** — a pure definition's body, a `val` binding —
+      * where the expression standing there is nevertheless a computation (A.4).
+      *
+      * These are the only two boundaries at which this pass names `Id`, and the question they ask is whether anything
+      * *else* can name the computation's carrier. Two declared facts answer it, both read off the callee before
+      * elaborating: the call is carrier-valued (its result rides one of the callee's own carrier binders), and that
+      * binder declares **no user effect** — only the machinery `Effect`/`Suspend`. A discharger (`else`, `runAbort`,
+      * `catch`) and the machinery itself (`fold`'s suspended arms, `pure`) are exactly that: nothing selects their
+      * carrier by instance, and this position cannot supply one, so it is `Id` by declaration and the node is
+      * unwrapped with `runId`.
+      *
+      * A callee whose carrier *does* declare an effect is left alone — a constructor-class use (`def f: Box[String] =
+      * wrap(s)`, `Container[F]`) has its carrier chosen by instance resolution from the declared return, and a genuine
+      * leak (`def echo: String = printLine(readLine)`) must stay a leak rather than be quietly run on `Id`, which
+      * carries no `Suspend` and could not run it anyway.
+      *
+      * Reading the *original* spine head is what makes this a single pass: at a carrier-less region no bind is hoisted
+      * around the call, so the head elaboration produces is the head we inspect here.
+      */
+    private def pureBoundaryRegion(expr: Sourced[OperatorResolvedExpression]): RegionCarrier = {
+      val (head, args) = spine(expr.value)
+      head match {
+        case ValueReference(name, typeArgs)
+            if typeArgs.isEmpty && calleeCarrierValued(name.value, args) && carrierUnconstrained(name.value) =>
+          RegionCarrier.Spelled(expr.as(ValueReference(expr.as(WellKnownTypes.idFQN))))
+        case _ => RegionCarrier.Absent
+      }
+    }
+
+    /** Whether a callee's declared carrier binders constrain **no user effect** — the declared half of
+      * [[pureBoundaryRegion]]. True for the machinery (`pure`, `flatMap`, `fold`'s `{Effect}` arms) and for every
+      * discharger, whose pinned base carrier is deliberately unconstrained; false for anything declaring an ability on
+      * its carrier, whether an effect (`Console`) or a constructor class (`Container`).
+      *
+      * An **ability method** is excluded outright, machinery or not: its carrier is chosen by *instance resolution*
+      * from the expected type — the context — and not by this boundary. That is what makes `def f: Box[String] =
+      * wrap(someString)` (`Container[F]`) and `def e: Either[String, String] = pure("hello")` (`Effect[Either[String]]`)
+      * the same shape, and both of them not this one. An ability method carries no `paramConstraints` entry for its
+      * own ability, so membership is read off the qualifier.
+      */
+    private def carrierUnconstrained(callee: ValueFQN): Boolean =
+      (callee.name.qualifier match {
+        case _: Qualifier.Ability => false
+        case _                    => true
+      }) && universe.lookup(callee).exists { orv =>
+        EffectCarriers.declaredEffects(EffectCarriers.declaredCarrierBinders(orv), orv.paramConstraints).isEmpty
+      }
 
     /** Whether a node is a **plain value by declaration** — the precondition for lifting it into a carrier position
       * with `pure`.
@@ -346,7 +395,10 @@ object RowElaborator {
         case FunctionLiteral(name, tpe, body) if args.sizeIs == 1 =>
           // The block desugar's binding: `val x = e; rest` / `e; rest` as `(x -> rest)(e)`.
           val bound                     = args.head
-          val (boundElab, boundCarrier) = core(bound, region)
+          // The binding is the second of the two `Id` boundaries: with no region carrier, a bound computation whose
+          // carrier nothing else names runs on `Id` and is unwrapped there (see [[pureBoundaryRegion]]).
+          val boundBoundary             = if (region.exists) RegionCarrier.Absent else pureBoundaryRegion(bound)
+          val (boundElab, boundCarrier) = core(bound, if (boundBoundary.exists) boundBoundary else region)
           val storedCarrier             = tpe.exists(t => carrierShaped(t.value))
           if (storedCarrier) {
             // An explicitly carrier-*annotated* binder (`val stored: IO[String] = readLine`) **stores** the
@@ -380,9 +432,9 @@ object RowElaborator {
             }.flatten
             bound2.getOrElse {
               // No bind inserted (no region carrier, a plain-value bound, or a rolled-back attempt). With no region
-              // carrier a *discharging* binding's base is `Id` — unwrap at the binding; any other carrier-valued
-              // node keeps its context-supplied carrier (see [[discharges]]).
-              val discharged          = !region.exists && boundCarrier && discharges(boundElab)
+              // carrier an unconstrained binding's base is `Id` — unwrap at the binding; any other carrier-valued
+              // node keeps its context-supplied carrier (see [[pureBoundaryRegion]]).
+              val discharged          = boundCarrier && boundBoundary.exists
               val boundFinal          = if (discharged) boundElab.as(runIdWrap(boundElab)) else boundElab
               val (bodyElab, bodyCar) =
                 withBinder(name.value, holdsCarrier = false, isPayload = discharged || definitelyPure(boundFinal))(

@@ -37,13 +37,43 @@ abstract class NbeEvaluator[E](lookupTopDef: ValueFQN => Option[SemValue]) {
       val base = lookupTopDef(valueName).getOrElse(VTopDef(valueName, None, Spine.SNil))
       // Thread the (already-evaluated) type arguments into the value's spine. For a type-application scrutinee like
       // `Tag["hello"]` this keeps `"hello"` in the constructor's spine, so a type-match `case Tag[name] -> name` binds it.
-      typeArguments.foldLeft(base)(Evaluator.applyValue)
+      typeArguments.foldLeft(base)(applyTypeArgument)
 
     case Term.FunctionApplication(target, argument) =>
       Evaluator.applyValue(eval(env, target), eval(env, argument))
 
     case Term.FunctionLiteral(parameterName, body) =>
       VLam(parameterName, arg => eval(env.bind(parameterName, arg), body))
+  }
+
+  /** Apply one written type argument to a value's binding — ordinary application, *except* against a **native leaf**
+    * that does not model the argument.
+    *
+    * A native's binding is the host-runnable function that remains once erased type arguments are gone: `fold`'s takes
+    * its three value arguments and no type argument at all, and an implicit type argument was never threaded into it.
+    * Since the row elaboration now *writes* a call's carrier (`fold[Id](..)`, docs/effects-as-rows.md A.11.4), a native
+    * can meet a type argument it has no parameter for, and applying it would land a type in the native's first value
+    * slot and reduce the wrong thing. A few natives do model leading arguments — `Function[A, B]`'s two types,
+    * `integerLiteral[128]`'s `BigInteger` *value* (types are values, so a literal is an ordinary type argument) — and
+    * those must still receive them.
+    *
+    * The native's own declared `paramType` decides, with the unsure direction being *not to apply*: a type parameter
+    * (`VType`) takes any type argument, and a value parameter takes only a ground constant. Dropping an argument a
+    * native did need leaves it an unapplied native that fails loudly at read-back; applying one it did not would
+    * silently compute the wrong answer.
+    */
+  private def applyTypeArgument(target: SemValue, typeArgument: SemValue): SemValue = target match {
+    case VNative(paramType, _) if !modelsTypeArgument(paramType, typeArgument) => target
+    case _                                                                     => Evaluator.applyValue(target, typeArgument)
+  }
+
+  private def modelsTypeArgument(paramType: SemValue, typeArgument: SemValue): Boolean = paramType match {
+    case VType => true
+    case _     =>
+      typeArgument match {
+        case VConst(_) => true
+        case _         => false
+      }
   }
 
   /** Project one node of the concrete IR onto the shared [[NbeEvaluator.Term]] shape. Type arguments of a value

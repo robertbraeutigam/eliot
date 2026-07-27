@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.carrier
 
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
@@ -149,6 +150,11 @@ object UniformLadder {
       // it, and a carried one is the hoist shape the desugar owns.
       case (ExpectedSlot.PayloadSlot(shape), ActualForm.Carried(_, _, p))                =>
         (commit(unifier, p, shape, context), Outcome.PayloadBound)
+      // A slot that *declares* `Id[T]` (`runId`'s own `obj`, `Effect[Id]`'s `fa`) wants the identity carrier as
+      // ordinary data — the very shape the row desugar writes at a pure discharge boundary. Projecting its payload
+      // there would unwrap what the declaration asked for, so only an *undeclared* `Id` value is projected.
+      case (ExpectedSlot.PayloadSlot(shape), ActualForm.IdCarried(whole, _)) if isIdHeaded(shape) =>
+        (commit(unifier, whole, shape, context), Outcome.PayloadPass)
       case (ExpectedSlot.PayloadSlot(shape), ActualForm.IdCarried(_, p))                 =>
         (commit(unifier, p, shape, context), Outcome.PayloadUnwrap)
       case (ExpectedSlot.PayloadSlot(shape), _)                                          =>
@@ -172,6 +178,14 @@ object UniformLadder {
         ExpectedSlot.CarrierSlot(carrier, payload)
       case _                                      => ExpectedSlot.PayloadSlot(expected)
     }
+
+  /** Whether an expected slot type is the identity carrier applied to a payload (`Id[T]`) — the one head the compiler
+    * owns and can therefore recognise by [[WellKnownTypes.idFQN]] rather than by the positional tag.
+    */
+  private def isIdHeaded(shape: SemValue): Boolean = shape match {
+    case VTopDef(fqn, _, Spine.SApp(_, _)) => fqn == WellKnownTypes.idFQN
+    case _                                 => false
+  }
 
   private def hasSpine(sv: SemValue): Boolean = sv match {
     case VMeta(_, Spine.SApp(_, _))      => true

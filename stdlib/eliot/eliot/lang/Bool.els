@@ -1,4 +1,5 @@
 import eliot.effect.Abort
+import eliot.carrier.Effect
 import eliot.compiler.Meta
 
 type Bool
@@ -28,10 +29,9 @@ prefix def !(a: Bool): Bool
 /**
  * The two-armed eliminator for `Bool`: yields `whenTrue` when `condition` holds, otherwise `whenFalse`.
  *
- * Both arms must have the same type — a pure arm is not auto-lifted to match an effectful one — and `fold` adds
- * nothing to the effect row: with effectful arms the result is simply the arms' shared carrier type, and only the
- * selected arm is ever run. For everyday branching prefer `if`..`else`, which is built on `fold` and does lift a
- * pure arm to match an effectful one.
+ * Both arms are **suspended**: they are declared as computations, so only the selected one is ever run, and an
+ * effectful arm's effects join the caller's row exactly once. A pure arm sits happily beside an effectful one — it is
+ * lifted to match — so both arms need only agree on the value type they yield.
  *
  * The refinement of the result is the join of the two arms': which arm applies is decided only at runtime, so the
  * compiler knows the result only as "one arm *or* the other" — e.g. an `Int` result's range covers both arms'
@@ -46,7 +46,7 @@ prefix def !(a: Bool): Bool
  *    fold(ok, printLine("all good"), printLine("check failed"))
  * ```
  */
-def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A { join(whenTrue, whenFalse) }
+def fold[A](condition: Bool, whenTrue: {Effect} A, whenFalse: {Effect} A): {Effect} A { join(whenTrue, whenFalse) }
 
 /**
  * Conditional execution — the `if` of `if..else`: yields `value` when `condition` holds, otherwise short-circuits
