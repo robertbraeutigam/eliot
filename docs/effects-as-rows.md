@@ -1830,6 +1830,53 @@ is still present and will simply stop firing — which is what the next steps me
 Verify with the twin comparison (`RowElaboratorTest`, twins gaining explicit carrier args) plus the
 byte-identity oracle over all examples.
 
+#### A.11.4-R Landed, and the one thing that blocks the deferral removal (2026-07-27)
+
+**Landed and green** (`a21076f9`, `817c8aa8`), verified by the full gate plus byte-identical program output *and
+class content* over all 36 compiling examples against a pre-change baseline:
+
+- the region walk carries a carrier **term**, in three states — `Absent`, `Spelled` (writable from the
+  definition's own declaration: its minted binder `F`, the pinned stack its return declares minus the payload,
+  a platform run carrier), and `Unspelled` (a carrier exists but is expressible only in a *callee's* binders,
+  chiefly the interior of a pinned capture). All three place identically; only `Spelled` writes;
+- inserted `flatMap`/`pure` and every call whose result rides its callee's **first** binder now carry the
+  carrier explicitly. `CarrierBookkeepingTest` pins the effect: `def echo: {Console} Unit = printLine("x")`
+  mints **zero** carrier metas where it minted one.
+
+Two over-eager writes the corpus caught, both now narrowed (see the commits for the witnesses): a discharging
+call's residual is *not* `Id` merely because it discharges, and nothing is written inside a deferred slot.
+
+**Not landed: the A.8.6 deferral removal.** It is blocked on one shape, and the blocker is precise.
+
+`Blocks.main` reads `rename("after").runStateToPair("before")`. The `.` operator is an ordinary function —
+`def .[A, B](a: A, f: Function[A, B]): B = f(a)` — so the elaborator sees `rename("after")` at `.`'s slot
+`a: A`, a **bare generic**. Under rule 1 that slot is strict, so an effectful actual hoists: `rename` would
+*run* on the ambient `F` before the discharge, which is both a miscompile and a type error. Its carrier is
+really `StateCarrier[String, F]` — it is *captured*, not run.
+
+Verified by hand, so the target form is not in doubt (`XDot`, `XInline`, both compile and print the same three
+lines `Blocks` does):
+
+```eliot
+// works — the carrier written as the discharge stack, the dot inlined
+runStateToPair[String, F, Unit]("before", rename[StateCarrier[String, F]]("after"))
+// works — the same call written without the dot, direct style, no carrier written at all:
+// `rename("after")` then sits at runStateToPair's DECLARED PINNED slot and every existing rule applies
+runStateToPair("before", rename("after"))
+```
+
+So A.10.6's "with a written carrier there is no mode to decide" holds — *provided* the carrier at that slot is
+the discharge stack. Nothing in A.11 says how it gets there, and there are two very different answers. This is
+a decision, not an implementation detail, and it is recorded here rather than settled in passing.
+
+**What the audit says about the size of it.** Of the 73 carrier-valued deferral sites (A.11.3-R), the `.`
+operator's slot 0 is the single largest group at **22** (20 performing, 2 discharging), and it is the *only*
+group where hoisting is wrong. Every other carrier-valued deferral is either a genuinely strict operator
+(`==` 8, `++` 1, `show` 1, `putState` 1, 10 in hand-written test combinators), a carrier-typed *value* rule 1
+passes as data (21), or `Bool.fold` (6), which A.11.5 converts. With the dot answered, the deferral — and with
+it `ModeResolver`, the obligation vectors, and `TypeStackLoop`'s splice-and-restart (A.11.8) — is fully
+removable. Without it, none of that can go.
+
 ### A.11.5 Convert the stdlib and jvm layers, same step
 
 Whole-program, and this is not optional: the spike showed bridge-off breaks the stdlib's own
