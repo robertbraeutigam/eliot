@@ -1188,10 +1188,43 @@ is already the established reading in `typeKind`. Extending the *slot* exemption
 rule and clears 12 of the 30. `handleCases` is not covered by it: its scrutinee slot is a **bare** binder,
 which rule 4 calls a payload, and the scrutinee is carrier-typed data.
 
-**So the open question is where rule 4 stops**, and it is Robert's: does "a computation" in rule 4 mean
-*any* carrier-headed value (in which case rule 3's own idiom — storing and matching a reified computation —
-needs an explicit carve-out), or only one on an **open** row (a carrier the context still solves), which is
-precisely `pure("lifted")` and nothing else measured? Nothing was landed either way.
+### A.11.7-X Rule 4 unqualified, decided and landed (2026-07-28)
+
+**Decision (Robert): rule 4 is unqualified — `printLine(pure("string"))` is never legal.** Of the two
+readings, the unqualified one is also the simpler to implement, because its exemptions are not new rules
+but existing ones restated. It is landed, and **A.11.7's exit test now passes: `payloadSlot/suspendHoist`
+is ZERO over the whole gate and all 40 examples** (it was 5 shapes). Gate green, 37/40 examples, every
+program's output *and* class content unchanged.
+
+**What "rowless" is, decided positively rather than by exclusion.** A carrier is always *applied* to its
+payload, so **any applied head may be a carrier** and this pass says nothing about it — `{G} A`, `runId`'s
+`Id[A]`, `runMain`'s `IO[A]`, a user's own identity carrier, the carrier `data` types' own
+`G[Either[E, A]]` field. What remains is what rule 4 can positively call rowless: a **nullary concrete
+type** (`printLine`'s `String`) and a **bare generic**, which rule 4 calls a payload outright. Deciding it
+this way is what keeps the rule off names — recognising carriers by FQN misses a user-declared one (the
+shadow corpus declares its own `data Id[A]`), and "has an `Effect` instance" is prohibited outright.
+
+Two exemptions, each an existing rule speaking:
+
+- a **pinned parameter** passed on is passing *data* — §1 rule 3 verbatim, and what keeps a carrier's own
+  generated accessor legal (destructuring its pinned `obj` hands it to the `match` eliminator's plain slot);
+- an **applied binder head** is the constructor class, already how `typeKind` reads a return.
+
+**One elaborator gap this surfaced, and it was a real defect.** A discharge nested inside an argument —
+`printLine(foldEither(e -> e, s -> s, runThrow(bad)))` — is hoisted while that argument is elaborated,
+leaving the argument itself a `flatMap` even though the *original* expression neither performs (the
+capture consumed its row) nor is headed by a discharger. Rule 1 places a bind at the enclosing **region**,
+not at the innermost call, so `strictArgument` now also hoists a node that is itself an inserted bind
+(`sequences`) — the chain keeps rising until it reaches a position that can hold a computation. Without it
+the checker was rescuing these, which is what kept `suspendHoist` alive.
+
+**Corrections, all §6.1-shaped**: `ExamplesIntegrationTest1`'s "bind author-written machinery flowing into
+a pure slot" becomes a *rejection* test (it pinned the violation), and
+`TerminationIntegrationTest`'s `data Box[F[_]](action: F[Unit])` — §6.1's illegal stored open row, and the
+last shape needing the arm — becomes the concrete `data Box(action: IO[Unit])`.
+
+**A.11.7 + A.11.8 are now unblocked**: with `suspendHoist` at zero the obligation path has no live producer
+at all, which the `defer` bypass already measured as byte-identical.
 
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 

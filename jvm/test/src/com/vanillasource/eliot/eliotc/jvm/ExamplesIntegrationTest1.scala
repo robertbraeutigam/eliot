@@ -208,10 +208,12 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "piped loud")
   }
 
-  // Author-lifted machinery into a pure slot: the former phase's `isAuthorMachineryCall` left `pure("lifted")` alone
-  // and monomorphization rejected it; under the type-directed lift it binds like any carrier-headed argument.
-  it should "bind author-written machinery flowing into a pure slot" in {
-    compileAndRun(
+  // Author-written machinery into a pure slot is a §1 rule-4 violation, and has been rejected since A.11.7-X:
+  // `printLine`'s parameter is a plain `String`, which declares no effect row, so a computation may not land there.
+  // The tree used to accept it — the checker hoisted it into a real `IO.pure` + `IO.flatMap` round trip for a string
+  // the caller already held.
+  it should "reject author-written machinery flowing into a pure slot" in {
+    compileForErrors(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |import eliot.carrier.Effect
@@ -219,7 +221,7 @@ import eliot.effect.Console
         |def echo: {Console} Unit = printLine(pure("lifted"))
         |
         |def main: IO[Unit] = echo""".stripMargin
-    ).asserting(_ shouldBe "lifted")
+    ).asserting(_ should include("argument 1 of 'printLine' declares no effect row"))
   }
 
   // Fail-safe: a value that performs an effect but is declared with a non-carrier (pure) return type is rejected by the

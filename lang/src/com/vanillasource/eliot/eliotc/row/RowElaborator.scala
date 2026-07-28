@@ -166,6 +166,12 @@ object RowElaborator {
       // A parameter *holding* a computation: one declared by a carrier binder of this definition (a suspended slot),
       // or one whose declared type is a pinned stack (`computation: {Dep[X] | G} A` — a discharger's captured
       // argument, carrier-typed but headed by the stack, not by the binder).
+      // The **pinned** value parameters, kept apart from the suspended ones they join in `carrierParams`: §1 rule 3
+      // says a pinned row is a *reified* computation and therefore an ordinary type, so passing one on is passing
+      // data — which is what keeps a carrier's own generated accessor (matching on its pinned `obj`) legal.
+      val pinnedParams       = valueParamNames.zipWithIndex.collect {
+        case (name, index) if orv.effectRow.pinnedParameterIndices.contains(index) => name
+      }.toSet
       val carrierParams      = valueParamNames.zipWithIndex.collect {
         case (name, index)
             if paramTypes.get(name).exists(carrierHeaded(_, ownBinders)) ||
@@ -176,6 +182,7 @@ object RowElaborator {
         new Elaboration(
           paramTypes,
           carrierParams,
+          pinnedParams,
           RowChecker.parameterRowsOf(orv, paramNames),
           ownBinders,
           view.binders.map(_.name.value).toSet,
@@ -246,6 +253,7 @@ object RowElaborator {
   private final class Elaboration(
       paramTypes: Map[String, OperatorResolvedExpression],
       carrierParams: Set[String],
+      pinnedParams: Set[String],
       paramRows: Map[String, RowChecker.Row],
       ownBinders: Set[String],
       ownGenerics: Set[String],
@@ -492,6 +500,21 @@ object RowElaborator {
         case _                       => false
       }
 
+    /** Whether an elaborated node is a **bind chain this pass inserted** — work by construction, whatever the original
+      * expression's own row said.
+      *
+      * A discharge nested inside an argument (`printLine(foldEither(e -> e, s -> s, runThrow(bad)))`) is hoisted while
+      * that argument is elaborated, which leaves the argument itself a `flatMap` even though the *original*
+      * expression neither performs (the capture consumed its row) nor is headed by a discharger. Rule 1 places the
+      * bind at the enclosing **region**, not at the innermost call, so the chain has to keep rising until it reaches
+      * a position that can hold a computation.
+      */
+    private def sequences(node: Sourced[OperatorResolvedExpression]): Boolean =
+      spine(node.value)._1 match {
+        case ValueReference(name, _) => name.value == WellKnownTypes.effectFlatMapFQN
+        case _                       => false
+      }
+
     private def dischargingCallee(callee: ValueFQN): Boolean =
       universe.runBoundaries.contains(callee) ||
         universe.lookup(callee).exists(_.effectRow.pinnedParameterIndices.nonEmpty)
@@ -688,7 +711,7 @@ object RowElaborator {
           }
         }
 
-      calleeView.foreach(view => recordRowlessSlots(callee, view, finalArgs, calleeBinders))
+      calleeView.foreach(view => recordRowlessSlots(callee, view, finalArgs, calleeBinders, pinned, runBoundary))
 
       // Hoisting *changes the instantiation*: `choose(readLine, readLine)` has computations at both slots before the
       // rewrite and payload binders at both after it, so the core call's own result goes from carrier to payload and
@@ -1037,7 +1060,7 @@ object RowElaborator {
         hoist: Boolean
     ): (Seq[Sourced[OperatorResolvedExpression]], Seq[(String, Sourced[OperatorResolvedExpression])]) = {
       val (argElab, argCarrier) = core(arg, region)
-      if (hoist && argCarrier && (performs(arg.value) || discharges(argElab))) {
+      if (hoist && argCarrier && (performs(arg.value) || discharges(argElab) || sequences(argElab))) {
         val binder = freshBinder()
         // The inserted bind hands the binder the computation's *payload* — payload by construction, which is what
         // lets the call's result kind be re-read from the hoisted spine (§1 rule 4: the slot no longer holds a
@@ -1210,18 +1233,60 @@ object RowElaborator {
         callee: ValueFQN,
         view: SignatureView,
         finalArgs: Seq[Sourced[OperatorResolvedExpression]],
-        calleeBinders: Set[String]
+        calleeBinders: Set[String],
+        pinned: Set[Int],
+        runBoundary: Boolean
     ): Unit =
       view.parameters.zip(finalArgs).zipWithIndex.foreach { case ((declared, arg), index) =>
-        determinedBy(declared.value, arg.value, 0, calleeBinders).collectFirst {
-          case (binder, Kind.Carrier) => binder
-        }.foreach { binder =>
-          violations += arg.as(
-            s"This argument is a computation, but it lands on the type parameter '$binder' of " +
-              s"'${callee.name.name}', which declares no effect row (argument ${index + 1})."
-          )
+        val declaresComputation =
+          pinned.contains(index) || (runBoundary && index === 0) || hostsComputation(declared.value)
+        if (!declaresComputation) {
+          if (expressionKind(arg.value, 0) === Kind.Carrier && !isCapturedValue(arg.value))
+            violations += arg.as(
+              s"This argument is a computation, but argument ${index + 1} of '${callee.name.name}' declares no " +
+                s"effect row."
+            )
+          else
+            determinedBy(declared.value, arg.value, 0, calleeBinders).collectFirst {
+              case (binder, Kind.Carrier) => binder
+            }.foreach { binder =>
+              violations += arg.as(
+                s"This argument is a computation, but it lands on the type parameter '$binder' of " +
+                  s"'${callee.name.name}', which declares no effect row (argument ${index + 1})."
+              )
+            }
         }
       }
+
+    /** Whether a declared parameter type **can host a computation**, decided structurally: a carrier is always
+      * *applied* to its payload, so any **applied** head — `{G} A`, `runId`'s `Id[A]`, `runMain`'s `IO[A]`, a
+      * user's own identity carrier, the carrier `data` types' own `G[Either[E, A]]` field — may be one, and this pass
+      * says nothing about it. What is left is what rule 4 can positively call **rowless**: a *nullary* concrete type
+      * (`printLine`'s `String`) and a *bare* generic, which rule 4 calls a payload outright.
+      *
+      * Deciding it positively rather than by exclusion is what keeps the rule from being keyed on names: recognising
+      * carriers by their FQN would miss a user-declared one (the shadow corpus declares its own `data Id[A]`) and
+      * "has an `Effect` instance" is prohibited outright. An arrow can host wherever its codomain or any domain can —
+      * a handler `E => G[A]`, an `{Effect}`-marker callback. Pinned and run-boundary *positions* are excluded by
+      * their index at the call site, a pinned row being a declared capture rather than anything readable off the type.
+      */
+    private def hostsComputation(declared: OperatorResolvedExpression): Boolean = {
+      def canHost(tpe: OperatorResolvedExpression): Boolean = spine(tpe)._2.nonEmpty
+
+      val (domains, codomain) = arrowChainLike(declared)
+      canHost(codomain) || domains.exists(canHost)
+    }
+
+    /** Whether an argument is a **captured** computation — a reference to one of this definition's own pinned
+      * parameters. §1 rule 3: a pinned row is a *reified* computation and therefore an ordinary type, so handing one
+      * on is handing on data, not letting an effect through a position that does not declare it. This is what keeps a
+      * carrier's own generated accessor legal, since destructuring its pinned `obj` passes it to the `match`
+      * eliminator's plain slot.
+      */
+    private def isCapturedValue(expr: OperatorResolvedExpression): Boolean = expr match {
+      case ParameterReference(name) => pinnedParams.contains(name.value)
+      case _                        => false
+    }
 
     /** The kinds this call binds the callee's own generics to, read off the arguments occupying the positions that
       * *determine* them: a slot declared as the bare binder itself (`a: A`), and the codomain of an arrow slot

@@ -203,9 +203,9 @@ import eliot.effect.Console
 import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |data Box[F[_]](action: F[Unit])
+        |data Box(action: IO[Unit])
         |
-        |def runBox[F[_]](b: Box[F]): F[Unit] = action(b)
+        |def runBox(b: Box): IO[Unit] = action(b)
         |
         |def main: IO[Unit] = runBox(Box(forever(printLine("boxed"))))""".stripMargin,
       timeoutMillis = 400
