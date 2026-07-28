@@ -44,7 +44,8 @@ the type (the same architectural move as the Int-bounds refinement channel), and
 one local rule and no effect decisions.
 
 Successor to `docs/effects-as-channel.md` (v2), whose remaining checker machinery — the bridge, the
-ladders, the `Id` apparatus — is live underneath until A.11.7/A.11.8 retire it.
+ladders, the obligation path — is live underneath until A.11.7/A.11.8 retire it. The `Id` *erasure* is
+not on that list: `Id` is the value of the empty row and stays (§1 rule 4).
 
 ## 0. Why revisit v2
 
@@ -104,11 +105,17 @@ it is effect-irrelevant by construction.
    - A **rowless slot may not receive a computation.** Not a carrier-headed value, not a pinned capture,
      not a value whose declared row is non-empty. This is a hard error naming the slot, never a silent
      re-route.
-   - `{Effect}` is a **row variable**, not a carrier binder. `ρ := {}` is an ordinary instantiation and
-     **must produce no node** — no `Id`, no wrapper, nothing to erase. `dependency.url` (ρ = `{}`) and
-     `items.foreach(x -> printLine(x))` (ρ = `{Console}`) go through the *same* declaration of `.`.
-   - **`Id` is written only at a definition boundary** where a discharge lands on a pure return — never
-     as the spelling of an empty row at a call site.
+   - `{Effect}` is a **row variable**, not a fixed carrier. `ρ := {}` is an ordinary instantiation, so
+     `dependency.url` (ρ = `{}`) and `items.foreach(x -> printLine(x))` (ρ = `{Console}`) go through the
+     *same* declaration of `.`.
+   - **`Id` is the value of the empty row, and that is allowed** (decided 2026-07-28, Robert, after the
+     A.11.7-S measurement): a row-polymorphic definition instantiated at `ρ := {}` may be written at
+     `Id` and erased by monomorphization. Rule 4 constrains *declarations*, not the representation of
+     the empty row. **Deleting `Id` was never a decision** — it was a plan item inherited from v2's
+     critique of the `Id`-headed *encoding*, which is a different thing: what v2 was faulted for, and
+     what A.8.10 already fixed, is the checker **manufacturing** a carrier head on pure judgments so
+     slot arms could split unconditionally, then normalizing it away. Written `Id` with an honest type
+     is not that, and A.8.12's blocker does not apply to it.
 
    Everything the elaborator must decide is then decided by declarations, per call, order-free: a call's
    result kind and row are its declared return instantiated from the declared types and rows of the
@@ -276,12 +283,20 @@ never erases — the signal is in signatures, read before checking.
 > ladder's existing arm: no metas, no ordering, no lattice).
 
 **Deleted from the checker layer.** `EffectLifter`'s arms; `UniformCarrierChecker`; the `carrier/`
-package (`Carrier`, `CarrierJoin`, `UniformLadder`); `IdNormalizer` + `stripIdMachinery`;
-`CarrierKindChecker`'s carrier-role seeding; and inside `Checker` the ladders' effect arms, the Phase A/B
-deferral with its obligations, the pinning mechanisms, and the slot routers. Landed so far (A.8.8–A.8.10,
-A.11.6): the unreachable arms, **every bind the checker used to insert**, the manufactured `Id` head, and
-`DeclaredPureChecker` (subsumed pre-mono). Remaining: A.11.7 (bridge) and A.11.8 (obligations, the `Id`
-apparatus, the carrier side table).
+package (`Carrier`, `CarrierJoin`, `UniformLadder`); `CarrierKindChecker`'s carrier-role seeding; and
+inside `Checker` the ladders' effect arms, the Phase A/B deferral with its obligations, the pinning
+mechanisms, and the slot routers. Landed so far (A.8.8–A.8.10, A.11.6): the unreachable arms, **every
+bind the checker used to insert**, the manufactured `Id` head, and `DeclaredPureChecker` (subsumed
+pre-mono). Remaining: A.11.7 (bridge) and A.11.8 (obligations, the carrier side table).
+
+**The `Id` erasure stays** (decided 2026-07-28 — §1 rule 4, third bullet). `IdNormalizer`,
+`PostDrainQuoter.stripIdMachinery` and `WovenValueProcessor.assertNoIdResidue` were listed here for
+deletion on the assumption that nothing would write `Id` once the checker stopped manufacturing it.
+A.11.7-S measured otherwise: `Id` is the value of the empty row, a row-polymorphic definition
+instantiated at `ρ := {}` is written at `Id`, and something must erase it before codegen. What was
+deleted is the **encoding** (A.8.10: manufacturing a carrier head on pure judgments); what stays is the
+erasure of honestly-written `Id`. `assertNoIdResidue` in particular keeps its value — it is the proof
+that erasure is complete, and it is *more* load-bearing now that `Id` is written deliberately.
 
 **Stays.** `EffectRow` and its pinned metadata (consumed by the desugar instead of the checker); pinned
 surface and semantics; the dischargers and the `eliot.carrier`/`eliot.effect` packages;
@@ -810,23 +825,28 @@ exactly **one** effect rule: *a pure term meeting a rigid carrier-headed expecte
 | --- | --- | ---: |
 | the v2 bridge | `monomorphize/carrier/` (`Carrier` 82, `CarrierJoin` 124, `UniformLadder` 188), `check/UniformCarrierChecker` 289, and in `check/Checker`: `routeArgumentSlot`, `uniformPayloadSlot`, `uniformCaptureSlot`, `uniformCarrierSlot`, `uniformArgumentSlot`, `payloadFitsDomain`, `uniformPayloadOf`, `singleLayerCarrierDomain`, `eagerRowPinIntoDomain`, `findCarrierLayerSlots`, `uniformReturnBoundary`/`uniformReturnRoutable` | ~933 |
 | the obligation/resolver path | `check/ModeResolver` 213; `CheckState.modeObligations`/`letObligations` + `ModeObligation`/`LetObligation` + `recordModeObligation`; `Checker.genericArgSlot`/`defaultArgSlot` deferral arms + `resolveDeferredSlot` + `SlotOutcome.Deferred`/`Suspended`; `TypeStackLoop`'s splice-and-restart, its fuel, and `processIO`'s `Either` return; `RowElaborator.spliceResolvedModes` | ~350 |
-| the `Id` apparatus | `channel/IdNormalizer` 308, `PostDrainQuoter.stripIdMachinery`, `WovenValueProcessor.assertNoIdResidue` | ~340 |
+| ~~the `Id` apparatus~~ | **CANCELLED 2026-07-28** (§1 rule 4, third bullet; A.11.7-S). `channel/IdNormalizer` 308, `PostDrainQuoter.stripIdMachinery` and `WovenValueProcessor.assertNoIdResidue` **stay**: `Id` is the value of the empty row and is written deliberately, so its erasure is required, and `assertNoIdResidue` is the proof that erasure is complete | 0 |
 | the carrier side table | `Unifier.carrierRoles` / `isEffectCarrier` / `CarrierRole`; `CarrierKindChecker`'s carrier-role *seeding* (its kind checking stays); `EffectLifter`'s remainder beyond the one pure-lift arm and the node builders | ~400 |
 | ~~A.8.6's uncertainty~~ | **DONE at A.11.6**: `uncertain`/`Derivation.deferred` and `DeclaredPureChecker` deleted; two boundings remain by design (coverage, decidability), and `capturedByStack` was added to the derivation | −150 |
 | flags & experiment scaffolding | `CompilationSession.compileOnce(seedFacts)` (a production API added only for the R4 shadow compile); `jvm/test/.../RowElaborationShadowCompileTest`; the shadow half of `jvm/test/.../RowShadowSweepTest` | ~750 |
 
-**Arithmetic to hold the work to.** `check/` was 5,219 at the stock-take and is **5,097** after A.11.6;
-the remaining deletions remove ≈950 more, landing it at ≈4,150 against the **pre-v2 baseline of 3,996**.
-The machinery as a whole goes 6,895 → ≈5,200: below the pre-v3 5,585, above pre-v2, and the difference is
-`row/` — a phase that did not exist, now holding the work the machinery used to do. **Do not claim a net
-reduction against pre-v2.**
+**Arithmetic to hold the work to — RESTATED 2026-07-28**, because cancelling the `Id` group changes it
+and A.11.7-S said to restate it rather than let the old number stand. `check/` was 5,219 at the
+stock-take and is **5,097** after A.11.6; the remaining deletions (bridge ~933, obligations ~350, carrier
+side table ~400, less what is not in `check/`) remove ≈950 more, landing `check/` at **≈4,150** against
+the pre-v2 baseline of 3,996 — unchanged, since the `Id` apparatus never lived in `check/`. The
+**machinery total** does change: 6,895 → **≈5,540**, not ≈5,200, because `IdNormalizer` and its two
+helpers (~340) stay. That is still below the pre-v3 5,585, and above pre-v2 3,996; the difference is
+`row/`, a phase that did not exist. **Do not claim a net reduction against pre-v2**, and do not quote the
+≈5,200 figure — it assumed a deletion that is now cancelled.
 
 **Exit criteria, all mechanically checkable:**
 
-- `grep -rin "uniformCarrier\|CarrierJoin\|UniformLadder\|IdNormalizer\|ModeObligation\|seedFacts" lang/src jvm/src eliotc/src` → empty.
+- `grep -rin "uniformCarrier\|CarrierJoin\|UniformLadder\|ModeObligation\|seedFacts" lang/src jvm/src eliotc/src` → empty.
+  (`IdNormalizer` was in this list until 2026-07-28 and is **not** an exit criterion — see §1 rule 4.)
 - No `lang/src/.../monomorphize/carrier/`.
 - No env-var, system-property, CLI or constructor gate anywhere in the effect path — one code path only.
-- `check/` at or below 3,996 lines.
+- `check/` at or below 3,996 lines. (The machinery total lands at ≈5,540, not ≈5,200.)
 - Full gate green (871 test targets across lang/jvm/eliotc/LSP is the current baseline), and **37 of 40
   examples compile** (`IfDemo` included — the bridge causes its failure;
   it already compiles as of A.11.4).
@@ -1160,22 +1180,33 @@ is no third:
    *"no `Id` node at a call site the elaborator writes"*, and A.11.8's "delete the `Id` apparatus"
    narrows to *"delete the checker-manufactured `Id` encoding"*, keeping written `Id` and its erasure.
 
-Because of the `foreach` case, (1) does not remove the need for (2); it only removes it at `.`. **The
-`Id` apparatus therefore cannot be deleted outright**, and A.11.0's arithmetic must be restated before
-A.11.8 is planned against it. Which of the two forms rule 4's third bullet takes is Robert's call.
+Because of the `foreach` case, (1) does not remove the need for (2); it only removes it at `.`.
 
-## A.11.8 Delete the obligation path, the `Id` apparatus, and the carrier side table
+**DECIDED 2026-07-28, Robert: option (2) — allow `Id` at `ρ := {}` and let monomorphization erase it.**
+With the clarification that settles the framing: *deleting `Id` was never a decision at all.* It entered
+the plan as an inference from v2's critique of the `Id`-headed **encoding** — the checker manufacturing a
+carrier head on pure judgments so slot arms could split unconditionally — which A.8.10 already removed.
+Written `Id` with an honest type is a different thing and is allowed wherever it helps the
+implementation. §1 rule 4's third bullet is restated accordingly (it constrains declarations, not the
+representation of the empty row), the `Id` group is struck from A.11.0's deletion table, `IdNormalizer`
+is removed from the exit criteria, and A.11.0's arithmetic is restated: machinery lands at **≈5,540**,
+not ≈5,200; `check/` is unaffected at ≈4,150, since the `Id` apparatus never lived there.
 
-In this order, each possible only after A.11.7:
+## A.11.8 Delete the obligation path and the carrier side table
+
+In this order, each possible only after A.11.7 (with which step 1 is **one deletion**, not two — the
+bridge routes into the obligation path; A.11.7-R):
 
 1. **Obligations** — `ModeResolver`, `CheckState`'s obligation vectors, the `Deferred`/`Suspended`
    outcomes, `resolveDeferredSlot`, `TypeStackLoop`'s splice-and-restart and fuel, `processIO`'s `Either`
    return, and `RowElaborator.spliceResolvedModes`. `TypeStackLoop` returns to a plain post-drain
    fixpoint.
-2. **`Id`** — `IdNormalizer`, `stripIdMachinery`, `assertNoIdResidue`. Record *why* this is safe: `Id` is
-   no longer an encoding the checker manufactures and a normalizer erases; it is written where it belongs
-   and typed honestly. `Id` remains ordinary `data` with no `Suspend[Id]` — the soundness guard is
-   unchanged.
+2. ~~**`Id`**~~ — **cancelled 2026-07-28** (§1 rule 4). `IdNormalizer`, `stripIdMachinery` and
+   `assertNoIdResidue` **stay**: `Id` is the value of the empty row, written deliberately by the
+   elaborator, so something must erase it before codegen and `assertNoIdResidue` is the proof that the
+   erasure is complete. `Id` remains ordinary `data` with no `Suspend[Id]` — the soundness guard is
+   unchanged. What was deleted, at A.8.10, is the checker-*manufactured* `Id` head; that is the thing v2
+   was faulted for, and it is already gone.
 3. **The carrier side table** — `Unifier.carrierRoles`/`isEffectCarrier`/`CarrierRole` and
    `CarrierKindChecker`'s carrier-role seeding, once nothing seeds or reads them. `CarrierKindChecker`'s
    HKT kind seeding and post-drain verification are a separate concern and stay. `unify/CarrierRoleTest`
@@ -1191,8 +1222,9 @@ This is also where the cornerstone guardrail is honoured by *not* acting: the `U
 - **Delete**: `RowElaborationShadowCompileTest`, and the shadow half of `RowShadowSweepTest` (its corpus
   moved to `EffectCorpus` at A.11.3a).
 - **Delete with their machinery**: `carrier/CarrierMechanismTest`, `check/UniformCarrierCheckerTest`,
-  `check/CarrierBookkeepingTest`, `check/EffectLifterTest`, `channel/IdNormalizerTest`,
-  `unify/CarrierRoleTest`.
+  `check/CarrierBookkeepingTest`, `check/EffectLifterTest`, `unify/CarrierRoleTest`.
+  **`channel/IdNormalizerTest` stays** — its machinery does (§1 rule 4); if anything it needs *adding* to,
+  since `Id` is now written on purpose rather than manufactured.
 - **Rewrite**: the lift group of `MonomorphicTypeCheckTest` (its generic-slot shapes assert the deferred
   v2 spellings, which stop existing) and `RowElaboratorTest`'s twins (explicit carrier args).
 - **Rename and keep**: `jvm/.../UniformCarrierCompileTest` (244) and `UniformCarrierConditionalTest`
