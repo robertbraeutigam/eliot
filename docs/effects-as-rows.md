@@ -1,6 +1,8 @@
 # Effects as Rows, v3: Declared Suspension + a Written Carrier
 
-**Status (2026-07-28). No decision is open. → Resume at [A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).**
+**Status (2026-07-28). Three decisions are open — A.11.7's blockers, now diagnosed in
+[A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28). → Resume at
+[A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).**
 
 **§1 rule 4 holds and is enforced**, which was the whole point of A.11.7-T: every position classifies from
 its declaration, a computation may not reach a rowless slot, and `ρ := {}` runs at `Id`. `A.11.1`–`A.11.6`
@@ -9,9 +11,10 @@ before it are done — the elaborator **writes the carrier**, `Bool.fold` **decl
 post-mono `DeclaredPureChecker` deleted as subsumed. Gate: `__.test` green (871 targets), 37/40 examples
 (`PluginA`/`B`/`C` predate this work), every program unchanged in output and class content.
 
-**What remains**: **A.11.7 + A.11.8 step 1 as one deletion.** `payloadSlot/suspendHoist` — A.11.7's exit
-test — reached **zero** at A.11.7-X, so the *runtime* half of the obligation path is dead; the
-compile-track half still carries the guard suite (A.11.Z.2). Then
+**What remains**: **A.11.7, the bridge** — A.11.8 step 1 landed on its own (A.11.8-1: the obligation path
+is deleted, the coupling A.11.7-R described was already severed). The bridge's live surface is **9 test
+shapes and zero examples**, in three groups, each a missing elaborator rule and each needing a decision
+(A.11.7-Y). Then
 A.11.8 step 3, **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the
 live plan and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns
 the method**, with A.11.Z.4 added to it; A.11.7-T records the fast example-sweep harness.
@@ -1224,6 +1227,147 @@ last shape needing the arm — becomes the concrete `data Box(action: IO[Unit])`
 **A.11.7 + A.11.8 are now unblocked**: with `suspendHoist` at zero the obligation path has no live producer
 at all, which the `defer` bypass already measured as byte-identical.
 
+### A.11.7-Y The three blockers, diagnosed (2026-07-28)
+
+A.11.8-2 left A.11.7 blocked on three shapes and named each only by its failing test. This section
+**diagnoses all three** — what the elaborator writes, what the bridge decides instead, and what the
+missing rule is — and re-runs the measurement on the post-A.11.8-1 tree, including the whole bridge at
+once. Instrument env-gated (`ELIOT_NO_CARRIER_ROUTER` / `ELIOT_NO_RETURN_BOUNDARY` /
+`ELIOT_NO_PAYLOAD_ROUTER`, plus a one-line elaboration dump) and **reverted**; tree unchanged and green.
+
+**The measurement, re-confirmed.** Baseline `__.test` 1,539 tests / 0 failures; 37/40 examples.
+
+| part switched off | tests | examples | what fires |
+| --- | --- | --- | --- |
+| carrier router | **1** | 37, class content identical | `TerminationIntegrationTest` "an `Inf` action stored in data then run through its accessor" |
+| uniform return boundary | **1** | 37, class content identical | `MonomorphicTypeCheckTest:537` — the unconstrained-`[F[_]]` stub |
+| payload router | **7** | 37, class content identical | `catch` with a **non-identity** handler (`CatchShapeMatrixTest` group B ×6, `ExamplesIntegrationTest2` ×1) |
+| **all three at once** | **9** | **37, every class file byte-identical to baseline** | the union, no interaction |
+
+**The example corpus does not need the bridge at all.** With the whole bridge off, all 40 examples
+compile exactly as before (37 OK, the same `PluginA`/`B`/`C` failures) and the md5 of every unzipped
+class file is identical. The bridge's entire live surface is those **9 test shapes**, which is what
+makes a shape-by-shape diagnosis affordable.
+
+#### 1. The carrier router — rule 3 is not implemented on the *delivery* side, and the tree miscompiles
+
+```eliot
+data Box(action: IO[Unit])
+def runBox(b: Box): IO[Unit] = action(b)
+def main: IO[Unit] = runBox(Box(forever(printLine("boxed"))))
+```
+
+What the elaborator writes (dumped from `RowElaborationProcessor`, `printLine` variant for brevity):
+
+```
+flatMap[IO]($row$2 -> runBox($row$2),
+  flatMap[IO]($row$1 -> pure[IO](Box($row$1)), printLine[IO]("boxed")))
+```
+
+It **hoists** the computation out of the field and stores `pure(unit)` in the `Box`. The carrier router
+then `pure`-wraps the hoisted payload back into `IO` (`tryPureWrap`), so the program type-checks —
+without it the slot reports `Expected: IO(IO(Unit)) / Actual: IO(Unit)`.
+
+**This is a silent miscompile on the shipped tree, not a typing gap.** Measured, bridge on:
+
+```eliot
+def main: IO[Unit] = {
+   val b = Box(printLine("constructing"))
+   printLine("before")
+   runBox(b)
+}
+```
+
+prints `constructing` then `before`, and `runBox(b)` prints **nothing**. Under §1 rule 3 — *a pinned or
+concrete carrier type is an ordinary type, usable in `data` fields* — it must print `before` then
+`constructing`. The covering test passes for the wrong reason: the `forever` loop runs at construction
+time, so the accessor is never what loops.
+
+**Mechanical cause.** `elaborateCall` captures at exactly three kinds of slot — a
+`pinnedParameterIndices` index, a slot headed by one of the *callee's own* carrier binders, and a slot
+declaring the concrete `Id`. A `data` field is none of them:
+
+- the **concrete** spelling `IO[Unit]` is a platform **run carrier** — recognition source (ii), the
+  `RunBoundaryFunction` registry — which the elaborator already consults for *regions*
+  (`runCarrierHead`) but never for *slots*;
+- the **pinned** spelling `{Abort | IO} String` **loses its tag before the constructor exists**:
+  `CoreProcessor:40` runs `EffectSugarDesugarer.desugar(DataDefinition)` first, collapsing the row to a
+  carrier stack, and only then does `DataDefinitionDesugarer` build the constructor's
+  `FunctionDefinition` — so `declaredEffectRow` sees no `EffectfulType` and records no
+  `pinnedParameterEffects`. Measured: `data Holder(computation: {Abort | IO} String)` with
+  `Holder(risky)` fails **loudly** with `Expected: {Abort | IO} String / Actual: String`, the hoist
+  having delivered the payload.
+- and a `Console`-performing computation cannot be pinned at all (no canonical carrier, the v1
+  limitation), so `IO[Unit]` is the *only* spelling for the shipped test's own shape.
+
+**The missing rule, stated:** *a slot whose declared type is a concrete carrier — a platform run carrier,
+or the carrier stack a pinned row spells — hosts the computation, so it captures like a pinned slot.*
+Both recognitions are the sanctioned tagged ones (sources (i) and (ii)); neither is a name or shape
+guess. Landing it also requires restoring the pinned tag on `data` constructors (desugar order, or carry
+the entries through `DataDefinitionDesugarer`).
+
+**Why it needs a decision**: it changes behaviour that currently ships. Storing an effect in a `data`
+field starts meaning *store*, not *run here*, so the ordering above flips and the `Box` test loops
+through its accessor instead of at construction.
+
+#### 2. The uniform return boundary — the checker inventing a carrier for a binder nothing declares one for
+
+```eliot
+def id[F[_]](x: F[String]): F[String] = x
+def someString: String
+def f: String = id(someString)
+```
+
+The only shape in the whole gate, and no example. `F[_]` carries no `~ Effect` constraint, so it is not a
+declared carrier: the elaborator writes nothing. The bridge then does two things the written-carrier
+model removed everywhere else — `CarrierKindChecker` flags the HKT binder as a carrier *unfiltered*, so
+the carrier router `pure`-wraps the argument into `?F`, and the return boundary defaults `?F := Id` and
+inserts `runId`. With the arm off it is "Higher-kinded type parameter mismatch".
+
+**The honest spelling already works and was measured, with the arm off**:
+
+```eliot
+def f: String = runId(id[Id](Id(someString)))    // prints "hello", arm on and arm off
+```
+
+So the option is: **delete the arm; the shape becomes a type error and the test becomes a rejection test
+plus the explicit spelling above.** The alternative — keep an `Id` default for unconstrained HKT
+binders — is the checker deciding a carrier no declaration mentions, i.e. the premise A.10 reversed.
+
+#### 3. The payload router — `catch`'s `E` has nothing to determine it
+
+```eliot
+def bad: {Throw[String]} String = raise("boom")
+def main: IO[Unit] = printLine(bad catch (err -> "fallback"))
+```
+
+With the router off: `No ability implementation found for ability 'Throw' with type arguments
+[String, {Throw[Type] | IO}]` — finding-7's junk-ground. Nothing determines `catch[E, G[_] ~ Effect, A]`'s
+`E`, so it grounds to `Type` and the guarded `where E1 != E2` lift is selected instead of the native. An
+*identity* handler pins `E := A` through itself, which is exactly why only group B fires. The bridge's
+answer is `eagerRowPinIntoDomain`: read the actual's row constraints off `CheckState.metaConstraints` and
+pin the domain's error slot before the capturing unify.
+
+**Measured fix — write it in the source instead**:
+
+```eliot
+def main: IO[Unit] = printLine(catch[String](bad, err -> "fallback"))   // compiles and prints "fallback"
+```
+
+with the payload router **off**. So the missing rule is the natural continuation of A.11.4: *the
+elaborator writes not only the carrier but the pinned row's own ability type arguments, instantiated from
+the captured argument's declared row* — `catch`'s `{Throw[E] | G} A` against `bad`'s declared
+`{Throw[String]}` gives `E := String`. It reads declarations only (§3.2-legal), and `E` sits at binder 0,
+so A.11.4b's first-binder limit is not in the way; the write is a legal prefix.
+
+#### What this changes about the plan
+
+Each shape is a *missing elaborator rule*, exactly as A.11.7's standing rule predicted — and two of the
+three are the same rule family as A.11.4 ("the elaborator writes what the declaration says"), not new
+mechanism. Shape 1 is additionally a **fail-safe defect in the shipped tree**
+(`feedback_gaps_must_be_failsafe`): the bridge is hiding a misplacement, not compensating for a missing
+type. None of the three is deferrable into the deletion, and none is a judgement call in flight.
+
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 
 A.11.7 said to trace first and delete only zero-fire arms, and that **an arm that still fires is a
@@ -1732,6 +1876,12 @@ and it should not.**
 The two routers have exactly one shape each. Per A.11.7's standing rule those are still *questions* — a
 firing arm is a missing elaborator rule — but one shape each, not a class. **A.11.7 cannot proceed until
 those three are decided** (A.11.8-2).
+
+**All three are now diagnosed — see [A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28)**, which
+re-measures on this tree (including the whole bridge at once: **9 tests, 0 examples, every class file
+byte-identical**), gives each shape its repro, states the missing rule, and — for shapes 2 and 3 — shows
+the replacement spelling compiling *with the arm off*. Headline: **shape 1 is a silent miscompile in the
+shipped tree**, not a typing gap. What is still open is the decision on each, not the analysis.
 
 ### A.11.Z.3 The deletion recipe — EXECUTED (A.11.8 step 1), kept for its two traps
 
