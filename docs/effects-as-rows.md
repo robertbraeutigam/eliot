@@ -13,11 +13,8 @@ no carrier side table, no experiment scaffolding. **`check/` is 3,873 lines, bel
 the bridge is gone, and its output was verified at A.11.10; `PluginA`/`B`/`C` predate this work and are
 unrelated. Every program is unchanged in output and class content against the pre-work baseline.
 
-**What is still open** (neither blocks anything, both carried deliberately):
-
-- a **pinned `data` field** (`data Holder(computation: {Abort | IO} String)`) still hoists and fails
-  loudly — the constructor never receives the pinned tag, a desugar-*order* defect (§9, item 4);
-- `PluginA`/`B`/`C`, never diagnosed, failing before this work started.
+**What is still open**: `PluginA`/`B`/`C`, never diagnosed, failing before this work started. (The
+pinned-`data`-field gap the closeout carried out of A.11.7-Y was **fixed** immediately after — A.11.11.)
 
 **How to read this document.** §§1–7 state the design and are self-contained; §8 and Appendix A are the
 record of what happened to it, in chronological order, and are history — read them for *why* a rule has
@@ -562,14 +559,9 @@ only carrier-typed code is code the desugar wrote or the user pinned.
 3. The fate of `Checker`'s remaining slot deferral — it is now the **compile track's** mid-spine decision
    only (§8), reached by the `Either` guard discharge; whether spine inference simplifies further once
    that track is revisited is untouched by this work.
-4. **A pinned `data` field still hoists** (`data Holder(computation: {Abort | IO} String)` fails loudly
-   with `Expected: {Abort | IO} String / Actual: String`). The constructor never receives the pinned tag,
-   because `CoreProcessor` runs `EffectSugarDesugarer.desugar(DataDefinition)` — which collapses the row —
-   *before* `DataDefinitionDesugarer` builds the constructor, so the per-function `declaredEffectRow` sees
-   no `EffectfulType`. The fix is a desugar-order change (rewrite only *open* rows at the data level and
-   leave pinned ones to the per-function pass); it has its own blast radius and blocks nothing here. The
-   *concrete*-carrier field (`data Box(action: IO[Unit])`) works, and that is the shape rule 3 exercises
-   today (A.11.7-Y shape 1).
+4. ~~**A pinned `data` field still hoists**~~ — **FIXED 2026-07-28** (A.11.11 below). The data-level pass
+   now rewrites *open* rows only, so a pinned field is still spelled as a row when
+   `DataDefinitionDesugarer` splits the data and the per-function pass tags the constructor and accessor.
 
 *(Answered and folded into the design: `Id` at discharge is fully syntax-directed (A.4); one latent row
 per arrow (A.5); production rows are multisets of (ability, type-args) (A.6).)*
@@ -2382,3 +2374,48 @@ examples; every program's output **and class content** byte-identical to the A.1
   false branches, including `3. chain: second` and `6. plain else`). Both `demo`'s six forms and
   `foldForms`' three run correctly, so the `{Abort}`-discharge-through-`else` and the suspended `fold`
   arms behave as the example teaches.
+
+## A.11.11 The pinned-`data`-field gap, closed (2026-07-28)
+
+Not part of the A.11 roadmap — the defect A.11.7-Y separated out and the closeout carried as §9 item 4.
+Fixed the way that item predicted, in `EffectSugarDesugarer`:
+
+**The defect.** `CoreProcessor` desugars a `data` definition's field rows *before* `DataDefinitionDesugarer`
+splits the data into functions, and that pass collapsed **both** row forms. For an *open* field row the order
+is required — the recovery lift mints a carrier generic, and only the un-split definition can give it a home
+on the *type* (splitting first leaves `F` bound on the value constructor alone, an unbound free variable at
+every use). For a **pinned** field row it is exactly wrong: a pinned row introduces no generic, so it has
+nothing to place on the type, but it *is* a carrier-stack capture position — and the tag recording that
+(`pinnedParameterEffects` on the value constructor, `returnPinnedEffects` on the accessor) is computed per
+*function*, from a position still spelled as an `EffectfulType`. Collapsing it first erased the spelling
+before any function existed, so both came out untagged and the elaborator hoisted the stored computation
+onto the ambient carrier instead of capturing it.
+
+**The fix.** The data-level pass rewrites open rows only: it gates on `openRows.isEmpty` (was `rows.isEmpty`)
+and passes `rewritePinned = false`, a `rewrite` mode that leaves a pinned node standing while still
+descending into its parts, so no *open* row escapes to the per-function pass. Everything else is unchanged —
+including the recovery path for the illegal open field row, which still reports "A stored effect row must be
+pinned to a base carrier."
+
+**Measured.** Before: `data Holder(computation: {Abort | IO} Unit)` + `Holder(if(true, printLine("stored")))`
+failed with `Expected: {Abort | IO} Unit / Actual: IO(Unit)` — fail-safe, but the shape was unusable. After:
+it compiles, and prints `before` then `stored`, i.e. the stored effect runs at the accessor, not at
+construction (§1 rule 3). Also verified: generic data (`data Task[E](name: String, run: {Throw[E] | IO}
+String)`, the pinned entry naming the data's own binder), a pinned field at index 1, and a multi-constructor
+data destructured through `match`. Gate `__.test` **871/871**, 37/40 examples, and **every example's class
+content byte-identical** to the pre-fix build.
+
+**Adjacent limitations this measurement mapped, both pre-existing and neither introduced here** (verified by
+reproducing them on the pre-fix tree, and with no `data` involved):
+
+- a **pure** actual at a pinned slot is rejected (`Task("ok", "value")` ⟹ `Expected: {Throw[String] | IO}
+  String / Actual: String`). That is R5 corollary 3 — pinned captures deliberately never boundary-wrap, which
+  is what preserves the curated val-bound-discharge diagnostic. §1 rule 2's "pure arguments fit" is about
+  *suspended* (open-row) slots, not pinned ones, so there is no rule conflict here — but it is the natural
+  next question if stored computations get more use.
+- an **inline effectful call** at a pinned slot is rejected unless it goes through a *declared* row:
+  `Task(raise("boom"))` reports "performs the effect 'Throw' but does not declare it", while
+  `def bad: {Throw[String]} String = raise("boom")` + `Task(bad)` compiles and runs. The same happens with no
+  data at all (`printLine(raise("boom") catch (…))` fails identically on the pre-fix tree), because the
+  elaborator instantiates a pinned row's ability arguments from the argument's **declared** row (§3.1), and
+  `raise[E]`'s declared row is its own binder `{Throw[E]}`.

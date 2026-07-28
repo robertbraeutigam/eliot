@@ -39,20 +39,28 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 object EffectSugarDesugarer {
 
-  /** Rewrite a `data` definition's constructor field rows. The sanctioned form for a stored row is the **pinned** one
-    * (`data TestCase(body: {Throw[E] | Id} Unit)`): a stored value must commit to one concrete representation, and a
-    * pinned row *is* that representation spelled in effect vocabulary — the field rewrites to the canonical carrier
-    * stack (`ThrowCarrier[E, Id, Unit]`) with no generic parameter introduced, keeping the data type itself
-    * non-generic. An *open* positive row in a field is a user error (reported via [[rowErrors]]); as error recovery it
-    * still lowers by the pre-pinned-rows rule — one shared inferable carrier `F[_]` **lifted onto the data type's own
-    * generic parameters**, every field `{…} A` rewritten to `F[A]` — so downstream phases see a well-formed value.
-    * Returns the definition unchanged when no field carries an effect row.
+  /** Rewrite a `data` definition's constructor field rows — **the open ones only**. The sanctioned form for a stored
+    * row is the **pinned** one (`data TestCase(body: {Throw[E] | Id} Unit)`): a stored value must commit to one
+    * concrete representation, and a pinned row *is* that representation spelled in effect vocabulary. A pinned field
+    * row is therefore left standing here and collapsed by the per-function pass ([[desugar(function:*]]) after
+    * [[DataDefinitionDesugarer]] has split the data into functions — see below. An *open* positive row in a field is a
+    * user error (reported via [[rowErrors]]); as error recovery it still lowers by the pre-pinned-rows rule — one
+    * shared inferable carrier `F[_]` **lifted onto the data type's own generic parameters**, every open field `{…} A`
+    * rewritten to `F[A]` — so downstream phases see a well-formed value. Returns the definition unchanged when no
+    * field carries an *open* row.
     *
-    * This must run *before* [[DataDefinitionDesugarer]] splits the data into its type-constructor, value-constructor,
-    * and accessor functions: those all thread `genericParameters` through uniformly, so a recovery-lifted carrier has a
-    * home on the *type*. Desugaring the split functions instead would only add `F` to the value constructor, leaving
-    * the type constructor nullary and `F` an unbound free variable — the field references a carrier the type cannot
-    * record.
+    * The recovery lift must run *before* [[DataDefinitionDesugarer]] splits the data: the split functions all thread
+    * `genericParameters` through uniformly, so a recovery-lifted carrier has a home on the *type*. Desugaring the split
+    * functions instead would only add `F` to the value constructor, leaving the type constructor nullary and `F` an
+    * unbound free variable — the field references a carrier the type cannot record.
+    *
+    * A **pinned** row needs the opposite order, which is why the two are separated here. It introduces no generic
+    * parameter, so it has nothing to place on the type — but it *is* a carrier-stack capture position, and the tag
+    * recording that ([[EffectRow.pinnedParameterEffects]] on the value constructor,
+    * [[EffectRow.returnPinnedEffects]] on the field accessor) is computed per *function*, by [[declaredEffectRow]],
+    * from a signature position that is still spelled as an [[EffectfulType]]. Collapsing the field to its carrier
+    * stack here erased that spelling before any function existed, so the constructor silently lost its pinned tag and
+    * the row elaborator hoisted a stored computation instead of capturing it (docs/effects-as-rows.md §9 item 4).
     */
   def desugar(data: DataDefinition): DataDefinition = {
     val fieldExprs = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression))
@@ -60,7 +68,7 @@ object EffectSugarDesugarer {
     val openRows   = rows.filter(_.tail.isEmpty)
     val positives  = openRows.flatMap(_.effects).distinctBy(constraintKey)
 
-    if (rows.isEmpty) data
+    if (openRows.isEmpty) data
     else {
       val anchor         = data.name
       val carrierNameOpt =
@@ -74,7 +82,7 @@ object EffectSugarDesugarer {
           inferable = true
         )
       }
-      val rewriteExpr    = rewrite(carrierNameOpt)
+      val rewriteExpr    = rewrite(carrierNameOpt, rewritePinned = false)
 
       data.copy(
         genericParameters = carrierParam.toSeq ++ data.genericParameters,
@@ -181,10 +189,25 @@ object EffectSugarDesugarer {
     * `<Ability>Carrier` convention (colocated with the ability, so it resolves wherever the ability does), entries
     * nesting left-to-right (leftmost outermost), the base after `|` at the bottom, and the result type as the outermost
     * layer's final argument. Descends through the whole expression so no [[EffectfulType]] survives.
+    *
+    * @param rewritePinned
+    *   `false` keeps each pinned node standing (still descending into its parts, so no *open* row survives) — the one
+    *   caller that needs this is the `data`-level pass, which must leave a stored pinned row spelled as a row until
+    *   the split functions exist to record its capture tag. Every other caller collapses both forms.
     */
-  private def rewrite(carrierName: Option[String])(expr: Sourced[Expression]): Sourced[Expression] = {
-    val recurse = rewrite(carrierName)
+  private def rewrite(carrierName: Option[String], rewritePinned: Boolean = true)(
+      expr: Sourced[Expression]
+  ): Sourced[Expression] = {
+    val recurse = rewrite(carrierName, rewritePinned)
     expr.value match {
+      case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty && !rewritePinned =>
+        expr.as(
+          EffectfulType(
+            effects.map(e => e.copy(typeParameters = e.typeParameters.map(recurse))),
+            recurse(resultType),
+            Some(recurse(tail))
+          )
+        )
       case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty =>
         val rewrittenTail = recurse(tail)
         val innerStack    = effects.drop(1).foldRight(rewrittenTail) { (e, acc) =>

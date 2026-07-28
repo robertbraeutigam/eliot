@@ -235,6 +235,29 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "before\nstored")
   }
 
+  // The same claim in the *other* spelling rule 3 sanctions: a **pinned row** field. A concrete carrier (`IO[Unit]`
+  // above) and a pinned row are the same thing said two ways, so both must store rather than run — but they reached
+  // the elaborator by different routes, and this one arrived untagged: `CoreProcessor` collapsed the field's row to
+  // its carrier stack (`EffectSugarDesugarer.desugar(DataDefinition)`) *before* `DataDefinitionDesugarer` built the
+  // constructor, so the per-function pass had no `{…}` left to read and recorded no pinned parameter. The argument
+  // was then hoisted onto the ambient carrier, which — unlike the concrete-carrier case, where the v2 router made it
+  // type-check silently — failed loudly ("Expected: {Abort | IO} Unit / Actual: IO(Unit)"). The data-level pass now
+  // rewrites open rows only.
+  "an effect stored in a data field spelled as a pinned row" should "also run at the accessor, not at construction" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+        |import eliot.effect.Console
+        |
+        |data Holder(computation: {Abort | IO} Unit)
+        |
+        |def main: {Console} Unit = {
+        |   val h = Holder(if(true, printLine("stored")))
+        |   printLine("before")
+        |   computation(h) else unit
+        |}""".stripMargin
+    ).asserting(_ shouldBe "before\nstored")
+  }
+
   // The step's own capability effect rides the same carrier as the driver's `Inf`: a `{Console}` step run by an
   // `{Inf, Console}` driver unions both effects (the `{e}`-on-the-step polymorphism the M1 deviation deferred to M2)
   // and runs end-to-end.

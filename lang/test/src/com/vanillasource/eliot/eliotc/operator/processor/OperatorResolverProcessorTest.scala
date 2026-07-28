@@ -390,6 +390,28 @@ class OperatorResolverProcessorTest
     }
   }
 
+  // A pinned row **stored in a `data` field** must tag the functions the field is split into: the value constructor's
+  // parameter and the field accessor's return. Both are the same capture position seen from the two sides, and both
+  // used to come out untagged, because `CoreProcessor` ran `EffectSugarDesugarer.desugar(DataDefinition)` — which
+  // collapsed the row to its carrier stack — *before* `DataDefinitionDesugarer` built those functions, leaving the
+  // per-function pass nothing to read. The row elaborator then hoisted a stored computation onto the ambient carrier
+  // instead of capturing it (docs/effects-as-rows.md §9 item 4). The data-level pass now rewrites only *open* rows.
+  it should "record a pinned `data` field on the value constructor it is split into" in {
+    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
+      "data Holder[E, G](tag: Str, run: {X[E] | G} Str)"
+    runEngineForResolvedValue(source, "Holder").asserting { holder =>
+      (effectRowReturnPinned(holder), effectRowPinnedParamEntries(holder)) shouldBe (false, Seq((1, Seq("X"))))
+    }
+  }
+
+  it should "record the same pinned `data` field on the accessor's return" in {
+    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
+      "data Holder[E, G](run: {X[E] | G} Str)"
+    runEngineForResolvedValue(source, "run").asserting { accessor =>
+      (effectRowReturnPinnedEntries(accessor), effectRowPinnedParams(accessor)) shouldBe (Seq("X"), Set.empty)
+    }
+  }
+
   it should "NOT mark a data-type parameter or an open-row parameter (only the open row feeds the entries)" in {
     // `box: Box[Str]` is a plain data type; `eff: {Susp} Str` is an OPEN row. Neither is a pinned carrier stack, so the
     // pinned tag stays empty — while the open row still populates `parameterEffects` at its index, showing the two

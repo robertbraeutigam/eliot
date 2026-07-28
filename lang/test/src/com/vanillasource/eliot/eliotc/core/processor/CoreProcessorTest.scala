@@ -642,7 +642,12 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   // A stored row must commit to one concrete representation, so a `data` field row must be pinned — the field then
-  // rewrites to the concrete stack and the data type itself stays non-generic.
+  // rewrites to the concrete stack and the data type itself stays non-generic. *Which pass* rewrites it is not visible
+  // here and must stay that way: the data-level pass handles open rows only (its recovery lift needs a home on the
+  // type), and a pinned field is collapsed by the per-function pass, after `DataDefinitionDesugarer` has split the
+  // data — which is what lets the constructor and accessor record their pinned capture tag (see
+  // `OperatorResolverProcessorTest`'s pinned-row group). These three assertions are the guard that moving the
+  // collapse did not move the resulting shape.
   "effect rows on data fields" should "keep the type constructor nullary when the field row is pinned" in {
     namedValue("data Box(body: {Throw[Error] | Id} Unit)", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
       nv.signature.value.structure shouldBe Ref("Type", T)
