@@ -1145,9 +1145,53 @@ Two ways to close it, and the choice is Robert's because each changes what compi
    `performs || discharges` gate. Nothing is rejected, but a `pure(x)` at a plain slot gains a
    `flatMap`/`pure` round trip that erases only if `Id`-normalization reaches it.
 
-Option 1 is what the rule as written says; option 2 is what the tree does today, via the checker. Until
-one is chosen, the bridge and the obligation path stay — they are one deletion (A.11.7-R), and the
-obligation path's only producer is the arm in question.
+Option 1 is what the rule as written says; option 2 is what the tree does today, via the checker.
+
+**Option 2 is refused (2026-07-28, Robert): `printLine(pure("string"))` must never be legal.** And the
+carrier it lifts into is *not* `Id` — measured from the emitted bytecode of
+`def echo: {Console} Unit = printLine(pure("lifted"))`:
+
+```
+IO.pure("lifted")  →  IO.flatMap(λ, ·)          + one lambda class
+```
+
+The hoist writes `flatMap` on the **region's** carrier and `pure`'s carrier unifies with it, so this is a
+real allocation and two `IO` calls for a string the caller already held; `Id` would appear only if the
+enclosing definition were pure. The tree allows it today, with a test pinning it
+(`ExamplesIntegrationTest1`, "should bind author-written machinery flowing into a pure slot").
+
+### A.11.7-W Option 1 measured — and it lands on the rule 3 / rule 4 boundary
+
+Built and reverted: `recordRowlessSlots` extended so a slot that *cannot host a computation* — not one of
+the callee's carrier binders, not `Id`, not a platform run carrier, not an arrow ending in one, not a
+pinned or run-boundary position — reports an argument whose kind is `Carrier`. **84 test failures, 30
+violation sites across five callees. Exactly one is the target shape.** The other four are all one thing:
+
+| callee | sites | what it is |
+| --- | --- | --- |
+| `handleCases` | 12 | the `match` desugar's eliminator, `value: T` — matching *on* a `ThrowCarrier`/`AbortCarrier` value |
+| `AbortCarrier` / `ThrowCarrier` | 12 | the carrier `data` constructors, field `G[Either[E, A]]` |
+| `runId` | 5 | the `RowElaboratorTest` twin harness — its `Id` stub does not match `WellKnownTypes.idFQN`, so the exemption misses (harness artifact, but it shows the exemption is name-keyed) |
+| `printLine` | 1 | `printLine(pure("lifted"))` — the shape this is all about |
+
+**The collision is between §1 rule 3 and §1 rule 4, and it is real.** Rule 3: *pinned means captured — a
+reified computation is an ordinary type, usable in `data` fields, discharger parameters, `List[TestCase]`*.
+Rule 4: *a rowless slot may not receive a computation*. A concrete carrier stack value is **both** — a
+computation by its type and ordinary data by rule 3 — and `RowElaborator.expressionKind` answers `Carrier`
+for both. So constructing a `ThrowCarrier` and matching on one, which rule 3 explicitly blesses, read as
+rule-4 violations.
+
+Two of the four also have a narrower cause worth separating out: the carrier `data` constructors are
+rejected only because their field is headed by the **data type's own higher-kinded binder** (`G[_]`, which
+carries no `~ Effect` constraint), and "an applied binder head is unclassifiable — the constructor class"
+is already the established reading in `typeKind`. Extending the *slot* exemption the same way is not a new
+rule and clears 12 of the 30. `handleCases` is not covered by it: its scrutinee slot is a **bare** binder,
+which rule 4 calls a payload, and the scrutinee is carrier-typed data.
+
+**So the open question is where rule 4 stops**, and it is Robert's: does "a computation" in rule 4 mean
+*any* carrier-headed value (in which case rule 3's own idiom — storing and matching a reified computation —
+needs an explicit carve-out), or only one on an **open** row (a carrier the context still solves), which is
+precisely `pure("lifted")` and nothing else measured? Nothing was landed either way.
 
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 
