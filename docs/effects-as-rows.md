@@ -8,7 +8,8 @@ check is **unbounded** with the post-mono `DeclaredPureChecker` deleted as subsu
 program byte-identical in output and class content.
 
 **What remains, in order**: **A.11.7-T** (implement §1 rule 4 — the only step that writes code rather
-than removing it), then **A.11.7 + A.11.8** (one deletion: the bridge routes into the obligation path),
+than removing it; **step 1 is landed**, steps 2–3 remain), then **A.11.7 + A.11.8** (one deletion: the
+bridge routes into the obligation path),
 then **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the live plan
 and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns the
 method** — arm-liveness tracing, the differential probe, the byte-identity oracle, the tracer gotchas —
@@ -362,6 +363,11 @@ Signature changes:
 - `def foldOption[A, B](ifNone: {Effect} B, …)` — **converts** (rule 4). A.11.5-R left it open because
   both spellings were refuted by the tree; under rule 4 that is a defect in the tree, not evidence about
   the signature, and the refutations are entries in the correction inventory below.
+- `foldLeft` needs **both** its `initial` and its accumulator rowed (`combine: A => B => {Effect} B`) —
+  measured at A.11.7-T step 1, where `initial` alone leaves `foreach`'s `acc` an undeclared computation.
+  Its jvm primitive `foldLeftInternal` then spells the carrier with an explicit `[F[_] ~ Effect]` binder
+  (`initial: F[B]`, `combine: A => F[B] => F[B]`), which the `{Effect}` sugar cannot express in an arrow
+  domain; the emitted native is unchanged, being generic and erased.
 
 Every laziness-requiring signature must declare suspension; a combinator that forgets it becomes strict.
 
@@ -389,10 +395,22 @@ call, where the callee's own declared slot (pinned, or carrier-typed) already ha
 | `stdlib/…/effect/Writer.els:54,60` | `runWriterToPair(p).map(first/second)` | direct call |
 | `stdlib/…/collection/List.els:26` | `acc.flatMap(_ -> action(e))` | `flatMap(_ -> action(e), acc)` |
 
-Plus two scaladoc examples in `carrier/Effect.els` (`readLine.flatMap(…)`, `readLine.map(…)`) that teach
-the disallowed form. The infix dischargers are **not** affected: `catch` (`Throw.els:77 infix left`) and
-`else` (`Abort.els:76 infix right`) resolve straight to a direct call with the computation at its pinned
-slot, so `x catch (e -> …)` and `host else "localhost"` are untouched.
+**Six of the seven, and both scaladoc examples, are corrected as of A.11.7-T step 1** — step 1 makes
+`.`'s slots live, so they stopped compiling (or, at `State`/`Writer`, silently miscompiled) and had to
+be corrected there rather than waiting for step 2's diagnostic.
+
+**`List.els:26` cannot be corrected on its own and stays as it is until step 3.** Rewriting it to the
+direct call makes `foreach` print nothing (`ListIntegrationTest`, `FileIoIntegrationTest` and two
+`ExamplesIntegrationTest2` State programs): `flatMap`'s `fa: F[A]` is a *declared-suspended* slot, and
+the accumulator handed to it binds `foldLeft`'s `combine: Function[A, Function[B, B]]`, whose domain
+rule 4 reads — correctly — as a payload, so it is `pure`-wrapped. The dot spelling merely hides that:
+the defect is `foldLeft`'s signature, and the site's correction belongs with it.
+
+The two scaladoc examples in `carrier/Effect.els` (`readLine.flatMap(…)`, `readLine.map(…)`) taught the
+disallowed form and now show the direct call. The infix dischargers are **not** affected: `catch`
+(`Throw.els:77 infix left`) and `else` (`Abort.els:76 infix right`) resolve straight to a direct call
+with the computation at its pinned slot, so `x catch (e -> …)` and `host else "localhost"` are
+untouched.
 
 **Declarations storing an open carrier**: `jvm/test/…/TerminationIntegrationTest.scala:206`'s
 `data Box[F[_]](action: F[Unit])` — already illegal under rule 3 (a stored row must be pinned), and the
@@ -1275,6 +1293,56 @@ generic, so by rule 4 a reference to that binder is a payload and its body `pure
   the `RowElaboratorTest` twins that assert the A.8.6 spellings are rewritten (they pin a rule-4
   violation — §6.1).
 - *Risk*: none foreseen. This is reading declarations the elaborator already reads.
+
+**LANDED (2026-07-28). Gate green — full `__.test`, 37/40 examples, every program's output and class
+content unchanged except the two dot-discharge sites §6.1 corrects.**
+
+- `RowElaborator.callResultKind` is the one function: a call's result is its declared return, classified
+  against the callee's carrier binders and, where it is headed by a plain generic, against
+  `instantiation` — the kinds the arguments occupying the *determining* positions supply (a bare-binder
+  slot `a: A`, an arrow codomain `f: A => B`). `Kind` is `Payload | Carrier | Unknown`;
+  `declaredPayloadResult`'s blanket `false` on a `ParameterReference` head is gone, and
+  `calleeCarrierValued` / `definitelyPure` / `coreClassified` all read the same function. A binder no
+  parameter determines stays `Unknown`, which is what keeps the constructor class (`wrap(s) : F[A]`)
+  out — the distinction A.11.7-R's candidate rule could not make.
+- The **binder half** (A.11.7-U): `withLambdaBinders` classifies a lambda's own binders from the declared
+  domains of the slot it occupies. An atomic non-carrier domain — a plain generic `A`, a concrete
+  `String` — is a payload, so `s -> s` at `A => {Effect} B` is provably pure; a carrier-headed domain
+  holds a computation; an applied one (possibly a concrete carrier stack) stays unclassified.
+- **Corollary the corpus forced — hoisting *changes* the instantiation.** `choose(readLine, readLine)`
+  has computations at both slots before the rewrite and payload binders at both after it, so the core
+  call's own kind flips carrier→payload and it must be `pure`-wrapped as the chain's innermost
+  continuation. The kind is therefore re-read off `finalArgs`, with each `$row$N` registered
+  payload-by-construction. Without it `choose` and `printLine(identity(readLine))` both failed to
+  monomorphize ("Type mismatch, readLine"). The resulting spelling — `flatMap`, `flatMap`, `pure` — is
+  §1 rule 1's canonical example compiled exactly as the rule states it.
+- **`assemble` now rebuilds a spine keeping each original application node's own position**
+  (`rebuiltSpine`), instead of `applyChain`'s per-argument attribution. This was not cosmetic: with the
+  newly `pure`-wrapped `catch` handler the `catch` spine gets rebuilt, and re-attribution both duplicated
+  a hover hint onto the subject's range (two `TypeHintIndexCompileTest` cases) *and* silently broke
+  `foreach` and three `State` programs, which printed nothing. The standing comment in `assemble` — that
+  rebuilding "silently moves every diagnostic anchored at a call" — understated it; position identity is
+  load-bearing downstream, and rewriting one argument must move nothing else.
+- **§6.1 corrections applied in the same step**, because step 1 makes `.`'s slots live and the affected
+  sites then *hard-fail* rather than waiting for step 2: `State.els:69,76` and `Writer.els:54,60`
+  (`runStateToPair(initial, p).map(first)` ⤳ `map(first, runStateToPair(initial, p))` — otherwise the
+  discharge is hoisted and `map` meets the payload: `Expected: Id2(Pair(Type, String)) / Actual:
+  Pair(String, String)`), `Blocks.els:33`, `EffectsState.els:22`, and the two `carrier/Effect.els`
+  scaladoc examples that taught the disallowed dot form. **`List.els:26` is the exception and stays as
+  it is** — see §6.1: correcting it needs `foldLeft`'s signature, which is step 3.
+- **Tests corrected, both §6.1-listed**: `MonomorphicTypeCheckTest`'s "pass an effectful eliminator
+  branch through unsequenced" becomes "run both branches of a payload-slot eliminator, then lift the
+  chosen payload"; `RowElaboratorTest`'s "defer a call with a generic-headed return (A.8.6)" becomes
+  "lift a generic-headed return its arguments instantiate at a payload".
+- **What step 3 must answer, measured here.** `foldLeft`'s conversion needs more than §6.1's
+  `initial: {Effect} B`: `foreach`'s accumulator binds `combine: Function[A, Function[B, B]]`, so the
+  binder half reads `acc` as a payload — correctly, by rule 4 — which turns the existing violation
+  (`B := F[Unit]`) from a deferral the checker patched up into a `pure(acc)` at `flatMap`'s suspended
+  slot. So the *accumulator* must be rowed too (`combine: A => B => {Effect} B`), and the jvm primitive
+  `foldLeftInternal` then holds `F[B]` at a slot rule 4 reads as a plain generic. That primitive is
+  generic and erased, so an explicit `[F[_] ~ Effect]` binder spelling (`initial: F[B]`,
+  `combine: A => F[B] => F[B]`) declares it without changing the emitted native — the `{Effect}` sugar
+  cannot spell a carrier in an arrow *domain*.
 
 ### Step 2 — enforce "no computation at a rowless slot"
 

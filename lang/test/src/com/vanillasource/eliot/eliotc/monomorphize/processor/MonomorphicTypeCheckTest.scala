@@ -1177,12 +1177,14 @@ class MonomorphicTypeCheckTest
     ).asserting(_.count(_ == "flatMap") shouldBe 1)
   }
 
-  // A bare generic slot is *deferred* (A.8.6): its mode is the instantiation's, so the desugar writes nothing and
-  // the checker passes the computations through unsequenced — the branches instantiate `A` at the carrier.
-  it should "pass an effectful eliminator branch through unsequenced (the deferred generic slot)" in {
+  // §1 rule 1's canonical example, and what §1 rule 4 settles: `choose`'s `x: A` and `y: A` are plain generics, hence
+  // payload slots, so both reads *run here*, leftmost outermost, and the chosen payload is `pure`-wrapped as the
+  // chain's innermost continuation. (This asserted the empty A.8.6 spelling — the slots deferred and the branches
+  // instantiating `A` at the carrier — which is the violation rule 4 removes.)
+  it should "run both branches of a payload-slot eliminator, then lift the chosen payload" in {
     liftedBody(
       "import eliot.effect.Console\ndef echo: {Console} String = choose(readLine, readLine)\ndef choose[A](x: A, y: A): A = x"
-    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq.empty)
+    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap", "flatMap", "pure"))
   }
 
   it should "bind the carried result of an effectful `val`, so the body sees the plain value" in {

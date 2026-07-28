@@ -7,8 +7,9 @@
  */
 ability Effect[F[_]] {
    /**
-    * Run `fa`, then feed its result to `f` to produce the next effectful computation. Its subject `fa`
-    * is the last parameter so it chains with the `.` operator, e.g. `readLine.flatMap(line -> printLine(line))`.
+    * Run `fa`, then feed its result to `f` to produce the next effectful computation, e.g.
+    * `flatMap(line -> printLine(line), readLine)`. Note the subject is *not* dot-chained here: `fa` is a
+    * computation, and `.` transports a value.
     */
    def flatMap[A, B](f: A => F[B], fa: F[A]): F[B]
 
@@ -18,9 +19,9 @@ ability Effect[F[_]] {
    def pure[A](a: A): F[A]
 
    /**
-    * Transform the result of an effectful computation with a pure function. Its subject `fa` is the last
-    * parameter so it chains with the `.` operator, e.g. `readLine.map(line -> length(line))`. Equivalent to
-    * `fa.flatMap(a -> pure(f(a)))`, but given directly per carrier so a pure continuation needs no `pure` round-trip.
+    * Transform the result of an effectful computation with a pure function, e.g.
+    * `map(line -> length(line), readLine)`. Equivalent to `flatMap(a -> pure(f(a)), fa)`, but given directly
+    * per carrier so a pure continuation needs no `pure` round-trip.
     */
    def map[A, B](f: A => B, fa: F[A]): F[B]
 }

@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.row
 
+import cats.Eq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
 import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
@@ -14,11 +15,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * fully explicit monadic core, the same shape the v2 checker's elaboration produces, so downstream phases are
   * unchanged consumers.
   *
-  * The rewrite decides every position whose mode the consulted *declarations* spell, and **explicitly defers** the
-  * rest (A.8.6): where the deciding fact is an instantiation — a computation meeting a slot typed by a bare generic,
-  * a call whose declared result is generic-headed — the elaborator writes *nothing* (no hoist, no `pure`, no
-  * `runId`), and the checker finishes the node from the solved instantiation. Deferral, not approximation, is the
-  * only sanctioned reaction to missing declared information: a missing rewrite is completed (or loudly rejected)
+  * The rewrite decides every position from *declarations*, per call and order-free (§1 rule 4): a call's result kind
+  * is its declared return **instantiated from the declared shapes of the arguments supplied**, so a plain generic —
+  * `.`'s `B`, `++`'s `T`, `identity`'s `A` — is a payload and a carrier binder a computation. Writing *nothing* is
+  * still the reaction where a signature genuinely settles nothing (a constructor-class return whose carrier no
+  * parameter mentions, a callee outside the universe): a missing rewrite is completed, or loudly rejected,
   * downstream, while a guessed one silently changes when an effect runs. The elaborator may consult only the §3
   * whitelist — declared parameter/return types, declared rows and carrier binders
   * ([[EffectCarriers.declaredCarrierBinders]]), pinned metadata, the run-boundary registry, and one alias level — and
@@ -30,7 +31,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   *   - a *call* is carrier-valued when the declared type remaining after its arguments is headed by one of the
   *     callee's own carrier binders (`readLine : F[Str]`, `catchX : G[A]`) or by a platform run carrier; a
-  *     generic-headed remainder is *deferred* — neither a value nor a computation until instantiated;
+  *     *generic-headed* remainder is whatever the argument determining that generic is (see [[Kind]]);
   *   - a *parameter slot* is declared-suspended when its declared type is carrier-headed (`whenTrue: {G} A` desugars
   *     to `F[A]`) — an arrow-typed callback (`action: A => {Effect} Unit`, codomain `F[Unit]`) is NOT suspended: the
   *     lambda is a value, only its *body* is a computation;
@@ -49,15 +50,14 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     it *performs* (its row is non-empty) or *discharges* (its callee captures a pinned slot / is a run boundary —
   *     an empty row, since the capture consumed it, yet still work to sequence): `printLine(readLine)` becomes
   *     `flatMap($row$1 -> printLine($row$1), readLine)`, left-to-right arguments nesting leftmost-outermost. A
-  *     carrier-typed *value* (`pure(x)`, a suspended-parameter reference with an empty row) is data and passes;
-  *   - an argument at a **generic-headed slot is deferred**: the slot's mode belongs to its instantiation (the
-  *     dot-chained discharger's capture, `foldLeft`'s accumulator, `pick`'s payload) — the argument's own interior is
-  *     still elaborated, but this slot neither hoists nor wraps it;
+  *     carrier-typed *value* (`pure(x)`, a suspended-parameter reference with an empty row) is data and passes.
+  *     Hoisting *changes the instantiation* — the slot then holds the bind's payload binder — so the core call's own
+  *     result kind is re-read off the hoisted arguments before it is wrapped;
   *   - a **carrier-valued `val`/statement binding** (the block desugar's applied lambda `(x -> rest)(e)`) becomes
   *     `flatMap(x -> rest', e')`; a pure binding stays an applied lambda;
   *   - a **pure expression in a carrier position** — the innermost continuation of a bind chain, a pure body under a
   *     declared row, a pure argument at a declared-suspended, pinned or run-boundary slot — is wrapped `pure(expr)`,
-  *     but only when it is pure *by declaration* (a concrete-headed result; a generic-headed one is deferred);
+  *     but only when it is pure *by declaration* ([[Kind.Payload]]);
   *   - **discharge under an empty residual row** (Appendix A.4): where a *discharging* node meets a value position
   *     in a region with *no* carrier — a pure definition's body, binding, or strict argument slot — the region's
   *     base carrier is `Id` by declaration, and the node is unwrapped with `runId(...)` at that same boundary. In a
@@ -69,6 +69,21 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     byte-for-byte — no `Id`, nothing to erase.
   */
 object RowElaborator {
+
+  /** What a position holds, once the declarations have settled it (§1 rule 4).
+    *
+    * [[Unknown]] is not a third semantic category but the absence of a declaration that decides: the elaborator writes
+    * nothing there and the checker finishes the node from the solved instantiation. Under rule 4 it is reached only
+    * where a signature genuinely leaves the question open — a constructor-class return (`def wrap[F[_], A](a: A):
+    * F[A]`, whose `F` no parameter mentions) or a callee outside this value's universe.
+    */
+  private enum Kind {
+    case Payload, Carrier, Unknown
+  }
+
+  private object Kind {
+    given Eq[Kind] = Eq.fromUniversalEquals
+  }
 
   /** The carrier a region binds on, in the form the elaborator can *use*.
     *
@@ -127,6 +142,7 @@ object RowElaborator {
           carrierParams,
           RowChecker.parameterRowsOf(orv, paramNames),
           ownBinders,
+          view.binders.map(_.name.value).toSet,
           universe,
           EffectCarriers.declaredEffects(ownBinders, orv.paramConstraints)
         )
@@ -195,6 +211,7 @@ object RowElaborator {
       carrierParams: Set[String],
       paramRows: Map[String, RowChecker.Row],
       ownBinders: Set[String],
+      ownGenerics: Set[String],
       universe: RowChecker.Universe,
       ambientAbilities: Set[AbilityFQN]
   ) {
@@ -257,6 +274,33 @@ object RowElaborator {
       try body
       finally regionRow = outer
     }
+
+    /** Elaborate a lambda's body under its own binders, classified from the **declared domains** of the slot the
+      * lambda occupies (§1 rule 4, A.11.7-T step 1 — the binder half A.11.7-U measured into existence).
+      *
+      * A lambda at a slot declared `A => {Effect} B` binds `A`, a plain generic, which a caller may not instantiate at
+      * a computation; so a reference to that binder is a payload *by declaration* and the body `pure`-wraps. Without
+      * this the desugar could not prove the identity lambda `s -> s` pure, deferred it, and let unification solve
+      * `A := IO[String]` — silently turning `o.foldOption("<none>", s -> s)` into a type error. A carrier-typed domain
+      * is the mirror case: the binder holds a computation unrun. A domain the desugar cannot read as either — an
+      * applied type, which may be a concrete carrier stack it has no way to name — leaves the binder unclassified,
+      * which is the fail-safe direction.
+      */
+    private def withLambdaBinders[A](
+        names: Seq[String],
+        domains: Seq[OperatorResolvedExpression],
+        carriers: Set[String]
+    )(body: => A): A =
+      names.headOption match {
+        case None       => body
+        case Some(name) =>
+          val domain = domains.headOption
+          withBinder(
+            name,
+            holdsCarrier = domain.exists(carrierHeaded(_, carriers)),
+            isPayload = domain.exists(d => spine(d)._2.isEmpty && !carrierHeaded(d, carriers))
+          )(withLambdaBinders(names.tail, domains.drop(1), carriers)(body))
+      }
 
     /** Elaborate under a block binder, which shadows any same-named parameter. */
     private def withBinder[A](name: String, holdsCarrier: Boolean, isPayload: Boolean = false)(body: => A): A = {
@@ -349,11 +393,9 @@ object RowElaborator {
     /** Whether a node is a **plain value by declaration** — the precondition for lifting it into a carrier position
       * with `pure`.
       *
-      * "Not carrier-valued" is not the same claim: it also covers everything the desugar cannot classify, chiefly
-      * anything whose declared result is *generic-headed* — a reference to a lambda binder (its type only inference
-      * knows), a call returning a bare generic (`identity(x)`, `foldLeft(...)`) or a bare-HKT application
-      * (`id[F[_]] : F[A]`), all of which an instantiation may make a computation. Those are **deferred** (A.8.6):
-      * the desugar writes nothing and lets the checker decide from the solved instantiation — the fail-safe
+      * "Not carrier-valued" is not the same claim: it also covers everything no declaration classifies — a
+      * bare-HKT application whose constructor no parameter determines (`wrap(s) : F[A]`), a reference to a binder
+      * the desugar did not itself introduce, a callee outside the universe. Those get **no node**: the fail-safe
       * direction, since a missing lift is completed downstream while a spurious one silently changes the program.
       */
     private def definitelyPure(node: Sourced[OperatorResolvedExpression]): Boolean = {
@@ -364,11 +406,7 @@ object RowElaborator {
           // A bare lambda is a value; the block desugar's binding (`(x -> rest)(e)`) is as pure as its `rest`.
           args.isEmpty || (args.sizeIs == 1 && definitelyPure(body))
         case ValueReference(name, _)              =>
-          universe.lookup(name.value).exists { orv =>
-            val view = SignatureView.of(orv.signature)
-            args.sizeIs < view.parameters.size || // an under-applied reference is a function value
-            declaredPayloadResult(arrowApplied(view.returnType.value, args.size - view.parameters.size))
-          }
+          callResultKind(name.value, args, 0) === Kind.Payload
         case ParameterReference(name)             =>
           // A payload-by-construction block binder (see [[payloadBinders]]), or a parameter with an *atomic*
           // declared type (`s: String`, `x: X`). An applied declared type may well be a concrete carrier stack the
@@ -479,7 +517,7 @@ object RowElaborator {
           }
         case _: FunctionLiteral if args.isEmpty                   =>
           // A bare lambda in a non-slot position: elaborate its body naturally; the lambda itself is a value.
-          (elaborateLambdaNatural(expr, region)._1, false)
+          (elaborateLambdaNatural(expr, region, Seq.empty, Set.empty)._1, false)
         case ValueReference(name, _) if args.nonEmpty             =>
           elaborateCall(expr, name.value, args, region)
         case ValueReference(name, _)                              =>
@@ -496,10 +534,7 @@ object RowElaborator {
           // carrier-headed and the call saturates it (`action(s)` inside a callback-taking definition); its result
           // is classifiable when that codomain is a carrier or a declared payload.
           val resultCarrier    = paramCallCarrier(name.value, args.size)
-          val resultClassified = resultCarrier || paramTypes.get(name.value).exists { tpe =>
-            val (domains, codomain) = arrowChainLike(tpe)
-            domains.nonEmpty && args.sizeIs >= domains.size && declaredPayloadResult(codomain)
-          }
+          val resultClassified = resultCarrier || expressionKind(expr.value, 0) === Kind.Payload
           elaborateArguments(expr, args, resultCarrier, resultClassified, region)
         case _                                                    =>
           (expr, false)
@@ -507,11 +542,10 @@ object RowElaborator {
     }
 
     /** Elaborate a call to a named value: arguments by their declared slot mode, then hoist each carrier-valued
-      * strict-slot argument into a `flatMap` around the core call (leftmost argument outermost). A slot whose
-      * declared type is *generic-headed* is **deferred** (A.8.6): its mode — capture through the dot-chained
-      * discharger, payload once a sibling fixes the instantiation — belongs to the instantiation, so the elaborator
-      * writes nothing there and the checker finishes it. The core call is carrier-valued iff the callee's declared
-      * return is carrier-headed; a generic-headed return is likewise deferred.
+      * strict-slot argument into a `flatMap` around the core call (leftmost argument outermost). Every slot the
+      * callee does not declare as suspended, pinned or a run boundary is **strict** — a plain generic included, since
+      * rule 4 makes it a payload — and the core call's kind is read off [[callResultKind]], before the hoist from the
+      * arguments as written and after it from the payload binders they became.
       */
     private def elaborateCall(
         expr: Sourced[OperatorResolvedExpression],
@@ -531,14 +565,10 @@ object RowElaborator {
       val ownRegion     = callRegion(region, pinned.nonEmpty || runBoundary)
       val slotRegion    = ownRegion.exists
       // Hoisting is a rewrite the elaborator must fully discharge: the core it leaves as the chain's innermost
-      // continuation must be classifiable — carrier-valued, or a declared-payload result it can `pure`-wrap. A
-      // deferred (generic-headed) core may *be* the computation, so hoisting around it is rolled into deferral: no
-      // binds, the checker elaborates the whole call.
-      val coreClassified = calleeCarrier || calleeOrv.exists { orv =>
-        val view = SignatureView.of(orv.signature)
-        args.sizeIs >= view.parameters.size &&
-        declaredPayloadResult(arrowApplied(view.returnType.value, args.size - view.parameters.size))
-      }
+      // continuation must be classifiable — carrier-valued, or a payload result it can `pure`-wrap. An unclassified
+      // core may *be* the computation, so hoisting around it is dropped: no binds, the checker elaborates the whole
+      // call.
+      val coreClassified = callResultKind(callee, args, 0) =!= Kind.Unknown
       val hoist          = region.exists && coreClassified
       // The carrier region a *pinned or run-boundary* argument captures on: the callee's own stack. The run
       // boundary's is concrete and writable (`IO`, read off its declared domain); a pinned stack's is spelled in
@@ -569,15 +599,16 @@ object RowElaborator {
               if (slotRegion) elaborate(arg, needCarrier = true, region) else core(arg, region)._1
             (accArgs :+ suspended, accBinds)
           } else if (isBareLambda(arg.value)) {
+            val domains = declaredSlot.map(s => arrowChainLike(s)._1).getOrElse(Seq.empty)
             if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders))) {
               // A handler/callback at a carrier-codomain slot (`onError: E => G[A]`, `action: A => {Effect} Unit`):
               // its body is a carrier region — a pure body lifts via `pure`. The codomain's carrier is the call's
               // own result carrier, so the body inherits it when we can spell it, and merely *has* one otherwise.
-              (accArgs :+ elaborateLambdaForced(arg, forced(ownRegion)), accBinds)
+              (accArgs :+ elaborateLambdaForced(arg, forced(ownRegion), domains, calleeBinders), accBinds)
             } else {
               // A lambda at a plain arrow slot elaborates naturally: an effectful body becomes a bind chain, a pure
               // body is untouched. What its codomain instantiates the slot at is the checker's to discover.
-              (accArgs :+ elaborateLambdaNatural(arg, region)._1, accBinds)
+              (accArgs :+ elaborateLambdaNatural(arg, region, domains, calleeBinders)._1, accBinds)
             }
           } else {
             // Every remaining slot is **strict** — a declared-concrete one, an unknown callee's, and (since A.11.5)
@@ -592,8 +623,13 @@ object RowElaborator {
           }
         }
 
-      val head = writeCarrier(expr.as(spine(expr.value)._1), callee, args.size, ownRegion)
-      (assemble(expr, head, finalArgs, binds, calleeCarrier, region), binds.nonEmpty || calleeCarrier)
+      // Hoisting *changes the instantiation*: `choose(readLine, readLine)` has computations at both slots before the
+      // rewrite and payload binders at both after it, so the core call's own result goes from carrier to payload and
+      // must be `pure`-wrapped as the chain's innermost continuation. Re-reading the kind off `finalArgs` is what
+      // makes rule 1's canonical example ("both reads run") come out with the payload the slots then hold.
+      val resultCarrier = if (binds.isEmpty) calleeCarrier else callResultKind(callee, finalArgs, 0) === Kind.Carrier
+      val head          = writeCarrier(expr.as(spine(expr.value)._1), callee, args.size, ownRegion)
+      (assemble(expr, head, finalArgs, binds, resultCarrier, region), binds.nonEmpty || resultCarrier)
     }
 
     /** The carrier a call's *own* result runs on: the enclosing region's when there is one; otherwise a
@@ -791,6 +827,10 @@ object RowElaborator {
       val (argElab, argCarrier) = core(arg, region)
       if (hoist && argCarrier && (performs(arg.value) || discharges(argElab))) {
         val binder = freshBinder()
+        // The inserted bind hands the binder the computation's *payload* — payload by construction, which is what
+        // lets the call's result kind be re-read from the hoisted spine (§1 rule 4: the slot no longer holds a
+        // computation, so a generic it determines is a plain value again).
+        payloadBinders = payloadBinders + binder
         (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
       } else {
         (accArgs :+ argElab, accBinds)
@@ -799,9 +839,8 @@ object RowElaborator {
 
     /** Reassemble a call from its elaborated arguments and hoisted binds: the core call, `pure`-wrapped when binds
       * exist around a *definitely pure* core (the innermost continuation must be a computation), then the binds
-      * folded rightward so the leftmost argument's action is outermost. A core that is neither carrier-valued nor
-      * definitely pure — a generic-headed return like `andThen($row$1, abort)`, whose instantiation may well *be*
-      * the computation — is deferred bare (A.8.6): the checker lifts it iff the instantiation says payload.
+      * folded rightward so the leftmost argument's action is outermost. A core no declaration classifies is left
+      * bare: it may well *be* the computation, and the checker lifts it iff the instantiation says payload.
       */
     private def assemble(
         expr: Sourced[OperatorResolvedExpression],
@@ -816,7 +855,7 @@ object RowElaborator {
       val unchanged =
         binds.isEmpty && (head.value.asInstanceOf[AnyRef] eq spine(expr.value)._1.asInstanceOf[AnyRef]) &&
           finalArgs.corresponds(spine(expr.value)._2)(_ eq _)
-      val coreCall  = if (unchanged) expr else expr.as(applyChain(head, finalArgs))
+      val coreCall  = if (unchanged) expr else rebuiltSpine(expr, head, finalArgs)
       if (binds.isEmpty) coreCall
       else {
         val coreElab =
@@ -828,36 +867,169 @@ object RowElaborator {
       }
     }
 
+    /** Rebuild an application spine around new arguments, keeping **each original application node's own position**.
+      *
+      * `applyChain` attributes every wrapper it builds to the argument it applies, so rebuilding a spine with it moves
+      * the intermediate applications onto per-argument ranges — which silently relocates every diagnostic anchored at
+      * the call and duplicates hover hints onto the argument's range. Rewriting one argument is not a reason for the
+      * rest of the spine to move, so the original wrappers are reused; only where the shape no longer matches (an
+      * arity the original spine does not have) does this fall back to a fresh chain.
+      */
+    private def rebuiltSpine(
+        original: Sourced[OperatorResolvedExpression],
+        head: Sourced[OperatorResolvedExpression],
+        args: Seq[Sourced[OperatorResolvedExpression]]
+    ): Sourced[OperatorResolvedExpression] =
+      args.lastOption match {
+        case None       => head
+        case Some(last) =>
+          original.value match {
+            case FunctionApplication(target, _) =>
+              original.as(FunctionApplication(rebuiltSpine(target, head, args.init), last))
+            case _                              => original.as(applyChain(head, args))
+          }
+      }
+
     /** Whether applying `callee` to `argCount` arguments yields a carrier computation: the declared type remaining
       * after consuming the arguments — the return, further arrow-applied for arguments beyond the declared
       * parameters (an over-applied accessor: `runStateCarrier(fa)(s)` applies the accessor's `S => G[Pair[A, S]]`
       * result) — is headed by one of the callee's own carrier binders or by a platform *run carrier*
       * (`prog : IO[Pair[..]]`, the nominal-run spelling — Appendix A.7). Declared shape, tag-free; an under-applied
-      * reference is a value; a *generic-headed* remainder is deferred and reads as not-carrier-valued (and, via
-      * [[definitelyPure]], as not-definitely-pure either). For a callee outside the universe (an effect-ability
-      * method resolved by qualifier only) the declared row decides.
+      * reference is a value; a *generic-headed* remainder is whatever [[callResultKind]] instantiates that generic
+      * at. For a callee outside the universe (an effect-ability method resolved by qualifier only) the declared row
+      * decides.
       */
     private def calleeCarrierValued(callee: ValueFQN, args: Seq[Sourced[OperatorResolvedExpression]]): Boolean =
+      callResultKind(callee, args, 0) == Kind.Carrier
+
+    /** The kind of the value a call to `callee` yields once `args` (and `extra` further arguments) are supplied: its
+      * **declared return, instantiated from the declared shapes of the arguments supplied** (§1 rule 4, A.11.7-T
+      * step 1). One step, local, order-free — no unification, no metavariables, no sibling-expression inspection: the
+      * only facts read are the callee's declared parameter and return types and the *declared* type each argument
+      * expression has by its own head.
+      *
+      * A concrete-headed return is a payload and a carrier-binder-headed one a computation, exactly as before. The
+      * step that is new is a return headed by one of the callee's **plain generics** — `.`'s `B`, `++`'s `T`,
+      * `identity`'s `A` — which used to be deferred wholesale for want of a mode. Rule 4 settles those: the binder is
+      * whatever the argument occupying the position that mentions it is, and since a rowless slot may not receive a
+      * computation at all, that is a payload wherever a signature is honest. Deferring instead is what kept the
+      * checker's payload router and its whole obligation path alive (A.11.7-R).
+      *
+      * The difference from "a generic head is a payload" (A.11.7-R's rejected candidate, which *approximated* the
+      * rule instead of reading it) is exactly the two shapes that measured wrong there: a binder no parameter
+      * mentions stays [[Kind.Unknown]] (`def wrap[F[_], A](a: A): F[A]` — the constructor class, whose carrier the
+      * declared return chooses), and a binder an argument supplies a *computation* to comes out [[Kind.Carrier]]
+      * (the dot-chained discharger, whose `.` yields the discharge stack, not a value).
+      */
+    private def callResultKind(
+        callee: ValueFQN,
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        extra: Int
+    ): Kind =
       universe.lookup(callee) match {
         case Some(orv) =>
-          val view      = SignatureView.of(orv.signature)
-          val binders   = EffectCarriers.declaredCarrierBinders(orv)
-          val remaining = arrowApplied(view.returnType.value, args.size - view.parameters.size)
-          args.sizeIs >= view.parameters.size &&
-          (carrierHeaded(remaining, binders) || runCarrierHead(remaining))
+          val view     = SignatureView.of(orv.signature)
+          val supplied = args.size + extra
+          if (supplied < view.parameters.size) Kind.Payload // an under-applied reference is a function value
+          else {
+            val carriers = EffectCarriers.declaredCarrierBinders(orv)
+            typeKind(
+              arrowApplied(view.returnType.value, supplied - view.parameters.size),
+              carriers,
+              instantiation(view, args, carriers)
+            )
+          }
         case None      =>
-          RowChecker.calleeRow(callee, universe).nonEmpty
+          // Outside the universe (an effect-ability method resolved by qualifier only) the declared row decides.
+          if (RowChecker.calleeRow(callee, universe).nonEmpty) Kind.Carrier else Kind.Unknown
       }
 
-    /** Whether a declared result type says **payload**: concrete-headed (a `ParameterReference` head — carrier
-      * binder or bare generic alike — is the instantiation's to classify, hence deferred) and not a platform run
-      * carrier.
+    /** Classify a declared type in the scope that declares it: headed by one of `carriers` (or by a platform run
+      * carrier) it is a computation; headed by any other generic it is whatever `instantiation` binds that generic
+      * to; anything else is a plain value.
       */
-    private def declaredPayloadResult(tpe: OperatorResolvedExpression): Boolean =
-      spine(tpe)._1 match {
-        case _: ParameterReference => false
-        case _                     => !runCarrierHead(tpe)
+    private def typeKind(
+        tpe: OperatorResolvedExpression,
+        carriers: Set[String],
+        instantiation: => Map[String, Kind]
+    ): Kind =
+      if (carrierHeaded(tpe, carriers) || runCarrierHead(tpe)) Kind.Carrier
+      else
+        spine(tpe)._1 match {
+          case ParameterReference(name) => instantiation.getOrElse(name.value, Kind.Unknown)
+          case _                        => Kind.Payload
+        }
+
+    /** The kinds this call binds the callee's own generics to, read off the arguments occupying the positions that
+      * *determine* them: a slot declared as the bare binder itself (`a: A`), and the codomain of an arrow slot
+      * (`f: A => B`, where `B` is what applying the argument yields). Positions that determine nothing — a binder
+      * buried inside an applied type — leave their binder unbound, which reads as [[Kind.Unknown]].
+      */
+    private def instantiation(
+        view: SignatureView,
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        carriers: Set[String]
+    ): Map[String, Kind] =
+      view.parameters.zip(args).foldLeft(Map.empty[String, Kind]) { case (acc, (declared, arg)) =>
+        acc ++ determinedBy(declared.value, arg.value, 0, carriers)
       }
+
+    /** What one argument settles about the binders its declared slot mentions in a determining position. `applied`
+      * counts the arrow levels already descended, so the argument is asked for the kind it yields *after that many
+      * further applications*.
+      */
+    private def determinedBy(
+        declared: OperatorResolvedExpression,
+        arg: OperatorResolvedExpression,
+        applied: Int,
+        carriers: Set[String]
+    ): Map[String, Kind] =
+      declared match {
+        case ParameterReference(name) if !carriers.contains(name.value) =>
+          Map(name.value -> expressionKind(arg, applied))
+        case _                                                          =>
+          asArrowLike(declared) match {
+            case Some((_, codomain)) => determinedBy(codomain.value, arg, applied + 1, carriers)
+            case None                => Map.empty
+          }
+      }
+
+    /** The kind of the value an argument expression yields once `applied` further arguments are given to it — read
+      * off its own head's declaration, never off its elaborated form (elaboration does not change a spine's head, so
+      * this is the same answer the pass reaches when it elaborates the node).
+      */
+    private def expressionKind(expr: OperatorResolvedExpression, applied: Int): Kind = {
+      val (head, args) = spine(expr)
+      head match {
+        case _: IntegerLiteral | _: StringLiteral                     =>
+          if (applied === 0) Kind.Payload else Kind.Unknown
+        case ValueReference(name, _)                                  => callResultKind(name.value, args, applied)
+        case FunctionLiteral(_, _, body) if args.isEmpty              =>
+          if (applied === 0) Kind.Payload else expressionKind(body.value, applied - 1)
+        case ParameterReference(name) if args.isEmpty && applied === 0 =>
+          if (carrierBinders.contains(name.value)) Kind.Carrier
+          else if (payloadBinders.contains(name.value) || paramTypes.get(name.value).exists(t => spine(t)._2.isEmpty))
+            Kind.Payload
+          else Kind.Unknown
+        case ParameterReference(name)                                 =>
+          paramTypes.get(name.value) match {
+            case Some(tpe) =>
+              val (domains, codomain) = arrowChainLike(tpe)
+              if (args.size + applied < domains.size) Kind.Payload
+              else if (args.size + applied === domains.size) typeKind(codomain, ownBinders, ownGenericKinds)
+              else Kind.Unknown
+            case None      => Kind.Unknown
+          }
+        case _                                                        => Kind.Unknown
+      }
+    }
+
+    /** This definition's *own* generics, as rule 4 settles them: every binder that is not one of its declared
+      * carriers is a plain generic and therefore a payload, since a caller may not instantiate a rowless position at
+      * a computation.
+      */
+    private lazy val ownGenericKinds: Map[String, Kind] =
+      (ownGenerics -- ownBinders).map(_ -> Kind.Payload).toMap
 
     /** The declared type remaining after applying an arrow-shaped type to `extra` further arguments. */
     private def arrowApplied(tpe: OperatorResolvedExpression, extra: Int): OperatorResolvedExpression =
@@ -880,10 +1052,13 @@ object RowElaborator {
       */
     private def elaborateLambdaForced(
         lambda: Sourced[OperatorResolvedExpression],
-        region: RegionCarrier
+        region: RegionCarrier,
+        domains: Seq[OperatorResolvedExpression],
+        carriers: Set[String]
     ): Sourced[OperatorResolvedExpression] = {
-      val (_, inner) = RowChecker.peelBinders(lambda.value)
-      val innerElab  = elaborate(lambda.as(inner), needCarrier = true, region)
+      val (names, inner) = RowChecker.peelBinders(lambda.value)
+      val innerElab      =
+        withLambdaBinders(names, domains, carriers)(elaborate(lambda.as(inner), needCarrier = true, region))
       // An untouched body keeps the original lambda node: rebuilding an equal one reads as a changed argument
       // upstream and re-attributes the whole application spine (see [[assemble]]).
       if (innerElab.value.asInstanceOf[AnyRef] eq inner.asInstanceOf[AnyRef]) lambda
@@ -895,10 +1070,12 @@ object RowElaborator {
       */
     private def elaborateLambdaNatural(
         lambda: Sourced[OperatorResolvedExpression],
-        region: RegionCarrier
+        region: RegionCarrier,
+        domains: Seq[OperatorResolvedExpression],
+        carriers: Set[String]
     ): (Sourced[OperatorResolvedExpression], Boolean) = {
-      val (_, inner)                = RowChecker.peelBinders(lambda.value)
-      val (innerElab, innerCarrier) = core(lambda.as(inner), region)
+      val (names, inner)            = RowChecker.peelBinders(lambda.value)
+      val (innerElab, innerCarrier) = withLambdaBinders(names, domains, carriers)(core(lambda.as(inner), region))
       // An untouched body keeps the original lambda node (see [[elaborateLambdaForced]]).
       val rebuilt                   =
         if (innerElab.value.asInstanceOf[AnyRef] eq inner.asInstanceOf[AnyRef]) lambda

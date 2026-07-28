@@ -51,10 +51,10 @@ def runWriterToPair[W, G[_], A](p: {Writer[W] | G} A): G[Pair[A, W]] = runWriter
 /**
  * Discharge the `Writer[W]` effect keeping only the result, discarding the accumulated log.
  */
-def runWriterToValue[W, G[_] ~ Effect, A](p: {Writer[W] | G} A): G[A] = runWriterToPair(p).map(first)
+def runWriterToValue[W, G[_] ~ Effect, A](p: {Writer[W] | G} A): G[A] = map(first, runWriterToPair(p))
 
 /**
  * Discharge the `Writer[W]` effect keeping only the accumulated log, discarding the result. This is the usual way to
  * collect a writer's output.
  */
-def runWriterToLog[W, G[_] ~ Effect, A](p: {Writer[W] | G} A): G[W] = runWriterToPair(p).map(second)
+def runWriterToLog[W, G[_] ~ Effect, A](p: {Writer[W] | G} A): G[W] = map(second, runWriterToPair(p))

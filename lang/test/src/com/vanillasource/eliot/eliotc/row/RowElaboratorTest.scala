@@ -238,14 +238,15 @@ class RowElaboratorTest
     )
   }
 
-  it should "defer a call with a generic-headed return (no boundary wrap — A.8.6)" in {
-    // `weird`'s declared return is the bare generic `B`: whether the call is a payload to lift or a computation the
-    // instantiation decides, so the desugar writes nothing — not even the boundary `pure` — and the checker finishes
-    // the node from the solved instantiation.
+  it should "lift a generic-headed return its arguments instantiate at a payload (§1 rule 4)" in {
+    // `weird`'s declared return is the bare generic `B`, which `f: A => B` determines: the lambda's body is the pure
+    // `use(x)`, so `B` is a payload and the call is a plain value the return boundary `pure`-wraps. (This asserted
+    // the A.8.6 spelling — write nothing, let the checker finish the node from the solved instantiation — which is
+    // the deferral rule 4 removes: a plain generic is a payload, always.)
     val weird = "def weird[A, B](f: A => B, a: A): B\n"
     compareToTwin(
       weird + "def d: {Con} Str = weird(x -> use(x), strA)",
-      weird + "def t: {Con} Str = weird(x -> use(x), strA)",
+      weird + "def t: {Con} Str = pure(weird(x -> use(x), strA))",
       extraNames = Seq("weird")
     )
   }
