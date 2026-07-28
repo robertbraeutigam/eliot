@@ -1,22 +1,20 @@
 # Effects as Rows, v3: Declared Suspension + a Written Carrier
 
-**Status (2026-07-28). No decision is open, and the remaining work is a written step list.**
-`A.11.1`–`A.11.6` are done: the elaborator **writes the carrier**, `Bool.fold` **declares its
-suspension**, **every plain slot is strict** (§1 rule 1, finally implemented), and the per-definition row
-check is **unbounded** with the post-mono `DeclaredPureChecker` deleted as subsumed. Gate: full
-`__.test` green (871 targets), 37/40 examples compiling (`PluginA`/`B`/`C` predate this work), every
-program byte-identical in output and class content.
+**Status (2026-07-28). No decision is open. → Resume at [A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).**
 
-**What remains, in order**: **A.11.7-T is complete (2026-07-28)** — §1 rule 4 is implemented and enforced
-at the §6.1-A predicate (a callee's plain generic instantiated at a computation), and the audit's 28
-shapes are gone. **A.11.7 + A.11.8 is measured and BLOCKED on one decision — see A.11.7-V**: the deferral
-path is cold *except* `payloadSlot/suspendHoist`, whose five surviving shapes are a computation *value*
-at a **concrete** rowless slot (`printLine(pure("lifted"))`) — inside rule 4 as written, outside the
-enforcement as built. Then
-then **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the live plan
-and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns the
-method** — arm-liveness tracing, the differential probe, the byte-identity oracle, the tracer gotchas —
-and is reused by every remaining step; A.11.7-T records the fast example-sweep harness.
+**§1 rule 4 holds and is enforced**, which was the whole point of A.11.7-T: every position classifies from
+its declaration, a computation may not reach a rowless slot, and `ρ := {}` runs at `Id`. `A.11.1`–`A.11.6`
+before it are done — the elaborator **writes the carrier**, `Bool.fold` **declares its suspension**,
+**every plain slot is strict** (§1 rule 1), and the per-definition row check is **unbounded** with the
+post-mono `DeclaredPureChecker` deleted as subsumed. Gate: `__.test` green (871 targets), 37/40 examples
+(`PluginA`/`B`/`C` predate this work), every program unchanged in output and class content.
+
+**What remains**: **A.11.7 + A.11.8 step 1 as one deletion.** `payloadSlot/suspendHoist` — A.11.7's exit
+test — reached **zero** at A.11.7-X, so the *runtime* half of the obligation path is dead; the
+compile-track half still carries the guard suite (A.11.Z.2). Then
+A.11.8 step 3, **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the
+live plan and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns
+the method**, with A.11.Z.4 added to it; A.11.7-T records the fast example-sweep harness.
 
 **How the decisions closed.** A.11.7 stopped because the bridge was measured *not cold* (A.11.7-R:
 43 test failures and 5 further examples without it, as silent miscompiles). Its three open decisions are
@@ -1685,6 +1683,99 @@ Neither is a blocker today; both are the shape that becomes one in flight (stand
 - **`PluginA`/`B`/`C`.** Failing since before A.11.4, never diagnosed, and A.11.0's exit criterion
   *accepts* them by asking for 37/40. Triage once, so an undiagnosed failure is not carried into the
   criterion that declares the work finished.
+
+## A.11.Z HANDOVER — resume here (2026-07-28)
+
+The single entry point for picking this up. A.9 was the previous one and is now historical; **A.9.4 still
+owns the method** and this section only adds to it.
+
+### A.11.Z.1 Tree state and gate baseline
+
+HEAD `19d97b2b`. `./mill __.test` **871/871 green**. **37/40 examples** — `PluginA`/`B`/`C` fail and have
+failed since before A.11.4; they are undiagnosed and A.11.0's exit criterion accepts them. Every program's
+**output and class content are unchanged** from the pre-A.11.7-T build. Sizes: `check/` 5,097,
+`carrier/` 408, `row/` 2,223.
+
+**Done**: A.11.1–A.11.6, A.11.7-T steps 1–3, A.11.7-X. **§1 rule 4 holds and is enforced.** Every position
+classifies from its declaration; a computation may not reach a rowless slot; `ρ := {}` runs at `Id`.
+
+### A.11.Z.2 What is next, and it is unblocked
+
+**A.11.7 + A.11.8 step 1 as one deletion** (the bridge routes into the obligation path — A.11.7-R). The
+part-by-part bypass, re-measured on this tree (A.9.4's method; `ELIOT_NO_BRIDGE`, scaffolding reverted):
+
+| part switched off | A.11.7-R | after rule 4 (A.11.7-V) | **now** | what still fires |
+| --- | --- | --- | --- | --- |
+| `payloadSlot/suspendHoist` alone | — | 5 | **0** | *nothing* — A.11.7's exit test |
+| carrier router | 1 / 37 | 1 / 37 | **1 / 37** | `TerminationIntegrationTest` "loop endlessly" |
+| uniform return boundary | 8 / 36 | 1 / 37 | **1 / 37** | `MonomorphicTypeCheckTest:540` — "Higher-kinded type parameter mismatch" at a pure return |
+| payload router | 36 / 32 | 11 / 37 | **7 / 37** | the `catch`/`else` non-identity-handler pin (`eagerRowPinIntoDomain`) |
+| every deferral site | — | 0 (stale) | **7 / 37** | `GuardSignatureIntegrationTest` — the **compile-track** guard discharge |
+
+**Read the last two rows carefully, and do not repeat the mistake they record.** A.11.7-V reported the
+deferral path cold; that measurement gated three of the five sites *and* predates A.11.7-X, so it is
+stale twice over. On this tree the arm A.11.7 actually names — `payloadSlot/suspendHoist` — **is** cold,
+which is the milestone; but switching *every* deferral site off still costs 7 tests, and they are the
+**guard suite on the compiler track**, whose `resolveDeferredSlot` arm §8 keeps by design. So **A.11.8
+step 1 is not free**: the runtime half is dead, the compile-track half is not, and whether that half can
+go is its own question (A.11.7-T's first known-unknown, still open — the earlier "it is dead too" reading
+came from the stale run).
+
+The two routers have exactly one shape each. Per A.11.7's standing rule those are still *questions* — a
+firing arm is a missing elaborator rule — but one shape each, not a class.
+
+### A.11.Z.3 The deletion recipe, from an attempt that was built and reverted
+
+The obligation-path deletion was written end to end in this session and reverted (it predated A.11.7-X, so
+it hit 5 failures that are now 0 — **re-measure before trusting, but the edit list holds**):
+
+The recipe deletes the **whole** path, runtime and compile-track alike, so it is the *upper* bound: pair
+it with A.11.Z.2's table and keep whatever the compile track still needs.
+
+- **`Checker.scala`** — `checkAgainstDefault` calls `resolveGuardedLadder` directly (drop the `Resolved`
+  unwrap and its throw); `inferSpineApplications` ends `} yield built` (drop `hadDeferred`,
+  `resolveDeferredSlot`, `assembleSpine`); delete the `SlotOutcome` sum type and collapse
+  `CheckIO[SlotOutcome]` → `CheckIO[SemExpression]`, `SlotRecord.outcome` → `slotExpr: SemExpression`;
+  delete `resolveDeferredSlot`, `assembleSpine`, `rebuildChain`, `genericArgSlot`, `isDeclarationGeneric`
+  (`checkArgumentSlot` routes straight to `routeArgumentSlot`); drop the deferral arms of `defaultArgSlot`,
+  `uniformPayloadSlot` (with `actualCarrier`) and `uniformCaptureSlot` (keep `doomed` as the `joinRoutable`
+  guard); delete the `modeResolver` collaborator and the `recordLetObligation` site.
+- **`CheckState.scala`** — the two obligation vectors, their scaladoc, `recordModeObligation`,
+  `recordLetObligation`, `ModeObligation`, `LetObligation`.
+- **`TypeStackLoop.scala`** — `processWithState` becomes `processIO(...).run(CheckState.initial)` (the
+  `attempt`/fuel loop goes); `processIO`/`processValueMono`/`drainAndBuildQuoter` drop their `Either`;
+  `runPostDrainResolution` returns `Unit` and its saturation becomes a plain ability fixpoint; delete
+  `spliceRewrite` and the twin's "requested a mode-resolution restart" abort.
+- **Delete** `ModeResolver.scala` and `RowElaborator.spliceResolvedModes`.
+- **Then the scaladoc**: `EffectLifter`, `UniformCarrierChecker`, `CheckState`, `Checker` all describe the
+  resolver in prose.
+
+**Two traps, each of which cost time:**
+
+1. Removing a `match` scrutinee's body leaves an **orphan `}`**, so the class closes early and every later
+   method reports `Not found: force` / `Not found: lifter`. The error location is nowhere near the edit.
+2. **The compiler-track arm of `resolveDeferredSlot` is a genuine §8 keeper on this tree** — switching it
+   off costs the guard suite. An earlier run said otherwise and was stale; A.11.7-T's first known-unknown
+   is therefore still open, and this is exactly the shape it warned about.
+
+### A.11.Z.4 Method, added to A.9.4
+
+- **Gate every site of a mechanism, or the measurement lies.** The first `defer` probe missed
+  `uniformPayloadSlot`'s deferral and reported the path cold while its *only* live producer was still on.
+  The deletion then disagreed with the probe, which is how it was caught.
+- **A deletion that makes something compile is a regression.** Two of that attempt's five failures were
+  programs that must *not* compile and did. Check the direction of every failure, not just the count.
+- The fast example sweep drives `com.vanillasource.eliot.eliotc.compiler.Main` (**not** `…eliotc.Main`)
+  off `./mill show examples.runClasspath` with the three `--path` roots appended.
+- `FullIntegrationTest`'s shared session returns the **previous** test's output when a compile fails, so a
+  wrong-output assertion is usually a compile error in disguise — reproduce the shape standalone.
+
+### A.11.Z.5 After the deletion
+
+A.11.8 step 3 (the carrier side table), then A.11.9 (scaffolding and suites) and A.11.10 (docs closeout),
+all as written below. **A.11.0's arithmetic is still the number to check** — with `Id` struck off,
+machinery 6,895 → ≈5,540 and `check/` → ≈4,150 against a pre-v2 baseline of 3,996; do not claim a net
+reduction against pre-v2, since the difference is `row/`, a phase that did not exist.
 
 ## A.11.8 Delete the obligation path and the carrier side table
 
