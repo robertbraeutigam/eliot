@@ -57,6 +57,12 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
   private val ambientIoState: CheckState =
     CheckState.initial.recordAmbientCarriers(Set(CheckState.CarrierHead.TopDef(fqn("IO"))))
 
+  /** Record a meta as peeled from a *higher-kinded* binder — the record that makes a metavariable head count as a
+    * carrier ([[EffectLifter.effectCarrierSplit]]).
+    */
+  private def higherKinded(state: CheckState, id: SemValue.MetaId): CheckState =
+    state.recordHigherKindedMeta(id, VType, Sourced(uri, PositionRange.zero, "kind"))
+
   private def run[A](state: CheckState, io: CheckIO[A]): A = runWithState(state, io)._2
 
   private def runWithState[A](state: CheckState, io: CheckIO[A]): (CheckState, A) =
@@ -72,11 +78,11 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
     case other                                        => fail(s"no head value reference in: $other")
   }
 
-  // --- effectCarrierSplit (the isEffectCarrierHeaded read) ---
+  // --- effectCarrierSplit (the carrier-headed read) ---
 
-  "effectCarrierSplit" should "split a role-flagged carrier meta application into carrier and payload" in {
+  "effectCarrierSplit" should "split a higher-kinded carrier meta application into carrier and payload" in {
     val (ids, st) = stateWithMetas(1)
-    run(st.recordEffectCarrier(ids.head), lifter.effectCarrierSplit(applied(VMeta(ids.head, Spine.SNil), string)))
+    run(higherKinded(st, ids.head), lifter.effectCarrierSplit(applied(VMeta(ids.head, Spine.SNil), string)))
       .shouldBe(Some((VMeta(ids.head, Spine.SNil), string)))
   }
 
@@ -86,7 +92,7 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
 
   it should "not split a bare (unapplied) carrier meta — a carrier type needs a payload" in {
     val (ids, st) = stateWithMetas(1)
-    run(st.recordEffectCarrier(ids.head), lifter.effectCarrierSplit(VMeta(ids.head, Spine.SNil))) shouldBe None
+    run(higherKinded(st, ids.head), lifter.effectCarrierSplit(VMeta(ids.head, Spine.SNil))) shouldBe None
   }
 
   it should "split an ambient concrete carrier application (IO[String] with IO ambient)" in {
@@ -106,19 +112,19 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
   "mustLiftBeforeUnify" should "fire for a carrier-meta application against an under-applied rigid head" in {
     val (ids, st) = stateWithMetas(1)
     val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(st.recordEffectCarrier(ids.head), lifter.mustLiftBeforeUnify(actual, string)) shouldBe true
+    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, string)) shouldBe true
   }
 
   it should "not fire against an equal-arity rigid head (injectivity decomposes it)" in {
     val (ids, st) = stateWithMetas(1)
     val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(st.recordEffectCarrier(ids.head), lifter.mustLiftBeforeUnify(actual, applied(io, string))) shouldBe false
+    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, applied(io, string))) shouldBe false
   }
 
   it should "not fire against another meta application (a storage-slot postponement stays with unification)" in {
     val (ids, st) = stateWithMetas(2)
     val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(st.recordEffectCarrier(ids.head), lifter.mustLiftBeforeUnify(actual, applied(VMeta(ids(1), Spine.SNil), string)))
+    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, applied(VMeta(ids(1), Spine.SNil), string)))
       .shouldBe(false)
   }
 
@@ -129,7 +135,7 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
   it should "not fire against a VType expected (an effectful term must not bind-lift at a type/return boundary)" in {
     val (ids, st) = stateWithMetas(1)
     val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(st.recordEffectCarrier(ids.head), lifter.mustLiftBeforeUnify(actual, VType)) shouldBe false
+    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, VType)) shouldBe false
   }
 
   "mustPureWrapBeforeUnify" should "fire for a pure rigid term against an ambient carrier-meta application" in {
@@ -218,9 +224,8 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
 
   "bindWrap over a carrier-headed core" should "unify the bind's carrier with the core's carrier" in {
     val (ids, st) = stateWithMetas(1)
-    val ambient   = st
-      .recordEffectCarrier(ids.head)
-      .recordAmbientCarriers(Set(CheckState.CarrierHead.TopDef(fqn("IO"))))
+    val ambient   =
+      higherKinded(st, ids.head).recordAmbientCarriers(Set(CheckState.CarrierHead.TopDef(fqn("IO"))))
     val bind      = EffectLifter.Bind(
       "$eff$0",
       anchor,
@@ -235,7 +240,7 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
 
   "bindWrap over a still-flex core type" should "default to map (a wrong default errors loudly downstream)" in {
     val (ids, st) = stateWithMetas(2)
-    val flagged   = st.recordEffectCarrier(ids.head)
+    val flagged   = higherKinded(st, ids.head)
     val bind      = EffectLifter.Bind(
       "$eff$0",
       anchor,

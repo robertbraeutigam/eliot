@@ -271,15 +271,15 @@ class CalculatedReturnResolver(
   def isGuardCarrier(inferred: SemValue): CheckIO[Boolean] =
     force(inferred).flatMap {
       case VTopDef(fqn, _, _) => pure(fqn === WellKnownTypes.eitherFQN || fqn === WellKnownTypes.boolFQN)
-      // An *inline* guard (`if..else..raise`) whose carrier is still an unsolved **effect-carrier** meta at kind-check
+      // An *inline* guard (`if..else..raise`) whose carrier is still an unsolved **higher-kinded** meta at kind-check
       // time (`?G[?A]`, the `else` carrier not yet pinned): its concrete carrier `Either[String]` is only fixed later by
       // `Track.Compiler.pinCarriers`, but the return already *is* a `{Throw[String]}`/`{Abort}` guard. Recognising the
-      // effect-carrier head here accepts it as a guarded return, so the kind check never postpones `?G[?A] ~ Type` — a
-      // constraint that would become a hard `Either[String, _] ~ Type` mismatch once the carrier is pinned. Only an
-      // ability-constrained higher-kinded (effect) meta qualifies — a bare HKT type parameter is not flagged — and a
-      // normal effectful return (`{Console} Unit`) never reaches this ladder with a `Type` expectation, so it does not
-      // over-fire (verified against the effect examples).
-      case VMeta(id, _)       => inspect(_.unifier.isEffectCarrier(id.value))
+      // higher-kinded head here accepts it as a guarded return, so the kind check never postpones `?G[?A] ~ Type` — a
+      // constraint that would become a hard `Either[String, _] ~ Type` mismatch once the carrier is pinned. Only a
+      // higher-kinded meta qualifies — an ordinary `[A]` binder's meta is not recorded — and a normal effectful return
+      // (`{Console} Unit`) never reaches this ladder with a `Type` expectation, so it does not over-fire (verified
+      // against the effect examples).
+      case VMeta(id, _)       => inspect(_.unifier.isHigherKindedMeta(id.value))
       case _                  => pure(false)
     }
 

@@ -99,13 +99,13 @@ object Track {
         _ <- pinInferredReturnCarriers(checker, resolvedValue.name)
       } yield ()
 
-    /** Pin each still-unsolved *effect-carrier* metavariable ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.effectCarrierMetaIds]])
+    /** Pin each still-unsolved *higher-kinded* metavariable ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.higherKindedMetaIds]])
       * to the compile-time `Either[String]`. Used for an inline guard's inferred carrier, which has no
       * `paramConstraints` binder — see [[pinCarriers]]. A carrier already solved (the `AbortCarrier[G]` layer whose base
       * `G` is the meta left open) is skipped by [[pinMetaToEither]], which only pins a still-open meta.
       */
     private def pinInferredReturnCarriers(checker: Checker, at: Sourced[?]): CheckIO[Unit] =
-      inspect(_.unifier.effectCarrierMetaIds).flatMap(_.traverse_(id => pinMetaToEither(checker, MetaId(id), at)))
+      inspect(_.unifier.higherKindedMetaIds).flatMap(_.traverse_(id => pinMetaToEither(checker, MetaId(id), at)))
 
     /** Solve a still-open effect-carrier meta to the fixed compile-time `Either[String]` (the guard channel's error
       * type is `String`). Skipped when the meta is already solved (its carrier was fixed structurally — e.g. an

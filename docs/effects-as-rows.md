@@ -1,25 +1,25 @@
 # Effects as Rows, v3: Declared Suspension + a Written Carrier
 
-**Status (2026-07-28). A.11.7 is DONE — the v2 bridge is deleted and `check/` is 3,879, below the pre-v2
-baseline of 3,996.** It was unblocked by one unified rule (Robert's decision, A.11.7-Y): a carrier-headed
-slot captures whatever names its carrier (§1 rule 4, last bullet), and the elaborator writes every
-declaration-determined type argument, not just a binder-0 carrier (§3.1). That also fixed a shipped
-silent miscompile — an effect stored in a `data` field ran at construction. **What remains: A.11.8 step
-3, A.11.9, A.11.10, and the separated pinned-`data`-field gap.** → Resume at
-[A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).
+**Status (2026-07-28). A.11.7 and A.11.8 are DONE — the v2 bridge and the carrier side table are gone, and
+`check/` is 3,873, below the pre-v2 baseline of 3,996.** A.11.7 was unblocked by one unified rule
+(Robert's decision, A.11.7-Y): a carrier-headed slot captures whatever names its carrier (§1 rule 4, last
+bullet), and the elaborator writes every declaration-determined type argument, not just a binder-0 carrier
+(§3.1). That also fixed a shipped silent miscompile — an effect stored in a `data` field ran at
+construction. A.11.8 step 3 then found the "effect carrier" flag was never an independent fact (it was
+written with the carrier *kind*, at one site, always) and that its whole live surface is the compiler
+track's inline guard — §8 by design; on the runtime track it is decision-free, which is A.11.4 confirmed
+from the other side. **What remains: A.11.9, A.11.10, and the separated pinned-`data`-field gap.** →
+Resume at [A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).
 
 **§1 rule 4 holds and is enforced**, which was the whole point of A.11.7-T: every position classifies from
 its declaration, a computation may not reach a rowless slot, and `ρ := {}` runs at `Id`. `A.11.1`–`A.11.6`
 before it are done — the elaborator **writes the carrier**, `Bool.fold` **declares its suspension**,
 **every plain slot is strict** (§1 rule 1), and the per-definition row check is **unbounded** with the
-post-mono `DeclaredPureChecker` deleted as subsumed. Gate: `__.test` green (871 targets), 37/40 examples
+post-mono `DeclaredPureChecker` deleted as subsumed. Gate: `__.test` green (1,488 tests), 37/40 examples
 (`PluginA`/`B`/`C` predate this work), every program unchanged in output and class content.
 
-**What remains**: **A.11.7, the bridge** — A.11.8 step 1 landed on its own (A.11.8-1: the obligation path
-is deleted, the coupling A.11.7-R described was already severed). The bridge's live surface is **9 test
-shapes and zero examples**, in three groups, each a missing elaborator rule and each needing a decision
-(A.11.7-Y). Then
-A.11.8 step 3, **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the
+**What remains**: **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout), plus the separated
+pinned-`data`-field gap. Appendix A.11 is the
 live plan and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns
 the method**, with A.11.Z.4 added to it; A.11.7-T records the fast example-sweep harness.
 
@@ -317,11 +317,14 @@ never erases — the signal is in signatures, read before checking.
 > ladder's existing arm: no metas, no ordering, no lattice).
 
 **Deleted from the checker layer.** `EffectLifter`'s arms; `UniformCarrierChecker`; the `carrier/`
-package (`Carrier`, `CarrierJoin`, `UniformLadder`); `CarrierKindChecker`'s carrier-role seeding; and
-inside `Checker` the ladders' effect arms, the Phase A/B deferral with its obligations, the pinning
-mechanisms, and the slot routers. Landed so far (A.8.8–A.8.10, A.11.6): the unreachable arms, **every
-bind the checker used to insert**, the manufactured `Id` head, and `DeclaredPureChecker` (subsumed
-pre-mono). Remaining: A.11.7 (bridge) and A.11.8 (obligations, the carrier side table).
+package (`Carrier`, `CarrierJoin`, `UniformLadder`); the carrier *role* record; and inside `Checker` the
+ladders' effect arms, the Phase A/B deferral with its obligations, the pinning mechanisms, and the slot
+routers. **All of it has landed** (A.8.8–A.8.10, A.11.6, A.11.7, A.11.8): the unreachable arms, **every
+bind the checker used to insert**, the manufactured `Id` head, `DeclaredPureChecker` (subsumed pre-mono),
+the whole bridge, the obligation path, and the carrier role — which A.11.8-3 found was never a fact of its
+own, only the higher-kinded *kind* record under another name. What stays of that record is the kind
+seeding and its post-drain verification (as planned), plus its two compile-track readers, since the inline
+guard's carrier is still inferred there (§8).
 
 **The `Id` erasure stays** (decided 2026-07-28 — §1 rule 4, third bullet). `IdNormalizer`,
 `PostDrainQuoter.stripIdMachinery` and `WovenValueProcessor.assertNoIdResidue` were listed here for
@@ -942,7 +945,7 @@ exactly **one** effect rule: *a pure term meeting a rigid carrier-headed expecte
 | the v2 bridge | `monomorphize/carrier/` (`Carrier` 82, `CarrierJoin` 124, `UniformLadder` 188), `check/UniformCarrierChecker` 289, and in `check/Checker`: `routeArgumentSlot`, `uniformPayloadSlot`, `uniformCaptureSlot`, `uniformCarrierSlot`, `uniformArgumentSlot`, `payloadFitsDomain`, `uniformPayloadOf`, `singleLayerCarrierDomain`, `eagerRowPinIntoDomain`, `findCarrierLayerSlots`, `uniformReturnBoundary`/`uniformReturnRoutable` | ~933 |
 | the obligation/resolver path | `check/ModeResolver` 213; `CheckState.modeObligations`/`letObligations` + `ModeObligation`/`LetObligation` + `recordModeObligation`; `Checker.genericArgSlot`/`defaultArgSlot` deferral arms + `resolveDeferredSlot` + `SlotOutcome.Deferred`/`Suspended`; `TypeStackLoop`'s splice-and-restart, its fuel, and `processIO`'s `Either` return; `RowElaborator.spliceResolvedModes` | ~350 |
 | ~~the `Id` apparatus~~ | **CANCELLED 2026-07-28** (§1 rule 4, third bullet; A.11.7-S). `channel/IdNormalizer` 308, `PostDrainQuoter.stripIdMachinery` and `WovenValueProcessor.assertNoIdResidue` **stay**: `Id` is the value of the empty row and is written deliberately, so its erasure is required, and `assertNoIdResidue` is the proof that erasure is complete | 0 |
-| the carrier side table | `Unifier.carrierRoles` / `isEffectCarrier` / `CarrierRole`; `CarrierKindChecker`'s carrier-role *seeding* (its kind checking stays); `EffectLifter`'s remainder beyond the one pure-lift arm and the node builders | ~400 |
+| the carrier side table | **REDUCED 2026-07-28** (A.11.8-3): `CarrierRole` and the `effectCarrier` flag are gone — they were the higher-kinded *kind* record under another name — leaving `Unifier.higherKindedMetas` and two derived projections, which the **compiler track's** inline guard reads (§8). `EffectLifter`'s remainder beyond the one pure-lift arm and the node builders stays with it | −31 |
 | ~~A.8.6's uncertainty~~ | **DONE at A.11.6**: `uncertain`/`Derivation.deferred` and `DeclaredPureChecker` deleted; two boundings remain by design (coverage, decidability), and `capturedByStack` was added to the derivation | −150 |
 | flags & experiment scaffolding | `CompilationSession.compileOnce(seedFacts)` (a production API added only for the R4 shadow compile); `jvm/test/.../RowElaborationShadowCompileTest`; the shadow half of `jvm/test/.../RowShadowSweepTest` | ~750 |
 
@@ -955,6 +958,13 @@ the pre-v2 baseline of 3,996 — unchanged, since the `Id` apparatus never lived
 helpers (~340) stay. That is still below the pre-v3 5,585, and above pre-v2 3,996; the difference is
 `row/`, a phase that did not exist. **Do not claim a net reduction against pre-v2**, and do not quote the
 ≈5,200 figure — it assumed a deletion that is now cancelled.
+
+**Measured at the end of A.11.8 (2026-07-28)**: `check/` **3,873** — the target is met with room (−277
+against ≈4,150, and below the pre-v2 3,996). The **machinery total is 6,091** (`check/` 3,873 + `carrier/`
+0 + `row/` 2,218), *above* the ≈5,540 projection, and the whole difference is `row/`: it was **1,268** at
+the stock-take and the projection implicitly assumed it would stay there. It grew to 2,218 as the
+elaborator took over decisions the checker used to make — the design working, not drift, and the reason
+the `check/` number is the one to hold the work to.
 
 **Exit criteria, all mechanically checkable:**
 
@@ -1971,25 +1981,32 @@ owns the method** and this section only adds to it.
 
 ### A.11.Z.1 Tree state and gate baseline
 
-`./mill __.test` **871/871 green**. **37/40 examples** — `PluginA`/`B`/`C` fail and have failed since
-before A.11.4; they are undiagnosed and A.11.0's exit criterion accepts them. Every program's **output and
-class content are unchanged** from the pre-A.11.7-T build. Sizes: `check/` **4,622**, `carrier/` 408,
-`row/` **2,126**.
+`./mill __.test` **green, 1,488 tests / 0 failures**. **37/40 examples** — `PluginA`/`B`/`C` fail and have
+failed since before A.11.4; they are undiagnosed and A.11.0's exit criterion accepts them. Every program's
+**output and class content are unchanged** from the pre-A.11.7-T build. Sizes: `check/` **3,873** (below
+the pre-v2 baseline 3,996 — A.11.0's arithmetic target), no `carrier/`, `row/` **2,218**, `unify/` 554.
 
-**Done**: A.11.1–A.11.6, A.11.7-T steps 1–3, A.11.7-X, **A.11.8 step 1**. **§1 rule 4 holds and is
+**Done**: A.11.1–A.11.6, A.11.7-T steps 1–3, A.11.7-X, A.11.7-Y, **A.11.7** (the bridge is deleted) and
+**A.11.8** (step 1 obligations, step 2 cancelled, step 3 the side table). **§1 rule 4 holds and is
 enforced.** Every position classifies from its declaration; a computation may not reach a rowless slot;
-`ρ := {}` runs at `Id`. There is **no runtime-track deferral left anywhere** — the obligation path is
-deleted and only the compile track's Phase B remains (§8).
+`ρ := {}` runs at `Id`. There is **no runtime-track deferral left anywhere** and no runtime-track carrier
+metavariable; only the compile track's Phase B and its inferred inline-guard carrier remain (§8).
+
+**Next**: **A.11.9** (scaffolding and suites — now also the `RunBoundaryFunction` fact, whose last demander
+went with the bridge), **A.11.10** (docs closeout), and the separated **pinned-`data`-field gap**
+(A.11.7-Y): a `data Holder(computation: {Abort | IO} String)` still hoists, because `CoreProcessor:40`
+desugars the row at the `DataDefinition` before `DataDefinitionDesugarer` builds the constructor, so the
+constructor never gets the pinned tag.
 
 ### A.11.Z.2 What is next
 
-> **Superseded 2026-07-28: A.11.7 is done** — see
+> **Superseded 2026-07-28: A.11.7 and A.11.8 are done** — see
 > [A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28), which diagnosed the three shapes below,
-> recorded Robert's unified decision on them, and landed all of it plus the deletion. What remains is
-> **A.11.8 step 3** (the carrier side table), **A.11.9** (scaffolding and suites — now also the
-> `RunBoundaryFunction` fact, whose last demander went with the bridge), **A.11.10** (docs closeout),
-> and the **pinned-`data`-field gap** A.11.7-Y separated out. The section below is kept for the
-> measurement history.
+> recorded Robert's unified decision on them, and landed all of it plus the deletion, and A.11.8-3 for the
+> side table. What remains is **A.11.9** (scaffolding and suites — now also the `RunBoundaryFunction`
+> fact, whose last demander went with the bridge), **A.11.10** (docs closeout), and the
+> **pinned-`data`-field gap** A.11.7-Y separated out. The section below is kept for the measurement
+> history.
 
 **A.11.7 — delete the bridge.** A.11.8 step 1 is **done** (A.11.8-1) and did not need it: the two deferral
 producers inside the bridge were dead and were deleted from within it, so the coupling A.11.7-R described
@@ -2086,10 +2103,13 @@ which is a Scala editing hazard worth remembering.
 
 ### A.11.Z.5 After the deletion
 
-A.11.7 (the bridge — blocked on the three decisions above), then A.11.8 step 3 (the carrier side table),
-then A.11.9 (scaffolding and suites) and A.11.10 (docs closeout), all as written below. **A.11.0's arithmetic is still the number to check** — with `Id` struck off,
-machinery 6,895 → ≈5,540 and `check/` → ≈4,150 against a pre-v2 baseline of 3,996; do not claim a net
-reduction against pre-v2, since the difference is `row/`, a phase that did not exist.
+A.11.7 (the bridge) and A.11.8 (obligations, the carrier side table) are **done**; what is left is A.11.9
+(scaffolding and suites) and A.11.10 (docs closeout), as written below, plus the separated
+pinned-`data`-field gap. **A.11.0's arithmetic is the number to check, and `check/` met it**: 3,873
+against the ≈4,150 target and the pre-v2 baseline of 3,996. The machinery total landed at 6,091, above the
+≈5,540 projection, because `row/` grew from 1,268 to 2,218 as the elaborator absorbed what the checker
+used to decide; do not claim a net reduction against pre-v2, since that difference *is* `row/`, a phase
+that did not exist.
 
 ## A.11.8 Delete the obligation path and the carrier side table
 
@@ -2103,10 +2123,13 @@ reduction against pre-v2, since the difference is `row/`, a phase that did not e
    erasure is complete. `Id` remains ordinary `data` with no `Suspend[Id]` — the soundness guard is
    unchanged. What was deleted, at A.8.10, is the checker-*manufactured* `Id` head; that is the thing v2
    was faulted for, and it is already gone.
-3. **The carrier side table** — `Unifier.carrierRoles`/`isEffectCarrier`/`CarrierRole` and
-   `CarrierKindChecker`'s carrier-role seeding, once nothing seeds or reads them. `CarrierKindChecker`'s
-   HKT kind seeding and post-drain verification are a separate concern and stay. `unify/CarrierRoleTest`
-   goes with the table.
+3. **The carrier side table** — **DONE 2026-07-28** (A.11.8-3 below), and the measurement changed what the
+   step *is*. The `effectCarrier` flag was written at one call site together with the carrier kind, so it
+   never carried information the kind record did not: `CarrierRole` collapses into
+   `Unifier.higherKindedMetas` and the queries become derived projections of it. The flag's readers are
+   **not** dead — all three are the compiler track's inline guard (§8 by design); on the runtime track the
+   arm is decision-free, which is A.11.4 confirmed independently. `CarrierKindChecker`'s HKT kind seeding
+   and post-drain verification stay, as planned. `unify/CarrierRoleTest` → `HigherKindedMetaTest`.
 
 This is also where the cornerstone guardrail is honoured by *not* acting: the `Unifier` gains nothing.
 
@@ -2165,6 +2188,56 @@ test — `TerminationIntegrationTest` "loop endlessly"), the **uniform return bo
 **payload router** (7 tests — the `catch`/`else` non-identity-handler pin, `eagerRowPinIntoDomain`). By
 A.11.7's standing rule each firing arm is a **missing elaborator rule**, i.e. a stop-and-redecide, and
 those three decisions are still open.
+
+> **Closed 2026-07-28** — Robert decided all three as **one rule** (§1 rule 4's last bullet, §3.1) and the
+> bridge is deleted. See [A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28).
+
+### A.11.8-3 Step 3 landed — the flag was never an independent fact (2026-07-28)
+
+**The step's precondition ("once nothing seeds or reads them") is only half met, and the measurement says
+which half.** Three production sites read the `effectCarrier` flag; each was counted at outcome
+granularity and then bypassed individually over the whole gate **and** all 40 examples (A.9.4's method,
+`ELIOT_CARRIER_PROBE` / `ELIOT_CARRIER_OFF`, scaffolding reverted):
+
+| reader | reads (gate) | bypassed ⇒ |
+| --- | --- | --- |
+| `EffectLifter.effectCarrierSplit`, meta-headed arm | 733 runtime / 41 compiler | 3 `GuardSignatureIntegrationTest` + its own 2 unit tests; **examples 37/40, every class file byte-identical** |
+| `CalculatedReturnResolver.isGuardCarrier` | 11 | 5 `GuardSignatureIntegrationTest` |
+| `Track.Compiler.pinInferredReturnCarriers` | 11 call sites, 18 metas pinned | 4 `GuardSignatureIntegrationTest` |
+
+**So the flag's entire live surface is the compiler track's inline guard** — `if..else..raise`, whose
+carrier is introduced through instantiated combinators with no declared binder to key off. That is the §8
+boundary the plan keeps by design, so the table cannot be deleted outright; the honest reading of the
+step's own "once" clause is that this half stays. The runtime track's 733 reads are **routing, not
+decisions**: with the arm off the whole example corpus compiles to byte-identical classes. That is
+independent confirmation of A.11.4 — since the elaborator writes the carrier, a runtime-track carrier is
+never a metavariable.
+
+**What the measurement did settle is that there is no "carrier role" to record at all.** `CarrierRole`'s
+two fields were written at **one** call site, unconditionally together (`CarrierKindChecker`'s
+`case _: VPi`), so `isEffectCarrier(id)` was never anything but "this meta was peeled from a higher-kinded
+binder" — the fact the kind aspect already records. The side table therefore collapses to the kind map the
+plan preserves:
+
+- `Unifier.carrierRoles: Map[Int, CarrierRole]` → `higherKindedMetas: Map[Int, (SemValue, Sourced[String])]`;
+  `CarrierRole` and `updateCarrier` are gone.
+- `recordCarrierKind` + `recordEffectCarrier` → one `recordHigherKindedMeta` (also on `CheckState`).
+- `isEffectCarrier` → `isHigherKindedMeta`, `effectCarrierMetaIds` → `higherKindedMetaIds` — derived
+  projections, each documented at the reader that keys on it and why a higher-kinded meta is the only
+  metavariable shape that can stand for a carrier.
+- `unify/CarrierRoleTest` → `unify/HigherKindedMetaTest` (A.11.9 listed it for deletion *with the table*;
+  the table survives in reduced form, so it is rewritten to what survives — the two cases asserting the
+  flag as a distinct fact stop existing). `CarrierBookkeepingTest`'s probe counts higher-kinded metas; its
+  A.11.4 acceptance assertion (**zero** carrier metas for `def echo: {Console} Unit`) is unchanged.
+
+**Gate**: `./mill __.test` green — 1,488 tests (1,489 − the one case that stopped existing), 0 failures;
+37/40 examples; every program's output **and class content** byte-identical to the pre-step build.
+`check/` 3,879 → **3,873**, `unify/` 554.
+
+**What A.11.8 still owes**: nothing — step 1 is done, step 2 was cancelled (§1 rule 4), and step 3 is as
+far as it goes while the compile track keeps its inferred carrier. If the compile track is ever converted
+(§8), `higherKindedMetas` loses its last non-kind reader and the projections go with it.
+
 ## A.11.9 Remove the experiment scaffolding and fix the test suites
 
 - **`seedFacts`**: `CompilationSession.compileOnce`'s optional parameter exists only for the R4 shadow
@@ -2172,8 +2245,12 @@ those three decisions are still open.
   residue this section exists to catch.
 - **Delete**: `RowElaborationShadowCompileTest`, and the shadow half of `RowShadowSweepTest` (its corpus
   moved to `EffectCorpus` at A.11.3a).
-- **Delete with their machinery**: `carrier/CarrierMechanismTest`, `check/UniformCarrierCheckerTest`,
-  `check/CarrierBookkeepingTest`, `check/EffectLifterTest`, `unify/CarrierRoleTest`.
+- **Delete with their machinery**: `carrier/CarrierMechanismTest`, `check/UniformCarrierCheckerTest` —
+  both **done** at A.11.7. `check/CarrierBookkeepingTest`, `check/EffectLifterTest` and
+  `unify/CarrierRoleTest` were listed here too, but their machinery did **not** all go: the probe's
+  A.11.4 acceptance (zero carrier metas for `def echo`) and the lifter's surviving pure-wrap/`bindWrap`
+  arms are live behaviour, and the role test became `unify/HigherKindedMetaTest` (A.11.8-3). Keep them;
+  re-check at A.11.10 that each still asserts something the end state has.
   **`channel/IdNormalizerTest` stays** — its machinery does (§1 rule 4); if anything it needs *adding* to,
   since `Id` is now written on purpose rather than manufactured.
 - **Rewrite**: the lift group of `MonomorphicTypeCheckTest` (its generic-slot shapes assert the deferred

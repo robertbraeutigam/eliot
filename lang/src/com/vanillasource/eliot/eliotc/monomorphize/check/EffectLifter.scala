@@ -29,13 +29,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * elaboration by *speculative* unification (payload against expected), committing only on success.
   *
   * What counts as an effect carrier (the head of `C[T']` after forcing):
-  *   - a metavariable whose [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]
-  *     flag is set (a callee's higher-kinded binder — `printLine`'s `F`), or
+  *   - a *metavariable* peeled from a callee's higher-kinded binder
+  *     ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.isHigherKindedMeta]]) — since the elaborator writes
+  *     the carrier (A.11.4) this only ever holds on the **compiler track**, where an inline guard's carrier is still
+  *     inferred and pinned post-hoc by `Track.Compiler.pinCarriers`; on the runtime track the arm was measured
+  *     decision-free (docs/effects-as-rows.md A.11.8-3), or
   *   - a head recorded in [[CheckState.ambientCarriers]] (the value-under-check's own carrier binders) — a recorded
   *     *meta* head is re-forced at query time, so a carrier pinned/solved to a concrete constructor after recording
   *     (the compiler track's `Either[E]`) is still recognized.
   *
-  * A bare unconstrained HKT head (`Box[String]`, `C[_, _]`) matches neither and is never lifted.
+  * A rigid non-ambient head (`Box[String]`, `C[_, _]`) matches neither and is never lifted.
   *
   * Node assembly splices [[SemExpression]]s directly (no ORE is ever rewritten):
   * the combinator reference is `ValueReference(fqn, [C, T', R])` (ability binder first, matching the
@@ -63,7 +66,7 @@ class EffectLifter(
   import EffectLifter.*
 
   /** Split a type into its effect-carrier head and payload — `Some((C, T'))` iff the forced type is `C[T']` for an
-    * effect carrier `C` (a role-flagged instantiation meta head, or a head in [[CheckState.ambientCarriers]]) applied
+    * effect carrier `C` (a higher-kinded instantiation meta head, or a head in [[CheckState.ambientCarriers]]) applied
     * to a non-empty spine. This is the `isEffectCarrierHeaded` read of the design; the split form is what both arms
     * and the wrap step consume. For a multi-applied head (`AbortCarrier[G, A]`) the carrier keeps the leading prefix
     * (`AbortCarrier[G]`) and the payload is the last argument (`A`).
@@ -77,7 +80,7 @@ class EffectLifter(
       forced match {
         case VMeta(id, Spine.SApp(prefix, payload))
             if ambient.contains(CheckState.CarrierHead.Meta(id.value)) ||
-              state.unifier.isEffectCarrier(id.value) =>
+              state.unifier.isHigherKindedMeta(id.value) =>
           Some((VMeta(id, prefix), payload))
         case VTopDef(fqn, cached, Spine.SApp(prefix, payload))
             if ambient.contains(CheckState.CarrierHead.TopDef(fqn)) =>

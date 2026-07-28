@@ -29,8 +29,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     postponement is reported rather than silently dropped.
   *
   * The recorded kind itself lives in the [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier]]'s
-  * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole]] map — this module only *seeds* and *reads*
-  * it.
+  * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.higherKindedMetas]] map — this module only *seeds* and
+  * *reads* it.
   * Operates over [[CheckIO]], reading and writing the shared [[CheckState]] through `get`/`modify`/`inspect`. It
   * depends on exactly three checker primitives, passed at construction — that narrow surface is the module boundary.
   *
@@ -54,16 +54,12 @@ class CarrierKindChecker(
     * signature ([[SignatureView]]); the metas align with the binders *after* the explicit type arguments already
     * applied. An ordinary `[A]` binder (kind `Type`) is left untagged — solving it to a proper type is correct.
     *
-    * Every higher-kinded binder's meta is also flagged as an *effect carrier*
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]). This is the
-    * *callee-side* carrier notion (`EffectCarriers.carrierBinders`, deliberately unfiltered): an effectful
-    * result rides *any* of the callee's own HKT binders — including a deliberately unconstrained one like `runStateToPair`'s
-    * `G[_]` (the effect-transparent discharge combinators return `G[...]` with no ability constraint, and a `val`
-    * binding such a result must still sequence it). The `carrierBinders ∩ paramConstraints` filter applies only to a
-    * value's *own* ambient carriers ([[CheckState.ambientCarriers]]), never to callee results. A spurious flag on a
-    * genuinely non-effect container is harmless: the lift arms fire only after unification failed with a fitting
-    * payload, and the spliced `Effect` machinery must still resolve an instance — failing loudly otherwise, exactly as
-    * the former desugarer's unfiltered callee notion did.
+    * The record is deliberately unfiltered by ability constraints, which is why the two compiler-track carrier readers
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.isHigherKindedMeta]]) can key on it: an effectful
+    * result rides *any* of the callee's own HKT binders — including a deliberately unconstrained one like
+    * `runStateToPair`'s `G[_]` (the effect-transparent discharge combinators return `G[...]` with no ability
+    * constraint). The `carrierBinders ∩ paramConstraints` filter applies only to a value's *own* ambient carriers
+    * ([[CheckState.ambientCarriers]]), never to callee results.
     */
   def recordCarrierMetas(expr: SemExpression, implicitMetas: Seq[SemValue]): CheckIO[Unit] =
     expr.expression match {
@@ -116,8 +112,8 @@ class CarrierKindChecker(
         .flatMap(constraints => modify(_.recordMetaConstraints(id, constraints)))
 
   /** Evaluate a binder's kind annotation; if it forces to a `VPi` (a higher kind such as `Type -> Type`), record the
-    * meta as a carrier with that kind and flag it as an effect carrier (see [[recordCarrierMetas]]). A `Type`-kinded
-    * (ordinary) binder, or one with no annotation, is not recorded.
+    * meta as higher-kinded with that kind (see [[recordCarrierMetas]]). A `Type`-kinded (ordinary) binder, or one with
+    * no annotation, is not recorded.
     */
   private def recordIfHigherKinded(
       id: SemValue.MetaId,
@@ -132,8 +128,7 @@ class CarrierKindChecker(
           forced <- force(kind)
           ctx     = fqn.as("Higher-kinded type parameter mismatch.")
           _      <- forced match {
-                      case _: VPi =>
-                        modify(_.recordCarrierKind(id, forced, ctx)) >> modify(_.recordEffectCarrier(id))
+                      case _: VPi => modify(_.recordHigherKindedMeta(id, forced, ctx))
                       case _      => pure(())
                     }
         } yield ()

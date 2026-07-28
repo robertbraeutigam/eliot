@@ -14,12 +14,12 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 
-/** The effect-carrier bookkeeping of the effect-lift plan (docs/effect-lift-in-checker.md, Step 2): the checker
-  * records the value-under-check's own *ambient* effect-carrier heads ([[CheckState.ambientCarriers]]) and flags
-  * higher-kinded instantiation metas as effect carriers
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole.effectCarrier]]). Neither is visible on
-  * the ordinary `MonomorphicValue` output, so a probe processor runs the same [[TypeStackLoop]] through its
-  * [[TypeStackLoop.processWithState]] test seam and captures the final [[CheckState]].
+/** The carrier bookkeeping of the effect-lift plan (docs/effect-lift-in-checker.md, Step 2): the checker records the
+  * value-under-check's own *ambient* effect-carrier heads ([[CheckState.ambientCarriers]]) and the higher-kinded
+  * instantiation metas ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.higherKindedMetas]]) — the only
+  * metavariable shape that can stand for a carrier. Neither is visible on the ordinary `MonomorphicValue` output, so a
+  * probe processor runs the same [[TypeStackLoop]] through its [[TypeStackLoop.processWithState]] test seam and
+  * captures the final [[CheckState]].
   */
 class CarrierBookkeepingTest
     extends ProcessorTest((LangProcessors() :+ CarrierBookkeepingTest.CarrierProbeProcessor())*) {
@@ -42,18 +42,18 @@ class CarrierBookkeepingTest
     probe(bareHktValue, "use").asserting(_.map(_.ambientCarriers) shouldBe Some(Set.empty))
   }
 
-  "effect-carrier meta flagging" should "mint NO carrier meta for the Console ability method — the elaborator wrote the carrier" in {
+  "higher-kinded meta recording" should "mint NO carrier meta for the Console ability method — the elaborator wrote the carrier" in {
     // Effects-as-rows A.11.4: `printLine("x")` reaches the checker as `printLine[F]("x")`, the ambient carrier
     // written by `RowElaborator` as an explicit leading type argument, and `CarrierKindChecker.recordCarrierMetas`
     // drops binders already covered by explicit arguments. So the carrier position is rigid from elaboration
     // onwards and there is no metavariable to flag — which is the whole point of writing it.
-    probe(consoleValue, "echo", Seq(ioType)).asserting(_.map(_.effectCarrierMetas) shouldBe Some(0))
+    probe(consoleValue, "echo", Seq(ioType)).asserting(_.map(_.higherKindedMetas) shouldBe Some(0))
   }
 
-  it should "flag a bare higher-kinded binder's instantiation meta (the unfiltered callee-side carrier notion)" in {
+  it should "record a bare higher-kinded binder's instantiation meta (the unfiltered callee-side carrier notion)" in {
     // A callee result rides *any* of its own HKT binders — including a deliberately unconstrained `G[_]` like
     // `runStateToPair`'s (the effect-transparent discharge combinators); the constraint filter is ambient-only.
-    probe(bareHktValue, "use").asserting(_.map(_.effectCarrierMetas) shouldBe Some(1))
+    probe(bareHktValue, "use").asserting(_.map(_.higherKindedMetas) shouldBe Some(1))
   }
 
   private def probe(source: String, name: String, typeArgs: Seq[GroundValue] = Seq.empty): IO[Option[CarrierProbe]] =
@@ -76,13 +76,13 @@ class CarrierBookkeepingTest
 object CarrierBookkeepingTest {
 
   /** What the probe captures from the final [[CheckState]]: the ambient effect-carrier heads and the number of
-    * instantiation metas flagged as effect carriers.
+    * higher-kinded instantiation metas recorded.
     */
   case class CarrierProbe(
       vfqn: ValueFQN,
       typeArguments: Seq[GroundValue],
       ambientCarriers: Set[CheckState.CarrierHead],
-      effectCarrierMetas: Int
+      higherKindedMetas: Int
   ) extends CompilerFact {
     override def key(): CompilerFactKey[CarrierProbe] = CarrierProbe.Key(vfqn, typeArguments)
   }
@@ -130,7 +130,7 @@ object CarrierBookkeepingTest {
               key.vfqn,
               key.typeArguments,
               state.ambientCarriers,
-              state.unifier.carrierRoles.values.count(_.effectCarrier)
+              state.unifier.higherKindedMetas.size
             )
           }
       }

@@ -22,10 +22,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   * The two grow in lockstep (every `bind*` extends both), so their de Bruijn levels stay in sync.
   *
-  * Per-metavariable carrier bookkeeping (carrier kinds / effect-carrier flags) is **not** held here as separate
-  * side-tables: it lives in a single
-  * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.CarrierRole]] map on the [[unifier]], and the `record*`
-  * methods below delegate into it.
+  * Per-metavariable kind bookkeeping (which instantiation metas are higher-kinded, and to what kind) is **not** held
+  * here as a separate side-table: it lives in the
+  * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.higherKindedMetas]] map on the [[unifier]], and
+  * [[recordHigherKindedMeta]] below delegates into it.
   *
   * @param gamma
   *   Γ: the typing context — parameter name → its type (de Bruijn level environment).
@@ -62,12 +62,8 @@ case class CheckState(
 ) {
 
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
-  def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
-    withUnifier(unifier.recordCarrierKind(id, expectedKind, context))
-
-  /** Mark an instantiation meta as standing for an *effect* carrier (an ability-constrained higher-kinded binder). */
-  def recordEffectCarrier(id: MetaId): CheckState =
-    withUnifier(unifier.recordEffectCarrier(id))
+  def recordHigherKindedMeta(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
+    withUnifier(unifier.recordHigherKindedMeta(id, expectedKind, context))
 
   /** Record the value-under-check's ambient effect-carrier heads. See [[ambientCarriers]]. */
   def recordAmbientCarriers(heads: Set[CheckState.CarrierHead]): CheckState =
