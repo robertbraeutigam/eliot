@@ -591,7 +591,10 @@ object RowElaborator {
           // A nullary reference (`readLine`, `state`, `abort`) is a call like any other: if its result rides its own
           // first binder, the region's carrier is written there too.
           val discharging = dischargingCallee(name.value)
-          (writeCarrier(expr, name.value, 0, callRegion(region, discharging)), calleeCarrierValued(name.value, Seq.empty))
+          (
+            writeTypeArguments(expr, name.value, Seq.empty, callRegion(region, discharging)),
+            calleeCarrierValued(name.value, Seq.empty)
+          )
         case ParameterReference(name) if args.isEmpty             =>
           // A suspended parameter (declared carrier-headed) holds its computation unrun: referencing it yields a
           // carrier value.
@@ -725,7 +728,7 @@ object RowElaborator {
       // node" means once `Id` is its value (A.11.7-S).
       val projectId     = emptyRow && carried
       val resultCarrier = carried && !projectId
-      val head          = writeCarrier(expr.as(spine(expr.value)._1), callee, args.size, ownRegion)
+      val head          = writeTypeArguments(expr.as(spine(expr.value)._1), callee, args, ownRegion)
       (assemble(expr, head, finalArgs, binds, resultCarrier, region, projectId), binds.nonEmpty || resultCarrier)
     }
 
@@ -750,40 +753,107 @@ object RowElaborator {
     private def forced(region: RegionCarrier): RegionCarrier =
       if (region.exists) region else RegionCarrier.Unspelled
 
-    /** Write the region's carrier as an explicit leading type argument of a call (A.11.4) — `printLine[F](s)`,
-      * `readLine[F]`, `runAbort[Id](x)` — so the checker never mints a metavariable in carrier position and the
-      * carrier is rigid from elaboration onwards. The reference is returned unchanged wherever the write is not
-      * *declared* to be correct, which is always the fail-safe direction: an unwritten carrier is simply inferred,
+    /** Write the type arguments this call's *declarations determine*, as an explicit leading prefix (§3.1) —
+      * `printLine[F](s)`, `readLine[F]`, `runAbort[Id](x)`, `catch[String](bad, h)` — so the checker never mints a
+      * metavariable where a declaration already says what belongs there. The reference is returned unchanged wherever
+      * nothing is determined, which is always the fail-safe direction: an unwritten argument is simply inferred,
       * exactly as before this step.
       *
-      * Three conditions, all read off declarations:
+      * Two sources determine a binder, both read off declarations:
       *
-      *   - the region has a **spellable** carrier (see [[RegionCarrier]]);
-      *   - the reference carries **no type arguments of its own** — a user who wrote them has already decided;
-      *   - the callee's **first** generic binder is one of its declared carriers *and* the type remaining after this
-      *     call's arguments is headed by that same binder, so the result rides it.
+      *   - the **region** supplies the carrier ([[carrierAt]]) at a binder the call's result rides
+      *     ([[ridesFirstBinder]]);
+      *   - a **pinned parameter** supplies its row's ability arguments from the captured argument's own declared row
+      *     ([[pinnedDetermination]]) — `catch`'s `computation: {Throw[E] | G} A` against `bad`'s declared
+      *     `{Throw[String]}` determines `E := String`.
       *
-      * The first-binder restriction is the limit of the mechanism, not a heuristic: `ValueReference.typeArgs` applies
-      * positionally, so writing binder *k* means writing binders `0..k-1` too, and those are payload types this pass
-      * has no declared way to name. It costs nothing in practice — [[EffectSugarDesugarer]] *prepends* the carrier it
-      * mints, and an ability method's own ability parameter leads, which together are every effectful call a user
-      * writes. A hand-written discharger that places its carrier later (`catch[E, G[_] ~ Effect, A]`) keeps it
-      * inferred.
+      * Writing stops at the first binder nothing determines, because `ValueReference.typeArgs` applies positionally:
+      * a prefix is all that can be written, and a binder left open is left inferred. That is why `catch[E, G[_] ~
+      * Effect, A]` comes out as `catch[String]` — `E` is determined by the capture, and `G` is the pinned row's
+      * *residual*, which the capture decides rather than this call's declarations (writing the region's carrier
+      * there would be an assumption, not a determination; `else`'s carrier *is* its binder 0 and is written by the
+      * first source, unchanged).
+      *
+      * Before this became a prefix write only the carrier was written, and only at binder 0. That restriction is
+      * what left `catch`'s `E` to junk-ground to `Type` inside the checker, which the v2 bridge then had to pin back
+      * from the argument's row constraints (docs/effects-as-rows.md A.11.7-Y shape 3).
       */
-    private def writeCarrier(
+    private def writeTypeArguments(
         reference: Sourced[OperatorResolvedExpression],
         callee: ValueFQN,
-        argCount: Int,
+        args: Seq[Sourced[OperatorResolvedExpression]],
         region: RegionCarrier
     ): Sourced[OperatorResolvedExpression] =
-      (reference.value, region.term) match {
-        case (ValueReference(name, existing), Some(ambient)) if existing.isEmpty && ridesFirstBinder(callee, argCount) =>
-          carrierAt(callee, ambient) match {
-            case Some(term) => reference.as(ValueReference(name, Seq(term)))
-            case scala.None => reference
+      reference.value match {
+        case ValueReference(name, existing) if existing.isEmpty =>
+          determinedPrefix(callee, args, region) match {
+            case Seq()  => reference
+            case prefix => reference.as(ValueReference(name, prefix))
           }
-        case _                                                                                                        =>
-          reference
+        case _                                                  => reference
+      }
+
+    /** The leading run of the callee's binders each of which some declaration determines — see [[writeTypeArguments]]
+      * for the two sources and for why it is a prefix.
+      */
+    private def determinedPrefix(
+        callee: ValueFQN,
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        region: RegionCarrier
+    ): Seq[Sourced[OperatorResolvedExpression]] =
+      universe.lookup(callee).toSeq.flatMap { orv =>
+        val carrierTerm =
+          region.term.filter(_ => ridesFirstBinder(callee, args.size)).flatMap(carrierAt(callee, _))
+        SignatureView
+          .of(orv.signature)
+          .binders
+          .zipWithIndex
+          .map { case (binder, index) =>
+            pinnedDetermination(orv, args, binder.name.value).orElse(if (index === 0) carrierTerm else scala.None)
+          }
+          .takeWhile(_.isDefined)
+          .flatten
+      }
+
+    /** What a **pinned parameter** determines about one of the callee's binders: the captured argument's own declared
+      * row, matched entry-by-entry against the pinned row the parameter declares.
+      *
+      * `catch(computation: {Throw[E] | G} A, …)` given `bad : {Throw[String]} String` matches the `Throw` entries and
+      * reads `E := String` straight off the argument's declaration. This is the same fact the v2 bridge recovered
+      * from the checker's metavariable constraints at capture time (`eagerRowPinIntoDomain`), taken from the
+      * declaration instead — where it was all along.
+      *
+      * Only a *call* argument answers: its callee's declared row is a declaration. Anything else (a parameter
+      * reference, a block, a lambda) determines nothing here, and the prefix stops — the fail-safe direction.
+      */
+    private def pinnedDetermination(
+        orv: OperatorResolvedValue,
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        binderName: String
+    ): Option[Sourced[OperatorResolvedExpression]] =
+      orv.effectRow.pinnedParameterEffects.view
+        .flatMap { pinnedParameter =>
+          args.lift(pinnedParameter.parameterIndex).toSeq.flatMap { arg =>
+            val supplied = argumentRow(arg)
+            pinnedParameter.effects.flatMap { declared =>
+              supplied
+                .filter(_.abilityFQN == declared.abilityFQN)
+                .flatMap(entry => declared.typeArgs.zip(entry.typeArgs))
+                .collect {
+                  case (ParameterReference(name), determined) if name.value === binderName => arg.as(determined)
+                }
+            }
+          }
+        }
+        .headOption
+
+    /** The declared row of an argument expression, with its type arguments — available exactly when the argument is a
+      * call, whose callee's declaration states it ([[declaredEntries]]).
+      */
+    private def argumentRow(arg: Sourced[OperatorResolvedExpression]): Seq[ResolvedAbilityConstraint] =
+      spine(arg.value)._1 match {
+        case ValueReference(name, _) => declaredEntries(name.value)
+        case _                       => Seq.empty
       }
 
     /** The carrier a call to `callee` runs on, given this definition's own ambient carrier (A.11.4-R, Robert's
@@ -984,7 +1054,7 @@ object RowElaborator {
 
     /** Whether the call's own carrier is this pass's to decide: a reference carrying **explicit type arguments** has
       * had it decided by whoever wrote them, and writing `Id` (or projecting with `runId`) over that would double up
-      * on hand-written monadic code — the same reason [[writeCarrier]] leaves such a reference alone.
+      * on hand-written monadic code — the same reason [[writeTypeArguments]] leaves such a reference alone.
       */
     private def writableReference(expr: Sourced[OperatorResolvedExpression]): Boolean =
       spine(expr.value)._1 match {
@@ -1007,7 +1077,7 @@ object RowElaborator {
 
     /** Whether a call to `callee` **rides its first generic binder**, that binder being one of its declared carriers:
       * the declared return, further arrow-applied for arguments beyond the declared parameters, is headed by it. See
-      * [[writeCarrier]] for why the *position* matters.
+      * [[writeTypeArguments]] for why the *position* matters.
       *
       * An **under-applied** reference rides it too — `nums.foldLeft(initial, combine)` supplies two of three
       * arguments and the dot supplies the third. A type argument is applied to the signature's binders and is

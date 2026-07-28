@@ -1407,6 +1407,25 @@ function that exists, with a measured target form. Then shape 1, **spike first**
 is measured wrong, but the fix is unproven and its riskier half is the desugar-order change that restores
 the pinned tag on `data` constructors, not the elaborator arm. Then shape 2 as deletion, then A.11.7.
 
+#### Shape 3 landed (2026-07-28) — the payload router is cold
+
+`writeCarrier` became `writeTypeArguments`: it walks the callee's binders and writes the leading run each
+of which some declaration determines, stopping at the first it does not. Two sources —
+`ridesFirstBinder` + `carrierAt` (the region's carrier, unchanged) and the new `pinnedDetermination` (a
+pinned parameter's row entries matched against the captured argument's own declared row, read via
+`argumentRow` from the argument callee's `declaredEntries`). `catch` now comes out `catch[String](bad,
+h)`; `else` keeps `else[F]` because its carrier *is* binder 0.
+
+**`G` is deliberately not written**, and this is the rule rather than a bound: a discharger's carrier
+binder is the pinned row's **residual**, which the capture decides — the region's carrier is merely a
+good guess for it (right when the discharged effect is exactly the argument's row minus the region's,
+wrong under a nested discharge). A guess is not a determination, so the prefix stops. `else`'s binder-0
+carrier is written by the *first* source, exactly as before, so nothing that worked changes.
+
+**Measured**: full gate 1,539/1,539 green, 37/40 examples, every class file byte-identical to the
+pre-step build — and with the **payload router switched off**, still 1,539/1,539 and 37/40 byte-identical
+(it was 7 failures before this step). The router's last live job is gone.
+
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 
 A.11.7 said to trace first and delete only zero-fire arms, and that **an arm that still fires is a
