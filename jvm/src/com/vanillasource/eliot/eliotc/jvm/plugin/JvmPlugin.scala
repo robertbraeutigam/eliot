@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.jvm.jargen.{
 }
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStatProcessor
-import com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction
+import com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
@@ -46,11 +46,11 @@ class JvmPlugin extends CompilerPlugin {
   )
 
   /** Mount the synthesized `main.els` entry-point module into the runtime scan pool, and register the platform run
-    * boundary `runMain` as a carrier-capture tag (effects-as-channel source (ii),
-    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction]]): the synthesized entry calls
-    * `runMain(main)`, whose `io: IO[A]` parameter binds the user `main`'s carrier to `IO`, and this registration lets the
-    * lang checker route that capture through the join solver without ever naming the jvm-owned `IO`. All `configure()`s
-    * run before any `initialize`, so `LangPlugin` sees both contributions when it builds the pipeline.
+    * boundary `runMain` as a carrier capture ([[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]], carrier
+    * recognition source (ii)): the synthesized entry calls `runMain(main)`, whose `io: IO[A]` parameter hosts the user
+    * `main`'s computation, and this registration lets the row elaborator treat that slot as a capture without ever
+    * naming the jvm-owned `IO`. All `configure()`s run before any `initialize`, so `LangPlugin` sees both
+    * contributions when it builds the pipeline.
     */
   override def configure(): StateT[IO, Configuration, Unit] =
     StateT.modify(configuration =>
@@ -61,7 +61,7 @@ class JvmPlugin extends CompilerPlugin {
             mounts => (mounts.getOrElse(Seq.empty) :+ new SyntheticMainMount).some
           )
           .updatedWith(
-            RunBoundaryFunction.configKey,
+            RunBoundaryFunctions.configKey,
             boundaries => (boundaries.getOrElse(Set.empty) + SyntheticMainSourceProcessor.runMainVfqn).some
           )
       else configuration

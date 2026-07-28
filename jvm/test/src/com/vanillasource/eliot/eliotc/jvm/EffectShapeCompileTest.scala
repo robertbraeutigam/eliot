@@ -9,16 +9,18 @@ import org.scalatest.matchers.should.Matchers
 import java.nio.file.{Files, Path}
 import java.util.zip.ZipInputStream
 
-/** Effects-as-channel (docs/effects-as-channel.md §0/§10): the uniform-carrier checker — now the sole checker path —
-  * must compile the full spread of carrier shapes over the whole base layer (`lang` + `stdlib` + `jvm`). Each program
-  * pulls in the base and is compiled end-to-end; a clean compile (classes produced, no errors) is the assertion.
+/** The **effect-shape corpus**: the full spread of shapes an effectful program can take must compile end to end over
+  * the whole base layer (`lang` + `stdlib` + `jvm`). Each program pulls in the base and is compiled to a jar; a clean
+  * compile (classes produced, no errors) is the assertion, plus one program that must *not* compile.
   *
-  * This began as a byte-identity oracle comparing the uniform path against the pre-uniform `--legacy-carrier` fallback
-  * (the migration methodology). With the flip complete (the uniform path is the live default and the constructor
-  * defaults, U4-e close-out slice 2) and `--legacy-carrier` removed, the oracle is retired; the durable value is the
-  * program corpus, kept as a uniform-only compile-success regression suite over every shape the uniform ladder covers.
+  * The programs, not the machinery under them, are the durable content — which is why the suite has outlived two of
+  * those machineries. It began as a byte-identity oracle comparing the v2 uniform-carrier path against the
+  * pre-uniform fallback, was kept as a compile-success gate when that fallback went, and is kept again now that the
+  * bridge itself is gone (effects-as-rows A.11.7): the same shapes are placed by the row elaborator from declarations,
+  * and every one of them still has to compile. The per-program comments name the mechanism each shape exercised when
+  * it was added; that history is why the shape is here, not a claim about the current path.
   */
-class UniformCarrierCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   // Exercises the shapes the uniform gate routes: a pure value return (`label`'s `line`), a pure argument into a payload
   // slot (`printLine(<pure>)`), and an *effectful* argument into a payload slot (`label(readLine)` — `readLine` is

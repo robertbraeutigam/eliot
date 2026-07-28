@@ -67,7 +67,7 @@ class MonomorphicAmbientCarriersTest extends AsyncFlatSpec with AsyncIOSpec with
     } yield facts
 
   /** The base-layer `eliot/` source roots handed to the compiler as filesystem roots, exactly as
-    * [[UniformCarrierByteIdenticalTest]] does — the repo root reaches the forked test JVM via `ELIOT_REPO_ROOT`.
+    * [[EffectShapeCompileTest]] does — the repo root reaches the forked test JVM via `ELIOT_REPO_ROOT`.
     */
   private def layerPathArgs: List[String] = {
     val repoRoot             =

@@ -18,7 +18,7 @@ import java.nio.file.{Files, Path}
   *     impl case (`forever` from `implement Inf[IO]`, whose carrier is counted via its forwarded ambient).
   *
   * Codegen for valid programs is byte-identical whether or not accounting runs — covered by
-  * `UniformCarrierByteIdenticalTest`.
+  * `EffectShapeCompileTest`.
   */
 class EffectAccountingWiringTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 

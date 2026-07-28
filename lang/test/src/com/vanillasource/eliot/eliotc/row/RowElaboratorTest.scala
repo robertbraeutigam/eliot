@@ -15,11 +15,15 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 
 import java.nio.file.Path
 
-/** The R4 first-slice acceptance suite (docs/effects-as-rows.md §3/§8): each case elaborates a **direct-style**
-  * definition with [[RowElaborator]] and compares it *structurally* (α-renamed binders, positions ignored) against the
+/** The elaboration acceptance suite (docs/effects-as-rows.md §3): each case elaborates a **direct-style** definition
+  * with [[RowElaborator]] and compares it *structurally* (α-renamed binders, positions ignored) against the
   * hand-written **explicit monadic twin** of the same program, compiled through the same pipeline. Structural equality
-  * with the twin is the slice's definition of correctness: the elaborator produces exactly the code a careful user
-  * writes by hand today — which is also the shape the v2 checker's own elaboration converges to.
+  * with the twin is the definition of correctness: the elaborator produces exactly the code a careful user would write
+  * by hand.
+  *
+  * This is where a placement rule is pinned, since the twin says *what code the rule must produce* — an assertion no
+  * behavioural test can make. Written as the R4 acceptance suite while the v2 checker still elaborated in parallel;
+  * the twins outlived it unchanged, which is the point of comparing against source rather than against a mechanism.
   */
 class RowElaboratorTest
     extends ProcessorTest(LangProcessors(systemModules = Seq(ModuleName2.systemFunctionModuleName))*) {
@@ -124,8 +128,8 @@ class RowElaboratorTest
     }
   }
 
-  // --- suspended slots: an effectful argument passes unrun; a pure argument lifts into the carrier — v2's
-  // pure-wrap arm, now a declared-slot-mode read. ---
+  // --- suspended slots: an effectful argument passes unrun; a pure argument lifts into the carrier. The slot's
+  // declared row is what decides it (§1 rule 2), never the argument's inferred type. ---
 
   it should "pure-wrap a pure argument at a declared-suspended slot and pass an effectful one unrun" in {
     val branchy = "def branch[A](c: Str, t: {Con} A, f: {Con} A): {Con} A\n"
@@ -173,8 +177,9 @@ class RowElaboratorTest
   }
 
   it should "pass a discharge at a strict argument slot through unchanged when the region has no carrier" in {
-    // No runId at argument slots — v2 Id-defaults only at return boundaries and `val` bindings; the argument's
-    // still-flex base must flow to the slot's expected type (the hand-monadic `runId(runAbort(x))` shape).
+    // No runId at argument slots — `Id` is written only at the two pure boundaries (a return and a `val` binding);
+    // the argument's still-flex base must flow to the slot's expected type (the hand-monadic `runId(runAbort(x))`
+    // shape, which would double-unwrap if the elaborator projected here too).
     compareToTwin(
       dischargePrelude + "def d: Str = use(catchX(failing, s -> pureStr))",
       dischargePrelude + "def t: Str = use(catchX(failing, s -> pure(pureStr)))",

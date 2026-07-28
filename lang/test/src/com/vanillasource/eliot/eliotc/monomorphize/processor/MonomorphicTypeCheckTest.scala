@@ -1157,15 +1157,18 @@ class MonomorphicTypeCheckTest
   // materialises in the monomorphic output (here at the stub `IO` carrier, resolved against the stub instances in
   // `effectLiftImports` — the real-impl behaviour is pinned end-to-end in the jvm `ExamplesIntegrationTest`).
   //
-  // Three rules explain every shape below. **Strict at declared-concrete slots**: an effectful argument whose slot
-  // has a declared payload type runs at the call site and its result is bound, so nesting effectful calls nests
-  // binds; where the desugar writes the binds it uses **one bind combinator** — a pure continuation is `pure`-wrapped
-  // under `flatMap` rather than selecting `map`, since the desugar reads declarations only and never the
-  // continuation's inferred type (the two are behaviourally identical). **Generic-headed slots are deferred**
-  // (A.8.6): their mode is the instantiation's, so the desugar writes nothing there; the checker suspends the
-  // computation as a mode obligation and the post-drain resolver (A.8.7) finishes it at quiescence — a payload
-  // instantiation splices the desugar's own hoist (the same `flatMap`+`pure` spelling, restart-checked), a
-  // carrier-headed one passes the computation through.
+  // Two rules explain every shape below, and both are read off **declarations alone** — the desugar never consults a
+  // type. **Strict at every plain slot** (§1 rule 1): an effectful argument at a slot that does not declare a row
+  // runs at the call site and its result is bound, so nesting effectful calls nests binds. A plain *generic* slot
+  // (`choose`'s `A`, `.`'s `a: A`) is such a slot — §1 rule 4: an effect passes through a position iff that position
+  // declares it, so a rowless generic is a payload, always, whatever the call instantiates it at. **One bind
+  // combinator**: a pure continuation is `pure`-wrapped under `flatMap` rather than selecting `map`, since the
+  // desugar cannot see the continuation's inferred type (the two are behaviourally identical).
+  //
+  // Several shapes below were written against the earlier A.8.6 spelling, where a generic-headed slot was *deferred*
+  // — the desugar wrote nothing and the checker's obligations/resolver finished the node from the solved
+  // instantiation. That mechanism is gone (A.11.7-T, A.11.8-1); the assertions are the rule-4 spellings, and the
+  // case names are kept where the *shape* is still the interesting one.
 
   "the effect elaboration" should "sequence a direct-style printLine(readLine) with Effect.flatMap" in {
     liftedBody("import eliot.effect.Console\ndef echo: {Console} Unit = printLine(readLine)")
@@ -1201,10 +1204,9 @@ class MonomorphicTypeCheckTest
   }
 
   it should "bind an effectful subject dotted into a function-typed parameter (the dot-inline regression)" in {
-    // `readLine.f` — `.`'s `a: A` slot is generic-headed, hence deferred (A.8.6): the desugar has no dot rule of any
-    // kind. The A.8.7 resolver reads `A := String` off the solved store (payload) and splices the desugar's hoist
-    // (`flatMap` over a `pure`-wrapped dot core), and the carrier-headed result then bind-lifts again into
-    // printLine's `String` slot.
+    // `readLine.f` — `.`'s `a: A` is a rowless generic, hence a payload (§1 rule 4), and the desugar has no dot rule
+    // of any kind: the read is hoisted inside the argument (`flatMap` over a `pure`-wrapped dot core) and the
+    // carrier-headed result binds again into printLine's `String` slot.
     liftedBody(
       "import eliot.effect.Console\ndef call(f: Function[String, String]): {Console} Unit = printLine(readLine.f)",
       name = "call"
@@ -1218,20 +1220,20 @@ class MonomorphicTypeCheckTest
 
   // --- The extended regression matrix (Step 5) ---
 
-  it should "lift a deferred generic slot once a later argument rigidifies it (deferral order)" in {
-    // `"x"` rigidifies `A := String`; the resolver classifies the suspended `readLine` as payload and splices the
-    // desugar's hoist — the one-bind-combinator spelling (`flatMap` over a `pure`-wrapped core), not the v2
-    // checker's `map`.
+  it should "hoist an effectful argument at a plain-generic slot beside a pure sibling" in {
+    // `pick`'s `A` is a rowless generic at both slots, so `readLine` runs here regardless of what the `"x"` sibling
+    // instantiates `A` at — the one-bind-combinator spelling (`flatMap` over a `pure`-wrapped core). Under the
+    // earlier deferral this shape only lifted *because* the sibling had already rigidified the domain.
     liftedBody(
       "import eliot.effect.Console\ndef pick[A](x: A, y: A): A = x\ndef echo: {Console} String = pick(readLine, \"x\")"
     ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap"))
   }
 
-  it should "lift a deferred generic slot a sibling argument rigidifies (multi-argument eliminator)" in {
+  it should "hoist an effectful argument at one plain-generic slot of a multi-argument eliminator" in {
     // The eliminator's first slot takes a plain value: the original spelling passed the body-less `none`, whose `A`
     // nothing determined, so the value never checked and every assertion held vacuously on an empty body. `ifNone`'s
-    // `B` is deferred; the `s -> s` lambda rigidifies it to `String`, so the resolver hoists the read there (the
-    // desugar's `flatMap`+`pure` spelling).
+    // `B` declares no row, so the read hoists there (the desugar's `flatMap`+`pure` spelling) — the `s -> s` lambda's
+    // rigidifying of `B` is no longer what decides it.
     liftedBody(
       "import eliot.effect.Console\ndef foldOr[A, B](o: A, ifNone: B, ifSome: Function[A, B]): B = ifNone\ndef echo: {Console} String = foldOr(\"k\", readLine, s -> s)"
     ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap", "pure"))
@@ -1243,12 +1245,11 @@ class MonomorphicTypeCheckTest
     ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
   }
 
-  it should "hoist a deferred generic slot its enclosing strict slot rigidifies, then bind at the parent" in {
-    // `identity`'s `a: A` is deferred; `printLine`'s `String` slot rigidifies `A := String` before quiescence, so the
-    // resolver classifies the suspended `readLine` as payload and hoists it inside the argument
-    // (`flatMap($row -> pure(identity($row)), readLine)`), and the carrier-headed result bind-lifts again at
-    // `printLine`'s declared-concrete slot. (v2 adopted mid-spine instead — pass-through, one bind at the parent —
-    // behaviourally identical: readLine runs exactly once, before printLine.)
+  it should "hoist inside a plain-generic argument, then bind again at the enclosing strict slot" in {
+    // `identity`'s `a: A` is a rowless generic ⇒ payload, so the read hoists inside the argument
+    // (`flatMap($row -> pure(identity($row)), readLine)`) and the carrier-headed result binds again at `printLine`'s
+    // declared-concrete slot. (v2 adopted mid-spine instead — pass-through, one bind at the parent — behaviourally
+    // identical: readLine runs exactly once, before printLine.)
     liftedBody(
       "import eliot.effect.Console\ndef identity[A](a: A): A = a\ndef echo: {Console} Unit = printLine(identity(readLine))"
     ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap", "flatMap"))
@@ -1318,11 +1319,17 @@ class MonomorphicTypeCheckTest
   // emitted refs carry the same local names (`flatMap`/`pure`/`printLine`), so the shape assertions read unchanged.
   private val effectLiftImports: Seq[SystemImport] = ambientStubsWith(
     // The stub run boundary, mirroring the jvm layer's `eliot.jvm.IO::runMain`: it is what makes `IO` a *carrier*
-    // head by declaration (effects-as-channel tag source (ii)) rather than by its name, for both the checker's
-    // capture routing and the row elaboration's stored-computation annotations.
+    // head by declaration (carrier-recognition source (ii), `RunBoundaryFunctions`) rather than by its name, for the
+    // row elaboration's captures and stored-computation annotations.
     "IO"       -> "type IO[A]\ndef runMain[A](io: IO[A]): A",
     "Option"   -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
-    // The ambient stub plus the real `.` operator (mirroring `stdlib/.../Function.els`), for the dotted-subject case.
+    // The ambient stub plus a `.` operator, for the dotted-subject case. Deliberately the *rowless* spelling, while the
+    // real `stdlib/.../Function.els` declares `f: A => {Effect} B` since §1 rule 4. Copying the real signature in was
+    // tried and measured (A.11.9): with `import eliot.carrier.Effect` added to this module the name `.` itself stops
+    // resolving in the snippets ("Name not defined." at `readLine.f`) for a reason that is about this stub universe,
+    // not the language — the real declaration compiles everywhere. What the case here pins is the subject slot
+    // `a: A` — a rowless generic, hence a payload — which the real declaration keeps exactly as it is; the rowed
+    // function slot is covered end-to-end by the jvm suites and the `DotOperator` example.
     "Function" ->
       "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)",
     "Console"  ->
@@ -1338,7 +1345,9 @@ class MonomorphicTypeCheckTest
   ) ++ Seq(
     SystemImport(
       "Effect",
-      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}\n" +
+      // The instances below are declared at the stub `IO`, which lives in `eliot.jvm` and is not ambient — so this
+      // module has to import it like any other file. It went unnoticed while nothing demanded this module.
+      "import eliot.jvm.IO\nability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}\n" +
         "def stubEffectIO[A]: IO[A]\n" +
         "implement Effect[IO] {\ndef flatMap[A, B](f: Function[A, IO[B]], fa: IO[A]): IO[B] = stubEffectIO\ndef pure[A](a: A): IO[A] = stubEffectIO\ndef map[A, B](f: Function[A, B], fa: IO[A]): IO[B] = stubEffectIO\n}",
       ModuleName.carrierPackage

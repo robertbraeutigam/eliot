@@ -51,7 +51,7 @@ object SyntheticMainSourceProcessor {
   /** The platform **run boundary** the synthesized entry calls (`def runMain[A](io: IO[A]): A`, in `eliot.jvm.IO`).
     * Its `io: IO[A]` parameter is the one compiler-generated **carrier capture**: the user `main`'s inferable carrier
     * `?F[Unit]` binds to `IO` there. The jvm plugin registers this FQN as a
-    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction]] so the checker classifies that parameter's
+    * [[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]] so the checker classifies that parameter's
     * expected slot as a carrier slot and routes it through the join solver — the effects-as-channel carrier-stack
     * recognition tag, source (ii) (docs/effects-as-channel.md §7 step 4 / finding 14). `IO` is jvm-owned, so this
     * nominal boundary (not the anonymous `block`/`apply` chain) is what gives the checker a taggable slot without lang

@@ -3,9 +3,11 @@ package com.vanillasource.eliot.eliotc.jvm
 /** The permanent effect-system corpus: Eliot programs that exercise the design's worked effect shapes end to end over
   * the real `lang`/`stdlib`/`jvm` layers.
   *
-  * This is a **fixture, not a harness** — it deliberately depends on nothing, so the experiment harnesses that read it
-  * (the R3 shadow sweep, the R4 shadow compile) can be deleted without taking the corpus with them. Every effect shape
-  * the project has had to keep working lives here; add to it rather than inlining a new program into a suite.
+  * This is a **fixture, not a harness** — it deliberately depends on nothing, which is what let the experiment
+  * harnesses that read it (the R3 shadow sweep, the R4 shadow compile) be deleted at A.11.9 without taking the corpus
+  * with them. Its permanent consumer is [[EffectCorpusIntegrationTest]], which pins what these programs print. Every
+  * effect shape the project has had to keep working lives here; add to it rather than inlining a new program into a
+  * suite.
   */
 object EffectCorpus {
 

@@ -37,10 +37,10 @@ import scala.collection.mutable
   * exactly that case.
   *
   * @param runBoundaryFunctions
-  *   The platform-registered run boundaries (jvm's `eliot.jvm::runMain`), threaded from `LangProcessors` exactly as
-  *   [[com.vanillasource.eliot.eliotc.monomorphize.processor.RunBoundaryFunctionProcessor]] receives them: a
-  *   nominal-run return (`def main: IO[Unit]`) and a run-boundary argument are carrier regions, which is declared
-  *   information only this registry holds.
+  *   The platform-registered run boundaries (jvm's `eliot.jvm::runMain`), threaded from `LangProcessors` out of
+  *   [[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions.configKey]]: a nominal-run return (`def main:
+  *   IO[Unit]`) and a run-boundary argument are carrier regions, which is declared information only this registry
+  *   holds.
   */
 class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
     extends TransformationProcessor[RecursionCheckedValue.Key, RowElaboratedValue.Key](key =>

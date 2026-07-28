@@ -40,7 +40,7 @@ object EffectCarrierNaming {
     * '''Rendering only.''' This inverse exists so a carrier stack can be shown to a user as the pinned row that spells
     * it, instead of leaking machinery names. It must **never** drive a typing, routing or elaboration decision:
     * recognizing carrier-ness by name miscompiles in both directions, and the sanctioned signal there is the
-    * elaboration-threaded tag (`EffectRow.pinnedParameterIndices` / `RunBoundaryFunction`) — see
+    * elaboration-threaded tag (`EffectRow.pinnedParameterIndices` / `RunBoundaryFunctions`) — see
     * docs/effects-as-channel.md finding 14 and the *Effects Are a Channel* cornerstone. A wrong answer here is a
     * cosmetic misrendering; a wrong answer in the checker is a miscompile.
     */

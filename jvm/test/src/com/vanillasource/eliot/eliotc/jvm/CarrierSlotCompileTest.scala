@@ -9,23 +9,21 @@ import org.scalatest.matchers.should.Matchers
 
 import java.nio.file.{Files, Path}
 
-/** Effects-as-channel (docs/effects-as-channel.md §3): a **compile-succeeds** gate for the uniform-carrier
-  * *non-overlap* improvements — programs the pre-uniform path **rejected** but the uniform-carrier ladder accepts
-  * (carrierhood is positional, so a carrier meta is never stolen). The pre-uniform path has been removed (U4-e close-out
-  * slice 2), so the historical "rejected under `--legacy-carrier`" contrast is gone; the durable assertion is that these
-  * shapes **compile under the (now sole) uniform checker**. Two shapes:
+/** A **compile-succeeds** gate for the shapes where a slot meets something carrier-headed and the carrier must
+  * neither be stolen nor lost. All three were regressions once, under successive mechanisms; the programs are what
+  * must keep working, whichever mechanism decides them (today: the row elaborator, from the slot's declaration).
   *
-  *   - **conditional `CarrierSlot` arm** — `if(c, None) else Some(x)` mixes a pure `None : Option[?E]` arm and a
-  *     `Some(x) : Option[Int]` arm. The uniform `CarrierSlot` arm pure-wraps `None` into the carrier's payload slot
-  *     first (`?G` kept a meta the `else` discharge solves), so the `Some(x)` sibling decides the element type and it
-  *     compiles (the pre-uniform equal-arity unify stole the carrier whole, `?G := Option`, then failed).
-  *   - **effectful value into a data slot** (compound-state) — an effectful `items : {Console} List[String]` passed to
-  *     `foldLeft`'s `list : List[A]`. The uniform payload slot **binds**: the carrier is split off, the `List[String]`
-  *     payload fills `List[A]` (`A := String`), and the effectful list is sequenced at the call site (the pre-uniform
-  *     equal-arity unify stole the carrier, `?F := List`, then `Effect[List]` had no instance — the `val` workaround was
-  *     required).
+  *   - **mixed conditional arms** — `if(c, None) else Some(x)` puts a pure `None : Option[?E]` beside a
+  *     `Some(x) : Option[Int]`. The pure arm has to lift into the carrier's *payload* slot so the sibling decides the
+  *     element type; unifying the whole type instead stole the carrier (`?G := Option`) and failed.
+  *   - **an effectful value into a data slot** — `items : {Console} List[String]` passed to `foldLeft`'s
+  *     `list : List[A]`. The effect runs at the call site and the `List[String]` payload fills `List[A]`
+  *     (`A := String`); stealing the carrier here (`?F := List`) left `Effect[List]` with no instance and forced a
+  *     `val` workaround.
+  *   - **a `where` precondition over a carried argument** — the refinement must see the argument's range *through*
+  *     the carrier, so an out-of-range literal is still rejected (this one asserts the error, not a clean compile).
   */
-class UniformCarrierConditionalTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+class CarrierSlotCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   private val conditionalSource =
     """def choose(c: Bool, x: Int): Option[Int] = if(c, None) else Some(x)
@@ -90,7 +88,7 @@ class UniformCarrierConditionalTest extends AsyncFlatSpec with AsyncIOSpec with 
     } yield result.errors
 
   /** The base-layer `eliot/` source roots handed to the compiler as filesystem roots, exactly as
-    * [[UniformCarrierCompileTest]] does — the repo root reaches the forked test JVM via `ELIOT_REPO_ROOT`.
+    * [[EffectShapeCompileTest]] does — the repo root reaches the forked test JVM via `ELIOT_REPO_ROOT`.
     */
   private def layerPathArgs: List[String] = {
     val repoRoot             =

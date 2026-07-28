@@ -33,7 +33,6 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   DataTypeNativesProcessor,
   MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
-  RunBoundaryFunctionProcessor,
   SystemNativesProcessor,
   UserValueNativesProcessor
 }
@@ -73,12 +72,12 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     extra native processor onto this list passes that processor's label here so the [[BindingMergerProcessor]]
   *     consults it. The base labels ([[ContributedBinding.langNativeLabels]]) are always included — the contributors
   *     that own them are always in this list.
-  *   - `runBoundaryFunctions` — the platform **run-boundary** value FQNs (the jvm plugin's `eliot.jvm::runMain`) whose
-  *     carrier parameter the checker routes through the join solver
-  *     ([[com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction]], effects-as-channel tag source (ii)).
-  *     `LangPlugin` passes the set the platform plugins registered through
-  *     [[com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction.configKey]]; empty in a lang-only build
-  *     (and in tests), where the tag processor then declines every FQN.
+  *   - `runBoundaryFunctions` — the platform **run-boundary** value FQNs (the jvm plugin's `eliot.jvm::runMain`)
+  *     whose parameter 0 hosts a computation, so the row elaborator treats it as a capture
+  *     ([[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]], carrier-recognition source (ii)). `LangPlugin`
+  *     passes the set the platform plugins registered through
+  *     [[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions.configKey]]; empty in a lang-only build (and in
+  *     tests), where no value is a boundary.
   */
 object LangProcessors {
   def apply(
@@ -119,7 +118,6 @@ object LangProcessors {
     ),
     MonomorphicTypeCheckProcessor(),
     CompilerMonomorphicTypeCheckProcessor(),
-    RunBoundaryFunctionProcessor(runBoundaryFunctions),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(),
     WovenValueProcessor(),

@@ -8,8 +8,10 @@ bullet), and the elaborator writes every declaration-determined type argument, n
 construction. A.11.8 step 3 then found the "effect carrier" flag was never an independent fact (it was
 written with the carrier *kind*, at one site, always) and that its whole live surface is the compiler
 track's inline guard — §8 by design; on the runtime track it is decision-free, which is A.11.4 confirmed
-from the other side. **What remains: A.11.9, A.11.10, and the separated pinned-`data`-field gap.** →
-Resume at [A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).
+from the other side. **A.11.9 is done too**: the shadow harnesses and the `seedFacts` production API are
+gone, `RunBoundaryFunction` is retired to a plain configuration key, and the v2-named suites are renamed
+with every program kept. **What remains: A.11.10 (docs closeout) and the separated pinned-`data`-field
+gap.** → Resume at [A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).
 
 **§1 rule 4 holds and is enforced**, which was the whole point of A.11.7-T: every position classifies from
 its declaration, a computation may not reach a rowless slot, and `ρ := {}` runs at `Id`. `A.11.1`–`A.11.6`
@@ -18,8 +20,8 @@ before it are done — the elaborator **writes the carrier**, `Bool.fold` **decl
 post-mono `DeclaredPureChecker` deleted as subsumed. Gate: `__.test` green (1,488 tests), 37/40 examples
 (`PluginA`/`B`/`C` predate this work), every program unchanged in output and class content.
 
-**What remains**: **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout), plus the separated
-pinned-`data`-field gap. Appendix A.11 is the
+**What remains**: **A.11.10** (docs closeout), plus the separated pinned-`data`-field gap. Appendix A.11
+is the
 live plan and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns
 the method**, with A.11.Z.4 added to it; A.11.7-T records the fast example-sweep harness.
 
@@ -947,7 +949,7 @@ exactly **one** effect rule: *a pure term meeting a rigid carrier-headed expecte
 | ~~the `Id` apparatus~~ | **CANCELLED 2026-07-28** (§1 rule 4, third bullet; A.11.7-S). `channel/IdNormalizer` 308, `PostDrainQuoter.stripIdMachinery` and `WovenValueProcessor.assertNoIdResidue` **stay**: `Id` is the value of the empty row and is written deliberately, so its erasure is required, and `assertNoIdResidue` is the proof that erasure is complete | 0 |
 | the carrier side table | **REDUCED 2026-07-28** (A.11.8-3): `CarrierRole` and the `effectCarrier` flag are gone — they were the higher-kinded *kind* record under another name — leaving `Unifier.higherKindedMetas` and two derived projections, which the **compiler track's** inline guard reads (§8). `EffectLifter`'s remainder beyond the one pure-lift arm and the node builders stays with it | −31 |
 | ~~A.8.6's uncertainty~~ | **DONE at A.11.6**: `uncertain`/`Derivation.deferred` and `DeclaredPureChecker` deleted; two boundings remain by design (coverage, decidability), and `capturedByStack` was added to the derivation | −150 |
-| flags & experiment scaffolding | `CompilationSession.compileOnce(seedFacts)` (a production API added only for the R4 shadow compile); `jvm/test/.../RowElaborationShadowCompileTest`; the shadow half of `jvm/test/.../RowShadowSweepTest` | ~750 |
+| flags & experiment scaffolding | **DONE at A.11.9**: `CompilationSession.compileOnce(seedFacts)` (a production API added only for the R4 shadow compile), `RowElaborationShadowCompileTest`, and *all* of `RowShadowSweepTest` — plus the `RunBoundaryFunction` fact and processor, whose demander went with the bridge. `EffectCorpus` stays, with `EffectCorpusIntegrationTest` as its consumer | −285 |
 
 **Arithmetic to hold the work to — RESTATED 2026-07-28**, because cancelling the `Id` group changes it
 and A.11.7-S said to restate it rather than let the old number stand. `check/` was 5,219 at the
@@ -968,7 +970,7 @@ the `check/` number is the one to hold the work to.
 
 **Exit criteria, all mechanically checkable:**
 
-- `grep -rin "uniformCarrier\|CarrierJoin\|UniformLadder\|ModeObligation\|seedFacts" lang/src jvm/src eliotc/src` → empty.
+- `grep -rin "uniformCarrier\|CarrierJoin\|UniformLadder\|ModeObligation\|seedFacts" lang/src jvm/src eliotc/src` → **empty as of A.11.9**.
   (`IdNormalizer` was in this list until 2026-07-28 and is **not** an exit criterion — see §1 rule 4.)
 - No `lang/src/.../monomorphize/carrier/`.
 - No env-var, system-property, CLI or constructor gate anywhere in the effect path — one code path only.
@@ -1981,19 +1983,19 @@ owns the method** and this section only adds to it.
 
 ### A.11.Z.1 Tree state and gate baseline
 
-`./mill __.test` **green, 1,488 tests / 0 failures**. **37/40 examples** — `PluginA`/`B`/`C` fail and have
+`./mill __.test` **green, 1,487 tests / 0 failures**. **37/40 examples** — `PluginA`/`B`/`C` fail and have
 failed since before A.11.4; they are undiagnosed and A.11.0's exit criterion accepts them. Every program's
 **output and class content are unchanged** from the pre-A.11.7-T build. Sizes: `check/` **3,873** (below
 the pre-v2 baseline 3,996 — A.11.0's arithmetic target), no `carrier/`, `row/` **2,218**, `unify/` 554.
 
-**Done**: A.11.1–A.11.6, A.11.7-T steps 1–3, A.11.7-X, A.11.7-Y, **A.11.7** (the bridge is deleted) and
-**A.11.8** (step 1 obligations, step 2 cancelled, step 3 the side table). **§1 rule 4 holds and is
+**Done**: A.11.1–A.11.6, A.11.7-T steps 1–3, A.11.7-X, A.11.7-Y, **A.11.7** (the bridge is deleted),
+**A.11.8** (step 1 obligations, step 2 cancelled, step 3 the side table) and **A.11.9** (scaffolding and
+suites). **§1 rule 4 holds and is
 enforced.** Every position classifies from its declaration; a computation may not reach a rowless slot;
 `ρ := {}` runs at `Id`. There is **no runtime-track deferral left anywhere** and no runtime-track carrier
 metavariable; only the compile track's Phase B and its inferred inline-guard carrier remain (§8).
 
-**Next**: **A.11.9** (scaffolding and suites — now also the `RunBoundaryFunction` fact, whose last demander
-went with the bridge), **A.11.10** (docs closeout), and the separated **pinned-`data`-field gap**
+**Next**: **A.11.10** (docs closeout) and the separated **pinned-`data`-field gap**
 (A.11.7-Y): a `data Holder(computation: {Abort | IO} String)` still hoists, because `CoreProcessor:40`
 desugars the row at the `DataDefinition` before `DataDefinitionDesugarer` builds the constructor, so the
 constructor never gets the pinned tag.
@@ -2103,8 +2105,8 @@ which is a Scala editing hazard worth remembering.
 
 ### A.11.Z.5 After the deletion
 
-A.11.7 (the bridge) and A.11.8 (obligations, the carrier side table) are **done**; what is left is A.11.9
-(scaffolding and suites) and A.11.10 (docs closeout), as written below, plus the separated
+A.11.7 (the bridge), A.11.8 (obligations, the carrier side table) and A.11.9 (scaffolding and suites) are
+**done**; what is left is A.11.10 (docs closeout), as written below, plus the separated
 pinned-`data`-field gap. **A.11.0's arithmetic is the number to check, and `check/` met it**: 3,873
 against the ≈4,150 target and the pre-v2 baseline of 3,996. The machinery total landed at 6,091, above the
 ≈5,540 projection, because `row/` grew from 1,268 to 2,218 as the elaborator absorbed what the checker
@@ -2240,6 +2242,8 @@ far as it goes while the compile track keeps its inferred carrier. If the compil
 
 ## A.11.9 Remove the experiment scaffolding and fix the test suites
 
+**DONE 2026-07-28** — see [A.11.9-1](#a119-1-what-landed-2026-07-28) for what landed and the two findings.
+
 - **`seedFacts`**: `CompilationSession.compileOnce`'s optional parameter exists only for the R4 shadow
   compile. Remove it with the shadow harness — a production API kept alive by one test is exactly the
   residue this section exists to catch.
@@ -2258,6 +2262,47 @@ far as it goes while the compile track keeps its inferred carrier. If the compil
 - **Rename and keep**: `jvm/.../UniformCarrierCompileTest` (244) and `UniformCarrierConditionalTest`
   (101) are v2-*named* but are behaviour gates over the real base layer. Rename to something the end
   state can justify and keep every program.
+
+### A.11.9-1 What landed (2026-07-28)
+
+Gate: `./mill __.test` green, **1,487 tests / 0 failures** (1,488 − 3 shadow cases + 2 new); 37/40
+examples; every program's output **and class content** byte-identical to the A.11.8 build.
+
+- **`seedFacts` is gone** from `CompilationSession.compileOnce`, with its only caller. `grep -rin
+  seedFacts lang/src jvm/src eliotc/src ide` → empty, closing that exit criterion.
+- **Deleted**: `RowElaborationShadowCompileTest` (the R4 fact-injection experiment) and
+  `RowShadowSweepTest` — *all* of it, not half: its assertion was "the standalone row checker agrees with
+  v2 on every demanded definition", and neither side of that comparison exists any more (v2 is deleted;
+  the row check is wired into the pipeline as a codegen precondition, A.11.6, so a leak fails the compile
+  before any sweep could see it). `FullIntegrationTest.runJar` went back to being private — it had been
+  lifted to the companion for the shadow compile.
+- **`EffectCorpus` kept, and given a real consumer.** Its own doc says it is a fixture that must outlive
+  the harnesses, but deleting both would have left it unreferenced. `EffectCorpusIntegrationTest` now
+  compiles and runs it through `FullIntegrationTest` and **pins the output**, which is strictly more than
+  the shadow compile asserted: that experiment compared run B against run A, so what the corpus *prints*
+  was never written down. (Measured, not guessed — the third line is `unparseable`, from `parsed`'s own
+  `raise`, where a plausible guess is `boom`.)
+- **`RunBoundaryFunction` retired.** The fact and its processor had no demander left (the bridge was the
+  reader); what the pipeline actually uses is the *configuration key*, which the row phase reads. It moved
+  to `row/RunBoundaryFunctions` — a plain object next to its consumer, no longer pretending to be a fact
+  — and `LangProcessors` lost the tag processor.
+- **Renamed, every program kept**: `UniformCarrierCompileTest` → **`EffectShapeCompileTest`**,
+  `UniformCarrierConditionalTest` → **`CarrierSlotCompileTest`**. Both headers now say what the programs
+  gate rather than which mechanism they were written against; the per-program comments keep the mechanism
+  history, which is *why* each shape is there.
+- **The lift group of `MonomorphicTypeCheckTest` and the `RowElaboratorTest` twins** needed no assertion
+  changes — A.11.7-T had already moved them to the rule-4 spellings. What was stale was the *reasoning*:
+  the group header and four cases still explained themselves in terms of A.8.6 deferral, mode obligations
+  and the A.8.7 resolver. Rewritten to the rule that decides them now, with the case names re-pointed at
+  the shape rather than at "deferred".
+- **A latent harness defect fixed**: `MonomorphicTypeCheckTest`'s `Effect` stub declares its instances at
+  the stub `IO` without importing `eliot.jvm.IO` (A.8.12 spotted this and left it, since nothing demanded
+  the module). It does now.
+- **Measured and reverted**: giving that stub `.` the real `stdlib` signature (`f: A => {Effect} B`). With
+  `import eliot.carrier.Effect` added to the stub module, the name `.` stops resolving in the snippets
+  ("Name not defined." at `readLine.f`) — a property of that stub universe, not of the language (the real
+  declaration compiles everywhere, and the rowed function slot is covered by the jvm suites and the
+  `DotOperator` example). The comment now records the attempt so it is not silently retried.
 
 ## A.11.10 Docs closeout
 
