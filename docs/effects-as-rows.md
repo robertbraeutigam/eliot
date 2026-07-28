@@ -1103,6 +1103,67 @@ flex-flex shape still alive is `data Box[F[_]]`, itself a rule-4/rule-3 violatio
 3. *If neither is reopened*: A.11.7–A.11.8 do not proceed, and A.11.0's arithmetic (`check/` → ≈4,150)
    is not reachable. Say so explicitly rather than letting the roadmap read as merely unfinished.
 
+## A.11.7-S The `.` spike: rule 4 is structurally fine, and `ρ := {}` is a forced decision
+
+Run 2026-07-28, one line of `.els` changed, reverted; tree restored (37/40 examples, class content
+byte-identical to the pre-spike build, 0 diffs). Baselines measured first, not assumed: **871/871 tests,
+37/40 examples** (`PluginA`/`B`/`C`).
+
+**The change**: `infix left below apply def .[A, B](a: A, f: A => {Effect} B): {Effect} B = f(a)` plus
+`import eliot.carrier.Effect` in `Function.els`. Nothing else.
+
+**Result 1 — `.` carries the row structurally.** It parses, desugars (`{Effect}` mints `F[_] ~ Effect` at
+binder 0, so `writeCarrier`'s first-binder condition is met), its own body still type-checks, and 23/40
+examples still compile, effectful ones among them. There is no architectural rejection: `.` is an
+ordinary row-polymorphic signature. This is a materially easier conversion than `fold`'s at A.11.5 — one
+import, one line, and no interaction with type-level evaluation (measured: `.` has 50 value-level uses
+across 20 library `.els` files and **zero** in `where` guards or type positions).
+
+**Result 2 — a syntax defect, independent of this work.** `Function[A, {Effect} B]` does *not* parse as a
+row: inside a bracketed type argument the `{…}` reads as a **block expression** and the compiler dies with
+`IllegalStateException: BlockExpression should not exist after block desugaring` while resolving
+`eliot.lang.Function..` — an internal error, not a diagnostic. The `=>` spelling (`A => {Effect} B`, what
+`foreach` and `foreachLine` already use) works. The row sugar is position-restricted and fails loudly but
+wrongly; worth a real diagnostic regardless of this plan.
+
+**Result 3 — every remaining failure is one cause: `ρ := {}`.** 14 regressed examples and 40 regressed
+tests, and all of them have the same signature — the elaborator writes `.[F]` (the ambient) at every dot
+inside an effectful region, so `.`'s `f: A => F[B]` slot demands a carrier-returning function and a
+**pure** one does not fit:
+
+```
+Expected: Database -> {Dep[Database], Dep[Topic] | IO} String     (EffectsTwoDeps:10)
+Actual:   Database -> String
+Expected: List(Int) -> Int                                        (PluginRegistry:16 — the same thing
+Actual:   List(Int) -> Int                                         with `Id` erased by the renderer)
+```
+
+Distribution: **12 of the 14 examples are pure dots**; the other 2 (`Blocks:33`, `EffectsState:22`) are
+the dot-discharge sites §6.1 already lists for correction. All 40 test failures are in `jvm.test` — the
+suites that use the real stdlib; `lang` (816-\*) and `eliotc`/LSP (871-\*) stayed fully green, though
+that signal is weak, since their universes stub `.` rather than reading `Function.els`.
+
+**What the spike did *not* show.** The prediction on record was that the 22 `.` sites would leave the
+deferral trace and `payloadSlot/suspendHoist` would fall. That was **not** observed and could not be:
+`ρ := {}` fails earlier. The prediction is neither confirmed nor refuted — it is untestable until the
+decision below is made.
+
+**The forced decision (standing rule 2 — surfaced, not taken).** §1 rule 4's third bullet says `ρ := {}`
+must produce no node. With `.` carrying the row, a pure dot leaves exactly two possibilities, and there
+is no third:
+
+1. **Beta-reduce at `ρ := {}`** — emit `f(a)`, never call `.`. Satisfies rule 4 exactly. But it is
+   available only where the callee's body *is* the application; a genuinely row-polymorphic library
+   function (`foreach` called with a pure action) cannot be beta-reduced and its own `pure`/`flatMap`
+   land at `G := Id` regardless.
+2. **Allow `Id` at `ρ := {}`** and let monomorphization erase it — i.e. rule 4's third bullet narrows to
+   *"no `Id` node at a call site the elaborator writes"*, and A.11.8's "delete the `Id` apparatus"
+   narrows to *"delete the checker-manufactured `Id` encoding"*, keeping written `Id` and its erasure.
+
+Because of the `foreach` case, (1) does not remove the need for (2); it only removes it at `.`. **The
+`Id` apparatus therefore cannot be deleted outright**, and A.11.0's arithmetic must be restated before
+A.11.8 is planned against it. Which of the two forms rule 4's third bullet takes is Robert's call.
+
 ## A.11.8 Delete the obligation path, the `Id` apparatus, and the carrier side table
 
 In this order, each possible only after A.11.7:
