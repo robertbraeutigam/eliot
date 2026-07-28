@@ -13,7 +13,6 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.S
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.row.RowElaborator
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 
@@ -62,26 +61,14 @@ class TypeStackLoop(
   private[monomorphize] def processWithState(
       typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
-  ): CompilerIO[(CheckState, TypeStackLoop.Result)] = {
-    // The A.8.7 splice-and-recheck loop: a mono whose post-drain mode resolution decided a rewrite (a hoist, a `let`
-    // binding) restarts from scratch on the rewritten body — the desugar finishing its job late, then an ordinary
-    // re-check. Each restart strictly reduces the deferred positions (a spliced node is decided by declaration on the
-    // re-check), so the fuel is a compiler-bug backstop, not a real bound.
-    def attempt(rv: OperatorResolvedValue, fuel: Int): CompilerIO[(CheckState, TypeStackLoop.Result)] =
-      processIO(typeArguments, rv).run(CheckState.initial).flatMap {
-        case (state, Right(result))         => (state, result).pure[CompilerIO]
-        case (_, Left(newBody)) if fuel > 0 => attempt(rv.copy(runtime = Some(newBody)), fuel - 1)
-        case (_, Left(_))                   =>
-          compilerAbort(resolvedValue.name.as("Internal: post-drain mode resolution did not converge."))
-      }
-    attempt(resolvedValue, 32)
-  }
+  ): CompilerIO[(CheckState, TypeStackLoop.Result)] =
+    processIO(typeArguments, resolvedValue).run(CheckState.initial)
 
   private def processIO(
       typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
-  ): CheckIO[Either[Sourced[OperatorResolvedExpression], TypeStackLoop.Result]] =
-    if (signatureOnly) processSignatureTwin(typeArguments, resolvedValue).map(Right(_))
+  ): CheckIO[TypeStackLoop.Result] =
+    if (signatureOnly) processSignatureTwin(typeArguments, resolvedValue)
     else processValueMono(typeArguments, resolvedValue)
 
   /** The ordinary runtime/compiler *value* mono: establish the value's signature (the Step-6 flip reading its own
@@ -91,7 +78,7 @@ class TypeStackLoop(
   private def processValueMono(
       typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
-  ): CheckIO[Either[Sourced[OperatorResolvedExpression], TypeStackLoop.Result]] =
+  ): CheckIO[TypeStackLoop.Result] =
     for {
       // Whether this value's return is *calculated* (its source return is an under-applied omittable constructor —
       // a bare `Int`, a bare W2-grown `Counter`), derived structurally from the signature rather than a persisted flag.
@@ -146,32 +133,22 @@ class TypeStackLoop(
       // post-drain pipeline below. (The signature's own ability refs were resolved by the twin's mono, not re-walked here.)
       abilityRefs   = runtime.toSeq.flatMap(checker.abilityResolver.collectAbilityRefs)
 
-      // Post-drain resolution + quoter assembly (shared with the signature twin): drain-and-resolve every metavariable
-      // — interleaved with the A.8.7 mode resolution, which may instead decide a body rewrite (`Left`, restarting the
-      // mono) — abort on any unification error, then build the `PostDrainQuoter` over the drain-resolved impl bindings.
-      quoterE   <- drainAndBuildQuoter(resolvedValue, abilityRefs, returnMeta, monoEnv)
-      result    <- quoterE match {
-                     case Left(newBody) => pure(Left(newBody))
-                     case Right(quoter) =>
-                       for {
-                         groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.signature))
-                         // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural
-                         // (`quoteSourced`). Narrow-representation reconciliation happens in the backend's
-                         // `ExpressionCodeGenerator` off the refinement channel, so the body is read back directly.
-                         monoBody  <- runtime.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
-                         // Forward the value's own ambient effect carriers as full ground values (the single writer,
-                         // U4-c-0a): now every carrier meta is drained-solved, so the two carrier spellings quote to
-                         // ground (`IO`, `StateCarrier[S, IO]`).
-                         ambient   <- groundAmbientCarriers(resolvedValue, monoEnv, quoter)
-                       } yield Right(
-                         TypeStackLoop.Result(
-                           groundSig,
-                           monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression)),
-                           ambient
-                         )
-                       )
-                   }
-    } yield result
+      // Post-drain resolution + quoter assembly (shared with the signature twin): drain-and-resolve every metavariable,
+      // abort on any unification error, then build the `PostDrainQuoter` over the drain-resolved impl bindings.
+      quoter    <- drainAndBuildQuoter(resolvedValue, abilityRefs, returnMeta, monoEnv)
+      groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.signature))
+      // The compiler track reduces its body (`reduceSourced`); the runtime track keeps it structural (`quoteSourced`).
+      // Narrow-representation reconciliation happens in the backend's `ExpressionCodeGenerator` off the refinement
+      // channel, so the body is read back directly.
+      monoBody  <- runtime.traverse(srcSem => liftF(track.readBackBody(quoter, srcSem)))
+      // Forward the value's own ambient effect carriers as full ground values (the single writer, U4-c-0a): now every
+      // carrier meta is drained-solved, so the two carrier spellings quote to ground (`IO`, `StateCarrier[S, IO]`).
+      ambient   <- groundAmbientCarriers(resolvedValue, monoEnv, quoter)
+    } yield TypeStackLoop.Result(
+      groundSig,
+      monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression)),
+      ambient
+    )
 
   /** The signature twin's monomorphization as an **ordinary body mono** (signature-unification §3.1): the signature's
     * binder-stripped arrow chain *is* the body. Kind-check each declared binder against `VType` and bind its ground
@@ -208,18 +185,7 @@ class TypeStackLoop(
       // carrier meta is created by the check, so both are present to pin to the compile-time `Either[String]` now.
       _                    <- track.pinCarriers(checker, resolvedValue)
       abilityRefs           = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
-      quoterE              <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
-      // A twin checks a signature (type-level, and only ever on the compiler track), so it can never accrue the
-      // runtime-track mode obligations that request a rewrite — a `Left` here is an internal invariant violation.
-      quoter               <- quoterE match {
-                                case Right(q) => pure(q)
-                                case Left(_)  =>
-                                  liftF(
-                                    compilerAbort[PostDrainQuoter](
-                                      resolvedValue.name.as("Internal: a signature twin requested a mode-resolution restart.")
-                                    )
-                                  )
-                              }
+      quoter               <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
       // The signature's ground read-back. Reduce the **raw** evaluated arrow chain first (renormalising natives as it
       // quotes): this settles an ordinary type, a bare `{Throw[String]}` carrier return, a type-level `match` (whose
       // pattern binder the match reduction binds — the check would freeze it to a neutral), a W3 under-applied hole,
@@ -374,39 +340,29 @@ class TypeStackLoop(
       abilityRefs: Seq[AbilityRef],
       returnMeta: Option[SemValue.VMeta],
       monoEnv: Env
-  ): CheckIO[Either[Sourced[OperatorResolvedExpression], PostDrainQuoter]] =
-    runPostDrainResolution(resolvedValue, abilityRefs, returnMeta).flatMap {
-      case Some(newBody) => pure(Left(newBody))
-      case None          =>
-        for {
-          state        <- get
-          _            <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
-          _            <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
-          implBindings <- track.implBindings(fetchBinding)
-          abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
-                                    implBindings.get(implFqn).map(ref.value -> _)
-                                  }.toMap
-        } yield Right(
-          new PostDrainQuoter(
-            state.unifier.metaStore,
-            state.abilityResolutions,
-            monoEnv,
-            fqn =>
-              implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(state.bindingCache.getOrElse(fqn, None)),
-            track.platform,
-            reduceInstance
-          )
-        )
-    }
+  ): CheckIO[PostDrainQuoter] =
+    for {
+      _            <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
+      state        <- get
+      _            <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
+      _            <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
+      implBindings <- track.implBindings(fetchBinding)
+      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
+                                implBindings.get(implFqn).map(ref.value -> _)
+                              }.toMap
+    } yield new PostDrainQuoter(
+      state.unifier.metaStore,
+      state.abilityResolutions,
+      monoEnv,
+      fqn => implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(state.bindingCache.getOrElse(fqn, None)),
+      track.platform,
+      reduceInstance
+    )
 
   /** The post-check resolution sequence (D1) that settles every metavariable, in order:
     *
-    *   - SATURATION ([[resolveModesAndAbilitiesToFixedPoint]]): drain-interleaved **mode resolution** (the A.8.7
-    *     resolver — before ability resolution in each round, so an adopted carrier can still have its instances
-    *     resolved in the same round) and ability resolution, to a fixed point. A mode classified *payload* (or a
-    *     deferred `let` resolved carrier-headed) decides a body **rewrite** instead: this sequence stops — skipping
-    *     finalization entirely, the restarted mono owns the rewritten body — and the rewrite is returned.
-    *   - FINALIZATION (once, only with no rewrite): carrier-kind verification, then the calculated-return fail-safe.
+    *   - SATURATION ([[resolveAbilitiesToFixedPoint]]): drain-interleaved ability resolution, to a fixed point.
+    *   - FINALIZATION: carrier-kind verification, then the calculated-return fail-safe.
     *   - a final drain: a finalization step can commit new solutions (carrier-kind verification unifies a solution's
     *     kind against its expectation), so the equality core settles once more before defaulting — a constraint
     *     postponed against a meta those solutions ground still resolves instead of its metas defaulting to `Type`.
@@ -416,90 +372,43 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue,
       abilityRefs: Seq[AbilityRef],
       returnMeta: Option[SemValue.VMeta]
-  ): CheckIO[Option[Sourced[OperatorResolvedExpression]]] =
+  ): CheckIO[Unit] =
     for {
-      rewrite <- resolveModesAndAbilitiesToFixedPoint(resolvedValue, abilityRefs, resolvedValue.paramConstraints)
-      _       <- rewrite match {
-                   case Some(_) => pure(())
-                   case None    =>
-                     for {
-                       _ <- checker.carriers.verifyCarrierKinds
-                       _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
-                       _ <- modify(s => s.withUnifier(s.unifier.drain()))
-                       _ <- defaultUnsolvedMetas
-                       // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality
-                       // obligation the check never discharged. Flush the queue to hard mismatch errors (triaging
-                       // benign, now-defaulted constraints away first) rather than silently carrying and forgetting
-                       // them — the hole that let pre-fix applied-associated-type garbage compile. Runs before the
-                       // meta-postcondition assertion, which the defaulting already satisfies.
-                       _ <- modify(s => s.withUnifier(s.unifier.flushPostponed()))
-                       _ <- assertEveryMetaResolved(resolvedValue)
-                     } yield ()
-                 }
-    } yield rewrite
+      _ <- resolveAbilitiesToFixedPoint(abilityRefs, resolvedValue.paramConstraints)
+      _ <- checker.carriers.verifyCarrierKinds
+      _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
+      _ <- modify(s => s.withUnifier(s.unifier.drain()))
+      _ <- defaultUnsolvedMetas
+      // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality obligation the check
+      // never discharged. Flush the queue to hard mismatch errors (triaging benign, now-defaulted constraints away
+      // first) rather than silently carrying and forgetting them — the hole that let pre-fix applied-associated-type
+      // garbage compile. Runs before the meta-postcondition assertion, which the defaulting already satisfies.
+      _ <- modify(s => s.withUnifier(s.unifier.flushPostponed()))
+      _ <- assertEveryMetaResolved(resolvedValue)
+    } yield ()
 
-  /** Saturation: drain the unifier — so the resolvers see every solution the previous round injected — then run
-    * **mode resolution** (the A.8.7 [[ModeResolver]]: classify the suspended obligations whose slot metas the drain
-    * solved) and, when no hoist was decided, ability resolution; loop while either progresses. At quiescence — no
-    * round progress — the still-unsolved obligations take the v2 default (adopt-or-hoist by the ride-up occurs-check),
-    * possibly re-entering the loop, and finally the deferred `let` bindings classify against their now-final bound
-    * types. A hoist or a carrier-headed `let` decides a **body rewrite**: the desugar's own placement is spliced
-    * ([[RowElaborator.spliceResolvedModes]]) and returned for the restart. Bounded: each ability resolves at most
-    * once and each obligation classifies at most once, so progress is monotone.
+  /** Saturation: drain the unifier — so the resolver sees every solution the previous round injected — then resolve
+    * abilities; loop while that progresses. Bounded: each ability resolves at most once, so progress is monotone.
+    *
+    * This used to interleave the A.8.7 **mode resolution** and, on a decided hoist, splice a body rewrite and restart
+    * the whole mono. Since §1 rule 4 the row elaborator classifies every position from its declaration and writes both
+    * the placement and the carrier, so the runtime track produces no deferral to resolve: the obligations, the
+    * resolver and the splice-restart are gone (docs/effects-as-rows.md A.11.8 step 1) and this is a plain fixpoint
+    * again.
     */
-  private def resolveModesAndAbilitiesToFixedPoint(
-      resolvedValue: OperatorResolvedValue,
+  private def resolveAbilitiesToFixedPoint(
       abilityRefs: Seq[AbilityRef],
       paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
-  ): CheckIO[Option[Sourced[OperatorResolvedExpression]]] = {
-    def round: CheckIO[(Boolean, Boolean)] =
+  ): CheckIO[Unit] = {
+    def loop: CheckIO[Unit] =
       for {
-        _     <- modify(s => s.withUnifier(s.unifier.drain()))
-        modes <- checker.modeResolver.resolveDecidedObligations
-        hoist <- checker.modeResolver.hasPendingHoists
-        abils <- if (hoist) pure(false) else checker.abilityResolver.resolveAbilities(abilityRefs, paramConstraints)
-      } yield (modes || abils, hoist)
-
-    def loop: CheckIO[Option[Sourced[OperatorResolvedExpression]]] =
-      round.flatMap {
-        case (_, true)      => spliceRewrite(resolvedValue, lets = Seq.empty)
-        case (true, false)  => loop
-        case (false, false) =>
-          for {
-            adopted <- checker.modeResolver.defaultUnsolvedObligations
-            hoist   <- checker.modeResolver.hasPendingHoists
-            result  <- if (hoist) spliceRewrite(resolvedValue, lets = Seq.empty)
-                       else if (adopted) loop
-                       else
-                         checker.modeResolver.pendingLetTargets.flatMap {
-                           case Seq() => pure(None)
-                           case lets  => spliceRewrite(resolvedValue, lets)
-                         }
-          } yield result
-      }
+        _         <- modify(s => s.withUnifier(s.unifier.drain()))
+        progress  <- checker.abilityResolver.resolveAbilities(abilityRefs, paramConstraints)
+        _         <- if (progress) loop else pure(())
+      } yield ()
 
     loop
   }
-
-  /** Build the A.8.7 body rewrite for the restart: the currently hoist-marked obligations plus (at quiescence) the
-    * carrier-headed deferred `let` bindings, spliced by the desugar's own placement rules.
-    */
-  private def spliceRewrite(
-      resolvedValue: OperatorResolvedValue,
-      lets: Seq[Sourced[OperatorResolvedExpression]]
-  ): CheckIO[Option[Sourced[OperatorResolvedExpression]]] =
-    for {
-      hoists <- checker.modeResolver.pendingHoistTargets
-      body   <- resolvedValue.runtime match {
-                  case Some(b) => pure(b)
-                  case None    =>
-                    liftF(
-                      compilerAbort[Sourced[OperatorResolvedExpression]](
-                        resolvedValue.name.as("Internal: mode obligations recorded on a body-less value.")
-                      )
-                    )
-                }
-    } yield Some(RowElaborator.spliceResolvedModes(body, hoists, lets))
 
   /** Postcondition of the post-drain pipeline (D1): every metavariable is solved. The finalizer
     * ([[defaultUnsolvedMetas]]) makes this hold by construction, so it never fires in normal operation; it is the

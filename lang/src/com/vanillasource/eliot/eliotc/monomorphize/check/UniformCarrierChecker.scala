@@ -18,8 +18,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * shared [[CheckState.unifier]] the way [[EffectLifter]] and [[CarrierKindChecker]] do.
   *
   * What survives here is **carrier-safe unification**, not effect elaboration: the row desugar
-  * ([[com.vanillasource.eliot.eliotc.row.RowElaborator]]) writes every bind and the post-drain [[ModeResolver]] decides
-  * the positions it deferred, so this bridge only ever *passes* a slot — joining carriers so a carrier meta is never
+  * ([[com.vanillasource.eliot.eliotc.row.RowElaborator]]) writes every bind and classifies every position from its
+  * declaration (§1 rule 4), so this bridge only ever *passes* a slot — joining carriers so a carrier meta is never
   * stolen by first-contact unification, and lifting a pure term into a carrier position with `Effect.pure`.
   *
   * =No manufactured `Id` (docs/effects-as-rows.md A.8.10)=
@@ -221,12 +221,10 @@ class UniformCarrierChecker(
     *     its payload, and a pure actual has no effect to sequence. Only a genuine `Id[T]` value needs its payload
     *     projected (`runId`).
     *
-    * A payload slot receiving a **carried** actual is the *hoist* shape, and hoisting is the desugar's rewrite: the
-    * caller suspends such a slot instead of resolving it here, and the post-drain
-    * [[com.vanillasource.eliot.eliotc.monomorphize.check.ModeResolver]] splices the bind chain
-    * (docs/effects-as-rows.md A.8.8). It is therefore unreachable by construction — the checker only routes here for a
-    * carrier-slot domain, a pinned capture, or a pure actual — and is reported as a compiler bug rather than being
-    * elaborated a second way.
+    * A payload slot receiving a **carried** actual is the *hoist* shape, and hoisting is the desugar's rewrite —
+    * which since §1 rule 4 it always writes, a computation at a rowless slot being rejected at the definition before
+    * the checker runs. It is therefore unreachable by construction and is reported as a compiler bug rather than
+    * being elaborated a second way.
     */
   def resolveArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],

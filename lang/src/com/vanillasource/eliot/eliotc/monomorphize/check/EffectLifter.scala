@@ -11,8 +11,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The residual carrier machinery of the v2 effect auto-lift (docs/effect-lift-in-checker.md), reduced by the
-  * effects-as-rows deletion slices (docs/effects-as-rows.md §4) to the pieces the row elaboration and the post-drain
-  * [[ModeResolver]] still need:
+  * effects-as-rows deletion slices (docs/effects-as-rows.md §4) to the pieces the row elaboration still needs:
   *
   *   - the **carrier recognition** ([[effectCarrierSplit]]) every effect-aware collaborator reads;
   *   - the two **doomed-postponement probes** ([[mustLiftBeforeUnify]] / [[mustPureWrapBeforeUnify]]) and the
@@ -21,11 +20,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     `let` rule.
   *
   * What the slices removed, because the desugar ([[com.vanillasource.eliot.eliotc.row.RowElaborator]]) now writes the
-  * bind and the mode resolver decides the deferred positions, so no gate shape reached them: the `tryBindLift` arm
-  * (every ladder call site was dead), the pure-boundary `tryIdDefault` arm (superseded by the uniform return
-  * boundary's own `Id` discharge, [[UniformCarrierChecker.checkReturnBoundary]]), and the `wrapBinds` fold, whose
-  * only caller was the spine loop's mid-spine bind (slice 2 — an argument the elaboration sequences now suspends and
-  * is spliced by [[ModeResolver]] instead).
+  * bind — and, since §1 rule 4, classifies *every* position from its declaration — so no gate shape reached them: the
+  * `tryBindLift` arm (every ladder call site was dead), the pure-boundary `tryIdDefault` arm (superseded by the
+  * uniform return boundary's own `Id` discharge, [[UniformCarrierChecker.checkReturnBoundary]]), and the `wrapBinds`
+  * fold, whose only caller was the spine loop's mid-spine bind (slice 2).
   *
   * The surviving arms are still not definitional equality: `unify` never lifts — [[tryPureWrap]] verifies its
   * elaboration by *speculative* unification (payload against expected), committing only on success.

@@ -1691,18 +1691,26 @@ owns the method** and this section only adds to it.
 
 ### A.11.Z.1 Tree state and gate baseline
 
-HEAD `19d97b2b`. `./mill __.test` **871/871 green**. **37/40 examples** — `PluginA`/`B`/`C` fail and have
-failed since before A.11.4; they are undiagnosed and A.11.0's exit criterion accepts them. Every program's
-**output and class content are unchanged** from the pre-A.11.7-T build. Sizes: `check/` 5,097,
-`carrier/` 408, `row/` 2,223.
+`./mill __.test` **871/871 green**. **37/40 examples** — `PluginA`/`B`/`C` fail and have failed since
+before A.11.4; they are undiagnosed and A.11.0's exit criterion accepts them. Every program's **output and
+class content are unchanged** from the pre-A.11.7-T build. Sizes: `check/` **4,622**, `carrier/` 408,
+`row/` **2,126**.
 
-**Done**: A.11.1–A.11.6, A.11.7-T steps 1–3, A.11.7-X. **§1 rule 4 holds and is enforced.** Every position
-classifies from its declaration; a computation may not reach a rowless slot; `ρ := {}` runs at `Id`.
+**Done**: A.11.1–A.11.6, A.11.7-T steps 1–3, A.11.7-X, **A.11.8 step 1**. **§1 rule 4 holds and is
+enforced.** Every position classifies from its declaration; a computation may not reach a rowless slot;
+`ρ := {}` runs at `Id`. There is **no runtime-track deferral left anywhere** — the obligation path is
+deleted and only the compile track's Phase B remains (§8).
 
-### A.11.Z.2 What is next, and it is unblocked
+### A.11.Z.2 What is next
 
-**A.11.7 + A.11.8 step 1 as one deletion** (the bridge routes into the obligation path — A.11.7-R). The
-part-by-part bypass, re-measured on this tree (A.9.4's method; `ELIOT_NO_BRIDGE`, scaffolding reverted):
+**A.11.7 — delete the bridge.** A.11.8 step 1 is **done** (A.11.8-1) and did not need it: the two deferral
+producers inside the bridge were dead and were deleted from within it, so the coupling A.11.7-R described
+is severed and the two steps are independent after all. What is left is the bridge proper, and it is
+**not** free — three shapes still fire, and by A.11.7's standing rule each is a missing elaborator rule,
+i.e. a stop-and-redecide needing a decision, not an arm to keep.
+
+The part-by-part bypass (A.9.4's method; `ELIOT_NO_BRIDGE`, scaffolding reverted). The last row is
+**historical** — that path no longer exists:
 
 | part switched off | A.11.7-R | after rule 4 (A.11.7-V) | **now** | what still fires |
 | --- | --- | --- | --- | --- |
@@ -1712,25 +1720,27 @@ part-by-part bypass, re-measured on this tree (A.9.4's method; `ELIOT_NO_BRIDGE`
 | payload router | 36 / 32 | 11 / 37 | **7 / 37** | the `catch`/`else` non-identity-handler pin (`eagerRowPinIntoDomain`) |
 | every deferral site | — | 0 (stale) | **7 / 37** | `GuardSignatureIntegrationTest` — the **compile-track** guard discharge |
 
-**Read the last two rows carefully, and do not repeat the mistake they record.** A.11.7-V reported the
-deferral path cold; that measurement gated three of the five sites *and* predates A.11.7-X, so it is
-stale twice over. On this tree the arm A.11.7 actually names — `payloadSlot/suspendHoist` — **is** cold,
-which is the milestone; but switching *every* deferral site off still costs 7 tests, and they are the
-**guard suite on the compiler track**, whose `resolveDeferredSlot` arm §8 keeps by design. So **A.11.8
-step 1 is not free**: the runtime half is dead, the compile-track half is not, and whether that half can
-go is its own question (A.11.7-T's first known-unknown, still open — the earlier "it is dead too" reading
-came from the stale run).
+**The last row is what A.11.8-1 resolved, and the way it resolved matters.** A.11.7-V reported the whole
+deferral path cold; that run missed a site, so the honest reading became "switching *every* deferral site
+off costs 7 tests". Measuring at **production** granularity instead of by bypass (a counter on each site
+that can create a deferral — see A.11.8-1) split those 7 cleanly: they are **all compile-track**, from two
+positions in `Either.els:21`, and the runtime track produces **zero** deferrals of any kind. The runtime
+half was therefore not "cold at one arm" but absent, and it is now deleted; the compile-track half stays
+by §8. **A.11.7-T's first known-unknown — whether the compile-track half can go — is closed: it cannot,
+and it should not.**
 
 The two routers have exactly one shape each. Per A.11.7's standing rule those are still *questions* — a
-firing arm is a missing elaborator rule — but one shape each, not a class.
+firing arm is a missing elaborator rule — but one shape each, not a class. **A.11.7 cannot proceed until
+those three are decided** (A.11.8-2).
 
-### A.11.Z.3 The deletion recipe, from an attempt that was built and reverted
+### A.11.Z.3 The deletion recipe — EXECUTED (A.11.8 step 1), kept for its two traps
 
-The obligation-path deletion was written end to end in this session and reverted (it predated A.11.7-X, so
-it hit 5 failures that are now 0 — **re-measure before trusting, but the edit list holds**):
-
-The recipe deletes the **whole** path, runtime and compile-track alike, so it is the *upper* bound: pair
-it with A.11.Z.2's table and keep whatever the compile track still needs.
+This was the edit list for the obligation-path deletion, written from an attempt that had been built and
+reverted. **It has now been carried out** (A.11.8-1), with one correction: the recipe deletes the *whole*
+path, runtime and compile-track alike, and the compile track's Phase B had to be kept — so
+`SlotOutcome.Deferred`, `resolveDeferredSlot`, `assembleSpine` and `rebuildChain` **survived**. The rest
+went as written. It is retained for **trap 2**, which is a standing fact about this tree, and for trap 1,
+which is a Scala editing hazard worth remembering.
 
 - **`Checker.scala`** — `checkAgainstDefault` calls `resolveGuardedLadder` directly (drop the `Resolved`
   unwrap and its throw); `inferSpineApplications` ends `} yield built` (drop `hadDeferred`,
@@ -1760,6 +1770,16 @@ it with A.11.Z.2's table and keep whatever the compile track still needs.
 
 ### A.11.Z.4 Method, added to A.9.4
 
+- **Measure at *production* granularity, not by bypass.** A bypass probe answers "what breaks if this is
+  off", which conflates every site it gates and tells you nothing about *which* one fired. A counter on
+  each site that can produce the thing (here: each site that can create a deferral or an obligation), run
+  over the whole gate **and** all 40 examples, answers "what fires, where, how often" — and that is what
+  split A.11.Z.2's ambiguous "7 tests" into "zero on the runtime track, 14 on the compile track at two
+  known source positions". It is also cheaper: one instrumented run instead of one run per switch.
+- **A counter object is only initialised when something calls it.** The examples sweep printed nothing at
+  first and that read as "no data" rather than "no fires" — add an unconditional `hit` at a site that
+  always runs (the `Checker` constructor: 2,627 instantiations over 40 examples), so silence becomes
+  evidence.
 - **Gate every site of a mechanism, or the measurement lies.** The first `defer` probe missed
   `uniformPayloadSlot`'s deferral and reported the path cold while its *only* live producer was still on.
   The deletion then disagreed with the probe, which is how it was caught.
@@ -1772,20 +1792,17 @@ it with A.11.Z.2's table and keep whatever the compile track still needs.
 
 ### A.11.Z.5 After the deletion
 
-A.11.8 step 3 (the carrier side table), then A.11.9 (scaffolding and suites) and A.11.10 (docs closeout),
-all as written below. **A.11.0's arithmetic is still the number to check** — with `Id` struck off,
+A.11.7 (the bridge — blocked on the three decisions above), then A.11.8 step 3 (the carrier side table),
+then A.11.9 (scaffolding and suites) and A.11.10 (docs closeout), all as written below. **A.11.0's arithmetic is still the number to check** — with `Id` struck off,
 machinery 6,895 → ≈5,540 and `check/` → ≈4,150 against a pre-v2 baseline of 3,996; do not claim a net
 reduction against pre-v2, since the difference is `row/`, a phase that did not exist.
 
 ## A.11.8 Delete the obligation path and the carrier side table
 
-In this order, each possible only after A.11.7 (with which step 1 is **one deletion**, not two — the
-bridge routes into the obligation path; A.11.7-R):
-
-1. **Obligations** — `ModeResolver`, `CheckState`'s obligation vectors, the `Deferred`/`Suspended`
-   outcomes, `resolveDeferredSlot`, `TypeStackLoop`'s splice-and-restart and fuel, `processIO`'s `Either`
-   return, and `RowElaborator.spliceResolvedModes`. `TypeStackLoop` returns to a plain post-drain
-   fixpoint.
+1. **Obligations** — **DONE 2026-07-28** (below). `ModeResolver`, `CheckState`'s obligation vectors, the
+   `Suspended` outcome, every runtime deferral producer, `TypeStackLoop`'s splice-and-restart and fuel,
+   `processIO`'s `Either` return, and `RowElaborator.spliceResolvedModes`. `TypeStackLoop` is a plain
+   post-drain fixpoint again.
 2. ~~**`Id`**~~ — **cancelled 2026-07-28** (§1 rule 4). `IdNormalizer`, `stripIdMachinery` and
    `assertNoIdResidue` **stay**: `Id` is the value of the empty row, written deliberately by the
    elaborator, so something must erase it before codegen and `assertNoIdResidue` is the proof that the
@@ -1799,6 +1816,61 @@ bridge routes into the obligation path; A.11.7-R):
 
 This is also where the cornerstone guardrail is honoured by *not* acting: the `Unifier` gains nothing.
 
+### A.11.8-1 Step 1 landed, and it did **not** need A.11.7 first (2026-07-28)
+
+A.11.Z.2 carried A.11.7-R's reading that A.11.7 and step 1 are **one deletion**, because "the bridge
+routes into the obligation path". Measured on this tree, that coupling is one-directional and already
+severed: the bridge *had* two deferral producers, and both were dead, so they were deleted **from inside
+the bridge** and the rest of the bridge stayed. Step 1 landed on its own.
+
+**The measurement** (A.9.4's method, at production granularity — a counter on every site that can create a
+deferral or an obligation, `ELIOT_DEFER_TRACE`-gated, dumped at JVM exit, scaffolding reverted). Whole
+gate (`__.test`, 871 targets) **plus** all 40 examples, 2,627 `Checker` instantiations:
+
+| producer | gate | examples |
+| --- | --- | --- |
+| `genericArgSlot` (declaration-generic slot) | 0 | 0 |
+| `uniformPayloadSlot` hoist suspension (`payloadSlot/suspendHoist`) | 0 | 0 |
+| `uniformCaptureSlot` doomed suspension | 0 | 0 |
+| `defaultArgSlot`, **runtime** track | 0 | 0 |
+| `recordLetObligation` | 0 | 0 |
+| `defaultArgSlot`, **compiler** track | **14** (2 sites) | 0 |
+
+The one live producer is the compile track, at exactly two positions in the compile-time `Either`
+(`Either.els:21`) — the guard discharge the `GuardSignatureIntegrationTest` suite exercises, which §8
+keeps by design. So the runtime half is not merely "cold at the arm A.11.7 names": **no runtime-track
+deferral exists at all** since rule 4, which is what rule 4 says — every position classifies from its
+declaration, so there is nothing left for an instantiation to decide.
+
+**Deleted**: `ModeResolver` (213); `CheckState.modeObligations`/`letObligations` + their recorders and the
+`ModeObligation`/`LetObligation` types; `SlotOutcome.Suspended`; `genericArgSlot` + `isDeclarationGeneric`
+(`checkArgumentSlot` routes straight to `routeArgumentSlot`); `uniformPayloadSlot`'s suspend arm and its
+`actualCarrier` probe; `uniformCaptureSlot`'s doomed suspend arm (`doomed` **stays** — it is the
+`joinRoutable` guard); the `let`-obligation recording; `TypeStackLoop`'s splice-and-restart, its fuel, the
+`Either` return threaded through `processIO`/`processValueMono`/`drainAndBuildQuoter`, the signature
+twin's "requested a mode-resolution restart" abort, and `resolveModesAndAbilitiesToFixedPoint` (now
+`resolveAbilitiesToFixedPoint`, a plain ability fixpoint); `RowElaborator.spliceResolvedModes` +
+`maxRowBinderIndex`. Net **−572** lines. `check/` 5,097 → **4,622**, `row/` 2,223 → **2,126**, machinery
+7,728 → **7,156**.
+
+**Kept, deliberately**: `SlotOutcome.Deferred`, `resolveDeferredSlot`, `assembleSpine`/`rebuildChain` —
+the compile track's Phase B, the §8 boundary. `resolveDeferredSlot` **lost its platform split**: the
+runtime arm was the obligation recording, so what remains is one behaviour (adopt a bare-flex domain,
+else run the ladder) for both tracks. A runtime shape reaching it — none does — gets exactly what it got
+before the A.8.7 obligations existed, a unification decision, never a silent accept.
+
+**Gate**: `./mill __.test` 871/871 green; 37/40 examples (`PluginA`/`B`/`C` unchanged); all 37 jars
+**byte-identical in class content** to the pre-deletion build.
+
+### A.11.8-2 What A.11.7 still blocks on — three shapes, unchanged by this step
+
+The bridge itself is untouched, and A.11.Z.2's part-by-part table still stands (this deletion removed only
+arms that fired zero times, so it cannot have changed what the bridge decides): the **carrier router** (1
+test — `TerminationIntegrationTest` "loop endlessly"), the **uniform return boundary** (1 test —
+`MonomorphicTypeCheckTest:540`, "Higher-kinded type parameter mismatch" at a pure return) and the
+**payload router** (7 tests — the `catch`/`else` non-identity-handler pin, `eagerRowPinIntoDomain`). By
+A.11.7's standing rule each firing arm is a **missing elaborator rule**, i.e. a stop-and-redecide, and
+those three decisions are still open.
 ## A.11.9 Remove the experiment scaffolding and fix the test suites
 
 - **`seedFacts`**: `CompilationSession.compileOnce`'s optional parameter exists only for the R4 shadow
