@@ -1,3 +1,5 @@
+import eliot.carrier.Effect
+
 /**
  * An immutable, ordered sequence of `A` values.
  *
@@ -30,5 +32,8 @@ def append[A](list: List[A], element: A): List[A]
  *
  * `list` is the last parameter, so this dot-chains as `list.foldLeft(initial, combine)`. `combine` is curried: it
  * takes an element, then the accumulator, and yields the next accumulator.
+ *
+ * The fold is **effect-transparent**: `combine` may perform effects, and they run once per element in order, joining
+ * the caller's effect row. A fold whose `combine` is pure performs none, and costs nothing for the possibility.
  */
-def foldLeft[A, B](initial: B, combine: Function[A, Function[B, B]], list: List[A]): B
+def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: List[A]): {Effect} B

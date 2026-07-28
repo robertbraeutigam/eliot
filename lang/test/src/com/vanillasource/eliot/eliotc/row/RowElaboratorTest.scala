@@ -212,10 +212,13 @@ class RowElaboratorTest
     )
   }
 
-  it should "pure-wrap the body of a pure lambda at an Effect-marker callback slot" in {
+  // A pure callback leaves the callee's declared row **empty**, and the empty row's value is `Id` (§1 rule 4): the
+  // call runs at `Id` and is projected straight back with `runId`, whatever carrier the region has. The body still
+  // `pure`-wraps — the slot declares a computation — and the whole `Id` round trip erases before codegen.
+  it should "pure-wrap the body of a pure lambda at an Effect-marker callback slot, at the empty row" in {
     compareToTwin(
       eachPrelude + "def d: {Con} Str = each(strA, x -> use(x))",
-      eachPrelude + "def t: {Con} Str = each(strA, x -> pure(use(x)))",
+      eachPrelude + "def t: {Con} Str = runId(each(strA, x -> pure(use(x))))",
       extraNames = Seq("each")
     )
   }

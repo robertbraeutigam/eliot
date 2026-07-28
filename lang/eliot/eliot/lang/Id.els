@@ -5,7 +5,8 @@
  * (`if(flag, "+") else "-"` — the `else` discharges the `if`'s `Abort`) inside a function whose declared return is a
  * plain pure type, the compiler resolves the leftover carrier to `Id` and unwraps it with `runId` automatically — so
  * such code needs no annotation and no carrier ever appears in the signature. It is also the natural carrier for
- * running carrier-polymorphic logic purely, e.g. in tests: `logic.runAbort.runId`.
+ * running carrier-polymorphic logic purely, e.g. in tests: `runId(runAbort(logic))` (a discharger is called
+ * directly — its computation may not travel through the dot's plain type parameter).
  *
  * `Id` deliberately has NO `Suspend` instance: real side-effecting operations (`printLine`, `readLine`, ...) enter
  * carriers through `Suspend`, so they can never run on `Id` — only the pure control effects (`Abort`, `Throw`,

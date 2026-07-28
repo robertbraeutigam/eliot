@@ -111,7 +111,7 @@ class UniformCarrierCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matc
       |   old
       |}
       |
-      |def demo: Pair[String, String] = runId(swap("second").runStateToPair("first"))
+      |def demo: Pair[String, String] = runId(runStateToPair("first", swap("second")))
       |
       |def main: {Console} Unit = {
       |   printLine(demo.first)
@@ -151,7 +151,7 @@ class UniformCarrierCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matc
       |def firstDep: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
       |def pick(a: String, b: String): String = a
       |
-      |def main: IO[Unit] = printLine(firstDep.provide(Database("the-db")).provide(Logger("the-logger")))
+      |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), firstDep)))
       |""".stripMargin
 
   "the uniform-carrier checker" should "compile a pure value return + payload slots over the whole base" in {

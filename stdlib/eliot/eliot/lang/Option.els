@@ -1,3 +1,5 @@
+import eliot.carrier.Effect
+
 type Option[A]
 
 /**
@@ -12,4 +14,4 @@ def none[A]: Option[A]
  * def label(o: Option[String]): String = o.foldOption("absent", s -> s)
  * ```
  */
-def foldOption[A, B](ifNone: B, ifSome: Function[A, B], o: Option[A]): B
+def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B

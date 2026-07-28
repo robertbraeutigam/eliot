@@ -495,7 +495,7 @@ import eliot.effect.Console
         |  state
         |}
         |
-        |def show: {Console} Unit = printLine(counter.runStateToValue("init"))
+        |def show: {Console} Unit = printLine(runStateToValue("init", counter))
         |
         |def main: IO[Unit] = show""".stripMargin
     ).asserting(_ shouldBe "done")
@@ -767,7 +767,7 @@ import eliot.effect.Console
         |
         |def bad: {Throw[String]} String = raise("boom")
         |
-        |def main: IO[Unit] = printLine(bad.runThrow.foldEither(e -> e, s -> s))""".stripMargin
+        |def main: IO[Unit] = printLine(foldEither(e -> e, s -> s, runThrow(bad)))""".stripMargin
     ).asserting(_ shouldBe "boom")
   }
 
@@ -800,7 +800,7 @@ import eliot.effect.Console
         |   raise("boom")
         |}
         |
-        |def main: IO[Unit] = printLine(noisy.runThrow.foldEither(e -> e, s -> s))""".stripMargin
+        |def main: IO[Unit] = printLine(foldEither(e -> e, s -> s, runThrow(noisy)))""".stripMargin
     ).asserting(_ shouldBe "working\nboom")
   }
 }

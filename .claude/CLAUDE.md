@@ -169,8 +169,10 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    **Discharge falls out
    structurally, with no annotation**: a discharger's consumed effect lands on an *inner transformer carrier*
    (`StateCarrier[S, G]`, not the caller's ambient `G`), so the ride test simply drops it from the derived row — which
-   is why dot-chained and wrapper-reached discharge (`p.runStateToValue(s0)` inside a `{Console}` body) just compiles,
-   and why there is nothing to spell as `-E`. **Discharge-to-a-pure-value works**: the **identity carrier `Id`**
+   is why wrapper-reached discharge inside a `{Console}` body just compiles, and why there is nothing to spell as
+   `-E`. (A discharger must be **called directly**, `runStateToPair(s0, p)`: since effects-as-rows §1 rule 4 the dot's
+   subject is a plain type parameter, which may not carry a computation, so `p.runStateToPair(s0)` is a hard error
+   naming the fix. The infix dischargers `catch`/`else` resolve to a direct call and are unaffected.) **Discharge-to-a-pure-value works**: the **identity carrier `Id`**
    (`eliot.lang.Id` — abstract `type Id[A]`/`def runId` in the *lang* layer's `eliot/` root, since the checker inserts
    it by fixed FQN; `data Id[A](runId: A)` + `implement Effect[Id]` in jvm and the `lang/eliot-compiler` overlay;
    deliberately NO `Suspend[Id]`, so real I/O can never run on it — only the pure control effects `Abort`/`Throw`/`State`

@@ -8,7 +8,7 @@ def empty[A]: List[A]
 
 def append[A](list: List[A], element: A): List[A]
 
-def foldLeft[A, B](initial: B, combine: Function[A, Function[B, B]], list: List[A]): B
+def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: List[A]): {Effect} B
 
 /**
  * Perform `action` on every element of `list` from front to back, keeping only its effects.
@@ -23,7 +23,7 @@ def foldLeft[A, B](initial: B, combine: Function[A, Function[B, B]], list: List[
  * ```
  */
 def foreach[A](action: A => {Effect} Unit, list: List[A]): {Effect} Unit =
-   list.foldLeft(pure(unit), e -> acc -> acc.flatMap(_ -> action(e)))
+   list.foldLeft(pure(unit), e -> _ -> action(e))
 
 /**
  * `List` is a monoid under concatenation: `combine` appends the elements of the second list after the first (a

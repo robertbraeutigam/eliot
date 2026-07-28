@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.row.fact.RowElaboratedValue
 import com.vanillasource.eliot.eliotc.row.{RowChecker, RowElaborator}
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
+import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
 
 import scala.collection.mutable
@@ -54,9 +54,11 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
     val value = recursionChecked.value
     if (RowChecker.checkable(value)) {
       for {
-        universe <- universeFor(value, key.platform)
-        _        <- verifyRow(value, universe).whenA(key.platform == Platform.Runtime)
-      } yield RowElaboratedValue(value.copy(runtime = RowElaborator.elaborate(value, universe).orElse(value.runtime)))
+        universe    <- universeFor(value, key.platform)
+        _           <- verifyRow(value, universe).whenA(key.platform == Platform.Runtime)
+        elaboration  = RowElaborator.elaborateChecked(value, universe)
+        _           <- verifyRowlessSlots(elaboration).whenA(key.platform == Platform.Runtime)
+      } yield RowElaboratedValue(value.copy(runtime = elaboration.body.orElse(value.runtime)))
     } else {
       RowElaboratedValue(value).pure[CompilerIO]
     }
@@ -97,6 +99,31 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
       case _                                                                                                =>
         ().pure[CompilerIO]
     }
+
+  /** The **rule-4 enforcement** (`docs/effects-as-rows.md` §1 rule 4, A.11.7-T step 2): a computation may not be
+    * delivered to a position that declares no effect row. Reported at the offending *argument*, and aborting this
+    * value, because a re-routed computation is a miscompile rather than a mistyping — the five `State`-family shapes
+    * A.11.7-R measured all ran silently, printing `null` or nothing at all.
+    *
+    * The fix is always the same shape and the diagnostic says so: call the target **directly**, where its own
+    * declared slot (pinned, carrier-typed, or row-declaring) already has the right mode. What the rule takes away is
+    * the *dot* spelling of a discharge (`p.runStateToValue(s0)`), not the discharge — and in particular not the infix
+    * dischargers, which resolve straight to a direct call.
+    */
+  private def verifyRowlessSlots(elaboration: RowElaborator.Elaborated): CompilerIO[Unit] =
+    elaboration.violations match {
+      case Seq()      => ().pure[CompilerIO]
+      case violations =>
+        violations.traverse_(message => compilerError(message, rowlessSlotHelp)) >> abort[Unit]
+    }
+
+  private val rowlessSlotHelp = Seq(
+    "A type parameter that declares no effect row is a payload: it can never stand for a computation.",
+    "Call the function directly instead of routing the computation through this position, for example",
+    "'runStateToPair(initial, program)' rather than 'program.runStateToPair(initial)'.",
+    "Infix dischargers are unaffected: 'x catch (err -> ...)' and 'setting else \"default\"' already resolve",
+    "to a direct call with the computation at its own declared slot."
+  )
 
   /** The complete declared world for elaborating this one value: fetch what elaboration misses, re-run, repeat.
     * Terminates because each round strictly grows the set of names already attempted, over the finite set of names

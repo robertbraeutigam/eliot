@@ -313,7 +313,7 @@ import eliot.effect.Console
         |
         |def firstDep: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
-        |def main: IO[Unit] = printLine(firstDep.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
+        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), firstDep)))""".stripMargin
     compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
       .asserting(_ shouldBe "the-db")
   }
@@ -332,7 +332,7 @@ import eliot.effect.Console
         |
         |def pick(a: String, b: String): String = b
         |
-        |def main: IO[Unit] = printLine(secondDep.provide(Database("the-db")).provide(Logger("the-logger")))""".stripMargin
+        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), secondDep)))""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
 }

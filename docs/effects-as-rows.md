@@ -7,9 +7,10 @@ check is **unbounded** with the post-mono `DeclaredPureChecker` deleted as subsu
 `__.test` green (871 targets), 37/40 examples compiling (`PluginA`/`B`/`C` predate this work), every
 program byte-identical in output and class content.
 
-**What remains, in order**: **A.11.7-T** (implement §1 rule 4 — the only step that writes code rather
-than removing it; **step 1 is landed**, steps 2–3 remain), then **A.11.7 + A.11.8** (one deletion: the
-bridge routes into the obligation path),
+**What remains, in order**: **A.11.7-T is complete (2026-07-28)** — §1 rule 4 is implemented and enforced:
+every position classifies from its declaration, a computation at a rowless slot is a hard error, and the
+§6.1-A audit's 28 shapes are gone. Next is **A.11.7 + A.11.8** (one deletion: the bridge routes into the
+obligation path),
 then **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the live plan
 and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns the
 method** — arm-liveness tracing, the differential probe, the byte-identity oracle, the tracer gotchas —
@@ -384,24 +385,26 @@ Every laziness-requiring signature must declare suspension; a combinator that fo
 
 Rule 4 outranks the tree, so these are **defects to correct**, not constraints on the design.
 
-**Conformance today: the rule does not yet hold, and the gap is measured, not estimated
-(2026-07-28, after A.11.7-T step 1 — §6.1-A below).** Step 1 supplies the *mechanism* the rule needs
-(every position classified from declarations) and corrects six call sites; steps 2 and 3 are what make
-the rule true and enforced. The second half of the rule — *and only into* — does hold: the elaborator
-writes a carrier only where a declaration puts one (A.11.4), and both verifiers check
-`derived ⊆ declared`.
+**Conformance: the rule HOLDS as of 2026-07-28** (A.11.7-T steps 1–3). Every position classifies from its
+declaration, the four signatures below declare what they transport, delivering a computation to a rowless
+slot is a hard error, and the §6.1-A audit's 28 shapes are all gone — measured by the enforcement itself,
+which is that audit's predicate turned into a diagnostic. The second half of the rule — *and only into* —
+was already true: the elaborator writes a carrier only where a declaration puts one (A.11.4), and both
+verifiers check `derived ⊆ declared`.
 
 The original inventory below was assembled by `grep` and by A.11.3-R's deferral audit, and claimed to be
 "the whole known cost". **§6.1-A supersedes that claim**: an instrumented sweep found two things it
 missed — `foldEither`, and the fact that converting `.`'s `f` slot leaves a *computation subject*
 (`p.runStateToValue(…)`) a violation on the `a: A` slot.
 
-**Signatures that must declare what they transport** — each currently lets an effect through a rowless
-position:
+**Signatures that must declare what they transport** — **all four converted at A.11.7-T step 3**; the
+final spellings, including what the conversion itself measured, are listed there:
 
 - `def .[A, B](a: A, f: A => {Effect} B): {Effect} B` — the subject stays a plain, strict slot; the
   transported row is declared on `f` and comes back out of the dot.
-- `foldLeft`'s `initial: {Effect} B` and `foldOption`'s `ifNone: {Effect} B` — the two A.11.2-R declined.
+- `foldLeft` and `foldOption` — the two A.11.2-R declined — plus `foldEither`, which §6.1-A added.
+  `foldLeft` needed more than its `initial`: its **accumulator** is rowed too, and its jvm primitive
+  carries an explicit `[F[_] ~ Effect]` binder.
 
 **Call sites that pass a computation through a rowless slot** — 7 lines, each rewritten to the direct
 call, where the callee's own declared slot (pinned, or carrier-typed) already has the right mode:
@@ -418,8 +421,9 @@ call, where the callee's own declared slot (pinned, or carrier-typed) already ha
 `.`'s slots live, so they stopped compiling (or, at `State`/`Writer`, silently miscompiled) and had to
 be corrected there rather than waiting for step 2's diagnostic.
 
-**`List.els:26` cannot be corrected on its own and stays as it is until step 3.** Rewriting it to the
-direct call makes `foreach` print nothing (`ListIntegrationTest`, `FileIoIntegrationTest` and two
+**`List.els:26` could not be corrected on its own and waited for step 3**, where `foreach` became
+`list.foldLeft(pure(unit), e -> _ -> action(e))` — the dot disappears with the nested `flatMap`.
+Rewriting it alone made `foreach` print nothing (`ListIntegrationTest`, `FileIoIntegrationTest` and two
 `ExamplesIntegrationTest2` State programs): `flatMap`'s `fa: F[A]` is a *declared-suspended* slot, and
 the accumulator handed to it binds `foldLeft`'s `combine: Function[A, Function[B, B]]`, whose domain
 rule 4 reads — correctly — as a payload, so it is `pure`-wrapped. The dot spelling merely hides that:
@@ -433,8 +437,10 @@ untouched.
 
 **Declarations storing an open carrier**: `jvm/test/…/TerminationIntegrationTest.scala:206`'s
 `data Box[F[_]](action: F[Unit])` — already illegal under rule 3 (a stored row must be pinned), and the
-last source of the flex-flex `?F[X] ~ ?G[Y]` that A.11.7-R found still alive. Correct the shape; do not
-reopen A.10's cancellation of slice 4b to accommodate it.
+last source of the flex-flex `?F[X] ~ ?G[Y]` that A.11.7-R found still alive. **Still outstanding after
+step 2**: the enforcement is a rule about *call arguments*, and this is a `data` field declaration, which
+no call routes through — it never reached the diagnostic. Correct the shape when rule 3 grows its own
+check; do not reopen A.10's cancellation of slice 4b to accommodate it.
 
 **Tests pinning a rule-4 violation are wrong and get corrected** — known: three `RowElaboratorTest` twins
 (including the one named "defer a call with a generic-headed return — A.8.6"), `MonomorphicTypeCheckTest`'s
@@ -479,6 +485,11 @@ Three corrections to the inventory above, all forced by the measurement:
 Nothing in the measured set is outside rule 4's reach, and nothing needs a new mechanism: every entry is
 a signature that must declare what it transports, or a call site that must stop routing a computation
 through a rowless one.
+
+**All 28 are cleared as of A.11.7-T step 3 (2026-07-28)**, and the audit needs no re-run to say so: its
+predicate *is* the enforcement (`RowElaborator.violations`), which now aborts any value that trips it, so
+a green gate and 37/40 examples are the audit reporting zero. The prediction it could not make held too —
+converting `.` did not clear `.`: the nine subject-slot shapes each had to become a direct call.
 
 ## 7. What this preserves of the cornerstones
 
@@ -1415,6 +1426,19 @@ behaviour silently.
 - *Risk*: the diagnostic must name the direct-call fix, or it reads as the language losing a feature. The
   infix dischargers are unaffected and the message should say so.
 
+**LANDED (2026-07-28), together with step 3** — separately it cannot be: the enforcement is what makes
+§6.1-A's 28 shapes *stop compiling*, and step 3's signatures are what make them legal again.
+
+- `RowElaborator.Elaborated(body, violations)` carries both out of **one** pass:
+  `recordRowlessSlots` runs over the arguments each call ends up with, so the predicate is read *after*
+  hoisting exactly as §6.1-A specifies. `RowElaborationProcessor.verifyRowlessSlots` reports every
+  violation at its own argument and **aborts** the value — a re-routed computation is a miscompile, not a
+  mistyping. The help text names the direct-call fix and says the infix dischargers are unaffected.
+- **Measured on its own, before step 3**: 83 test failures and 6 further examples, *every one* of them a
+  rule-4 violation on the four signatures step 3 converts (`foldOption` in `Abort.els`, `foldEither` in
+  `Throw.els`, `foldLeft` and `.` in `List.els`/`File.els`). Nothing else surfaced — the audit's numbers
+  held.
+
 ### Step 3 — `writeCarrier` gates on the instantiated row; `ρ := {}` goes to `Id`
 
 `writeCarrier` writes the ambient only when step 1 says the instantiated row is non-empty; at `ρ := {}`
@@ -1430,6 +1454,88 @@ explicit `[F[_] ~ Effect]` binder (measured at step 1; §6).
 - *Risk*: the one genuinely new behaviour. A.11.5's withdrawn `ridesAmbient` rule belongs here if
   anywhere — re-evaluate it under instantiation, and re-check `Path.extension` (`FileIoIntegrationTest`
   is its only cover).
+
+**LANDED (2026-07-28). Gate green — full `__.test`, 37/40 examples (`PluginA`/`B`/`C` predate A.11.4), and
+all 37 program outputs byte-identical to the pre-step build.** The four signatures now declare what they
+transport, and no rule-4 violation survives anywhere in the gate or the examples.
+
+*Signatures* (`=>` spelling throughout, never `Function[A, {Effect} B]` — A.11.7-S):
+
+- `def .[A, B](a: A, f: A => {Effect} B): {Effect} B` — the subject stays plain and strict.
+- `def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B`.
+- `def foldEither[E, A, B](ifLeft: E => {Effect} B, ifRight: A => {Effect} B, e: Either[E, A]): {Effect} B`
+  (added by the §6.1-A audit).
+- `def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: List[A]): {Effect} B`,
+  over `private def foldLeftInternal[F[_] ~ Effect, A, B](list: List[A], initial: F[B], combine: A => F[B] => F[B]): F[B]`
+  — the explicit binder spelling the `{Effect}` sugar cannot give an arrow *domain*, exactly as step 1
+  measured. The emitted native is unchanged (generic, erased). `foreach` becomes
+  `list.foldLeft(pure(unit), e -> _ -> action(e))`, which is §6.1's `List.els:26` correction.
+
+*The empty row, and what it cost* (§1 rule 4's third bullet, in the `Id` form Robert decided):
+
+- **`emptyRowCall`** reads the row a call instantiates off the arguments at the positions that *mention*
+  the carrier — a carrier-headed slot, and an arrow slot whose codomain is carrier-headed. All plain
+  values ⇒ the row is empty ⇒ the call runs at `Id` (region, written type argument, and inserted `pure`s)
+  and its result is projected back with `runId` (`projectId`). Three exclusions, each because the row is
+  not that call's to decide: a callee **declaring an effect** of its own, an **ability method** (instance
+  resolution chooses), and a **discharger** (the capture's residual chooses — `host else "localhost"` has
+  a pure fallback at a carrier-headed slot and is emphatically not the empty row). A reference already
+  carrying explicit type arguments is left alone (`writableReference`), so hand-monadic code is never
+  double-projected. **This is A.11.5's withdrawn `ridesAmbient`, re-evaluated as the doc asked** — and it
+  works here because it *writes* `Id` where the old rule wrote nothing; `Path.extension` compiles and its
+  `FileIoIntegrationTest` cover passes.
+- **A call at the empty row is a payload to everything outside it** (`callResultKind` downgrades a
+  declared `Carrier` result when `emptyRowCall` holds), or the row would leak outwards:
+  `show(lines.foldLeft(0, e -> acc -> add(acc, 1)))` would otherwise read as delivering a computation to
+  `show`'s rowless slot — a violation of the *caller's* making. `declaredResultKind` keeps the
+  pre-projection answer for the projection's own decision.
+- **A pure function at a carrier-codomain slot lifts pointwise** (`etaPureLift`): `f: A => {Effect} B`
+  given `url` becomes `x -> pure(url(x))`, because a lift under an arrow has nowhere else to go. It is
+  built as an eta-expansion and then handed to `elaborateLambdaForced`, the same path a hand-written
+  lambda takes, so a body that is already a computation passes through instead of double-wrapping. In
+  practice only `.` reaches it — every other converted slot is filled by a lambda.
+- **A slot declaring the concrete `Id` carrier** (`runId`'s `obj: Id[A]`) is a capture, not a strict slot:
+  nothing hoists out of it. Without that, `foreach(printLine, runId(runStateToFinalState(…)))` hoisted the
+  discharge onto the ambient `IO` and demanded it run there.
+
+*Three defects found by the conversion, each a latent bug the new signatures merely exposed:*
+
+1. **Variable capture in the `=>` alias expansion.** `asArrowLike` substituted the alias's binders one at
+   a time; `=>` binds `A` and `B`, so expanding `B => {Effect} B` substituted `A := B` and then rewrote
+   that very `B` when `B := F[B]` followed — reading `A => B => {Effect} B` as
+   `A => {Effect} B => {Effect} B` and classifying `foldLeft`'s accumulator as a computation. The
+   substitution is now simultaneous, staged through fresh names.
+2. **`instantiation` let a later position erase an earlier one** (`acc ++ …`). One position reading
+   `add(e, acc)` — an ability method outside the universe, hence `Unknown` — wiped what `initial: B ← 0`
+   had settled. Positions now combine through `joinKind` (`Unknown` loses, `Carrier` wins), which is also
+   what makes the rule order-free.
+3. **`definitelyPure` could not classify a *called* function-typed parameter.** `f(a)` with
+   `f: Function[A, Either[String, B]]` is plainly a value, and saying otherwise left it unlifted at a
+   carrier position — which rolls the whole rewrite back and broke `Effect[Either[String]]`'s own
+   `flatMap`, i.e. every compile-track guard.
+
+*Two further declaration reads the conversion forced, both stated as rules:*
+
+- **A bare plain-generic return no argument determines is a payload** (`typeKind`), by rule 4 itself: an
+  *applied* binder head (`wrap(s) : F[A]`) stays `Unknown`, which is what keeps the constructor class out.
+  Without this a data accessor referenced unapplied (`logic.content`) was unclassifiable and its dot ran
+  on the ambient carrier.
+- **A lambda argument's binders are classified during the row read, not only during its elaboration**
+  (`underArrow`). `foldEither(err -> err, v -> v, e)` is read before its handlers are elaborated, so
+  `err` would otherwise come out unclassified and the fold ran on `IO`.
+
+*Measured cost, recorded rather than smoothed over:* class content differs for 18 of the 37 examples while
+every program's **output** is identical. The `.` conversion means a pure dot whose function is not already
+a lambda emits an eta-expansion lambda class — `DotOperator` goes from 23 to 25 classes. That is the price
+of `.` transporting a row through one declaration; the alternative (beta-reducing `.` at `ρ := {}`) was
+A.11.7-S's option 1, which A.11.4c had already rejected as a `.`-specific special case.
+
+*Test fixtures corrected*, all of them §6.1-A's nine `.`-subject-slot shapes — a dot-chained discharger
+(`p.runStateToPair(s0)`, `comp.provide(x).provide(y)`, `bad.runThrow.foldEither(…)`) delivers a computation
+to `.`'s rowless `A` and is now an error, rewritten to the direct call: `UniformCarrierCompileTest` (2),
+`ExamplesIntegrationTest1` (2), `ExamplesIntegrationTest2` (3), `ExamplesIntegrationTest3` (1). One
+`RowElaboratorTest` twin was re-spelled: a pure callback leaves the callee's row empty, so the call runs at
+`Id` and projects with `runId` — the twin now says so.
 
 ### Then, and only then: the exit test for A.11.7
 

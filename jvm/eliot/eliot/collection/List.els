@@ -1,3 +1,5 @@
+import eliot.carrier.Effect
+
 type List[A]
 
 /**
@@ -5,7 +7,7 @@ type List[A]
  * `foldLeft`; kept list-first (and thus always called fully applied) because the backend emits it as a single erased
  * generic native, which cannot be partially applied. Implemented by the backend.
  */
-private def foldLeftInternal[A, B](list: List[A], initial: B, combine: Function[A, Function[B, B]]): B
+private def foldLeftInternal[F[_] ~ Effect, A, B](list: List[A], initial: F[B], combine: A => F[B] => F[B]): F[B]
 
-def foldLeft[A, B](initial: B, combine: Function[A, Function[B, B]], list: List[A]): B =
-  foldLeftInternal(list, initial, combine)
+def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: List[A]): {Effect} B =
+  foldLeftInternal(list, initial, e -> facc -> flatMap(acc -> combine(e)(acc), facc))
