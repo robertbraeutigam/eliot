@@ -20,8 +20,15 @@ object EffectMachinery {
     */
   val suspendAbilityName: String = "Suspend"
 
+  /** The machinery ability that says "this carrier can lift a pure value and sequence" — the constraint a carrier
+    * binder needs to host a computation at all. Read by [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]]
+    * to decide whether a signature already binds its own effect carrier, so a `{…}` row in it *reuses* that binder
+    * instead of minting a second one (docs/effects-as-rows.md §1 rule 2).
+    */
+  val effectAbilityName: String = "Effect"
+
   /** The abilities the compiler inserts and recognises but the user never names. */
-  private val machineryAbilities: Set[String] = Set("Effect", suspendAbilityName)
+  private val machineryAbilities: Set[String] = Set(effectAbilityName, suspendAbilityName)
 
   /** The internal effect machinery, never a user-facing effect: a `flatMap`/`pure`/`map`/`suspend` call (hand-written or
     * inserted by this phase) must not be counted as "using an effect" by the declared-effect check.

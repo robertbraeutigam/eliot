@@ -107,10 +107,31 @@ it is effect-irrelevant by construction.
    effects there; they join the enclosing definition's row. Strict call-by-value in **every** plain
    position, including a slot typed by a bare generic: `choose(readLine, readLine)` runs both reads. The
    only exceptions are the two *declared* ones below.
-2. **Suspension is declared.** A parameter that must *not* run its argument declares an open row:
-   `whenTrue: {G} A` receives the computation unrun. `if[T](c: Bool, value: {Abort} T)` already spells
-   this — v3 makes the syntax mean what it looks like it means. Pure arguments fit suspended slots
-   (`{} ⊆` anything).
+2. **Suspension is declared, and a row is not a carrier.** A parameter that must *not* run its argument
+   declares an open row: `whenTrue: {G} A` receives the computation unrun. `if[T](c: Bool, value:
+   {Abort} T)` already spells this — v3 makes the syntax mean what it looks like it means.
+
+   A **row** position means *"a value or a computation"*, because the empty row is a legal row: a pure
+   argument fits (`{} ⊆` anything) and is lifted. A **carrier-typed** position — `x: G[A]`, `IO[A]`, a
+   pinned stack — means *"a computation on this carrier"*, and a plain `A` is simply not one of its
+   values: a type error, never a lift. *(Decided 2026-07-28, Robert. Until then every `~ Effect`-
+   constrained carrier slot lifted a pure actual, which made the **calling convention depend on a
+   constraint the callee declares for its own body's sake**: adding `~ Effect` to `def hold[G[_]](x:
+   G[String])` silently changed what callers could pass, and without it the same call died in the quoter
+   with "contains unresolved variable" rather than reporting a mismatch. That is exactly the
+   "mode falls out of how generic the callee happens to be" implicitness §0 indicts.)*
+
+   The two are **the same shape** — an open row desugars to `F[A]` — so the distinction is read from the
+   **row tag** the desugar records (`EffectRow.parameterEffects`, source (i)), never from the type. This
+   is the same tag-not-shape discipline rule 4's capture rule uses.
+
+   **`{Effect}` denotes the signature's own carrier.** When a definition already binds exactly one
+   `Effect`-constrained carrier (`G[_] ~ Effect`, as every discharger does), its rows reuse *that* binder
+   instead of minting a second, and the row's entries join its constraints. So `fallback: {Effect} A` in
+   `else` **is** `G[A]`, now carrying the row tag: the same type, saying "a value or a computation". Two
+   or more such binders are ambiguous and mint as before. Without this the rule above would have forced
+   `host else pure("localhost")` on every discharge, pushing `eliot.carrier` — machinery the language
+   deliberately hides — into user code.
 3. **Pinned means captured** (unchanged from v2). `{Throw[E] | G} A` is a reified computation — an
    ordinary type, usable in `data` fields, discharger parameters, `List[TestCase]`. Open rows never
    appear in types; pinned rows are the only place a type contains a computation.
@@ -383,9 +404,15 @@ Signature changes:
   (A.11.5a), with `import eliot.carrier.Effect` in `Bool.els`. The `{Effect}` spelling is load-bearing:
   it desugars to one shared inferable `F[_]` with `F ~ Effect` at binder **0**, and moving the carrier to
   a later binder misfeeds the `{ join(…) }` refinement's positionally-applied `Meta` companion.
-- `if[T]` — **textually unchanged** (`value: {Abort} T` now *means* suspended). `Abort.else`'s
-  `fallback: G[A]` was already declared-suspended; `foldPair` takes a lambda whose codomain the audit
-  never saw at a computation.
+- `if[T]` — **textually unchanged** (`value: {Abort} T` now *means* suspended); `foldPair` takes a lambda
+  whose codomain the audit never saw at a computation.
+- **`Abort.else` and `Throw.catch` — their recovery slots became rows** (2026-07-28, §1 rule 2):
+  `fallback: {Effect} A` and `onError: E => {Effect} A`, over the unchanged `G[_] ~ Effect` binder they
+  already bound. The *types* are unchanged — `{Effect}` denotes that same `G` — so the emitted code and
+  every call site are unchanged; what changed is that the slots now *declare* that they accept a value as
+  well as a computation, which is what keeps `host else "localhost"` and `bad catch (e -> "fallback")`
+  working once a bare `G[A]` stops lifting. This was previously listed as "already declared-suspended",
+  which was true of the elaborator's behaviour and not of the declaration.
 - `def foldOption[A, B](ifNone: {Effect} B, …)` — **converts** (rule 4). A.11.5-R left it open because
   both spellings were refuted by the tree; under rule 4 that is a defect in the tree, not evidence about
   the signature, and the refutations are entries in the correction inventory below.
@@ -2419,3 +2446,68 @@ reproducing them on the pre-fix tree, and with no `data` involved):
   data at all (`printLine(raise("boom") catch (…))` fails identically on the pre-fix tree), because the
   elaborator instantiates a pinned row's ability arguments from the argument's **declared** row (§3.1), and
   `raise[E]`'s declared row is its own binder `{Throw[E]}`.
+
+## A.11.12 A row is not a carrier — the pure-actual rule (2026-07-28)
+
+**Decided by Robert, implemented the same day.** Recorded in §1 rule 2 (the decision) and §6 (the two
+signature changes); this section is the record of how it was measured and what it cost.
+
+**The question.** A pure actual was accepted at *some* carrier-headed slots and not others: `fold(true,
+"a", "b")` and `hold("value")` (a `G[_] ~ Effect` parameter) lifted it, `data Box(value: IO[String])`
+lifted it, and a pinned `{Abort | IO} String` rejected it. Robert's reading — *`{Console} A` says there is
+a **potential** effect, so a pure value belongs; `G[A]` is a **type**, and "which `G`, and what if it has
+no `pure`?" has no answer the caller gave* — makes the pinned rejection correct and the two lifts wrong.
+
+**The measurement that settled it.** The acceptance was *constraint-dependent*:
+
+```
+def hold[G[_]](x: G[String], label: String): String = label
+hold("value", "built")   ⟹ "Cannot resolve type — contains unresolved variable"
+
+def hold[G[_] ~ Effect](x: G[String], label: String): String = label
+hold("value", "built")   ⟹ compiles, with an inserted pure
+```
+
+`~ Effect` is declared for the *callee's body's* sake, so the calling convention turned on something the
+signature does not say — the §0 implicitness this design exists to remove — and its failure mode when
+absent was a quoter crash rather than a type error.
+
+**What was built.**
+
+1. **`{Effect}` reuses the signature's own carrier** (`EffectSugarDesugarer`): a definition binding exactly
+   one `Effect`-constrained higher-kinded binder collapses its rows onto *that* binder, merging the row's
+   entries into its constraints; none, or more than one, mints as before. Measured first: **no signature in
+   the tree mixed the two spellings**, so this changed the meaning of nothing that existed. It is a desugar
+   rule, not surface — Robert's constraint was "no new syntax".
+2. **`else`/`catch` re-spelled** to `fallback: {Effect} A` / `onError: E => {Effect} A`. Same types, same
+   emitted code; the slots now *declare* what they always meant.
+3. **The lift revoked in the elaborator** at every carrier-typed slot that is not row-tagged: the
+   carrier-binder arm, the carrier-codomain handler arm (which now elaborates such a lambda *naturally*
+   instead of forcing a `pure`), and the concrete-carrier arm.
+4. **Two diagnostics, not one.** `RowElaborator.Violation` now carries its own help text, because the two
+   directions read oppositely: a computation at a rowless slot (rule 4) and a plain value at a carrier-typed
+   one (rule 2). The second is reported *by the elaborator* rather than left to the checker, whose one
+   surviving pure-lift arm fires on any rigid carrier-headed expectation and would have accepted
+   `Box("pure")` on the ambient `IO` alone.
+
+**What was deliberately *not* done.** `EffectLifter.tryPureWrap` stays. Disabling it was measured
+(env-gated, reverted): **3 lang unit cases + 7 jvm shapes** across four suites still depend on it, so it
+remains the checker's one order-free local rule exactly as §4 says. The rule above is enforced where the
+declaration is known — in the desugar — and the checker's arm is the fallback for what the elaborator does
+not classify.
+
+**Fixtures corrected** (§1: a test pinning a rule violation is a defect in the test): `RowElaboratorTest`'s
+stub discharger now mirrors the real one (`handler: Str => {Effect} A` over `G[_] ~ Effect`) — 7 twins were
+pinning the old lift — and `ExamplesIntegrationTest2`'s "a pure value into a generic effect-carrier
+parameter should auto-lift via pure" became a **rejection** test, joined by a new one showing the row
+spelling accepting a pure *and* an effectful argument at the identical position. Five `CoreProcessorTest`
+cases pin the reuse rule (reuse, signature-identity with the hand-written `G[A]`, constraint merging, and
+both decline cases).
+
+**Gate**: `__.test` 871/871, and **all 40 examples byte-identical in class content** to the pre-change
+build — the re-spelling is transparent to every existing call site.
+
+**Known residue, unchanged by this**: a `data` field has no row spelling (rule 3 requires a stored row to be
+pinned, and pinned is concrete), so storing a *pure* value in a computation field must be written
+`Box(pure(x))`, which needs `import eliot.carrier.Effect`. Declaring the field at its payload type is
+usually the better answer.

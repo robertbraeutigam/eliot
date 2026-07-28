@@ -182,7 +182,7 @@ Each of these is a package in the "lang" module, roughly in order of processing:
    is written beside them, so a fully discharged body reduces to its plain value: `def sign(f: Bool): String =
    if(f, "+") else "-"` (and
    `catch`/`runStateTo…` under pure returns, chains, block `val`s) just works. A discharger's **handler may itself
-   perform effects** — `catch`'s is `onError: E => G[A]` on the *same* carrier `G`, so
+   perform effects** — `catch`'s is `onError: E => {Effect} A`, a row over the *same* carrier `G`, so
    `failUnit catch (err -> printLine(err))` and a pure `_ -> emptyConfig` both work. A **`val`-bound** computation is
    dischargeable too (`val host = setting("host")` then `host else "localhost"`) since the elaborator writes the
    carrier: a call needing more than the ambient declares carries its own discharge stack, so the `val` binds the
@@ -454,8 +454,14 @@ design: `docs/effects-as-rows.md` (§1 the four user rules, §2 the two channels
 
 1. **Effects run where they are written.** Strict call-by-value in *every* plain position, a bare generic slot
    included: `choose(readLine, readLine)` runs both reads.
-2. **Suspension is declared.** A parameter that must *not* run its argument declares an open row
-   (`whenTrue: {Effect} A`, `if`'s `value: {Abort} T`). Pure arguments fit suspended slots (`{} ⊆` anything).
+2. **Suspension is declared, and a row is not a carrier.** A parameter that must *not* run its argument declares
+   an open row (`whenTrue: {Effect} A`, `if`'s `value: {Abort} T`). A **row** position means "a value or a
+   computation" — the empty row is a legal row — so a pure argument fits and is lifted. A **carrier-typed**
+   position (`x: G[A]`, `IO[A]`, a pinned stack) means "a computation on this carrier": a plain `A` is a type
+   error there, never a lift. Both are `F[A]` after desugaring, so the difference is read from the **row tag**
+   (`EffectRow.parameterEffects`), never the shape. `{Effect}` denotes the signature's *own* carrier when it binds
+   exactly one `Effect`-constrained one — which is how `else`'s `fallback: {Effect} A` is `G[A]` *and* accepts
+   `host else "localhost"`.
 3. **Pinned means captured.** `{Throw[E] | G} A` is a reified computation *and* an ordinary type — usable in `data`
    fields, discharger parameters, `List[TestCase]`. Open rows never appear in types; pinned rows are the only place
    a type contains a computation.

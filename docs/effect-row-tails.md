@@ -74,8 +74,8 @@ data-type names are gone from all `def` signatures) and its *output* as the plai
 
 ```eliot
 def runThrow[E, G[_], A](obj: {Throw[E] | G} A): G[Either[E, A]]
-def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => A): G[A]
-def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: G[A]): G[A]
+def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => {Effect} A): G[A]
+def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {Effect} A): G[A]
 def runStateToPair[S, G[_], A](initial: S, p: {State[S] | G} A): G[Pair[A, S]]
 def provide[X, G[_], A](x: X, computation: {Dep[X] | G} A): G[A]
 ```

@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, EffectRow, Funct
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
+import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars the effect-row sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]), in its two forms.
@@ -97,6 +98,17 @@ object EffectSugarDesugarer {
     * `F[_]`, adding one `F ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`. Returns the
     * function unchanged when it carries no effect rows. Synthetic functions (e.g. data-desugared ones) never carry
     * `{…}`, so applying this uniformly to every function is a no-op for them.
+    *
+    * **The carrier is the signature's, not the row's** (decided 2026-07-28, docs/effects-as-rows.md §1 rule 2): when the
+    * signature *already binds* exactly one effect carrier of its own (`G[_] ~ Effect`, as every discharger does), the
+    * rows reuse **that** binder rather than minting a second one, and their entries join its constraints. `{Effect}`
+    * then reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a slot that is
+    * `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {Effect} A): G[A]` — the
+    * same type it always had, now saying "a value or a computation" rather than "a computation". Without it the
+    * fallback could only be spelled `G[A]`, which under §1 rule 2 no longer accepts a pure actual, and `host else
+    * "localhost"` would have to be written `host else pure("localhost")` — pushing carrier machinery into user code.
+    * The reuse is decidable from the declaration alone and applies to no signature written before it (nothing in the
+    * tree mixed the two spellings); two or more `Effect`-constrained carriers decline it and mint as before.
     */
   def desugar(function: FunctionDefinition): FunctionDefinition = {
     val signatureExprs =
@@ -109,23 +121,30 @@ object EffectSugarDesugarer {
 
     if (rows.isEmpty) function
     else {
-      val anchor         = function.name
-      val carrierNameOpt = Option.when(positives.nonEmpty)(freshName("F", function.genericParameters.map(_.name.value).toSet))
-      val carrierParam   = carrierNameOpt.map { carrierName =>
+      val anchor          = function.name
+      val reusedCarrier   = ownEffectCarrier(function)
+      val carrierNameOpt  = Option.when(positives.nonEmpty)(
+        reusedCarrier.getOrElse(freshName("F", function.genericParameters.map(_.name.value).toSet))
+      )
+      val rowConstraints  = carrierNameOpt.toSeq.flatMap { carrierName =>
         val carrierRef = anchor.as(typeExpr(anchor.as(carrierName)))
-        GenericParameter(
-          anchor.as(carrierName),
-          anchor.as(functionKind(anchor)),
-          positives.map(e => GenericParameter.AbilityConstraint(e.abilityName, e.typeParameters :+ carrierRef)),
-          inferable = true
-        )
+        positives.map(e => GenericParameter.AbilityConstraint(e.abilityName, e.typeParameters :+ carrierRef))
       }
-      val rewriteExpr    = rewrite(carrierNameOpt)
+      // Minted only when nothing was reused: a reused binder keeps its declared position (and so its index, which
+      // decides whether the elaborator can write it — A.11.4b's first-binder limit).
+      val carrierParam    = carrierNameOpt.filterNot(reusedCarrier.contains).map { carrierName =>
+        GenericParameter(anchor.as(carrierName), anchor.as(functionKind(anchor)), rowConstraints, inferable = true)
+      }
+      val rewriteExpr     = rewrite(carrierNameOpt)
 
       function.copy(
-        genericParameters = carrierParam.toSeq ++ function.genericParameters.map(gp =>
-          gp.copy(typeRestriction = rewriteExpr(gp.typeRestriction))
-        ),
+        genericParameters = carrierParam.toSeq ++ function.genericParameters.map { gp =>
+          val constraints =
+            if (reusedCarrier.contains(gp.name.value))
+              (gp.abilityConstraints ++ rowConstraints).distinctBy(constraintKey)
+            else gp.abilityConstraints
+          gp.copy(typeRestriction = rewriteExpr(gp.typeRestriction), abilityConstraints = constraints)
+        },
         args = function.args.map(arg => arg.copy(typeExpression = rewriteExpr(arg.typeExpression))),
         typeDefinition = rewriteExpr(function.typeDefinition),
         body = function.body.map(rewriteExpr),
@@ -134,6 +153,26 @@ object EffectSugarDesugarer {
         effectRow = declaredEffectRow(function)
       )
     }
+  }
+
+  /** The one effect carrier a signature binds itself, if there is exactly one: a higher-kinded binder constrained by the
+    * machinery ability `Effect` (`G[_] ~ Effect`). `None` when there is none, or more than one — the rule reuses only
+    * what is unambiguous, and minting stays the fallback.
+    */
+  private def ownEffectCarrier(function: FunctionDefinition): Option[String] =
+    function.genericParameters.filter(isEffectCarrierBinder) match {
+      case Seq(single) => Some(single.name.value)
+      case _           => None
+    }
+
+  private def isEffectCarrierBinder(gp: GenericParameter): Boolean =
+    isHigherKinded(gp.typeRestriction.value) &&
+      gp.abilityConstraints.exists(_.abilityName.value == EffectMachinery.effectAbilityName)
+
+  /** A binder's kind as written by the `[G[_]]` arity sugar: `Function[…]`, i.e. anything but `Type`. */
+  private def isHigherKinded(kind: Expression): Boolean = kind match {
+    case FunctionApplication(_, name, Some(_), _) => name.value == "Function"
+    case _                                        => false
   }
 
   /** The effects-as-channel **declared row** (docs/effects-as-channel.md §4, Phase 1) plus the **carrier-stack

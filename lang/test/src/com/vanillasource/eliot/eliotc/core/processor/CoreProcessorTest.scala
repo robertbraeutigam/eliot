@@ -618,6 +618,39 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  // The carrier a row collapses onto is **the signature's own**, when it has one: a definition that already binds an
+  // `Effect`-constrained carrier (every discharger does) reuses that binder instead of minting a second one, so
+  // `{Effect} A` and `G[A]` denote the same type there. That is what lets `else`/`catch` declare a handler slot that is
+  // `G[A]` *and* row-tagged — the same type, now saying "a value or a computation" (docs/effects-as-rows.md §1 rule 2).
+  it should "reuse the signature's own Effect-constrained carrier instead of minting a second one" in {
+    namedValue("def f[G[_] ~ Effect, A](x: {Effect} A): G[A]").asserting { nv =>
+      (constraintShapes(nv).keySet, nv.inferableArity) shouldBe (Set("G"), 0)
+    }
+  }
+
+  it should "give the reused carrier the same signature as spelling the parameter G[A] by hand" in {
+    (namedValue("def f[G[_] ~ Effect, A](x: {Effect} A): G[A]"), namedValue("def f[G[_] ~ Effect, A](x: G[A]): G[A]"))
+      .mapN { (row, hand) => row.signature.value.structure shouldBe hand.signature.value.structure }
+  }
+
+  it should "add the row's other effects as constraints on the reused carrier" in {
+    namedValue("def f[G[_] ~ Effect, A](x: {Abort} A): G[A]").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("G" -> Seq(("Effect", Seq(Ref("G", T))), ("Abort", Seq(Ref("G", T)))))
+    }
+  }
+
+  it should "mint a fresh carrier when the signature binds no Effect-constrained one" in {
+    namedValue("def f[G[_], A](x: {Suspend} A): G[A]").asserting { nv =>
+      constraintShapes(nv).keySet shouldBe Set("F")
+    }
+  }
+
+  it should "mint a fresh carrier when the choice would be ambiguous (two Effect-constrained carriers)" in {
+    namedValue("def f[G[_] ~ Effect, H[_] ~ Effect, A](x: {Suspend} A): G[A]").asserting { nv =>
+      constraintShapes(nv).keySet shouldBe Set("G", "H", "F")
+    }
+  }
+
   // A *pinned* row `{E1, E2 | T} A` is a concrete type: the canonical carrier stack over the base `T`, spelled in
   // effect vocabulary. It rewrites by the `<Ability>Carrier` naming convention — no generic parameter is introduced.
   "pinned effect rows" should "rewrite to the canonical carrier stack in a def signature" in {

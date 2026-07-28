@@ -56,10 +56,15 @@ class RowElaboratorTest
       |""".stripMargin
 
   /** The discharge environment: an effect ability `X` with its carrier and a catch-shaped discharger. */
+  // The stub discharger mirrors the real `catch`/`else` spelling, and must keep mirroring it: its handler slot is
+  // declared as an effect **row** (`Str => {Effect} A`), which is what makes a *pure* handler body lift (§1 rule 2).
+  // Spelled `handler: Str => G[A]` it would mean "a computation on G" and a pure body would be a type error — the
+  // shape these twins are not about. The `{Effect}` here denotes `G` itself, because the signature already binds one
+  // `Effect`-constrained carrier (EffectSugarDesugarer's reuse rule).
   private val dischargePrelude =
     """data XCarrier[G, A]
       |ability X[F[_]] { def boom[A]: F[A] }
-      |def catchX[G[_], A](computation: {X | G} A, handler: Str => G[A]): G[A]
+      |def catchX[G[_] ~ Effect, A](computation: {X | G} A, handler: Str => {Effect} A): G[A]
       |def failing: {X} Str = boom
       |""".stripMargin
 

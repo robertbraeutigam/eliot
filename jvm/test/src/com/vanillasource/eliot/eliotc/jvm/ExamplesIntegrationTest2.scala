@@ -359,18 +359,41 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "unparseable\ninitial")
   }
 
-  // A bare pure value supplied to a generic effect-carrier parameter `F[A]` auto-lifts via `pure` — previously it
-  // degenerately unified `F[A] := String` and miscompiled to a runtime VerifyError.
-  "a pure value into a generic effect-carrier parameter" should "auto-lift via pure" in {
-    compileAndRun(
+  // §1 rule 2 (decided 2026-07-28): a parameter typed on a carrier holds a *computation*, so a bare pure value is a
+  // type error there — `F[A]` is a type, not a row, and "which `F`?" has no answer the caller supplied. This used to
+  // auto-lift via `pure`, which made the calling convention depend on `~ Effect` being declared for the callee's own
+  // internal reasons: without that constraint the very same call died in the quoter instead. (Older still, it
+  // degenerately unified `F[A] := String` and miscompiled to a runtime VerifyError; the rejection keeps that closed.)
+  "a pure value into a generic effect-carrier parameter" should "be rejected — a carrier is a type, not a row" in {
+    compileForErrors(
       """import eliot.jvm.IO
-import eliot.effect.Console
+        |import eliot.effect.Console
         |import eliot.carrier.Effect
         |
         |def echo[F[_] ~ Effect, A](value: F[A]): F[A] = value
         |
         |def main: IO[Unit] = printLine(echo("hello"))""".stripMargin
-    ).asserting(_ shouldBe "hello")
+    ).asserting(_.mkString should include("declares a computation on its own carrier"))
+  }
+
+  // The other side of the same rule, and the spelling a library author reaches for instead: an **effect row** means
+  // "a value or a computation" — the empty row is a legal row — so the identical position accepts both a pure actual
+  // and an effectful one. `{Effect}` is `F[A]` after desugaring, so nothing about the *type* changed; what changed is
+  // that the declaration now says which of the two it means.
+  "the same parameter declared as an effect row" should "accept a pure and an effectful argument alike" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.carrier.Effect
+        |
+        |def echo[A](value: {Effect} A): {Effect} A = value
+        |
+        |def main: {Console} Unit = {
+        |   printLine(echo("hello"))
+        |   printLine(echo(readLine))
+        |}""".stripMargin,
+      stdin = "typed\n"
+    ).asserting(_ shouldBe "hello\ntyped")
   }
 
   // The other half of the rule above: a higher-kinded binder that declares NO `~ Effect` constraint is not a carrier,

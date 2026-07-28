@@ -75,5 +75,5 @@ def orRaise[E, A](e: Either[E, A]): {Throw[E]} A = foldEither(err -> raise(err),
  * above). On success it yields the computed value; on `raise(err)` it yields `onError(err)`.
  */
 infix left
-def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => G[A]): G[A] =
+def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => {Effect} A): G[A] =
    flatMap(e -> foldEither(onError, a -> pure(a), e), runThrow(computation))

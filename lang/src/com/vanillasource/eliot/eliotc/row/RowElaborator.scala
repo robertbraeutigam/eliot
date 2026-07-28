@@ -136,7 +136,33 @@ object RowElaborator {
     */
   case class Elaborated(
       body: Option[Sourced[OperatorResolvedExpression]],
-      violations: Seq[Sourced[String]]
+      violations: Seq[Violation]
+  )
+
+  /** One §1 rule-4/rule-2 violation: the located message, plus the explanation of the rule it broke. The help travels
+    * with the message because the two directions read oppositely — a computation delivered to a *rowless* slot, and a
+    * plain value delivered to a *carrier-typed* one — and a reader needs the one that applies.
+    */
+  case class Violation(message: Sourced[String], help: Seq[String])
+
+  /** Why a computation may not be routed through a position that declares no row (§1 rule 4). */
+  val rowlessSlotHelp: Seq[String] = Seq(
+    "A type parameter that declares no effect row is a payload: it can never stand for a computation.",
+    "Call the function directly instead of routing the computation through this position, for example",
+    "'runStateToPair(initial, program)' rather than 'program.runStateToPair(initial)'.",
+    "Infix dischargers are unaffected: 'x catch (err -> ...)' and 'setting else \"default\"' already resolve",
+    "to a direct call with the computation at its own declared slot."
+  )
+
+  /** Why a plain value may not be passed where a carrier-typed slot is declared (§1 rule 2). The dual of
+    * [[rowlessSlotHelp]]: there the position promised a value and got a computation, here it promised a computation
+    * and got a value.
+    */
+  val carrierSlotHelp: Seq[String] = Seq(
+    "A parameter declared on a carrier ('x: G[A]') holds a computation: 'G' is a type there, not an effect row,",
+    "so a plain 'A' is not one of its values and nothing lifts it into one.",
+    "If the parameter should accept a value *or* a computation, declare it as an effect row: 'x: {Effect} A'.",
+    "A row accepts a pure argument because the empty row is a legal row — that is the difference between the two."
   )
 
   /** Elaborate a definition's runtime body. [[None]] for a body-less value. The result mirrors the original
@@ -147,14 +173,14 @@ object RowElaborator {
 
   /** Elaborate a definition's runtime body and collect its rule-4 violations in the same pass. See [[Elaborated]]. */
   def elaborateChecked(orv: OperatorResolvedValue, universe: RowChecker.Universe): Elaborated = {
-    val collected = mutable.Buffer.empty[Sourced[String]]
+    val collected = mutable.Buffer.empty[Violation]
     Elaborated(elaborateBody(orv, universe, collected), collected.toSeq)
   }
 
   private def elaborateBody(
       orv: OperatorResolvedValue,
       universe: RowChecker.Universe,
-      collected: mutable.Buffer[Sourced[String]]
+      collected: mutable.Buffer[Violation]
   ): Option[Sourced[OperatorResolvedExpression]] =
     orv.runtime.map { runtime =>
       val (paramNames, body) = RowChecker.peelBinders(runtime.value)
@@ -259,7 +285,7 @@ object RowElaborator {
       ownGenerics: Set[String],
       universe: RowChecker.Universe,
       ambientAbilities: Set[AbilityFQN],
-      violations: mutable.Buffer[Sourced[String]]
+      violations: mutable.Buffer[Violation]
   ) {
     private var nextBinder = 0
 
@@ -626,6 +652,11 @@ object RowElaborator {
       val calleeOrv     = universe.lookup(callee)
       val calleeView    = calleeOrv.map(o => SignatureView.of(o.signature))
       val pinned        = calleeOrv.map(_.effectRow.pinnedParameterIndices).getOrElse(Set.empty)
+      // The parameters the callee declared with an **open row** (`{Effect} A`, `A => {Effect} B`), read off the tag
+      // the desugar records (source (i)). This is what separates "a value or a computation" from "a computation on
+      // this carrier" (§1 rule 2): both are `F[A]` after desugaring, so only the tag can tell them apart, and a pure
+      // actual lifts into the first and is a type error at the second.
+      val rowTagged     = calleeOrv.map(_.effectRow.parameterEffects.map(_.parameterIndex).toSet).getOrElse(Set.empty)
       val runBoundary   = universe.runBoundaries.contains(callee)
       val calleeBinders = calleeOrv.map(EffectCarriers.declaredCarrierBinders).getOrElse(Set.empty)
       // §1 rule 4, third bullet: `{Effect}` is a *row variable*, and this call may instantiate it at the **empty
@@ -666,28 +697,70 @@ object RowElaborator {
             val captured = withCapturedRow(capturedRowAt(calleeOrv, index, runBoundary))(core(arg, captureRegion)._1)
             (accArgs :+ captured, accBinds)
           } else if (declaredSlot.exists(s => carrierHeaded(s, calleeBinders))) {
-            // A declared-suspended slot (carrier-headed parameter type) receives a computation on the *call's own*
-            // carrier: an effectful argument passes unrun; a pure argument is lifted (`if(c, "a")` ⇒ `pure("a")`).
-            // That carrier is the enclosing region's in every ordinary call and `Id` at the empty row, which is why
-            // the lift reads `ownRegion` rather than the caller's. With no carrier of its own (`slotRegion`) the
-            // call's carrier is context-supplied, so the slot takes whatever it is given — lifting there would
-            // force `Id` on a carrier the use site chooses.
+            // A carrier-headed slot receives a computation on the *call's own* carrier, and an effectful argument
+            // passes unrun. Whether a *pure* argument is lifted into it is decided by the slot's **row tag**, not by
+            // its type (§1 rule 2, decided 2026-07-28):
+            //
+            //   - a **row** slot (`whenTrue: {Effect} A`, `value: {Abort} T`) means "a value or a computation" — a row
+            //     can be empty — so a pure actual lifts (`if(c, "a")` ⇒ `pure("a")`);
+            //   - a **carrier-typed** slot (`x: G[A]`, hand-written) means "a computation on G". A pure `A` is not a
+            //     `G[A]`, so it is a type error, not a lift. The two are the same shape here — a row desugars to
+            //     `F[A]` — which is why the decision reads the tag `EffectRow.parameterEffects` records at the
+            //     desugar (source (i)) and never the shape.
+            //
+            // Before that decision every `~ Effect`-constrained carrier slot lifted, which made the calling
+            // convention depend on a constraint the callee declares for its own body's sake: adding `~ Effect` to
+            // `def hold[G[_]](x: G[String])` silently changed what callers could pass, and without it the same call
+            // died in the quoter ("contains unresolved variable") instead of reporting a mismatch.
+            //
+            // The lift reads `ownRegion` (the enclosing region's carrier, `Id` at the empty row) rather than the
+            // caller's. With no carrier of its own (`slotRegion`) the call's carrier is context-supplied, so the slot
+            // takes whatever it is given — lifting there would force `Id` on a carrier the use site chooses.
             val suspended =
-              if (slotRegion) elaborate(arg, needCarrier = true, ownRegion) else core(arg, region)._1
+              if (!slotRegion) core(arg, region)._1
+              else if (rowTagged.contains(index)) elaborate(arg, needCarrier = true, ownRegion)
+              else {
+                // The dual of the rowless-slot violation below, and it needs its own diagnostic for the same reason:
+                // left to the checker, a plain value against `?G[A]` postpones, defaults, and dies in the quoter as
+                // "Cannot resolve type — contains unresolved variable", which names neither the slot nor the fix.
+                val captured = core(arg, ownRegion)._1
+                if (definitelyPure(captured))
+                  violations += Violation(
+                    arg.as(
+                      s"This argument is a plain value, but argument ${index + 1} of '${callee.name.name}' declares " +
+                        s"a computation on its own carrier."
+                    ),
+                    RowElaborator.carrierSlotHelp
+                  )
+                captured
+              }
             (accArgs :+ suspended, accBinds)
           } else if (declaredSlot.flatMap(concreteCarrierHead).isDefined) {
             // A slot declaring a **concrete carrier** — `runId`'s `obj: Id[A]`, or a `data` field holding a
             // computation (`data Box(action: IO[Unit])`) — hosts the computation, and it runs on *that* carrier
             // rather than on this region's. So it is a capture like a pinned slot (§1 rule 4, last bullet): nothing
-            // is hoisted out of it, and a pure actual lifts with that carrier's own `pure`.
+            // is hoisted out of it, and — since §1 rule 2 — nothing is lifted into it either. A concrete carrier is
+            // a *type*: `Box("pure")` is a type error, exactly as the pinned spelling of the same field already was.
             //
             // Hoisting here is what made an effect stored in a `data` field run at *construction* time while the
             // accessor's run did nothing — the argument's payload went into the field and the v2 carrier router
             // `pure`-wrapped it back to the declared type, so the misplacement type-checked (A.11.7-Y shape 1).
-            val carrier = arg.as(declaredSlot.flatMap(concreteCarrierHead).get)
-            (accArgs :+ elaborate(arg, needCarrier = true, RegionCarrier.Spelled(carrier)), accBinds)
+            val carrier  = arg.as(declaredSlot.flatMap(concreteCarrierHead).get)
+            val captured = core(arg, RegionCarrier.Spelled(carrier))._1
+            // Reported here rather than left to the checker: its one remaining pure-lift arm fires on *any* rigid
+            // carrier-headed expectation, and `IO` is the ambient carrier of the definition doing the storing, so
+            // `Box("pure")` would type-check by that arm alone — the asymmetry §1 rule 2 exists to remove.
+            if (definitelyPure(captured))
+              violations += Violation(
+                arg.as(
+                  s"This argument is a plain value, but argument ${index + 1} of '${callee.name.name}' declares a " +
+                    s"computation on a concrete carrier."
+                ),
+                RowElaborator.carrierSlotHelp
+              )
+            (accArgs :+ captured, accBinds)
           } else if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders)) && !isBareLambda(arg.value) &&
-            pureFunctionAt(declaredSlot.get, arg.value)) {
+            rowTagged.contains(index) && pureFunctionAt(declaredSlot.get, arg.value)) {
             // A **pure function value** at a carrier-codomain slot (`f: A => {Effect} B` given `url`, every pure
             // dot): the slot declares a computation-returning function and this one returns a value, so it is
             // lifted *pointwise* — the only spelling that fits, since the lift has to happen under the arrow. A
@@ -697,10 +770,16 @@ object RowElaborator {
           } else if (isBareLambda(arg.value)) {
             val domains = declaredSlot.map(s => arrowChainLike(s)._1).getOrElse(Seq.empty)
             if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders))) {
-              // A handler/callback at a carrier-codomain slot (`onError: E => G[A]`, `action: A => {Effect} Unit`):
-              // its body is a carrier region — a pure body lifts via `pure`. The codomain's carrier is the call's
-              // own result carrier, so the body inherits it when we can spell it, and merely *has* one otherwise.
-              (accArgs :+ elaborateLambdaForced(arg, forced(ownRegion), domains, calleeBinders), accBinds)
+              // A handler/callback at a carrier-codomain slot (`onError: E => {Effect} A`, `action: A => {Effect}
+              // Unit`): its body is a carrier region, so its own effects chain there rather than hoisting out. Whether
+              // a *pure* body is lifted via `pure` is the slot's row tag again (§1 rule 2, the same reading as the
+              // carrier-headed slot above: a row admits the empty row, a bare `G[A]` codomain does not). The
+              // codomain's carrier is the call's own result carrier, so the body inherits it when we can spell it,
+              // and merely *has* one otherwise.
+              val handler =
+                if (rowTagged.contains(index)) elaborateLambdaForced(arg, forced(ownRegion), domains, calleeBinders)
+                else elaborateLambdaNatural(arg, forced(ownRegion), domains, calleeBinders)._1
+              (accArgs :+ handler, accBinds)
             } else {
               // A lambda at a plain arrow slot elaborates naturally: an effectful body becomes a bind chain, a pure
               // body is untouched. What its codomain instantiates the slot at is the checker's to discover.
@@ -1334,17 +1413,23 @@ object RowElaborator {
           pinned.contains(index) || (runBoundary && index === 0) || hostsComputation(declared.value)
         if (!declaresComputation) {
           if (expressionKind(arg.value, 0) === Kind.Carrier && !isCapturedValue(arg.value))
-            violations += arg.as(
-              s"This argument is a computation, but argument ${index + 1} of '${callee.name.name}' declares no " +
-                s"effect row."
+            violations += Violation(
+              arg.as(
+                s"This argument is a computation, but argument ${index + 1} of '${callee.name.name}' declares no " +
+                  s"effect row."
+              ),
+              RowElaborator.rowlessSlotHelp
             )
           else
             determinedBy(declared.value, arg.value, 0, calleeBinders).collectFirst {
               case (binder, Kind.Carrier) => binder
             }.foreach { binder =>
-              violations += arg.as(
-                s"This argument is a computation, but it lands on the type parameter '$binder' of " +
-                  s"'${callee.name.name}', which declares no effect row (argument ${index + 1})."
+              violations += Violation(
+                arg.as(
+                  s"This argument is a computation, but it lands on the type parameter '$binder' of " +
+                    s"'${callee.name.name}', which declares no effect row (argument ${index + 1})."
+                ),
+                RowElaborator.rowlessSlotHelp
               )
             }
         }
