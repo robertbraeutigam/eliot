@@ -7,10 +7,12 @@ check is **unbounded** with the post-mono `DeclaredPureChecker` deleted as subsu
 `__.test` green (871 targets), 37/40 examples compiling (`PluginA`/`B`/`C` predate this work), every
 program byte-identical in output and class content.
 
-**What remains, in order**: **A.11.7-T is complete (2026-07-28)** — §1 rule 4 is implemented and enforced:
-every position classifies from its declaration, a computation at a rowless slot is a hard error, and the
-§6.1-A audit's 28 shapes are gone. Next is **A.11.7 + A.11.8** (one deletion: the bridge routes into the
-obligation path),
+**What remains, in order**: **A.11.7-T is complete (2026-07-28)** — §1 rule 4 is implemented and enforced
+at the §6.1-A predicate (a callee's plain generic instantiated at a computation), and the audit's 28
+shapes are gone. **A.11.7 + A.11.8 is measured and BLOCKED on one decision — see A.11.7-V**: the deferral
+path is cold *except* `payloadSlot/suspendHoist`, whose five surviving shapes are a computation *value*
+at a **concrete** rowless slot (`printLine(pure("lifted"))`) — inside rule 4 as written, outside the
+enforcement as built. Then
 then **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the live plan
 and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns the
 method** — arm-liveness tracing, the differential probe, the byte-identity oracle, the tracer gotchas —
@@ -1103,6 +1105,49 @@ Keep exactly one thing: the pure-lift rule (the default ladder's existing pure-w
 **rigid** expected type) plus the `pureWrapNode`/`runIdNode` builders, which move to `row/` as the
 elaborator's node constructors. Note A.11.5a left one live bridge behaviour to preserve or relocate: a
 payload slot declaring `Id[T]` takes it as data.
+
+### A.11.7-V The measurement after rule 4 (2026-07-28) — and the one arm that is still not cold
+
+Re-ran A.11.7-R's part-by-part bypass (A.9.4's method; scaffolding env-gated and reverted, tree green
+throughout). **Rule 4 bought most of it**, and the remaining live surface is one arm:
+
+| part switched off | A.11.7-R (before rule 4) | now | what still fires |
+| --- | --- | --- | --- |
+| carrier router | 1 test / 37 examples | **1 / 37** | `data Box[F[_]](action: F[Unit])` — §6.1's illegal stored open row |
+| uniform return boundary | 8 / 36 | **1 / 37** | one `MonomorphicTypeCheckTest` HKT-carrier-to-`Id` shape |
+| payload router | 36 / 32 | **11 / 37** | the `catch`/`else` non-identity-handler pin (`eagerRowPinIntoDomain`) |
+| **the whole deferral path** | — | **0 / 37, class content byte-identical** | *nothing* |
+
+**The obligation path (A.11.8 step 1) has exactly one live producer, and the exit test fails.** With every
+deferral site off the gate is untouched — *except* `uniformPayloadSlot`'s hoist suspension, which is
+`payloadSlot/suspendHoist` itself: switching that one arm off costs **5 tests**. So A.11.7's exit test —
+`payloadSlot/suspendHoist` reaching zero — does **not** hold, and by this section's own standing rule that
+is a **stop-and-redecide**, not an arm to keep. A deletion attempt was built and **reverted**: two of the
+five are programs that must *not* compile and did (`EffectDiagnosticVocabularyTest`'s missing
+`State`-over-`Throw` cross-lift), which is a fail-safe regression, not a spelling difference.
+
+**The missing rule, stated as precisely as the corpus states it.** The clearest shape is
+`def echo: {Console} Unit = printLine(pure("lifted"))` (`ExamplesIntegrationTest1`): `pure(…)` is a
+**computation value with an empty row** — carrier-headed by declaration, but it neither *performs* nor
+*discharges*, and `RowElaborator.strictArgument` hoists only on `performs || discharges` (deliberately:
+binding a `pure(x)` runs a computation that has nothing to run). So the elaborator passes it through and
+the checker must bind it. Under §1 rule 4's second bullet — *a rowless slot may not receive a computation,
+not a carrier-headed value, not a pinned capture* — that program is **illegal**, and the enforcement built
+at A.11.7-T step 2 does not catch it: `recordRowlessSlots` fires on a callee's *plain generic*
+instantiated at a computation (the §6.1-A predicate), and `printLine(s: String)`'s slot is concrete.
+
+Two ways to close it, and the choice is Robert's because each changes what compiles:
+
+1. **Widen the enforcement to rule 4's stated scope** — a computation at *any* rowless slot, concrete
+   included. `printLine(pure("lifted"))` becomes an error naming the fix (`pure` is not needed there),
+   and the five shapes become fixture corrections like §6.1's.
+2. **Hoist a carrier-valued argument regardless of its row** — drop `strictArgument`'s
+   `performs || discharges` gate. Nothing is rejected, but a `pure(x)` at a plain slot gains a
+   `flatMap`/`pure` round trip that erases only if `Id`-normalization reaches it.
+
+Option 1 is what the rule as written says; option 2 is what the tree does today, via the checker. Until
+one is chosen, the bridge and the obligation path stay — they are one deletion (A.11.7-R), and the
+obligation path's only producer is the arm in question.
 
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 
