@@ -1,27 +1,36 @@
 # Effects as Rows, v3: Declared Suspension + a Written Carrier
 
-**Status (2026-07-27).** The design is **implemented** and the v2 machinery is being deleted against it.
+**Status (2026-07-28). No decision is open, and the remaining work is a written step list.**
 `A.11.1`–`A.11.6` are done: the elaborator **writes the carrier**, `Bool.fold` **declares its
 suspension**, **every plain slot is strict** (§1 rule 1, finally implemented), and the per-definition row
 check is **unbounded** with the post-mono `DeclaredPureChecker` deleted as subsumed. Gate: full
-`__.test` green, 37/40 examples compiling (`PluginA`/`B`/`C` predate this work), every program
-byte-identical in output and class content.
+`__.test` green (871 targets), 37/40 examples compiling (`PluginA`/`B`/`C` predate this work), every
+program byte-identical in output and class content.
 
-**A.11.7 is BLOCKED, and its own method is what blocked it.** The bridge was traced and then switched
-off part by part over the whole gate: it is **not cold** — 43 test failures and 5 further examples
-without it, and the failures are silent miscompiles, not diagnostics. **A.11.7-R** records the
-part-by-part map and the two previously-closed decisions that have to be reopened before any of the
-~933 lines can go. The live plan is **Appendix A.11**; it replaces every earlier plan (§8 and the plans
-inside A.9/A.10 are historical). **A.9.4 owns the method** — arm-liveness tracing, the differential
-probe, the byte-identity oracle, the tracer gotchas — and is reused by every remaining step.
+**What remains, in order**: **A.11.7-T** (implement §1 rule 4 — the only step that writes code rather
+than removing it), then **A.11.7 + A.11.8** (one deletion: the bridge routes into the obligation path),
+then **A.11.9** (scaffolding and suites) and **A.11.10** (docs closeout). Appendix A.11 is the live plan
+and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns the
+method** — arm-liveness tracing, the differential probe, the byte-identity oracle, the tracer gotchas —
+and is reused by every remaining step; A.11.7-T records the fast example-sweep harness.
 
-**All three A.11.7-R open decisions are now closed by §1 rule 4** (2026-07-27, Robert). Rule 4 —
-*an effect passes through a position if and only if that position declares it* — is stated in §1, and it
-**reverses A.11.2-R** ("build neither mechanism"): `.`, `foldLeft`'s `initial` and `foldOption`'s
-`ifNone` declare `{Effect}`. With it, `foldOption` converts and **A.10's cancellation of slice 4b
-stands** — the one remaining flex-flex shape is itself a rule-4 violation (§6.1), so the `Unifier` still
-gains nothing. §6.1 is the correction inventory; A.11.7-R's candidate rule is explicitly *not* adopted,
-because it approximates rule 4 instead of declaring it.
+**How the decisions closed.** A.11.7 stopped because the bridge was measured *not cold* (A.11.7-R:
+43 test failures and 5 further examples without it, as silent miscompiles). Its three open decisions are
+all now closed, none by judgement in flight:
+
+- **§1 rule 4** (2026-07-27, Robert) — *an effect passes through a position if and only if that position
+  declares it* — reverses **A.11.2-R** so `.`, `foldLeft`'s `initial` and `foldOption` declare `{Effect}`,
+  and leaves **A.10's cancellation of slice 4b standing**, since the one remaining flex-flex shape is
+  itself a rule-4 violation (§6.1). A.11.7-R's candidate rule is explicitly *not* adopted: it
+  approximates rule 4 instead of declaring it.
+- **`ρ := {}`** (2026-07-28, Robert, after the A.11.7-S spike) — `Id` is the value of the empty row and
+  stays; deleting it was never a decision, only an inference from v2's critique of the `Id`-headed
+  *encoding*, which A.8.10 already removed.
+- **`foldOption`** — closed by measurement, not decision (A.11.7-U): it converts, and A.11.5-R's
+  surviving refutation is A.11.7-T step 1, not a missing rule.
+
+§6.1 is the correction inventory the rule outranks: 3 signatures, 7 call sites, one illegal `data` shape,
+and the tests that pin the violations.
 
 **Standing rule 1 — where decisions live: §§1–7 state the decision; §8 and the appendices record what
 happened to it.** An appendix that changes a decision must say so in §§1–7, never amend the rule in
@@ -430,10 +439,12 @@ only carrier-typed code is code the desugar wrote or the user pinned.
 
 ## 9. Open questions
 
-1. **`foldOption`'s suspension** — the one signature that did not convert (A.11.5-R). Three ways forward:
-   build the lambda-binder purity rule the second spelling needs, convert when a shape actually requires
-   it, or accept the strict `ifNone` permanently and say so in its apidoc. Needs sign-off; it is a
-   reversal of the settled list.
+1. ~~**`foldOption`'s suspension**~~ — **CLOSED 2026-07-28 by measurement (A.11.7-U), not by a decision.**
+   It converts, in the full rule-4 spelling (`ifNone: {Effect} B`, `ifSome: A => {Effect} B`, return
+   `{Effect} B`). A.11.5-R's two refutations both dissolve: the first was measured against a spelling
+   that declared only *one* of the two positions, and the second — "the elaborator cannot prove a lambda
+   binder pure" — is not a missing *rule* but the missing *instantiation*, i.e. A.11.7-T step 1. §6 is
+   correct as it stands; there is nothing here to sign off.
 2. Whether the post-mono accounting verifier can eventually retire, now that the pre-mono check is
    unbounded — not before experience says so.
 3. The fate of `Checker`'s non-effect Phase-A/B remnants — whether spine inference simplifies further
@@ -989,13 +1000,17 @@ to the A.11.5 build. `check/` 5,219 → 5,097.
 
 ## A.11.7 Delete the bridge
 
+> **Read order for the A.11.7 group.** `A.11.7` is the original step. `A.11.7-R` is why it stopped,
+> `A.11.7-S` is the spike that answered the question it stopped on, and **`A.11.7-T` is the work to do
+> now** — implementing §1 rule 4, which is what makes the deletion below possible. Do T, then this.
+
 `monomorphize/carrier/`, `UniformCarrierChecker`, and the routers in `Checker`. Trace first and delete
 only zero-fire arms — after A.11.4/A.11.5 the whole group should be cold, and **any arm that still fires
 is a missing elaborator rule, i.e. a stop-and-redecide signal**, not a reason to keep the arm.
 
 **This ran, and it returned the stop-and-redecide: the group is not cold. See A.11.7-R** for the
-part-by-part measurement and the two decisions that have to be reopened first. Nothing below this
-paragraph has been executed.
+part-by-part measurement and the two decisions that have to be reopened first — both since closed by §1
+rule 4. Nothing below this paragraph has been executed; it becomes executable after A.11.7-T.
 
 Keep exactly one thing: the pure-lift rule (the default ladder's existing pure-wrap arm against a
 **rigid** expected type) plus the `pureWrapNode`/`runIdNode` builders, which move to `row/` as the
@@ -1191,6 +1206,128 @@ implementation. §1 rule 4's third bullet is restated accordingly (it constrains
 representation of the empty row), the `Id` group is struck from A.11.0's deletion table, `IdNormalizer`
 is removed from the exit criteria, and A.11.0's arithmetic is restated: machinery lands at **≈5,540**,
 not ≈5,200; `check/` is unaffected at ≈4,150, since the `Id` apparatus never lived there.
+
+## A.11.7-U The `foldOption` measurement: it converts, and its blocker is A.11.7-T step 1
+
+Run 2026-07-28, three declarations changed and reverted; tree restored (37/40, class content
+byte-identical to baseline, 0 diffs). §9 open question 1 is closed by this measurement rather than by a
+decision.
+
+**The change**: the full rule-4 spelling in all three layers (abstract `stdlib`, concrete `jvm`, compile
+overlay `stdlib/eliot-compiler`), kept lexically identical because the layer merge is lexical —
+`def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B` plus
+`import eliot.carrier.Effect`.
+
+**Result: 35/40 examples and 9 test failures — and all 11 are one cause.**
+
+```
+printLine(testAllowed.foldOption("DENIED", s -> s))          EffectsTestable:21
+  Expected: Option(String) -> String
+  Actual:   Option(IO(String)) -> IO(String)
+```
+
+`ifNone` pure-lifts fine (`B := String`). The lambda `s -> s` sits at the declared carrier-codomain slot
+`A => F[B]`, and the elaborator cannot show its body — a bare binder reference — is pure, so it does not
+`pure`-wrap it; unification then solves `A := IO[String]` and the actual `Option[String]` no longer fits.
+The other shapes are the same class one step out: `p -> p.second` (a dot, whose result
+`declaredPayloadResult` refuses today) and `Path.extension` in `FileIoIntegrationTest`. Where the body
+*is* classifiable the conversion is silent — `jvm/…/Abort.els:24`'s `foldOption(None, a -> Some(f(a)), o)`
+never moved.
+
+**Why this closes the question rather than answering it.** A.11.5-R read this as needing a new
+"lambda-binder purity rule". It is not a new rule: **rule 4 already decides it.** A lambda at a slot
+declared `A => {Effect} B` binds `A`, which is a plain generic and therefore a payload — so a reference
+to that binder *is* pure, by declaration. Supplying that fact is exactly A.11.7-T step 1 (instantiate the
+callee's declared shape from the arguments), and `RowElaborator` already carries the binder bookkeeping
+(`withBinder(name, holdsCarrier, isPayload)`) to receive it.
+
+**Consequence for A.11.7-T**: `foldOption` is not a separate step and needs no separate decision. It is a
+*test case* for step 1 — convert it in step 3 alongside `.` and `foldLeft`, and take
+`EffectsTestable:21`, `EffectsOrdering:34/36` and `FileIoIntegrationTest`'s extension shape as the
+acceptance shapes for the lambda-binder half of step 1.
+
+## A.11.7-T Implement §1 rule 4 — the work that unblocks the deletion
+
+Everything from A.11.0 onward is a *deletion* step, and each presupposes that the elaborator can classify
+every position from declarations. That is what rule 4 buys, and this section is how it is bought. It is
+the only remaining step that writes code rather than removing it.
+
+**The three steps are ordered, and the order is load-bearing.** Step 2 before step 3, or the §6.1 sites
+get silently re-routed instead of surfacing as errors — the failure mode this whole effort exists to stop.
+
+### Step 1 — per-call instantiation of the callee's declared return
+
+`RowElaborator` gains one rule: *a call's result kind and row are its declared return, instantiated from
+the declared types and rows of the arguments supplied.* One step, local, order-free, no unification, no
+metas; whitelist-legal by §3.2 ("an elaborator-local join over the callee's declared parameter shapes").
+
+This replaces `declaredPayloadResult`'s blanket `false` on a `ParameterReference` head. It is **not**
+A.11.7-R's candidate rule, which said "a generic head is a payload" — that approximates rule 4; this
+*instantiates* it, and the difference shows exactly where the candidate cost 5 `State` miscompiles.
+
+It has **two halves**, and A.11.7-U measured the second one into existence: call results (`.`'s `B`,
+`++`'s `T`), and **lambda binders** — a lambda at a slot declared `A => {Effect} B` binds `A`, a plain
+generic, so by rule 4 a reference to that binder is a payload and its body `pure`-wraps.
+`RowElaborator.withBinder(name, holdsCarrier, isPayload)` already carries the bookkeeping to receive it.
+
+- *Acceptance*: `.`, `++`, `identity` classify correctly at every A.11.3-R site; for the binder half,
+  `EffectsTestable:21`, `EffectsOrdering:34/36` and `FileIoIntegrationTest`'s extension shape (A.11.7-U);
+  the `RowElaboratorTest` twins that assert the A.8.6 spellings are rewritten (they pin a rule-4
+  violation — §6.1).
+- *Risk*: none foreseen. This is reading declarations the elaborator already reads.
+
+### Step 2 — enforce "no computation at a rowless slot"
+
+A hard error naming the slot, when an argument's declared row is non-empty, or its type is
+carrier-headed or a pinned capture, at a slot whose declaration carries no row. This is what makes rule 4
+a rule rather than a convention, and it is what makes the §6.1 corrections *appear* rather than change
+behaviour silently.
+
+- *Acceptance*: the 7 call sites in §6.1 fail to compile with the new diagnostic, and compile again once
+  rewritten to the direct call; `data Box[F[_]](action: F[Unit])` (`TerminationIntegrationTest:206`) is
+  rejected and rewritten to a pinned row.
+- *Risk*: the diagnostic must name the direct-call fix, or it reads as the language losing a feature. The
+  infix dischargers are unaffected and the message should say so.
+
+### Step 3 — `writeCarrier` gates on the instantiated row; `ρ := {}` goes to `Id`
+
+`writeCarrier` writes the ambient only when step 1 says the instantiated row is non-empty; at `ρ := {}`
+the call is written at `Id` and `IdNormalizer` erases it (§1 rule 4, third bullet). Then convert the
+three signatures of §6.1 — `.`, `foldLeft`'s `initial`, `foldOption`'s `ifNone`/`ifSome` — using the
+`=>` spelling, never `Function[A, {Effect} B]` (A.11.7-S: it parses as a *block*).
+
+- *Acceptance*: the 14 examples A.11.7-S regressed compile again; examples back to **37/40** with class
+  content compared against a baseline label; `./mill __.test` back to **871/871**.
+- *Risk*: the one genuinely new behaviour. A.11.5's withdrawn `ridesAmbient` rule belongs here if
+  anywhere — re-evaluate it under instantiation, and re-check `Path.extension` (`FileIoIntegrationTest`
+  is its only cover).
+
+### Then, and only then: the exit test for A.11.7
+
+`payloadSlot/suspendHoist` reaching **zero** over the whole gate is the mechanical signal that the
+payload router is dead. A.11.7 and A.11.8 step 1 are **one deletion** (the bridge routes into the
+obligation path — A.11.7-R).
+
+### The measurement loop
+
+A.9.4 owns the method. The harness A.11.7-S left is the fast path and should be reused: compile all 40
+examples by direct `java -cp` (classpath from `./mill show examples.runClasspath`) with
+`--path lang/eliot --path stdlib/eliot --path jvm/eliot` **appended** — `build.mill`'s `examples.run`
+adds those, `Main` does not, so a direct invocation without them fails all 40 on "Could not find path
+eliot/…". A full sweep is ~3 minutes against ~45 through `./mill examples.run`. Delete
+`target/.eliot-cache` between runs, and never pipe a long mill run through `tail` — it buffers and
+progress is invisible.
+
+### Known-unknowns to clear before the deletion, not during it
+
+Neither is a blocker today; both are the shape that becomes one in flight (standing rule 2):
+
+- **The compile track.** §8 keeps `checkAgainstDefault`/`defaultArgSlot` permanently by design, while
+  A.11.8 step 1 deletes the *deferral arms* of `genericArgSlot`/`defaultArgSlot`. Those read as different
+  things; confirm it rather than assume it.
+- **`PluginA`/`B`/`C`.** Failing since before A.11.4, never diagnosed, and A.11.0's exit criterion
+  *accepts* them by asking for 37/40. Triage once, so an undiagnosed failure is not carried into the
+  criterion that declares the work finished.
 
 ## A.11.8 Delete the obligation path and the carrier side table
 
