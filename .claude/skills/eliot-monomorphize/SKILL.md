@@ -23,10 +23,10 @@ monomorphize/
 │   └── Quoter.scala            (strict SemValue → GroundValue read-back; fails loudly on stuck forms)
 ├── check/
 │   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 4 collaborators;
-│   │                            inferSpine = whole-spine argument resolution with Phase-A/B flex-slot deferral)
+│   │                            inferSpine = whole-spine argument resolution; slot deferral is compile-track only)
 │   ├── CheckIO.scala           (StateT[CompilerIO, CheckState, *])
-│   ├── CheckState.scala        (gamma Γ + rho ρ, unifier, bindingCache, abilityResolutions, sawGuardReturn,
-│   │                            ambientCarriers + liftCounter for the effect lift)
+│   ├── CheckState.scala        (gamma Γ + rho ρ, unifier, bindingCache, abilityResolutions,
+│   │                            ambientCarriers + metaConstraints)
 │   ├── SemExpression.scala     (checker output ADT; type slots are SemValue, not GroundValue)
 │   ├── TypeStackLoop.scala     (signature kind-check + the post-drain resolution sequence + defaults + postcondition)
 │   ├── PostDrainQuoter.scala   (the SOLE SemValue→GroundValue transition; reification gate; integerLiteral rewrite;
@@ -34,19 +34,11 @@ monomorphize/
 │   ├── CalculatedReturnResolver.scala (D7 back-edge + W2b guard discharge)
 │   ├── MarkerGuardSignature.scala (ability-impl marker detection + the parameter-stripped guard view)
 │   ├── GuardChannel.scala      (the Left/Right guard read-back protocol shared with the ability processor)
-│   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification; flags every HKT instantiation meta effectCarrier)
-│   ├── EffectLifter.scala      (the effect auto-lift: bind-lift/pure-wrap arms + Effect.flatMap/map/pure splices)
-│   ├── UniformCarrierChecker.scala (the uniform-carrier bridge: carrier-headed judgments, classify-by-expected-slot,
-│   │                            the join solver — runtime track only; see docs/effects-as-channel.md)
-│   ├── DeclaredPureChecker.scala (the "declared pure but performs an effect" fail-safe — the only effect check left
-│   │                            in the checker; the subset check is post-mono, in channel/)
+│   ├── CarrierKindChecker.scala (D8 HKT kind seeding + verification; records every HKT instantiation meta's kind)
+│   ├── EffectLifter.scala      (what the deletion slices left of the v2 lift: effectCarrierSplit, the pure-wrap arm,
+│   │                            the doomed-postponement probes, and bindWrap for the `let` rule)
 │   ├── AbilityResolver.scala   (ability-ref collection + resolve-abilities saturation pass)
 │   └── Track.scala             (Runtime/Compiler strategy: platform + 4 per-track hooks, no platform match in the core)
-├── carrier/                    (the uniform-carrier algebra, docs/effects-as-channel.md §3)
-│   ├── Carrier.scala           (carrier-stack split/rebuild; Carrier.split, Bottom = no carrier)
-│   ├── CarrierJoin.scala       (carrier metas solve by JOIN, not first-contact unify: Id bottom, one non-Id winner,
-│   │                            conflict = "Conflicting effect carriers."; unifies nested stack prefixes pairwise)
-│   └── UniformLadder.scala     (resolveSlot: the slot-classification ladder over the join)
 ├── channel/
 │   ├── RefinementChannelProcessor.scala (post-pass flow analysis over MonomorphicValue: ^Meta transfers/merges,
 │   │                                     ^Where precondition demands)
@@ -58,7 +50,7 @@ monomorphize/
 │   └── WovenValueProcessor.scala (the Id-normalization seam + assertNoIdResidue, a HARD error on any survivor;
 │                                demands EffectAccounting, so an undeclared effect blocks codegen)
 ├── unify/
-│   ├── Unifier.scala           (pattern unification; pure definitional equality; carrierRoles map; flushPostponed)
+│   ├── Unifier.scala           (pattern unification; pure definitional equality; higherKindedMetas map; flushPostponed)
 │   ├── UnifyResult.scala       (Unified / Contradiction)
 │   ├── UnifyError.scala        (context + optional expected/actual)
 │   └── SemValuePrinter.scala   (human-readable SemValue rendering for error messages; carrier stacks print as pinned
@@ -77,9 +69,7 @@ monomorphize/
 │   ├── NativeBinding.scala     (Platform-keyed: vfqn → SemValue for the evaluator)
 │   ├── ContributedBinding.scala (Key(vfqn, label); NOT platform-keyed — one contribution serves both tracks)
 │   ├── BindingContribution.scala (Leaf(SemValue) | Body(SaturatedValue))
-│   ├── BodyValueReferences.scala (memoized per-value body reference set for transitive binding prefetch)
-│   └── RunBoundaryFunction.scala (carrier-stack recognition tag source (ii): a platform-contributed FQN whose
-│                                parameter 0 is a run boundary — the synthetic main's IO[A]; see effects-as-channel)
+│   └── BodyValueReferences.scala (memoized per-value body reference set for transitive binding prefetch)
 └── processor/
     ├── MonomorphicTypeCheckProcessor.scala   (runtime entry point → TypeStackLoop, Track.Runtime)
     ├── CompilerMonomorphicTypeCheckProcessor.scala (compiler entry point → TypeStackLoop, Track.Compiler; native-leaf boundary)
@@ -101,6 +91,13 @@ and its sibling tests under `lang/test/src/com/vanillasource/eliot/eliotc/monomo
 
 `monomorphize` is the sole monomorphic type-checker package. There is **one** evaluator traversal (`NbeEvaluator`)
 and **one** semantic domain (`SemValue`) shared by types and values — never a second, weaker compile-time interpreter.
+
+**Effect elaboration is *not* in this package.** Since effects-as-rows (`docs/effects-as-rows.md`), the upstream
+`row/` phase desugars direct-style code into explicit monadic core and **writes the carrier as a type argument**, so
+the checker receives ordinary, fully explicit code in which every carrier position is rigid. What that leaves here is
+listed under "The effect channel" below: one pure-lift rule, the compile track's inferred guard carrier, the
+post-mono accounting verifier, and the `Id` erasure. Adding a bind/`pure`/`Id` decision back into the checker is the
+reversal this design paid ~1,300 lines to undo — see the anti-patterns.
 
 ## How NbE works
 
@@ -312,19 +309,11 @@ machinery; `readBackBody` dispatches to it).
 A fixed sequence, `TypeStackLoop.runPostDrainResolution` (no external design doc — it is described here and in its doc
 comments):
 
-- **Pending carrier pins** (`checker.applyPendingCarrierPins`, U4-f): apply the deferred pins recorded when an open-row
-  argument was captured into a pinned-row parameter — *before* ability resolution, so a discharger's `Throw[String]`
-  resolves against the native carrier instance instead of the free error slot junk-grounding. Self-draining; a no-op
-  when no pins exist.
 - **Saturation** (`resolveAbilitiesToFixedPoint`): drain the unifier — so the resolver sees every solution the previous
   round injected — then try to resolve the still-unresolved ability references; loop while any reference newly resolves.
 - **Finalization** (once): carrier-kind verification (`CarrierKindChecker.verifyCarrierKinds`) and the
   calculated-return fail-safe. A finalization step can commit new solutions (the kind check unifies a solution's kind
   against its expectation), so the runner drains once more before defaulting.
-- **The declared-pure fail-safe** (`DeclaredPureChecker`, value monos only — a signature twin passes `None`): run
-  *after* that drain, so the committed mismatch is visible, and *before* `defaultUnsolvedMetas` collapses an abstract
-  ambient carrier to `Type`. This is the **only** effect check left in the checker; the `derived ⊆ declared` subset
-  check is post-mono (`channel/EffectAccountingProcessor`) and the old `EffectResidualChecker` is deleted.
 - **Finalizer** (`defaultUnsolvedMetas`): every still-unsolved meta defaults to `VType` — what remains unsolved after
   the fixed point is an unconstrained (phantom) instantiation.
 - **Postponement flush** (`Unifier.flushPostponed`): any constraint still postponed after the finalizer is an equality
@@ -338,18 +327,17 @@ comments):
 `Checker` is the **definitional-equality core only**: `check`/`infer`/`inferSpine`/`applyInferred`/`peelLams`/
 `instantiatePolymorphic` plus the shared primitives (`force`, `freshMeta`, `doUnify`, `evalExpr`, `ensureBinding`,
 `prefetchBindings`). Application checking is **spine-level** (`inferSpine`): the whole curried spine is decomposed at
-the root and its argument slots resolved in two phases — **Phase A** (left to right) runs the resolution ladder per
-slot, *deferring* a slot whose domain is a bare flex meta receiving an effect-carrier-headed argument; **Phase B**
-re-forces each deferred domain — rigidified ⟹ full ladder (the `readLine.f` bind); still flex ⟹ the
-**transparent/non-transparent split** on `occursIn(domainMeta, slotResultType)`: **occurs** (a *transparent* callee
-whose result flows from the domain meta — `identity`, `const`, a data ctor) ⟹ pass-through *adoption* (solve the bare
-domain meta to the carrier type via ordinary `doUnify`), letting the parent's slot decide; **absent** (a
-*non-transparent* callee whose result carrier is independent of the domain — `putState[S, F](s: S): F[Unit]`, `S` not
-in `F[Unit]`) ⟹ **bind-lift at this slot**, since adoption would strand the argument's carrier inside the type
-parameter (never grounded → "contains unresolved variable"). This is what lets a direct-style `putState(f(state))` /
-`updateState(f) = putState(f(state))` type-check. The check-mode **resolution ladder** per slot is: unify → bind-lift →
-pure-wrap → mismatch, with *pre-arms* for the one shape unification can only postpone, never fail
-(`?F[T'] ~ rigid-under-applied` and its pure-wrap dual). Four non-equality concerns live in collaborator modules, each
+the root and each argument slot runs the resolution ladder left to right. The check-mode **resolution ladder** per slot
+is: pure-wrap pre-arm → unify → pure-wrap → mismatch, the pre-arm covering the one shape unification can only
+postpone, never fail (`?F[T'] ~ rigid-under-applied`). There is **no bind arm**: a slot that must sequence was already
+rewritten by the `row/` elaborator, which classifies every position from its declaration (§1 rule 4).
+
+A slot may still be **deferred** — a bare flex domain receiving a carrier-headed argument — and decided after the
+spine by `resolveDeferredSlot`: a still-bare-flex domain *adopts* the carrier-headed argument (pass-through, so the
+enclosing slot decides), anything else runs the ladder. **This is the compile track's mid-spine decision** (the §8
+track boundary, exercised by the `Either` guard discharge); the runtime track produces no deferral at all since
+A.11.8. The v2 Phase-A/B machinery this replaced — mode obligations, the post-drain `ModeResolver`, the splice-and-
+restart — is deleted. Non-equality concerns live in collaborator modules, each
 constructed at the top of `Checker` with **exactly the checker primitives it needs** (that narrow surface is the module
 boundary), and invoked from named hook points:
 
@@ -357,24 +345,24 @@ boundary), and invoked from named hook points:
 |---|---|---|
 | `check/CalculatedReturnResolver` — `checker.calcReturns` (D7 + W2b) | non-local inference (fill a bare return from the callee's mono body) **and** effectful-guard discharge | `Checker.infer`/`applyInferred`; `TypeStackLoop` `installReturnMeta` / `dischargeGuardedSignature` |
 | `check/CarrierKindChecker` — `checker.carriers` (D8) | HKT kind seeding + verification | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` post-drain → `verifyCarrierKinds` |
-| `check/DeclaredPureChecker` — `checker.declaredPure` | the **one** effect check left in the checker: the "declared pure but performs an effect" fail-safe, for a value whose mono *fails* (a pure nullary return cannot host the effect ⟹ no `MonomorphicValue` fact ⟹ post-mono accounting never runs). A value *with* an ambient carrier is skipped; an *applied* return (`IO[Unit]`, `Pair[..]`) is exempt. Discharge- and Id-aware: it fires only on a committed mismatch, so a fully-discharged pure body is accepted | `TypeStackLoop.runPostDrainResolution` post-drain (value monos only) |
-| `check/UniformCarrierChecker` — `checker.uniformChecker` | the **uniform-carrier** bridge (docs/effects-as-channel.md §3): carrier-headed judgments, the classify-by-expected-slot ladder, and the `CarrierJoin` solver. Live and unconditional for **runtime**-track value returns and argument slots (`platform == Platform.Runtime`, a permanent gate — §8); the compile track and declined shapes fall back to `checkAgainstDefault`/`defaultArgSlot`. Splices via `EffectLifter`'s `pureWrapNode`/`bindWrap`, sharing the one `$eff$N` counter — which is why the default ladder is the bridge's **shared substrate**, not a deletable legacy path | `Checker.checkReturnBoundary` / `resolveArgumentSlot`; constructed with `lifter.effectCarrierSplit` |
 | `check/AbilityResolver` — `checker.abilityResolver` | ability-ref collection + the `resolve-abilities` saturation pass (resolve each ability-qualified ref to its impl) | `TypeStackLoop.processIO` → `collectAbilityRefs`; `TypeStackLoop` post-drain → `resolveAbilities` |
-| `check/EffectLifter` — `checker.lifter` | the effect auto-lift (docs/effect-lift-in-checker.md): the bind-lift / pure-wrap ladder arms + their doomed-postponement pre-arms, `effectCarrierSplit` (flagged metas + re-forced `ambientCarriers` heads), and the `Effect.flatMap`/`map`/`pure` `SemExpression` splices (`[C, T', R]` type args; `$eff$N` binders off `CheckState.liftCounter`; `bindWrap` unifies the bind's carrier with the core's) | the one shared `Checker.resolveLadder`/`resolveFailureLadder`, with the bind-lift arm gated by `allowBindLift` (`true` only at argument slots — a return boundary never strips a carrier, so it passes `false` and the doomed shape commits the eager mismatch) and pure-wrap on both; `typeImmediateLambda` (the let-bind rule: effectful bound value ⟹ sequence, with the continuation *inferred*, never checked against the carrier expectation); `inferSpine` → `wrapBinds` |
+| `check/EffectLifter` — `checker.lifter` | what the deletion slices left of the v2 auto-lift: `effectCarrierSplit` (the carrier recognition every effect-aware collaborator reads), the **pure-wrap arm** (`tryPureWrap` — a pure term into a *rigid* carrier-headed position, `Effect.pure`, verified by *speculative* unification), the two doomed-postponement probes, and `bindWrap` for the one surviving bind producer. The `tryBindLift` arm, the pure-boundary `tryIdDefault` and `wrapBinds` are **deleted** — the row elaborator writes those nodes now | the shared `Checker.resolveLadder`/`resolveFailureLadder`; `typeImmediateLambda` (the `let` rule: an effectful bound value sequences, with the continuation *inferred*) |
 
-Per-meta carrier data (carrier kind / effect-carrier flag) lives in the **single** `CarrierRole` map on the `Unifier`;
-the collaborators own the *algorithm*, not a private store.
+Per-meta bookkeeping (the binder's kind + its call-site context) lives in the **single** `higherKindedMetas` map on
+the `Unifier`; the collaborators own the *algorithm*, not a private store.
 
-### Carrier bookkeeping (`Unifier.CarrierRole`)
+### Higher-kinded meta bookkeeping (`Unifier.higherKindedMetas`)
 
-One `Map[Int, CarrierRole]` on the `Unifier` holds all per-metavariable bookkeeping. Only *higher-kinded*
-instantiation metas (`[F[_]]` carriers) get an entry, seeded by `CarrierKindChecker.recordCarrierMetas`:
+One `Map[Int, (SemValue, Sourced[String])]` on the `Unifier`, seeded by `CarrierKindChecker.recordCarrierMetas` for
+*higher-kinded* instantiation metas (`[F[_]]`) only: the binder's expected kind plus a call-site context, verified
+post-drain (a carrier solved to a value of the wrong kind is rejected rather than silently accepted).
 
-- `carrierKind` — the binder's expected kind plus a call-site context; verified post-drain (a carrier solved to a
-  value of the wrong kind is rejected rather than silently accepted).
-- `effectCarrier` — the effect lift's *callee-side* carrier notion, deliberately **unfiltered** (an effectful result
-  rides *any* of the callee's own HKT binders, including `runStateToPair`'s unconstrained `G[_]`; the
-  ability-constraint filter applies only to a value's own *ambient* carriers in `CheckState.ambientCarriers`).
+There used to be a second field on this record, an `effectCarrier` flag. A.11.8-3 measured that it was written at one
+site, unconditionally, together with the kind — so `isHigherKindedMeta(id)` *is* the flag, and the two collapsed into
+one record with derived projections. Its whole live surface is the **compile track's** inline guard, whose carrier is
+still inferred (`EffectLifter.effectCarrierSplit`'s meta arm, `CalculatedReturnResolver.isGuardCarrier`,
+`Track.Compiler.pinCarriers`); on the runtime track the reads are pure routing, since the elaborator writes the
+carrier and a runtime carrier is never a metavariable.
 
 Every meta without an entry is plain: solved by ordinary unification, else defaulted to `VType` by
 `defaultUnsolvedMetas`.
@@ -408,29 +396,33 @@ walked (so nested `where` demands fire) but never record. Consumers: the reconci
 the JVM backend decodes machine widths from it, the LSP hover shows value ranges. Refinements flow strictly
 **downstream** of type formation — they never feed back into the checker or unifier.
 
-### The effect channel (`channel/` + `carrier/`) — the other post-pass
+### The effect channel (`channel/`) — the other post-pass
 
-Authoritative design: `docs/effects-as-channel.md`. Same template as the refinement channel — a rider on
-`MonomorphicValue`, strictly downstream of typing.
+Authoritative design: `docs/effects-as-rows.md` (§1 the user rules, §3 elaboration, §4 what is deleted / stays).
+`docs/effects-as-channel.md` is the superseded v2 design — history only. Same template as the refinement channel: a
+rider on `MonomorphicValue`, strictly downstream of typing.
 
-- **Checking is carrier-uniform.** Every runtime term judgment is carrier-headed, carrier outermost, *by
-  construction*; a pure term rides the identity carrier `Id`. `UniformCarrierChecker` is the live, unconditional path
-  for runtime-track returns and argument slots; the compile track keeps the default ladder permanently (a design
-  decision, not a TODO), so `checkAgainstDefault`/`defaultArgSlot`/the `EffectLifter` arms are the **shared
-  substrate** — do not "delete the legacy path".
-- **Carrier metas solve by join** (`carrier/CarrierJoin`), never by first-contact unification: `Id` bottom, one
-  non-`Id` winner, conflict = mismatch, unsolved defaults to `Id` — *except* an ability-constrained carrier meta
-  (`CheckState.metaConstraints`), which ability resolution must solve. Eager unification of a carrier position is the
-  historical premature-commitment bug class.
-- **Carrier-ness is tag-driven, never guessed.** A slot is a carrier slot because the callee's fact says so —
-  `EffectRow.pinnedParameterIndices` (from the pinned-row desugar) or `RunBoundaryFunction` (platform-contributed).
-  Classifying by the `<Ability>Carrier` name, by shape, or by "has an `Effect` instance" **miscompiles in both
-  directions** — `tryUnifyCommitting`'s remaining traffic is legitimate *data-container* capture (`Either`, `Pair`,
-  `Option`, `String`) that must NOT go through the carrier join.
-- **Verification is post-mono.** `EffectAccountingProcessor` derives each mono'd value's row from its checked body
-  (ride-tested against `MonomorphicValue.ambientCarriers`) and requires `derived ⊆ declared`; `WovenValueProcessor`
-  demands that fact, so an undeclared effect blocks codegen. The checker keeps only `DeclaredPureChecker`.
-- **`Id` is erased at the `WovenValue` seam** (`IdNormalizer`), with `assertNoIdResidue` a hard error on survivors.
+- **The carrier is written, not inferred.** `row/RowElaborator` writes the ambient carrier (and every other
+  declaration-determined type argument) at each call, so on the runtime track a carrier position is **rigid** and no
+  carrier meta is created (`CarrierKindChecker.recordCarrierMetas` drops binders already supplied). The v2
+  carrier-uniform bridge, `carrier/CarrierJoin`, `UniformLadder` and the `Id`-headed judgment invariant are deleted.
+  Only the **compile track** still infers a carrier, for an inline guard, and pins it to `Either[E]` post hoc.
+- **One effect rule is left in the checker**: a pure term meeting a *rigid* carrier-headed expected type is
+  `pure`-lifted (`EffectLifter.tryPureWrap`). No metas, no ordering, no lattice — and no effect diagnostic.
+- **Carrier-ness is tag-driven, never guessed.** A slot holds a computation because the *declaration* says so:
+  `EffectRow.pinnedParameterIndices`/`returnPinnedEffects` (from the pinned-row desugar, source (i)) or the platform
+  run boundaries (`row/RunBoundaryFunctions`, source (ii)). Classifying by the `<Ability>Carrier` name, by shape, or
+  by "has an `Effect` instance" **miscompiles in both directions**: a data container read as a carrier loses its type
+  argument, a carrier read as data gets a wrong bind.
+- **Verification is post-mono** — and it is the *second* of two verifiers. `EffectAccountingProcessor` derives each
+  mono'd value's row from its checked body (ride-tested against `MonomorphicValue.ambientCarriers`) and requires
+  `derived ⊆ declared`; `WovenValueProcessor` demands that fact, so an undeclared effect blocks codegen. The first is
+  upstream and per-definition (`row/processor/RowElaborationProcessor.verifyRow`), reporting at the definition what
+  declarations alone settle; both emit the same message. `DeclaredPureChecker` was subsumed by it and is deleted.
+- **`Id` is the value of the empty row, *written* by the elaborator** (a row-polymorphic definition instantiated at
+  `ρ := {}`, and every pure boundary a discharge lands on — with `runId` written beside it, so it is honestly
+  well-typed rather than well-typed-modulo-normalization). It is erased at the `WovenValue` seam (`IdNormalizer`),
+  with `assertNoIdResidue` a hard error on survivors — *more* load-bearing now that `Id` is written deliberately.
   **Any new consumer of `MonomorphicValue` or of mid-mono `SemExpression`s must Id-normalize first** — this is a
   recurring tax (the LSP's `TypeHintIndex` pays it in `TypeHintIndex.idNormalized`), and the residue assertion fires
   only *downstream* of the seam, so it cannot catch a consumer that reads earlier. Rendering hides the machinery
@@ -470,21 +462,20 @@ Pattern unification on `SemValue`s with a `postponed` queue (`drain()` retries u
 4. `VStuckNative`~`VStuckNative` same FQN → zip spines; it is **never** injectivity-decomposed against a meta (non-injective).
 5. `VMeta` → pattern rule: empty spine → solve directly (with an **occurs-check**); non-empty spine → `tryDecomposeApplied`
    (injectivity decomposition against a *rigid* `VTopDef(None)` / `VNeutral` head, equal-arity or partial-application),
-   else postpone. A carrier meta postponed against a non-rigid `VPi` (`?F[A,B] ~ Function[A,B]`) is **deliberately not
-   decomposed** — `CarrierKindChecker` documents this as higher-order unification the pattern unifier cannot solve
+   else postpone. A higher-kinded meta postponed against a non-rigid `VPi` (`?F[A,B] ~ Function[A,B]`) is **deliberately
+   not decomposed** — `CarrierKindChecker` documents this as higher-order unification the pattern unifier cannot solve
    (see the diagnosing note on the two-arg HKT-over-Function limitation). **Flex-flex `?F[a..] ~ ?B`** (applied meta vs a
    *bare, unsolved* meta) solves the bare meta **in either orientation** — `?B := ?F[a..]` — rather than postponing when
-   the applied side is on the left. Without it, a carrier application aliased through a polymorphic combinator (the `.`
-   operator's result `?B := ?carrier[payload]`) stays hidden behind `?B`, so the effect-lift never sees the argument as
-   carrier-headed — the bug that broke dot-chained effect discharge (`x.provide(a).provide(b)` fully discharged to a pure
-   result). Pinned by `unify/MetaApplicationUnifyTest`.
+   the applied side is on the left, so an application aliased through a polymorphic combinator does not stay hidden
+   behind `?B`. Pinned by `unify/MetaApplicationUnifyTest`.
 
-There is **no** assignability / widening / `refinements` map in `unify` — and no directional coercion anywhere in the
-checker since the refinement channel's flag day (`Int` is nullary; value ranges ride the `channel/` post-pass, strictly
-downstream of typing). The one deliberate side-door is the Phase-B pass-through *adoption*
+`unify` is **pure definitional equality and gained nothing from the effect work**: no assignability, no widening, no
+`refinements` map, no carrier decomposition rule (`Int` is nullary; value ranges ride the `channel/` post-pass,
+strictly downstream of typing). The v2 slice that proposed teaching it carrier decomposition was measured and
+**cancelled** — with the carrier written, the flex-flex `?F[X] ~ ?G[Y]` shape it existed to solve does not arise on
+the runtime track. The one deliberate side-door is the compile track's pass-through *adoption*
 (`Checker.resolveDeferredSlot`): solving a bare domain meta to the carrier-headed argument type via ordinary `doUnify`,
-taken only for a *transparent* callee — one whose domain meta occurs in the call's result; a non-transparent callee
-bind-lifts at the slot instead.
+so the effect rides up and the enclosing slot decides.
 
 `flushPostponed` runs after the finalizer: still-postponed constraints become hard mismatch errors (fail-safe — see the
 post-drain sequence above). Pinned by `unify/PostponedFlushTest`.
@@ -511,7 +502,7 @@ quiet-probe pattern.
    `AbilityResolver.abilityArity` (reads an ability-marker's binder count for impl queries),
    `SaturatedValue.binderRoles` feeding `BindingClosure.reifyingWrap` (which leading binders a body reifies), and
    `TypeStackLoop.recordAmbientCarriers` (the value's own ability-constrained HKT binders, seeding
-   `CheckState.ambientCarriers` for the effect lift). None of these drives a definitional-equality decision.
+   `CheckState.ambientCarriers` for carrier recognition). None of these drives a definitional-equality decision.
 2. **The evaluator produces VLam; the Checker produces VPi.** Never produce `VPi` in the evaluator. The `Function` native
    is a `VNative` that fires to `VPi`.
 3. **No ORE rewriting.** ORE is read once into `SemValue` and forgotten. All substitution is closure application.
@@ -574,21 +565,22 @@ quiet-probe pattern.
 - **Re-introducing assignability / widening / a `refinements` map into `unify`.** `unify` is pure definitional equality.
   Value-range refinements live in the `channel/` post-pass, strictly *downstream* of typing — never in the unifier or
   the checker.
-- **Making bind/`pure` decisions from declared signatures outside the checker.** Whether an effectful term in a slot is
-  sequenced (`Effect.flatMap`/`map`) or passed through is undecidable from a callee's declaration (the same generic slot
-  needs opposite answers at different instantiations — the `readLine.f` probe pair); it is `EffectLifter`'s check-mode
-  elaboration per concrete instantiation. Never grow a pre-typing phase (or any consumer of `CalleeSignatures`) a
-  bind-position/branch-position/machinery-sniffing heuristic — that is the shadow type system the single-evaluator rule
-  bans, and it is exactly what docs/effect-lift-in-checker.md removed.
+- **Making a bind / `pure` / `Id` decision inside the checker.** Elaboration is a *desugar*, upstream, decided from
+  declarations alone (`row/RowElaborator`, §1 rule 4: a position's declared type says whether it runs, captures, or is
+  a payload). The v2 arrangement — deciding it per concrete instantiation in check mode — is what this design spent
+  ~1,300 lines reversing; re-adding a slot arm that inserts a node is that reversal starting again. If the elaborator
+  cannot decide a position, the gap is in the **declarations** (§3.2's whitelist), not in the checker.
 - **Re-inlining a non-equality side-car into `Checker`.** A new lattice relation / inference back-edge / kind rule gets
   its *own* collaborator constructed with injected primitives — never grown into `Checker`, never folded into `unify`.
 - **Deciding carrier-ness by name or shape** (`<Ability>Carrier` string matching, the LSP reverse table, "has an
-  `Effect` instance"). Misrecognition *miscompiles in both directions* — classify a data container as a carrier and the
-  join steals its type argument; classify a carrier as data and you get a wrong bind. Recognition is **tag-only**
-  (`EffectRow.pinnedParameterIndices` / `RunBoundaryFunction`); if a new shape needs routing, add a tag source.
-- **Eagerly unifying a carrier position, or adding another eager-pin special case.** Carrier metas solve by join
-  (`carrier/CarrierJoin`); `applyPendingCarrierPins`/`eagerRowPinIntoDomain` are the last sanctioned pins, not a
-  template. First-contact carrier unification is the recurring theft/junk-ground bug class.
+  `Effect` instance"). Misrecognition *miscompiles in both directions* — classify a data container as a carrier and it
+  loses its type argument; classify a carrier as data and you get a wrong bind. Recognition is **tag-only**
+  (`EffectRow.pinnedParameterIndices`/`returnPinnedEffects` / `row/RunBoundaryFunctions`); if a new shape needs
+  routing, add a tag source.
+- **Re-introducing carrier *inference*** — a carrier metavariable on the runtime track, a join/lattice over carriers, an
+  eager pin, an ordering-sensitive slot decision. The elaborator writes the carrier, so every runtime carrier position
+  is rigid and there is nothing to solve; first-contact carrier unification is the historical theft/junk-ground bug
+  class and its whole apparatus was deleted, not disabled.
 - **Reading `MonomorphicValue` (or a mid-mono `SemExpression`) without Id-normalizing first.** `Id` is live between
   elaboration and the `WovenValue` seam; a consumer upstream of that seam sees `Id[X]` types and `runId`/`pure@Id`
   nodes, and `assertNoIdResidue` cannot catch it (it runs *after* erasure).
@@ -625,14 +617,19 @@ Tests live under `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/`:
   `processor/CompilerAbilityResolutionTest.scala` — the compiler-as-platform track (register a `Platform.Compiler`
   `PathScan` for the compiler pool; see `CompilerNativesProcessorTest`'s `twoPoolFacts` template).
 - `processor/CompilerOnlyDataNativesTest.scala` — the `DeclaringPool` compiler-pool fallback for the datatype native.
-- `check/CarrierBookkeepingTest.scala` — ambient-carrier heads + effect-carrier meta flagging, via the
-  `TypeStackLoop.processWithState` test seam.
-- `check/EffectLifterTest.scala` — the effect auto-lift end-to-end cases (bind/pure arms, deferral, let-bind rule).
+- `check/CarrierBookkeepingTest.scala` — ambient-carrier heads + higher-kinded meta recording, via the
+  `TypeStackLoop.processWithState` test seam. Its acceptance case for A.11.4 asserts **zero** carrier metas for
+  `def echo: {Console} Unit = printLine("x")` — the written carrier, measured.
+- `check/EffectLifterTest.scala` — what survives of the lift: carrier recognition, the pure-wrap arm, the `let` rule.
 - `channel/RefinementChannelProcessorTest.scala` — the refinement channel's flow analysis and `^Where` demands.
 - `eval/EvaluatorApplyValueTest.scala` — the F1 loud `$bad-apply` fallback shape + quoter failure.
 - `unify/UnifyResultTest.scala`, `unify/OccursCheckTest.scala`, `unify/StuckNativeUnifyTest.scala`,
-  `unify/MetaApplicationUnifyTest.scala`, `unify/PostponedFlushTest.scala`, `unify/CarrierRoleTest.scala` — pure unifier
-  unit tests (construct `SemValue`s directly; `AnyFlatSpec`).
+  `unify/MetaApplicationUnifyTest.scala`, `unify/PostponedFlushTest.scala`, `unify/HigherKindedMetaTest.scala` — pure
+  unifier unit tests (construct `SemValue`s directly; `AnyFlatSpec`).
+
+The elaboration side lives with its own phase, not here: `lang/test/.../row/RowElaboratorTest.scala` (direct-style
+vs. hand-written monadic **twin** comparison, α-normalized) and `row/RowCheckerTest.scala` (row derivation + the
+subset check).
 
 Most processor tests run the whole pipeline via `ProcessorTest(LangProcessors()*)` and construct source text inline.
 Follow the project testing conventions: single-line asserts, assert the `Seq` itself, prefer `.asserting(_ ...)`.

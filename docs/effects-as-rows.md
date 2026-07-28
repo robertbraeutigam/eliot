@@ -1,29 +1,28 @@
 # Effects as Rows, v3: Declared Suspension + a Written Carrier
 
-**Status (2026-07-28). A.11.7 and A.11.8 are DONE — the v2 bridge and the carrier side table are gone, and
-`check/` is 3,873, below the pre-v2 baseline of 3,996.** A.11.7 was unblocked by one unified rule
-(Robert's decision, A.11.7-Y): a carrier-headed slot captures whatever names its carrier (§1 rule 4, last
-bullet), and the elaborator writes every declaration-determined type argument, not just a binder-0 carrier
-(§3.1). That also fixed a shipped silent miscompile — an effect stored in a `data` field ran at
-construction. A.11.8 step 3 then found the "effect carrier" flag was never an independent fact (it was
-written with the carrier *kind*, at one site, always) and that its whole live surface is the compiler
-track's inline guard — §8 by design; on the runtime track it is decision-free, which is A.11.4 confirmed
-from the other side. **A.11.9 is done too**: the shadow harnesses and the `seedFacts` production API are
-gone, `RunBoundaryFunction` is retired to a plain configuration key, and the v2-named suites are renamed
-with every program kept. **What remains: A.11.10 (docs closeout) and the separated pinned-`data`-field
-gap.** → Resume at [A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).
+**Status (2026-07-28): the design is LANDED and this document is its closeout.** Every step of the A.11
+roadmap is done, including A.11.10 (this pass). The elaborator **writes the carrier**, **every plain slot
+is strict** (§1 rule 1), suspension is **declared** (rule 2), and **§1 rule 4 holds and is enforced** —
+every position classifies from its declaration, a computation may not reach a rowless slot, and `ρ := {}`
+runs at `Id`. The v2 machinery is deleted, not disabled: no bridge, no carrier join, no obligation path,
+no carrier side table, no experiment scaffolding. **`check/` is 3,873 lines, below the pre-v2 baseline of
+3,996** — A.11.0's arithmetic target, met. The per-definition row check is unbounded and
+`DeclaredPureChecker` is deleted as subsumed.
 
-**§1 rule 4 holds and is enforced**, which was the whole point of A.11.7-T: every position classifies from
-its declaration, a computation may not reach a rowless slot, and `ρ := {}` runs at `Id`. `A.11.1`–`A.11.6`
-before it are done — the elaborator **writes the carrier**, `Bool.fold` **declares its suspension**,
-**every plain slot is strict** (§1 rule 1), and the per-definition row check is **unbounded** with the
-post-mono `DeclaredPureChecker` deleted as subsumed. Gate: `__.test` green (1,488 tests), 37/40 examples
-(`PluginA`/`B`/`C` predate this work), every program unchanged in output and class content.
+**Gate at closeout**: `__.test` green (1,487 tests), 37/40 examples — `IfDemo` compiles again *because*
+the bridge is gone, and its output was verified at A.11.10; `PluginA`/`B`/`C` predate this work and are
+unrelated. Every program is unchanged in output and class content against the pre-work baseline.
 
-**What remains**: **A.11.10** (docs closeout), plus the separated pinned-`data`-field gap. Appendix A.11
-is the
-live plan and replaces every earlier one (§8 and the plans inside A.9/A.10 are historical). **A.9.4 owns
-the method**, with A.11.Z.4 added to it; A.11.7-T records the fast example-sweep harness.
+**What is still open** (neither blocks anything, both carried deliberately):
+
+- a **pinned `data` field** (`data Holder(computation: {Abort | IO} String)`) still hoists and fails
+  loudly — the constructor never receives the pinned tag, a desugar-*order* defect (§9, item 4);
+- `PluginA`/`B`/`C`, never diagnosed, failing before this work started.
+
+**How to read this document.** §§1–7 state the design and are self-contained; §8 and Appendix A are the
+record of what happened to it, in chronological order, and are history — read them for *why* a rule has
+the shape it has, or for the method (A.9.4), never for the current rule. A.11 is the roadmap that landed
+the design; A.11.Z was its handover.
 
 **How the decisions closed.** A.11.7 stopped because the bridge was measured *not cold* (A.11.7-R:
 43 test failures and 5 further examples without it, as silent miscompiles). Its three open decisions are
@@ -40,13 +39,10 @@ all now closed, none by judgement in flight:
 - **`foldOption`** — closed by measurement, not decision (A.11.7-U): it converts, and A.11.5-R's
   surviving refutation is A.11.7-T step 1, not a missing rule.
 
-§6.1 is the correction inventory the rule outranks: 4 signatures, the call sites, one illegal `data`
-shape, and the tests that pin the violations. **§6.1-A is the measured state of the rule** — an
-instrumented sweep of the whole gate and all 40 examples, 2026-07-28: **28 distinct shapes still
-instantiate a plain generic at a computation**, so the rule does *not* yet hold. That is expected at
-this point and not a drift: A.11.7-T step 1 built the mechanism that makes the rule decidable per call
-and corrected six call sites, step 2 makes the violation an error, step 3 converts the signatures. The
-converse half — nothing gets a carrier that did not declare one — does hold.
+§6.1 is the correction inventory the rule outranked: 4 signatures, 7 call sites, one illegal `data` shape,
+and the tests that pinned the violations — **all cleared** (A.11.7-T step 3, A.11.7-X). §6.1-A is the
+instrumented conformance audit that sized the gap at 28 shapes and is kept because its predicate *became*
+the enforcement, so a green gate is that audit reporting zero.
 
 **Standing rule 1 — where decisions live: §§1–7 state the decision; §8 and the appendices record what
 happened to it.** An appendix that changes a decision must say so in §§1–7, never amend the rule in
@@ -68,9 +64,10 @@ becomes a syntax-directed **desugar phase** before checking, effects verify as a
 the type (the same architectural move as the Int-bounds refinement channel), and the NbE checker holds
 one local rule and no effect decisions.
 
-Successor to `docs/effects-as-channel.md` (v2), whose remaining checker machinery — the bridge, the
-ladders, the obligation path — is live underneath until A.11.7/A.11.8 retire it. The `Id` *erasure* is
-not on that list: `Id` is the value of the empty row and stays (§1 rule 4).
+Successor to `docs/effects-as-channel.md` (v2), whose checker machinery — the bridge, the ladders, the
+obligation path, the carrier side table — A.11.7/A.11.8 deleted; that document is now a retired signpost.
+The `Id` *erasure* was never on the deletion list: `Id` is the value of the empty row and stays (§1
+rule 4).
 
 ## 0. Why revisit v2
 
@@ -231,8 +228,9 @@ the synthetic main are unchanged consumers:
 - A suspended-slot argument passes as its carrier-typed computation, unrun; a **carrier-headed** slot —
   pinned row, callee carrier binder, `Id`, or a platform run carrier — captures its argument whole (§1
   rule 4).
-- **Pure code is untouched.** A definition with an empty row elaborates to itself — no `Id`, no wrapper,
-  nothing to erase.
+- **Pure code is untouched.** A definition with an empty row and no discharge elaborates to itself — no
+  wrapper, nothing to erase. The one exception is a pure definition that *discharges*: its region is
+  written at `Id`, with `runId` beside it (§3.1, last paragraph), which the `IdNormalizer` then erases.
 
 ### 3.1 The elaborator writes the carrier
 
@@ -340,8 +338,10 @@ that erasure is complete, and it is *more* load-bearing now that `Id` is written
 **Stays.** `EffectRow` and its pinned metadata (consumed by the desugar instead of the checker); pinned
 surface and semantics; the dischargers and the `eliot.carrier`/`eliot.effect` packages;
 `EffectAccountingProcessor` + `MonomorphicValue.ambientCarriers`;
-`EffectRowRendering`/`GroundValueRenderer`; `RunBoundaryFunction`; the `Inf` story; the compile-track
-`Either` discharge; `Id` as ordinary `data` with no `Suspend[Id]`.
+`EffectRowRendering`/`GroundValueRenderer`; the platform run boundaries (A.11.9 retired the
+`RunBoundaryFunction` *fact*, whose last demander went with the bridge — what stays is the plugin
+configuration key, read by the row phase alone: `row/RunBoundaryFunctions`); the `Inf` story; the
+compile-track `Either` discharge; `Id` as ordinary `data` with no `Suspend[Id]`.
 
 **Added.** `row/RowChecker` (derivation + subset check per definition) and `row/RowElaborator` (the one
 elaboration owner, writing carriers), in their own package with their own phase.
@@ -458,12 +458,14 @@ disallowed form and now show the direct call. The infix dischargers are **not** 
 with the computation at its pinned slot, so `x catch (e -> …)` and `host else "localhost"` are
 untouched.
 
-**Declarations storing an open carrier**: `jvm/test/…/TerminationIntegrationTest.scala:206`'s
+**Declarations storing an open carrier**: `jvm/test/…/TerminationIntegrationTest.scala`'s
 `data Box[F[_]](action: F[Unit])` — already illegal under rule 3 (a stored row must be pinned), and the
-last source of the flex-flex `?F[X] ~ ?G[Y]` that A.11.7-R found still alive. **Still outstanding after
-step 2**: the enforcement is a rule about *call arguments*, and this is a `data` field declaration, which
-no call routes through — it never reached the diagnostic. Correct the shape when rule 3 grows its own
-check; do not reopen A.10's cancellation of slice 4b to accommodate it.
+last source of the flex-flex `?F[X] ~ ?G[Y]` that A.11.7-R found still alive. Step 2's enforcement is a
+rule about *call arguments* and never reached it (no call routes through a field declaration), so it was
+**corrected as a fixture at A.11.7-X** — the shape is now the concrete `data Box(action: IO[Unit])`, which
+is what rule 3 asks for and what made the carrier router's last shape disappear. Rule 3 still has no
+*check* of its own for a `data` field declaring an open row; adding one is optional hardening, and A.10's
+cancellation of slice 4b stays cancelled either way.
 
 **Tests pinning a rule-4 violation are wrong and get corrected** — known: three `RowElaboratorTest` twins
 (including the one named "defer a call with a generic-headed return — A.8.6"), `MonomorphicTypeCheckTest`'s
@@ -557,8 +559,17 @@ only carrier-typed code is code the desugar wrote or the user pinned.
    correct as it stands; there is nothing here to sign off.
 2. Whether the post-mono accounting verifier can eventually retire, now that the pre-mono check is
    unbounded — not before experience says so.
-3. The fate of `Checker`'s non-effect Phase-A/B remnants — whether spine inference simplifies further
-   once slots are effect-free.
+3. The fate of `Checker`'s remaining slot deferral — it is now the **compile track's** mid-spine decision
+   only (§8), reached by the `Either` guard discharge; whether spine inference simplifies further once
+   that track is revisited is untouched by this work.
+4. **A pinned `data` field still hoists** (`data Holder(computation: {Abort | IO} String)` fails loudly
+   with `Expected: {Abort | IO} String / Actual: String`). The constructor never receives the pinned tag,
+   because `CoreProcessor` runs `EffectSugarDesugarer.desugar(DataDefinition)` — which collapses the row —
+   *before* `DataDefinitionDesugarer` builds the constructor, so the per-function `declaredEffectRow` sees
+   no `EffectfulType`. The fix is a desugar-order change (rewrite only *open* rows at the data level and
+   leave pinned ones to the per-function pass); it has its own blast radius and blocks nothing here. The
+   *concrete*-carrier field (`data Box(action: IO[Unit])`) works, and that is the shape rule 3 exercises
+   today (A.11.7-Y shape 1).
 
 *(Answered and folded into the design: `Id` at discharge is fully syntax-directed (A.4); one latent row
 per arrow (A.5); production rows are multisets of (ability, type-args) (A.6).)*
@@ -979,6 +990,11 @@ the `check/` number is the one to hold the work to.
   examples compile** (`IfDemo` included — the bridge causes its failure;
   it already compiles as of A.11.4).
 - `docs/effects-as-channel.md` retired; the CLAUDE.md cornerstone describes rows and written carriers.
+
+**All six verified at A.11.10 (2026-07-28)**: the grep is empty, `monomorphize/carrier/` does not exist,
+there is no `getenv`/`getProperty` anywhere under `row/`, `monomorphize/` or `effect/`, `check/` is 3,873,
+the gate is green with 37/40 examples, and the v2 document is a signpost while the cornerstone is
+rewritten (A.11.10-1).
 
 ## A.11.1–A.11.3 Done: scaffolding, the accumulator decision, the corpus and the audit
 
@@ -1995,10 +2011,11 @@ enforced.** Every position classifies from its declaration; a computation may no
 `ρ := {}` runs at `Id`. There is **no runtime-track deferral left anywhere** and no runtime-track carrier
 metavariable; only the compile track's Phase B and its inferred inline-guard carrier remain (§8).
 
-**Next**: **A.11.10** (docs closeout) and the separated **pinned-`data`-field gap**
-(A.11.7-Y): a `data Holder(computation: {Abort | IO} String)` still hoists, because `CoreProcessor:40`
-desugars the row at the `DataDefinition` before `DataDefinitionDesugarer` builds the constructor, so the
-constructor never gets the pinned tag.
+**A.11.10 is done too** (2026-07-28, A.11.10-1), so **the roadmap is complete** and this handover is
+history. What is left is not part of it: the separated **pinned-`data`-field gap** (A.11.7-Y, and §9 item
+4) — a `data Holder(computation: {Abort | IO} String)` still hoists, because `CoreProcessor` desugars the
+row at the `DataDefinition` before `DataDefinitionDesugarer` builds the constructor, so the constructor
+never gets the pinned tag — and the undiagnosed `PluginA`/`B`/`C`, which the exit criterion accepts.
 
 ### A.11.Z.2 What is next
 
@@ -2106,8 +2123,8 @@ which is a Scala editing hazard worth remembering.
 ### A.11.Z.5 After the deletion
 
 A.11.7 (the bridge), A.11.8 (obligations, the carrier side table) and A.11.9 (scaffolding and suites) are
-**done**; what is left is A.11.10 (docs closeout), as written below, plus the separated
-pinned-`data`-field gap. **A.11.0's arithmetic is the number to check, and `check/` met it**: 3,873
+**done** — and so is A.11.10 (docs closeout, A.11.10-1), which completes the roadmap; what is left is only
+the separated pinned-`data`-field gap. **A.11.0's arithmetic is the number to check, and `check/` met it**: 3,873
 against the ≈4,150 target and the pre-v2 baseline of 3,996. The machinery total landed at 6,091, above the
 ≈5,540 projection, because `row/` grew from 1,268 to 2,218 as the elaborator absorbed what the checker
 used to decide; do not claim a net reduction against pre-v2, since that difference *is* `row/`, a phase
@@ -2254,7 +2271,13 @@ far as it goes while the compile track keeps its inferred carrier. If the compil
   `unify/CarrierRoleTest` were listed here too, but their machinery did **not** all go: the probe's
   A.11.4 acceptance (zero carrier metas for `def echo`) and the lifter's surviving pure-wrap/`bindWrap`
   arms are live behaviour, and the role test became `unify/HigherKindedMetaTest` (A.11.8-3). Keep them;
-  re-check at A.11.10 that each still asserts something the end state has.
+  re-check at A.11.10 that each still asserts something the end state has. **Re-checked at A.11.10 — all
+  three do**: `HigherKindedMetaTest` covers the reduced record and its one live handle (the compiler
+  track's inline-guard carrier); `CarrierBookkeepingTest` covers ambient-carrier recording *and* the
+  A.11.4 acceptance (no carrier meta is minted for an ability method, because the elaborator wrote it);
+  `EffectLifterTest` covers exactly what survives — `effectCarrierSplit`, the two doomed-postponement
+  probes, `tryPureWrap` (including the two non-wrap cases that keep it from double-wrapping) and
+  `bindWrap` for the `let` rule. No case asserts deleted machinery.
   **`channel/IdNormalizerTest` stays** — its machinery does (§1 rule 4); if anything it needs *adding* to,
   since `Id` is now written on purpose rather than manufactured.
 - **Rewrite**: the lift group of `MonomorphicTypeCheckTest` (its generic-slot shapes assert the deferred
@@ -2306,6 +2329,8 @@ examples; every program's output **and class content** byte-identical to the A.1
 
 ## A.11.10 Docs closeout
 
+**DONE 2026-07-28.** The plan, and what each item turned into:
+
 - **CLAUDE.md**: rewrite the *Effects Are a Channel (Uniform Carriers)* cornerstone. The uniform/`Id`-headed
   judgment invariant, the carrier-meta join, and "any new consumer must Id-normalize first" all stop
   being true; what replaces them is: rows are the surface, the elaborator *writes* the carrier, carriers
@@ -2318,3 +2343,42 @@ examples; every program's output **and class content** byte-identical to the A.1
 - **This document**: fold the appendices into the design sections where they are settled, keeping the
   standing rule from the top.
 - **`IfDemo`**: it compiles again as of A.11.4; confirm its output is what the example intends.
+
+### A.11.10-1 What landed, and the one prediction that was wrong
+
+- **The cornerstone is rewritten** and renamed *Effects Are a Channel (Rows In, the Carrier Written)*. It
+  now states the four user rules, the written carrier and its three completing rules, the anti-accretion
+  whitelist as binding on future changes, the one pure-lift rule left in the checker, and the two
+  verifiers. CLAUDE.md's pipeline list gained the missing **`row` phase** as an entry of its own (it had
+  described elaboration as living in the checker), the `monomorphize` entry lost the auto-lift/bridge
+  description, and the `effect` entry's stale `EffectLifter.tryIdDefault` sentence became the elaborator
+  writing `Id`/`runId`.
+- **One planned item was measured wrong and NOT done: "any new consumer must Id-normalize first" does not
+  stop being true.** The plan item was written before the `ρ := {}` decision (2026-07-28) that *kept*
+  `Id`: because the elaborator now writes `Id` and `runId` deliberately, a consumer of `MonomorphicValue`
+  or of a mid-mono `SemExpression` still sees them, and `IdNormalizer` still erases at the `WovenValue`
+  seam. The tax is unchanged and stays documented in both the cornerstone and the skill; what *did* stop
+  being true is the *encoding* it used to pay for (a manufactured `Id` head on every pure judgment).
+- **The skill** lost the `carrier/` package, `UniformCarrierChecker` and `DeclaredPureChecker` from its
+  file map, lost the Phase-A/B narrative (deferral is now described as the compile track's decision), and
+  had its carrier-bookkeeping section rewritten around `Unifier.higherKindedMetas`. Its "effect channel"
+  section and two anti-patterns were re-pointed: *making a bind/`pure`/`Id` decision inside the checker*
+  and *re-introducing carrier inference* are now the things to reject in review — the exact inverse of the
+  v2-era anti-pattern that told the reader elaboration belongs in check mode.
+- **`docs/effects-as-channel.md` is retired to a signpost**: a §-by-§ map from every v2 section to its live
+  successor here, what v2 got right and kept, and what it got wrong. The map exists because ~80 scaladoc
+  comments still cite `effects-as-channel §N`; those citations now land on something true instead of on a
+  superseded design, and no mass comment sweep was needed. The full text is in git
+  (`git show c9dcd53b:docs/effects-as-channel.md`).
+- **This document**: the status banner is now a closeout, §6.1/§6.1-A read as settled rather than pending,
+  §3's "pure code is untouched" no longer contradicts written `Id`, §4's `RunBoundaryFunction` entry
+  reflects A.11.9's retirement to a configuration key, and §9 carries the pinned-`data`-field gap as an
+  open question rather than leaving it only in the appendix. The appendices stay intact as the record —
+  standing rule 1 makes them the *history* of the decisions, not a second statement of them, so folding
+  meant making §§1–7 stand alone, not deleting what happened.
+- **`IfDemo` is confirmed**: it compiles and runs, and its output is what the file's comments describe —
+  the constant-`true` section takes every "then" branch, `sign(true)` prints `+`, `describe(false, true)`
+  prints `second`, and the runtime section follows stdin (`yes` ⟹ the true branches, anything else ⟹ the
+  false branches, including `3. chain: second` and `6. plain else`). Both `demo`'s six forms and
+  `foldForms`' three run correctly, so the `{Abort}`-discharge-through-`else` and the suspended `fold`
+  arms behave as the example teaches.

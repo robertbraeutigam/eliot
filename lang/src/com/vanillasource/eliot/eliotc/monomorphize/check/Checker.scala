@@ -510,17 +510,18 @@ class Checker(
     * root, resolve the head once — an immediately-applied unannotated lambda `(x -> body)(arg)` routes to
     * [[typeImmediateLambda]] (it is a `let`, the shape a non-effectful block `val`/statement lowers to; the lambda
     * alone has no inferable parameter type, so it is inferred from the first argument), anything else is inferred —
-    * then resolve the arguments in two phases (docs/effect-lift-in-checker.md):
+    * then resolve the arguments left to right:
     *
-    *   - **Phase A** (left to right, [[applyInferred]]): each slot runs the resolution ladder immediately, *except* a
-    *     slot whose domain is a bare flex metavariable receiving an effect-carrier-headed argument, which is
-    *     *deferred* — resolving it eagerly would solve the meta to the carrier type before later arguments could
-    *     rigidify it (the `readLine.f` shape).
-    *   - **Phase B** ([[resolveDeferredSlot]], left to right): a deferred slot's domain rigidified by later arguments
-    *     runs the full ladder (unify / coerce / bind-lift); a still-flex one prefers pass-through (unify with the
-    *     carrier-headed type), so the effectful result propagates upward and the parent's slot decides.
-    *   - **Assemble** ([[assembleSpine]]): rebuild the chain if Phase B changed a slot, then fold the recorded
-    *     effect-binds around the core ([[EffectLifter.wrapBinds]]).
+    *   - **each slot** ([[applyInferred]]) runs the resolution ladder immediately. The one exception is a slot whose
+    *     domain is a bare flex metavariable receiving a carrier-headed argument, which is *deferred*: resolving it
+    *     eagerly would solve the meta to the carrier type before later arguments could rigidify it. Only the
+    *     **compile-time track** produces such a slot now (the §8 boundary — the row elaborator classifies every
+    *     runtime position from its declaration, docs/effects-as-rows.md §1 rule 4).
+    *   - **the deferred slots** ([[resolveDeferredSlot]], left to right) are decided after the spine: a still-bare-flex
+    *     domain adopts the carrier-headed argument (pass-through, so the enclosing slot decides), anything else runs
+    *     the ladder.
+    *   - **Assemble** ([[assembleSpine]]): rebuild the chain if a deferred slot changed. Nothing is folded *around*
+    *     the core anymore — the checker inserts no binds.
     *
     * Each fold step receives the intermediate application node's own [[Sourced]] target, so diagnostics and the
     * rebuilt [[SemExpression]] keep the exact positions the former per-curried-node recursion produced.
