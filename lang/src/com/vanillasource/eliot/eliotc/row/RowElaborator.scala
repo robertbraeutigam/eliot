@@ -675,12 +675,17 @@ object RowElaborator {
             val suspended =
               if (slotRegion) elaborate(arg, needCarrier = true, ownRegion) else core(arg, region)._1
             (accArgs :+ suspended, accBinds)
-          } else if (declaredSlot.exists(idHeaded)) {
-            // A slot declaring the **concrete `Id` carrier** (`runId`'s `obj: Id[A]`) holds a computation that runs
-            // on `Id` — the value of the empty row — and not on this region's carrier. So it is a capture like a
-            // pinned slot: nothing is hoisted out of it (hoisting `runId(runStateToFinalState(…))` onto an ambient
-            // `IO` would demand the discharge run there, which it does not), and a pure actual lifts with `pure[Id]`.
-            (accArgs :+ elaborate(arg, needCarrier = true, RegionCarrier.Spelled(idTerm(arg))), accBinds)
+          } else if (declaredSlot.flatMap(concreteCarrierHead).isDefined) {
+            // A slot declaring a **concrete carrier** — `runId`'s `obj: Id[A]`, or a `data` field holding a
+            // computation (`data Box(action: IO[Unit])`) — hosts the computation, and it runs on *that* carrier
+            // rather than on this region's. So it is a capture like a pinned slot (§1 rule 4, last bullet): nothing
+            // is hoisted out of it, and a pure actual lifts with that carrier's own `pure`.
+            //
+            // Hoisting here is what made an effect stored in a `data` field run at *construction* time while the
+            // accessor's run did nothing — the argument's payload went into the field and the v2 carrier router
+            // `pure`-wrapped it back to the declared type, so the misplacement type-checked (A.11.7-Y shape 1).
+            val carrier = arg.as(declaredSlot.flatMap(concreteCarrierHead).get)
+            (accArgs :+ elaborate(arg, needCarrier = true, RegionCarrier.Spelled(carrier)), accBinds)
           } else if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders)) && !isBareLambda(arg.value) &&
             pureFunctionAt(declaredSlot.get, arg.value)) {
             // A **pure function value** at a carrier-codomain slot (`f: A => {Effect} B` given `url`, every pure
@@ -1073,6 +1078,23 @@ object RowElaborator {
       spine(tpe) match {
         case (ValueReference(name, _), args) => name.value == WellKnownTypes.idFQN && args.nonEmpty
         case _                               => false
+      }
+
+    /** The head of a declared type that is a **concrete carrier applied to its payload** — `Id[A]` (`runId`'s `obj`)
+      * or a platform run carrier (`IO[Unit]`, a `data` field holding a computation) — as a writable term.
+      *
+      * This is the third way a slot can be carrier-headed, beside a pinned row and one of the callee's own carrier
+      * binders, and §1 rule 4's last bullet says all of them mean the same thing: the slot **hosts the computation**,
+      * so the argument is captured rather than run here. Both recognitions are the sanctioned declared tags — `Id` is
+      * compiler-owned, a run carrier comes off the run-boundary registry — never a name or shape guess about an
+      * arbitrary type.
+      */
+    private def concreteCarrierHead(tpe: OperatorResolvedExpression): Option[OperatorResolvedExpression] =
+      spine(tpe) match {
+        case (head @ ValueReference(name, _), args)
+            if args.nonEmpty && (name.value == WellKnownTypes.idFQN || runCarrierHead(tpe)) =>
+          Some(head)
+        case _ => scala.None
       }
 
     /** Whether a call to `callee` **rides its first generic binder**, that binder being one of its declared carriers:

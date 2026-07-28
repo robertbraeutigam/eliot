@@ -212,6 +212,29 @@ import eliot.effect.Console
     ).asserting(_.linesIterator.count(_ == "boxed") should be > 5)
   }
 
+  // The claim the test above rests on, made observable: a computation stored in a `data` field is *stored*, not run
+  // at construction (§1 rule 3 — a concrete carrier type is an ordinary type, and its slot hosts the computation).
+  // Until A.11.7-Y shape 1 the elaborator hoisted such an argument, so the effect ran where the value was built and
+  // the accessor's run did nothing; the v2 carrier router `pure`-wrapped the leftover payload back into the declared
+  // type, which is what kept the misplacement type-correct and therefore silent. Without this ordering assertion the
+  // `forever` case above passes either way — it loops at construction just as happily.
+  "an effect stored in a data field" should "run when the accessor's computation is run, not at construction" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |
+        |data Box(action: IO[Unit])
+        |
+        |def runBox(b: Box): IO[Unit] = action(b)
+        |
+        |def main: IO[Unit] = {
+        |   val b = Box(printLine("stored"))
+        |   printLine("before")
+        |   runBox(b)
+        |}""".stripMargin
+    ).asserting(_ shouldBe "before\nstored")
+  }
+
   // The step's own capability effect rides the same carrier as the driver's `Inf`: a `{Console}` step run by an
   // `{Inf, Console}` driver unions both effects (the `{e}`-on-the-step polymorphism the M1 deviation deferred to M2)
   // and runs end-to-end.

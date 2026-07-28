@@ -1426,6 +1426,52 @@ carrier is written by the *first* source, exactly as before, so nothing that wor
 pre-step build — and with the **payload router switched off**, still 1,539/1,539 and 37/40 byte-identical
 (it was 7 failures before this step). The router's last live job is gone.
 
+#### Shape 1 landed (2026-07-28) — the carrier router is cold, and the miscompile is fixed
+
+`idHeaded` became `concreteCarrierHead`: a slot whose declared type is a **concrete carrier applied to
+its payload** — `Id[A]`, or a platform run carrier off the run-boundary registry (`IO[Unit]`) — hosts the
+computation, so `elaborateCall` captures the argument with the region spelled as that carrier instead of
+hoisting it. `Id` stops being a special case and becomes one of the namings.
+
+**The behaviour this corrects**, now pinned by a test in `TerminationIntegrationTest`:
+
+```eliot
+data Box(action: IO[Unit])
+def runBox(b: Box): IO[Unit] = action(b)
+def main: IO[Unit] = { val b = Box(printLine("stored")); printLine("before"); runBox(b) }
+```
+
+was `stored` / `before` with the accessor's run printing nothing, and is now `before` / `stored`. The
+neighbouring `forever`-in-a-`Box` test passed either way — it loops at construction just as happily —
+which is why an ordering assertion goes in beside it.
+
+**Measured**: full gate 1,539/1,539, 37/40 examples, every class file byte-identical to the pre-step
+build; with the **carrier router switched off**, still 1,539/1,539 and 37/40 byte-identical (it was 1
+failure). Both routers are now cold.
+
+#### Separated out: a **pinned** `data` field still does not capture
+
+The other half of shape 1's diagnosis is a distinct defect and does **not** block the deletion, because
+it fails *loudly* and failed identically before this work:
+
+```eliot
+data Holder(computation: {Abort | IO} String)
+def main: IO[Unit] = { val h = Holder(risky) … }     // Expected: {Abort | IO} String / Actual: String
+```
+
+The pinned row is the *documented* way to store a computation (§1 rule 3; `docs/effect-row-tails.md`
+requires stored rows to be pinned), and `{Abort | IO} String` is not reachable by
+`concreteCarrierHead` — `AbortCarrier` is neither `Id` nor a run carrier. The route is the pinned
+**tag**, and the constructor does not have one: `CoreProcessor` runs
+`EffectSugarDesugarer.desugar(DataDefinition)` first, which collapses the row to a carrier stack, and
+only then does `DataDefinitionDesugarer` build the constructor, so the per-function
+`declaredEffectRow` sees no `EffectfulType` and records no `pinnedParameterEffects`.
+
+The fix is a desugar-order change — leave *pinned* rows for the per-function pass and rewrite only the
+open rows at the data level, which is what mints the data type's carrier — with its own blast radius
+(`DataDefinitionDesugarer` would then see an `EffectfulType` in a field type). It is deliberately not
+bundled into the bridge deletion.
+
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 
 A.11.7 said to trace first and delete only zero-fire arms, and that **an arm that still fires is a
