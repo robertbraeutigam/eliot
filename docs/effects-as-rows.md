@@ -1,7 +1,10 @@
 # Effects as Rows, v3: Declared Suspension + a Written Carrier
 
-**Status (2026-07-28). Three decisions are open — A.11.7's blockers, now diagnosed in
-[A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28). → Resume at
+**Status (2026-07-28). A.11.7's three blockers are diagnosed
+([A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28)) and **decided as one unified rule**
+(Robert): a carrier-headed slot captures whatever names its carrier (§1 rule 4, last bullet), and the
+elaborator writes every declaration-determined type argument, not just a binder-0 carrier (§3.1). Work
+order: shape 3 → shape 1 (spike first) → shape 2 as deletion → the bridge. → Resume at
 [A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).**
 
 **§1 rule 4 holds and is enforced**, which was the whole point of A.11.7-T: every position classifies from
@@ -136,9 +139,16 @@ it is effect-irrelevant by construction.
      slot arms could split unconditionally, then normalizing it away. Written `Id` with an honest type
      is not that, and A.8.12's blocker does not apply to it.
 
+   - A **carrier-headed slot captures**, and that is the *whole* rule for how a slot is filled *(decided
+     2026-07-28, Robert — the unified reading of A.11.7-Y)*. A slot whose declared type is headed by a
+     carrier holds the computation, however that carrier is named: a pinned row's stack, one of the
+     callee's own carrier binders, the concrete `Id`, or a platform run carrier (`data
+     Box(action: IO[Unit])`). A slot that is *rowless* is strict, per the bullet above. There is no third
+     kind of slot and no name-keyed exemption — the four namings are one predicate, not four arms.
+
    Everything the elaborator must decide is then decided by declarations, per call, order-free: a call's
    result kind and row are its declared return instantiated from the declared types and rows of the
-   arguments given.
+   arguments given, and **every type argument a declaration determines is written down** (§3.1).
 
 Rule 1 is implemented as of A.11.5 (it was withdrawn at bare-generic slots by A.8.6 for six days; A.10
 reinstated it and A.11.5b removed the deferral).
@@ -215,8 +225,9 @@ the synthetic main are unchanged consumers:
   existing `EffectSugarDesugarer`.
 - Every effectful call in a strict position becomes a `flatMap` chain (`$row$N` binders); `val x =
   <effectful>` binds.
-- A suspended-slot argument passes as its carrier-typed computation, unrun; a pinned-slot argument is
-  captured whole.
+- A suspended-slot argument passes as its carrier-typed computation, unrun; a **carrier-headed** slot —
+  pinned row, callee carrier binder, `Id`, or a platform run carrier — captures its argument whole (§1
+  rule 4).
 - **Pure code is untouched.** A definition with an empty row elaborates to itself — no `Id`, no wrapper,
   nothing to erase.
 
@@ -247,12 +258,15 @@ Three rules complete it:
   payload, a platform run carrier); and `Unspelled` — a carrier exists but is expressible only in a
   *callee's* binders (chiefly the interior of a pinned capture). All three place identically; only
   `Spelled` writes.
-- **The carrier is written only where the mechanism reaches**: at a call whose callee's **first** binder
-  is a declared carrier the post-argument result rides. First-binder is the *limit of the mechanism*, not
-  a heuristic — `typeArgs` applies positionally, so writing binder *k* means writing `0..k-1`, which are
-  payload types the elaborator cannot name. It costs nothing in practice (the desugar *prepends* the
-  minted carrier; an ability method's own ability parameter leads); a hand-written discharger placing its
-  carrier later (`catch[E, G[_] ~ Effect, A]`) keeps it inferred.
+- **The elaborator writes every type argument a declaration determines**, as a leading prefix of the
+  callee's binders. Two sources determine one today: the **region** supplies the carrier, and a **pinned
+  parameter** supplies its row's ability arguments, instantiated from the captured argument's own
+  declared row (`catch`'s `{Throw[E] | G} A` against `bad`'s declared `{Throw[String]}` gives
+  `E := String`). Writing stops at the first binder nothing determines — `typeArgs` applies positionally,
+  so a prefix is all that can be written, and a binder the declarations leave open stays inferred.
+  *(Decided 2026-07-28, Robert. Until then only the carrier was written, and only when it was binder 0;
+  that restriction is why `catch[E, G[_] ~ Effect, A]` kept everything inferred and why its `E` had to be
+  pinned inside the checker instead — A.11.7-Y shape 3.)*
 - **The discharge stack is derived** (A.11.4c): `carrier(call) = stack(callee.declaredRow ∖
   ambient.declaredRow) over ambient`. A callee needing more than the ambient provides cannot be running
   on it, so it runs on the canonical stack of that difference — `rename` needing `{State[String]}` under
@@ -1367,6 +1381,31 @@ three are the same rule family as A.11.4 ("the elaborator writes what the declar
 mechanism. Shape 1 is additionally a **fail-safe defect in the shipped tree**
 (`feedback_gaps_must_be_failsafe`): the bridge is hiding a misplacement, not compensating for a missing
 type. None of the three is deferrable into the deletion, and none is a judgement call in flight.
+
+#### Decided (2026-07-28, Robert): one rule, not three
+
+All three take the elaborator-side option, and the argument for them is that they are **one rule**, now
+recorded in §1 rule 4 (last bullet) and §3.1:
+
+> A slot's declared type decides how it is filled, and the elaborator writes down every type argument a
+> declaration determines.
+
+- **Shape 1 removes cases rather than adding one.** `elaborateCall` states "the declared slot type is
+  carrier-headed" three times, once per way the carrier is named (pinned index, callee binder, concrete
+  `Id`). Admitting the platform run carrier makes it four namings *and one predicate* — and it deletes a
+  name-keyed exemption (the `Id` arm keys on `WellKnownTypes.idFQN`, which A.11.7-W already caught
+  misfiring on a test harness's own `Id` stub).
+- **Shape 3 generalizes `writeCarrier`** from "the carrier, if it is binder 0" to "the determined
+  prefix". Same mechanism, same source, same function — and it dissolves the first-binder limit at
+  exactly the call A.11.4b recorded it against.
+- **Shape 2 is then a consequence, not a decision**: with nothing else needing the return boundary,
+  keeping it would mean keeping the unfiltered HKT carrier flagging, the join, the `Id` finalize and the
+  `runId` insertion for one lang stub whose honest spelling already compiles.
+
+**Order of work** (chosen for descending confidence): shape 3 first — a pure generalization of a
+function that exists, with a measured target form. Then shape 1, **spike first**: the current behaviour
+is measured wrong, but the fix is unproven and its riskier half is the desugar-order change that restores
+the pinned tag on `data` constructors, not the elaborator arm. Then shape 2 as deletion, then A.11.7.
 
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 
