@@ -30,8 +30,13 @@ all now closed, none by judgement in flight:
 - **`foldOption`** — closed by measurement, not decision (A.11.7-U): it converts, and A.11.5-R's
   surviving refutation is A.11.7-T step 1, not a missing rule.
 
-§6.1 is the correction inventory the rule outranks: 3 signatures, 7 call sites, one illegal `data` shape,
-and the tests that pin the violations.
+§6.1 is the correction inventory the rule outranks: 4 signatures, the call sites, one illegal `data`
+shape, and the tests that pin the violations. **§6.1-A is the measured state of the rule** — an
+instrumented sweep of the whole gate and all 40 examples, 2026-07-28: **28 distinct shapes still
+instantiate a plain generic at a computation**, so the rule does *not* yet hold. That is expected at
+this point and not a drift: A.11.7-T step 1 built the mechanism that makes the rule decidable per call
+and corrected six call sites, step 2 makes the violation an error, step 3 converts the signatures. The
+converse half — nothing gets a carrier that did not declare one — does hold.
 
 **Standing rule 1 — where decisions live: §§1–7 state the decision; §8 and the appendices record what
 happened to it.** An appendix that changes a decision must say so in §§1–7, never amend the rule in
@@ -358,11 +363,15 @@ Signature changes:
   it desugars to one shared inferable `F[_]` with `F ~ Effect` at binder **0**, and moving the carrier to
   a later binder misfeeds the `{ join(…) }` refinement's positionally-applied `Meta` companion.
 - `if[T]` — **textually unchanged** (`value: {Abort} T` now *means* suspended). `Abort.else`'s
-  `fallback: G[A]` was already declared-suspended; `foldEither`/`foldPair` take lambdas and are lazy by
-  construction.
+  `fallback: G[A]` was already declared-suspended; `foldPair` takes a lambda whose codomain the audit
+  never saw at a computation.
 - `def foldOption[A, B](ifNone: {Effect} B, …)` — **converts** (rule 4). A.11.5-R left it open because
   both spellings were refuted by the tree; under rule 4 that is a defect in the tree, not evidence about
   the signature, and the refutations are entries in the correction inventory below.
+- `foldEither` — **converts too** (`onLeft: E => {Effect} B`, `onRight: A => {Effect} B`, return
+  `{Effect} B`). The line below excusing it as "lazy by construction" was wrong: rule 4 is about what a
+  position *declares*, not about when it runs, and the conformance audit (§6.1-A) found `Throw`/`Abort`
+  handing it handlers that return computations.
 - `foldLeft` needs **both** its `initial` and its accumulator rowed (`combine: A => B => {Effect} B`) —
   measured at A.11.7-T step 1, where `initial` alone leaves `foreach`'s `acc` an undeclared computation.
   Its jvm primitive `foldLeftInternal` then spells the carrier with an explicit `[F[_] ~ Effect]` binder
@@ -373,9 +382,19 @@ Every laziness-requiring signature must declare suspension; a combinator that fo
 
 ### 6.1 Rule-4 correction inventory
 
-Rule 4 outranks the tree, so these are **defects to correct**, not constraints on the design. Measured
-(A.11.3-R for the dot sites, `grep` over `stdlib/`, `jvm/`, `examples/` for the rest); the list is the
-whole known cost.
+Rule 4 outranks the tree, so these are **defects to correct**, not constraints on the design.
+
+**Conformance today: the rule does not yet hold, and the gap is measured, not estimated
+(2026-07-28, after A.11.7-T step 1 — §6.1-A below).** Step 1 supplies the *mechanism* the rule needs
+(every position classified from declarations) and corrects six call sites; steps 2 and 3 are what make
+the rule true and enforced. The second half of the rule — *and only into* — does hold: the elaborator
+writes a carrier only where a declaration puts one (A.11.4), and both verifiers check
+`derived ⊆ declared`.
+
+The original inventory below was assembled by `grep` and by A.11.3-R's deferral audit, and claimed to be
+"the whole known cost". **§6.1-A supersedes that claim**: an instrumented sweep found two things it
+missed — `foldEither`, and the fact that converting `.`'s `f` slot leaves a *computation subject*
+(`p.runStateToValue(…)`) a violation on the `a: A` slot.
 
 **Signatures that must declare what they transport** — each currently lets an effect through a rowless
 position:
@@ -421,6 +440,45 @@ reopen A.10's cancellation of slice 4b to accommodate it.
 (including the one named "defer a call with a generic-headed return — A.8.6"), `MonomorphicTypeCheckTest`'s
 "pass an effectful eliminator branch through unsequenced", and the 5 `State`-family shapes A.11.7-R
 measured, which fail *because* of erosion 3 in the §1 table.
+
+### 6.1-A The rule-4 conformance audit (2026-07-28) — the complete measured gap
+
+*Method* (A.9.4): a temporary env-gated `RowAudit` recorded, at every elaborated call, each **plain
+generic of the callee instantiated at a computation** — read off the arguments *after* hoisting, so an
+argument that performs and is run here is not counted (that is rule 1 working). This is the exact
+predicate step 2 turns into a hard error, and it is strictly wider than "a rowless slot receives a
+computation": it also catches an arrow slot `f: A => B` given a function whose *codomain* is a
+computation, which is how most of `.`'s traffic violates the rule. Instrument reverted; tree unchanged.
+
+*Coverage*: the whole gate (871/871 green while instrumented) plus all 40 examples. **28 distinct shapes
+over the gate, 4 over the examples** (a subset). By callee:
+
+| callee | shapes | what instantiates the generic at a computation |
+| --- | --- | --- |
+| `.` — subject slot `a: A` | 9 | 5 discharge stacks (`ThrowCarrier`/`StateCarrier`/two `DepCarrier`/`IO`), `readLine`, `flatMap[IO]`, a nested `.`, `swap` |
+| `.` — function slot `f: Function[A, B]` | 7 | `flatMap`, `foldLeft`, `foreach`, `provide`, `runStateToPair`, `runStateToValue`, `runThrow` |
+| `foldEither` | 3 | `onError`, `err -> printLine(…)`, `err -> pure(Left(err))` |
+| `foldOption` | 2 | `pure`, a suspended `fallback` |
+| test-local combinators (`pipe`, `|>`, `weird`) | 5 | `readLine`, `flatMap`, an effectful lambda |
+| `foldLeft` | 1 | `pure(unit)` at `initial` |
+| `++` | 1 | a nested `++` whose own `T` is a computation |
+
+Three corrections to the inventory above, all forced by the measurement:
+
+- **`foldEither` joins the signature list.** §6.1 excused it as "takes lambdas and is lazy by
+  construction" — but rule 4 is about *declaring*, not about laziness, and `Throw`/`Abort` hand it
+  handlers that return computations. It needs `onLeft: E => {Effect} B`, `onRight: A => {Effect} B`,
+  return `{Effect} B`, exactly like `foldOption`.
+- **Converting `.` does not clear `.`.** §6.1's spelling keeps the subject a plain, strict slot, which
+  is right — but it means the 9 subject-slot shapes stay violations and must each become a direct call
+  (or hoist, where the subject performs). Two of them were the `Blocks`/`EffectsState` sites already
+  corrected; the rest live in jvm test programs and are defects in those fixtures.
+- **The test-local combinators are fixtures pinning the old model** and are corrected with the rest, per
+  the paragraph above.
+
+Nothing in the measured set is outside rule 4's reach, and nothing needs a new mechanism: every entry is
+a signature that must declare what it transports, or a call site that must stop routing a computation
+through a rowless one.
 
 ## 7. What this preserves of the cornerstones
 
@@ -1361,11 +1419,14 @@ behaviour silently.
 
 `writeCarrier` writes the ambient only when step 1 says the instantiated row is non-empty; at `ρ := {}`
 the call is written at `Id` and `IdNormalizer` erases it (§1 rule 4, third bullet). Then convert the
-three signatures of §6.1 — `.`, `foldLeft`'s `initial`, `foldOption`'s `ifNone`/`ifSome` — using the
-`=>` spelling, never `Function[A, {Effect} B]` (A.11.7-S: it parses as a *block*).
+signatures of §6.1 — `.`, `foldLeft`, `foldOption`'s `ifNone`/`ifSome`, and `foldEither` (added by the
+§6.1-A audit) — using the `=>` spelling, never `Function[A, {Effect} B]` (A.11.7-S: it parses as a
+*block*). `foldLeft` needs its **accumulator** rowed as well as its `initial`, and its jvm primitive an
+explicit `[F[_] ~ Effect]` binder (measured at step 1; §6).
 
 - *Acceptance*: the 14 examples A.11.7-S regressed compile again; examples back to **37/40** with class
-  content compared against a baseline label; `./mill __.test` back to **871/871**.
+  content compared against a baseline label; `./mill __.test` back to **871/871**; and the §6.1-A audit,
+  re-run, reports **zero** — that is what "the rule holds" means mechanically.
 - *Risk*: the one genuinely new behaviour. A.11.5's withdrawn `ridesAmbient` rule belongs here if
   anywhere — re-evaluate it under instantiation, and re-check `Path.extension` (`FileIoIntegrationTest`
   is its only cover).
