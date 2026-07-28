@@ -7,12 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{
-  BodyValueReferences,
-  CompilerMonomorphicValue,
-  GroundValue,
-  RunBoundaryFunction
-}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BodyValueReferences, CompilerMonomorphicValue, GroundValue}
 import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -78,17 +73,6 @@ class Checker(
     * immediately-applied-lambda `let` rule ([[typeImmediateLambda]]). See [[EffectLifter]].
     */
   private[check] val lifter: EffectLifter = new EffectLifter(force, doUnify)
-
-  /** The **uniform-carrier** checker-side bridge (docs/effects-as-channel.md §3): the successor spine mechanism —
-    * carrier-headed judgments, the classify-by-expected-slot ladder, and the join solver. It is the live path for
-    * **runtime**-track value returns and argument slots (`platform == Platform.Runtime`); the compile-time track and the
-    * runtime shapes it declines fall back to the default ladder ([[checkAgainstDefault]]/[[defaultArgSlot]], §8). Its
-    * node splicing reuses [[EffectLifter]]'s `pureWrapNode`/`bindWrap` mechanics (reshape, not rebuild), so uniform-path
-    * and default-path binders share the one `$eff$N` counter — which is why the default ladder and the `EffectLifter`
-    * arms are the shared substrate the bridge sits on (see docs/effects-as-channel.md §7).
-    */
-  private[check] val uniformChecker: UniformCarrierChecker =
-    new UniformCarrierChecker(force, lifter.effectCarrierSplit)
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
@@ -229,13 +213,11 @@ class Checker(
       inferred: SemValue,
       expected: SemValue
   ): CheckIO[SemExpression] =
-    uniformReturnRoutable(tm, inferred, expected).flatMap {
-      case true  => uniformReturnBoundary(tm, expr, expected)
-      case false => checkAgainstDefault(tm, expr, inferred, expected)
-    }
+    checkAgainstDefault(tm, expr, inferred, expected)
 
-  /** The default (carrier-based) return-boundary resolution: [[resolveGuardedLadder]] (see [[checkAgainst]]'s doc).
-    * The live path for the whole compile-time track (§8) and for every runtime boundary the uniform bridge declines.
+  /** The return-boundary resolution: [[resolveGuardedLadder]] (see [[checkAgainst]]'s doc). The one path, on both
+    * tracks, since the v2 uniform bridge was deleted — the elaborator writes the carrier, so a return boundary is an
+    * ordinary definitional-equality judgment with the pure-lift arm behind it.
     */
   private def checkAgainstDefault(
       tm: Sourced[OperatorResolvedExpression],
@@ -248,87 +230,6 @@ class Checker(
       case other                   =>
         throw new IllegalStateException(s"Return-boundary resolution produced a non-Resolved outcome: $other")
     }
-
-  /** The uniform return boundary (docs/effects-as-channel.md §3, U3a-2b(ii)): resolve the body against the declared
-    * return through the bridge ([[UniformCarrierChecker.checkReturnBoundary]] — join the carriers, unify the payloads,
-    * lift a pure body into a carrier-headed return). A pure body meeting a plain declared return needs no node at all
-    * (A.8.10 — the checker no longer manufactures an `Id` head just to strip it again downstream).
-    */
-  private def uniformReturnBoundary(
-      tm: Sourced[OperatorResolvedExpression],
-      expr: SemExpression,
-      expected: SemValue
-  ): CheckIO[SemExpression] =
-    uniformChecker.checkReturnBoundary(expr, expr.expressionType, expected, tm)
-
-  /** Effects-as-channel U3a-2b(ii) (docs/effects-as-channel.md §10) — whether a return
-    * boundary is a **value** return the uniform bridge resolves today, pure *or* effect-carrier-headed
-    * ([[uniformValueReturn]]) — a plain `VTopDef` (`String`, `Unit`, `List[..]`) re-carried via `Id`, or an effect
-    * carrier (`?F[Unit]`, the ambient of `main : {Console} Unit`) passed through — provided the body's inferred type
-    * already fits the declared return by pure definitional equality (a *non-committing* speculative unify; the real
-    * unification runs inside [[UniformCarrierChecker.checkReturnBoundary]], where a carrier joined toward itself is a
-    * no-op via the self-join guard).
-    *
-    * Restricted to the **runtime** track: the §8 boundary keeps the compile-time track's returns (the `Either` guard
-    * discharge) carrier-free. Also falls back to [[checkAgainstDefault]] for the guard / calculated-return / W3
-    * discharge and the §8 type-level boundary (all `VType`-expected), function/polytype returns (`VPi`/`VLam`), a bare
-    * unresolved metavariable, and any genuine definitional-equality *miss* (an ordinary mismatch the default path
-    * commits — there is no `Int` widening `Coerce` to reconcile a near-miss; it was deleted when `Int` became nullary
-    * with its bounds in the separate refinement channel — `Int == Int` definitionally, bounds checked post-mono by
-    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor]]).
-    */
-  private def uniformReturnRoutable(
-      tm: Sourced[OperatorResolvedExpression],
-      inferred: SemValue,
-      expected: SemValue
-  ): CheckIO[Boolean] =
-    if (platform != Platform.Runtime) pure(false)
-    else
-      for {
-        valueExpected <- uniformValueReturn(expected)
-        valueInferred <- uniformValueReturn(inferred)
-        routable      <- if (valueExpected && valueInferred) unifiesDefinitionally(inferred, expected, tm.as("Type mismatch."))
-                         else pure(false)
-      } yield routable
-
-  /** Whether `tpe` forces to a **value** return the uniform boundary resolves — a runtime term's type, pure or
-    * effect-carrier-headed: a plain non-carrier `VTopDef` ([[uniformPlainValueType]] — `String`, `Unit`, `List[..]`)
-    * *or* an effect-carrier-headed type (`effectCarrierSplit` non-empty — the ambient `?F[Unit]`, a recognized carrier).
-    * Excludes `VType` (the §8 type-level boundary, guards, calculated returns), functions/polytypes (`VPi`/`VLam` — a
-    * function value never carrier-heads), and an unresolved carrier/type metavariable head.
-    */
-  private def uniformValueReturn(tpe: SemValue): CheckIO[Boolean] =
-    for {
-      plain <- uniformPlainValueType(tpe)
-      split <- force(tpe).flatMap(lifter.effectCarrierSplit)
-    } yield plain || split.nonEmpty
-
-  /** Whether `tpe` forces to a plain, non-carrier-headed **value** type the uniform boundary can safely re-carry: a
-    * `VTopDef`-headed type (`String`, `Int`, `List[..]`, `Unit`) that is not an effect carrier (`effectCarrierSplit`
-    * empty). Excludes `VType` (the §8 type-level boundary), functions/polytypes (`VPi`/`VLam` — only a fully-applied
-    * result carrier-heads, never a function value), and metavariable heads (a carrier meta or an unresolved type), all
-    * of which must stay on the default path in this slice.
-    */
-  private def uniformPlainValueType(tpe: SemValue): CheckIO[Boolean] =
-    for {
-      forced <- force(tpe)
-      split  <- lifter.effectCarrierSplit(forced)
-    } yield forced match {
-      case VTopDef(_, _, _) => split.isEmpty
-      case _                => false
-    }
-
-  /** Speculatively unify `actual` with `expected` by pure definitional equality, **without committing** — the routing
-    * probe for [[uniformReturnRoutable]] (the actual unification runs later inside the bridge). Distinct from
-    * [[tryUnifyCommitting]], which commits the solutions on success.
-    */
-  private def unifiesDefinitionally(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
-    inspect(s =>
-      s.unifier.tryUnify(actual, expected, context) match {
-        case UnifyResult.Unified(_)       => true
-        case UnifyResult.Contradiction(_) => false
-      }
-    )
 
   /** The check-mode resolution ladder shared by return boundaries ([[checkAgainst]]) and spine argument slots
     * ([[checkArgumentSlot]]), fronted by the W2b guard-kind acceptance. A value whose type is on the compile-time
@@ -641,15 +542,10 @@ class Checker(
                             case _                                                                 =>
                               infer(head).map((_, apps))
                           }
-      // §7 step 4 (finding 14): the head callee's carrier-stack recognition tag — the value-parameter positions whose
-      // declared type is a pinned row (`catch`'s `computation`). The fold index below is the value-parameter index
-      // (generics are peeled / on the reference, never spine applications), so `pinnedParams.contains(i)` classifies
-      // the i-th slot. Empty for a non-value-reference head (a lambda, a nested application).
-      pinnedParams     <- calleePinnedParams(head)
-      (built, records) <- rest.zipWithIndex.foldLeftM((start, Vector.empty[SlotRecord])) {
-                            case (((targetExpr, targetType), recs), ((target, arg), index)) =>
-                              applyInferred(target, targetExpr, targetType, arg, pinnedParams.contains(index)).map {
-                                case (expr, tpe, record) => ((expr, tpe), recs :+ record)
+      (built, records) <- rest.foldLeftM((start, Vector.empty[SlotRecord])) {
+                            case (((targetExpr, targetType), recs), (target, arg)) =>
+                              applyInferred(target, targetExpr, targetType, arg).map { case (expr, tpe, record) =>
+                                ((expr, tpe), recs :+ record)
                               }
                           }
       hadDeferred       = records.exists(_.outcome.isInstanceOf[SlotOutcome.Deferred])
@@ -657,34 +553,6 @@ class Checker(
       result           <- assembleSpine(built, finalRecords, hadDeferred)
     } yield result
   }
-
-  /** The head callee's **carrier-stack recognition tag** (docs/effects-as-channel.md §7 step 4, finding 14): the set of
-    * its value-parameter positions whose expected slot is a canonical carrier stack the checker must split before
-    * payload unification. Two disjoint sources are unioned:
-    *
-    *   - **source (i)** — the value-parameter positions whose declared type is a *pinned row* (`catch`'s
-    *     `computation: {Throw[E] | G} A`), read from the callee's `OperatorResolvedValue.effectRow.pinnedParameterIndices`
-    *     via its [[SaturatedValue]];
-    *   - **source (ii)** — a platform **run boundary** ([[RunBoundaryFunction]]; the jvm `runMain`), whose carrier
-    *     capture is its parameter 0 (`io: IO[A]`). A concrete platform carrier like `IO` cannot be spelled as a pinned
-    *     row and is not lang-nameable, so the owning platform declares the boundary by construction and the checker reads
-    *     it here — never guessing carrier-ness from the domain's shape (which would miscompile a data container, finding
-    *     14).
-    *
-    * Empty for a head that is not a plain value reference (an immediately-applied lambda, a nested application) or whose
-    * facts are both absent — so the join routing simply never fires there and the whole-unify path is unchanged.
-    */
-  private def calleePinnedParams(head: Sourced[OperatorResolvedExpression]): CheckIO[Set[Int]] =
-    head.value match {
-      case OperatorResolvedExpression.ValueReference(vfqn, _) =>
-        for {
-          declared <- liftF(getFactIfProduced(SaturatedValue.Key(vfqn.value, platform)))
-                        .map(_.map(_.value.effectRow.pinnedParameterIndices).getOrElse(Set.empty))
-          boundary <- liftF(getFactIfProduced(RunBoundaryFunction.Key(vfqn.value)))
-                        .map(_.map(_ => Set(0)).getOrElse(Set.empty[Int]))
-        } yield declared ++ boundary
-      case _                                                  => pure(Set.empty)
-    }
 
   /** The outcome of resolving one spine argument slot. */
   private sealed trait SlotOutcome {
@@ -804,8 +672,7 @@ class Checker(
       target: Sourced[OperatorResolvedExpression],
       targetExpr: SemExpression,
       targetType: SemValue,
-      arg: Sourced[OperatorResolvedExpression],
-      pinned: Boolean
+      arg: Sourced[OperatorResolvedExpression]
   ): CheckIO[(SemExpression, SemValue, SlotRecord)] =
     for {
       (updatedTarget, peeled) <- instantiatePolymorphic(targetExpr, targetType)
@@ -819,7 +686,7 @@ class Checker(
                                        _       <- doUnify(peeled, p, target.as("Not a function."))
                                      } yield p
                                  }
-      outcome                 <- checkArgumentSlot(arg, vpi.domain, pinned)
+      outcome                 <- checkArgumentSlot(arg, vpi.domain)
       argExpr                  = outcome.slotExpr
       argSem                  <- evalExpr(arg.value)
       // The codomain may embed a native applied to the target's instantiation metas — e.g. a dependent result type
@@ -861,54 +728,24 @@ class Checker(
     */
   private def checkArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
-      domain: SemValue,
-      pinned: Boolean
+      domain: SemValue
   ): CheckIO[SlotOutcome] =
     arg.value match {
-      case _: OperatorResolvedExpression.FunctionLiteral                                            =>
+      case _: OperatorResolvedExpression.FunctionLiteral                                                 =>
         check(arg, domain).map(SlotOutcome.Resolved.apply)
       case OperatorResolvedExpression.FunctionApplication(target, _) if isUnannotatedLambda(target.value) =>
         check(arg, domain).map(SlotOutcome.Resolved.apply)
-      case _                                                                                        =>
+      case _                                                                                             =>
         for {
           (argExpr, argType) <- infer(arg)
-          outcome            <- routeArgumentSlot(arg, argExpr, argType, domain, pinned)
+          forcedDomain       <- force(domain)
+          outcome            <- defaultArgSlot(arg, argExpr, argType, forcedDomain)
         } yield outcome
     }
 
-  /** The three-way slot routing over the *forced* domain: a **plain payload** parameter domain (a concrete value type)
-    * and an **effect-carrier** domain (`?G[T]` — the ambient / a callee's `F ~ Effect` binder; a conditional arm
-    * `value: {Abort} T`, a discharger's `fallback: G[A]`) route through the uniform ladder; everything else keeps the
-    * default Phase-A logic. Restricted to the **runtime** track, exactly as the return boundary is
-    * ([[uniformReturnRoutable]]): the §8 boundary keeps the compile-time track (`eliot-compiler/` value bodies, the
-    * `Either` guard discharge) entirely on the default path — carrier-free — so it stays byte-identical.
-    */
-  private def routeArgumentSlot(
-      arg: Sourced[OperatorResolvedExpression],
-      argExpr: SemExpression,
-      argType: SemValue,
-      domain: SemValue,
-      pinned: Boolean
-  ): CheckIO[SlotOutcome] =
-    for {
-      forcedDomain  <- force(domain)
-      uniform        = platform == Platform.Runtime
-      plainDomain   <- if (uniform) uniformPlainValueType(forcedDomain) else pure(false)
-      carrierDomain <- if (uniform && !plainDomain) lifter.effectCarrierSplit(forcedDomain).map(_.nonEmpty)
-                       else pure(false)
-      outcome       <- if (plainDomain) {
-                         uniformPayloadSlot(arg, argExpr, argType, forcedDomain, pinned)
-                       } else if (carrierDomain) {
-                         uniformCarrierSlot(arg, argExpr, argType, forcedDomain)
-                       } else {
-                         defaultArgSlot(arg, argExpr, argType, forcedDomain)
-                       }
-    } yield outcome
-
-  /** The default (carrier-based) Phase-A argument-slot resolution — kept verbatim as the fallback for every slot the
-    * U3a-2b(ii) uniform ladder does not cover (a flex/carrier domain, or a slot the uniform path declines), and the
-    * only path on the compile-time track. A bare flex domain receiving an effect-carrier-headed
-    * argument is *deferred* (Phase B decides); everything else runs the shared resolution ladder.
+  /** Phase-A argument-slot resolution — the one path for every slot on both tracks since the v2 uniform bridge was
+    * deleted. A bare flex domain receiving an effect-carrier-headed argument is *deferred* (the compile track's Phase
+    * B decides, §8); everything else runs the shared resolution ladder.
     */
   private def defaultArgSlot(
       arg: Sourced[OperatorResolvedExpression],
@@ -933,292 +770,6 @@ class Checker(
       case _                    =>
         resolveGuardedLadder(arg, argExpr, argType, forcedDomain)
     }
-
-  /** Effects-as-channel U3a-2b(ii), spine wiring (docs/effects-as-channel.md §10) — resolve
-    * an argument against a **plain payload** parameter domain through the uniform ladder. The argument is instantiated
-    * once (peeling a polytype like `readLine`'s `[F ~ Console] F[String]` to its carrier-headed monotype `?F[String]`),
-    * then routed through [[uniformArgumentSlot]] when it is a carrier-headed value whose payload fits the domain by pure
-    * definitional equality:
-    *
-    *   - a **pure** actual (a plain `VTopDef` value) ⇒ it passes directly, with no node at all — it already *is* its
-    *     payload (A.8.10; a manufactured `Id` head used to be wrapped here and stripped again downstream);
-    *   - an **effectful** actual (`?F[String]`, an ambient/role effect carrier) ⇒ **it cannot get here**: sequencing
-    *     it is the *hoist*, which the row desugar owns, and since §1 rule 4 a computation may not reach a rowless slot
-    *     at all — the row check rejects it at the definition. The ladder still unifies payload-with-payload and reports
-    *     the outcome as a compiler bug ([[UniformLadder.Outcome.PayloadBound]]), the fail-safe for the shape.
-    *
-    * A function/polytype/type-level or ill-fitting argument (no carrier-headed payload, or a payload that does not fit)
-    * falls back to [[defaultArgSlot]] with the already-instantiated argument (a no-op re-instantiation), so flag-off and
-    * the un-routed shapes stay byte-identical.
-    */
-  private def uniformPayloadSlot(
-      arg: Sourced[OperatorResolvedExpression],
-      argExpr: SemExpression,
-      argType: SemValue,
-      domain: SemValue,
-      pinned: Boolean
-  ): CheckIO[SlotOutcome] =
-    for {
-      (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
-      // Bind vs capture, decided by whether the actual's **payload** fits the domain (the payload split off the carrier
-      // first, so the carrier meta can never be stolen):
-      //   - **payload fits** ⇒ **bind** ([[uniformArgumentSlot]]): the effect runs and the payload flows into the slot —
-      //     `printLine(readLine)` (`String` fits `String`), and crucially the compound-state case `items : ?F[List[X]]`
-      //     into `foldLeft`'s `list : List[A]` (`List[X]` fits `List[A]`, `A := X`), which the default path *rejects*
-      //     because the equal-arity unify steals the carrier (`?F := List`, then `Effect[List]` has no instance). A pure
-      //     actual whose payload fits passes directly, with no node at all — it already *is* its payload.
-      //   - **payload does NOT fit** ⇒ [[uniformCaptureSlot]]: either a **capture** — the whole effectful actual's carrier
-      //     partial-applies a carrier-stack / pinned domain (a discharger's `computation: {Abort | G} A` ⤳
-      //     `AbortCarrier[G, A]`, `runMain`'s `IO[A]`; the actual's *payload* `Option[?E]` does not fit `AbortCarrier`,
-      //     but the *whole* `?G[Option[?E]]` unifies via `?G := AbortCarrier[G']`, storing the computation — the uniform
-      //     ladder's arm-1 whole-type pass-through) — or a doomed under-applied bind / an ordinary mismatch, both left
-      //     on the default ladder.
-      // Checking payload-fit *first* is what distinguishes the two: a carrier-stack domain's inner value never fits its
-      // outer carrier, so it captures; a data container's element type does fit, so it binds.
-      payload                     <- uniformPayloadOf(instantiated)
-      payloadFits                 <- payload match {
-                                       case Some(p) => payloadFitsDomain(p, domain, arg.as("Type mismatch."))
-                                       case None    => pure(false)
-                                     }
-      outcome                     <- if (payloadFits) {
-                                       uniformArgumentSlot(arg, updatedExpr, instantiated, domain)
-                                     } else {
-                                       uniformCaptureSlot(arg, updatedExpr, instantiated, domain, pinned)
-                                     }
-    } yield outcome
-
-  /** The no-fit branch of [[uniformPayloadSlot]] (U4-a(ii)): an actual whose payload does not fit the plain domain is
-    * either a **capture** — the whole carrier-headed actual pass-through-unifies with a carrier-stack / pinned domain
-    * (`{Abort | G} A` ⤳ `AbortCarrier[G, A]`, `runMain`'s `IO[A]`), the uniform ladder's **arm-1 whole-type
-    * pass-through** — or a *doomed* under-applied bind / an ordinary mismatch, both left on the default ladder.
-    *
-    * The doomed shape ([[EffectLifter.mustLiftBeforeUnify]] — a carrier-meta application against an under-applied /
-    * equal-arity-non-carrier rigid head, always a **bare-flex payload** here since a concrete-payload fit would have
-    * taken the `payloadFits` branch) is checked **first**: it must *bind-lift* (sequence the effect), never capture,
-    * so it routes through the uniform **bind** arm ([[uniformArgumentSlot]] → the PayloadSlot bind: the flex payload
-    * unifies with the domain, the carrier binds), byte-identical to the default `tryBindLift` (same payload solve, same
-    * `$eff$N`/`Bind`). Otherwise the whole-type unify is tried ([[tryUnifyCommitting]]): **success is the capture** — a
-    * uniform `Resolved`, byte-identical to the default `resolveFailureLadder`'s arm-1 whole-unify (the same
-    * `tryUnifyCommitting`, same solutions, same slot expr); **failure is the mismatch**, committed directly via
-    * [[commitMismatch]] — byte-identical to the default (a non-fitting non-doomed actual's bind-lift / pure-wrap arms
-    * cannot fire, so the default ladder also bottoms out at exactly this `commitMismatch`; the failed
-    * `tryUnifyCommitting` here commits nothing, so no state differs).
-    */
-  private def uniformCaptureSlot(
-      arg: Sourced[OperatorResolvedExpression],
-      updatedExpr: SemExpression,
-      instantiated: SemValue,
-      domain: SemValue,
-      pinned: Boolean
-  ): CheckIO[SlotOutcome] =
-    for {
-      // The argument's own carrier meta, read *before* the capture unify solves it — the row-argument type-pinning
-      // rules (docs/effects-as-channel.md §7/§10) need its id to look its declared ability constraints up.
-      carrierMeta <- lifter.effectCarrierSplit(instantiated).map(_.collect { case (VMeta(id, _), _) => id.value })
-      doomed      <- lifter.mustLiftBeforeUnify(instantiated, domain)
-      // §7 step 4 (finding 14): route the capture through the JOIN solver — not the eager whole-unify — when the callee's
-      // tagged pinned-row parameter (`catch`'s `{Throw[E] | G} A` ⤳ `ThrowCarrier[E, G, A]`) receives an open-row
-      // effectful actual. The join splits the domain's carrier stack off first (`Carrier.split`), joins the actual's
-      // carrier toward it, and unifies payloads — the same solution the whole-unify reaches by partial-application
-      // injectivity, but with the carrier meta split off first so it can never be stolen. Guarded to the **first slice**:
-      // a single-layer pinned domain (`{E | G} A`, base a generic meta) + an open-row-carrier actual. Every other capture
-      // (multi-layer pinned domains, concrete-payload actuals, doomed shapes) stays on the whole-unify fallback below,
-      // and `mustLiftBeforeUnify` doomed shapes take their bind arm first, unchanged.
-      joinRoutable <- if (pinned && !doomed && carrierMeta.nonEmpty) singleLayerCarrierDomain(domain) else pure(false)
-      outcome     <- if (joinRoutable)
-                       for {
-                         // The eager row-directed pin (finding 13 §4) runs *inside* the join too — it derives the domain's
-                         // error slot from the argument's row constraints, so the join solves `?F := ThrowCarrier[String, ?G]`
-                         // with the error slot already `String` rather than junk-grounding.
-                         _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
-                         out <- uniformArgumentSlot(arg, updatedExpr, instantiated, domain, forcePinnedCarrier = true)
-                       } yield out
-                     else
-                       for {
-                         // §7 row-directed-at-elaboration pin (finding 13 §4): pin the *pinned-row domain*'s carrier-layer
-                         // ability slots from the argument's own row constraints **before** the capturing whole-unify, so a
-                         // free error-slot meta never exists to junk-ground.
-                         _   <- carrierMeta.traverse_(eagerRowPinIntoDomain(_, domain, arg))
-                         out <- tryUnifyCommitting(instantiated, domain, arg.as("Type mismatch.")).flatMap {
-                                  case true  =>
-                                    pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
-                                  case false =>
-                                    commitMismatch(instantiated, domain, arg, updatedExpr)
-                                }
-                       } yield out
-    } yield outcome
-
-  /** Whether `domain` is a **single-layer** carrier stack the §7 step-4 join routing admits (finding 14) — always
-    * consulted behind the callee's recognition tag ([[calleePinnedParams]]), so it only ever classifies a domain already
-    * known to be a carrier capture; it merely tells a single-layer stack (route through the join) from a pre-nested
-    * multi-layer one (leave on the whole-unify fallback). Two single-layer shapes qualify:
-    *
-    *   - a **pinned-row stack** `<Ability>Carrier[…, G, A]` (source (i): `catch`/`runThrow`/`else`/`runStateToPair`/
-    *     `provide`'s `{E | G} A`) whose base — the carrier's last stack slot, before the payload — is still a bare
-    *     metavariable (the generic tail `G`), not itself a nested carrier;
-    *   - a **flat concrete carrier** `IO[A]` (source (ii): the jvm run boundary `runMain`) — a `Con` with an *empty*
-    *     stack prefix (no error/state/base slots), so its `split` yields just the payload. This is the empty-`prefix`
-    *     case; it is a carrier by the tag, so admitting it routes `?F[Unit] ~ IO[A]` through the pass-join (`?F := IO`)
-    *     instead of the eager whole-unify.
-    *
-    * A pre-nested stack (a multi-layer pinned domain, base a concrete carrier) is left on the whole-unify fallback.
-    */
-  private def singleLayerCarrierDomain(domain: SemValue): CheckIO[Boolean] =
-    force(domain).flatMap {
-      case VTopDef(_, _, Spine.SApp(prefix, _)) =>
-        prefix.toList.lastOption match {
-          case Some(base) => force(base).map {
-              case VMeta(_, Spine.SNil) => true
-              case _                    => false
-            }
-          case None       => pure(true) // a flat concrete carrier (`IO[A]`) — empty prefix, so no base slot to nest
-        }
-      case _                                    => pure(false)
-    }
-
-  /** Row-directed discharge pinning **at elaboration** (docs/effects-as-channel.md §7, finding 13 §4): when an open-row
-    * argument (`?F ~ Throw[String]`) is captured whole into a pinned-row parameter *domain* (`ThrowCarrier[E, G, A]`),
-    * pin the domain's carrier-layer ability slots (`E := String`) *before* the capturing whole-unify, directly from the
-    * argument's own row constraints ([[CheckState.metaConstraints]]).
-    *
-    * Deriving the pin from the argument's row — the single source of truth: the `E` the user means is the one the
-    * computation's row declares — at capture time means a free error-slot meta never exists to junk-ground to `Type`
-    * and select the `where E1 != E2` lift (the pinned-finding-7 class), **even when the base carrier `G` is concrete**
-    * (`IO`). This is the principled form U4-f approximated at the slots, and — since the effects-as-rows slices
-    * retired the *deferred* pin-if-still-free backstop that never once applied across the gate — the only pinning
-    * mechanism left.
-    *
-    * Fail-safe: a constraint whose ability has no matching carrier layer in the domain records no pin (the whole-unify
-    * runs unchanged), and a domain slot already solved to a value is left untouched (pin-if-still-free) so an
-    * explicitly-typed slot is never overwritten — misfiring can only miss the pin, never accept a wrong typing.
-    */
-  private def eagerRowPinIntoDomain(
-      actualCarrierMetaId: Int,
-      domain: SemValue,
-      at: Sourced[OperatorResolvedExpression]
-  ): CheckIO[Unit] =
-    inspect(_.metaConstraints.getOrElse(actualCarrierMetaId, Seq.empty)).flatMap {
-      _.traverse_ { constraint =>
-        val nonCarrierArgs = constraint.args.dropRight(1)
-        if (nonCarrierArgs.isEmpty) pure(())
-        else
-          findCarrierLayerSlots(domain, EffectCarrierNaming.carrierFQN(constraint.abilityFQN)).flatMap {
-            case Some(slots) =>
-              nonCarrierArgs.zip(slots).traverse_ { case (value, slot) =>
-                force(slot).flatMap {
-                  case VMeta(_, Spine.SNil) =>
-                    doUnify(slot, value, at.as("Row-argument effect pinning (elaboration)."))
-                  case _                    => pure(())
-                }
-              }
-            case None        => pure(())
-          }
-      }
-    }
-
-  /** The leading (result-unapplied) spine slots of the outermost `carrierFqn` layer within a canonical carrier stack,
-    * descending through each layer's *base* (its last spine element) — `ThrowCarrier`'s slots inside
-    * `StateCarrier[S, ThrowCarrier[E, G]]`. [[None]] when no layer of that carrier is present.
-    */
-  private def findCarrierLayerSlots(carrier: SemValue, carrierFqn: ValueFQN): CheckIO[Option[Seq[SemValue]]] =
-    force(carrier).flatMap {
-      case VTopDef(fqn, _, spine) if fqn == carrierFqn      => pure(Some(spine.toList))
-      case VTopDef(_, _, spine) if spine.toList.nonEmpty    => findCarrierLayerSlots(spine.toList.last, carrierFqn)
-      case _                                                => pure(None)
-    }
-
-  /** Whether an effectful actual's **payload** `p` *genuinely* fits the parameter `domain` — the bind-vs-capture
-    * decision of [[uniformPayloadSlot]]. A **bare flex payload metavariable** (`?A`) is **not** a genuine fit even
-    * though it speculatively unifies with anything: a discharger's `raise`/`map` over a still-polymorphic carrier
-    * (`raise(err) : ?F[?A]` into `map`'s `fa : F[A]`) has such a payload, and treating it as "fits" would **bind**
-    * (sequence) a computation that must be **captured** whole — the flex payload would absorb the domain and strip the
-    * carrier (the same flex-payload theft the old capture check guarded against). Only a *headed* payload (`List[X]`,
-    * `String`, `Option[..]`) whose head actually matches the domain counts, so the compound-state `List[X]`-into-`List[A]`
-    * bind is admitted while the carrier-stack capture is not.
-    */
-  private def payloadFitsDomain(payload: SemValue, domain: SemValue, context: Sourced[String]): CheckIO[Boolean] =
-    force(payload).flatMap {
-      case VMeta(_, Spine.SNil) => pure(false)
-      case _                    => unifiesDefinitionally(payload, domain, context)
-    }
-
-  /** Effects-as-channel U3a-2b(ii), the conditional-arm slice (docs/effects-as-channel.md §3) — under
-    * `Platform.Runtime`: resolve an argument against an **effect-carrier** parameter domain
-    * (`?G[T]` — a conditional arm `if`'s `value: {Abort} T`, a discharger's `fallback: G[A]`, an effect combinator's
-    * `fa: F[A]`). The uniform-carrier property the default path lacks is that at such a slot a carrier meta must be
-    * solved by the *payload*, never stolen whole by the actual's head. Two arms, telling **pure** apart from
-    * **effectful** by the actual's own carrier ([[EffectLifter.effectCarrierSplit]]):
-    *
-    *   - **pure actual** (a plain `H[X]` value, `Id`-carried) ⇒ **pure-wrap first**
-    *     ([[EffectLifter.tryPureWrap]]): the payload `H[X]` unifies with the carrier's payload slot `?T` and the term is
-    *     `pure@Effect[?G]`-lifted, `?G` kept a meta the enclosing discharge / ambient solves (never defaulted). This
-    *     fires *before* the default ladder's `tryUnifyCommitting`, which — at equal arity (`None : Option[?E]` into
-    *     `?G[?T]`, both arity 1) — would **steal** the carrier whole (`?G := Option`) because the pure-wrap pre-arm only
-    *     triggers on a strictly *under*-applied actual. That theft is exactly why `if(c, None) else Some(x)` is rejected
-    *     on the default path; pure-wrapping first fixes it. Where the default path *does* pure-wrap (a strictly
-    *     under-applied `"+"`), this produces the identical node — byte-identical. A pure-wrap that does not fit falls
-    *     back to [[defaultArgSlot]] (which commits the mismatch).
-    *   - **effectful actual** (`?F[Unit]`, a carrier-headed sibling) ⇒ [[defaultArgSlot]]: its carrier meta unifies with
-    *     `?G` correctly (`?G := ?F`), the same as the default path — no theft hazard, so no reshaping needed.
-    *
-    * Reuses [[EffectLifter.tryPureWrap]] unchanged (reshape, not rebuild) — the clean single `pure@Effect[?G](arg)` node,
-    * which is now the only shape there is: with no manufactured `Id` head (A.8.10) the historical double-wrap
-    * `pure(runId(pure@Id(arg)))`, whose inner `pure@Id` confused the outer `pure`'s `Effect` instance resolution and
-    * mis-erased it, can no longer be built. `if`'s `value` arm is a single slot
-    * (no pure/effectful *sibling* in one call — that is `fold`'s `Generic` case), so the full `CarrierJoin` lattice is
-    * not needed here.
-    */
-  private def uniformCarrierSlot(
-      arg: Sourced[OperatorResolvedExpression],
-      argExpr: SemExpression,
-      argType: SemValue,
-      domain: SemValue
-  ): CheckIO[SlotOutcome] =
-    for {
-      (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
-      effectful                   <- lifter.effectCarrierSplit(instantiated).map(_.nonEmpty)
-      // Effects-as-channel U4-a(ii) (docs/effects-as-channel.md §10): an **effectful** actual into an effect-carrier
-      // slot routes through the uniform CarrierSlot arm ([[uniformArgumentSlot]] → the pass-join: the actual's carrier
-      // meta joins the domain's, the payloads unify, and the whole action passes through as `Passed`) rather than
-      // handing off to [[defaultArgSlot]]. Byte-identical to the default whole-unify (`?F[Unit] ~ ?G[T]` ⇒ `?G := ?F`,
-      // `T := Unit`, slot expr unchanged); exercised by `report`'s `if(flag, printLine("on"))` in the byte-identical gate.
-      outcome                     <- if (effectful) {
-                                       uniformArgumentSlot(arg, updatedExpr, instantiated, domain)
-                                     } else
-                                       lifter.tryPureWrap(arg, updatedExpr, instantiated, domain).flatMap {
-                                         case Some(wrapped) =>
-                                           pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-                                         case None          =>
-                                           defaultArgSlot(arg, updatedExpr, instantiated, domain)
-                                       }
-    } yield outcome
-
-  /** The payload of a carrier-headed argument type, for the [[uniformPayloadSlot]] routing decision: the effect-carrier
-    * payload for an effectful actual ([[EffectLifter.effectCarrierSplit]]), the value itself for a pure plain `VTopDef`
-    * actual ([[uniformPlainValueType]]), and [[None]] for anything the uniform ladder does not carrier-head (a function
-    * `VPi`/polytype `VLam`, `VType`, a bare metavariable).
-    */
-  private def uniformPayloadOf(tpe: SemValue): CheckIO[Option[SemValue]] =
-    for {
-      forced <- force(tpe)
-      split  <- lifter.effectCarrierSplit(forced)
-      plain  <- uniformPlainValueType(forced)
-    } yield split.map(_._2).orElse(Option.when(plain)(forced))
-
-  /** Resolve a routable argument through [[UniformCarrierChecker.resolveArgumentSlot]], which now only ever *passes*
-    * the slot: an argument the elaboration must sequence never reaches here — the desugar hoists it up front, and
-    * since §1 rule 4 a computation may not reach a rowless slot at all.
-    */
-  private def uniformArgumentSlot(
-      arg: Sourced[OperatorResolvedExpression],
-      argExpr: SemExpression,
-      argType: SemValue,
-      domain: SemValue,
-      forcePinnedCarrier: Boolean = false
-  ): CheckIO[SlotOutcome] =
-    uniformChecker
-      .resolveArgumentSlot(arg, argExpr, argType, domain, forcePinnedCarrier)
-      .map(SlotOutcome.Resolved(_))
 
   /** Whether `expr` is an unannotated function literal `(x -> body)`. Its parameter type cannot be inferred from the
     * literal alone; when it is *immediately applied* the type is taken from the argument (see [[typeImmediateLambda]]).
@@ -1281,9 +832,8 @@ class Checker(
                                                                     // unifier's per-type-argument spine errors. The
                                                                     // pure-boundary `Id` fallback that used to sit
                                                                     // here retired with the effects-as-rows slices —
-                                                                    // a fully-discharged block `val` reaches a pure
-                                                                    // return through the uniform return boundary's own
-                                                                    // discharge ([[UniformCarrierChecker.checkReturnBoundary]]).
+                                                                    // the elaborator writes `Id` and its `runId`
+                                                                    // projection at the two pure boundaries itself.
                                                                     case Some(exp) =>
                                                                       lifter
                                                                         .mustLiftBeforeUnify(wrappedType, exp)

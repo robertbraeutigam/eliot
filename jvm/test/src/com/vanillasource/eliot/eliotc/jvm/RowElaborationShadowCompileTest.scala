@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.Compiler
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.RunBoundaryFunction
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -38,8 +39,8 @@ class RowElaborationShadowCompileTest extends AsyncFlatSpec with AsyncIOSpec wit
 
       // Run A: the ordinary compile; its fact universe is the elaboration input, its output the behavioral oracle.
       a                          <- compileRun(sourceDir, Seq.empty)
-      (aFacts, aJar)              = a
-      universe                    = universeOf(aFacts)
+      (aFacts, aBoundaries, aJar) = a
+      universe                    = universeOf(aFacts, aBoundaries)
       elaborated                  = universe.values.values.toSeq
                                       .filter(RowChecker.checkable)
                                       .flatMap(orv => RowElaborator.elaborate(orv, universe).map(e => orv.copy(runtime = Some(e))))
@@ -48,7 +49,7 @@ class RowElaborationShadowCompileTest extends AsyncFlatSpec with AsyncIOSpec wit
 
       // Run B: same sources, fresh session, the elaborated values seeded — downstream consumes them.
       b                          <- compileRun(sourceDir, elaborated)
-      (_, bJar)                   = b
+      (_, _, bJar)                = b
       outputB                    <- FullIntegrationTest.runJar(bJar, "")
     // The changed-count tripwire only guards against elaboration silently degrading to identity; under the A.8.6
     // deferral discipline the desugar legitimately rewrites fewer definitions (instantiation-decided shapes pass
@@ -58,18 +59,21 @@ class RowElaborationShadowCompileTest extends AsyncFlatSpec with AsyncIOSpec wit
     }
   }
 
-  private def universeOf(facts: Map[?, CompilerFact]): RowChecker.Universe = {
-    val values        = facts.values.collect {
+  /** The declared world of one compile run. The run boundaries come from the session's configuration — the same
+    * place `LangPlugin` reads them — because the `RunBoundaryFunction` *fact* has no demander left since the v2
+    * bridge was deleted, so reading it out of the fact universe would silently yield the empty set.
+    */
+  private def universeOf(facts: Map[?, CompilerFact], runBoundaries: Set[ValueFQN]): RowChecker.Universe = {
+    val values = facts.values.collect {
       case orv: OperatorResolvedValue if orv.platform == Platform.Runtime => orv.vfqn -> orv
     }.toMap
-    val runBoundaries = facts.values.collect { case rb: RunBoundaryFunction => rb.vfqn }.toSet
     RowChecker.Universe(values, runBoundaries)
   }
 
   /** One cold compile of `sourceDir` (module `Test`) over the real layer roots with the given seed facts, returning
     * the run's fact universe and the produced executable jar.
     */
-  private def compileRun(sourceDir: Path, seedFacts: Seq[CompilerFact]): IO[(Map[?, CompilerFact], Path)] =
+  private def compileRun(sourceDir: Path, seedFacts: Seq[CompilerFact]): IO[(Map[?, CompilerFact], Set[ValueFQN], Path)] =
     for {
       targetDir  <- IO.blocking(Files.createTempDirectory("eliot-elab-target"))
       args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++ layerPathArgs
@@ -88,7 +92,11 @@ class RowElaborationShadowCompileTest extends AsyncFlatSpec with AsyncIOSpec wit
                       )
                       .whenA(result.errors.nonEmpty)
       facts      <- result.generator.currentFacts()
-    } yield (facts, targetDir.resolve("Test.jar"))
+    } yield (
+      facts,
+      session.effectiveConfiguration.getOrElse(RunBoundaryFunction.configKey, Set.empty),
+      targetDir.resolve("Test.jar")
+    )
 
   private def layerPathArgs: List[String] = {
     val repoRoot             = Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))

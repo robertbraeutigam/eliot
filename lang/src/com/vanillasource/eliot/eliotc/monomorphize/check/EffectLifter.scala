@@ -22,7 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * What the slices removed, because the desugar ([[com.vanillasource.eliot.eliotc.row.RowElaborator]]) now writes the
   * bind — and, since §1 rule 4, classifies *every* position from its declaration — so no gate shape reached them: the
   * `tryBindLift` arm (every ladder call site was dead), the pure-boundary `tryIdDefault` arm (superseded by the
-  * uniform return boundary's own `Id` discharge, [[UniformCarrierChecker.checkReturnBoundary]]), and the `wrapBinds`
+  * elaborator's own written `Id` at the two pure boundaries), and the `wrapBinds`
   * fold, whose only caller was the spine loop's mid-spine bind (slice 2).
   *
   * The surviving arms are still not definitional equality: `unify` never lifts — [[tryPureWrap]] verifies its
@@ -288,17 +288,15 @@ class EffectLifter(
 object EffectLifter {
 
   /** The identity carrier `Id`, in the canonical unapplied [[VTopDef]] form the compiler track pins `Either` carriers
-    * with — the carrier a fully-discharged body's residual meta defaults to at a pure boundary
-    * ([[UniformCarrierChecker.checkReturnBoundary]]). It is no longer *manufactured* for pure judgments: a pure term is
-    * simply not carried (docs/effects-as-rows.md A.8.10), so this only builds the type of a genuine `Id` value.
+    * with. It is never *manufactured* for pure judgments: a pure term is simply not carried
+    * (docs/effects-as-rows.md A.8.10) and the elaborator writes `Id` where a discharge lands on a pure boundary, so
+    * this only builds the type of a genuine `Id` value.
     */
   val idCarrier: SemValue = VTopDef(WellKnownTypes.idFQN, None, Spine.SNil)
 
   /** Build an `Effect.pure` lift node — `pure[carrier, payload](expr) : resultType` (`resultType` = `carrier[payload]`)
-    * — reusing the [[Sourced]] position of `source` for every inserted node. Extracted from [[EffectLifter.tryPureWrap]]
-    * so the uniform-carrier checker ([[UniformCarrierChecker]]) reuses the exact same node mechanics (reshape, not
-    * rebuild); the default-path [[EffectLifter.tryPureWrap]] passes its already-forced `carrier[payload]` as
-    * `resultType`, the uniform path passes `Evaluator.applyValue(carrier, payload)` (definitionally the same value).
+    * — reusing the [[Sourced]] position of `source` for every inserted node. Split out from
+    * [[EffectLifter.tryPureWrap]], which passes its already-forced `carrier[payload]` as `resultType`.
     */
   def pureWrapNode[S](
       carrier: SemValue,
@@ -315,9 +313,7 @@ object EffectLifter {
   }
 
   /** Build a `runId` unwrap node — `runId[payload](expr) : payload` — reusing the [[Sourced]] position of `source`.
-    * Extracted from [[EffectLifter.tryIdDefault]]; `expr` is an `Id[payload]`-carried term and the node projects out its
-    * payload (a total, effect-free projection). The uniform path composes it under [[EffectLifter.pureWrapNode]] to
-    * re-carry a pure `Id`-headed actual at a different (effect-carrier) expected slot.
+    * `expr` is an `Id[payload]`-carried term and the node projects out its payload — a total, effect-free projection.
     */
   def runIdNode[S](payload: SemValue, expr: SemExpression, source: Sourced[S]): SemExpression = {
     val runIdRef = SemExpression(

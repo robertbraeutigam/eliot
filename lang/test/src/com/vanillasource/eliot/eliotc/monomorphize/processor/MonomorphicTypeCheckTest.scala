@@ -524,20 +524,21 @@ class MonomorphicTypeCheckTest
 
   // `?F[String] ~ String` has no injective type-constructor solution (only a non-injective constant lambda would fit,
   // which a carrier never is). It must be rejected rather than silently dropped from the postponement queue.
-  // The doomed `?F[String] ~ String` postponement with a FITTING payload now legitimately resolves: the pure-boundary
-  // Id defaulting (`EffectLifter.tryIdDefault`) solves `?F := Id` and unwraps with `runId` (end-to-end coverage in the
-  // jvm `ExamplesIntegrationTest` pure-`if..else` cases, where the real `Effect[Id]` instance resolves). The rejection
-  // remains for a payload that does not fit the rigid pure return — the defaulting speculates and declines there.
   it should "reject a higher-kinded carrier whose payload does not fit the rigid pure return" in {
     runForErrors(
       "def id[F[_]](x: F[String]): F[String] = x\ndef someString: String\ndef f: BigInteger = id(someString)"
     ).asserting(_.nonEmpty shouldBe true)
   }
 
-  it should "default a higher-kinded carrier with a fitting payload to the Id carrier at a pure return" in {
+  // A *fitting* payload is rejected too, and that is the point: `F[_]` here carries no `~ Effect` constraint, so no
+  // declaration calls it a carrier and nothing may instantiate it at `Id` on the program's behalf. The v2 bridge did
+  // — its return boundary defaulted the binder to `Id` and inserted `runId` — which is the checker inventing a
+  // carrier, the premise A.10 reversed and A.11.7-Y shape 2 removed with the bridge. `Id` is still perfectly
+  // available; it just has to be *written* (`runId(id[Id](Id(someString)))`, exercised end to end in the jvm suites).
+  it should "reject a higher-kinded binder no declaration calls a carrier, even at a fitting pure return" in {
     runForErrors(
       "def id[F[_]](x: F[String]): F[String] = x\ndef someString: String\ndef f: String = id(someString)"
-    ).asserting(_ shouldBe Seq.empty)
+    ).asserting(_.nonEmpty shouldBe true)
   }
 
   // The positive direction must still hold: `?F[String] ~ Box[String]` decomposes to the well-kinded `?F := Box`.

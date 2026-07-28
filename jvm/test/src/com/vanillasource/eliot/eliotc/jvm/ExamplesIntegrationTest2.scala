@@ -373,6 +373,26 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "hello")
   }
 
+  // The other half of the rule above: a higher-kinded binder that declares NO `~ Effect` constraint is not a carrier,
+  // so nothing instantiates it at `Id` on the program's behalf (the v2 bridge's return boundary did, which is the
+  // checker inventing a carrier — removed with the bridge, A.11.7-Y shape 2). `Id` remains perfectly usable there; it
+  // just has to be written, and then it is an honest type application rather than an inference.
+  "an unconstrained higher-kinded binder at a pure return" should "work when the Id carrier is written explicitly" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.lang.Id
+        |
+        |def id[F[_]](x: F[String]): F[String] = x
+        |
+        |def someString: String = "hello"
+        |
+        |def f: String = runId(id[Id](Id(someString)))
+        |
+        |def main: IO[Unit] = printLine(f)""".stripMargin
+    ).asserting(_ shouldBe "hello")
+  }
+
   // Static testability (M5): the SAME carrier-polymorphic {Abort} business logic runs under a pure `Id` test carrier
   // (G := Id), with no production IO — the effect discharges to a plain Option the test inspects. main only does IO to
   // print the already-computed pure results.

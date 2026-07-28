@@ -1,11 +1,12 @@
 # Effects as Rows, v3: Declared Suspension + a Written Carrier
 
-**Status (2026-07-28). A.11.7's three blockers are diagnosed
-([A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28)) and **decided as one unified rule**
-(Robert): a carrier-headed slot captures whatever names its carrier (§1 rule 4, last bullet), and the
-elaborator writes every declaration-determined type argument, not just a binder-0 carrier (§3.1). Work
-order: shape 3 → shape 1 (spike first) → shape 2 as deletion → the bridge. → Resume at
-[A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).**
+**Status (2026-07-28). A.11.7 is DONE — the v2 bridge is deleted and `check/` is 3,879, below the pre-v2
+baseline of 3,996.** It was unblocked by one unified rule (Robert's decision, A.11.7-Y): a carrier-headed
+slot captures whatever names its carrier (§1 rule 4, last bullet), and the elaborator writes every
+declaration-determined type argument, not just a binder-0 carrier (§3.1). That also fixed a shipped
+silent miscompile — an effect stored in a `data` field ran at construction. **What remains: A.11.8 step
+3, A.11.9, A.11.10, and the separated pinned-`data`-field gap.** → Resume at
+[A.11.Z HANDOVER](#a11z-handover--resume-here-2026-07-28).
 
 **§1 rule 4 holds and is enforced**, which was the whole point of A.11.7-T: every position classifies from
 its declaration, a computation may not reach a rowless slot, and `ρ := {}` runs at `Id`. `A.11.1`–`A.11.6`
@@ -1472,6 +1473,37 @@ open rows at the data level, which is what mints the data type's carrier — wit
 (`DataDefinitionDesugarer` would then see an `EffectfulType` in a field type). It is deliberately not
 bundled into the bridge deletion.
 
+#### A.11.7 landed (2026-07-28) — the bridge is deleted
+
+With both routers cold and the return boundary's one shape converted, the whole v2 bridge went:
+`monomorphize/carrier/` (`Carrier`, `CarrierJoin`, `UniformLadder`), `check/UniformCarrierChecker`, and
+in `Checker` the `uniformChecker` collaborator, `checkAgainst`'s uniform route with
+`uniformReturnBoundary`/`uniformReturnRoutable`/`uniformValueReturn`/`uniformPlainValueType`/
+`unifiesDefinitionally`, `routeArgumentSlot` with `uniformPayloadSlot`/`uniformCaptureSlot`/
+`uniformCarrierSlot`/`uniformArgumentSlot`/`uniformPayloadOf`/`payloadFitsDomain`/
+`singleLayerCarrierDomain`/`eagerRowPinIntoDomain`/`findCarrierLayerSlots`, and `calleePinnedParams`
+with the `pinned` flag threaded through the spine loop. `checkAgainst` and `checkArgumentSlot` now go
+straight to the single ladder on both tracks. Tests deleted with their machinery:
+`carrier/CarrierMechanismTest`, `check/UniformCarrierCheckerTest`.
+
+**`check/` is 4,622 → 3,879 — below the pre-v2 baseline of 3,996**, which was A.11.0's arithmetic and
+the number to check.
+
+**One consequence worth keeping**: `calleePinnedParams` was the last **demander** of the
+`RunBoundaryFunction` *fact*. The pipeline never needed it — `LangProcessors` hands the run-boundary set
+to `RowElaborationProcessor` directly from the plugin configuration — but two test harnesses
+(`RowShadowSweepTest`, `RowElaborationShadowCompileTest`) reconstructed their `RowChecker.Universe` by
+collecting that fact out of the demanded universe, so with no demander they silently swept with *no*
+run boundaries and reported a false `Console` leak on `main`. Both now read
+`session.effectiveConfiguration.getOrElse(RunBoundaryFunction.configKey, …)`, the same source
+`LangPlugin` uses. The fact and its processor are now produced-but-never-demanded and should be retired
+in A.11.9, with `configKey` rehomed.
+
+**Gate**: `__.test` **1,489/1,489 green** (1,539 before, minus the 52 tests of the two deleted suites,
+plus 2 new ones), 37/40 examples, and **every class file byte-identical to the baseline taken before any
+of this work**. The exit greps `uniformCarrier|CarrierJoin|UniformLadder|ModeObligation` are empty;
+`IdNormalizer` stays by §1 rule 4 and `seedFacts` goes with A.11.9's scaffolding.
+
 ## A.11.7-R The bridge is not cold — the measurement, and what it blocks on
 
 A.11.7 said to trace first and delete only zero-fire arms, and that **an arm that still fires is a
@@ -1950,6 +1982,14 @@ enforced.** Every position classifies from its declaration; a computation may no
 deleted and only the compile track's Phase B remains (§8).
 
 ### A.11.Z.2 What is next
+
+> **Superseded 2026-07-28: A.11.7 is done** — see
+> [A.11.7-Y](#a117-y-the-three-blockers-diagnosed-2026-07-28), which diagnosed the three shapes below,
+> recorded Robert's unified decision on them, and landed all of it plus the deletion. What remains is
+> **A.11.8 step 3** (the carrier side table), **A.11.9** (scaffolding and suites — now also the
+> `RunBoundaryFunction` fact, whose last demander went with the bridge), **A.11.10** (docs closeout),
+> and the **pinned-`data`-field gap** A.11.7-Y separated out. The section below is kept for the
+> measurement history.
 
 **A.11.7 — delete the bridge.** A.11.8 step 1 is **done** (A.11.8-1) and did not need it: the two deferral
 producers inside the bridge were dead and were deleted from within it, so the coupling A.11.7-R described

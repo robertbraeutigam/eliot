@@ -49,8 +49,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   The ability constraints a callee reference declared on each of its freshly-peeled instantiation metas — keyed by
   *   the meta's raw id (docs/effects-as-channel.md §10 U4-f). Recorded at instantiation ([[recordMetaConstraints]],
   *   from [[CarrierKindChecker.recordCarrierMetas]]); read by the row-argument type-pinning rule when a constrained
-  *   carrier meta is captured whole into a pinned-row parameter. The same table pinned finding 4 (the `CarrierJoin`
-  *   Id-default guard) needs — built once here.
+  *   carrier meta needs its declared abilities looked up. Built once here.
   */
 case class CheckState(
     gamma: Env,
