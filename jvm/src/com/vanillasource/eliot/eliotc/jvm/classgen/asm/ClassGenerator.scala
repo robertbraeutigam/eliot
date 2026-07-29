@@ -110,6 +110,19 @@ class ClassGenerator(val moduleName: ModuleName, val internalName: String, priva
       .visitEnd()
   }
 
+  /** Create a private, mutable static field carrying a **raw JVM descriptor**.
+    *
+    * Every other field helper here names its type by [[ValueFQN]], because every other field holds an Eliot value. This
+    * one is for a native's own private state — the shared `java.io.BufferedReader` over standard input — which has no
+    * Eliot type to name it by and is never visible to Eliot code. Mutable (not `final`) so the native can initialise it
+    * on first use.
+    */
+  def createPrivateStaticField[F[_]: Sync](name: JvmIdentifier, descriptor: String): F[Unit] = Sync[F].delay {
+    classWriter
+      .visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, name.value, descriptor, null, null)
+      .visitEnd()
+  }
+
   /** Create a static initializer block (&lt;clinit&gt;). Ends with RETURN automatically.
     */
   def createStaticInit[F[_]: Sync](): Resource[F, MethodGenerator] =

@@ -45,6 +45,16 @@ class EffectCorpusIntegrationTest extends FullIntegrationTest {
     )
   }
 
+  "repeated readLine" should "read successive lines, not end-of-stream after the first" in {
+    compileAndRun(EffectCorpus.stdinProgram, stdin = "alpha\nbeta\ngamma\n").asserting(
+      _ shouldBe
+        """start
+          |1:alpha
+          |2:beta
+          |3:gamma""".stripMargin
+    )
+  }
+
   "the Inf corpus program" should "loop forever, printing its line repeatedly" in {
     compileAndRunBounded(EffectCorpus.infProgram, timeoutMillis = 400)
       .asserting(_.linesIterator.count(_ == "tick") should be > 5)

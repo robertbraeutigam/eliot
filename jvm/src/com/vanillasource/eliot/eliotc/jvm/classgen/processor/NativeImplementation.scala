@@ -277,44 +277,95 @@ object NativeImplementation {
     }
   }
 
+  /** The name of the private static field holding the process-wide standard-input reader. See
+    * [[eliot_lang_Console_readLineInternal]] for why it has to be a field.
+    */
+  private val stdinReaderField = JvmIdentifier("stdinReader")
+
   private def eliot_lang_Console_readLineInternal: NativeImplementation = new NativeImplementation {
     override val impure: Boolean = true
 
+    /** Reads one line from standard input through a **single shared** `BufferedReader`, created on first use and kept
+      * in a private static field.
+      *
+      * The reader has to be shared, and this is not an optimisation. A `BufferedReader` reads *ahead*: the first
+      * `readLine` pulls everything currently available on the stream into its buffer and hands back only the first
+      * line. Constructing a fresh reader per call — which this native used to do — therefore threw the rest of the
+      * input away with the discarded reader, so the second `readLine` saw end-of-stream and returned `null`, and the
+      * first `String` operation on that `null` failed inside a native with no Eliot-level explanation. A program could
+      * read exactly one line, whatever it asked for.
+      *
+      * Initialised **lazily, on the first read** rather than in a static initialiser: the field is created the moment
+      * it is first needed, which keeps `System.in` captured as late as possible. That matters because this class also
+      * hosts `printLineInternal`, so class initialisation happens on the first *print* — potentially before a host that
+      * embeds the generated jar in its own JVM has redirected standard input (which is exactly what the integration
+      * harness does). The lazy check is unsynchronised: Eliot has no concurrency to race with it — the language cannot
+      * express a thread any more than it can express recursion. Should that ever change, the fix is the holder-class
+      * idiom (a nested class whose own initialiser builds the reader), not a lock here.
+      */
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
-      classGenerator
-        .createMethod[CompilerIO](JvmIdentifier("readLineInternal"), Seq.empty, systemLangType("String"))
-        .use { methodGenerator =>
-          methodGenerator.runNative { methodVisitor =>
-            // new BufferedReader(new InputStreamReader(System.in)).readLine() — leaves the line String on the stack;
-            // createMethod appends the ARETURN. Reads one line per call (sufficient for the current Console effect).
-            methodVisitor.visitTypeInsn(Opcodes.NEW, "java/io/BufferedReader")
-            methodVisitor.visitInsn(Opcodes.DUP)
-            methodVisitor.visitTypeInsn(Opcodes.NEW, "java/io/InputStreamReader")
-            methodVisitor.visitInsn(Opcodes.DUP)
-            methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "in", "Ljava/io/InputStream;")
-            methodVisitor.visitMethodInsn(
-              Opcodes.INVOKESPECIAL,
-              "java/io/InputStreamReader",
-              "<init>",
-              "(Ljava/io/InputStream;)V",
-              false
-            )
-            methodVisitor.visitMethodInsn(
-              Opcodes.INVOKESPECIAL,
-              "java/io/BufferedReader",
-              "<init>",
-              "(Ljava/io/Reader;)V",
-              false
-            )
-            methodVisitor.visitMethodInsn(
-              Opcodes.INVOKEVIRTUAL,
-              "java/io/BufferedReader",
-              "readLine",
-              "()Ljava/lang/String;",
-              false
-            )
+      val readerDescriptor = "Ljava/io/BufferedReader;"
+
+      classGenerator.createPrivateStaticField[CompilerIO](stdinReaderField, readerDescriptor) >>
+        classGenerator
+          .createMethod[CompilerIO](JvmIdentifier("readLineInternal"), Seq.empty, systemLangType("String"))
+          .use { methodGenerator =>
+            methodGenerator.runNative { methodVisitor =>
+              // if (stdinReader == null) stdinReader = new BufferedReader(new InputStreamReader(System.in));
+              // return stdinReader.readLine();  — the ARETURN is appended by createMethod, so the line String is just
+              // left on the stack.
+              val initialised = new Label()
+
+              methodVisitor.visitFieldInsn(
+                Opcodes.GETSTATIC,
+                classGenerator.internalName,
+                stdinReaderField.value,
+                readerDescriptor
+              )
+              methodVisitor.visitJumpInsn(Opcodes.IFNONNULL, initialised)
+
+              methodVisitor.visitTypeInsn(Opcodes.NEW, "java/io/BufferedReader")
+              methodVisitor.visitInsn(Opcodes.DUP)
+              methodVisitor.visitTypeInsn(Opcodes.NEW, "java/io/InputStreamReader")
+              methodVisitor.visitInsn(Opcodes.DUP)
+              methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "in", "Ljava/io/InputStream;")
+              methodVisitor.visitMethodInsn(
+                Opcodes.INVOKESPECIAL,
+                "java/io/InputStreamReader",
+                "<init>",
+                "(Ljava/io/InputStream;)V",
+                false
+              )
+              methodVisitor.visitMethodInsn(
+                Opcodes.INVOKESPECIAL,
+                "java/io/BufferedReader",
+                "<init>",
+                "(Ljava/io/Reader;)V",
+                false
+              )
+              methodVisitor.visitFieldInsn(
+                Opcodes.PUTSTATIC,
+                classGenerator.internalName,
+                stdinReaderField.value,
+                readerDescriptor
+              )
+
+              methodVisitor.visitLabel(initialised)
+              methodVisitor.visitFieldInsn(
+                Opcodes.GETSTATIC,
+                classGenerator.internalName,
+                stdinReaderField.value,
+                readerDescriptor
+              )
+              methodVisitor.visitMethodInsn(
+                Opcodes.INVOKEVIRTUAL,
+                "java/io/BufferedReader",
+                "readLine",
+                "()Ljava/lang/String;",
+                false
+              )
+            }
           }
-        }
     }
   }
 

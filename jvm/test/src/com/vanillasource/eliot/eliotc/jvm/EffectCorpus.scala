@@ -103,6 +103,23 @@ object EffectCorpus {
       |   three.foreach(tag("pure:"))
       |}""".stripMargin
 
+  /** Repeated `readLine`: the `Console` effect must be able to read more than one line.
+    *
+    * A `BufferedReader` reads ahead, so a reader built per call takes the whole of standard input into its buffer and
+    * discards it with itself — which is what this native used to do, leaving every read after the first at
+    * end-of-stream. The single shared reader is what makes the second and third lines arrive. The leading `printLine`
+    * is part of the test, not scenery: the reader is a field on the same generated class, so a print is what triggers
+    * that class's initialisation, and a reader captured there rather than at the first read would bind standard input
+    * too early.
+    */
+  val stdinProgram: String =
+    """def main: {Console} Unit = {
+      |   printLine("start")
+      |   printLine("1:" ++ readLine)
+      |   printLine("2:" ++ readLine)
+      |   printLine("3:" ++ readLine)
+      |}""".stripMargin
+
   /** A deliberately non-terminating program: `Inf` is an ordinary row entry riding the same union. Compile-only. */
   val infProgram: String =
     """import eliot.jvm.IO
