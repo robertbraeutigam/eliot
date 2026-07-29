@@ -99,7 +99,7 @@ object EffectCorpus {
       |def main: {Console} Unit = {
       |   printLine(labelOf("host=1") else "none")
       |   printLine(labelOf("nokey") else "none")
-      |   three.foreach(tag(readLine))
+      |   three.foreach(tag(readLine.orAbort else "eof:"))
       |   three.foreach(tag("pure:"))
       |}""".stripMargin
 
@@ -137,11 +137,13 @@ object EffectCorpus {
     * too early.
     */
   val stdinProgram: String =
-    """def main: {Console} Unit = {
+    """def line: {Console} String = readLine.orAbort else "<eof>"
+      |
+      |def main: {Console} Unit = {
       |   printLine("start")
-      |   printLine("1:" ++ readLine)
-      |   printLine("2:" ++ readLine)
-      |   printLine("3:" ++ readLine)
+      |   printLine("1:" ++ line)
+      |   printLine("2:" ++ line)
+      |   printLine("3:" ++ line)
       |}""".stripMargin
 
   /** A deliberately non-terminating program: `Inf` is an ordinary row entry riding the same union. Compile-only. */

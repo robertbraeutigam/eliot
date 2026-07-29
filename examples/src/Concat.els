@@ -8,4 +8,7 @@
  * echo world | java -jar target/Concat.jar
  * ```
  */
-def main: {Console} Unit = printLine("Hello, " ++ readLine ++ "!")
+def main: {Console} Unit = {
+   val name = readLine.orAbort else "world"
+   printLine("Hello, " ++ name ++ "!")
+}

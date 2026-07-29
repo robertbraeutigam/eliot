@@ -31,6 +31,7 @@ object NativeImplementation {
     Seq(
       (systemEffectValueFQN("Console", "printLineInternal"), eliot_lang_Console_printLineInternal),
       (systemEffectValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
+      (systemEffectValueFQN("Console", "isNull"), eliot_lang_Console_isNull),
       (systemEffectValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
       (systemEffectValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
       (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit),
@@ -55,7 +56,8 @@ object NativeImplementation {
     collectionValueFQN("List", "empty")     -> GenericNativeSignature(Seq.empty, listType),
     collectionValueFQN("List", "append")    -> GenericNativeSignature(Seq(listType, systemAnyValue), listType),
     collectionValueFQN("List", "foldLeftInternal") ->
-      GenericNativeSignature(Seq(listType, systemAnyValue, systemFunctionValue), systemAnyValue)
+      GenericNativeSignature(Seq(listType, systemAnyValue, systemFunctionValue), systemAnyValue),
+    systemEffectValueFQN("Console", "isNull") -> GenericNativeSignature(Seq(systemAnyValue), systemLangType("Bool"))
   ) ++ FileNatives.genericNativeSignatures
 
   private def collectionValueFQN(moduleName: String, valueName: String): ValueFQN =
@@ -366,6 +368,38 @@ object NativeImplementation {
               )
             }
           }
+    }
+  }
+
+  /** `true` when the argument is the null reference. Pure, and generic (erased to `Object`) like its `eliot.file`
+    * namesake, whose bytecode this repeats — the two are separate registrations because per-file name resolution makes
+    * each module declare its own leaf, and `eliot.effect.Console` must not depend on `eliot.file`.
+    *
+    * The single consumer is `Console.lineOrNone`, which turns the `null` that `java.io.BufferedReader.readLine` returns
+    * at end of input into a `None`. That null is the one value crossing into Eliot that no Eliot type admits, so it is
+    * confined to the two lines between this leaf and the `Option` the ability actually yields.
+    */
+  private def eliot_lang_Console_isNull: NativeImplementation = new NativeImplementation {
+
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
+      val signature = genericNativeSignatures(systemEffectValueFQN("Console", "isNull"))
+
+      classGenerator
+        .createMethod[CompilerIO](JvmIdentifier("isNull"), signature.parameterTypes, signature.returnType)
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            val wasNull = new Label()
+            val end     = new Label()
+
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+            methodVisitor.visitJumpInsn(Opcodes.IFNULL, wasNull)
+            methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", "FALSE", "Ljava/lang/Boolean;")
+            methodVisitor.visitJumpInsn(Opcodes.GOTO, end)
+            methodVisitor.visitLabel(wasNull)
+            methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", "TRUE", "Ljava/lang/Boolean;")
+            methodVisitor.visitLabel(end)
+          }
+        }
     }
   }
 

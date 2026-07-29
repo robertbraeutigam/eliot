@@ -43,7 +43,7 @@ import eliot.effect.Console
         |def parsePort(raw: String): {Abort} Int = abort
         |
         |def nextPort: {Console, State[String], Abort} Int = {
-        |  val raw = readLine
+        |  val raw = readLine.orAbort else ""
         |  putState(raw)
         |  parsePort(raw)
         |}

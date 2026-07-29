@@ -23,9 +23,9 @@ def isEmpty(s: String): Bool
  * `true` when `s` is empty or consists only of whitespace.
  *
  * ```eliot
- * // Read a name, falling back to a placeholder when the user just pressed enter.
+ * // Read a name, falling back to a placeholder when the user just pressed enter (or ran out of input).
  * def askName: {Console} String = {
- *   val answer = readLine
+ *   val answer = readLine.orAbort else ""
  *   fold(answer.isBlank, "anonymous", answer.trim)
  * }
  * ```

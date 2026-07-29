@@ -8,6 +8,19 @@
  * ```eliot
  * def greet: {Console} Unit = printLine("hello")
  * ```
+ *
+ * Running out of input is an ordinary outcome, not a failure: `readLine` yields an `Option[String]` that is
+ * `None` at end of input. Reach for `orAbort` to turn that into `{Abort}` and hand it to `else`, or eliminate
+ * it directly with `foldOption`:
+ *
+ * ```eliot
+ * def name: {Console} String = orAbort(readLine) else "anonymous"
+ * ```
+ *
+ * The effect carries no failure channel of its own. A console that breaks underneath a running program (a
+ * closed stream, a severed pipe) is an environment failure the program cannot act on, so it terminates the
+ * program rather than entering every `{Console}` row — the same stance every mainstream runtime takes for
+ * standard output.
  */
 ability Console[F[_]] {
    /**
@@ -16,7 +29,10 @@ ability Console[F[_]] {
    def printLine(s: String): F[Unit]
 
    /**
-    * Read one line from standard input, without the trailing line separator.
+    * Read one line from standard input, without the trailing line separator, or `None` at end of input.
+    *
+    * End of input is `None` rather than an error or an empty string — an empty line is a perfectly good line,
+    * and a program that keeps reading past the end gets a value it must handle instead of one that lies.
     */
-   def readLine: F[String]
+   def readLine: F[Option[String]]
 }

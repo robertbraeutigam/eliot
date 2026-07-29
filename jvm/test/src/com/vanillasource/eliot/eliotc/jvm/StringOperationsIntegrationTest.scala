@@ -5,7 +5,8 @@ package com.vanillasource.eliot.eliotc.jvm
   * (`StringReductions`). Both realisations are exercised here, because the whole point of the pair is that a string
   * operation answers the same on either track.
   *
-  * The runtime cases drive every operation from `readLine`, so no operand is a literal the compiler could fold away and
+  * The runtime cases drive every operation from `line` (`readLine` with its end-of-input `Option` discharged, since the
+  * subject here is the string operations rather than the effect), so no operand is a literal the compiler could fold away and
   * the emitted `java.lang.String` call must fire. The compiler-track cases put the same operations in an ability `where`
   * guard — a position that has no runtime at all: an unreduced guard leaves the implementation unresolved and the
   * program does not compile, so a guard that discharges *is* the proof that the reduction ran while checking.
@@ -18,6 +19,8 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
       |import eliot.effect.Abort
       |
       |def yn(b: Bool): String = fold(b, "y", "n")
+      |
+      |def line: {Console} String = readLine.orAbort else ""
       |""".stripMargin
 
   "the string predicates" should "run against a line read at runtime" in {
@@ -25,7 +28,7 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
       prelude +
         """
           |def main: {Console} Unit = {
-          |   val s = readLine
+          |   val s = line
           |   printLine(show(s.length) ++ yn(s.isEmpty) ++ yn(s.isBlank) ++
           |             yn(startsWith("ab", s)) ++ yn(endsWith("yz", s)) ++ yn(contains("cd", s)))
           |}""".stripMargin,
@@ -38,7 +41,7 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
       prelude +
         """
           |def main: {Console} Unit = {
-          |   val s = readLine
+          |   val s = line
           |   printLine(s.trim ++ "|" ++ s.toUpperCase ++ "|" ++ s.toLowerCase ++ "|" ++
           |             replace("b", "B", s) ++ "|" ++ repeat(2, s))
           |}""".stripMargin,
@@ -51,7 +54,7 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
       prelude +
         """
           |def main: {Console} Unit = {
-          |   val s = readLine
+          |   val s = line
           |   printLine(substring(2, 5, s) ++ "|" ++ take(3, s) ++ "|" ++ drop(3, s))
           |}""".stripMargin,
       stdin = "abcdefyz\n"
@@ -63,7 +66,7 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
       prelude +
         """
           |def main: {Console} Unit = {
-          |   val s = readLine
+          |   val s = line
           |   printLine(substring(0 - 5, 99, s) ++ "|" ++ substring(3, 1, s) ++ "." ++
           |             take(0 - 1, s) ++ "." ++ drop(99, s) ++ "." ++ repeat(0 - 2, s))
           |}""".stripMargin,
@@ -76,7 +79,7 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
       prelude +
         """
           |def main: {Console} Unit = {
-          |   val s = readLine
+          |   val s = line
           |   printLine(show(indexOf("cd", s) else (0 - 1)) ++ "|" ++ show(indexOf("zz", s) else (0 - 1)))
           |}""".stripMargin,
       stdin = "abcdefyz\n"
@@ -88,7 +91,7 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
       prelude +
         """
           |def main: {Console} Unit = {
-          |   val s = readLine
+          |   val s = line
           |   printLine(yn(s < "b") ++ yn(s < "a") ++ yn(s <= s))
           |}""".stripMargin,
       stdin = "ab\n"

@@ -8,8 +8,8 @@
 ability Effect[F[_]] {
    /**
     * Run `fa`, then feed its result to `f` to produce the next effectful computation, e.g.
-    * `flatMap(line -> printLine(line), readLine)`. Note the subject is *not* dot-chained here: `fa` is a
-    * computation, and `.` transports a value.
+    * `flatMap(line -> printLine(line.orAbort else ""), readLine)`. Note the subject is *not* dot-chained here:
+    * `fa` is a computation, and `.` transports a value.
     */
    def flatMap[A, B](f: A => F[B], fa: F[A]): F[B]
 
@@ -20,7 +20,7 @@ ability Effect[F[_]] {
 
    /**
     * Transform the result of an effectful computation with a pure function, e.g.
-    * `map(line -> length(line), readLine)`. Equivalent to `flatMap(a -> pure(f(a)), fa)`, but given directly
+    * `map(line -> line.orAbort else "", readLine)`. Equivalent to `flatMap(a -> pure(f(a)), fa)`, but given directly
     * per carrier so a pure continuation needs no `pure` round-trip.
     */
    def map[A, B](f: A => B, fa: F[A]): F[B]

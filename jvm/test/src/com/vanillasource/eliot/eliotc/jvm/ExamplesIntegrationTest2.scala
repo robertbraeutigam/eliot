@@ -318,6 +318,8 @@ import eliot.effect.Console
         |
         |def chain(a: Bool, b: Bool): String = if(a, "first") else if(b, "second") else "third"
         |
+        |def line: {Console} String = readLine.orAbort else ""
+        |
         |def viaBlock(flag: Bool): String = {
         |   val label = if(flag, "yes") else "no"
         |   label
@@ -327,7 +329,7 @@ import eliot.effect.Console
         |   printLine(sign(true))
         |   printLine(sign(false))
         |   printLine(chain(false, true))
-        |   val runtimeFlag = readLine == "y"
+        |   val runtimeFlag = line == "y"
         |   printLine(sign(runtimeFlag))
         |   printLine(viaBlock(runtimeFlag))
         |}""".stripMargin,
@@ -390,7 +392,7 @@ import eliot.effect.Console
         |
         |def main: {Console} Unit = {
         |   printLine(echo("hello"))
-        |   printLine(echo(readLine))
+        |   printLine(echo(readLine.orAbort else ""))
         |}""".stripMargin,
       stdin = "typed\n"
     ).asserting(_ shouldBe "hello\ntyped")
@@ -725,14 +727,14 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "first\nsecond\nthird")
   }
 
-  // A `val` binds the *carried* result of an effectful step (here `readLine`), so the body sees the plain value; the
-  // block lowers to `flatMap(line -> printLine(line), readLine)`.
+  // A `val` binds the *carried* result of an effectful step (here the discharged `readLine`), so the body sees the
+  // plain value; the block lowers to `flatMap(line -> printLine(line), <the read>)`.
   "a val binding an effectful result" should "bind the carried value and use it" in {
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |def echo: {Console} Unit = {
-        |  val line = readLine
+        |  val line = readLine.orAbort else ""
         |  printLine(line)
         |}
         |
@@ -765,7 +767,7 @@ import eliot.effect.Console
 import eliot.effect.Console
         |def main: IO[Unit] = {
         |  val label = "echo:"
-        |  val line = readLine
+        |  val line = readLine.orAbort else ""
         |  printLine(label)
         |  printLine(line)
         |}""".stripMargin,

@@ -54,6 +54,17 @@ type AbortCarrier[G[_], A]
 def runAbort[G[_], A](obj: {Abort | G} A): G[Option[A]]
 
 /**
+ * Reflect an `Option` into the `Abort` effect: yield the present value, or `abort` on absence. The bridge from an
+ * absence-as-value result (as `Console.readLine` produces at end of input) into the effect, and the inverse of
+ * `runAbort`. Pair it with `else` to supply a fallback in one step:
+ *
+ * ```eliot
+ * def name: {Console} String = orAbort(readLine) else "anonymous"
+ * ```
+ */
+def orAbort[A](o: Option[A]): {Abort} A = foldOption(abort, a -> a, o)
+
+/**
  * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
  * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback` instead,
  * never exposing `Option`. The fallback is itself a `G`-computation, so it may be a pure value (auto-lifted with `pure`)

@@ -64,11 +64,13 @@ def main: {Console} Unit = {
    printLine(sign(true))
    printLine(describe(false, true))
 
-   // With a runtime value. An effectful condition — `readLine == "yes"` : IO[Bool] — is direct-style lifted (run)
-   // in the rigid `Bool` slot of BOTH `if` and `fold`, exactly like `printLine(readLine)`. We sequence it once into
-   // `flag` (the jvm `readLine` reads a fresh line per call, so we bind it a single time and reuse the pure `Bool`),
-   // then drive both demos. Feed "yes" on stdin for the true branches, anything else for the false branches.
-   val flag = readLine == "yes"
+   // With a runtime value. An effectful condition — `readLine.orAbort else ""` : IO[String] — is direct-style
+   // lifted (run) in the rigid slot it is written in, exactly like `printLine(readLine.orAbort else "")`. We
+   // sequence it once into `answer` (each `readLine` reads the *next* line, so we bind it a single time and reuse
+   // the pure `Bool`), then drive both demos. Feed "yes" on stdin for the true branches, anything else for the
+   // false branches.
+   val answer = readLine.orAbort else ""
+   val flag   = answer == "yes"
    printLine("========== runtime: readLine == yes ==========")
    demo(flag)
    foldForms(flag)

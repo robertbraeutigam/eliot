@@ -24,9 +24,9 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
 
   // Exercises the shapes the uniform gate routes: a pure value return (`label`'s `line`), a pure argument into a payload
   // slot (`printLine(<pure>)`), and an *effectful* argument into a payload slot (`label(readLine)` — `readLine` is
-  // `{Console} String`, bound at the call site).
+  // `{Console} Option[String]`, bound at the call site).
   private val source =
-    """def label(line: String): String = line
+    """def label(line: Option[String]): String = line.orAbort else ""
       |
       |def main: {Console} Unit = printLine(label(readLine))
       |""".stripMargin
@@ -37,7 +37,9 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
   // multi-arm `fold` (both bare-`A` Generic arms, only the selected one run — `pick`), and a `val`-bound discharged
   // chain (`describe`).
   private val conditionalSource =
-    """def sign(flag: Bool): String = if(flag, "+") else "-"
+    """def line: {Console} String = readLine.orAbort else ""
+      |
+      |def sign(flag: Bool): String = if(flag, "+") else "-"
       |
       |def describe(a: Bool, b: Bool): String = {
       |   val category = if(a, "first") else if(b, "second") else "third"
@@ -49,10 +51,10 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
       |def pick(flag: Bool): {Console} Unit = fold(flag, printLine("a"), printLine("b"))
       |
       |def main: {Console} Unit = {
-      |   printLine(sign(readLine == "yes"))
-      |   printLine(describe(readLine == "a", readLine == "b"))
-      |   report(readLine == "y")
-      |   pick(readLine == "z")
+      |   printLine(sign(line == "yes"))
+      |   printLine(describe(line == "a", line == "b"))
+      |   report(line == "y")
+      |   pick(line == "z")
       |}
       |""".stripMargin
 

@@ -25,7 +25,9 @@ def main: IO[Unit] = printLine("Hello World!")""")
 import eliot.effect.Console
         |import eliot.carrier.Effect
         |
-        |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def echo: {Console} Unit = flatMap(s -> printLine(orEmpty(s)), readLine)
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "echoed line\n"
@@ -66,14 +68,20 @@ def main: IO[Unit] = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
 
   // --- Effects M3: body auto-lift (the headline) — direct-style code, no hand-written flatMap ---
 
-  // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `printLine`, which expects
-  // a plain `String`; the checker's effect lift binds it, producing `flatMap(x -> printLine(x), readLine)`, with the
-  // carrier pinned to `IO` by `main`'s return. No `import eliot.carrier.Effect`, no hand-written `flatMap`.
+  // THE headline: a direct-style program. `readLine` is effectful (`F[Option[String]]`) but flows into `orEmpty`, which
+  // expects a plain `Option[String]`; the checker's effect lift binds it, producing `flatMap(x -> printLine(orEmpty(x)),
+  // readLine)`, with the carrier pinned to `IO` by `main`'s return. No `import eliot.carrier.Effect`, no hand-written
+  // `flatMap`. (`orEmpty` discharges `readLine`'s end-of-input `Option`; the effect machinery under test is the same
+  // either way, so every program below carries it rather than complicating what it is probing.)
   "effect auto-lift" should "sequence a direct-style printLine(readLine) at a concrete IO main" in {
-    compileAndRun("""import eliot.jvm.IO
+    compileAndRun(
+      """import eliot.jvm.IO
 import eliot.effect.Console
-def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
-      .asserting(_ shouldBe "echoed line")
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def main: IO[Unit] = printLine(orEmpty(readLine))""".stripMargin,
+      stdin = "echoed line\n"
+    ).asserting(_ shouldBe "echoed line")
   }
 
   // The same direct-style body in a carrier-polymorphic `{Console}` business function, pinned to `IO` at the call site.
@@ -81,7 +89,9 @@ def main: IO[Unit] = printLine(readLine)""", stdin = "echoed line\n")
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |def echo: {Console} Unit = printLine(readLine)
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def echo: {Console} Unit = printLine(orEmpty(readLine))
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "carrier line\n"
@@ -96,7 +106,9 @@ import eliot.effect.Console
 import eliot.effect.Console
         |import eliot.carrier.Effect
         |
-        |def echo: {Console} Unit = flatMap(s -> printLine(s), readLine)
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def echo: {Console} Unit = flatMap(s -> printLine(orEmpty(s)), readLine)
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "still works\n"
@@ -113,22 +125,24 @@ import eliot.effect.Console
 import eliot.effect.Console
         |import eliot.carrier.Effect
         |
-        |def echo: {Console} Unit = readLine.flatMap(line -> printLine(line))
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def echo: {Console} Unit = readLine.flatMap(line -> printLine(orEmpty(line)))
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "dot chained\n"
     ).asserting(_ shouldBe "dot chained")
   }
 
-  // The dual case: an effectful subject dotted into a *plain-value* function (`readLine.shout`, `shout(s: String)`) must
-  // still bind — the inlined `shout(readLine)` sequences `readLine` into `shout`'s `String` slot. Proves the inlining
+  // The dual case: an effectful subject dotted into a *plain-value* function (`readLine.shout`, `shout(s: Option[String])`)
+  // must still bind — the inlined `shout(readLine)` sequences `readLine` into `shout`'s plain slot. Proves the inlining
   // restores the ordinary bind decision rather than blanket-suppressing it for every dotted subject.
   it should "bind an effectful subject dotted into a plain-value function" in {
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |
-        |def shout(s: String): String = s
+        |def shout(s: Option[String]): String = s.orAbort else ""
         |
         |def echo: {Console} Unit = printLine(readLine.shout)
         |
@@ -143,15 +157,15 @@ import eliot.effect.Console
   // when its instantiation is the carrier itself. ---
 
   // The regression of the dot-inline era (commit 81485de9): an effectful subject dotted into a *function-typed
-  // parameter*. `.`'s flex `a: A` slot defers, `f` rigidifies `A := String`, and the deferred slot bind-lifts.
+  // parameter*. `.`'s flex `a: A` slot defers, `f` rigidifies `A := Option[String]`, and the deferred slot bind-lifts.
   it should "bind an effectful subject dotted into a function-typed parameter" in {
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |
-        |def call(f: String => String): {Console} Unit = printLine(readLine.f)
+        |def call(f: Option[String] => String): {Console} Unit = printLine(readLine.f)
         |
-        |def main: IO[Unit] = call(s -> s)""".stripMargin,
+        |def main: IO[Unit] = call(s -> s.orAbort else "")""".stripMargin,
       stdin = "through f\n"
     ).asserting(_ shouldBe "through f")
   }
@@ -166,7 +180,9 @@ import eliot.effect.Console
         |
         |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
         |
-        |def echo: {Console} Unit = readLine |> flatMap(line -> printLine(line))
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def echo: {Console} Unit = readLine |> flatMap(line -> printLine(orEmpty(line)))
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "piped\n"
@@ -183,7 +199,9 @@ import eliot.effect.Console
         |
         |def pipe[A, B](a: A, f: A => B): B = f(a)
         |
-        |def echo: {Console} Unit = pipe(readLine, flatMap(line -> printLine(line)))
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def echo: {Console} Unit = pipe(readLine, flatMap(line -> printLine(orEmpty(line))))
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "plainly piped\n"
@@ -199,7 +217,7 @@ import eliot.effect.Console
         |
         |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
         |
-        |def shout(s: String): String = s
+        |def shout(s: Option[String]): String = s.orAbort else ""
         |
         |def echo: {Console} Unit = printLine(readLine |> shout)
         |
@@ -230,7 +248,9 @@ import eliot.effect.Console
     compileForErrors(
       """import eliot.jvm.IO
 import eliot.effect.Console
-        |def helper: String = printLine(readLine)
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def helper: String = printLine(orEmpty(readLine))
         |
         |def main: IO[Unit] = printLine(helper)""".stripMargin
     ).asserting(_ should include("performs the effect 'Console' but does not declare it"))
@@ -257,7 +277,9 @@ import eliot.effect.Log
       """import eliot.jvm.IO
 import eliot.effect.Console
         |import eliot.effect.Log
-        |def echoLog: {Log, Console} Unit = log(readLine)
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def echoLog: {Log, Console} Unit = log(orEmpty(readLine))
         |
         |def main: IO[Unit] = echoLog""".stripMargin,
       stdin = "from stdin\n"
@@ -291,7 +313,9 @@ import eliot.effect.Console
         |
         |data Database(url: String)
         |
-        |def run: {Dep[Database], Log, Console} Unit = andThen(log(dependency.url), printLine(readLine))
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
+        |def run: {Dep[Database], Log, Console} Unit = andThen(log(dependency.url), printLine(orEmpty(readLine)))
         |
         |def andThen(first: Unit, second: Unit): Unit = second
         |

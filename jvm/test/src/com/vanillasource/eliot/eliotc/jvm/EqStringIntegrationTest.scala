@@ -5,7 +5,7 @@ package com.vanillasource.eliot.eliotc.jvm
   * to the `equals` impl method (no `stringEquals` wrapper): the JVM backend emits `String.equals`
   * (`NativeImplementation`), and the compiler track folds two concrete literals (`StdlibNativesProcessor`).
   *
-  * Two paths are exercised: a **runtime** comparison of a `readLine` result (the JVM `String.equals` native must fire),
+  * Two paths are exercised: a **runtime** comparison of a read line (the JVM `String.equals` native must fire),
   * and a **compile-time** comparison of two literals (the compiler-track native constant-folds the branch).
   */
 class EqStringIntegrationTest extends FullIntegrationTest {
@@ -17,7 +17,9 @@ class EqStringIntegrationTest extends FullIntegrationTest {
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def main: IO[Unit] = printLine(if(readLine == "yes", "matched") else "unmatched")""".stripMargin,
+        |def line: {Console} String = readLine.orAbort else ""
+        |
+        |def main: IO[Unit] = printLine(if(line == "yes", "matched") else "unmatched")""".stripMargin,
       stdin = "yes\n"
     ).asserting(_ shouldBe "matched")
   }
@@ -29,7 +31,9 @@ class EqStringIntegrationTest extends FullIntegrationTest {
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def main: IO[Unit] = printLine(if(readLine == "yes", "matched") else "unmatched")""".stripMargin,
+        |def line: {Console} String = readLine.orAbort else ""
+        |
+        |def main: IO[Unit] = printLine(if(line == "yes", "matched") else "unmatched")""".stripMargin,
       stdin = "no\n"
     ).asserting(_ shouldBe "unmatched")
   }

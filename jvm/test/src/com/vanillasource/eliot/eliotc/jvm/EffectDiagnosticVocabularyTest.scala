@@ -25,7 +25,9 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
     * declared pure", without naming the effect.
     */
   private val pureReturnLeak =
-    """def helper: String = printLine(readLine)
+    """def orEmpty(o: Option[String]): String = o.orAbort else ""
+      |
+      |def helper: String = printLine(orEmpty(readLine))
       |
       |def main: {Console} Unit = printLine(helper)
       |""".stripMargin
