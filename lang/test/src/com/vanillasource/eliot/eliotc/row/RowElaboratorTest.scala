@@ -264,6 +264,21 @@ class RowElaboratorTest
     )
   }
 
+  it should "classify a hoisted binder at an arrow slot from the expression whose payload it holds" in {
+    // The argument at `f: A => B` is a *function value* whose construction performs, so rule 1 hoists it into the
+    // enclosing region and the slot receives the resulting binder. Classifying that binder needs its kind after one
+    // *further* application — which a declared parameter's type would give and a minted binder has none of. Reading it
+    // instead off the expression the binder holds the payload of (`concat2(readLine)`, a payload by its own
+    // declaration) is what keeps `B` a payload here; left unknown, the core is not `pure`-wrapped and the checker
+    // solves the rowless `B` at a computation to make the inserted `flatMap` fit.
+    val weird = "def weird[A, B](f: A => B, a: A): B\n"
+    compareToTwin(
+      weird + "def d: {Con} Str = weird(concat2(readLine), strA)",
+      weird + "def t: {Con} Str = flatMap(g -> pure(weird(g, strA)), flatMap(r -> pure(concat2(r)), readLine))",
+      extraNames = Seq("weird")
+    )
+  }
+
   it should "elaborate a callback-calling body on the callee side (applied function-typed parameter)" in {
     compareToTwin(
       "def d(s: Str, action: Str => {Effect} Str): {Effect} Str = action(s)",

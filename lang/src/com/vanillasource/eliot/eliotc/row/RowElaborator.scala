@@ -307,6 +307,25 @@ object RowElaborator {
       */
     private var payloadBinders: Set[String] = Set.empty
 
+    /** The expression a hoisted binder holds the payload *of*, for the binders where that expression is itself a
+      * declared payload — i.e. the binds came from *inside* the argument (`tag(readLine)`, whose own result is the
+      * function value `String -> String`) rather than from the argument being a computation (`readLine`, whose payload
+      * is atomic and cannot be applied further).
+      *
+      * [[payloadBinders]] alone answers only "is a bare reference to it a value?". A binder standing at an **arrow**
+      * slot is asked a second question — what it yields after one *more* application — and that is what
+      * [[expressionKind]] reads off `paramTypes`, where an elaborator-minted binder has no entry. Without this the
+      * binder comes out [[Kind.Unknown]] the moment it lands anywhere but a bare position, the pure-wrap around the
+      * hoisted core is skipped, and the checker solves the callee's rowless generic at a computation to make the
+      * inserted `flatMap` fit (`Expected: IO(String -> IO(String))`) — a §1 rule-4 violation created by this pass,
+      * after [[recordRowlessSlots]] has already accepted its output.
+      *
+      * The elaborator does not need to infer that type: the binder holds the payload of the expression it hoisted, so
+      * the expression's own declaration answers for it. Storing the source rather than a reconstructed type is what
+      * keeps this a declaration read and reuses [[expressionKind]] unchanged.
+      */
+    private var payloadBinderSources: Map[String, OperatorResolvedExpression] = Map.empty
+
     /** Whether the elaboration just performed left a **deferred node at a carrier position** — a node that is
       * neither carrier-valued nor definitely pure where a computation is expected. A rewrite that would place such a
       * node as the tail of an *inserted* bind chain must not happen: the checker would meet the node's flex result
@@ -378,12 +397,16 @@ object RowElaborator {
     private def withBinder[A](name: String, holdsCarrier: Boolean, isPayload: Boolean = false)(body: => A): A = {
       val outerCarrier = carrierBinders
       val outerPayload = payloadBinders
+      val outerSources = payloadBinderSources
       carrierBinders = if (holdsCarrier) carrierBinders + name else carrierBinders - name
       payloadBinders = if (isPayload) payloadBinders + name else payloadBinders - name
+      // A block/lambda binder has no hoisted source of its own, and it shadows any same-named one.
+      payloadBinderSources = payloadBinderSources - name
       try body
       finally {
         carrierBinders = outerCarrier
         payloadBinders = outerPayload
+        payloadBinderSources = outerSources
       }
     }
 
@@ -1237,6 +1260,11 @@ object RowElaborator {
         // lets the call's result kind be re-read from the hoisted spine (§1 rule 4: the slot no longer holds a
         // computation, so a generic it determines is a plain value again).
         payloadBinders = payloadBinders + binder
+        // …and, where the argument's *own* declared result is a payload, the binder holds exactly that value, so the
+        // argument answers for it at every further application too (see [[payloadBinderSources]]). A carrier-valued
+        // argument (`readLine`) is excluded: its payload is the carrier's, which its own declaration does not give.
+        if (expressionKind(arg.value, 0) === Kind.Payload)
+          payloadBinderSources = payloadBinderSources + (binder -> arg.value)
         (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
       } else {
         (accArgs :+ argElab, accBinds)
@@ -1533,13 +1561,20 @@ object RowElaborator {
             Kind.Payload
           else Kind.Unknown
         case ParameterReference(name)                                 =>
-          paramTypes.get(name.value) match {
-            case Some(tpe) =>
-              val (domains, codomain) = arrowChainLike(tpe)
-              if (args.size + applied < domains.size) Kind.Payload
-              else if (args.size + applied === domains.size) typeKind(codomain, ownBinders, ownGenericKinds)
-              else Kind.Unknown
-            case None      => Kind.Unknown
+          // A binder this pass hoisted holds the payload of the expression it bound, so that expression's own
+          // declaration answers for it here too — a *declared* parameter's type would, and a minted binder has none
+          // (see [[payloadBinderSources]]).
+          payloadBinderSources.get(name.value) match {
+            case Some(source) => expressionKind(source, applied + args.size)
+            case None         =>
+              paramTypes.get(name.value) match {
+                case Some(tpe) =>
+                  val (domains, codomain) = arrowChainLike(tpe)
+                  if (args.size + applied < domains.size) Kind.Payload
+                  else if (args.size + applied === domains.size) typeKind(codomain, ownBinders, ownGenericKinds)
+                  else Kind.Unknown
+                case None      => Kind.Unknown
+              }
           }
         case _                                                        => Kind.Unknown
       }
