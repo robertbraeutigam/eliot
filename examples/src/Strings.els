@@ -28,7 +28,7 @@ implement[S: String] Route[S] where !startsWith["/api", S] {
 /**
  * The label of a `key=value` setting — everything before the first `=`. Aborts on a line carrying no value.
  */
-def labelOf(setting: String): {Abort} String = substring(0, indexOf("=", setting), setting)
+def labelOf(setting: String): {Abort} String = setting.substring(0, setting.indexOf("="))
 
 /**
  * The label of a setting, falling back to the whole line when it carries no `=`.

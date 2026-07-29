@@ -253,8 +253,12 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[Seq[ClassFile]] =
     implementations.get(vfqn) match {
       case Some(nativeImplementation) =>
+        // The native itself is emitted at its declared arity; a native used *under*-applied also needs the
+        // partial-arity variants an Eliot-bodied definition gets from `createModuleMethodBody` below. See
+        // [[NativePartialApplication]] — without them the call links to a method that was never emitted.
         verifyNativeVisibility(vfqn, nativeImplementation) >>
-          nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
+          nativeImplementation.generateMethod(mainClassGenerator) >>
+          NativePartialApplication.generate(mainClassGenerator, vfqn, stats)
       case None                       =>
         abilityImplNativeMaker(vfqn).flatMap {
           case Some(makeNative) => generateAbilityImplNative(mainClassGenerator, vfqn, stats, makeNative)
