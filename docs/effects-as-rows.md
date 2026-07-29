@@ -315,11 +315,29 @@ well-typed-modulo-normalization, which is what A.8.12's blocked slice lacked.
 The elaborator may consult exactly these facts: a callee's declared parameter types and return type (slot
 carrier-headedness, carrier-codomain arrows, atomic-vs-applied shape), its declared row and carrier
 binders, its pinned metadata (`EffectRow.pinnedParameterIndices` / `returnPinnedEffects`), the
-run-boundary registry, and one level of type-alias expansion inside those signatures. A decision that
+run-boundary registry, one level of type-alias expansion inside those signatures, and **the derived row of
+an argument at a position whose classification that argument settles**. A decision that
 cannot be made from the whitelist is a **design gap to close in the declarations** — never approximated
 by a new syntactic rule. In particular, a rule that inspects a *sibling argument's expression shape* is
 prohibited: that is inference, not desugaring. (An elaborator-local join over the callee's *declared*
 parameter shapes is inside the whitelist; a sibling-expression rule is not.)
+
+**The argument-row clause** (2026-07-29, Robert, entering A′) makes explicit what the list had left
+unsaid rather than forbidden, and the boundary it keeps is the one that was always the point. Deriving the
+row of *this* position is not a sibling rule: the derivation itself reads only declarations
+(`RowChecker` walks a callee's declared row and pinned metadata), and the position is one the callee's own
+signature nominated by mentioning a carrier binder there. The elaborator had in fact depended on this
+since R5 — `performs`, the hoisting test, is exactly this derivation — so the clause regularises a
+dependency rather than opening one. What stays prohibited is unchanged: consulting a *different* argument
+to decide this one.
+
+The rule it unblocked is §1 rule 4's third bullet: `ρ := {}` is settled by what the determining positions
+*do*, not by what kind of value they hold. Both readings are needed and neither subsumes the other — a
+slot filled by something that already is a computation is caught by the kind (its row derives empty,
+because the row variable `{Effect}` is machinery and names nothing), and a payload whose *evaluation*
+performs is caught by the row. The conjunction can only withhold `ρ := {}`, never grant it, which is the
+fail-safe direction: a withheld empty row costs a `pure` wrap, a wrongly granted one puts an effect on a
+carrier that cannot perform it.
 
 The fail-safe direction is built in: a missing rewrite leaves direct-style code the checker rejects
 loudly; a wrong rewrite silently changes when an effect runs.

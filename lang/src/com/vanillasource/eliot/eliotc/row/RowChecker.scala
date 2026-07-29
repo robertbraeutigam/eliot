@@ -204,6 +204,25 @@ object RowChecker {
   ): Row =
     valueRow(expr, env, ambient, universe).row
 
+  /** The row an expression contributes when it is **delivered to a slot** — what evaluating it performs, plus the
+    * latent row of the function it may be ([[argumentContribution]], the same derivation an argument gets inside a
+    * call).
+    *
+    * This is the sibling of [[expressionRow]] and the difference matters at exactly one place. `expressionRow` answers
+    * *"does this have to run here?"* — the [[RowElaborator]]'s hoisting test, for which a lambda is a value and
+    * performs nothing. This one answers *"what row does this position instantiate the callee's row variable at?"*, and
+    * there a lambda is the opposite: `items.foreach(x -> printLine(x))` puts its `{Console}` in the lambda's body, so
+    * the row that reaches `.` is latent by construction. Reading only the evaluation row would call that instantiation
+    * empty and write the call at `Id`.
+    */
+  def argumentRow(
+      expr: OperatorResolvedExpression,
+      env: Map[String, Row],
+      ambient: Row,
+      universe: Universe
+  ): Row =
+    argumentContribution(expr, env, ambient, universe).row
+
   /** The effects some signature in this universe **pins** — the ones a discharger in scope can consume, and so the
     * only ones a call can be routed onto a carrier stack of its own for (A.11.4-R's corpus-forced filter). A
     * `Suspend`-riding effect (`Console`, `Log`, `Inf`) has no `<Ability>Carrier` at all and is always provided by

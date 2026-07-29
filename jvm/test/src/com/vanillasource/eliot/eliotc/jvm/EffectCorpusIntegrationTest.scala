@@ -45,6 +45,14 @@ class EffectCorpusIntegrationTest extends FullIntegrationTest {
     )
   }
 
+  "a lambda whose body performs" should "instantiate its slot's row variable at what the body does" in {
+    compileAndRun(EffectCorpus.effectfulLambdaProgram).asserting(
+      _ shouldBe
+        """host
+          |none""".stripMargin
+    )
+  }
+
   "repeated readLine" should "read successive lines, not end-of-stream after the first" in {
     compileAndRun(EffectCorpus.stdinProgram, stdin = "alpha\nbeta\ngamma\n").asserting(
       _ shouldBe

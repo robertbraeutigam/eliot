@@ -1072,52 +1072,97 @@ object RowElaborator {
       * A row-polymorphic signature (`def .[A, B](a: A, f: A => {Effect} B): {Effect} B`) has *one* declaration
       * serving both `dependency.url` and `items.foreach(printLine)`; which of the two a call is, is read off the
       * arguments occupying the positions that mention the carrier — a carrier-headed slot (`whenTrue: {Effect} A`,
-      * `initial: {Effect} B`) and an arrow slot whose codomain is carrier-headed (`f: A => {Effect} B`). Every one of
-      * them a plain value ⇒ the row is empty and the call runs on `Id`.
+      * `initial: {Effect} B`) and an arrow slot whose codomain is carrier-headed (`f: A => {Effect} B`). **Every one
+      * of them contributing the empty row** ⇒ the row is empty and the call runs on `Id`.
       *
-      * Three exclusions, each because the row is *not* this call's to decide:
+      * That question is asked of the derivation, not of [[Kind]] — see [[carrierDeterminedBy]] for what the two
+      * disagree about and which is right.
       *
-      *   - a callee that **declares an effect** of its own (`readLine`'s `{Console}`) always has a non-empty row;
-      *   - an **ability method**, whose carrier comes from instance resolution and not from its arguments — the same
-      *     reason [[carrierUnconstrained]] excludes it;
+      * Two exclusions, each because the row is *not* this call's to decide:
+      *
+      *   - a callee whose carrier is not its arguments' to settle — an **ability method**, whose carrier comes from
+      *     instance resolution, or one that **declares an effect** of its own (`readLine`'s `{Console}`), which no
+      *     argument can make empty. Both are exactly [[carrierUnconstrained]], which is why this asks it rather than
+      *     restating it;
       *   - a **discharger** (`else`, `catch`, every `run…`), whose carrier is the residual its *capture* leaves and
       *     never what a plain argument says: `host else "localhost"` has a pure fallback at a carrier-headed slot,
-      *     and the row is nonetheless whatever the captured computation runs on;
-      *   - a callee **no argument position mentions the carrier at** (`wrap(s) : F[A]`), where the declared return
-      *     chooses it. Writing `Id` there would decide a carrier the context owns.
+      *     and the row is nonetheless whatever the captured computation runs on.
+      *
+      * And a callee **no argument position mentions the carrier at** (`wrap(s) : F[A]`) settles nothing, where the
+      * declared return chooses it: writing `Id` there would decide a carrier the context owns.
       */
     private def emptyRowCall(callee: ValueFQN, args: Seq[Sourced[OperatorResolvedExpression]]): Boolean =
-      (callee.name.qualifier match {
-        case _: Qualifier.Ability => false
-        case _                    => true
-      }) && !dischargingCallee(callee) && universe.lookup(callee).exists { orv =>
+      carrierUnconstrained(callee) && !dischargingCallee(callee) && universe.lookup(callee).exists { orv =>
         val carriers    = EffectCarriers.declaredCarrierBinders(orv)
         val determining =
           SignatureView
             .of(orv.signature)
             .parameters
             .zip(args)
-            .flatMap { case (declared, arg) => carrierDeterminedBy(declared.value, arg.value, 0, carriers) }
-        carriers.nonEmpty &&
-        EffectCarriers.declaredEffects(carriers, orv.paramConstraints).isEmpty &&
-        determining.nonEmpty && determining.forall(_ === Kind.Payload)
+            .flatMap { case (declared, arg) => carrierDeterminedBy(declared.value, arg.value, 0, carriers, Map.empty) }
+        carriers.nonEmpty && determining.nonEmpty && determining.forall(_.settlesEmpty)
       }
 
     /** What one argument settles about the row the callee's carrier binders are instantiated at: a carrier-headed
       * slot asks the argument directly, an arrow slot asks for what it yields after that many applications.
       * Positions that do not mention a carrier settle nothing.
+      *
+      * A position settles the **empty** row only if it is *both* a payload by [[Kind]] and derives an empty
+      * [[RowChecker.argumentRow]] — see [[CarrierDetermination]] for why neither half subsumes the other.
+      *
+      * `binders` carries the lambda binders peeled on the way down, each at the **empty** row: a lambda at a slot
+      * declared `A => {Effect} B` binds a plain generic, which §1 rule 4 forbids instantiating at a computation, so a
+      * reference to it performs nothing. Binding them explicitly rather than leaving them absent is what makes a
+      * binder *shadow* a same-named row-declaring parameter of the enclosing definition.
       */
     private def carrierDeterminedBy(
         declared: OperatorResolvedExpression,
         arg: OperatorResolvedExpression,
         applied: Int,
-        carriers: Set[String]
-    ): Seq[Kind] =
-      if (carrierHeaded(declared, carriers)) Seq(expressionKind(arg, applied))
+        carriers: Set[String],
+        binders: Map[String, RowChecker.Row]
+    ): Seq[CarrierDetermination] =
+      if (carrierHeaded(declared, carriers))
+        Seq(
+          CarrierDetermination(
+            expressionKind(arg, applied),
+            RowChecker.argumentRow(arg, paramRows ++ binders, regionRow, universe)
+          )
+        )
       else
-        underArrow(declared, arg, applied, carriers)((codomain, inner, level) =>
-          carrierDeterminedBy(codomain, inner, level, carriers)
-        ).getOrElse(Seq.empty)
+        underArrow(declared, arg, applied, carriers) { (codomain, inner, level, bound) =>
+          carrierDeterminedBy(
+            codomain,
+            inner,
+            level,
+            carriers,
+            bound.fold(binders)(name => binders + (name -> Set.empty))
+          )
+        }.getOrElse(Seq.empty)
+
+    /** What one carrier-determining position settles about the row its callee's carrier binders are instantiated at.
+      *
+      * Two readings of the same position, and the empty row needs **both** — they answer different questions and
+      * neither subsumes the other (A′ set out to replace the kind with the row; the measurement said conjunction):
+      *
+      *   - [[kind]] is a property of the *value* the position holds. It is what catches a slot filled by something
+      *     that already **is** a computation — `else`'s own `fallback: {Effect} A` handed on to `foldOption`. Its
+      *     row derives *empty*, because `{Effect}` is machinery and the derivation filters machinery out: the row
+      *     says "nothing I can name", which is not the same claim as "nothing".
+      *   - [[row]] is a property of the position's *evaluation*, which is what the row variable is actually
+      *     instantiated at. It is what catches a value that is a payload but whose evaluation performs — a lambda
+      *     whose body performs (`applyTo(s, x -> take(indexOf("=", s), x))`) is a payload by kind, because `take`
+      *     returns a plain `String`. Read by kind alone the call was written at `Id`, and the body's `{Abort}` was
+      *     then demanded of `Id`: "No ability implementation found for ability 'Abort' with type arguments [Id]",
+      *     reported inside `stdlib`'s own `Bool.els` — a file the user never wrote.
+      *
+      * The conjunction is also the fail-safe direction: it can only *withhold* `ρ := {}`, moving a call from `Id`
+      * onto the ambient carrier, and never the reverse. A withheld empty row costs a `pure` wrap; a wrongly granted
+      * one puts an effect on a carrier that cannot perform it.
+      */
+    private case class CarrierDetermination(kind: Kind, row: RowChecker.Row) {
+      def settlesEmpty: Boolean = kind === Kind.Payload && row.isEmpty
+    }
 
     /** Descend one declared arrow level with the argument that fills it, classifying a **lambda's own binder** from
       * the declared domain as it goes.
@@ -1133,7 +1178,7 @@ object RowElaborator {
         arg: OperatorResolvedExpression,
         applied: Int,
         carriers: Set[String]
-    )(descend: (OperatorResolvedExpression, OperatorResolvedExpression, Int) => A): Option[A] =
+    )(descend: (OperatorResolvedExpression, OperatorResolvedExpression, Int, Option[String]) => A): Option[A] =
       asArrowLike(declared).map { case (domain, codomain) =>
         arg match {
           case FunctionLiteral(name, _, body) =>
@@ -1141,8 +1186,8 @@ object RowElaborator {
               name.value,
               holdsCarrier = carrierHeaded(domain.value, carriers),
               isPayload = spine(domain.value)._2.isEmpty && !carrierHeaded(domain.value, carriers)
-            )(descend(codomain.value, body.value, applied))
-          case _                              => descend(codomain.value, arg, applied + 1)
+            )(descend(codomain.value, body.value, applied, Some(name.value)))
+          case _                              => descend(codomain.value, arg, applied + 1, None)
         }
       }
 
@@ -1570,7 +1615,7 @@ object RowElaborator {
         case ParameterReference(name) if !carriers.contains(name.value) =>
           Map(name.value -> expressionKind(arg, applied))
         case _                                                          =>
-          underArrow(declared, arg, applied, carriers)((codomain, inner, level) =>
+          underArrow(declared, arg, applied, carriers)((codomain, inner, level, _) =>
             determinedBy(codomain, inner, level, carriers)
           ).getOrElse(Map.empty)
       }

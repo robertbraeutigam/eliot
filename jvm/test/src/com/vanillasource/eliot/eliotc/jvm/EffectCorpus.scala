@@ -103,6 +103,30 @@ object EffectCorpus {
       |   three.foreach(tag("pure:"))
       |}""".stripMargin
 
+  /** An **explicit lambda whose body performs**, at a slot declared `A => {Effect} B`.
+    *
+    * The sibling of [[argumentConstructionProgram]] and the half a placement-only fix leaves: here the argument is
+    * already a lambda, so nothing is hoisted and nothing is eta-lifted — what has to be right is the *verdict*, the
+    * row the call instantiates `applyTo`'s row variable at. The lambda is a payload by kind, because `take` returns a
+    * plain `String`, so reading the kind called the row empty and wrote the call at `Id`; the body's `{Abort}` was
+    * then demanded of `Id` and reported inside `stdlib`'s `Bool.els`, a file the user never wrote.
+    *
+    * `applyTo` is spelled out rather than reached through `.` on purpose: the shape has nothing to do with the dot
+    * operator, which is only the most common way to meet it.
+    */
+  val effectfulLambdaProgram: String =
+    """import eliot.effect.Abort
+      |import eliot.carrier.Effect
+      |
+      |def applyTo[A, B](a: A, f: A => {Effect} B): {Effect} B = f(a)
+      |
+      |def labelOf(s: String): {Abort} String = applyTo(s, x -> take(indexOf("=", s), x))
+      |
+      |def main: {Console} Unit = {
+      |   printLine(labelOf("host=1") else "none")
+      |   printLine(labelOf("nokey") else "none")
+      |}""".stripMargin
+
   /** Repeated `readLine`: the `Console` effect must be able to read more than one line.
     *
     * A `BufferedReader` reads ahead, so a reader built per call takes the whole of standard input into its buffer and
