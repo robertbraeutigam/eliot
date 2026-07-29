@@ -504,17 +504,11 @@ object RowElaborator {
         case ValueReference(name, _)              =>
           callResultKind(name.value, args, 0) === Kind.Payload
         case ParameterReference(name)             =>
-          if (args.isEmpty)
-            // A payload-by-construction block binder (see [[payloadBinders]]), or a parameter with an *atomic*
-            // declared type (`s: String`, `x: X`). An applied declared type may well be a concrete carrier stack the
-            // desugar cannot name (`fa: DepCarrier[X, G, A]` inside that carrier's own `Effect` instance), and
-            // lifting it would wrap a computation twice.
-            payloadBinders.contains(name.value) || paramTypes.get(name.value).exists(tpe => spine(tpe)._2.isEmpty)
-          else
-            // *Calling* a function-typed parameter is decided by its declared codomain, exactly as
-            // [[expressionKind]] decides it: `f(a)` with `f: Function[A, Either[String, B]]` yields a value, and
-            // failing to say so leaves it unlifted at a carrier position — which rolls the whole rewrite back.
-            expressionKind(node.value, 0) === Kind.Payload
+          // A binder is decided by its declaration, exactly as [[expressionKind]] decides it — a payload-by-
+          // construction block binder, a declared type read through [[typeKind]], or, *called*, its declared
+          // codomain: `f(a)` with `f: Function[A, Either[String, B]]` yields a value, and failing to say so leaves
+          // it unlifted at a carrier position, which rolls the whole rewrite back.
+          expressionKind(node.value, 0) === Kind.Payload
         case _                                    => false
       }
     }
@@ -1476,6 +1470,11 @@ object RowElaborator {
     /** Classify a declared type in the scope that declares it: headed by one of `carriers` (or by a platform run
       * carrier) it is a computation; headed by any other generic it is whatever `instantiation` binds that generic
       * to; anything else is a plain value.
+      *
+      * A **concrete** carrier head (`Id[A]`) is deliberately not read here, only where a *parameter* declares one
+      * (see [[expressionKind]]): this classifies a callee's **return** too, and `Effect[Id]`'s own
+      * `def pure[A](a: A): Id[A] = Id(a)` constructs that carrier rather than performing on it — read as a
+      * computation, its pure boundary unwraps the construction it just wrote (`runId(Id(a))`).
       */
     private def typeKind(
         tpe: OperatorResolvedExpression,
@@ -1633,10 +1632,19 @@ object RowElaborator {
         case FunctionLiteral(_, _, body) if args.isEmpty              =>
           if (applied === 0) Kind.Payload else expressionKind(body.value, applied - 1)
         case ParameterReference(name) if args.isEmpty && applied === 0 =>
-          if (carrierBinders.contains(name.value)) Kind.Carrier
-          else if (payloadBinders.contains(name.value) || paramTypes.get(name.value).exists(t => spine(t)._2.isEmpty))
-            Kind.Payload
-          else Kind.Unknown
+          // A binder holding a computation — one of this definition's own carriers, or one declaring a **concrete**
+          // carrier (`runId`'s own `obj: Id[A]`, `data Box(action: IO[Unit])`'s accessor), which §1 rule 2 reads as
+          // "a computation on this carrier" and which therefore must never be offered a `pure`. Then a
+          // payload-by-construction block binder, and otherwise the **declared type**, classified exactly as the
+          // applied arm below classifies a codomain and [[callResultKind]] a callee's return — one classifier,
+          // [[typeKind]], for all three. Reading the declared type as a payload only when it is *atomic* left
+          // `a: List[A]` unclassified, so `foldLeft(a, …)` on a pure definition neither settled the empty row nor
+          // lifted `a`, while the pure boundary still wrote `runId` — leaving the checker a bare `List[A]` where
+          // that same `runId` implies `Id[List[A]]`.
+          val declared = paramTypes.get(name.value)
+          if (carrierBinders.contains(name.value) || declared.exists(concreteCarrierHead(_).isDefined)) Kind.Carrier
+          else if (payloadBinders.contains(name.value)) Kind.Payload
+          else declared.fold(Kind.Unknown)(typeKind(_, ownBinders, ownGenericKinds))
         case ParameterReference(name)                                 =>
           // A binder this pass hoisted holds the payload of the expression it bound, so that expression's own
           // declaration answers for it here too — a *declared* parameter's type would, and a minted binder has none

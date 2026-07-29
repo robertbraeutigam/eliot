@@ -332,6 +332,33 @@ class RowElaboratorTest
     )
   }
 
+  // --- a parameter is classified by its *declared type*, applied or not (`Combine[List[A]]`'s own `combine`). The
+  // atomic-type-only reading left `a: Lst[A]` unclassified, so neither half of the empty-row rewrite fired: the call
+  // did not settle `ρ := {}` and `a` was not lifted, while the pure boundary still wrote `runId` — leaving the
+  // checker a bare `Lst[A]` against the `Id[Lst[A]]` that same `runId` implies. ---
+
+  private val foldPrelude =
+    "type Lst[A]\n" +
+      "def app[A](list: Lst[A], element: A): Lst[A]\n" +
+      "def foldL[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: Lst[A]): {Effect} B\n"
+
+  it should "write an applied-type parameter's fold at the empty row, lifting it with pure under runId" in {
+    compareToTwin(
+      foldPrelude + "def d[A](a: Lst[A], b: Lst[A]): Lst[A] = foldL(a, e -> acc -> app(acc, e), b)",
+      foldPrelude + "def t[A](a: Lst[A], b: Lst[A]): Lst[A] = runId(foldL(pure(a), e -> acc -> pure(app(acc, e)), b))",
+      extraNames = Seq("app", "foldL")
+    )
+  }
+
+  it should "keep a concrete-carrier parameter a computation, not a plain value at a concrete-carrier slot" in {
+    // The dual, and why the classification reads a *concrete carrier head* rather than "the declared type is atomic":
+    // `Id[A]` is a carrier however it is spelled, so `runId`'s own `obj` is the computation the accessor takes apart.
+    // Read as a plain value it is offered a `pure`, reported as the rule-2 violation below — inside the jvm layer's
+    // own `Id.els`, a file the user never wrote.
+    violationsOf(prelude + "def hold[A](obj: Id[A]): A\ndef d[A](obj: Id[A]): A = hold(obj)", "d", Seq("hold"))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   private val runPrelude = "data IOish[A]\ndef runIt[A](io: IOish[A]): A\n"
 
   it should "treat a nominal-run return as a carrier region (main: IO[Unit] shape, no runId)" in {
@@ -377,6 +404,12 @@ class RowElaboratorTest
         .elaborate(orv, universe)
         .getOrElse(throw new Exception(s"No runtime for '$name'"))
       (el.value, orv.runtime.get.value)
+    }
+
+  /** The rule-2/rule-4 violations elaborating `name` records — the diagnostics the processor turns into errors. */
+  private def violationsOf(source: String, name: String, extraNames: Seq[String]): IO[Seq[String]] =
+    universeOf(source, name, extraNames).map { universe =>
+      RowElaborator.elaborateChecked(universe.values(vfqn(name)), universe).violations.map(_.message.value)
     }
 
   private def runtimeOf(
