@@ -36,7 +36,7 @@ def labelOf(setting: String): {Abort} String = setting.substring(0, setting.inde
 def label(setting: String): String = labelOf(setting) else setting
 
 def main: {Console} Unit = {
-   val line    = readLine.orAbort else ""
+   val line    = readLine orElse ""
    val setting = line.trim
    printLine(label(setting))
    printLine(setting.toUpperCase)

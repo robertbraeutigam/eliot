@@ -25,7 +25,7 @@ def isEmpty(s: String): Bool
  * ```eliot
  * // Read a name, falling back to a placeholder when the user just pressed enter (or ran out of input).
  * def askName: {Console} String = {
- *   val answer = readLine.orAbort else ""
+ *   val answer = readLine orElse ""
  *   fold(answer.isBlank, "anonymous", answer.trim)
  * }
  * ```

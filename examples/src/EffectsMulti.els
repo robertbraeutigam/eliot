@@ -21,7 +21,7 @@ data Database(url: String)
  */
 def run: {Dep[Database], Log, Console} Unit = {
    log(dependency.url)
-   printLine(readLine.orAbort else "(no input)")
+   printLine(readLine orElse "(no input)")
 }
 
 // The database dependency is injected at the discharge site with `provide`, which hands the value to every

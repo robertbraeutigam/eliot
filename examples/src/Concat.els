@@ -9,6 +9,6 @@
  * ```
  */
 def main: {Console} Unit = {
-   val name = readLine.orAbort else "world"
+   val name = readLine orElse "world"
    printLine("Hello, " ++ name ++ "!")
 }

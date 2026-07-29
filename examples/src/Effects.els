@@ -6,14 +6,14 @@
  * `flatMap`, `import`, or lift. Everything stays carrier-polymorphic, `main` included — the platform's synthesized
  * entry point binds the runnable carrier; no carrier type ever appears in the program.
  *
- * The `Option` is end of input: `orAbort` reflects the absence into `{Abort}` and `else` discharges it with a
- * fallback, so running out of input is handled where it happens rather than crashing later.
+ * The `Option` is end of input, answered here by `orElse` — so running out of input is handled where it happens
+ * rather than crashing later.
  *
  * ```sh
  * ./mill examples.run jvm exe-jar examples/src/ -m Effects
  * echo "hello effects" | java -jar target/Effects.jar
  * ```
  */
-def echo: {Console} Unit = printLine(readLine.orAbort else "(no input)")
+def echo: {Console} Unit = printLine(readLine orElse "(no input)")
 
 def main: {Console} Unit = echo
