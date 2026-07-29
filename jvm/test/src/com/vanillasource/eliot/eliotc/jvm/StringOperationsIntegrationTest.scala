@@ -1,0 +1,177 @@
+package com.vanillasource.eliot.eliotc.jvm
+
+/** End-to-end coverage of the `eliot.lang.String` operations, which are body-less leaves realised twice: as
+  * `java.lang.String` calls by the JVM backend (`StringNatives`) and as compile-time reductions on the compiler track
+  * (`StringReductions`). Both realisations are exercised here, because the whole point of the pair is that a string
+  * operation answers the same on either track.
+  *
+  * The runtime cases drive every operation from `readLine`, so no operand is a literal the compiler could fold away and
+  * the emitted `java.lang.String` call must fire. The compiler-track cases put the same operations in an ability `where`
+  * guard — a position that has no runtime at all: an unreduced guard leaves the implementation unresolved and the
+  * program does not compile, so a guard that discharges *is* the proof that the reduction ran while checking.
+  */
+class StringOperationsIntegrationTest extends FullIntegrationTest {
+
+  private val prelude =
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
+      |import eliot.effect.Abort
+      |
+      |def yn(b: Bool): String = fold(b, "y", "n")
+      |""".stripMargin
+
+  "the string predicates" should "run against a line read at runtime" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = readLine
+          |   printLine(show(s.length) ++ yn(s.isEmpty) ++ yn(s.isBlank) ++
+          |             yn(startsWith("ab", s)) ++ yn(endsWith("yz", s)) ++ yn(contains("cd", s)))
+          |}""".stripMargin,
+      stdin = "abcdefyz\n"
+    ).asserting(_ shouldBe "8nnyyy")
+  }
+
+  "the string transformations" should "run against a line read at runtime" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = readLine
+          |   printLine(s.trim ++ "|" ++ s.toUpperCase ++ "|" ++ s.toLowerCase ++ "|" ++
+          |             replace("b", "B", s) ++ "|" ++ repeat(2, s))
+          |}""".stripMargin,
+      stdin = " aBc \n"
+    ).asserting(_ shouldBe "aBc| ABC | abc | aBc | aBc  aBc ")
+  }
+
+  "the index operations" should "slice a line read at runtime" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = readLine
+          |   printLine(substring(2, 5, s) ++ "|" ++ take(3, s) ++ "|" ++ drop(3, s))
+          |}""".stripMargin,
+      stdin = "abcdefyz\n"
+    ).asserting(_ shouldBe "cde|abc|defyz")
+  }
+
+  they should "be total — out-of-range and inverted indices yield a string rather than failing" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = readLine
+          |   printLine(substring(0 - 5, 99, s) ++ "|" ++ substring(3, 1, s) ++ "." ++
+          |             take(0 - 1, s) ++ "." ++ drop(99, s) ++ "." ++ repeat(0 - 2, s))
+          |}""".stripMargin,
+      stdin = "abc\n"
+    ).asserting(_ shouldBe "abc|...")
+  }
+
+  "indexOf" should "yield the position of a match and abort when there is none" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = readLine
+          |   printLine(show(indexOf("cd", s) else (0 - 1)) ++ "|" ++ show(indexOf("zz", s) else (0 - 1)))
+          |}""".stripMargin,
+      stdin = "abcdefyz\n"
+    ).asserting(_ shouldBe "2|-1")
+  }
+
+  "Compare[String]" should "order two runtime strings lexicographically" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = readLine
+          |   printLine(yn(s < "b") ++ yn(s < "a") ++ yn(s <= s))
+          |}""".stripMargin,
+      stdin = "ab\n"
+    ).asserting(_ shouldBe "yny")
+  }
+
+  "every non-index string operation" should "reduce on the compiler track inside an ability guard" in {
+    compileAndRun(
+      prelude +
+        """
+          |ability Reduced[S: String] {
+          |   def verdict: String
+          |}
+          |
+          |implement[S: String] Reduced[S] where
+          |   startsWith("ab", S) && endsWith("yz", S) && contains("cd", S) &&
+          |   !isEmpty(S) && !isBlank(S) && trim(S) == S &&
+          |   toUpperCase(S) == "ABCDEFYZ" && toLowerCase(S) == "abcdefyz" &&
+          |   replace("b", "B", S) == "aBcdefyz" && S < "b" && (S ++ "!") == "abcdefyz!" {
+          |   def verdict: String = "reduced"
+          |}
+          |
+          |def main: {Console} Unit = printLine(verdict["abcdefyz"])""".stripMargin
+    ).asserting(_ shouldBe "reduced")
+  }
+
+  "the index operations" should "reduce on the compiler track inside an ability guard" in {
+    compileAndRun(
+      prelude +
+        """
+          |ability Sliced[S: String] {
+          |   def verdict: String
+          |}
+          |
+          |implement[S: String] Sliced[S] where
+          |   drop(length(S), S) == "" && take(length(S), S) == S &&
+          |   substring(length(S), length(S), S) == "" {
+          |   def verdict: String = "sliced"
+          |}
+          |
+          |def main: {Console} Unit = printLine(verdict["abcdefyz"])""".stripMargin
+    ).asserting(_ shouldBe "sliced")
+  }
+
+  /** A guard is a decision, so the *other* implementation must be the one that survives when the same reduction comes
+    * out `false` — otherwise a guard that merely failed to reduce would look identical to one that reduced to `true`.
+    */
+  "a compiler-track guard" should "select the other implementation when the reduction is false" in {
+    compileAndRun(
+      prelude +
+        """
+          |ability Route[S: String] {
+          |   def handler: String
+          |}
+          |
+          |implement[S: String] Route[S] where startsWith("/api", S) {
+          |   def handler: String = "api"
+          |}
+          |
+          |implement[S: String] Route[S] where !startsWith("/api", S) {
+          |   def handler: String = "page"
+          |}
+          |
+          |def main: {Console} Unit = printLine(handler["/api/users"] ++ "/" ++ handler["/about"])""".stripMargin
+    ).asserting(_ shouldBe "api/page")
+  }
+
+  /** The compiler track computing a *value*, not just a verdict: `S` is an erased type parameter, so the body cannot
+    * survive to runtime as written — the operation runs while checking and the result is materialised as a literal.
+    */
+  it should "materialise a string computed from an erased type parameter" in {
+    compileAndRun(
+      prelude +
+        """
+          |ability Shout[S: String] {
+          |   def shouted: String
+          |}
+          |
+          |implement[S: String] Shout[S] {
+          |   def shouted: String = toUpperCase(S)
+          |}
+          |
+          |def main: {Console} Unit = printLine(shouted["quiet"])""".stripMargin
+    ).asserting(_ shouldBe "QUIET")
+  }
+}

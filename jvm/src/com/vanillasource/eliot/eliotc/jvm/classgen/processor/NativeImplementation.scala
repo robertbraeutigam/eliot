@@ -37,7 +37,7 @@ object NativeImplementation {
       (collectionValueFQN("List", "empty"), eliot_collection_List_empty),
       (collectionValueFQN("List", "append"), eliot_collection_List_append),
       (collectionValueFQN("List", "foldLeftInternal"), eliot_collection_List_foldLeftInternal)
-    ) ++ FileNatives.implementations
+    ) ++ StringNatives.implementations ++ FileNatives.implementations
   )
 
   /** The erased JVM signature (all type-parameter positions collapsed to `Any`/`Object`, `List[A]` to `java.util.List`)
@@ -67,12 +67,12 @@ object NativeImplementation {
     * ([[ImplementationMarkerUtils.isImplementationMethodFor]], done in [[JvmClassGenerator]]). Because the emitted method
     * must carry the impl method's *mangled* name (not the native's own local name), each maker takes that name and
     * produces the native for it — the value-level counterpart of `StdlibNativesProcessor`'s compile-time `Eq[String]`
-    * native. `Eq[String]::equals` is realised as `String.equals`; further runtime ability leaves are added here.
+    * native. The `String` instances (`Eq`/`Compare`/`Combine`, realised as `String.equals`/`.compareTo`/`.concat`) live
+    * with the rest of the string leaves in [[StringNatives]]; further runtime ability leaves are added here or in the
+    * per-domain object they belong to.
     */
-  val abilityImplementations: Seq[(String, String, String, JvmIdentifier => NativeImplementation)] = Seq(
-    ("Eq", "equals", "String", eliot_lang_Eq_String_equals),
-    ("Combine", "combine", "String", eliot_lang_Combine_String_combine)
-  ) ++ FileNatives.abilityImplementations
+  val abilityImplementations: Seq[(String, String, String, JvmIdentifier => NativeImplementation)] =
+    StringNatives.abilityImplementations ++ FileNatives.abilityImplementations
 
   private def systemLangValueFQN(moduleName: String, valueName: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, moduleName), QualifiedName(valueName, Qualifier.Default))
@@ -119,72 +119,6 @@ object NativeImplementation {
             )
             methodVisitor.visitInsn(Opcodes.POP)          // discard the Unit result
             methodVisitor.visitJumpInsn(Opcodes.GOTO, loop)
-          }
-        }
-  }
-
-  /** `Eq[String]::equals(a: String, b: String): Bool` — the value-equality leaf behind the runtime `Eq[String]`
-    * instance (`stdlib/.../String.els`, body-less). Realised as `Boolean.valueOf(a.equals(b))`, so the opaque `Bool`
-    * result is the boxed `java.lang.Boolean` the backend carries `Bool` as (see [[NativeType]]). Emitted under the impl
-    * method's mangled `methodName` (passed in) so call sites resolving `==`/`!=` on strings bind to it. Pure
-    * (`impure = false`), so it may be `public`. Its compile-time counterpart is `StdlibNativesProcessor`'s `Eq[String]`
-    * native.
-    */
-  private def eliot_lang_Eq_String_equals(methodName: JvmIdentifier): NativeImplementation = new NativeImplementation {
-    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] =
-      classGenerator
-        .createMethod[CompilerIO](
-          methodName,
-          Seq(systemLangType("String"), systemLangType("String")),
-          systemLangType("Bool")
-        )
-        .use { methodGenerator =>
-          methodGenerator.runNative { methodVisitor =>
-            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
-            methodVisitor.visitVarInsn(Opcodes.ALOAD, 1)
-            methodVisitor.visitMethodInsn(
-              Opcodes.INVOKEVIRTUAL,
-              "java/lang/String",
-              "equals",
-              "(Ljava/lang/Object;)Z",
-              false
-            )
-            methodVisitor.visitMethodInsn(
-              Opcodes.INVOKESTATIC,
-              "java/lang/Boolean",
-              "valueOf",
-              "(Z)Ljava/lang/Boolean;",
-              false
-            )
-          }
-        }
-  }
-
-  /** `Combine[String]::combine(a: String, b: String): String` — the string-concatenation leaf behind the runtime
-    * `Combine[String]` instance (`stdlib/.../String.els`, body-less). Realised as `a.concat(b)`. Emitted under the
-    * impl method's mangled `methodName` (passed in) so call sites resolving the `++` operator on strings bind to it.
-    * Pure (`impure = false`), so it may be `public`. Its compile-time counterpart is `StdlibNativesProcessor`'s
-    * `Combine[String]` native.
-    */
-  private def eliot_lang_Combine_String_combine(methodName: JvmIdentifier): NativeImplementation = new NativeImplementation {
-    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] =
-      classGenerator
-        .createMethod[CompilerIO](
-          methodName,
-          Seq(systemLangType("String"), systemLangType("String")),
-          systemLangType("String")
-        )
-        .use { methodGenerator =>
-          methodGenerator.runNative { methodVisitor =>
-            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
-            methodVisitor.visitVarInsn(Opcodes.ALOAD, 1)
-            methodVisitor.visitMethodInsn(
-              Opcodes.INVOKEVIRTUAL,
-              "java/lang/String",
-              "concat",
-              "(Ljava/lang/String;)Ljava/lang/String;",
-              false
-            )
           }
         }
   }

@@ -1,7 +1,189 @@
+import eliot.effect.Abort
+
 type String
 
+/**
+ * The number of characters in `s`.
+ *
+ * Counts the platform's storage units, not user-perceived characters: a code point outside the Basic
+ * Multilingual Plane counts as more than one on a UTF-16 platform, and a combining sequence counts as its
+ * parts. Use it for slicing with `substring`/`take`/`drop`, which index in the same units, rather than as a
+ * measure of visible text width.
+ */
+def length(s: String): Int
+
+/**
+ * `true` when `s` has no characters at all.
+ *
+ * A string of blanks is *not* empty — `isBlank` is the test that ignores whitespace.
+ */
+def isEmpty(s: String): Bool
+
+/**
+ * `true` when `s` is empty or consists only of whitespace.
+ *
+ * ```eliot
+ * // Read a name, falling back to a placeholder when the user just pressed enter.
+ * def askName: {Console} String = {
+ *   val answer = readLine
+ *   fold(answer.isBlank, "anonymous", answer.trim)
+ * }
+ * ```
+ */
+def isBlank(s: String): Bool
+
+/**
+ * `true` when `s` begins with `start`.
+ *
+ * Every string starts with the empty string. The comparison is exact, character by character — there is no
+ * case folding.
+ */
+def startsWith(start: String, s: String): Bool
+
+/**
+ * `true` when `s` ends with `end`.
+ *
+ * Every string ends with the empty string. The comparison is exact, character by character — there is no
+ * case folding.
+ */
+def endsWith(end: String, s: String): Bool
+
+/**
+ * `true` when `part` occurs anywhere in `s`.
+ *
+ * ```eliot
+ * // Keep only the log lines that mention the module we are debugging. Spelled as
+ * // plain calls rather than `line.contains(..)`, because `.` binds looser than `&&`
+ * // — a dot chain beside a boolean operator would have to be parenthesised.
+ * def isRelevant(line: String): Bool = contains("eliot.lang", line) && !contains("DEBUG", line)
+ * ```
+ */
+def contains(part: String, s: String): Bool
+
+/**
+ * The characters of `s` from `start` (inclusive) to `end` (exclusive).
+ *
+ * Total: both indices are clamped into `0`..`s.length` and `end` is raised to `start` when it would precede
+ * it, so any pair of indices yields a string and none ever fails. That makes slicing safe without a prior
+ * length check — an over-long `end` simply runs to the end of `s`, and an inverted range yields `""`.
+ *
+ * ```eliot
+ * // The label of a "key=value" setting: everything before the first '='.
+ * // Aborts on a line carrying no '=', since `indexOf` finds no position.
+ * def labelOf(setting: String): {Abort} String = substring(0, indexOf("=", setting), setting)
+ *
+ * // Always a String: a line without a value is its own label.
+ * def label(setting: String): String = labelOf(setting) else setting
+ * ```
+ */
+def substring(start: Int, end: Int, s: String): String
+
+/**
+ * The first `count` characters of `s`, or all of `s` when it is shorter.
+ *
+ * Total, like `substring`: a negative `count` yields `""`.
+ */
+def take(count: Int, s: String): String = s.substring(0, count)
+
+/**
+ * `s` without its first `count` characters, or `""` when it has no more than that many.
+ *
+ * Total, like `substring`: a negative `count` yields `s` unchanged.
+ */
+def drop(count: Int, s: String): String = s.substring(count, s.length)
+
+/**
+ * The index of the first occurrence of `part` in `s`, aborting when `part` does not occur.
+ *
+ * The result is a valid `substring` start: `substring(indexOf(part, s), length(s), s)` is the tail of `s` from
+ * the match onwards. The absent case is the `Abort` effect rather than a sentinel index, so a caller either
+ * discharges it with `else` or propagates it — a missing match can never be mistaken for a position.
+ *
+ * ```eliot
+ * // The extension of a file name — everything after its first dot. Aborts on a
+ * // name that has no dot at all.
+ * def extensionOf(fileName: String): {Abort} String = drop(indexOf(".", fileName) + 1, fileName)
+ *
+ * // Always a String: a name without a dot simply has no extension.
+ * def extension(fileName: String): String = extensionOf(fileName) else ""
+ * ```
+ */
+def indexOf(part: String, s: String): {Abort} Int = if(s.contains(part), indexOfInternal(part, s))
+
+/**
+ * `s` without leading and trailing whitespace.
+ *
+ * Whitespace is decided by the Unicode character properties, so it covers non-breaking and ideographic
+ * spaces as well as the ASCII blanks; interior whitespace is untouched.
+ */
+def trim(s: String): String
+
+/**
+ * `s` with every character replaced by its upper-case form.
+ *
+ * Case conversion is locale-independent: the mapping is the same on every machine and in every run, so a
+ * value converted while compiling and one converted while running always agree. That deliberately rules out
+ * the locale-sensitive rules of a few languages (Turkish dotless *i*, for one), which belong in a
+ * locale-aware text library rather than in the language core.
+ */
+def toUpperCase(s: String): String
+
+/**
+ * `s` with every character replaced by its lower-case form.
+ *
+ * Locale-independent, exactly as `toUpperCase` — see there for what that rules out.
+ *
+ * ```eliot
+ * // Bring typed input into a canonical form for comparison, so "Quit", "QUIT"
+ * // and " quit " all read as the same command.
+ * def normalized(input: String): String = input.trim.toLowerCase
+ *
+ * def isCommand(name: String, input: String): Bool = normalized(input) == name
+ * ```
+ */
+def toLowerCase(s: String): String
+
+/**
+ * `s` with every occurrence of `target` replaced by `replacement`.
+ *
+ * Occurrences are found left to right and each is replaced literally — `target` is plain text, never a
+ * pattern — and the scan continues *after* each replacement, so a `replacement` that itself contains
+ * `target` is not re-examined. An empty `target` inserts `replacement` between every pair of characters.
+ *
+ * ```eliot
+ * // Fill the single placeholder of a message template.
+ * def greeting(name: String): String = "Hello, {}!".replace("{}", name)
+ * ```
+ */
+def replace(target: String, replacement: String, s: String): String
+
+/**
+ * `s` written `count` times in a row.
+ *
+ * Total: a `count` of zero or less yields `""`.
+ *
+ * ```eliot
+ * // Indent a line by two spaces per nesting level.
+ * def indent(level: Int, line: String): String = " ".repeat(level * 2) ++ line
+ * ```
+ */
+def repeat(count: Int, s: String): String
+
+/**
+ * Two strings are equal when they hold the same characters in the same order.
+ */
 implement Eq[String] {
    def equals(a: String, b: String): Bool
+}
+
+/**
+ * Strings are ordered lexicographically by their characters — the order that sorts `"a"` before `"ab"`
+ * before `"b"`. It compares character codes rather than alphabets, so every upper-case letter precedes every
+ * lower-case one and non-ASCII letters sort by their Unicode value: a stable machine order, not a human
+ * collation.
+ */
+implement Compare[String] {
+   def lessThanOrEqual(a: String, b: String): Bool
 }
 
 implement Combine[String] {
@@ -16,3 +198,10 @@ implement Combine[String] {
 implement Show[String] {
    def show(value: String): String = value
 }
+
+/**
+ * The index of the first occurrence of `part` in `s`, or a negative index when there is none — the raw leaf
+ * behind `indexOf`, which turns the negative case into an `Abort`. `private` so the sentinel can never
+ * escape into user code. Implemented by the backend.
+ */
+private def indexOfInternal(part: String, s: String): Int
