@@ -783,13 +783,29 @@ object RowElaborator {
               )
             (accArgs :+ captured, accBinds)
           } else if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders)) && !isBareLambda(arg.value) &&
-            rowTagged.contains(index) && pureFunctionAt(declaredSlot.get, arg.value)) {
-            // A **pure function value** at a carrier-codomain slot (`f: A => {Effect} B` given `url`, every pure
-            // dot): the slot declares a computation-returning function and this one returns a value, so it is
-            // lifted *pointwise* — the only spelling that fits, since the lift has to happen under the arrow. A
-            // bare lambda takes the branch below instead, where its body lifts directly and no binder is minted.
-            val domains = arrowChainLike(declaredSlot.get)._1
-            (accArgs :+ etaPureLift(arg, domains.size, ownRegion, domains, calleeBinders), accBinds)
+            rowTagged.contains(index)) {
+            // A **non-lambda** argument at a carrier-codomain slot (`f: A => {Effect} B` given `url`, given
+            // `take(indexOf("=", s))`, every non-lambda dot). §1 rule 4: the slot's declared type is an arrow, headed
+            // by `Function` and not by a carrier, so it is a *rowless value position* — the row sits on the
+            // **codomain**, which describes what applying the function later does, not how the function value is
+            // produced. So the argument is elaborated **strictly, in the enclosing region**, exactly like any other
+            // rowless slot (§1 rule 1: an effect performed while *building* it runs where it is written, not under a
+            // binder this pass invents), and only the resulting *value* is adapted to the declared codomain.
+            //
+            // The region boundary is the **lambda**, not the slot: a bare lambda takes the branch below, where its
+            // body is the region the codomain governs. There is no lambda here, so there is nothing to defer.
+            //
+            // Adapting means lifting *pointwise* when the value is a pure function — the only spelling that fits,
+            // since the lift has to happen under the arrow. No value restriction is needed for the eta-expansion:
+            // anything that performs has already been hoisted out by [[strictSlot]], so what reaches it is a binder
+            // or pure code, and duplicating pure code is unobservable.
+            val (strictArg, bind) = strictSlot(arg, region, hoist)
+            val adapted           =
+              if (pureFunctionAt(declaredSlot.get, strictArg.value)) {
+                val domains = arrowChainLike(declaredSlot.get)._1
+                etaPureLift(strictArg, domains.size, ownRegion, domains, calleeBinders)
+              } else strictArg
+            (accArgs :+ adapted, accBinds ++ bind)
           } else if (isBareLambda(arg.value)) {
             val domains = declaredSlot.map(s => arrowChainLike(s)._1).getOrElse(Seq.empty)
             if (declaredSlot.exists(s => carrierCodomain(s, calleeBinders))) {
@@ -1253,6 +1269,23 @@ object RowElaborator {
         region: RegionCarrier,
         hoist: Boolean
     ): (Seq[Sourced[OperatorResolvedExpression]], Seq[(String, Sourced[OperatorResolvedExpression])]) = {
+      val (argFinal, bind) = strictSlot(arg, region, hoist)
+      (accArgs :+ argFinal, accBinds ++ bind)
+    }
+
+    /** One strict-slot argument on its own: the elaborated node plus the bind that hoisted it, where it was work to
+      * sequence rather than data to pass on.
+      *
+      * Separated from [[strictArgument]] because an **arrow** slot needs the strict result *before* it can adapt it.
+      * An arrow type is headed by `Function`, not by a carrier, so §1 rule 4 makes the slot an ordinary rowless
+      * *value* position: the argument expression runs here like any other, and only the value it evaluates to is
+      * then lifted pointwise into the declared codomain.
+      */
+    private def strictSlot(
+        arg: Sourced[OperatorResolvedExpression],
+        region: RegionCarrier,
+        hoist: Boolean
+    ): (Sourced[OperatorResolvedExpression], Option[(String, Sourced[OperatorResolvedExpression])]) = {
       val (argElab, argCarrier) = core(arg, region)
       if (hoist && argCarrier && (performs(arg.value) || discharges(argElab) || sequences(argElab))) {
         val binder = freshBinder()
@@ -1265,10 +1298,8 @@ object RowElaborator {
         // argument (`readLine`) is excluded: its payload is the carrier's, which its own declaration does not give.
         if (expressionKind(arg.value, 0) === Kind.Payload)
           payloadBinderSources = payloadBinderSources + (binder -> arg.value)
-        (accArgs :+ arg.as(ParameterReference(arg.as(binder))), accBinds :+ (binder -> argElab))
-      } else {
-        (accArgs :+ argElab, accBinds)
-      }
+        (arg.as(ParameterReference(arg.as(binder))), Some(binder -> argElab))
+      } else (argElab, scala.None)
     }
 
     /** Reassemble a call from its elaborated arguments and hoisted binds: the core call, `pure`-wrapped when binds
@@ -1471,16 +1502,17 @@ object RowElaborator {
       *
       * Deciding it positively rather than by exclusion is what keeps the rule from being keyed on names: recognising
       * carriers by their FQN would miss a user-declared one (the shadow corpus declares its own `data Id[A]`) and
-      * "has an `Effect` instance" is prohibited outright. An arrow can host wherever its codomain or any domain can —
-      * a handler `E => G[A]`, an `{Effect}`-marker callback. Pinned and run-boundary *positions* are excluded by
-      * their index at the call site, a pinned row being a declared capture rather than anything readable off the type.
+      * "has an `Effect` instance" is prohibited outright. Pinned and run-boundary *positions* are excluded by their
+      * index at the call site, a pinned row being a declared capture rather than anything readable off the type.
+      *
+      * An **arrow** is not one of them, whatever its codomain or domains say. A handler slot `E => {Effect} A` holds
+      * a *function*; the row belongs to what applying that function later does, and rule 4 reads the slot itself —
+      * headed by `Function`, hence rowless and strict. Reading the arrow's pieces instead switched this check off for
+      * the whole slot, its own value position included, so a computation delivered where a function was declared went
+      * unreported and reached the checker as an ordinary mismatch.
       */
-    private def hostsComputation(declared: OperatorResolvedExpression): Boolean = {
-      def canHost(tpe: OperatorResolvedExpression): Boolean = spine(tpe)._2.nonEmpty
-
-      val (domains, codomain) = arrowChainLike(declared)
-      canHost(codomain) || domains.exists(canHost)
-    }
+    private def hostsComputation(declared: OperatorResolvedExpression): Boolean =
+      asArrowLike(declared).isEmpty && spine(declared)._2.nonEmpty
 
     /** Whether an argument is a **captured** computation — a reference to one of this definition's own pinned
       * parameters. §1 rule 3: a pinned row is a *reified* computation and therefore an ordinary type, so handing one

@@ -70,6 +70,39 @@ object EffectCorpus {
       |   flatMap(pair -> printLine(pair.first), prog)
       |}""".stripMargin
 
+  /** An effect performed while **building** an argument that a carrier-codomain slot receives — §1 rule 1, where the
+    * slot's declared type is an arrow and therefore a rowless *value* position, the row belonging to what applying that
+    * function later does.
+    *
+    * `labelOf` is the shape as the user meets it: `s.take(s.indexOf("="))` is `.(s, take(indexOf("=", s)))`, so the
+    * `{Abort}` of `indexOf` is performed while constructing the argument handed to `.`'s `f: A => {Effect} B`. It was
+    * rejected outright ("No ability implementation found for ability 'Abort' with type arguments [Id]", reported inside
+    * `stdlib`'s `Bool.els`, a file the user never wrote), which is why the equivalent plain call `take(indexOf("=", s),
+    * s)` was the only spelling that compiled.
+    *
+    * The `foreach` lines pin **where** the effect runs, which is the half a verdict-only fix gets wrong: `readLine` is
+    * written once, outside the traversal, so it must run once and its one line must prefix all three elements. An
+    * elaboration that defers the construction under the invented eta binder instead reads per element — the same
+    * program, silently mis-sequenced. The pure-construction line beside it is the control: it must keep working
+    * unchanged, since nothing there has to be hoisted.
+    */
+  val argumentConstructionProgram: String =
+    """import eliot.effect.Abort
+      |import eliot.collection.List
+      |
+      |def labelOf(s: String): {Abort} String = s.take(s.indexOf("="))
+      |
+      |def three: List[String] = append(append(append(empty, "a"), "b"), "c")
+      |
+      |def tag(mark: String, item: String): {Console} Unit = printLine(mark ++ item)
+      |
+      |def main: {Console} Unit = {
+      |   printLine(labelOf("host=1") else "none")
+      |   printLine(labelOf("nokey") else "none")
+      |   three.foreach(tag(readLine))
+      |   three.foreach(tag("pure:"))
+      |}""".stripMargin
+
   /** A deliberately non-terminating program: `Inf` is an ordinary row entry riding the same union. Compile-only. */
   val infProgram: String =
     """import eliot.jvm.IO

@@ -29,6 +29,22 @@ class EffectCorpusIntegrationTest extends FullIntegrationTest {
     )
   }
 
+  // The `>` prefix on all three elements from a single supplied line is the assertion: `readLine` is written once,
+  // outside the traversal, so it runs once — a deferred construction would read per element instead.
+  "an effect performed while building an argument" should "run where it is written, once" in {
+    compileAndRun(EffectCorpus.argumentConstructionProgram, stdin = ">\n").asserting(
+      _ shouldBe
+        """host
+          |none
+          |>a
+          |>b
+          |>c
+          |pure:a
+          |pure:b
+          |pure:c""".stripMargin
+    )
+  }
+
   "the Inf corpus program" should "loop forever, printing its line repeatedly" in {
     compileAndRunBounded(EffectCorpus.infProgram, timeoutMillis = 400)
       .asserting(_.linesIterator.count(_ == "tick") should be > 5)
