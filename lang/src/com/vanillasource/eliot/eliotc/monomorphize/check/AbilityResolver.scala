@@ -61,18 +61,19 @@ class AbilityResolver(
 
   /** Saturation pass: try to resolve every still-unresolved ability reference once. Returns `true` iff at least one
     * ability newly resolved this call — a resolution records the impl, which the next round's drain propagates.
+    *
+    * Every reference is offered to [[tryResolveOne]] each round; the "already resolved?" test lives *there*, after the
+    * reference's own ability-level arguments have been sliced and quoted, because that is the first point at which the
+    * [[CheckState.AbilityResolutionKey]] exists. Skipping by position alone here is what let a second reference at the
+    * same span inherit the first one's impl (see [[CheckState.abilityResolutions]]).
     */
   def resolveAbilities(
       allRefs: Seq[AbilityRef],
       paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): CheckIO[Boolean] =
-    for {
-      state      <- get
-      unresolved  = allRefs.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
-      progressed <- unresolved.toList.foldLeftM(false) { (acc, ref) =>
-                      tryResolveOne(ref, paramConstraints).map(_ || acc)
-                    }
-    } yield progressed
+    allRefs.toList.foldLeftM(false) { (acc, ref) =>
+      tryResolveOne(ref, paramConstraints).map(_ || acc)
+    }
 
   /** Try to resolve a single ability reference. Returns `true` iff the reference got newly resolved this call.
     *
@@ -102,6 +103,7 @@ class AbilityResolver(
           // slice off the method-level params, keeping the leading `abilityArity` (e.g. `flatMap` of `Monad[F[_]]`
           // queries `Monad[F]`, not `Monad[F, A, B]`).
           arity      <- abilityArity(abilityVfqn.value, abilityName)
+          _          <- modify(_.recordAbilityArity(abilityVfqn.value, arity))
           refSliced   = refTypeArgs.take(arity)
           refGroundE  = refSliced.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
           // Prefer the reference's OWN type arguments once they are fully ground: they pin the exact implementation.
@@ -119,17 +121,21 @@ class AbilityResolver(
                               case None        => refGroundE
                             }
                         }
+          // The key this resolution is recorded under: the ref's own ground arguments when it has them (they pin the
+          // impl and the post-drain quoter re-derives exactly them), otherwise the constraint-covered `None` key.
+          key         = (abilityVfqn, refGroundE.toOption)
           progressed <- groundArgsE match {
-                          case Right(groundArgs) =>
+                          case Right(_) if state.abilityResolutions.contains(key) => pure(false)
+                          case Right(groundArgs)                                  =>
                             for {
                               resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
                               stepped  <- resolved match {
                                             case Some(impl) =>
-                                              modify(_.recordAbilityResolution(abilityVfqn, impl)).as(true)
+                                              modify(_.recordAbilityResolution(key, impl)).as(true)
                                             case None       => reportFailedDemand(abilityVfqn, abilityName, groundArgs)
                                           }
                             } yield stepped
-                          case Left(_)           => pure(false)
+                          case Left(_)                                            => pure(false)
                         }
         } yield progressed
       case _                              => pure(false)

@@ -43,7 +43,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   */
 class PostDrainQuoter(
     metaStore: MetaStore,
-    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
+    abilityResolutions: Map[CheckState.AbilityResolutionKey, (ValueFQN, Seq[GroundValue])],
+    abilityArities: Map[ValueFQN, Int],
     monoEnv: Env,
     lookupTopDef: ValueFQN => Option[SemValue],
     platform: Platform,
@@ -230,8 +231,8 @@ class PostDrainQuoter(
     * unresolved ability references (constraint-covered, resolved at the caller's level) are left untouched.
     */
   private def resolveAbilityRefs(se: SemExpression): SemExpression = se.expression match {
-    case SemExpression.ValueReference(vfqn, _)               =>
-      abilityResolutions.get(vfqn) match {
+    case SemExpression.ValueReference(vfqn, typeArgs)        =>
+      lookupResolution(vfqn, abilityArgsOf(vfqn.value, typeArgs)) match {
         case Some((implFqn, implTypeArgs)) =>
           SemExpression(
             se.expressionType,
@@ -337,7 +338,7 @@ class PostDrainQuoter(
     case SemExpression.ValueReference(vfqn, typeArgs) =>
       for {
         args <- typeArgs.traverse(a => quoteSem(a, vfqn))
-      } yield resolveIfAbility(vfqn, args)
+      } yield resolveIfAbility(vfqn, args, typeArgs)
   }
 
   /** Evaluate a value-position sub-term that is determined by erased parameters, then read it back and materialise it
@@ -568,11 +569,12 @@ class PostDrainQuoter(
 
   private def resolveIfAbility(
       vfqn: Sourced[ValueFQN],
-      typeArgs: Seq[GroundValue]
+      typeArgs: Seq[GroundValue],
+      semTypeArgs: Seq[SemValue]
   ): MonomorphicExpression.Expression =
     vfqn.value.name.qualifier match {
       case _: CoreQualifier.Ability =>
-        abilityResolutions.get(vfqn) match {
+        lookupResolution(vfqn, abilityArgsOf(vfqn.value, semTypeArgs)) match {
           case Some((implFqn, implTypeArgs)) =>
             MonomorphicExpression.MonomorphicValueReference(vfqn.as(implFqn), implTypeArgs)
           case None                          =>
@@ -581,4 +583,24 @@ class PostDrainQuoter(
       case _                        =>
         MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
     }
+
+  /** The ability-level type arguments of a method reference, derived **exactly** as `AbilityResolver.tryResolveOne`
+    * derived them when it recorded the resolution: take the leading `abilityArity` of the reference's own semantic type
+    * arguments, then shallow-`Quoter.quote` them. Both halves must match the resolver — a different slice or a
+    * different quote (the deep `quoteSem` renormalises first) could produce a ground value that is equal in meaning but
+    * not by `==`, and the key would miss. [[None]] when they do not quote, which is the resolver's constraint-covered
+    * case. An arity this quoter never saw recorded slices nothing, matching the resolver's `Int.MaxValue` fallback.
+    */
+  private def abilityArgsOf(methodVfqn: ValueFQN, semTypeArgs: Seq[SemValue]): Option[Seq[GroundValue]] =
+    semTypeArgs
+      .take(abilityArities.getOrElse(methodVfqn, Int.MaxValue))
+      .toList
+      .traverse(a => Quoter.quote(0, a, metaStore))
+      .toOption
+
+  private def lookupResolution(
+      vfqn: Sourced[ValueFQN],
+      abilityArgs: Option[Seq[GroundValue]]
+  ): Option[(ValueFQN, Seq[GroundValue])] =
+    CheckState.lookupAbilityResolution(abilityResolutions, vfqn, abilityArgs)
 }

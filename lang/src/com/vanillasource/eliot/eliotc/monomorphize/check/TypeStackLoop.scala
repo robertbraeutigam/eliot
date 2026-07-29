@@ -347,12 +347,13 @@ class TypeStackLoop(
       _            <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
       _            <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
       implBindings <- track.implBindings(fetchBinding)
-      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case (ref, (implFqn, _)) =>
+      abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case ((ref, _), (implFqn, _)) =>
                                 implBindings.get(implFqn).map(ref.value -> _)
                               }.toMap
     } yield new PostDrainQuoter(
       state.unifier.metaStore,
       state.abilityResolutions,
+      state.abilityArities,
       monoEnv,
       fqn => implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(state.bindingCache.getOrElse(fqn, None)),
       track.platform,

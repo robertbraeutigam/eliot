@@ -37,8 +37,24 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param bindingCache
   *   Cache of fetched NativeBinding SemValues, keyed by ValueFQN.
   * @param abilityResolutions
-  *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
-  *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
+  *   Map from each ability-qualified value reference to its resolved concrete impl. Filled by the drain-resolution
+  *   loop; absence means the ref stays abstract (constraint-covered) at quoting time.
+  *
+  * The key is [[CheckState.AbilityResolutionKey]] — the source-positioned FQN **and the ability-level type arguments
+  * the impl was chosen for**. Both halves are load-bearing: the position+FQN is what the post-drain quoter can
+  * re-derive while walking the tree, but it is *not* a node identity. Compiler-synthesized machinery inherits the span
+  * of the expression it wraps ([[com.vanillasource.eliot.eliotc.row.RowElaborator]]'s `pureWrap`/`bindNodes` build
+  * their reference with `value.as(...)`), so one source expression wrapped at two carriers yields two `Effect::pure`
+  * references with *identical* position and FQN and *different* carriers. Keyed by position alone they collapse to one
+  * entry: the second reference is filtered out as "already resolved" and silently inherits the first one's impl — a
+  * `pure@Effect[Id]` emitted as `pure@Effect[IO]`, which `IdNormalizer` then cannot erase, shipping an `IO` value into
+  * a slot typed `Id[Unit]` (a `ClassCastException` at runtime, no diagnostic anywhere).
+  *
+  * @param abilityArities
+  *   Ability-method FQN → its ability's arity (how many leading type arguments of a method reference belong to the
+  *   ability rather than the method). Recorded by [[AbilityResolver]], which fetches it anyway to slice the impl query;
+  *   read back by the post-drain quoter, which must slice a reference's type arguments the same way to rebuild the
+  *   [[abilityResolutions]] key and has no `getFact` of its own.
   * @param ambientCarriers
   *   The value-under-check's own *ambient* effect-carrier heads: for each of its higher-kinded, ability-constrained
   *   signature binders (the M1 `{E...}` carrier, `[F[_] ~ E...]`), the forced head of the binder's value in ρ after
@@ -56,9 +72,10 @@ case class CheckState(
     rho: Env,
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
-    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
+    abilityResolutions: Map[CheckState.AbilityResolutionKey, (ValueFQN, Seq[GroundValue])],
     ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
-    metaConstraints: Map[Int, Seq[CheckState.MetaConstraint]] = Map.empty
+    metaConstraints: Map[Int, Seq[CheckState.MetaConstraint]] = Map.empty,
+    abilityArities: Map[ValueFQN, Int] = Map.empty
 ) {
 
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
@@ -110,10 +127,14 @@ case class CheckState(
     copy(bindingCache = bindingCache + (vfqn -> value))
 
   def recordAbilityResolution(
-      ref: Sourced[ValueFQN],
+      key: CheckState.AbilityResolutionKey,
       impl: (ValueFQN, Seq[GroundValue])
   ): CheckState =
-    copy(abilityResolutions = abilityResolutions + (ref -> impl))
+    copy(abilityResolutions = abilityResolutions + (key -> impl))
+
+  /** Record an ability's arity under one of its method FQNs. See [[abilityArities]]. */
+  def recordAbilityArity(methodVfqn: ValueFQN, arity: Int): CheckState =
+    copy(abilityArities = abilityArities.updated(methodVfqn, arity))
 
   /** Build an [[Evaluator]] from this state. Pure — only reads `bindingCache`. */
   def makeEvaluator: Evaluator =
@@ -145,6 +166,38 @@ object CheckState {
     Map.empty,
     Map.empty
   )
+
+  /** The identity of one resolved ability reference: the source-positioned method FQN, plus the **ability-level** type
+    * arguments the impl was chosen for — `Some(args)` when the reference's own arguments were ground (the impl is
+    * pinned by them), `None` when the impl came from an in-scope parameter constraint instead, in which case the
+    * reference's own arguments were still unsolved metas and cannot key anything. See
+    * [[CheckState.abilityResolutions]] for why the position alone is not an identity.
+    */
+  type AbilityResolutionKey = (Sourced[ValueFQN], Option[Seq[GroundValue]])
+
+  /** Look one reference's resolved impl out of `resolutions`, given the ability-level type arguments the reader could
+    * derive for it (`None` if they would not quote).
+    *
+    * Three arms, tried in order, and the last one is a **fail-safe rather than a guess**:
+    *   - the exact key — the reference's own ground arguments pinned this impl;
+    *   - the constraint-covered key — recorded when the reference's own arguments were not ground;
+    *   - the unique entry for this position+FQN, *only if every entry recorded there agrees*. This is what preserves
+    *     the pre-fix behaviour in the ordinary case (one reference, one entry, arguments re-derived identically), while
+    *     a genuine collision — two carriers at one span — yields `None` and the reference stays abstract, which the
+    *     checker reports downstream, instead of silently picking whichever resolved first.
+    */
+  def lookupAbilityResolution(
+      resolutions: Map[AbilityResolutionKey, (ValueFQN, Seq[GroundValue])],
+      ref: Sourced[ValueFQN],
+      abilityArgs: Option[Seq[GroundValue]]
+  ): Option[(ValueFQN, Seq[GroundValue])] =
+    abilityArgs
+      .flatMap(args => resolutions.get((ref, Some(args))))
+      .orElse(resolutions.get((ref, None)))
+      .orElse {
+        val atRef = resolutions.collect { case ((r, _), impl) if r == ref => impl }.toSeq.distinct
+        Option.when(atRef.sizeIs == 1)(atRef.head)
+      }
 
   /** The forced head identity of an ambient effect carrier ([[CheckState.ambientCarriers]]): the two shapes a carrier
     * binder's ρ value can take after type-argument application and instantiation. Identity-comparable (no closures),
