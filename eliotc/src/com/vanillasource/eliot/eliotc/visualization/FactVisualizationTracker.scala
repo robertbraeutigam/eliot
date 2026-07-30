@@ -15,8 +15,10 @@ import scala.collection.mutable
 final class FactVisualizationTracker(
     // Mapping: FactTypeName -> (Processors that were requested, Processors that just produced without being asked)
     factProducers: Ref[IO, Map[String, (Set[String], Set[String])]],
-    // Mapping: Processor -> FactTypeName
-    factRequests: Ref[IO, List[(String, String)]],
+    // Mapping: (Processor, FactTypeName) -> how many times that processor requested that kind of fact. Counted rather
+    // than listed: a request is recorded on every single fact read of a compilation, so anything that grows with the
+    // number of requests (an append to a list, notably) makes the whole compiler quadratic in the size of the program.
+    factRequests: Ref[IO, Map[(String, String), Int]],
     // Keys that were requested up until now (for determining whether fact was asked for)
     factRequestedKeys: Ref[IO, Set[CompilerFactKey[?]]]
 ) extends Logging {
@@ -51,7 +53,8 @@ final class FactVisualizationTracker(
   /** Record that a processor requested a fact */
   def recordFactRequest(processorName: String, factKey: CompilerFactKey[?]): IO[Unit] = {
     val factTypeName = getFactTypeName(factKey)
-    factRequestedKeys.update(_ + factKey) >> factRequests.update(_ :+ (processorName, factTypeName))
+    factRequestedKeys.update(_ + factKey) >>
+      factRequests.update(_.updatedWith((processorName, factTypeName))(count => Some(count.getOrElse(0) + 1)))
   }
 
   /** Generate HTML visualization using Cytoscape.js */
@@ -67,18 +70,18 @@ final class FactVisualizationTracker(
 
   private def buildGraphData(
       producers: Map[String, (Set[String], Set[String])],
-      requests: List[(String, String)]
+      requests: Map[(String, String), Int]
   ): IO[GraphData] = IO {
     val edges = mutable.Map[(String, String, String), Int]()
     val nodes = mutable.Set[String]()
 
     // Build edges from requests: fact flows from producer to consumer
-    requests.foreach { case (consumer, factType) =>
+    requests.foreach { case ((consumer, factType), count) =>
       producers.get(factType).foreach { producerSets =>
         producerSets._1.foreach { producer =>
           if (producer != consumer) {
             val key = (producer, consumer, factType)
-            edges(key) = edges.getOrElse(key, 0) + 1
+            edges(key) = edges.getOrElse(key, 0) + count
             nodes += producer
             nodes += consumer
           }
@@ -441,7 +444,7 @@ object FactVisualizationTracker {
   def create(): IO[FactVisualizationTracker] =
     for {
       producers         <- Ref.of[IO, Map[String, (Set[String], Set[String])]](Map.empty)
-      requests          <- Ref.of[IO, List[(String, String)]](List.empty)
+      requests          <- Ref.of[IO, Map[(String, String), Int]](Map.empty)
       requestedFactKeys <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
     } yield new FactVisualizationTracker(producers, requests, requestedFactKeys)
 }

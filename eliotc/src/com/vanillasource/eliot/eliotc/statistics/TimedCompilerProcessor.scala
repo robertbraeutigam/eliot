@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.statistics
 
 import cats.data.ReaderT
 import cats.effect.{Clock, Sync}
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.{abort, recoverWithAborted, CompilerIO}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 
 /** Wraps a processor to measure how often and for how long it runs. Intercepts the compilation process (see
@@ -16,10 +17,11 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProces
   * than a per-thread CPU clock because fibers migrate between pool threads, which would make the start and end reads of
   * a thread clock come from different threads.
   *
-  * A generation that *aborts* — the sanctioned way for a processor to decline, and how an error propagates — is not
-  * recorded, since the abort short-circuits before the measurement completes. On a run without errors this only loses
-  * declines, so the totals slightly under-count; that is the price of keeping this an entirely additive add-on that
-  * needs nothing from `CompilerIO`.
+  * A generation that *aborts* — the sanctioned way for a processor to decline, and how an error propagates — would
+  * short-circuit past the measurement, so the generation is run through `recoverWithAborted` and the abort re-raised
+  * afterwards. That is exactly what the surrounding [[com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors]]
+  * already does with every processor it invokes, so the semantics are unchanged — and it keeps declines, which are
+  * frequent and not free, from silently accumulating in the report's unaccounted remainder.
   */
 final class TimedCompilerProcessor(underlying: CompilerProcessor, counters: ProcessorCounters) extends CompilerProcessor {
 
@@ -28,9 +30,10 @@ final class TimedCompilerProcessor(underlying: CompilerProcessor, counters: Proc
       val timed = TimedCompilationProcess(process)
 
       Clock[CompilerIO]
-        .timed(underlying.generate(factKey))
-        .flatMap { case (elapsed, _) =>
-          Sync[CompilerIO].delay(counters.record(elapsed - timed.waited, timed.wasActive, timed.factsRegistered))
+        .timed(recoverWithAborted(underlying.generate(factKey))(()))
+        .flatMap { case (elapsed, (_, aborted)) =>
+          Sync[CompilerIO].delay(counters.record(elapsed - timed.waited, timed.wasActive, timed.factsRegistered)) >>
+            abort[Unit].whenA(aborted)
         }
         .run(timed)
     }

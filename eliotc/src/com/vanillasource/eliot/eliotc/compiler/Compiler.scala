@@ -79,26 +79,24 @@ object Compiler extends Logging {
     sessionFor(configuration, plugins, args).flatMap {
       case None          => IO.pure(true) // no target plugin selected — reported by `sessionFor`, an error exit
       case Some(session) =>
+        val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
+
         for {
-          tracker    <- FactVisualizationTracker.create()
+          // Fact-flow tracking is only done when its visualization was actually asked for: it records something on
+          // every fact read of the compilation, which is not a cost an ordinary build should pay.
+          tracker    <- visualizationPath.traverse(_ => FactVisualizationTracker.create())
           statistics <- ProcessorStatistics.create()
           // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
           _          <- debug[IO]("Compiler starting...")
           started    <- IO.monotonic
-          result     <- session.compileOnce(Some(tracker), Some(statistics))
+          result     <- session.compileOnce(tracker, Some(statistics))
           finished   <- IO.monotonic
           _          <- session.persist()
           _          <- debug[IO]("Compiler exiting normally.")
           // Print the compiler errors
           _          <- result.errors.traverse_(_.print())
           // Generate visualization if requested
-          _          <- tracker.generateVisualization(
-                          session.effectiveConfiguration
-                            .get(visualizeFactsKey)
-                            .getOrElse(
-                              session.effectiveConfiguration.get(targetPathKey).get.resolve("fact-visualization.html")
-                            )
-                        )
+          _          <- (tracker, visualizationPath).tupled.traverse_(_.generateVisualization(_))
           // Print where the time went in this run
           _          <- statistics.report(finished - started).flatMap(Console[IO].println)
         } yield result.errors.nonEmpty

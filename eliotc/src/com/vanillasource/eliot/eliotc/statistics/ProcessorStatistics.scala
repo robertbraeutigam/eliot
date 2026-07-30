@@ -20,6 +20,16 @@ final class ProcessorStatistics private (counters: ConcurrentHashMap[String, Pro
   def wrap(processor: CompilerProcessor, processorName: String): CompilerProcessor =
     TimedCompilerProcessor(processor, counters.computeIfAbsent(processorName, _ => ProcessorCounters()))
 
+  /** Wrap the whole (already individually wrapped) processor tree, to measure what a fact generation costs *inside* the
+    * processors as a whole. Whatever that is beyond the sum of the individual processors is the cost of dispatching —
+    * the compiler offers every requested key to every processor, and each of those offers is invoked, error-isolated
+    * and type-tested even when the processor does not handle that kind of key at all.
+    *
+    * Its invocation count is therefore the number of fact generations of the run, not the number of processor calls.
+    */
+  def wrapTree(processorTree: CompilerProcessor): CompilerProcessor =
+    wrap(processorTree, ProcessorStatistics.dispatchName)
+
   /** All measurements so far, slowest first.
     *
     * "So far" is meant literally: a generation makes its fact available from *inside* the processor, so the generating
@@ -34,32 +44,56 @@ final class ProcessorStatistics private (counters: ConcurrentHashMap[String, Pro
   /** Render the report, with the given total run time to account against. */
   def report(totalTime: FiniteDuration): IO[String] = snapshot.map(render(totalTime, _))
 
+  /** Renders the processors, then the two costs that are nobody's individual doing: dispatching a key through the whole
+    * processor tree, and the engine driving it all. Both are derived by subtraction, which is what makes them
+    * trustworthy — every millisecond of the run lands in exactly one row.
+    */
   private def render(totalTime: FiniteDuration, statistics: Seq[ProcessorStatistic]): String = {
-    val totalMillis      = totalTime.toMillis
-    val processorMillis  = statistics.map(_.selfTime.toMillis).sum
-    val unaccounted      = math.max(0L, totalMillis - processorMillis)
+    val (tree, processors) = statistics.partition(_.processorName == ProcessorStatistics.dispatchName)
+    val totalMillis        = totalTime.toMillis
+    val processorMillis    = processors.map(_.selfTime.toMillis).sum
+    val treeMillis         = tree.map(_.selfTime.toMillis).sum
+    val dispatchMillis     = math.max(0L, treeMillis - processorMillis)
+    val engineMillis       = math.max(0L, totalMillis - processorMillis - dispatchMillis)
+
     val percentOf: Long => Double = millis => if (totalMillis == 0L) 0.0 else millis * 100.0 / totalMillis
+
+    def row(millis: Long, calls: String, active: String, facts: String, name: String): String =
+      f"$millis%10d ${percentOf(millis)}%6.1f $calls%10s $active%9s $facts%9s  $name%s"
 
     val header = Seq(
       f"Compiler statistics: $totalMillis%,d ms total, $processorMillis%,d ms (${percentOf(processorMillis)}%.1f%%) in processors",
       f"${"ms"}%10s ${"%"}%6s ${"calls"}%10s ${"active"}%9s ${"facts"}%9s  processor"
     )
 
-    val rows = statistics.map { statistic =>
-      val millis = statistic.selfTime.toMillis
-      f"$millis%10d ${percentOf(millis)}%6.1f ${statistic.invocations}%10d ${statistic.activeInvocations}%9d " +
-        f"${statistic.factsProduced}%9d  ${simplifyProcessorName(statistic.processorName)}%s"
-    }
+    val processorRows = processors.map(statistic =>
+      row(
+        statistic.selfTime.toMillis,
+        statistic.invocations.toString,
+        statistic.activeInvocations.toString,
+        statistic.factsProduced.toString,
+        simplifyProcessorName(statistic.processorName)
+      )
+    )
 
-    val remainder =
-      f"$unaccounted%10d ${percentOf(unaccounted)}%6.1f ${"-"}%10s ${"-"}%9s ${"-"}%9s  (compiler engine, cache and i/o)"
+    val dispatchRows = tree.map(statistic =>
+      row(dispatchMillis, statistic.invocations.toString, "-", "-", "(offering every key to every processor)")
+    )
 
-    (header ++ rows :+ remainder).mkString("\n")
+    val engineRow = row(engineMillis, "-", "-", "-", "(compiler engine, cache and i/o)")
+
+    (header ++ processorRows ++ dispatchRows :+ engineRow).mkString("\n")
   }
 
   private def simplifyProcessorName(fullName: String): String = fullName.replaceAll(".*\\.", "")
 }
 
 object ProcessorStatistics {
+
+  /** The reserved name under which the whole processor tree is measured (see [[ProcessorStatistics.wrapTree]]); it is
+    * not a processor and is reported separately.
+    */
+  private[statistics] val dispatchName: String = "(processor tree)"
+
   def create(): IO[ProcessorStatistics] = IO.delay(new ProcessorStatistics(ConcurrentHashMap()))
 }

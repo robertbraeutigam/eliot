@@ -71,13 +71,16 @@ final class CompilationSession private (
       statistics: Option[ProcessorStatistics]
   ): CompilerProcessor =
     if (tracker.isEmpty && statistics.isEmpty) processor
-    else
-      processor.wrapWith { leaf =>
+    else {
+      val instrumented = processor.wrapWith { leaf =>
         val name  = leaf.getClass.getName
         val timed = statistics.fold(leaf)(_.wrap(leaf, name))
 
         tracker.fold(timed)(TrackedCompilerProcessor(timed, _, name))
       }
+
+      statistics.fold(instrumented)(_.wrapTree(instrumented))
+    }
 
   /** Flush the in-memory cache to disk so the next *process* start is warm. Call from the CLI after its single compile,
     * and from a server on shutdown. Fail-safe: [[FactCache.save]] warns rather than failing.
