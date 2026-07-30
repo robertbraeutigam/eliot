@@ -336,13 +336,15 @@ object ExpressionCodeGenerator {
         expectedResultType,
         expectedResultMeta
       )
-    } else if (Intrinsics.compareIntOrdering(calledVfqn)) {
-      // The ordering leaf (`Compare[Int]::lessThanOrEqual`): compare in primitive `long` (`LCMP`) when both operands fit
-      // it, else via
-      // `BigInteger.compareTo`; either way branch the comparison outcome into a boxed `Boolean`.
+    } else if (Intrinsics.intComparison(calledVfqn)) {
+      // The two comparison leaves (`Compare[Int]::lessThanOrEqual` and `Eq[Int]::equals`): compare in primitive `long`
+      // (`LCMP`) when both operands fit it, else via `BigInteger.compareTo`; either way branch the comparison outcome
+      // into a boxed `Boolean`. Both leaves reduce to the same three-way comparison and differ only in which outcomes
+      // count as `true` — `<= 0` for the ordering, `== 0` for the equality — so they share one emission.
       val leftRep       = repInternalNameOf(arguments(0).expressionType, arguments(0).meta)
       val rightRep      = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)
       val viaBigInteger = leftRep === bigIntegerInternalName || rightRep === bigIntegerInternalName
+      val trueJump      = if (Intrinsics.eqIntEquality(calledVfqn)) Opcodes.IFEQ else Opcodes.IFLE
       val trueLabel     = new Label()
       val endLabel      = new Label()
       for {
@@ -364,7 +366,7 @@ object ExpressionCodeGenerator {
                           false
                         )
                       else mv.visitInsn(Opcodes.LCMP)
-                      mv.visitJumpInsn(Opcodes.IFLE, trueLabel)
+                      mv.visitJumpInsn(trueJump, trueLabel)
                       pushBoolConstant(false)(mv)
                       mv.visitJumpInsn(Opcodes.GOTO, endLabel)
                       mv.visitLabel(trueLabel)

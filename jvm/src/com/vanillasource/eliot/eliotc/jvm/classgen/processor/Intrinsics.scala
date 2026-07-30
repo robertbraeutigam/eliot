@@ -5,13 +5,13 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
 
 /** Backend intrinsics: body-less stdlib leaves that the JVM realises by emitting bytecode *inline at the call site*
   * rather than as a generated static method. They are recognised here by their well-known FQN (or, for the `Int`
-  * ability-impl leaves, their ability-impl qualifier — [[numericIntArith]]/[[compareIntOrdering]]), emitted inline by
+  * ability-impl leaves, their ability-impl qualifier — [[numericIntArith]]/[[intComparison]]), emitted inline by
   * [[ExpressionCodeGenerator]], and excluded from `JvmClassGenerator`'s body-less "Function not implemented." method
   * generation.
   *
-  * The width-agnostic rendering, arithmetic and ordering leaves *are* the `Int` ability instance methods — the
-  * `Show[Int]` `show` (rendered via `Long.toString`/`BigInteger.toString`), the `Numeric[Int]` `add`/`subtract`/`multiply`
-  * and the `Compare[Int]` `lessThanOrEqual`, with no separate `intToString`/`nativeAdd`/`intLessThanOrEqual` def — each one
+  * The width-agnostic rendering, arithmetic and comparison leaves *are* the `Int` ability instance methods — the
+  * `Show[Int]` `show` (rendered via `Long.toString`/`BigInteger.toString`), the `Numeric[Int]` `add`/`subtract`/`multiply`,
+  * the `Compare[Int]` `lessThanOrEqual` and the `Eq[Int]` `equals`, with no separate `intToString`/`nativeAdd`/`intLessThanOrEqual` def — each one
   * unbox/op/rebox instruction group whose width is read from the operand/result representations, so it is cheapest inline.
   *
   * Integer *literals* are NOT intrinsics: `integerLiteral[V]` is rewritten into a plain `MonomorphicExpression.
@@ -79,6 +79,21 @@ object Intrinsics {
   def compareIntOrdering(vfqn: ValueFQN): Boolean =
     intAbilityImpl(vfqn, "Compare", Set("lessThanOrEqual"))
 
+  /** The `Eq[Int]` equality method (`equals`) — the equality leaf. Emitted by the *same* comparison group as
+    * [[compareIntOrdering]] (one `LCMP`/`compareTo` and a branch, differing only in the jump taken), because equality
+    * has exactly the ordering leaf's shape: two operands at whatever width their bounds lowered to, a `Bool` result, so
+    * one leaf covers every width. Comparing values, never ranges — two `Int`s of different declared ranges holding the
+    * same number are equal, which falls out of comparing the lowered numbers.
+    */
+  def eqIntEquality(vfqn: ValueFQN): Boolean =
+    intAbilityImpl(vfqn, "Eq", Set("equals"))
+
+  /** Whether `vfqn` is one of the two `Int` comparison leaves — the ordering `lessThanOrEqual` or the equality
+    * `equals` — which share an emission and differ only in the jump condition.
+    */
+  def intComparison(vfqn: ValueFQN): Boolean =
+    compareIntOrdering(vfqn) || eqIntEquality(vfqn)
+
   def isIntrinsic(vfqn: ValueFQN): Boolean =
-    all.contains(vfqn) || showIntShow(vfqn) || numericIntArith(vfqn) || compareIntOrdering(vfqn)
+    all.contains(vfqn) || showIntShow(vfqn) || numericIntArith(vfqn) || intComparison(vfqn)
 }

@@ -1,0 +1,40 @@
+/**
+ * Exercises `Eq[Int]` on both tracks at once, the way `Strings` does for the `String` operations.
+ *
+ * `answered`'s *type* is computed from an integer equality, so that comparison is answered while **compiling**
+ * and no code is emitted for it. `isAnswer` compares against a number read at **run** time, so the very same `==`
+ * comes out there as an inline integer comparison — one `compareTo`/`LCMP` and a branch.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m IntEquality
+ * echo 42 | java -jar target/IntEquality.jar
+ * ```
+ */
+import eliot.effect.Abort
+
+/**
+ * The type an integer answers to: `String` for the answer, `Int` for anything else. Types are values, so this is
+ * an ordinary function — it just happens to be forced before code generation.
+ */
+def answerType(n: Int): Type = fold(n == 42, String[], Int[])
+
+def theAnswer: Int = 42
+
+/**
+ * Typed `String` only because `theAnswer == 42` reduced to `true` while checking: without the compile-time
+ * reduction the comparison stays stuck and this definition does not compile.
+ */
+def answered: answerType(theAnswer) = "the type says 42 is 42"
+
+/**
+ * Whether the number read from the console is the answer — a genuinely runtime comparison, since one operand
+ * only exists once the program runs.
+ */
+def isAnswer(input: String): {Abort} Bool = input.parseInt == 42
+
+def main: {Console} Unit = {
+   val line = readLine orElse ""
+
+   printLine(answered)
+   printLine(fold(isAnswer(line.trim) else false, "the answer", "not the answer"))
+}

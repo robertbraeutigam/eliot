@@ -16,7 +16,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * for the stdlib functions whose reduction the compiler must supply for type-level computation but does not otherwise
   * reason about — the compile-time arithmetic the refinement channel's `Interval` domain runs ([[BigInteger]]'s `Numeric`
   * ability `add`/`subtract`/`multiply`), the boolean operators (`&&`/`||`/`!`) and the `Bool` eliminator
-  * `fold`, the [[BigInteger]] ordering comparison behind `Compare[BigInteger]`, and the whole `String` operation set
+  * `fold`, the [[BigInteger]] ordering comparison behind `Compare[BigInteger]`, the integer equality behind
+  * `Eq[Int]` ([[intAbilityImplNatives]]), and the whole `String` operation set
   * ([[StringReductions]], both the plain leaves and the `Eq`/`Compare`/`Combine` impl methods) — and `None` for every
   * other name.
   *
@@ -147,7 +148,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     * lockstep.
     */
   private def abilityImplNativeFor(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    StringReductions.abilityImplNatives.toList
+    (StringReductions.abilityImplNatives ++ intAbilityImplNatives).toList
       .traverse { case (ability, method, dispatchType, makeNative) =>
         ImplementationMarkerUtils
           .isImplementationMethodFor(vfqn, ability, method, dispatchType, Platform.Compiler)
@@ -163,6 +164,37 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
             }
             .map(_.flatten.headOption)
       }
+
+  /** The built-from-FQN natives for the `Int` instances whose method is a leaf — currently `Eq[Int]::equals`.
+    *
+    * `Int` is the value-level integer type, so this is the same genuinely load-bearing shape as `Eq[String]::equals`
+    * (see [[StringReductions.abilityImplNatives]]): a surfaced `==` on integers dispatches to the impl-method FQN in the
+    * checked tree, and the native must therefore stuck on *that* FQN — the one the JVM backend realises inline — so a
+    * runtime operand (an integer parsed from `readLine`) leaves a residual call the backend can emit and
+    * `Evaluator.renormalize` re-fires through. It binds ONLY the impl-method FQN, never the ability-method `Eq.equals`,
+    * which is multi-instance (`Eq[Type]`/`Eq[String]`/`Eq[Int]`/…).
+    *
+    * An `Int` reaches the evaluator as a concrete `BigInt` regardless of the width its bounds lowered to, so one
+    * reduction covers every range — and it compares the numbers, never the ranges, matching the emitted bytecode.
+    * `Compare[Int]::lessThanOrEqual` has no entry here: its compile-time work is done on the `Interval` endpoints
+    * through `Compare[BigInteger]` below, and its value-level uses have so far only ever been runtime.
+    */
+  private def intAbilityImplNatives: Seq[(String, String, String, ValueFQN => SemValue)] = Seq(
+    ("Eq", "equals", "Int", intEqualsNative)
+  )
+
+  /** `equals(a, b): Bool` for `Int` — reduces to a concrete `Bool` when both operands are concrete integers, otherwise
+    * stays stuck on `implFqn`, the implementation method the backend emits.
+    */
+  private def intEqualsNative(implFqn: ValueFQN): SemValue =
+    VNative(bigIntType, a => VNative(bigIntType, b => intEqualsResult(implFqn, a, b)))
+
+  private def intEqualsResult(implFqn: ValueFQN, a: SemValue, b: SemValue): SemValue = (a, b) match {
+    case (VConst(GroundValue.Direct(x: BigInt, _)), VConst(GroundValue.Direct(y: BigInt, _))) =>
+      if (x === y) Evaluator.trueValue else Evaluator.falseValue
+    case _                                                                                    =>
+      stuck(implFqn, a, b)
+  }
 
   /** The `(ability, method, dispatch type) -> native` table backing [[abilityImplNativeFor]]. Each native is the same
     * one bound under its ability-method FQN in [[bindings]]; this is the value-level dispatch path (a surfaced use site),
