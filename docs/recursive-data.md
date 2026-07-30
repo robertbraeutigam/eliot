@@ -34,7 +34,7 @@ stdlib already has that fixed point **hand-written** — `Bool`'s `fold`, `foldO
 `List`'s `foldLeft` — and the whole `docs/collections.md` combinator set is ordinary non-recursive
 Eliot layered over `foldLeft`. The design below derives what has been written by hand four times.
 
-## The design: the catamorphism is `PatternMatch` with recursive fields replaced
+## The design: the recursor is `PatternMatch` with recursive fields expanded
 
 `PatternMatch` already solves the hard part — an ability whose method signature varies per
 implementation:
@@ -56,11 +56,11 @@ Hᵢ        =  field₁ -> field₂ -> … -> R                   -- or Function
 ```
 
 Conformance is alias-transparent, so the abstract declaration and the concrete substitution agree.
-The recursor is the same construction with **one substitution**:
+The recursor is the same construction under **one rewrite of the handler fields**:
 
 ```eliot
 ability Recursive[T] {
-   /** `PatternMatch.Cases[R]` with every recursive occurrence of `T` replaced by `Function[Unit, R]`. */
+   /** `PatternMatch.Cases[R]`, with every recursive field expanded to that field *plus* its suspended fold. */
    type Algebra[R]
 
    /** Fold `value` bottom-up, applying `algebra`. */
@@ -69,20 +69,35 @@ ability Recursive[T] {
 ```
 
 > **The derivation rule, in full:** in `eliminatorHandlerType`, a field whose type is the data type
-> itself becomes `Function[Unit, R]`; every other field keeps its declared type.
+> itself becomes **two** handler arguments — the field unchanged, then `Function[Unit, R]`. Every other
+> field keeps its declared type, unchanged and alone.
 
 For `data Tree[A] = Leaf | Node(left: Tree[A], value: A, right: Tree[A])`:
 
 | | handler for `Leaf` | handler for `Node` |
 |---|---|---|
 | `PatternMatch.Cases[R]` | `Unit => R` | `Tree[A] -> A -> Tree[A] -> R` |
-| `Recursive.Algebra[R]`  | `Unit => R` | `(Unit => R) -> A -> (Unit => R) -> R` |
+| `Recursive.Algebra[R]`  | `Unit => R` | `Tree[A] -> (Unit => R) -> A -> Tree[A] -> (Unit => R) -> R` |
 
-Nothing new is needed to express that: `eliminatorHandlerType` **already** emits
-`Function[Unit, R]` for nullary constructors, so the substituted expression is one the generator
-already builds.
+Nothing new is needed to express that: `eliminatorHandlerType` **already** emits `Function[Unit, R]`
+for nullary constructors, so both substituted pieces are expressions the generator already builds.
 
-### Recursive positions are thunks, not values
+### Why the original field, and not just the thunk
+
+Handing back the field itself makes this a **paramorphism** rather than a plain catamorphism, and the
+distinction is load-bearing rather than decorative. Consider inserting into a search tree: the arm needs
+the *untouched* sibling subtree to rebuild with, and a catamorphism only ever yields folded results — so
+reconstructing the untouched side means folding it, which is O(n) per insert and destroys the point.
+
+It costs nothing to provide. The constructor already holds `left` and `right`, so the generated `fold`
+has both in hand and passes them for free. **A catamorphism is just the paramorphism that ignores the
+originals**, which is precisely what the simple `foldTree` wrapper below does.
+
+The tempting simplification — "`para` is derivable from `cata`, so derive the smaller thing" — is true
+mathematically and wrong operationally: the derivation costs a full rebuild of every subtree the algebra
+wanted to keep. Do not narrow this back to cata.
+
+### Recursive positions are suspended, not forced
 
 Handing the algebra `Function[Unit, R]` rather than `R` is what makes the fold usable rather than
 merely correct. The algebra decides *whether* to descend; a thunk that is never called is a subtree
@@ -100,6 +115,22 @@ that is never walked.
 This subsumes what `tailRecM`'s `Either[A, B]` signals: per-child control is strictly more
 expressive than one continue/stop bit, and it keeps `Either` out of the signature.
 
+### Select a thunk; never force one inside a conditional
+
+A **trap**, and the one thing most likely to silently undo the property above. A *pure* arm of
+`fold`/`if` is built strictly — only an *effectful* arm is genuinely suspended
+([[gotcha_if_guard_builds_both_arms]]). So a conditional over already-forced thunks walks both subtrees:
+
+```eliot
+fold(value <= v, goL(unit), goR(unit))     -- WRONG: applies both, walks the whole tree
+fold(value <= v, goL, goR)(unit)           -- right: selects a function, applies one
+```
+
+Both arms of the correct form are *function values*, so building them is free and only the selected one
+is ever applied. Every conditional descent therefore ends in `(unit)`, outside the `fold`. Without this
+idiom the O(path) behaviour disappears with no diagnostic, which makes it worth stating in the derived
+wrappers' documentation rather than leaving to folklore.
+
 ### What is generated, per data type
 
 A fourth sibling of `createPatternMatchImpl` / `createTypeMatch` in `DataDefinitionDesugarer`,
@@ -113,9 +144,21 @@ emitting the same three shapes those two already emit, plus two conveniences:
 4. **`depth`** — the derived nesting-depth meta-data the refinement computation needs as its iteration
    bound (see below): a per-constructor refinement rule, plus the projection that reads it. Derived,
    never user-declared.
-5. **strict positional wrapper** — `foldTree(ifLeaf, ifNode, t)`, derived non-recursive Eliot that
-   forces every thunk immediately. Users never write a Church-encoded algebra, exactly as they never
-   write `handleCases(scrutinee)(casesLambda)` — `matchdesugar` hides that today.
+5. **two positional wrappers**, derived non-recursive Eliot, so users never write a Church-encoded
+   algebra — exactly as they never write `handleCases(scrutinee)(casesLambda)`, which `matchdesugar`
+   hides today:
+
+   ```eliot
+   -- the common case: originals dropped, thunks forced. A plain catamorphism.
+   def foldTree[A, R](ifLeaf: R, ifNode: R => A => R => R, t: Tree[A]): R
+
+   -- the general case: each recursive field as (original, suspended fold).
+   def foldTreeWith[A, R](
+      ifLeaf: R,
+      ifNode: Tree[A] => (Unit => R) => A => Tree[A] => (Unit => R) => R,
+      t: Tree[A]
+   ): R
+   ```
 
 ### Where the recursion lives: a native, like `handleCases`
 
@@ -193,6 +236,74 @@ Instantiate `R := G[B]`: the algebra receives already-folded computations as chi
 them itself, so `fold` stays pure and effect-transparent. This is `foldLeftInternal`'s design
 generalized — the ability carries no effect row, and therefore never interacts with the effect
 machinery at all.
+
+## A worked example: a fully pure search tree
+
+The whole point of the derivation is that this is all a user writes — no recursion, no natives, and **no
+meta-data annotations at all**. Everything below is derived from the declaration or computed from a body;
+the leaf-trust concession discussed later is needed only for platform containers like `List`.
+
+```eliot
+import eliot.collection.List
+
+/** An unbalanced binary search tree. */
+data Tree[A] = Leaf | Node(left: Tree[A], value: A, right: Tree[A])
+
+def empty[A]: Tree[A] = Leaf
+
+def single[A](value: A): Tree[A] = Node(empty, value, empty)
+
+/** `t` with `value` inserted in order. Rebuilds only the path descended; the untouched side is reused. */
+def insert[A ~ Compare](value: A, t: Tree[A]): Tree[A] =
+   t.foldTreeWith(
+      single(value),
+      origL -> goL -> v -> origR -> goR ->
+         fold(value <= v, _ -> Node(goL(unit), v, origR),
+                          _ -> Node(origL, v, goR(unit)))(unit)
+   )
+
+/** Whether `t` holds `value`. Visits one path, not the whole tree. */
+def contains[A ~ Compare](value: A, t: Tree[A]): Bool =
+   t.foldTreeWith(
+      false,
+      _ -> goL -> v -> _ -> goR ->
+         fold(value <= v, fold(v <= value, _ -> true, goL), goR)(unit)
+   )
+
+def size[A](t: Tree[A]): Int = t.foldTree(0, l -> _ -> r -> l + r + 1)
+
+def height[A](t: Tree[A]): Int = t.foldTree(0, l -> _ -> r -> max(l, r) + 1)
+
+def inOrder[A](t: Tree[A]): List[A] = t.foldTree(empty, l -> v -> r -> l ++ singleton(v) ++ r)
+```
+
+`insert` and `contains` reach for `foldTreeWith` because they descend one path and keep the other side
+untouched — the paramorphism and the selection idiom together are what make them O(path). Everything
+that genuinely visits every node uses the plain `foldTree`.
+
+What the compiler derives from the declaration, spelled as if hand-written:
+
+```eliot
+data Tree[A] {depth: Interval[BigInteger]}                    -- the meta-data channel
+
+def Leaf[A]: Tree[A] {[0, 0]}
+def Node[A](left: Tree[A], value: A, right: Tree[A]): Tree[A] {max(depth(left), depth(right)) + 1}
+```
+
+And what it computes from the bodies, with no annotation written and none permitted:
+
+| definition | computed meta |
+|---|---|
+| `empty` | `{[0, 0]}` — directly from `Leaf` |
+| `single` | `{[1, 1]}` — from `Node(Leaf, v, Leaf)` |
+| `insert` | `{[0, depth(t) + 1]}` — the iteration: `Φ` rebuilds a `Node`, so depth grows by at most one level |
+| `height` | `Int {[0, depth(t)]}` |
+| `size` | `Int {[0, 2^depth(t) − 1]}` |
+
+**Open naming question.** The derived `depth` projection occupies the name `depth` in `Tree`'s namespace,
+exactly as `range(a)` does for `Int` — which is why the runtime function above is called `height`. Either
+the derived channel takes a distinguished name or users avoid it; this needs deciding before
+implementation.
 
 ## Meta-data: run the transfer function, bounded by the structure
 
@@ -425,6 +536,13 @@ cornerstone's stance on totality).
   interpreter".
 - **Derive what is unique; never derive a choice.** The eliminator and (later) `map` are canonical.
   Traversal order, `filter`, and `Foldable` instances are choices and stay in user code.
+- **The eliminator stays a paramorphism.** Each recursive field yields the original *and* its suspended
+  fold. Narrowing to a catamorphism because `para` is cata-derivable is a real regression, not a
+  simplification: it forces a full rebuild of every subtree the algebra meant to keep, so `insert` goes
+  from O(path) to O(n). The originals cost nothing — the constructor already holds them.
+- **Conditional descent selects a thunk, never forces one.** `fold(c, goL, goR)(unit)`, not
+  `fold(c, goL(unit), goR(unit))`, because a pure arm is built strictly. This is the difference between
+  O(path) and O(n) and it fails silently, so it belongs in the derived wrappers' own documentation.
 - **Meta-data is declared or computed, never guessed.** When the bound is finite the interval is
   exact; when it is not, the result is a declared invariant verified in one step, or `⊤`. Widening
   toward a *wider* result is the only sanctioned imprecision, because it can only produce more errors,
