@@ -123,6 +123,17 @@ class ClassGenerator(val moduleName: ModuleName, val internalName: String, priva
       .visitEnd()
   }
 
+  /** Create a public, mutable static field carrying a **raw JVM descriptor**.
+    *
+    * As [[createPrivateStaticField]], but readable from another class: the one use is the entry point's argument
+    * stash, which the `eliot.system.Environment` natives read from their own class (see `SystemNatives`).
+    */
+  def createPublicStaticField[F[_]: Sync](name: String, descriptor: String): F[Unit] = Sync[F].delay {
+    classWriter
+      .visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, descriptor, null, null)
+      .visitEnd()
+  }
+
   /** Create a static initializer block (&lt;clinit&gt;). Ends with RETURN automatically.
     */
   def createStaticInit[F[_]: Sync](): Resource[F, MethodGenerator] =

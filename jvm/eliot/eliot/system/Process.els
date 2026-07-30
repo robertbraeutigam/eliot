@@ -1,0 +1,93 @@
+import eliot.carrier.Effect
+import eliot.carrier.Suspend
+import eliot.effect.Throw
+import eliot.file.Path
+import eliot.file.File
+import eliot.collection.List
+
+// Merge copy of the base declarations so the instance below can resolve them (name resolution is per-file). The merge
+// verifies these copies agree with the abstract ability in the stdlib layer, which carries the documentation.
+ability Process[F[_]] {
+   def run(command: List[String], workingDirectory: Path): F[ProcessResult]
+   def runInheritingIo(command: List[String], workingDirectory: Path): F[Int]
+}
+
+// The concrete ProcessResult: the abstract accessors in the base layer merge with these generated data-field accessors,
+// the established `IoError` pattern.
+data ProcessResult(exitCode: Int, standardOutput: String, standardError: String)
+
+/**
+ * The opaque result of a leaf process native: an error message, or an exit code plus the two captured streams. A
+ * four-slot native holder, so a native never has to construct an Eliot `data` value in bytecode — the `eliot.file`
+ * `IoResult` pattern, one slot wider.
+ */
+type ProcessOutcome
+
+/**
+ * The JVM `Process` instance, generic over any carrier with a `Suspend` base that can also fail with `IoError`. Sharing
+ * `eliot.file`'s error type is deliberate: a program that reads files *and* runs programs — every build tool — then has
+ * one failure channel to discharge instead of two, and two `Throw`s in one row must each be pinned by hand at their
+ * `catch`.
+ */
+implement[F[_] ~ Suspend & Throw[IoError] & Effect] Process[F] {
+   def run(command: List[String], workingDirectory: Path): F[ProcessResult] = {
+      val outcome = suspend(_ -> runInternal(command, workingDirectory))
+      val checked = raiseError(outcome)
+
+      ProcessResult(outcomeExitCode(outcome), outcomeStandardOutput(outcome), outcomeStandardError(outcome))
+   }
+
+   def runInheritingIo(command: List[String], workingDirectory: Path): F[Int] = {
+      val outcome = suspend(_ -> runInheritingIoInternal(command, workingDirectory))
+      val checked = raiseError(outcome)
+
+      outcomeExitCode(outcome)
+   }
+}
+
+/**
+ * Raise the holder's error as an `IoError`, or do nothing when it holds a result. Kept separate from reading the
+ * result so every effectful step carries a non-container payload and the result itself is produced as a pure tail —
+ * the shape `eliot.file.File`'s instance uses, for the same carrier-inference reason.
+ */
+private def raiseError(outcome: ProcessOutcome): {Throw[IoError]} Unit =
+   if(isNull(outcomeErrorMessage(outcome)), unit) else raise(IoError(outcomeErrorMessage(outcome)))
+
+/**
+ * Start `command` in `workingDirectory` (`java.lang.ProcessBuilder`), capturing both output streams, and wait for it.
+ * Failure to *start* — no such executable, no such directory, interrupted — is caught into the holder's error slot; a
+ * non-zero exit is not an error and lands in the exit-code slot. Implemented by the backend.
+ */
+private def runInternal(command: List[String], workingDirectory: Path): ProcessOutcome
+
+/**
+ * As `runInternal`, but with the child's standard streams inherited, so nothing is captured and the two stream slots
+ * hold `""`. Implemented by the backend.
+ */
+private def runInheritingIoInternal(command: List[String], workingDirectory: Path): ProcessOutcome
+
+/**
+ * The error-message slot of an outcome holder (`null` when the process ran). Implemented by the backend.
+ */
+private def outcomeErrorMessage(outcome: ProcessOutcome): String
+
+/**
+ * The exit-code slot of an outcome holder. Implemented by the backend.
+ */
+private def outcomeExitCode(outcome: ProcessOutcome): Int
+
+/**
+ * The captured standard output of an outcome holder. Implemented by the backend.
+ */
+private def outcomeStandardOutput(outcome: ProcessOutcome): String
+
+/**
+ * The captured standard error of an outcome holder. Implemented by the backend.
+ */
+private def outcomeStandardError(outcome: ProcessOutcome): String
+
+/**
+ * `true` when `x` is the null reference — lets `raiseError` branch on the holder's slots in ordinary Eliot. Implemented
+ * by the backend.
+ */
+private def isNull[A](x: A): Bool

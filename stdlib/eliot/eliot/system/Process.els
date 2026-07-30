@@ -1,0 +1,89 @@
+import eliot.file.Path
+import eliot.file.File
+import eliot.collection.List
+
+/**
+ * What a finished process left behind: its exit code and, when the output was captured, everything
+ * it wrote to the two output streams.
+ *
+ * Representation is platform-owned, like every other base-layer type.
+ */
+type ProcessResult
+
+/**
+ * The code the process exited with. Zero conventionally means success, but the meaning is the
+ * program's, so this is data rather than a failure — see `Process` for why a non-zero exit does not
+ * raise.
+ */
+def exitCode(result: ProcessResult): Int
+
+/**
+ * Everything the process wrote to standard output, or `""` when its output was inherited rather
+ * than captured.
+ */
+def standardOutput(result: ProcessResult): String
+
+/**
+ * Everything the process wrote to standard error, or `""` when its output was inherited.
+ */
+def standardError(result: ProcessResult): String
+
+/**
+ * Running other programs.
+ *
+ * The effect a language-owned build tool is built on: resolution shells out to `git`, and the build
+ * spawns the compiler as its own process. Both operations take the command as a **list of
+ * arguments**, never as a string to be re-split — quoting rules are the one part of process
+ * spawning that is different on every platform and wrong in every hand-rolled implementation.
+ *
+ * ```eliot
+ * def tags(repository: Path): {Process, Throw[IoError]} String = {
+ *    val listed = run(command("git").withArgument("ls-remote").withArgument("--tags"), repository)
+ *    listed.standardOutput
+ * }
+ * ```
+ *
+ * **A non-zero exit is not a failure.** It is the ordinary way a program reports a decision — `git
+ * ls-remote` on a missing ref, a compiler on a program with errors — and a caller almost always
+ * wants to read the output before deciding what it means. Only *not being able to run the program
+ * at all* raises: the executable is missing, the directory does not exist, the process is killed by
+ * the operating system. That is an `IoError` on `Throw[IoError]`, the same channel `FileSystem`
+ * uses, so a program that touches both the filesystem and other processes has one error type and
+ * one `catch`, not two.
+ *
+ * There is no process *handle* and no streaming, by the same reasoning as `eliot.file`'s whole-file
+ * surface: both operations here start a process and wait for it, so nothing can be left running.
+ * Interactive or long-lived children are future work, and will need the bracket machinery that file
+ * handles are also waiting on.
+ */
+ability Process[F[_]] {
+   /**
+    * Run `command` in `workingDirectory`, wait for it to finish, and capture what it wrote.
+    *
+    * The first element of `command` is the executable, looked up on the platform's search path when
+    * it is not a path; the rest are its arguments, passed through untouched. An empty `command`
+    * raises.
+    */
+   def run(command: List[String], workingDirectory: Path): F[ProcessResult]
+
+   /**
+    * Run `command` in `workingDirectory` with the standard streams **inherited** — the child writes
+    * straight to this program's own output — and yield its exit code.
+    *
+    * For a child whose output belongs to the user rather than to the program: the compiler's
+    * diagnostics, a test run's report. Nothing is captured, so `standardOutput` of a `run` result
+    * would have nowhere to come from; that is why this yields the code alone.
+    */
+   def runInheritingIo(command: List[String], workingDirectory: Path): F[Int]
+}
+
+/**
+ * A one-word command — the common case, spelled without building a list by hand.
+ */
+def command(executable: String): List[String] = append(empty, executable)
+
+/**
+ * `command` with one more argument appended, so a command line reads left to right:
+ * `command("git").withArgument("ls-remote").withArgument("--tags")`.
+ */
+def withArgument(argument: String, command: List[String]): List[String] = append(command, argument)

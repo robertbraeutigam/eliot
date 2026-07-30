@@ -38,6 +38,7 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
 import com.vanillasource.eliot.eliotc.used.UsedNames
 import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
+import org.objectweb.asm.Opcodes
 
 class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with Logging {
 
@@ -410,10 +411,40 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     }
   }
 
+  /** The synthesized entry point: stash the program arguments where `eliot.system.Environment` can read them, then call
+    * the woven `main`.
+    *
+    * The arguments arrive as the parameter of a `static main(String[])`, which is a stack slot no leaf native in another
+    * class can reach, so they are copied into a public static field of this very class and
+    * `Environment.argumentsInternal` reads that field (see [[SystemNatives]]). This class — module `main` — is the one
+    * class an executable jar always has, which is why the stash lives here and not on `Environment`'s own class: a
+    * program that never mentions `Environment` never generates that class at all.
+    *
+    * `Arrays.asList` wraps the array without copying it; nothing mutates it afterwards, and Eliot's `List` is immutable
+    * by contract (`append` builds a fresh list), so the wrapper is safe to hand out as an ordinary `List`.
+    */
   private def createApplicationMain(mainVfqn: ValueFQN, generator: ClassGenerator): CompilerIO[Unit] =
-    generator.createMainMethod[CompilerIO]().use { methodGenerator =>
-      methodGenerator.addCallTo(mainVfqn, Seq.empty, systemUnitValue)
-    }
+    for {
+      _ <- generator.createPublicStaticField[CompilerIO](SystemNatives.argumentsField, SystemNatives.argumentsFieldDescriptor)
+      _ <- generator.createMainMethod[CompilerIO]().use { methodGenerator =>
+             methodGenerator.runNative[CompilerIO] { mv =>
+               mv.visitVarInsn(Opcodes.ALOAD, 0)
+               mv.visitMethodInsn(
+                 Opcodes.INVOKESTATIC,
+                 "java/util/Arrays",
+                 "asList",
+                 "([Ljava/lang/Object;)Ljava/util/List;",
+                 false
+               )
+               mv.visitFieldInsn(
+                 Opcodes.PUTSTATIC,
+                 SystemNatives.argumentsHolderClass,
+                 SystemNatives.argumentsField,
+                 SystemNatives.argumentsFieldDescriptor
+               )
+             } >> methodGenerator.addCallTo(mainVfqn, Seq.empty, systemUnitValue)
+           }
+    } yield ()
 
   private def isMain(uncurriedValue: UncurriedMonomorphicValue): Boolean =
     uncurriedValue.vfqn.name.name === "main" && uncurriedValue.parameters.isEmpty

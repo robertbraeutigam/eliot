@@ -1,0 +1,45 @@
+import eliot.file.Path
+import eliot.collection.List
+
+/**
+ * The process environment: what the program was started with, and where it was started.
+ *
+ * The three things a command-line program cannot be written without — its arguments, the variables
+ * around it, and the directory it was invoked from — and nothing else. Like `Console` it needs no
+ * failure channel: an absent variable is an `Option`, not an error, and a program always has some
+ * argument list and some working directory, even if the list is empty.
+ *
+ * ```eliot
+ * def greet: {Console, Environment} Unit = {
+ *    val name = environmentVariable("USER")
+ *    printLine("hello, " ++ (name orElse "stranger"))
+ * }
+ * ```
+ *
+ * A target with no process model simply ships no instance, so an `{Environment}` program fails
+ * ability resolution there — the layer system is the capability, exactly as it is for `FileSystem`.
+ */
+ability Environment[F[_]] {
+   /**
+    * The arguments the program was started with, in order, *excluding* the program's own name — so
+    * `eliot build --verbose` yields `build` and `--verbose`.
+    *
+    * The program name is left out deliberately: on every platform it is either absent, ambiguous, or
+    * a re-spelling of something the program already knows, and a verb dispatcher that has to skip a
+    * leading element gets it wrong exactly once.
+    */
+   def arguments: F[List[String]]
+
+   /**
+    * The value of the environment variable `name`, or `None` when it is not set.
+    *
+    * A variable set to the empty string is `Some("")`, not `None`: the two are different states, and
+    * conflating them is how a "unset means default" rule quietly stops working.
+    */
+   def environmentVariable(name: String): F[Option[String]]
+
+   /**
+    * The directory the program is running in, as an absolute path.
+    */
+   def workingDirectory: F[Path]
+}

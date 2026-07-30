@@ -39,7 +39,7 @@ object NativeImplementation {
       (collectionValueFQN("List", "append"), eliot_collection_List_append),
       (collectionValueFQN("List", "prepend"), eliot_collection_List_prepend),
       (collectionValueFQN("List", "foldLeftInternal"), eliot_collection_List_foldLeftInternal)
-    ) ++ StringNatives.implementations ++ FileNatives.implementations
+    ) ++ StringNatives.implementations ++ FileNatives.implementations ++ SystemNatives.implementations
   )
 
   /** The erased JVM signature (all type-parameter positions collapsed to `Any`/`Object`, `List[A]` to `java.util.List`)
@@ -60,7 +60,7 @@ object NativeImplementation {
     collectionValueFQN("List", "foldLeftInternal") ->
       GenericNativeSignature(Seq(listType, systemAnyValue, systemFunctionValue), systemAnyValue),
     systemEffectValueFQN("Console", "isNull") -> GenericNativeSignature(Seq(systemAnyValue), systemLangType("Bool"))
-  ) ++ FileNatives.genericNativeSignatures
+  ) ++ FileNatives.genericNativeSignatures ++ SystemNatives.genericNativeSignatures
 
   private def collectionValueFQN(moduleName: String, valueName: String): ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "collection"), moduleName), QualifiedName(valueName, Qualifier.Default))

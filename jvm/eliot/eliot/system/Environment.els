@@ -1,0 +1,57 @@
+import eliot.carrier.Suspend
+import eliot.file.Path
+import eliot.collection.List
+
+// Merge copy of the base declaration so the instance below can resolve it (name resolution is per-file). The merge
+// verifies this copy agrees with the abstract ability in the stdlib layer, which carries the documentation.
+ability Environment[F[_]] {
+   def arguments: F[List[String]]
+   def environmentVariable(name: String): F[Option[String]]
+   def workingDirectory: F[Path]
+}
+
+/**
+ * The JVM `Environment` instance, generic over any carrier with a `Suspend` base — the `Console` shape exactly, and for
+ * the same reason: none of these operations can fail, so none of them needs a failure channel, and riding `Suspend`
+ * lets one instance serve `IO` and every transformer stacked over it.
+ */
+implement[F[_] ~ Suspend] Environment[F] {
+   def arguments: F[List[String]] = suspend(_ -> argumentsInternal)
+
+   def environmentVariable(name: String): F[Option[String]] = suspend(_ -> valueOrNone(environmentVariableInternal(name)))
+
+   def workingDirectory: F[Path] = suspend(_ -> workingDirectoryInternal)
+}
+
+/**
+ * Turn what the leaf native returns into the `Option` the ability promises: `System.getenv` signals "not set" with a
+ * `null`, which is not a value any Eliot type admits, so it becomes a `None` here — in ordinary Eliot, at the narrowest
+ * boundary, following the rule that a native never constructs an Eliot `data` value in bytecode.
+ */
+private def valueOrNone(value: String): Option[String] = if(isNull(value), None) else Some(value)
+
+/**
+ * The program's arguments, as the `java.util.List` an Eliot `List` already is.
+ *
+ * The backend stores the `String[]` handed to the synthesized entry point into a static field of the entry-point class
+ * and this native reads it back, so the list is exactly what the JVM was invoked with, minus the JVM's own arguments and
+ * the main class — which is what makes the "no program name" promise on `arguments` true rather than approximate.
+ * Implemented by the backend.
+ */
+private def argumentsInternal: List[String]
+
+/**
+ * `System.getenv(name)`, `null` when unset. Implemented by the backend.
+ */
+private def environmentVariableInternal(name: String): String
+
+/**
+ * The `user.dir` system property as a normalized absolute `java.nio.file.Path`. Implemented by the backend.
+ */
+private def workingDirectoryInternal: Path
+
+/**
+ * `true` when `x` is the null reference. The `eliot.file`/`eliot.effect.Console` leaf of the same name and purpose;
+ * per-file name resolution means each module declares its own. Implemented by the backend.
+ */
+private def isNull[A](x: A): Bool

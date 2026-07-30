@@ -28,6 +28,12 @@ object NativeType {
   def systemFileType(moduleName: String, typeName: String): ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "file"), moduleName), QualifiedName(typeName, Qualifier.Default))
 
+  /** A type in the `eliot.system` package, represented by a native JVM type rather than an Eliot `data` type — the
+    * `Process.ProcessOutcome` holder.
+    */
+  def systemSystemType(moduleName: String, typeName: String): ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "system"), moduleName), QualifiedName(typeName, Qualifier.Default))
+
   // JVM representation types live in the jvm-layer `eliot.lang.Int` module (see jvm `Int.els`, alongside the opaque
   // `Int` body that selects among them), so unlike `systemLangType` the module name is fixed (`Int`) and only the
   // value name varies. `Qualifier.Default` matches the qualifier that type FQNs carry by the time they reach this map
@@ -60,6 +66,9 @@ object NativeType {
       // `Object[]` (error message at 0, value at 1) so a leaf file native never constructs an Eliot `data` value.
       (systemFileType("Path", "Path"), eliot_file_Path),
       (systemFileType("File", "IoResult"), eliot_file_IoResult),
+      // The private `eliot.system.Process.ProcessOutcome` holder is a four-slot `Object[]` (error message, exit code,
+      // captured stdout, captured stderr), for the same reason `IoResult` is a two-slot one.
+      (systemSystemType("Process", "ProcessOutcome"), eliot_system_ProcessOutcome),
       // The fixed set of JVM representation types `Int[MIN, MAX]` can lower to (see jvm `Int.els`). These five entries
       // are the entire backend "type knowledge" of integer widths; all width *policy* (which range picks which) lives
       // in Eliot's opaque `Int` body (Phase 2) and the unfold pass (Phase 3).
@@ -174,6 +183,12 @@ object NativeType {
 
   // The `IoResult` holder is a two-slot `Object[]`: slot 0 the error message (or null), slot 1 the value (or null).
   private def eliot_file_IoResult: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[Array[Object]]
+  }
+
+  // The `ProcessOutcome` holder is a four-slot `Object[]`: slot 0 the error message (or null), slot 1 the exit code as a
+  // `BigInteger`, slots 2 and 3 the captured standard output and error.
+  private def eliot_system_ProcessOutcome: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[Array[Object]]
   }
 }
