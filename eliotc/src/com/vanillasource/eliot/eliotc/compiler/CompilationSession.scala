@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
-import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
-import com.vanillasource.eliot.eliotc.visualization.TrackedCompilerProcessor.wrapProcessor
+import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
+import com.vanillasource.eliot.eliotc.visualization.{FactVisualizationTracker, TrackedCompilerProcessor}
 
 import java.nio.file.Path
 
@@ -41,13 +41,17 @@ final class CompilationSession private (
     * error.
     *
     * @param tracker optional fact-flow visualization; omit in server mode.
+    * @param statistics optional per-processor timing; omit in server mode.
     * @return the live generator (queryable for LSP features) plus the run's diagnostics.
     */
-  def compileOnce(tracker: Option[FactVisualizationTracker] = None): IO[CompilationResult] =
+  def compileOnce(
+      tracker: Option[FactVisualizationTracker] = None,
+      statistics: Option[ProcessorStatistics] = None
+  ): IO[CompilationResult] =
     compileLock.lock.surround {
       for {
         prior     <- cache.get
-        wrapped    = tracker.fold(processors)(t => processors.wrapWith(wrapProcessor(_, t)))
+        wrapped   <- IO.delay(wrap(processors, tracker, statistics))
         generator <- IncrementalFactGenerator.create(wrapped, prior, strictAccounting = true)
         _         <- targetPlugin.run(effectiveConfiguration, generator)
         nextCache <- generator.buildCacheData()
@@ -55,6 +59,25 @@ final class CompilationSession private (
         errors    <- generator.currentErrors()
       } yield CompilationResult(generator, errors)
     }
+
+  /** Apply all requested instrumentation in a *single* pass, because `wrapWith` hands each wrapper the leaf processor
+    * and both wrappers need the leaf's class name to label it — wrapping a wrapper would name every processor after the
+    * instrumentation instead. Timing goes innermost, so the tracking wrapper's own overhead falls inside a measured
+    * fact wait rather than being charged to the processor.
+    */
+  private def wrap(
+      processor: CompilerProcessor,
+      tracker: Option[FactVisualizationTracker],
+      statistics: Option[ProcessorStatistics]
+  ): CompilerProcessor =
+    if (tracker.isEmpty && statistics.isEmpty) processor
+    else
+      processor.wrapWith { leaf =>
+        val name  = leaf.getClass.getName
+        val timed = statistics.fold(leaf)(_.wrap(leaf, name))
+
+        tracker.fold(timed)(TrackedCompilerProcessor(timed, _, name))
+      }
 
   /** Flush the in-memory cache to disk so the next *process* start is warm. Call from the CLI after its single compile,
     * and from a server on shutdown. Fail-safe: [[FactCache.save]] warns rather than failing.

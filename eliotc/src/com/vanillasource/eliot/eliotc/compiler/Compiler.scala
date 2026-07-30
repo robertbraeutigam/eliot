@@ -1,10 +1,12 @@
 package com.vanillasource.eliot.eliotc.compiler
 
 import cats.effect.IO
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
+import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
 import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
@@ -78,22 +80,27 @@ object Compiler extends Logging {
       case None          => IO.pure(true) // no target plugin selected — reported by `sessionFor`, an error exit
       case Some(session) =>
         for {
-          tracker <- FactVisualizationTracker.create()
+          tracker    <- FactVisualizationTracker.create()
+          statistics <- ProcessorStatistics.create()
           // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
-          _       <- debug[IO]("Compiler starting...")
-          result  <- session.compileOnce(Some(tracker))
-          _       <- session.persist()
-          _       <- debug[IO]("Compiler exiting normally.")
+          _          <- debug[IO]("Compiler starting...")
+          started    <- IO.monotonic
+          result     <- session.compileOnce(Some(tracker), Some(statistics))
+          finished   <- IO.monotonic
+          _          <- session.persist()
+          _          <- debug[IO]("Compiler exiting normally.")
           // Print the compiler errors
-          _       <- result.errors.traverse_(_.print())
+          _          <- result.errors.traverse_(_.print())
           // Generate visualization if requested
-          _       <- tracker.generateVisualization(
-                       session.effectiveConfiguration
-                         .get(visualizeFactsKey)
-                         .getOrElse(
-                           session.effectiveConfiguration.get(targetPathKey).get.resolve("fact-visualization.html")
-                         )
-                     )
+          _          <- tracker.generateVisualization(
+                          session.effectiveConfiguration
+                            .get(visualizeFactsKey)
+                            .getOrElse(
+                              session.effectiveConfiguration.get(targetPathKey).get.resolve("fact-visualization.html")
+                            )
+                        )
+          // Print where the time went in this run
+          _          <- statistics.report(finished - started).flatMap(Console[IO].println)
         } yield result.errors.nonEmpty
     }
 
