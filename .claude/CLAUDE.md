@@ -26,6 +26,18 @@ java -jar target/HelloWorld.jar
 For a broad change, verify with the fast example sweep + byte-identity comparison rather than `examples.run`
 per example — recipes and their traps are in the `reference_verification_harness_recipes` memory.
 
+**Two compiler diagnostics, both opt-in and both off by default** — each observes every processor invocation
+or fact read, so an ordinary build must never pay for them (an always-on tracker once cost 73% of a cold
+build):
+
+- `--statistics` prints, per processor, how often it ran and its cumulative **self time** — wall time minus
+  time blocked waiting for facts, which is CPU time here since nothing runs in parallel (`eliotc/…/statistics/`,
+  entirely a `wrapWith` add-on: no processor is special-cased and `CompilerIO` is untouched). Two derived
+  lines close the accounting: dispatch (offering every key to every processor) and the engine. Measuring is
+  itself per-invocation work and lands in the dispatch line, inflating a build ~20%, so read that line as an
+  upper bound and diff a run with and without the flag for the true figure.
+- `--visualize-facts <path>` writes the fact-flow graph (`eliotc/…/visualization/`).
+
 ### Module Structure
 
 Modules (see `build.mill`):
