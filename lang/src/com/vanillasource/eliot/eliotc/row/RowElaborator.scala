@@ -942,6 +942,12 @@ object RowElaborator {
       *
       * Only a *call* argument answers: its callee's declared row is a declaration. Anything else (a parameter
       * reference, a block, a lambda) determines nothing here, and the prefix stops — the fail-safe direction.
+      *
+      * And an entry whose type argument is still one of the *argument callee's* own binders determines nothing
+      * either — [[hasFreeCalleeBinder]], the same guard the discharge stack applies for the same reason. `state`
+      * declares `{State[S]}` in its own `S`, so `runStateToPair("initial", state)` would otherwise "determine" the
+      * discharger's `S` to be that free binder — a rename, not a determination, and one that then junk-grounds
+      * (`Pair(Type, S)`) instead of letting the checker read `S := String` off `initial`.
       */
     private def pinnedDetermination(
         orv: OperatorResolvedValue,
@@ -951,13 +957,19 @@ object RowElaborator {
       orv.effectRow.pinnedParameterEffects.view
         .flatMap { pinnedParameter =>
           args.lift(pinnedParameter.parameterIndex).toSeq.flatMap { arg =>
-            val supplied = argumentRow(arg)
+            val supplied  = argumentRow(arg)
+            val argCallee = spine(arg.value)._1 match {
+              case ValueReference(name, _) => Some(name.value)
+              case _                       => scala.None
+            }
             pinnedParameter.effects.flatMap { declared =>
               supplied
                 .filter(_.abilityFQN == declared.abilityFQN)
                 .flatMap(entry => declared.typeArgs.zip(entry.typeArgs))
                 .collect {
-                  case (ParameterReference(name), determined) if name.value === binderName => arg.as(determined)
+                  case (ParameterReference(name), determined)
+                      if name.value === binderName && !argCallee.exists(hasFreeCalleeBinder(_, determined)) =>
+                    arg.as(determined)
                 }
             }
           }

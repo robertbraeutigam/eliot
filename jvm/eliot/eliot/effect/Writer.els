@@ -4,7 +4,7 @@ import eliot.carrier.Suspend
 // Re-declared here so the colocated `WriterCarrier` instances below can resolve the `Writer` ability — name
 // resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
 ability Writer[W, F[_]] {
-   def tell(w: W): F[Unit]
+   def tell(w: W): {Writer[W]} Unit
 }
 
 data WriterCarrier[W, G[_], A](runWriterCarrier: G[Pair[A, W]])

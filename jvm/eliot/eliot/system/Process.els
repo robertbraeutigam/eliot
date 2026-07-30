@@ -8,8 +8,8 @@ import eliot.collection.List
 // Merge copy of the base declarations so the instance below can resolve them (name resolution is per-file). The merge
 // verifies these copies agree with the abstract ability in the stdlib layer, which carries the documentation.
 ability Process[F[_]] {
-   def run(command: List[String], workingDirectory: Path): F[ProcessResult]
-   def runInheritingIo(command: List[String], workingDirectory: Path): F[Int]
+   def run(command: List[String], workingDirectory: Path): {Process} ProcessResult
+   def runInheritingIo(command: List[String], workingDirectory: Path): {Process} Int
 }
 
 // The concrete ProcessResult: the abstract accessors in the base layer merge with these generated data-field accessors,

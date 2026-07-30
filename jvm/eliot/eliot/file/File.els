@@ -7,18 +7,18 @@ import eliot.collection.List
 // Merge copy of the FileSystem ability so the instance below can resolve it (name resolution is per-file). The merge
 // verifies this copy agrees with the abstract declaration in the base layer, which carries the documentation.
 ability FileSystem[F[_]] {
-   def readFile(path: Path): F[String]
-   def writeFile(content: String, path: Path): F[Unit]
-   def appendFile(content: String, path: Path): F[Unit]
-   def foldLines[B](initial: B, step: B => String => B, path: Path): F[B]
-   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): F[B]
-   def readLines(path: Path): F[List[String]]
-   def exists(path: Path): F[Bool]
-   def isDirectory(path: Path): F[Bool]
-   def listDirectory(path: Path): F[List[Path]]
-   def walk(path: Path): F[List[Path]]
-   def createDirectories(path: Path): F[Unit]
-   def delete(path: Path): F[Unit]
+   def readFile(path: Path): {FileSystem} String
+   def writeFile(content: String, path: Path): {FileSystem} Unit
+   def appendFile(content: String, path: Path): {FileSystem} Unit
+   def foldLines[B](initial: B, step: B => String => B, path: Path): {FileSystem} B
+   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): {FileSystem} B
+   def readLines(path: Path): {FileSystem} List[String]
+   def exists(path: Path): {FileSystem} Bool
+   def isDirectory(path: Path): {FileSystem} Bool
+   def listDirectory(path: Path): {FileSystem} List[Path]
+   def walk(path: Path): {FileSystem} List[Path]
+   def createDirectories(path: Path): {FileSystem} Unit
+   def delete(path: Path): {FileSystem} Unit
 }
 
 // The concrete IoError: a message. The abstract `message` in the base layer merges with this generated data-field

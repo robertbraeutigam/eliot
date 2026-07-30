@@ -1333,13 +1333,13 @@ class MonomorphicTypeCheckTest
     "Function" ->
       "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)",
     "Console"  ->
-      ("import eliot.jvm.IO\nability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}\n" +
+      ("import eliot.jvm.IO\nability Console[F[_]] {\ndef printLine(s: String): {Console} Unit\ndef readLine: {Console} String\n}\n" +
         "def stubConsoleIO[A]: IO[A]\n" +
         "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}"),
     // Overrides the canonical ambient `State` stub (same module, richer content) — appending a second `State`
     // SystemImport would double-register the module path.
     "State"    ->
-      ("ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}\n" +
+      ("ability State[S, F[_]] {\ndef state: {State[S]} S\ndef putState(s: S): {State[S]} Unit\n}\n" +
         "def stubStateIO[A]: IO[A]\n" +
         "implement[S] State[S, IO] {\ndef state: IO[S] = stubStateIO\ndef putState(s: S): IO[Unit] = stubStateIO\n}")
   ) ++ Seq(

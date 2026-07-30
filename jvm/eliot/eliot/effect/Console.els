@@ -1,9 +1,9 @@
 import eliot.carrier.Suspend
 
 ability Console[F[_]] {
-   def printLine(s: String): F[Unit]
+   def printLine(s: String): {Console} Unit
 
-   def readLine: F[Option[String]]
+   def readLine: {Console} Option[String]
 }
 
 /**

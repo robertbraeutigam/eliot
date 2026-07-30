@@ -400,28 +400,20 @@ object RowChecker {
         }
     }
 
-  /** What a saturated reference to `fqn` performs: an effect-ability method performs its ability (machinery and
-    * first-order abilities — no higher-kinded carrier binder on the method — perform nothing); an ordinary definition
-    * performs its declared row. A name absent from the universe is tracked as unknown; a *method* reference still
-    * contributes its ability (the fail-loud direction).
+  /** What a saturated reference to `fqn` performs: its **declared row**, whatever kind of definition it is. A name
+    * absent from the universe is tracked as unknown.
+    *
+    * An ability method is not a special case, and used to be: it contributed its owning ability whenever its signature
+    * had any higher-kinded binder. That is a read of *shape*, and it is wrong in both directions — it made a
+    * constructor-class method (`Container`'s `wrap`/`unwrap`) perform an effect it does not have, and it overrode a
+    * row the method did declare (a method of `Beep` declaring `{Console}` was still charged `{Beep}`). Effect-ness is
+    * not a property an ability *has*; it is a property of what a method *does*, and a method says what it does the
+    * same way every other definition does — with a row on its return, which [[declaredRow]] already reads.
     */
   private def calleeContribution(fqn: ValueFQN, universe: Universe): Derivation =
-    fqn.name.qualifier match {
-      case Qualifier.Ability(abilityName) =>
-        val ability = AbilityFQN(fqn.moduleName, abilityName)
-        if (machinery(ability)) Derivation.empty
-        else
-          universe.lookup(fqn) match {
-            case Some(orv) =>
-              val effectful = EffectCarriers.carrierBinders(SignatureView.of(orv.signature)).nonEmpty
-              if (effectful) Derivation.of(Set(ability)) else Derivation.empty
-            case None      => Derivation.of(Set(ability)) |+| Derivation.unknown(fqn)
-          }
-      case _                              =>
-        universe.lookup(fqn) match {
-          case Some(orv) => Derivation.of(declaredRow(orv))
-          case None      => Derivation.unknown(fqn)
-        }
+    universe.lookup(fqn) match {
+      case Some(orv) => Derivation.of(declaredRow(orv))
+      case None      => Derivation.unknown(fqn)
     }
 
   /** The entries a callee's pinned parameter at `index` discharges, from the R2-recorded row metadata. */

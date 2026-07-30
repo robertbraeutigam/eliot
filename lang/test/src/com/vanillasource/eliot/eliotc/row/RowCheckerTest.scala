@@ -28,17 +28,24 @@ class RowCheckerTest
   /** The shared effect environment: one effect ability (a Console stand-in) and a pure helper. */
   private val prelude =
     """data Str
-      |ability Con[F[_]] { def readLine: F[Str]
-      |def printLine(s: Str): F[Str] }
+      |ability Con[F[_]] { def readLine: {Con} Str
+      |def printLine(s: Str): {Con} Str }
       |def items: {Con} Str = readLine
       |def use(s: Str): Str = s
       |""".stripMargin
+
+  /** The [[prelude]]'s ability methods, always in the universe. An ability method is no longer a special case of the
+    * derivation — it contributes its *declared row* like any other callee — so it has to be looked up like any other
+    * callee too, and a universe missing it under-derives (tracked as an unknown callee) instead of guessing its
+    * ability from the shape of its signature.
+    */
+  private val preludeMethods = Seq(("readLine", "Con"), ("printLine", "Con"))
 
   /** The discharge environment: an effect ability `X` with its carrier and a catch-shaped discharger. */
   private val dischargePrelude =
     prelude +
       """data XCarrier[G, A]
-        |ability X[F[_]] { def boom[A]: F[A] }
+        |ability X[F[_]] { def boom[A]: {X} A }
         |def catchX[G[_], A](computation: {X | G} A, handler: Str => G[A]): G[A]
         |def failing: {X} Str = boom
         |def h(e: Str): Str = e
@@ -83,6 +90,30 @@ class RowCheckerTest
       .asserting(_.leak.map(_.abilityName) shouldBe Set("Con"))
   }
 
+  // --- an ability is not an effect by nature; a method performs an effect because it declares one. A constructor
+  // class is the same *shape* as an effect ability — a higher-kinded binder its methods' types mention — and used to
+  // be read as one, so a pure function taking one apart was rejected as "performs the effect 'Ctr'". ---
+
+  it should "derive nothing from a constructor-class ability method (no row, no effect)" in {
+    val source = prelude +
+      """data Bx[A]
+        |ability Ctr[F[_]] { def wrap[A](a: A): F[A]
+        |def unwrap[A](fa: F[A]): A }
+        |def unboxed(b: Bx[Str]): Str = unwrap(b)
+        |""".stripMargin
+    rowCheck(source, Seq("unboxed"), "unboxed", abilityMethods = Seq(("wrap", "Ctr"), ("unwrap", "Ctr")))
+      .asserting(r => (r.derived, r.leak) shouldBe (Set.empty, Set.empty))
+  }
+
+  it should "derive the row an ability method declares, not the ability that owns it" in {
+    val source = prelude +
+      """ability Bp[F[_]] { def beep: {Con} Str }
+        |def bothered: {Con} Str = beep
+        |""".stripMargin
+    rowCheck(source, Seq("bothered"), "bothered", abilityMethods = Seq(("beep", "Bp")))
+      .asserting(namesOf(_) shouldBe (Set("Con"), Set("Con")))
+  }
+
   // --- discharge: a pinned (capture) slot subtracts its declared stack's entries from the argument's row —
   // structural discharge as set subtraction, decided entirely by the callee's declared signature. ---
 
@@ -111,7 +142,7 @@ class RowCheckerTest
   it should "discharge a two-effect stack through a nested pinned carrier (syntax-directed nesting)" in {
     val source = dischargePrelude +
       """data YCarrier[G, A]
-        |ability Y[F[_]] { def bang[A]: F[A] }
+        |ability Y[F[_]] { def bang[A]: {Y} A }
         |def catchBoth[G[_], A](computation: {X, Y | G} A, handler: Str => G[A]): G[A]
         |def failTwo: {X, Y} Str
         |def caught: Str = catchBoth(failTwo, h)
@@ -124,7 +155,7 @@ class RowCheckerTest
 
   it should "count a pinned return's entries as declared (the body's row is captured into the stack)" in {
     val source = dischargePrelude + "def make[G[_]]: {X | G} Str = boom"
-    rowCheck(source, Seq("make"), "make")
+    rowCheck(source, Seq("make"), "make", abilityMethods = Seq(("boom", "X")))
       .asserting(r => (r.derived.map(_.abilityName), r.leak) shouldBe (Set("X"), Set.empty))
   }
 
@@ -140,7 +171,10 @@ class RowCheckerTest
         |def useSusp: {X} Str = branchSusp(pureStr, boom, boom)
         |""".stripMargin
     val names  = Seq("pureStr", "branchStrict", "branchSusp", "useStrict", "useSusp")
-    (rowCheck(source, names, "useStrict"), rowCheck(source, names, "useSusp"))
+    (
+      rowCheck(source, names, "useStrict", abilityMethods = Seq(("boom", "X"))),
+      rowCheck(source, names, "useSusp", abilityMethods = Seq(("boom", "X")))
+    )
       .mapN((strict, susp) => (namesOf(strict), namesOf(susp)))
       .asserting(_ shouldBe ((Set("X"), Set("X")), (Set("X"), Set("X"))))
   }
@@ -158,12 +192,15 @@ class RowCheckerTest
 
   it should "propagate a forever-style ability as an ordinary row entry and flag its omission" in {
     val source = prelude +
-      """ability Nf[F[_]] { def forever(step: F[Str]): F[Str] }
+      """ability Nf[F[_]] { def forever(step: F[Str]): {Nf} Str }
         |def loop: {Nf, Con} Str = forever(printLine(items))
         |def badLoop: {Con} Str = forever(printLine(items))
         |""".stripMargin
     val names  = Seq("items", "use", "loop", "badLoop")
-    (rowCheck(source, names, "loop"), rowCheck(source, names, "badLoop"))
+    (
+      rowCheck(source, names, "loop", abilityMethods = Seq(("forever", "Nf"))),
+      rowCheck(source, names, "badLoop", abilityMethods = Seq(("forever", "Nf")))
+    )
       .mapN((loop, bad) => (loop, bad))
       .asserting { case (loop, bad) =>
         (loop.leak, loop.derived.map(_.abilityName), bad.leak.map(_.abilityName)) shouldBe
@@ -241,7 +278,7 @@ class RowCheckerTest
                        generator.registerFact(PathScan(modulePath, Seq(impFile), Platform.Compiler)) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, imp.content)))
                    }
-      keys       = names.map(n => vfqn(n)) ++ abilityMethods.map { case (m, a) =>
+      keys       = names.map(n => vfqn(n)) ++ (preludeMethods ++ abilityMethods).distinct.map { case (m, a) =>
                      ValueFQN(testModule, QualifiedName(m, Qualifier.Ability(a)))
                    }
       orvs      <- keys.traverse(k => generator.getFact(OperatorResolvedValue.Key(k)))

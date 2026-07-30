@@ -10,5 +10,5 @@ ability Log[F[_]] {
    /**
     * Emit a diagnostic message; the platform chooses the destination.
     */
-   def log(s: String): F[Unit]
+   def log(s: String): {Log} Unit
 }

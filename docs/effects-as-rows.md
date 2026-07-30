@@ -715,9 +715,22 @@ call (and duplicating LSP hover hints).
 
 1. **A bare `[F[_]]` is not a carrier.** `EffectCarriers.declaredCarrierBinders` asks which binders a
    signature *declares* as carriers: ability-constrained (`[G[_] ~ Effect]`, every `{E}`-minted binder),
-   the base of a declared **pinned** row (deliberately unconstrained, so nothing else marks it), or — for
-   an ability method — its ability's own binder. `Console` and a constructor-class `Container` are the
-   same shape; what separates them is the *use site*.
+   the base of a declared **pinned** row (deliberately unconstrained, so nothing else marks it), or a
+   *machinery* ability's method (`Effect`'s `pure`/`flatMap`, `Suspend`'s `suspend` — the only ability
+   methods that cannot say so with a row, since machinery is filtered out of every row by design).
+
+   **An ordinary ability method had a fourth clause, and it was wrong** (fixed 2026-07-30): its ability's
+   own binder counted, whatever the ability. The stated justification was that `Console` and a
+   constructor-class `Container` are the same shape and the *use site* separates them — but the use site
+   is never consulted by the row derivation, which read `unwrap(b)` as performing the effect `Container`
+   and rejected `def unboxed(b: Box[String]): String = unwrap(b)` with no spelling that could fix it.
+   **An ability is not an effect by nature; a method performs an effect because it declares one**, with a
+   row on its return exactly as any other definition does (`def printLine(s: String): {Console} Unit`).
+   Those rows desugar onto the *ability's own* binder (`EffectSugarDesugarer.abilityMethodCarrier` — the
+   same reuse rule an `Effect`-constrained binder gets, reading a different declaration), so the
+   constraint clause above answers for them and `RowChecker.calleeContribution` lost its ability arm
+   entirely: every callee, ability method or not, contributes its declared row. A method declaring no row
+   performs nothing, which is exactly what a constructor class is.
 2. **`runId` only at a declared discharge** (superseded in scope by A.11.5a's pure-boundary rule, which
    subsumes it): a merely carrier-*returning* call has discharged nothing, so the desugar writes nothing
    and unification decides.

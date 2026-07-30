@@ -404,7 +404,7 @@ class AbilityImplementationCheckProcessorTest
         }
 
         ability Console[F[_]] {
-          def cprintln(s: String): F[String]
+          def cprintln(s: String): {Console} String
         }
 
         data Mio[A](block: Function[Unit, A])
@@ -438,7 +438,7 @@ class AbilityImplementationCheckProcessorTest
         }
 
         ability Console[F[_]] {
-          def cprintln(s: String): F[String]
+          def cprintln(s: String): {Console} String
         }
 
         data Mio[A](block: Function[Unit, A])

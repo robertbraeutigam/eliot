@@ -12,7 +12,7 @@ import eliot.carrier.Effect
 // and the colocated instances below must resolve it); the layer merge verifies the copy agrees with the base.
 
 ability Abort[F[_]] {
-   def abort[A]: F[A]
+   def abort[A]: {Abort} A
 }
 
 data AbortCarrier[G[_], A](runAbort: G[Option[A]])

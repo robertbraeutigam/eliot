@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
 import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars the effect-row sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]), in its two forms.
@@ -156,13 +157,36 @@ object EffectSugarDesugarer {
   }
 
   /** The one effect carrier a signature binds itself, if there is exactly one: a higher-kinded binder constrained by the
-    * machinery ability `Effect` (`G[_] ~ Effect`). `None` when there is none, or more than one — the rule reuses only
-    * what is unambiguous, and minting stays the fallback.
+    * machinery ability `Effect` (`G[_] ~ Effect`), or — for an ability method — the ability's own binder
+    * ([[abilityMethodCarrier]]). `None` when there is none, or more than one — the rule reuses only what is
+    * unambiguous, and minting stays the fallback.
     */
   private def ownEffectCarrier(function: FunctionDefinition): Option[String] =
     function.genericParameters.filter(isEffectCarrierBinder) match {
       case Seq(single) => Some(single.name.value)
-      case _           => None
+      case _           => abilityMethodCarrier(function)
+    }
+
+  /** The carrier an **ability method** declares its rows on: the ability's own higher-kinded binder, which
+    * [[com.vanillasource.eliot.eliotc.ast.fact.AbilityBlock]] prepends to every method of the block. An ability method
+    * spells its effects as a row (`ability Console[F[_]] { def printLine(s: String): {Console} Unit }`) exactly as an
+    * ordinary definition does, and that row must land on the binder the *instance* binds — minting a second carrier
+    * beside it would leave the ability's own binder unconstrained and unrelated to the method's result.
+    *
+    * This is the same reuse rule as an `Effect`-constrained binder above, reading a different declaration: there the
+    * signature says "this is my carrier" with a constraint, here the enclosing `ability` block says it by binding it.
+    * Ambiguity declines (the method binds a higher-kinded generic of its own, so which one is the ability's is no
+    * longer a declaration but a guess) and minting stays the fallback — the fail-safe direction, since a minted
+    * carrier is merely a second binder the checker must solve, never a wrong one written into the signature.
+    */
+  private def abilityMethodCarrier(function: FunctionDefinition): Option[String] =
+    function.name.value.qualifier match {
+      case Qualifier.Ability(_) =>
+        function.genericParameters.filter(gp => isHigherKinded(gp.typeRestriction.value)) match {
+          case Seq(single) => Some(single.name.value)
+          case _           => None
+        }
+      case _                    => None
     }
 
   private def isEffectCarrierBinder(gp: GenericParameter): Boolean =

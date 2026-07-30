@@ -242,6 +242,36 @@ import eliot.effect.Console
     ).asserting(_ should include("argument 1 of 'printLine' declares no effect row"))
   }
 
+  // A **constructor class** — an ability over a type constructor that is not an effect. Its shape is exactly an effect
+  // ability's (a higher-kinded binder its methods' types mention), and it was read as one: the row derivation charged
+  // every use of `unwrap`/`wrap` with the effect `Ctr`, so this program was rejected with "performs the effect 'Ctr'
+  // but does not declare it" and there was no spelling that made it compile. Effect-ness is declared per method now,
+  // with a row, and `Ctr` declares none.
+  "a constructor-class ability" should "perform no effect, and drop into pure code" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |
+        |ability Ctr[F[_]] {
+        |   def wrap[A](a: A): F[A]
+        |   def unwrap[A](fa: F[A]): A
+        |}
+        |
+        |data Bx[A](content: A)
+        |
+        |implement Ctr[Bx] {
+        |   def wrap[A](a: A): Bx[A] = Bx(a)
+        |   def unwrap[A](fa: Bx[A]): A = fa.content
+        |}
+        |
+        |def rebox(b: Bx[String]): Bx[String] = wrap(unwrap(b))
+        |
+        |def unboxed(b: Bx[String]): String = unwrap(b)
+        |
+        |def main: IO[Unit] = printLine(unboxed(rebox(Bx("boxed"))))""".stripMargin
+    ).asserting(_ shouldBe "boxed")
+  }
+
   // Fail-safe: a value that performs an effect but is declared with a non-carrier (pure) return type is rejected by the
   // per-definition row verification, not silently miscompiled.
   "an effectful body under a pure return" should "be rejected" in {

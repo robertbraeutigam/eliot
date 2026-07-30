@@ -49,66 +49,66 @@ ability FileSystem[F[_]] {
    /**
     * Read the entire contents of the regular file at `path` as a single `String`.
     */
-   def readFile(path: Path): F[String]
+   def readFile(path: Path): {FileSystem} String
 
    /**
     * Write `content` to `path`, creating the file or truncating an existing one.
     */
-   def writeFile(content: String, path: Path): F[Unit]
+   def writeFile(content: String, path: Path): {FileSystem} Unit
 
    /**
     * Append `content` to `path`, creating the file if it does not exist.
     */
-   def appendFile(content: String, path: Path): F[Unit]
+   def appendFile(content: String, path: Path): {FileSystem} Unit
 
    /**
     * Fold over the lines of the regular file at `path`, front to back, in constant space: starting from `initial`,
     * combine each line into the accumulator with `step`. The platform-owned loop — a total language expresses every
     * iteration as a native, and a file is no different.
     */
-   def foldLines[B](initial: B, step: B => String => B, path: Path): F[B]
+   def foldLines[B](initial: B, step: B => String => B, path: Path): {FileSystem} B
 
    /**
     * Fold over the Unicode code points of the regular file at `path`, front to back, in constant space. A code point is
     * an `Int` in `[0, 1114111]`; the platform decodes the file's bytes.
     */
-   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): F[B]
+   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): {FileSystem} B
 
    /**
     * Read the regular file at `path` as a list of its lines, in order. The whole-file counterpart of `foldLines`.
     */
-   def readLines(path: Path): F[List[String]]
+   def readLines(path: Path): {FileSystem} List[String]
 
    /**
     * `true` when something exists at `path`.
     */
-   def exists(path: Path): F[Bool]
+   def exists(path: Path): {FileSystem} Bool
 
    /**
     * `true` when `path` exists and is a directory.
     */
-   def isDirectory(path: Path): F[Bool]
+   def isDirectory(path: Path): {FileSystem} Bool
 
    /**
     * The immediate entries of the directory at `path` (not recursive), each as a full `Path`.
     */
-   def listDirectory(path: Path): F[List[Path]]
+   def listDirectory(path: Path): {FileSystem} List[Path]
 
    /**
     * Every file under `path`, depth-first — the recursive tree walk. A native by necessity: tree descent is unbounded
     * iteration, inexpressible in user Eliot.
     */
-   def walk(path: Path): F[List[Path]]
+   def walk(path: Path): {FileSystem} List[Path]
 
    /**
     * Create the directory at `path` and every missing parent. A no-op when it already exists.
     */
-   def createDirectories(path: Path): F[Unit]
+   def createDirectories(path: Path): {FileSystem} Unit
 
    /**
     * Delete the file or empty directory at `path`.
     */
-   def delete(path: Path): F[Unit]
+   def delete(path: Path): {FileSystem} Unit
 }
 
 /**

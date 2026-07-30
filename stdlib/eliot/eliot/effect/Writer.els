@@ -19,7 +19,7 @@ ability Writer[W, F[_]] {
     * Append `w` to the accumulated log, yielding `unit`. The pieces told across a computation are joined with the
     * `Combine[W]` monoid when the writer is discharged.
     */
-   def tell(w: W): F[Unit]
+   def tell(w: W): {Writer[W]} Unit
 }
 
 /**

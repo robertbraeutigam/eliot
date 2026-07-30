@@ -46,8 +46,8 @@ class RowElaboratorTest
     """import eliot.carrier.Effect
       |import eliot.lang.Id
       |data Str
-      |ability Con[F[_]] { def readLine: F[Str]
-      |def printLine(s: Str): F[Str] }
+      |ability Con[F[_]] { def readLine: {Con} Str
+      |def printLine(s: Str): {Con} Str }
       |def use(s: Str): Str = s
       |def concat2(a: Str, b: Str): Str = a
       |def pureStr: Str
@@ -63,7 +63,7 @@ class RowElaboratorTest
   // `Effect`-constrained carrier (EffectSugarDesugarer's reuse rule).
   private val dischargePrelude =
     """data XCarrier[G, A]
-      |ability X[F[_]] { def boom[A]: F[A] }
+      |ability X[F[_]] { def boom[A]: {X} A }
       |def catchX[G[_] ~ Effect, A](computation: {X | G} A, handler: Str => {Effect} A): G[A]
       |def failing: {X} Str = boom
       |""".stripMargin
@@ -464,7 +464,15 @@ class RowElaboratorTest
       // (`handler: Str => G[A]` reaches the operator phase as the unexpanded alias application; an operator-named
       // alias lives in the Default namespace, exactly like the equivalent `def`).
       arrowAlias = ValueFQN(ModuleName2.systemFunctionModuleName, QualifiedName("=>", Qualifier.Default))
-      keys       = (names ++ extraNames :+ target).map(vfqn) :+ arrowAlias
+      // The prelude abilities' own methods. An ability method contributes its *declared row* like any other callee
+      // (it is no longer a special case that reads its ability off the qualifier), so it has to be looked up like any
+      // other callee too — absent from the universe it derives nothing and nothing is hoisted around it.
+      keys       = (names ++ extraNames :+ target).map(vfqn) :+ arrowAlias :++
+                     Seq(("readLine", "Con"), ("printLine", "Con"), ("boom", "X"))
+                       .filter { case (method, _) => source.contains(s"def $method") }
+                       .map { case (method, ability) =>
+                         ValueFQN(testModule, QualifiedName(method, Qualifier.Ability(ability)))
+                       }
       orvs      <- keys.traverse(k => generator.getFact(OperatorResolvedValue.Key(k)))
       errors    <- generator.currentErrors()
     } yield {

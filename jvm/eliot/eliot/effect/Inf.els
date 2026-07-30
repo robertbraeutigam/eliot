@@ -1,7 +1,7 @@
 import eliot.jvm.IO
 
 ability Inf[F[_]] {
-   def forever(step: F[Unit]): F[Unit]
+   def forever(step: F[Unit]): {Inf} Unit
 }
 
 /**

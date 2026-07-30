@@ -20,5 +20,5 @@ ability Inf[F[_]] {
     * Run `step` endlessly, never returning normally. Each iteration re-runs `step`, so its effects
     * repeat; this is the only sanctioned source of divergence in a program.
     */
-   def forever(step: F[Unit]): F[Unit]
+   def forever(step: F[Unit]): {Inf} Unit
 }

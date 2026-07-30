@@ -518,6 +518,17 @@ consumer of `MonomorphicValue` or of mid-mono `SemExpression`s must Id-normalize
 What v2 was faulted for, and what is gone, is the checker *manufacturing* a carrier head on pure judgments so slot
 arms could split unconditionally.
 
+**An ability is not an effect by nature — a method performs an effect because it declares one.** An ability method
+spells its effects with a row on its return, exactly as any other definition does
+(`ability Console[F[_]] { def printLine(s: String): {Console} Unit }`); that row desugars onto the *ability's own*
+binder (`EffectSugarDesugarer.abilityMethodCarrier`), so the ordinary declared-carrier and declared-row rules answer
+for it and no phase reads effect-ness off the shape of an ability's signature. A method declaring **no** row performs
+nothing — which is exactly what a **constructor class** is (`ability Container[F[_]] { def wrap[A](a: A): F[A] }`),
+and what the old rule ("any higher-kinded binder of an ability method is a carrier") made impossible to express: it
+charged `unwrap(b)` with the effect `Container`. The one exception is the **machinery** abilities `Effect`/`Suspend`,
+whose methods keep spelling `F[A]`: machinery is filtered out of every row by design, so `{Effect}` on `pure` would
+say nothing, and they are recognized by name (`EffectMachinery.isMachineryAbility`) instead.
+
 **Carrier-ness is recognized by a tag threaded from elaboration — never by name or shape.** A pinned row
 (`{Throw[E] | G} A`) desugars to a carrier stack with no residual marker, so the marker is added at the desugar and
 carried on the fact: `EffectRow.returnPinnedEffects` / `EffectRow.pinnedParameterIndices` (source (i)), plus the

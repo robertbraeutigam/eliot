@@ -66,7 +66,7 @@ class CarrierBookkeepingTest
       ambientStubsWith(
         "IO"      -> "type IO[A]",
         "Console" ->
-          ("ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}\n" +
+          ("ability Console[F[_]] {\ndef printLine(s: String): {Console} Unit\ndef readLine: {Console} String\n}\n" +
             "def stubConsoleIO[A]: IO[A]\n" +
             "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}")
       )

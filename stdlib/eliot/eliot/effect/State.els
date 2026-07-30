@@ -16,12 +16,12 @@ ability State[S, F[_]] {
    /**
     * Read the current state.
     */
-   def state: F[S]
+   def state: {State[S]} S
 
    /**
     * Replace the current state with `s`.
     */
-   def putState(s: S): F[Unit]
+   def putState(s: S): {State[S]} Unit
 }
 
 /**

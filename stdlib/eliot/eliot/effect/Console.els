@@ -26,7 +26,7 @@ ability Console[F[_]] {
    /**
     * Write `s` to standard output, followed by a line separator.
     */
-   def printLine(s: String): F[Unit]
+   def printLine(s: String): {Console} Unit
 
    /**
     * Read one line from standard input, without the trailing line separator, or `None` at end of input.
@@ -34,5 +34,5 @@ ability Console[F[_]] {
     * End of input is `None` rather than an error or an empty string — an empty line is a perfectly good line,
     * and a program that keeps reading past the end gets a value it must handle instead of one that lies.
     */
-   def readLine: F[Option[String]]
+   def readLine: {Console} Option[String]
 }

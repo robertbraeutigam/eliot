@@ -1,7 +1,7 @@
 import eliot.carrier.Suspend
 
 ability Log[F[_]] {
-   def log(s: String): F[Unit]
+   def log(s: String): {Log} Unit
 }
 
 /**

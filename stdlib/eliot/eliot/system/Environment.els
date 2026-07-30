@@ -28,7 +28,7 @@ ability Environment[F[_]] {
     * a re-spelling of something the program already knows, and a verb dispatcher that has to skip a
     * leading element gets it wrong exactly once.
     */
-   def arguments: F[List[String]]
+   def arguments: {Environment} List[String]
 
    /**
     * The value of the environment variable `name`, or `None` when it is not set.
@@ -36,10 +36,10 @@ ability Environment[F[_]] {
     * A variable set to the empty string is `Some("")`, not `None`: the two are different states, and
     * conflating them is how a "unset means default" rule quietly stops working.
     */
-   def environmentVariable(name: String): F[Option[String]]
+   def environmentVariable(name: String): {Environment} Option[String]
 
    /**
     * The directory the program is running in, as an absolute path.
     */
-   def workingDirectory: F[Path]
+   def workingDirectory: {Environment} Path
 }

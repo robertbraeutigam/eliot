@@ -27,7 +27,7 @@ ability Dep[X, F[_]] {
     * Read the environment value of type `X`, dispatched by the type expected at the use site. The reader's
     * `ask`: it returns whatever `provide` later supplies for `X`.
     */
-   def dependency: F[X]
+   def dependency: {Dep[X]} X
 }
 
 /**

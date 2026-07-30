@@ -29,7 +29,7 @@ ability Abort[F[_]] {
     * Short-circuit the computation. Control does not return, so the result stands in for a value of any
     * type `A`; `runAbort` reflects the abort into a `none`.
     */
-   def abort[A]: F[A]
+   def abort[A]: {Abort} A
 }
 
 /**

@@ -280,27 +280,27 @@ object ProcessorTest {
     * instance lives in the real jvm layer, not here.
     */
   val consoleStubContent: String =
-    "ability Console[F[_]] {\ndef printLine(s: String): F[Unit]\ndef readLine: F[String]\n}"
+    "ability Console[F[_]] {\ndef printLine(s: String): {Console} Unit\ndef readLine: {Console} String\n}"
 
   /** `Log` effect stub, mirroring `stdlib/eliot/eliot/effect/Log.els` (ambient — see [[consoleStubContent]]); the
     * concrete JVM instance lives in the real jvm layer.
     */
-  val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): F[Unit]\n}"
+  val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): {Log} Unit\n}"
 
   /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els` (ambient — see [[consoleStubContent]]); this is
     * just the reader `ability` (the `ask`) — the concrete carrier + `provide` discharge live in the jvm layer.
     */
-  val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: F[X]\n}"
+  val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: {Dep[X]} X\n}"
 
   /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/eliot/effect/` abilities (ambient —
     * see [[consoleStubContent]]): the bare ability head + operations, no carriers or dischargers. Tests exercising a
     * discharge enrich the module via `ambientStubsWith`.
     */
-  val abortStubContent: String = "ability Abort[F[_]] {\ndef abort[A]: F[A]\n}"
-  val throwStubContent: String = "ability Throw[E, F[_]] {\ndef raise[A](err: E): F[A]\n}"
-  val stateStubContent: String = "ability State[S, F[_]] {\ndef state: F[S]\ndef putState(s: S): F[Unit]\n}"
-  val infStubContent: String   = "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}"
-  val writerStubContent: String = "ability Writer[W, F[_]] {\ndef tell(w: W): F[Unit]\n}"
+  val abortStubContent: String = "ability Abort[F[_]] {\ndef abort[A]: {Abort} A\n}"
+  val throwStubContent: String = "ability Throw[E, F[_]] {\ndef raise[A](err: E): {Throw[E]} A\n}"
+  val stateStubContent: String = "ability State[S, F[_]] {\ndef state: {State[S]} S\ndef putState(s: S): {State[S]} Unit\n}"
+  val infStubContent: String   = "ability Inf[F[_]] {\ndef forever(step: F[Unit]): {Inf} Unit\n}"
+  val writerStubContent: String = "ability Writer[W, F[_]] {\ndef tell(w: W): {Writer[W]} Unit\n}"
 
   /** The *legacy* ambient prelude a self-contained checker/monomorphize unit test relies on: value application
     * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`), and the Phase-6 literal desugar's

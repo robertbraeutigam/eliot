@@ -5,9 +5,9 @@ import eliot.collection.List
 // Merge copy of the base declaration so the instance below can resolve it (name resolution is per-file). The merge
 // verifies this copy agrees with the abstract ability in the stdlib layer, which carries the documentation.
 ability Environment[F[_]] {
-   def arguments: F[List[String]]
-   def environmentVariable(name: String): F[Option[String]]
-   def workingDirectory: F[Path]
+   def arguments: {Environment} List[String]
+   def environmentVariable(name: String): {Environment} Option[String]
+   def workingDirectory: {Environment} Path
 }
 
 /**

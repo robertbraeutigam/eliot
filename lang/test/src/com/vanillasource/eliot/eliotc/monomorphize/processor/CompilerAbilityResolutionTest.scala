@@ -66,7 +66,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
       compilerScan(
         Seq("eliot", "effect"),
         "Throw",
-        "import eliot.lang.Function\nability Throw[E, F[_]] {\n  def raise[A](err: E): F[A]\n}"
+        "import eliot.lang.Function\nability Throw[E, F[_]] {\n  def raise[A](err: E): {Throw[E]} A\n}"
       ) ++
       compilerScan(
         Seq("eliot", "lang"),

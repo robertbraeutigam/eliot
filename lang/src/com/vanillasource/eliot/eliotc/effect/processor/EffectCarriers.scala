@@ -45,33 +45,46 @@ object EffectCarriers {
     * what a phase reading only declarations (the effects-as-rows elaboration) must ask before deciding that a call is
     * a computation. A binder qualifies when:
     *
-    *   - it is **ability-constrained** (`[G[_] ~ Effect]`, and every binder the `{E}` effect-row sugar mints);
+    *   - it is **ability-constrained** (`[G[_] ~ Effect]`, and every binder the `{E}` effect-row sugar mints — an
+    *     ability method's own binder included, since its rows desugar onto exactly that binder);
     *   - it heads a **pinned row** the signature discharges (`runAbort[G[_], A](obj: {Abort | G} A): G[Option[A]]` —
-    *     the base carrier of a pinned stack is deliberately unconstrained, so nothing else marks it);
-    *   - the definition is an **ability method**, whose return rides its ability's own binder with no constraint of
-    *     its own (`Console`'s `printLine : F[Unit]`).
+    *     the base carrier of a pinned stack is deliberately unconstrained, so nothing else marks it).
     *
-    * Note the third case is by ability membership, not by which ability: `Console[F[_]]` and a constructor-class
-    * `Container[F[_]]` are the same shape and are treated the same — a method of either yields its ability's carrier.
-    * What keeps a `Container` use from being mistaken for an effect is the *use site*: a declared return that can
-    * host the carrier (`def f: Box[String] = wrap(s)`) takes it, and only a return that cannot (a bare `String`)
-    * discharges.
+    *   - it is a **machinery** ability's method (`Effect`'s `pure`/`flatMap`/`map`, `Suspend`'s `suspend`), whose
+    *     binder *is* the carrier by construction. These are the one kind of ability method that cannot say so with a
+    *     row: machinery entries are filtered out of every row by design (they are compiler-inserted, never a
+    *     user-facing effect), so `{Effect}` on `pure` would say nothing. They are recognised by name, which is where
+    *     [[EffectMachinery.isMachineryAbility]] is already the sanctioned recogniser.
+    *
+    * **A user ability method has no rule of its own.** It used to: every higher-kinded binder of an ability method counted
+    * as a carrier, on the reasoning that `Console[F[_]]` and a constructor-class `Container[F[_]]` are the same shape
+    * and the *use site* separates them. It does not — the use site is never consulted by the row derivation, so a
+    * constructor class was read as an effect and `def unboxed(b: Box[String]): String = unwrap(b)` was rejected as
+    * "performs the effect 'Container'". An ability method now declares its effects the way every other definition
+    * does, with a row (`def printLine(s: String): {Console} Unit`), and the general constraint rule above answers for
+    * it. A method that declares no row performs nothing, which is exactly what a constructor class is.
     */
   def declaredCarrierBinders(value: OperatorResolvedValue): Set[String] = {
-    val view      = SignatureView.of(value.signature)
+    val view       = SignatureView.of(value.signature)
     val allBinders = carrierBinders(view)
-    value.vfqn.name.qualifier match {
-      case Qualifier.Ability(_) => allBinders
-      case _                    =>
-        val pinnedTypes =
-          value.effectRow.pinnedParameterIndices.toSeq.flatMap(index => view.parameters.lift(index).map(_.value)) ++
-            Option.when(value.effectRow.returnPinnedEffects.nonEmpty)(view.returnType.value)
-        allBinders.filter(binder =>
-          value.paramConstraints.get(binder).exists(_.nonEmpty) ||
-            pinnedTypes.exists(occurs(binder, _))
-        )
+    if (isMachineryMethod(value)) allBinders
+    else {
+      val pinnedTypes =
+        value.effectRow.pinnedParameterIndices.toSeq.flatMap(index => view.parameters.lift(index).map(_.value)) ++
+          Option.when(value.effectRow.returnPinnedEffects.nonEmpty)(view.returnType.value)
+      allBinders.filter(binder =>
+        value.paramConstraints.get(binder).exists(_.nonEmpty) ||
+          pinnedTypes.exists(occurs(binder, _))
+      )
     }
   }
+
+  /** Whether a value is a method of one of the compiler's own machinery abilities (`Effect`/`Suspend`). */
+  private def isMachineryMethod(value: OperatorResolvedValue): Boolean =
+    value.vfqn.name.qualifier match {
+      case Qualifier.Ability(name) => EffectMachinery.isMachineryAbility(name)
+      case _                       => false
+    }
 
   /** Whether a binder name occurs anywhere in a type expression. */
   private def occurs(binder: String, tpe: OperatorResolvedExpression): Boolean = tpe match {

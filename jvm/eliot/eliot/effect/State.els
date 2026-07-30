@@ -5,8 +5,8 @@ import eliot.effect.Abort
 // Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name
 // resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
 ability State[S, F[_]] {
-   def state: F[S]
-   def putState(s: S): F[Unit]
+   def state: {State[S]} S
+   def putState(s: S): {State[S]} Unit
 }
 
 data StateCarrier[S, G[_], A](runStateCarrier: S => G[Pair[A, S]])

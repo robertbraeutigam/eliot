@@ -64,7 +64,7 @@ ability Process[F[_]] {
     * it is not a path; the rest are its arguments, passed through untouched. An empty `command`
     * raises.
     */
-   def run(command: List[String], workingDirectory: Path): F[ProcessResult]
+   def run(command: List[String], workingDirectory: Path): {Process} ProcessResult
 
    /**
     * Run `command` in `workingDirectory` with the standard streams **inherited** — the child writes
@@ -74,7 +74,7 @@ ability Process[F[_]] {
     * diagnostics, a test run's report. Nothing is captured, so `standardOutput` of a `run` result
     * would have nowhere to come from; that is why this yields the code alone.
     */
-   def runInheritingIo(command: List[String], workingDirectory: Path): F[Int]
+   def runInheritingIo(command: List[String], workingDirectory: Path): {Process} Int
 }
 
 /**

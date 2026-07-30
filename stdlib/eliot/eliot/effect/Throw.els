@@ -24,7 +24,7 @@ ability Throw[E, F[_]] {
     * Fail with error `err`. Control does not return, so the result stands in for a value of any type
     * `A`; `runThrow` reflects the failure into a `Left`.
     */
-   def raise[A](err: E): F[A]
+   def raise[A](err: E): {Throw[E]} A
 }
 
 /**
