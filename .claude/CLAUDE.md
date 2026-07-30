@@ -242,8 +242,9 @@ What a layer may **not** borrow is a *sibling target* (jvm) that might be absent
 must be **self-sufficient** from the base plus its own `eliot-compiler/`. Roots reach the compiler via a single
 repeatable **`--path <root>/eliot`** (no separate compiler/runtime path flags, no `compiler` Mill module);
 `LangPlugin.eliotCompilerOverlay` derives each root's sibling. Two roots ship an overlay today:
-`stdlib/eliot-compiler/eliot/lang/` (self-sufficient compile-time `Either` and `Option` + the guard combinator
-bodies) and `lang/eliot-compiler/eliot/lang/` (the compile-time `Id`). Anything pure and already on the path
+`stdlib/eliot-compiler/` (the self-sufficient compile-time `Either` and `Option`, the compile-time `AbortCarrier`
+that reduces `if..else raise` return guards, and the `Interval` refinement instances) and
+`lang/eliot-compiler/eliot/lang/` (the compile-time `Id`). Anything pure and already on the path
 (`Pair`, base bodies) is **borrowed, not duplicated**. `CompilerNativesProcessor` reads that pool; the
 compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`, `typeEquals`) are Scala native **leaves** in
 `SystemNativesProcessor` (lang) / `StdlibNativesProcessor` (stdlib arithmetic) — the compiler platform's leaf

@@ -156,7 +156,7 @@ error, not two instances; distinct-but-unifiable patterns are what the overlap l
 ## See also
 
 - CLAUDE.md "Platform-Independence via Layers" (the *why*) and "The compiler is itself a platform."
-- Memories: [[project_effect_stdlib_unification]], [[project_library_restructure]],
+- Memories: [[project_library_restructure]],
   [[feedback_minimize_scala_decompose_in_eliot]] (keep Scala thin; representation ≠ type identity),
   [[gotcha_brackets_type_namespace_marker]], [[gotcha_eliot_grammar_case_rules]],
   [[gotcha_lambda_class_collision_same_module]], [[gotcha_assembly_jar_breaks_layers]].
