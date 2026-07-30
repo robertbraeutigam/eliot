@@ -7,19 +7,19 @@ import org.apache.logging.log4j.{Level, LogManager, Logger}
 trait Logging {
   private val logger: Logger = LogManager.getLogger(this.getClass)
 
-  def trace[F[_]: Sync](msg: String): F[Unit]               = log[F](logger, Level.TRACE, msg, null)
-  def trace[F[_]: Sync](msg: String, t: Throwable): F[Unit] = log[F](logger, Level.TRACE, msg, t)
-  def debug[F[_]: Sync](msg: String): F[Unit]               = log[F](logger, Level.DEBUG, msg, null)
-  def debug[F[_]: Sync](msg: String, t: Throwable): F[Unit] = log[F](logger, Level.DEBUG, msg, t)
-  def info[F[_]: Sync](msg: String): F[Unit]                = log[F](logger, Level.INFO, msg, null)
-  def info[F[_]: Sync](msg: String, t: Throwable): F[Unit]  = log[F](logger, Level.INFO, msg, t)
-  def warn[F[_]: Sync](msg: String): F[Unit]                = log[F](logger, Level.WARN, msg, null)
-  def warn[F[_]: Sync](msg: String, t: Throwable): F[Unit]  = log[F](logger, Level.WARN, msg, t)
-  def error[F[_]: Sync](msg: String): F[Unit]               = log[F](logger, Level.ERROR, msg, null)
-  def error[F[_]: Sync](msg: String, t: Throwable): F[Unit] = log[F](logger, Level.ERROR, msg, t)
+  def trace[F[_]: Sync](msg: => String): F[Unit]               = log[F](logger, Level.TRACE, msg, null)
+  def trace[F[_]: Sync](msg: => String, t: Throwable): F[Unit] = log[F](logger, Level.TRACE, msg, t)
+  def debug[F[_]: Sync](msg: => String): F[Unit]               = log[F](logger, Level.DEBUG, msg, null)
+  def debug[F[_]: Sync](msg: => String, t: Throwable): F[Unit] = log[F](logger, Level.DEBUG, msg, t)
+  def info[F[_]: Sync](msg: => String): F[Unit]                = log[F](logger, Level.INFO, msg, null)
+  def info[F[_]: Sync](msg: => String, t: Throwable): F[Unit]  = log[F](logger, Level.INFO, msg, t)
+  def warn[F[_]: Sync](msg: => String): F[Unit]                = log[F](logger, Level.WARN, msg, null)
+  def warn[F[_]: Sync](msg: => String, t: Throwable): F[Unit]  = log[F](logger, Level.WARN, msg, t)
+  def error[F[_]: Sync](msg: => String): F[Unit]               = log[F](logger, Level.ERROR, msg, null)
+  def error[F[_]: Sync](msg: => String, t: Throwable): F[Unit] = log[F](logger, Level.ERROR, msg, t)
 }
 
 object Logging {
-  private def log[F[_]: Sync](logger: Logger, level: Level, msg: String, t: Throwable): F[Unit] =
-    Sync[F].blocking(logger.log(level, msg, t))
+  private def log[F[_]: Sync](logger: Logger, level: Level, msg: => String, t: Throwable): F[Unit] =
+    Sync[F].defer(if (logger.isEnabled(level)) Sync[F].blocking(logger.log(level, msg, t)) else Sync[F].unit)
 }
