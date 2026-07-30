@@ -31,3 +31,18 @@ def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]):
  */
 infix right
 def orElse[A](o: Option[A], fallback: {Effect} A): {Effect} A = foldOption(fallback, a -> a, o)
+
+/**
+ * `f` applied to the value `o` holds, leaving absence absent — the way to work on an optional value without naming
+ * either case.
+ *
+ * `f` runs only when there is something to run it on, so it may be as expensive, or as effectful, as it likes. `o`
+ * is the last parameter, so this dot-chains as `o.mapOption(f)`.
+ *
+ * ```eliot
+ * // The length of a line, when there was one to read.
+ * def readLength: {Console} Option[Int] = readLine.mapOption(length)
+ * ```
+ */
+def mapOption[A, B](f: A => {Effect} B, o: Option[A]): {Effect} Option[B] =
+   o.foldOption(none, a -> some(f(a)))

@@ -104,12 +104,11 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
        |}""".stripMargin
 
   /** A `{Console, Environment, Process, Throw[IoError]} Unit` report body wrapped in a `main` that discharges the
-    * failure with `runThrow`, printing "failed" on an `IoError` — the `FileIoIntegrationTest` shape, with `Environment`
+    * failure with `catch`, printing "failed" on an `IoError` — the `FileIoIntegrationTest` shape, with `Environment`
     * added because every process needs a directory to run in.
     */
   private def processProgram(body: String): String =
     s"""
-       |import eliot.carrier.Effect
        |import eliot.jvm.IO
        |import eliot.effect.Console
        |import eliot.collection.List
@@ -121,6 +120,5 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
        |def report: {Console, Environment, Process, Throw[IoError]} Unit = {$body
        |}
        |
-       |def main: {Console, Environment, Process} Unit =
-       |   flatMap(o -> foldEither((err: IoError) -> printLine("failed"), _ -> pure(unit), o), runThrow(report))""".stripMargin
+       |def main: {Console, Environment, Process} Unit = report catch ((err: IoError) -> printLine("failed"))""".stripMargin
 }

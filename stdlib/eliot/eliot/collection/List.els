@@ -136,6 +136,280 @@ private def addToGroup[A, K ~ Eq](key: K, element: A, groups: List[Pair[K, List[
       .foldPair(found -> rebuilt -> fold(found, rebuilt, append(rebuilt, pair(key, append(empty, element)))))
 
 /**
+ * The number of elements in `list`.
+ *
+ * ```eliot
+ * def describe(items: List[String]): String = "found " ++ show(items.size)
+ * ```
+ */
+def size[A](list: List[A]): Int = list.foldLeft(0, _ -> count -> count + 1)
+
+/**
+ * The list holding `element` and nothing else — the missing constructor between `empty` and `append`.
+ *
+ * ```eliot
+ * def only(name: String): List[String] = singleton(name)
+ * ```
+ */
+def singleton[A](element: A): List[A] = append(empty, element)
+
+/**
+ * The first element of `list`, or `none` when it has none.
+ *
+ * ```eliot
+ * def firstWord(tokens: List[String]): String = tokens.head orElse "(none)"
+ * ```
+ */
+def head[A](list: List[A]): Option[A] = list.foldLeft(none, e -> acc -> acc.foldOption(some(e), _ -> acc))
+
+/**
+ * The last element of `list`, or `none` when it has none.
+ *
+ * Cheaper than `head`, not more expensive: a left fold arrives at the end anyway, so the last element is simply the
+ * one the fold stops at.
+ */
+def last[A](list: List[A]): Option[A] = list.foldLeft(none, e -> _ -> some(e))
+
+/**
+ * The element at `index`, counting from zero, or `none` when `list` is shorter than that (or `index` is negative).
+ *
+ * Positional access is a walk, not a jump — a list is only foldable front to back — so reach for it to read a
+ * handful of leading positions, not to iterate.
+ *
+ * ```eliot
+ * // The second word of a line, or nothing when there isn't one.
+ * def target(tokens: List[String]): Option[String] = tokens.at(1)
+ * ```
+ */
+def at[A](index: Int, list: List[A]): Option[A] =
+   list
+      .foldLeft(
+         pair(0, none),
+         e -> acc -> acc.foldPair(position -> found -> pair(position + 1, fold(atPosition(index, position), some(e), found)))
+      )
+      .foldPair(_ -> found -> found)
+
+/**
+ * `list` without its leading element, or `empty` when it has none — `head`'s counterpart, and how a command's
+ * arguments are taken from its tokens once the command name is off the front.
+ */
+def tail[A](list: List[A]): List[A] =
+   list
+      .foldLeft(
+         pair(empty, false),
+         e -> acc -> acc.foldPair(rest -> seen -> fold(seen, pair(append(rest, e), true), pair(rest, true)))
+      )
+      .foldPair(rest -> _ -> rest)
+
+/**
+ * `list` without its last element, or `empty` when it has none — the pop half of the stack whose push is `append`
+ * and whose peek is `last`. Folds carrying each element one step behind, so the final element is the one never
+ * emitted.
+ */
+def dropLast[A](list: List[A]): List[A] =
+   list
+      .foldLeft(
+         pair(empty, none),
+         e -> acc -> acc.foldPair(kept -> held -> pair(held.foldOption(kept, previous -> append(kept, previous)), some(e)))
+      )
+      .foldPair(kept -> _ -> kept)
+
+/**
+ * `list` with its last element replaced by `element`, or `list` unchanged when it is empty — the update-the-stack-top
+ * operation.
+ */
+def replaceLast[A](element: A, list: List[A]): List[A] = fold(list.isEmpty, list, append(list.dropLast, element))
+
+/**
+ * `true` when at least one element of `list` satisfies `predicate`.
+ *
+ * `predicate` is applied to *every* element — there is no short-circuiting, exactly as there is none in `||` — so an
+ * effectful predicate performs once per element.
+ *
+ * ```eliot
+ * def hasComment(lines: List[String]): Bool = lines.any(line -> line.startsWith("--"))
+ * ```
+ */
+def any[A](predicate: A => {Effect} Bool, list: List[A]): {Effect} Bool =
+   list.foldLeft(false, e -> acc -> acc || predicate(e))
+
+/**
+ * `true` when every element of `list` satisfies `predicate` — vacuously so for the empty list.
+ *
+ * `predicate` is applied to every element, with no short-circuiting, exactly as in `any`.
+ */
+def all[A](predicate: A => {Effect} Bool, list: List[A]): {Effect} Bool =
+   list.foldLeft(true, e -> acc -> acc && predicate(e))
+
+/**
+ * The lists `f` computes for the elements of `list`, run together end to end.
+ *
+ * `f` may perform effects; they run once per element, front to back. `list` is last, so this dot-chains as
+ * `list.flatMap(f)`.
+ *
+ * ```eliot
+ * def allWords(lines: List[String]): List[String] = lines.flatMap(words)
+ * ```
+ */
+def flatMap[A, B](f: A => {Effect} List[B], list: List[A]): {Effect} List[B] =
+   list.foldLeft(empty, e -> acc -> acc ++ f(e))
+
+/**
+ * The elements of every list in `lists`, in order — one level of nesting removed.
+ *
+ * ```eliot
+ * def merged(groups: List[List[Int]]): List[Int] = groups.flatten
+ * ```
+ */
+def flatten[A](lists: List[List[A]]): List[A] = lists.foldLeft(empty, e -> acc -> acc ++ e)
+
+/**
+ * The elements of `list` in ascending order, by insertion sort over the fold. Equal elements keep their original
+ * order.
+ *
+ * Quadratic, and deliberately so: it is the sort a language without recursion can express, and it is sized for the
+ * small collections the rest of this API is sized for (`append` already copies).
+ *
+ * ```eliot
+ * def alphabetical(names: List[String]): List[String] = names.sorted
+ * ```
+ */
+def sorted[A ~ Compare](list: List[A]): List[A] = list.foldLeft(empty, e -> acc -> insert(e, acc))
+
+/**
+ * `element` inserted into the already-ascending `sortedList`, after every element that is not greater than it.
+ *
+ * Carries a "placed yet?" flag through the fold, since the insertion point is decided once and every later element
+ * simply follows.
+ */
+def insert[A ~ Compare](element: A, sortedList: List[A]): List[A] =
+   sortedList
+      .foldLeft(
+         pair(empty, false),
+         e -> acc -> acc.foldPair(kept -> placed -> fold(
+            placed || e <= element,
+            pair(append(kept, e), placed),
+            pair(append(append(kept, element), e), true)
+         ))
+      )
+      .foldPair(kept -> placed -> fold(placed, kept, append(kept, element)))
+
+/**
+ * The pieces of `s` between occurrences of `separator`, in order, empty pieces included.
+ *
+ * `separator` is plain text, never a pattern, and occurrences are found left to right. Every piece is kept, so
+ * adjacent separators yield an empty piece between them and a trailing separator yields an empty final piece —
+ * splitting and `joined` are exact inverses. A separator that does not occur yields `s` alone, so the result is never
+ * the empty list.
+ *
+ * The **empty separator** is the one special case: it cuts between every pair of characters, so `split("", s)` is the
+ * characters of `s` (and `empty` for an empty `s`) — the way to look at a string one character at a time. Characters
+ * are the platform's storage units, exactly as `String.length` counts them.
+ *
+ * A string operation that answers a list, so it lives here rather than in `eliot.lang.String`: a module cannot both
+ * declare `isEmpty` and import the one `List` declares.
+ *
+ * ```eliot
+ * // "dep github.com/x/foo v1.3" read as its three tokens.
+ * def tokens(line: String): List[String] = line.split(" ")
+ * ```
+ */
+def split(separator: String, s: String): List[String]
+
+/**
+ * The whitespace-separated words of `s`, with no empty pieces — the tokenizer a line-oriented format is written
+ * against, where a run of blanks, a tab and a trailing newline are not information.
+ *
+ * Whitespace is decided the same way `trim` decides it. A blank line has no words at all, so this yields `empty`
+ * rather than one empty piece.
+ *
+ * ```eliot
+ * def keyword(line: String): String = line.words.head orElse ""
+ * ```
+ */
+def words(s: String): List[String]
+
+/**
+ * The elements of `list` rendered with `Show` and written one after another with `separator` between them — the
+ * inverse of `split`, and the workhorse of every list a program prints.
+ *
+ * The separator appears *between* elements only, so a one-element list renders as that element alone and the empty
+ * list as `""`.
+ *
+ * ```eliot
+ * def line(fields: List[String]): String = fields.joined(", ")
+ * ```
+ */
+def joined[A ~ Show](separator: String, list: List[A]): String =
+   list
+      .foldLeft(
+         pair("", true),
+         e -> acc -> acc.foldPair(text -> leading -> pair(fold(leading, show(e), text ++ separator ++ show(e)), false))
+      )
+      .foldPair(text -> _ -> text)
+
+/**
+ * The value `entries` binds to `key`, or `none` when it binds none.
+ *
+ * `entries` is an **association list** — the shape `groupBy` answers with — and the first matching entry wins. Keys
+ * are compared with `Eq[K]`, the type's own equality. Finding a key is a scan, so this is sized for the small tables
+ * a microcontroller keeps, not for a hash map.
+ *
+ * ```eliot
+ * def port(settings: List[Pair[String, String]]): String = settings.lookupOption("port") orElse "8080"
+ * ```
+ */
+def lookupOption[K ~ Eq, V](key: K, entries: List[Pair[K, V]]): Option[V] =
+   entries.foldLeft(none, entry -> acc -> acc.foldOption(matchingValue(key, entry), _ -> acc))
+
+/**
+ * The value `entries` binds to `key`, aborting when it binds none — `lookupOption` with the absence travelling on as
+ * an effect, so a lookup answers itself at the use site with `else`.
+ *
+ * ```eliot
+ * def port(settings: List[Pair[String, String]]): String = settings.lookup("port") else "8080"
+ * ```
+ */
+def lookup[K ~ Eq, V](key: K, entries: List[Pair[K, V]]): {Abort} V = orAbort(entries.lookupOption(key))
+
+/**
+ * `entries` with `key` bound to `value`: an existing binding is replaced where it stands, a new key is appended at
+ * the end.
+ *
+ * The association-list counterpart of a map update, and the way to build a table up from `empty` one entry at a time.
+ *
+ * ```eliot
+ * def withDefault(settings: List[Pair[String, String]]): List[Pair[String, String]] =
+ *    settings.put("port", "8080")
+ * ```
+ */
+def put[K ~ Eq, V](key: K, value: V, entries: List[Pair[K, V]]): List[Pair[K, V]] =
+   fold(
+      entries.any(entry -> keyOf(entry) == key),
+      entries.map(entry -> fold(keyOf(entry) == key, pair(key, value), entry)),
+      append(entries, pair(key, value))
+   )
+
+/**
+ * `true` when `position` is the position `index` names. Spelled as two `Compare` tests because `Int` has no `Eq`
+ * instance — the ordering is the only equality an `Int` has, and `a <= b && b <= a` is exactly it.
+ */
+private def atPosition(index: Int, position: Int): Bool = index <= position && position <= index
+
+/**
+ * The key of an association-list entry — `Pair`'s first component, named so `put`'s fold reads as a single
+ * expression. The base layer eliminates a `Pair` with `foldPair`; the `first`/`second` accessors belong to a
+ * platform's representation.
+ */
+private def keyOf[K, V](entry: Pair[K, V]): K = entry.foldPair(entryKey -> _ -> entryKey)
+
+/**
+ * `some` of the entry's value when its key matches, `none` otherwise — `lookupOption`'s per-entry test.
+ */
+private def matchingValue[K ~ Eq, V](key: K, entry: Pair[K, V]): Option[V] =
+   entry.foldPair(entryKey -> entryValue -> fold(entryKey == key, some(entryValue), none))
+
+/**
  * `List` is a monoid under concatenation: `combine` appends the elements of the second list after the first (a
  * platform-independent fold, identical on every target), and `empty` is the empty list. This makes `List` usable as
  * the accumulated log of a `Writer` effect, and lets `++` concatenate lists.

@@ -91,12 +91,12 @@ class FileIoIntegrationTest extends FullIntegrationTest {
   }
 
   /** A `{Console, FileSystem, Throw[IoError]} Unit` report body (which prints its own result), wrapped in a program
-    * whose `main` builds `scratch`, runs the report, and discharges the failure with `runThrow` — printing "failed" on
-    * an `IoError`. The discharge handler names `IoError` so `runThrow`'s error type is pinned.
+    * whose `main` builds `scratch`, runs the report, and discharges the failure with `catch` — printing "failed" on an
+    * `IoError`. The handler names `IoError` so the discharged error type is pinned; `catch` resolves to a direct call, so
+    * the program needs no carrier machinery in scope at all.
     */
   private def reportProgram(dir: String, body: String, listImport: Boolean = false): String =
     s"""
-       |import eliot.carrier.Effect
        |import eliot.jvm.IO
        |import eliot.effect.Console
        |${if (listImport) "import eliot.collection.List\n" else ""}import eliot.file.Path
@@ -107,6 +107,5 @@ class FileIoIntegrationTest extends FullIntegrationTest {
        |def report: {Console, FileSystem, Throw[IoError]} Unit = {$body
        |}
        |
-       |def main: {Console, FileSystem} Unit =
-       |   flatMap(o -> foldEither((err: IoError) -> printLine("failed"), _ -> pure(unit), o), runThrow(report))""".stripMargin
+       |def main: {Console, FileSystem} Unit = report catch ((err: IoError) -> printLine("failed"))""".stripMargin
 }

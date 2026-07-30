@@ -46,10 +46,17 @@ object StringReductions {
     stringStringNative("endsWith")((suffix, s) => boolValue(s.endsWith(suffix))),
     stringStringNative("contains")((part, s) => boolValue(s.contains(part))),
     stringStringNative("indexOfInternal")((part, s) => intValue(s.indexOf(part))),
+    unary("isInteger")(s => boolValue(s.matches(IntegerPattern))),
     substringNative,
     replaceNative,
-    repeatNative
+    repeatNative,
+    parseIntNative
   )
+
+  /** The numerals `java.math.BigInteger` accepts — the same pattern the JVM backend's `isInteger` compiles in, and the
+    * exact set `parseIntInternal` may be handed.
+    */
+  private val IntegerPattern = "[+-]?[0-9]+"
 
   /** The `(ability, method, dispatch type) -> native` table for the three `String` instances whose method is a leaf.
     * Each native is built from the impl-method FQN it is bound to, so its stuck form names that same method — the one
@@ -128,6 +135,24 @@ object StringReductions {
     )
   }
 
+  /** `parseIntInternal(s)` — the numeral `s` spells, read at full precision, or zero when `s` is not one.
+    *
+    * Total by the same zero the backend emits, and for the same reason: `parseInt` guards this leaf with an `if`, which
+    * *builds* both arms though it runs only one, so a leaf that failed on a non-numeral would fail before the guard
+    * chose. The zero can only be produced for the strings `parseInt` aborts on, so it never reaches a caller.
+    */
+  private def parseIntNative: (ValueFQN, SemValue) = {
+    val fqn = stringFqn("parseIntInternal")
+    fqn -> VNative(
+      stringType,
+      s =>
+        s match {
+          case ConcreteString(text) => bigIntValue(if (text.matches(IntegerPattern)) BigInt(text) else BigInt(0))
+          case _                    => stuck(fqn, s)
+        }
+    )
+  }
+
   // ----------------------------------------------------------------------------------------------------------------
   // Shapes
   // ----------------------------------------------------------------------------------------------------------------
@@ -197,6 +222,8 @@ object StringReductions {
   private def stringValue(s: String): SemValue = VConst(GroundValue.Direct(s, Evaluator.stringGroundType))
 
   private def intValue(i: Int): SemValue = VConst(GroundValue.Direct(BigInt(i), Evaluator.bigIntGroundType))
+
+  private def bigIntValue(i: BigInt): SemValue = VConst(GroundValue.Direct(i, Evaluator.bigIntGroundType))
 
   private def boolValue(b: Boolean): SemValue = if (b) Evaluator.trueValue else Evaluator.falseValue
 }

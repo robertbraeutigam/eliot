@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangType
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemCollectionType, systemLangType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
@@ -33,10 +33,20 @@ object StringNatives {
   private def stringFqn(name: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName(name, Qualifier.Default))
 
+  /** `split` and `words` are string operations that answer a `List`, and are therefore declared in
+    * `eliot.collection.List` rather than in `eliot.lang.String` — a module cannot both declare `isEmpty` and import the
+    * one `List` declares. Their leaves are `java.lang.String` calls all the same, so they stay here with the other
+    * string natives and only their FQN's module differs.
+    */
+  private def collectionFqn(name: String): ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "collection"), "List"), QualifiedName(name, Qualifier.Default))
+
   private val stringType: ValueFQN = systemLangType("String")
   private val boolType: ValueFQN   = systemLangType("Bool")
   // The `eliot.lang.Int` type, whose ⊤/boundary representation is `java.math.BigInteger` (`NativeType.types`).
   private val intType: ValueFQN    = systemLangType("Int")
+  // `eliot.collection.List` is a native `java.util.List`, so `split`/`words` can hand one back directly.
+  private val listType: ValueFQN   = systemCollectionType("List")
 
   private val JString     = "java/lang/String"
   private val JBoolean    = "java/lang/Boolean"
@@ -44,6 +54,19 @@ object StringNatives {
   private val JBigInteger = "java/math/BigInteger"
   private val JLocale     = "java/util/Locale"
   private val JCharSeq    = "java/lang/CharSequence"
+  private val JList       = "java/util/List"
+  private val JArrays     = "java/util/Arrays"
+  private val JCollection = "java/util/Collections"
+  private val JPattern    = "java/util/regex/Pattern"
+  private val StringArray = s"[L$JString;"
+
+  /** The grammar `java.math.BigInteger(String)` accepts, and therefore exactly what `parseInt` may be handed: an
+    * optional sign then at least one ASCII decimal digit.
+    */
+  private val IntegerPattern = "[+-]?[0-9]+"
+
+  /** The separator `words` splits on: any run of whitespace. */
+  private val WhitespaceRun = "\\s+"
 
   /** The leaf natives keyed by their `Default`-qualified FQN, folded into [[NativeImplementation.implementations]]. */
   val implementations: Seq[(ValueFQN, NativeImplementation)] = Seq(
@@ -59,7 +82,11 @@ object StringNatives {
     entry("toUpperCase", Seq(stringType), stringType)(toUpperCase),
     entry("toLowerCase", Seq(stringType), stringType)(toLowerCase),
     entry("replace", Seq(stringType, stringType, stringType), stringType)(replace),
-    entry("repeat", Seq(intType, stringType), stringType)(repeat)
+    entry("repeat", Seq(intType, stringType), stringType)(repeat),
+    entry("isInteger", Seq(stringType), boolType)(isInteger),
+    entry("parseIntInternal", Seq(stringType), intType)(parseInt),
+    collectionEntry("split", Seq(stringType, stringType), listType)(split),
+    collectionEntry("words", Seq(stringType), listType)(words)
   )
 
   /** The runtime ability-impl natives, folded into [[NativeImplementation.abilityImplementations]]: the three `String`
@@ -76,8 +103,17 @@ object StringNatives {
     */
   private def entry(name: String, params: Seq[ValueFQN], ret: ValueFQN)(
       body: MethodVisitor => Unit
+  ): (ValueFQN, NativeImplementation) = entryAt(stringFqn(name), name, params, ret)(body)
+
+  /** [[entry]] for the two leaves whose Eliot declaration lives in `eliot.collection.List` (see [[collectionFqn]]). */
+  private def collectionEntry(name: String, params: Seq[ValueFQN], ret: ValueFQN)(
+      body: MethodVisitor => Unit
+  ): (ValueFQN, NativeImplementation) = entryAt(collectionFqn(name), name, params, ret)(body)
+
+  private def entryAt(fqn: ValueFQN, name: String, params: Seq[ValueFQN], ret: ValueFQN)(
+      body: MethodVisitor => Unit
   ): (ValueFQN, NativeImplementation) =
-    stringFqn(name) -> new NativeImplementation {
+    fqn -> new NativeImplementation {
       override def generateMethod(cg: ClassGenerator): CompilerIO[Unit] =
         cg.createMethod[CompilerIO](JvmIdentifier(name), params, ret).use(_.runNative(body))
     }
@@ -215,6 +251,114 @@ object StringNatives {
     mv.visitMethodInsn(INVOKEVIRTUAL, JBigInteger, "min", s"(L$JBigInteger;)L$JBigInteger;", false)
     mv.visitMethodInsn(INVOKEVIRTUAL, JBigInteger, "intValue", "()I", false)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "repeat", s"(I)L$JString;", false)
+  }
+
+  // --------------------------------------------------------------------------------------------------------------
+  // Splitting and parsing
+  // --------------------------------------------------------------------------------------------------------------
+
+  /** `split(separator, s)` — the pieces of `s` between literal occurrences of `separator`, every empty piece kept.
+    *
+    * `java.lang.String.split` takes a *regular expression*, so the separator is passed through `Pattern.quote` and the
+    * limit is `-1`: quoting is what makes the separator plain text (a `.` or a `|` in it separates on itself, not on
+    * everything), and the negative limit is what keeps the trailing empty pieces Java's default drops — without it
+    * `split(",", "a,b,")` would answer two pieces and stop being `joined`'s inverse.
+    *
+    * The empty separator is the special case: it matches with zero width, so Java cuts between every pair of
+    * characters and adds one trailing empty piece. Dropping that piece (`subList`) is what makes `split("", s)` exactly
+    * the characters of `s`, and `split("", "")` the empty list.
+    */
+  private def split(mv: MethodVisitor): Unit = {
+    val characters = new Label()
+    val end        = new Label()
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "isEmpty", "()Z", false)
+    mv.visitJumpInsn(IFNE, characters)
+    mv.visitVarInsn(ALOAD, 1)
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitMethodInsn(INVOKESTATIC, JPattern, "quote", s"(L$JString;)L$JString;", false)
+    mv.visitInsn(ICONST_M1)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "split", s"(L$JString;I)$StringArray", false)
+    mv.visitMethodInsn(INVOKESTATIC, JArrays, "asList", s"([L$JObject;)L$JList;", false)
+    mv.visitJumpInsn(GOTO, end)
+    mv.visitLabel(characters)
+    mv.visitVarInsn(ALOAD, 1)
+    mv.visitLdcInsn("")
+    mv.visitInsn(ICONST_M1)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "split", s"(L$JString;I)$StringArray", false)
+    mv.visitMethodInsn(INVOKESTATIC, JArrays, "asList", s"([L$JObject;)L$JList;", false)
+    mv.visitVarInsn(ASTORE, 2)
+    mv.visitVarInsn(ALOAD, 2)
+    mv.visitInsn(ICONST_0)
+    mv.visitVarInsn(ALOAD, 2)
+    mv.visitMethodInsn(INVOKEINTERFACE, JList, "size", "()I", true)
+    mv.visitInsn(ICONST_1)
+    mv.visitInsn(ISUB)
+    mv.visitMethodInsn(INVOKEINTERFACE, JList, "subList", s"(II)L$JList;", true)
+    mv.visitLabel(end)
+  }
+
+  /** `words(s)` — the non-empty whitespace-separated pieces of `s`.
+    *
+    * Splitting on a run of whitespace already collapses interior blanks, and stripping first removes the leading and
+    * trailing ones, so no piece can come out empty — except for a blank string, which Java's `split` answers with one
+    * empty piece rather than none. That case is branched out to the empty list, which is what "a blank line has no
+    * words" has to mean.
+    */
+  private def words(mv: MethodVisitor): Unit = {
+    val hasWords = new Label()
+    val end      = new Label()
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "strip", s"()L$JString;", false)
+    mv.visitVarInsn(ASTORE, 1)
+    mv.visitVarInsn(ALOAD, 1)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "isEmpty", "()Z", false)
+    mv.visitJumpInsn(IFEQ, hasWords)
+    mv.visitMethodInsn(INVOKESTATIC, JCollection, "emptyList", s"()L$JList;", false)
+    mv.visitJumpInsn(GOTO, end)
+    mv.visitLabel(hasWords)
+    mv.visitVarInsn(ALOAD, 1)
+    mv.visitLdcInsn(WhitespaceRun)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "split", s"(L$JString;)$StringArray", false)
+    mv.visitMethodInsn(INVOKESTATIC, JArrays, "asList", s"([L$JObject;)L$JList;", false)
+    mv.visitLabel(end)
+  }
+
+  /** `isInteger(s)` — whether `s` matches exactly the numerals `java.math.BigInteger` accepts, which is what makes it a
+    * sound guard for `parseIntInternal`: the two agree by construction, so the guarded `parseInt` can never throw.
+    */
+  private def isInteger(mv: MethodVisitor): Unit = {
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitLdcInsn(IntegerPattern)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "matches", s"(L$JString;)Z", false)
+    boxBool(mv)
+  }
+
+  /** `parseIntInternal(s)` — the numeral read at full precision, or zero when `s` is not one. An `Int` crosses a method
+    * boundary as a `java.math.BigInteger`, so the parse is the representation's own constructor and no width is chosen
+    * here.
+    *
+    * '''Total, and it has to be.''' `parseInt` guards this leaf with `if(s.isInteger, parseIntInternal(s))`, and an `if`
+    * *builds* both arms even though it runs only one — so a leaf that threw on a non-numeral would throw before the
+    * guard ever chose. The zero is therefore unreachable through `parseInt` (which aborts on exactly the strings that
+    * produce it) and never observable; it exists so the arm can be built. The same reason `indexOfInternal` answers a
+    * negative index instead of failing.
+    */
+  private def parseInt(mv: MethodVisitor): Unit = {
+    val notANumber = new Label()
+    val end        = new Label()
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitLdcInsn(IntegerPattern)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "matches", s"(L$JString;)Z", false)
+    mv.visitJumpInsn(IFEQ, notANumber)
+    mv.visitTypeInsn(NEW, JBigInteger)
+    mv.visitInsn(DUP)
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitMethodInsn(INVOKESPECIAL, JBigInteger, "<init>", s"(L$JString;)V", false)
+    mv.visitJumpInsn(GOTO, end)
+    mv.visitLabel(notANumber)
+    mv.visitFieldInsn(GETSTATIC, JBigInteger, "ZERO", s"L$JBigInteger;")
+    mv.visitLabel(end)
   }
 
   // --------------------------------------------------------------------------------------------------------------

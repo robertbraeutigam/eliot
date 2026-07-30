@@ -86,6 +86,45 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "2|-1")
   }
 
+  "before and after" should "cut a runtime line at its first separator" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = line
+          |   printLine(s.before("=") ++ "|" ++ s.after("=") ++ "|" ++ before("?", s) ++ "|" ++ after("?", s) ++ ".")
+          |}""".stripMargin,
+      stdin = "a=b=c\n"
+    ).asserting(_ shouldBe "a|b=c|a=b=c|.")
+  }
+
+  "parseInt" should "read a runtime numeral and abort on anything else" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = line
+          |   printLine(show(parseInt(s) else (0 - 1)) ++ "|" ++ yn(s.isInteger) ++ yn(isInteger(s ++ "x")))
+          |}""".stripMargin,
+      stdin = "-1024\n"
+    ).asserting(_ shouldBe "-1024|yn")
+  }
+
+  /** The guard is what makes the leaf's totality invisible: `parseIntInternal` answers zero for a malformed numeral, and
+    * `parseInt` has to turn exactly those strings into an abort rather than into a `0`.
+    */
+  it should "abort rather than answer zero on a malformed numeral" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = line
+          |   printLine(show(parseInt(s) else (0 - 1)) ++ "|" ++ show(parseInt("0") else (0 - 1)))
+          |}""".stripMargin,
+      stdin = "1a\n"
+    ).asserting(_ shouldBe "-1|0")
+  }
+
   "Compare[String]" should "order two runtime strings lexicographically" in {
     compileAndRun(
       prelude +
@@ -157,6 +196,26 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
           |
           |def main: {Console} Unit = printLine(handler["/api/users"] ++ "/" ++ handler["/about"])""".stripMargin
     ).asserting(_ shouldBe "api/page")
+  }
+
+  "the parsing operations" should "reduce on the compiler track inside an ability guard" in {
+    compileAndRun(
+      prelude +
+        """
+          |ability Numeral[S: String] {
+          |   def verdict: String
+          |}
+          |
+          |implement[S: String] Numeral[S] where isInteger(S) && before("=", S) == S && after("=", S) == "" {
+          |   def verdict: String = "numeral"
+          |}
+          |
+          |implement[S: String] Numeral[S] where !isInteger(S) {
+          |   def verdict: String = "text"
+          |}
+          |
+          |def main: {Console} Unit = printLine(verdict["42"] ++ "/" ++ verdict["v1"])""".stripMargin
+    ).asserting(_ shouldBe "numeral/text")
   }
 
   /** The compiler track computing a *value*, not just a verdict: `S` is an erased type parameter, so the body cannot

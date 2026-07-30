@@ -111,6 +111,46 @@ def drop(count: Int, s: String): String = s.substring(count, s.length)
 def indexOf(part: String, s: String): {Abort} Int = if(s.contains(part), indexOfInternal(part, s))
 
 /**
+ * The characters of `s` ahead of the first occurrence of `separator`, or all of `s` when it does not occur.
+ *
+ * The everyday way to read the left half of a `key=value` line without deciding first whether it has one.
+ *
+ * ```eliot
+ * def label(setting: String): String = setting.before("=")
+ * ```
+ */
+def before(separator: String, s: String): String = s.substring(0, s.indexOf(separator)) else s
+
+/**
+ * The characters of `s` past the first occurrence of `separator`, or `""` when it does not occur.
+ *
+ * `before` and `after` cut at the *first* occurrence, so a later one stays in the tail:
+ * `after("=", "a=b=c")` is `"b=c"`.
+ */
+def after(separator: String, s: String): String = s.drop(s.indexOf(separator) + separator.length) else ""
+
+/**
+ * `true` when `s` spells a whole number and nothing else: an optional `-` or `+`, then at least one decimal digit.
+ *
+ * The exact test `parseInt` guards itself with, so `isInteger(s)` holds precisely when `parseInt(s)` yields a value.
+ */
+def isInteger(s: String): Bool
+
+/**
+ * The whole number `s` spells, aborting when it spells anything else.
+ *
+ * Reads an optional sign and any number of decimal digits — an `Int` has no width, so a long numeral is read
+ * exactly rather than wrapping. Anything else is the `Abort` effect rather than a zero, so a malformed number can
+ * never be mistaken for one, and a caller either answers it with `else` or propagates it.
+ *
+ * ```eliot
+ * // A port typed by the user, falling back on anything that is not a number.
+ * def port: {Console} Int = parseInt(readLine orElse "") else 8080
+ * ```
+ */
+def parseInt(s: String): {Abort} Int = if(s.isInteger, parseIntInternal(s))
+
+/**
  * `s` without leading and trailing whitespace.
  *
  * Whitespace is decided by the Unicode character properties, so it covers non-breaking and ideographic
@@ -205,3 +245,12 @@ implement Show[String] {
  * escape into user code. Implemented by the backend.
  */
 private def indexOfInternal(part: String, s: String): Int
+
+/**
+ * The number `s` spells, or `0` when it spells none — the raw leaf behind `parseInt`, which turns that case into an
+ * `{Abort}`. `private` so the zero can never escape into user code as if it were a parsed value.
+ *
+ * Total on purpose: an `if` *builds* both of its arms even though it runs only one, so a leaf that failed on a
+ * malformed numeral would fail before `parseInt`'s guard could choose. Implemented by the backend.
+ */
+private def parseIntInternal(s: String): Int

@@ -31,11 +31,11 @@ class ListIntegrationTest extends FullIntegrationTest {
         |import eliot.effect.Console
         |import eliot.collection.List
         |
-        |def words: List[String] = append(append(empty, "first"), "last")
+        |def entries: List[String] = append(append(empty, "first"), "last")
         |
         |def lastOr(list: List[String], start: String): String = list.foldLeft(start, e -> acc -> e)
         |
-        |def main: IO[Unit] = printLine(lastOr(words, "none"))""".stripMargin
+        |def main: IO[Unit] = printLine(lastOr(entries, "none"))""".stripMargin
     ).asserting(_ shouldBe "last")
   }
 
@@ -95,9 +95,9 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def items: List[String] = append(append(append(empty, "a"), "b"), "c")
         |
-        |def size(list: List[String]): Int = list.foldLeft(0, e -> acc -> add(acc, 1))
+        |def count(list: List[String]): Int = list.foldLeft(0, e -> acc -> add(acc, 1))
         |
-        |def main: IO[Unit] = printLine(show(size(items)))""".stripMargin
+        |def main: IO[Unit] = printLine(show(count(items)))""".stripMargin
     ).asserting(_ shouldBe "3")
   }
 
@@ -265,13 +265,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |import eliot.effect.Console
         |import eliot.collection.List
         |
-        |def words: List[String] =
+        |def animals: List[String] =
         |   append(append(append(append(append(empty, "ant"), "bee"), "ape"), "cow"), "bat")
         |
         |def showGroup(group: Pair[String, List[String]]): String =
         |   group.foldPair(key -> members -> key ++ "=" ++ members.foldLeft("", e -> acc -> acc ++ e ++ ","))
         |
-        |def main: {Console} Unit = words.groupBy(w -> w.substring(0, 1)).foreach(g -> printLine(showGroup(g)))""".stripMargin
+        |def main: {Console} Unit = animals.groupBy(w -> w.substring(0, 1)).foreach(g -> printLine(showGroup(g)))""".stripMargin
     ).asserting(_ shouldBe "a=ant,ape,\nb=bee,bat,\nc=cow,")
   }
 
@@ -282,9 +282,9 @@ class ListIntegrationTest extends FullIntegrationTest {
         |import eliot.effect.Console
         |import eliot.collection.List
         |
-        |def noWords: List[String] = empty
+        |def noAnimals: List[String] = empty
         |
-        |def main: IO[Unit] = printLine(fold(noWords.groupBy(w -> w).isEmpty, "no groups", "some groups"))""".stripMargin
+        |def main: IO[Unit] = printLine(fold(noAnimals.groupBy(w -> w).isEmpty, "no groups", "some groups"))""".stripMargin
     ).asserting(_ shouldBe "no groups")
   }
 
@@ -331,5 +331,157 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def main: IO[Unit] = printLine(show(add(sum(two), sum(three))))""".stripMargin
     ).asserting(_ shouldBe "7")
+  }
+
+  private val sampleProgram =
+    """
+      |import eliot.jvm.IO
+      |import eliot.effect.Console
+      |import eliot.collection.List
+      |
+      |def sample: List[String] = append(append(append(empty, "beta"), "alpha"), "gamma")
+      |
+      |def table: List[Pair[String, String]] =
+      |   append(append(empty, pair("alpha", "first")), pair("beta", "second"))
+      |
+      |def keyOfEntry(entry: Pair[String, String]): String = entry.foldPair(k -> _ -> k)
+      |
+      |def yn(flag: Bool): String = fold(flag, "y", "n")
+      |""".stripMargin
+
+  "size and singleton" should "count and build" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit =
+          |   printLine(show(sample.size) ++ show(singleton("only").size) ++ show(empty.size))""".stripMargin
+    ).asserting(_ shouldBe "310")
+  }
+
+  "head, last and at" should "read positions, answering none past the end" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit =
+          |   printLine((sample.head orElse "-") ++ "|" ++ (sample.last orElse "-") ++ "|" ++
+          |             (sample.at(1) orElse "-") ++ "|" ++ (sample.at(9) orElse "-") ++ "|" ++
+          |             (empty.at(0) orElse "-"))""".stripMargin
+    ).asserting(_ shouldBe "beta|gamma|alpha|-|-")
+  }
+
+  "tail, dropLast and replaceLast" should "take a list apart from either end" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def noWords: List[String] = empty
+          |
+          |def main: {Console} Unit =
+          |   printLine(sample.tail.joined(",") ++ "|" ++ sample.dropLast.joined(",") ++ "|" ++
+          |             sample.replaceLast("omega").joined(",") ++ "|" ++ noWords.dropLast.joined(",") ++ "." ++
+          |             noWords.replaceLast("x").joined(","))""".stripMargin
+    ).asserting(_ shouldBe "alpha,gamma|beta,alpha|beta,alpha,omega|.")
+  }
+
+  "any and all" should "answer whether some or every element matches" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit =
+          |   printLine(yn(sample.any(w -> w == "alpha")) ++ yn(sample.any(w -> w == "delta")) ++
+          |             yn(sample.all(w -> w.contains("a"))) ++ yn(sample.all(w -> w != "beta")) ++
+          |             yn(empty.any(w -> w == "x")) ++ yn(empty.all(w -> w == "x")))""".stripMargin
+    ).asserting(_ shouldBe "ynynny")
+  }
+
+  "flatMap and flatten" should "run lists together end to end" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit =
+          |   printLine(sample.flatMap(w -> append(singleton(w), w.take(1))).joined(",") ++ "|" ++
+          |             append(append(empty, sample), singleton("delta")).flatten.joined(","))""".stripMargin
+    ).asserting(_ shouldBe "beta,b,alpha,a,gamma,g|beta,alpha,gamma,delta")
+  }
+
+  "sorted" should "put the elements in ascending order and leave a sorted list alone" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit =
+          |   printLine(sample.sorted.joined(",") ++ "|" ++ sample.sorted.sorted.joined(",") ++ "|" ++
+          |             insert("beta", sample.sorted).joined(","))""".stripMargin
+    ).asserting(_ shouldBe "alpha,beta,gamma|alpha,beta,gamma|alpha,beta,beta,gamma")
+  }
+
+  "joined" should "put the separator between elements only" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def noWords: List[String] = empty
+          |
+          |def main: {Console} Unit =
+          |   printLine(sample.joined(", ") ++ "|" ++ singleton("one").joined(", ") ++ "|" ++ noWords.joined(", ") ++ ".")""".stripMargin
+    ).asserting(_ shouldBe "beta, alpha, gamma|one|.")
+  }
+
+  "an association list" should "be read with lookup and updated with put" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit =
+          |   printLine((table.lookup("beta") else "-") ++ "|" ++ (table.lookup("delta") else "-") ++ "|" ++
+          |             (table.lookupOption("alpha") orElse "-") ++ "|" ++
+          |             put("gamma", "third", table).map(keyOfEntry).joined(",") ++ "|" ++
+          |             (put("alpha", "changed", table).lookup("alpha") else "-"))""".stripMargin
+    ).asserting(_ shouldBe "second|-|first|alpha,beta,gamma|changed")
+  }
+
+  "split" should "cut a runtime string at every literal separator" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit = {
+          |   val line = readLine orElse ""
+          |   printLine(line.split(" ").joined("|") ++ "/" ++ split("  ", line).joined("|") ++ "/" ++
+          |             split(",", line).joined("|"))
+          |}""".stripMargin,
+      stdin = "a  b\n"
+    ).asserting(_ shouldBe "a||b/a|b/a  b")
+  }
+
+  it should "yield the characters of a string when the separator is empty" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit = {
+          |   val line = readLine orElse ""
+          |   printLine(split("", line).joined("-") ++ "/" ++ split("", "").joined("-") ++ ".")
+          |}""".stripMargin,
+      stdin = "abc\n"
+    ).asserting(_ shouldBe "a-b-c/.")
+  }
+
+  "words" should "drop every empty piece, whatever the whitespace" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit = {
+          |   val line = readLine orElse ""
+          |   printLine(line.words.joined("|") ++ "/" ++ words("   ").joined("|") ++ ".")
+          |}""".stripMargin,
+      stdin = "  dep \t github.com/x/foo   v1.3 \n"
+    ).asserting(_ shouldBe "dep|github.com/x/foo|v1.3/.")
+  }
+
+  "split and joined" should "be inverses, empty pieces included" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit = {
+          |   val line = readLine orElse ""
+          |   printLine(line.split(",").joined(","))
+          |}""".stripMargin,
+      stdin = "a,,b,\n"
+    ).asserting(_ shouldBe "a,,b,")
   }
 }
