@@ -110,8 +110,9 @@ emitting the same three shapes those two already emit, plus two conveniences:
 2. **`Algebra`** — body-less type-def over `R: Type`.
 3. **`fold`** — the concrete substituted algebra type inlined in its own signature; **abstract**, the
    backend supplies the body.
-4. **`foldBound`** — the meta-data projection the refinement computation needs (see below): the
-   structure's own recursion bound. Length for a list, **height** for a tree.
+4. **`depth`** — the derived nesting-depth meta-data the refinement computation needs as its iteration
+   bound (see below): a per-constructor refinement rule, plus the projection that reads it. Derived,
+   never user-declared.
 5. **strict positional wrapper** — `foldTree(ifLeaf, ifNode, t)`, derived non-recursive Eliot that
    forces every thunk immediately. Users never write a Church-encoded algebra, exactly as they never
    write `handleCases(scrutinee)(casesLambda)` — `matchdesugar` hides that today.
@@ -240,16 +241,89 @@ Convergence is frequently immediate, so this is not uniformly O(N):
 Only genuinely *accumulating* folds cost N applications of the meta-data code. At microcontroller
 scale (≤ 255, ≤ 65535) that is affordable; at 2³¹ it is not.
 
-### The bound is itself meta-data, and for a tree it is height
+### The bound has one role and two sources
 
-For a list the bound is length. For a tree the node arm applies once **per level**, joining across
-siblings, so the bound is **height**. Uniformly:
+The bound plays a single role — how many times `Φ` nests — but it comes from **the same place the
+fold's implementation comes from**, and there are two of those.
 
-> Every `Recursive` type must carry the bound of its own cata as meta-data — length for a list,
-> height for a tree.
+**A user-declared `data` ⇒ derived from its constructors.** The recursion is visible in the
+declaration, so the bound is its **nesting depth**, produced by the same substitution that produces
+the fold:
 
-Hence the derived `foldBound` projection above: the refinement computation is unrunnable without it,
-and deriving it per data type keeps this uniform instead of per-type special-casing.
+```
+constructor with no recursive fields   ⤳   [0,0]
+constructor with recursive fields      ⤳   max(those fields' depths) + 1
+```
+
+That is an ordinary constructor refinement rule, propagated by the existing channel through
+constructor application, so `Node(Leaf, x, Leaf)` gets depth `[1,1]` exactly — no fold involved and no
+circularity, because the channel propagates through *constructors* and only the fold's *result* needs
+the iteration.
+
+**A platform-native container ⇒ an axiomatic projection stated by the platform.** `List` is a native
+`java.util.List` (an `ArrayList` on the JVM). It has **no constructors**, so there is no nesting depth
+to derive and nothing to substitute over: its bound is `size`, declared beside the native exactly as
+its cycles cost is, and `foldLeftInternal` applies `Φ` **sequentially** `size` times rather than per
+level.
+
+This is not two mechanisms. It is the same layering the whole language uses — a `fold` body comes from
+the backend for a `data` type and from `foldLeftInternal` for `List`, and **the bound follows the
+implementation.** Derived fold, derived bound; native fold, platform-axiomatic bound.
+
+**Trust is confined to leaves.** A native's size transfer *cannot* be derived — nothing in Eliot can
+see that `ArrayList.add` appends exactly one element — so `append: n + 1` is **declared and trusted**,
+on the base-layer body-less `def`, since no Eliot body exists on any platform. That is the same trust
+already extended to a native's effect row (nothing verifies `printLine` touches the console) and to its
+cycle count (AVR datasheet numbers), and it is the grade design's existing rule: *axiomatic on natives,
+checked contracts on bodied defs*.
+
+Above a leaf the rule inverts: a **bodied** definition's meta-data is computed from the declarations
+below it and never asserted. An unchecked assertion on a definition whose body is available is the real
+unsoundness, because the body can contradict it — that is what
+[[feedback_gaps_must_be_failsafe]] rules out, not the leaf axiom.
+
+### Branching needs no meta-datum: Φ's arity supplies it
+
+One bound suffices even though a tree branches, because the recursive arm applies `Φ` once per
+recursive field by construction:
+
+| user fold | `Φ` | after `H` iterations |
+|---|---|---|
+| `depth` | `max(r, r) + 1` | `[0, H]` |
+| `size`  | `r + r + 1`     | `s(h) = 2·s(h−1) + 1` ⇒ `[0, 2^H − 1]` |
+
+`2^H − 1` is exactly the tight node count for a tree of height `H`. So the same single bound yields
+the correct interval for both folds, and no branching factor is tracked anywhere.
+
+Depth-derived bounds are **sound but not always tight**: a degenerate tree of height 8 holding 8 nodes
+still reports `size : [0, 255]`, because depth alone cannot distinguish it from a full one. That is the
+right direction to err (a wider result proves fewer things), and if a type ever carried *both* depth
+and node-count meta-data the two bounds would simply intersect. Not required for this design.
+
+### The fold consults no type-specific meta-data
+
+It iterates whatever the refinement channel **already holds for `R`'s type**: `R := Int` ⇒ the `range`
+channel; `R := List[A]` ⇒ the `size` channel once that exists; `R := String` ⇒ nothing tracked, so
+trivially `⊤`. Both inputs come from the channel as well — `ρ₀` is its refinement of `init`, `Φ` its
+refinement of the step body.
+
+The fold therefore contributes exactly two things, **the iteration and the bound**, and introduces no
+meta-data vocabulary of its own. It must stay a *consumer* of existing channels; a fold-specific
+notion of meta-data would be a second analysis by the back door.
+
+### The bound must be declarable and projectable on parameters
+
+Otherwise the mechanism is unreachable in real code: a literal `Node(Leaf, x, Leaf)` has an exact
+depth, but `def sum(t: Tree[Int]): Int` does not, so every fold over a parameter is `⊤`. Whichever of
+the two sources supplies it — derived depth or a native's `size` — the bound must be
+
+- **declarable** on a parameter — `t: Tree[Int] {depth: [0,8]}`, checked at the call site like any
+  other refinement; and
+- **projectable** — `t.depth`, exactly as the grade design already writes `ls.size.end`.
+
+Keep this distinct from a user-written `def depth(t: Tree[A]): Int = t.foldTree(0, l -> v -> r ->
+max(l(unit), r(unit)) + 1)`. That is an ordinary fold whose result range `[0, H]` comes *out of* this
+mechanism; it does not feed it. The two agreeing is a consistency check, not an input.
 
 ### When the bound is unbounded
 
@@ -274,7 +348,9 @@ algebra are both concrete — the same use-site stance `EffectAccountingProcesso
 ### Prerequisite: sizes
 
 `List` carrying `size: Interval` is the container-propagation work already noted as blocking the
-refinement channel's size domain, and it needs the size algebra on the container operations:
+refinement channel's size domain. Because `List` has no constructors, every entry below is **declared
+and trusted** on the base-layer body-less `def`, not derived — the axiomatic source of the previous
+sections:
 
 | operation | size |
 |---|---|
@@ -286,6 +362,12 @@ refinement channel's size domain, and it needs the size algebra on the container
 
 Until that lands every fold's bound is `∞` and the fallback is always taken — so sizes really are the
 gate, matching the **ranges → sizes → grades** ladder.
+
+The honest cost of trusting these: a wrong `append: n + 1` silently yields wrong bounds, with no
+diagnostic. That is the same exposure the platform already carries for effect rows and cycle counts, and
+it is bounded the same way — the surface is a handful of container operations per platform, auditable in
+one file, and testable by generators and probing rather than by proof (the *Use-Site Verification*
+cornerstone's stance on totality).
 
 ## Rejected alternatives
 
@@ -319,7 +401,12 @@ gate, matching the **ranges → sizes → grades** ladder.
    perfectly possible, so generic cata code can still cover it; it simply is not *derived*.
 3. **Container-nested recursion.** `data Rose[A](value: A, children: List[Rose[A]])` recurses *through*
    `List`, so reaching the children needs `List`'s own `map`. This wants the derived `Functor` (or an
-   equivalent) first, and is a later step than direct recursive fields.
+   equivalent) first, and is a later step than direct recursive fields. It also breaks the two clean
+   properties above: the depth rule (`max(recursive fields) + 1`) has to reach *through* the container
+   to find the recursive occurrence, and the branching factor is the child list's **length** rather
+   than a fixed constructor arity — so unlike a `Tree`, `Φ`'s arity no longer supplies branching on its
+   own and the container's `size` meta-data is needed too. The same container-propagation dependency as
+   everything else on the ladder.
 4. **A row-carrying ability method is currently classified as an effect** — `ability Foldable[T, A]`
    with a `{Effect}` row in a method yields *"This value performs the effect 'Foldable'"*. Judged a
    compiler bug, and it must be fixed before `Foldable`/`Functor` can carry rows. It is **not** on
@@ -342,3 +429,14 @@ gate, matching the **ranges → sizes → grades** ladder.
   exact; when it is not, the result is a declared invariant verified in one step, or `⊤`. Widening
   toward a *wider* result is the only sanctioned imprecision, because it can only produce more errors,
   never fewer.
+- **The bound follows the implementation.** A derived fold gets a derived bound (nesting depth, from the
+  constructors); a native fold gets an axiomatic one (`List`'s `size`, declared on the body-less base
+  `def` — there are no constructors to derive from, and a native's transfer is not derivable in
+  principle).
+- **Trust is confined to leaves.** A body-less `def` backed by a native may *declare* its meta-data
+  transfer, exactly as it declares its effect row and its cycle cost. A **bodied** definition may not:
+  its meta-data is computed from what it calls. Moving an assertion above a leaf, where a body could
+  contradict it, is the unsoundness to refuse.
+- **The fold owns no meta-data vocabulary.** It iterates whatever channel `R`'s type already has, and
+  contributes only the iteration and the bound. A fold-specific meta-datum would be a second analysis
+  by the back door.
