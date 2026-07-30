@@ -4,6 +4,15 @@
 type Pair[A, B]
 
 /**
+ * The pair of `first` and `second`.
+ *
+ * ```eliot
+ * def labelled(n: Int): Pair[String, Int] = pair("count", n)
+ * ```
+ */
+def pair[A, B](first: A, second: B): Pair[A, B]
+
+/**
  * Eliminate a `Pair`: apply the curried `f` to its `first` and `second` components.
  *
  * ```eliot

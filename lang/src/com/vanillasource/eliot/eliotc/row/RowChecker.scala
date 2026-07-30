@@ -137,7 +137,11 @@ object RowChecker {
         .getOrElse(Derivation.empty)
       RowResult(
         vfqn,
-        derivation.row,
+        // Machinery drops out of the *derived* row exactly as [[declaredRow]] drops it from the declared one: a
+        // `{Effect}` entry is the row variable a parameter declares (see [[parameterEnvironment]]), not an effect a
+        // user can name, declare or be told about. Filtering both sides is what keeps `derived ⊆ declared` — and its
+        // diagnostic — spoken entirely in user abilities.
+        derivation.row.filterNot(machinery),
         declared,
         derivation.unknown,
         runCaptured = headOf(view.returnType.value).exists(runCarrierHeads(universe).contains),
@@ -288,6 +292,19 @@ object RowChecker {
     * row (a suspended slot, or an effectful-callback arrow row) contributes that row wherever it is referenced or
     * called. Alignment: the peeled runtime binders end with the value parameters (leading binders may be generics), so
     * the last `view.parameters.size` names align positionally with the signature's value parameters.
+    *
+    * **Machinery is kept here**, unlike everywhere else a row is built. A row-polymorphic slot (`f: A => {Effect} B`,
+    * `whenTrue: {Effect} A`) declares the row *variable* ρ, whose entries are exactly the ones this derivation cannot
+    * name — and "nothing I can name" is not the claim "nothing". Dropping the machinery entry states the second, and
+    * the two questions the derivation answers then both come out wrong for every row-polymorphic definition: `f(e)`
+    * reads as pure, so §1 rule 1's hoist never happens and the computation is passed inline to a payload slot; and the
+    * position settles `ρ := {}`, so the whole call is written at `Id` and an effect lands on a carrier that cannot
+    * perform it. That is `map`, `filter`, `groupBy` — every combinator taking a user function.
+    *
+    * The entry never reaches the user: rows are also the verification vocabulary, and [[checkValue]] drops machinery
+    * from the derived row exactly as [[declaredRow]] drops it from the declared one, so `derived ⊆ declared` is
+    * decided in user abilities on both sides. Keeping the entry *inside* the derivation is what lets one row answer
+    * both questions instead of a second, parallel predicate.
     */
   private def parameterEnvironment(
       orv: OperatorResolvedValue,
@@ -298,7 +315,7 @@ object RowChecker {
     orv.effectRow.parameterEffects.flatMap { pe =>
       valueParamNames
         .lift(pe.parameterIndex)
-        .map(name => name -> pe.effects.map(_.abilityFQN).toSet.filterNot(machinery))
+        .map(name => name -> pe.effects.map(_.abilityFQN).toSet)
     }.toMap
   }
 

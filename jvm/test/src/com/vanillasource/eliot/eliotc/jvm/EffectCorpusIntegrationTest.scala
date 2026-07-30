@@ -53,6 +53,22 @@ class EffectCorpusIntegrationTest extends FullIntegrationTest {
     )
   }
 
+  // The three "visiting" lines coming *first*, in order, is the assertion: the bind belongs to `eachInto`'s traversal,
+  // so the whole list is built (and announced) before the caller prints any of it. The last line is the pure
+  // instantiation of the same definition — ρ := {}, where the written `Id` bind must erase without a trace.
+  "a row-polymorphic callback consumed strictly" should "run at its call site, at every instantiation of its row" in {
+    compileAndRun(EffectCorpus.rowPolymorphicCallbackProgram).asserting(
+      _ shouldBe
+        """visiting a
+          |visiting b
+          |visiting c
+          |a!
+          |b!
+          |c!
+          |a?b?c?""".stripMargin
+    )
+  }
+
   "repeated readLine" should "read successive lines, not end-of-stream after the first" in {
     compileAndRun(EffectCorpus.stdinProgram, stdin = "alpha\nbeta\ngamma\n").asserting(
       _ shouldBe

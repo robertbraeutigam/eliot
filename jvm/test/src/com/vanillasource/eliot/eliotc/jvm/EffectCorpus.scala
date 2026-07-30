@@ -127,6 +127,44 @@ object EffectCorpus {
       |   printLine(labelOf("nokey") else "none")
       |}""".stripMargin
 
+  /** A **row-polymorphic callback whose result is consumed strictly** — `append(acc, f(e))` with `f: A => {Effect} B`.
+    *
+    * The third of the arrow-slot family, and the one that closes it. [[effectfulLambdaProgram]] applies such a callback
+    * in *tail* position, where its computation is the region's own result and nothing has to be sequenced; here the
+    * result has to become a plain `B` before `append` can take it, so the call must **hoist** — §1 rule 1, the effect
+    * runs where it is written. It did not: a row-polymorphic callback declares the row variable ρ, and a row is a set
+    * of concrete abilities, so deriving `f(e)`'s row yielded the empty set and read the call as pure. The computation
+    * was then passed inline to `append`'s payload slot and rejected as a rule-4 violation — a hard error, so the whole
+    * shape (`map`, `filter`, `groupBy`, any combinator taking a user function) was unwritable. See
+    * `RowChecker.rowDeclaringParameters`.
+    *
+    * Both instantiations of ρ are exercised, and they check opposite halves: `announce` makes ρ := `{Console}`, where
+    * the "visiting" lines must appear once per element and *before* the mapped results (the bind belongs to
+    * `eachInto`'s traversal, not to the caller's later `foreach`); the pure lambda makes ρ := `{}`, where the bind the
+    * elaborator now always writes is `Id`'s and must erase — nothing of it may reach the output, or the runtime.
+    */
+  val rowPolymorphicCallbackProgram: String =
+    """import eliot.collection.List
+      |import eliot.carrier.Effect
+      |
+      |def eachInto[A, B](f: A => {Effect} B, list: List[A]): {Effect} List[B] =
+      |   list.foldLeft(empty, e -> acc -> append(acc, f(e)))
+      |
+      |def three: List[String] = append(append(append(empty, "a"), "b"), "c")
+      |
+      |def announce(s: String): {Console} String = {
+      |   printLine("visiting " ++ s)
+      |   s ++ "!"
+      |}
+      |
+      |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
+      |
+      |def main: {Console} Unit = {
+      |   val announced = eachInto(announce, three)
+      |   announced.foreach(printLine)
+      |   printLine(joinAll(eachInto(s -> s ++ "?", three)))
+      |}""".stripMargin
+
   /** Repeated `readLine`: the `Console` effect must be able to read more than one line.
     *
     * A `BufferedReader` reads ahead, so a reader built per call takes the whole of standard input into its buffer and

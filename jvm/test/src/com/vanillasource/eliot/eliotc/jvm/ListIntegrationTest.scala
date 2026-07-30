@@ -116,6 +116,204 @@ class ListIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "1\n2\n3")
   }
 
+  "prepend" should "put the element at the front, leaving its source list unchanged" in {
+    // `base` is prepended to twice; if `prepend` mutated its source the second call would see the first's element.
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def base: List[String] = append(empty, "x")
+        |
+        |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
+        |
+        |def main: IO[Unit] = printLine(joinAll(prepend(base, "a")) ++ joinAll(prepend(base, "b")))""".stripMargin
+    ).asserting(_ shouldBe "axbx")
+  }
+
+  "map" should "apply a pure function to every element, in order" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(append(empty, 1), 2), 3)
+        |
+        |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
+        |
+        |def main: IO[Unit] = printLine(joinAll(digits.map(show)))""".stripMargin
+    ).asserting(_ shouldBe "123")
+  }
+
+  // The interleaving is the assertion: `map`'s effects run once per element, front to back, as the list is built —
+  // not all at the end, and not once. This is the row-polymorphic callback shape (`RowChecker.parameterEnvironment`).
+  "map" should "run an effectful function once per element, front to back, propagating its effects" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(empty, 1), 2)
+        |
+        |def announce(n: Int): {Console} String = {
+        |   printLine("at " ++ show(n))
+        |   show(n)
+        |}
+        |
+        |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
+        |
+        |def main: {Console} Unit = {
+        |   val labels = digits.map(announce)
+        |   printLine(joinAll(labels))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "at 1\nat 2\n12")
+  }
+
+  "filter" should "keep exactly the satisfying elements, in their original order" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(append(append(empty, 3), 1), 4), 2)
+        |
+        |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
+        |
+        |def main: IO[Unit] = printLine(joinAll(digits.filter(e -> e > 2).map(show)))""".stripMargin
+    ).asserting(_ shouldBe "34")
+  }
+
+  "reverse" should "yield the elements back to front" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(append(empty, 1), 2), 3)
+        |
+        |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
+        |
+        |def main: IO[Unit] = printLine(joinAll(digits.reverse.map(show)) ++ joinAll(empty.reverse))""".stripMargin
+    ).asserting(_ shouldBe "321")
+  }
+
+  "isEmpty" should "distinguish the empty list from a populated one" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(empty, 1)
+        |
+        |def emptyInts: List[Int] = empty
+        |
+        |def main: IO[Unit] = printLine(fold(digits.isEmpty, "yes", "no") ++ fold(emptyInts.isEmpty, "yes", "no"))""".stripMargin
+    ).asserting(_ shouldBe "noyes")
+  }
+
+  "find" should "return the first satisfying element, or none when there is none" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(append(empty, 1), 4), 2)
+        |
+        |def firstOver(list: List[Int], limit: Int): String =
+        |   list.find(e -> e > limit).foldOption("none", v -> show(v))
+        |
+        |def main: IO[Unit] = printLine(firstOver(digits, 1) ++ ":" ++ firstOver(digits, 9))""".stripMargin
+    ).asserting(_ shouldBe "4:none")
+  }
+
+  // `find`'s predicate sits in `foldOption`'s suspended `ifNone` arm, so it stops being applied once something is
+  // found: only the elements up to and including the match are probed, even though the fold walks the whole list.
+  "find" should "stop applying an effectful predicate once a match is found" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(append(empty, 1), 4), 2)
+        |
+        |def probe(n: Int, limit: Int): {Console} Bool = {
+        |   printLine("probing " ++ show(n))
+        |   n > limit
+        |}
+        |
+        |def main: {Console} Unit = {
+        |   val found = digits.find(e -> probe(e, 1))
+        |   printLine(found.foldOption("none", v -> show(v)))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "probing 1\nprobing 4\n4")
+  }
+
+  // Groups come out in first-occurrence order and each group keeps its elements' original order — the property an
+  // association list has and a hash table does not, and the reason `groupBy` returns one.
+  "groupBy" should "group by key equality, in first-occurrence order" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def words: List[String] =
+        |   append(append(append(append(append(empty, "ant"), "bee"), "ape"), "cow"), "bat")
+        |
+        |def showGroup(group: Pair[String, List[String]]): String =
+        |   group.foldPair(key -> members -> key ++ "=" ++ members.foldLeft("", e -> acc -> acc ++ e ++ ","))
+        |
+        |def main: {Console} Unit = words.groupBy(w -> w.substring(0, 1)).foreach(g -> printLine(showGroup(g)))""".stripMargin
+    ).asserting(_ shouldBe "a=ant,ape,\nb=bee,bat,\nc=cow,")
+  }
+
+  "groupBy over the empty list" should "produce no groups at all" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def noWords: List[String] = empty
+        |
+        |def main: IO[Unit] = printLine(fold(noWords.groupBy(w -> w).isEmpty, "no groups", "some groups"))""".stripMargin
+    ).asserting(_ shouldBe "no groups")
+  }
+
+  // The key function is effect-transparent like every other callback here: its effects run once per element, front to
+  // back, and the grouping is unaffected by them.
+  "groupBy" should "run an effectful key function once per element, front to back" in {
+    compileAndRun(
+      """
+        |import eliot.jvm.IO
+        |import eliot.effect.Console
+        |import eliot.collection.List
+        |
+        |def digits: List[Int] = append(append(append(empty, 1), 2), 3)
+        |
+        |def parity(n: Int): {Console} String = {
+        |   printLine("keying " ++ show(n))
+        |   fold(n > 2, "big", "small")
+        |}
+        |
+        |def showGroup(group: Pair[String, List[Int]]): String =
+        |   group.foldPair(key -> members -> key ++ "=" ++ members.foldLeft("", e -> acc -> acc ++ show(e)))
+        |
+        |def main: {Console} Unit = {
+        |   val groups = digits.groupBy(parity)
+        |   groups.foreach(g -> printLine(showGroup(g)))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "keying 1\nkeying 2\nkeying 3\nsmall=12\nbig=3")
+  }
+
   "append" should "not mutate its source list (value semantics)" in {
     // `two` and `three` both extend `base`. If `append` mutated its source instead of copying, the shared `base` would
     // accumulate both elements and the sums would differ; because it copies, sum(two)=1+2=3 and sum(three)=1+3=4, so 7.

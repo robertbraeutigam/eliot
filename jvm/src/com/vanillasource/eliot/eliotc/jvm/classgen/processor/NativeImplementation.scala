@@ -37,6 +37,7 @@ object NativeImplementation {
       (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit),
       (collectionValueFQN("List", "empty"), eliot_collection_List_empty),
       (collectionValueFQN("List", "append"), eliot_collection_List_append),
+      (collectionValueFQN("List", "prepend"), eliot_collection_List_prepend),
       (collectionValueFQN("List", "foldLeftInternal"), eliot_collection_List_foldLeftInternal)
     ) ++ StringNatives.implementations ++ FileNatives.implementations
   )
@@ -55,6 +56,7 @@ object NativeImplementation {
   val genericNativeSignatures: Map[ValueFQN, GenericNativeSignature] = Map(
     collectionValueFQN("List", "empty")     -> GenericNativeSignature(Seq.empty, listType),
     collectionValueFQN("List", "append")    -> GenericNativeSignature(Seq(listType, systemAnyValue), listType),
+    collectionValueFQN("List", "prepend")   -> GenericNativeSignature(Seq(listType, systemAnyValue), listType),
     collectionValueFQN("List", "foldLeftInternal") ->
       GenericNativeSignature(Seq(listType, systemAnyValue, systemFunctionValue), systemAnyValue),
     systemEffectValueFQN("Console", "isNull") -> GenericNativeSignature(Seq(systemAnyValue), systemLangType("Bool"))
@@ -174,6 +176,43 @@ object NativeImplementation {
               false
             )
             methodVisitor.visitInsn(Opcodes.POP)                                        // discard the boolean
+          }
+        }
+    }
+  }
+
+  /** `prepend[A](list: List[A], element: A): List[A]` — a new list = `element` followed by every element of `list`. The
+    * front-insertion counterpart of [[eliot_collection_List_append]], and the primitive `List.reverse` is built on: with
+    * only `append` a fold can extend a list at the back but never at the front, so reversing one would cost a
+    * concatenation per element. Copies like `append` does (value semantics, O(n) per call).
+    */
+  private def eliot_collection_List_prepend: NativeImplementation = new NativeImplementation {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
+      val sig = genericNativeSignatures(collectionValueFQN("List", "prepend"))
+      classGenerator
+        .createMethod[CompilerIO](JvmIdentifier("prepend"), sig.parameterTypes, sig.returnType)
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            methodVisitor.visitTypeInsn(Opcodes.NEW, "java/util/ArrayList")
+            methodVisitor.visitInsn(Opcodes.DUP)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)                                // the source list
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKESPECIAL,
+              "java/util/ArrayList",
+              "<init>",
+              "(Ljava/util/Collection;)V",
+              false
+            )
+            methodVisitor.visitInsn(Opcodes.DUP)                                        // keep the copy to return
+            methodVisitor.visitInsn(Opcodes.ICONST_0)                                   // insert at the front
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 1)                                // the element
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/util/ArrayList",
+              "add",
+              "(ILjava/lang/Object;)V",
+              false
+            )
           }
         }
     }

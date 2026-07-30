@@ -27,6 +27,14 @@ def empty[A]: List[A]
 def append[A](list: List[A], element: A): List[A]
 
 /**
+ * A new list holding `element` followed by every element of `list`. `list` itself is unchanged.
+ *
+ * The front-insertion counterpart of `append`. A left fold can only extend a list at the back, so building one in
+ * reverse — what `reverse` does — is exactly what this is for.
+ */
+def prepend[A](list: List[A], element: A): List[A]
+
+/**
  * Reduce `list` to a single value: starting from `initial`, combine each element into the accumulator from front to
  * back — `append(append(empty, a), b).foldLeft(z, combine)` is `combine(b)(combine(a)(z))`.
  *

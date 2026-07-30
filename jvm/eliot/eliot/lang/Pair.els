@@ -1,5 +1,10 @@
 data Pair[A, B](first: A, second: B)
 
+// Binds the base layer's abstract `pair` to this representation — a `def` name may not be upper-case, so the generated
+// `Pair` constructor is not a name the base can declare, and without this base-layer code could take a pair apart but
+// never build one (`List.groupBy` does both).
+def pair[A, B](first: A, second: B): Pair[A, B] = Pair(first, second)
+
 def foldPair[A, B, C](f: Function[A, Function[B, C]], p: Pair[A, B]): C = p match {
    case Pair(a, b) -> f(a)(b)
 }

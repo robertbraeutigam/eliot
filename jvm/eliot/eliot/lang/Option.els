@@ -2,6 +2,13 @@ import eliot.carrier.Effect
 
 data Option[A] = None | Some(value: A)
 
+// The base layer declares `some`/`none` abstractly (a `def` name may not be upper-case, so the platform's `Some`/`None`
+// constructors cannot be the names it declares); these bind them to this representation, which is what lets base-layer
+// code — `List.find` — build an `Option` without naming a platform's constructor.
+def some[A](value: A): Option[A] = Some(value)
+
+def none[A]: Option[A] = None
+
 def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B = o match {
    case None -> ifNone
    case Some(v) -> ifSome(v)

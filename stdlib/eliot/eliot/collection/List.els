@@ -8,6 +8,8 @@ def empty[A]: List[A]
 
 def append[A](list: List[A], element: A): List[A]
 
+def prepend[A](list: List[A], element: A): List[A]
+
 def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: List[A]): {Effect} B
 
 /**
@@ -24,6 +26,114 @@ def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: Lis
  */
 def foreach[A](action: A => {Effect} Unit, list: List[A]): {Effect} Unit =
    list.foldLeft(pure(unit), e -> _ -> action(e))
+
+/**
+ * A new list holding the result of `f` for every element of `list`, in the same order.
+ *
+ * `f` may perform effects; they run once per element, front to back, and join the caller's row — a pure `f`
+ * performs none. `list` is last, so this dot-chains as `list.map(f)`.
+ *
+ * ```eliot
+ * def lengths(words: List[String]): List[Int] = words.map(length)
+ *
+ * // An effectful mapping: each prompt is answered in turn, and {Console} propagates to the caller.
+ * def answers(prompts: List[String]): {Console} List[String] =
+ *    prompts.map(p -> { printLine(p) ; readLine orElse "" })
+ * ```
+ */
+def map[A, B](f: A => {Effect} B, list: List[A]): {Effect} List[B] =
+   list.foldLeft(empty, e -> acc -> append(acc, f(e)))
+
+/**
+ * The elements of `list` that satisfy `predicate`, in their original order.
+ *
+ * `predicate` is applied to *every* element — there is no short-circuiting, exactly as there is none in `&&` —
+ * so an effectful predicate performs once per element. `list` is last, so this dot-chains as
+ * `list.filter(predicate)`.
+ *
+ * ```eliot
+ * def nonEmpty(lines: List[String]): List[String] = lines.filter(line -> length(line) > 0)
+ * ```
+ */
+def filter[A](predicate: A => {Effect} Bool, list: List[A]): {Effect} List[A] =
+   list.foldLeft(empty, e -> acc -> fold(predicate(e), append(acc, e), acc))
+
+/**
+ * The elements of `list` in the opposite order.
+ *
+ * ```eliot
+ * def countdown(from: List[Int]): List[Int] = from.reverse
+ * ```
+ */
+def reverse[A](list: List[A]): List[A] = list.foldLeft(empty, e -> acc -> prepend(acc, e))
+
+/**
+ * `true` when `list` holds no elements at all.
+ *
+ * ```eliot
+ * def describe(items: List[String]): String = fold(items.isEmpty, "nothing to do", "work to do")
+ * ```
+ */
+def isEmpty[A](list: List[A]): Bool = list.foldLeft(true, _ -> _ -> false)
+
+/**
+ * The first element of `list` satisfying `predicate`, or `none` when there is no such element.
+ *
+ * The predicate stops being applied once a match is found: it sits in `foldOption`'s suspended `ifNone` arm, which
+ * only runs while nothing has been found yet, so an effectful predicate performs exactly as far as the match. The
+ * fold itself still walks the whole list.
+ *
+ * ```eliot
+ * def firstComment(lines: List[String]): Option[String] = lines.find(line -> line.startsWith("//"))
+ * ```
+ */
+def find[A](predicate: A => {Effect} Bool, list: List[A]): {Effect} Option[A] =
+   list.foldLeft(none, e -> acc -> acc.foldOption(fold(predicate(e), some(e), none), _ -> acc))
+
+/**
+ * Group the elements of `list` by the key `key` computes for each of them.
+ *
+ * The result is an **association list**: one `Pair` per distinct key, holding that key and the elements it was
+ * computed for. Groups appear in order of first occurrence and each group's elements keep their original order, so
+ * the same list always groups the same way — this is a list, not a hash table, and nothing about it is unordered.
+ *
+ * Keys are compared with `Eq[K]`, the type's own equality, and each element is placed in the first group whose key
+ * matches. `key` may perform effects; they run once per element, front to back. `list` is last, so this dot-chains
+ * as `list.groupBy(key)`.
+ *
+ * Finding a group is a scan, so grouping costs one pass per distinct key — sized for the small collections a
+ * microcontroller works with, in keeping with the rest of this API (`append` already copies).
+ *
+ * ```eliot
+ * // Group words by their first letter:
+ * //   append(append(empty, "ant"), "bee").groupBy(w -> w.substring(0, 1))
+ * // yields  [Pair("a", ["ant"]), Pair("b", ["bee"])]
+ * def byInitial(words: List[String]): List[Pair[String, List[String]]] =
+ *    words.groupBy(w -> w.substring(0, 1))
+ * ```
+ */
+def groupBy[A, K ~ Eq](key: A => {Effect} K, list: List[A]): {Effect} List[Pair[K, List[A]]] =
+   list.foldLeft(empty, e -> groups -> addToGroup(key(e), e, groups))
+
+/**
+ * Add `element` to the group `groups` holds for `key`, or start a new group at the end when there is none.
+ *
+ * `private` because it is `groupBy`'s step, not an operation of its own. It rebuilds the whole association list in
+ * one pass, carrying "was the key found" beside it — a list is only foldable front to back, so deciding whether to
+ * start a new group has to wait until the existing groups are exhausted.
+ */
+private def addToGroup[A, K ~ Eq](key: K, element: A, groups: List[Pair[K, List[A]]]): List[Pair[K, List[A]]] =
+   groups
+      .foldLeft(
+         pair(false, empty),
+         group -> acc -> acc.foldPair(found -> rebuilt -> group.foldPair(groupKey -> members ->
+            fold(
+               groupKey == key,
+               pair(true, append(rebuilt, pair(groupKey, append(members, element)))),
+               pair(found, append(rebuilt, group))
+            )))
+      )
+      .foldPair(found -> rebuilt -> fold(found, rebuilt, append(rebuilt, pair(key, append(empty, element)))))
 
 /**
  * `List` is a monoid under concatenation: `combine` appends the elements of the second list after the first (a
