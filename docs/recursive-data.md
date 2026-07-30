@@ -29,10 +29,16 @@ platform cannot ship a native for a type the user has not written yet. So today 
 arbitrarily rich recursive structure and then do nothing whatsoever with it.
 
 This is not a gap in the *Total by Default* cornerstone. It is a **missing derivation**: `match` is
-already the one-layer eliminator, and what is absent is its fixed point. Every recursive type in the
-stdlib already has that fixed point **hand-written** — `Bool`'s `fold`, `foldOption`, `foldEither`,
-`List`'s `foldLeft` — and the whole `docs/collections.md` combinator set is ordinary non-recursive
-Eliot layered over `foldLeft`. The design below derives what has been written by hand four times.
+already the one-layer eliminator, and what is absent is its fixed point.
+
+The evidence is that the stdlib hand-writes an eliminator for **every** `data` type it owns — `Bool`'s
+`fold`, `foldOption`, `foldEither`, `foldPair` — each a near-identical `match` over its own constructors,
+duplicated again in the `eliot-compiler/` overlay. Those are all *non*-recursive, so they are merely
+tedious; a recursive type is where the same shape stops being writable at all. (`List`'s `foldLeft` is a
+different animal — a native container's fold, not a `data` eliminator, and it stays a native. The whole
+`docs/collections.md` combinator set is then ordinary non-recursive Eliot layered over it.)
+
+So the derivation both removes existing duplication and makes the currently impossible case possible.
 
 ## The design: the recursor is `PatternMatch` with recursive fields expanded
 
@@ -150,15 +156,27 @@ emitting the same three shapes those two already emit, plus two conveniences:
 
    ```eliot
    -- the common case: originals dropped, thunks forced. A plain catamorphism.
-   def foldTree[A, R](ifLeaf: R, ifNode: R => A => R => R, t: Tree[A]): R
+   def foldTree[A, B](ifLeaf: {Effect} B, ifNode: B => A => B => {Effect} B, t: Tree[A]): {Effect} B
 
    -- the general case: each recursive field as (original, suspended fold).
-   def foldTreeWith[A, R](
-      ifLeaf: R,
-      ifNode: Tree[A] => (Unit => R) => A => Tree[A] => (Unit => R) => R,
+   def foldTreeWith[A, B](
+      ifLeaf: {Effect} B,
+      ifNode: Tree[A] => (Unit => B) => A => Tree[A] => (Unit => B) => {Effect} B,
       t: Tree[A]
-   ): R
+   ): {Effect} B
    ```
+
+   **The arms are rows, not plain types.** `{Effect} B` on every arm result is what `Bool.fold`,
+   `foldOption` and `foldEither` already do — `IfDemo.els` documents `Bool.fold`'s arms as *"both arms are
+   suspended (`{Effect} A`), so only the selected one ever runs"*. (`foldPair` is the outlier: pure, with
+   its single arm spelled `Function[A, Function[B, C]]`. See *Migrating the existing folds* below.) Rows
+   and thunks are **complementary**: rows give *effect*-laziness on the arms, thunks give
+   *evaluation*-laziness on recursive positions. A pure arm in a row slot is still built strictly
+   ([[gotcha_if_guard_builds_both_arms]]), which is exactly why the thunks cannot be replaced by rows.
+
+   Nullary arms are `Function[Unit, R]` inside the Church-encoded `Algebra`, but the wrapper exposes them
+   as row-typed values (`ifLeaf: {Effect} B`) and passes `_ -> ifLeaf` inward — what the `match` desugar
+   does today.
 
 ### Where the recursion lives: a native, like `handleCases`
 
@@ -305,6 +323,54 @@ exactly as `range(a)` does for `Int` — which is why the runtime function above
 the derived channel takes a distinguished name or users avoid it; this needs deciding before
 implementation.
 
+## Migrating the existing folds
+
+The derivation applies to **every** `data` type, not only recursive ones. `Option`, `Either` and `Pair`
+have no recursive fields, so nothing matches the rewrite: no originals, no thunks, `Algebra[R]` ≡
+`Cases[R]`, and the derived `fold` ≡ `handleCases`. For them the derivation is plain case analysis — and
+that is precisely the shape of three of the four hand-written folds this design was motivated by.
+
+Better still, the derived name is already the right one. `fold<TypeName>` ⇒ `foldOption`, arms from
+constructor names ⇒ `ifNone`/`ifSome`. So migration is a **deletion**, not a rewrite:
+
+```eliot
+-- jvm/eliot/eliot/lang/Option.els AND stdlib/eliot-compiler/eliot/lang/Option.els both hold this
+-- identical body today; both are deleted, since the derived wrapper *is* foldOption.
+def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B = o match {
+   case None -> ifNone
+   case Some(v) -> ifSome(v)
+}
+```
+
+Leaving a hand-written body beside the derived one is a hard error — *"Has multiple implementations."*
+
+What **stays** is the abstract declaration in `stdlib`: base-layer code calls `foldOption` (`orElse`,
+`mapOption`, `List.head`) and the base has only `type Option[A]`, with no constructors to derive from. So
+the win on an existing type is two bodies, not three. On a genuinely recursive type it is total, because
+today the body cannot be written at all.
+
+**The delicate part is the merge, and it applies only to migration.** Because layer merging is lexical
+([[gotcha_arrow_alias_not_in_data_or_merge]]), a derived signature must be *character-identical* to the
+abstract declaration it replaces. Against `foldOption` the generator must emit `{Effect} B` rows (not
+plain `B`), the `=>` arrow alias (`Function[A, {Effect} B]` would not match textually), the result generic
+named `B` rather than `R`, and the parameters `ifNone`, `ifSome`, `o` in that order with the subject last.
+
+And the four existing eliminators **do not agree with each other**, so no single convention matches them
+all as written:
+
+| | arms | spelling | name |
+|---|---|---|---|
+| `Bool.fold` | rows, plus `{ join(whenTrue, whenFalse) }` | values (nullary constructors) | `fold`, not `foldBool` |
+| `foldOption` | rows | `A => {Effect} B` | conventional |
+| `foldEither` | rows | `E => {Effect} B` | conventional |
+| `foldPair` | **none — pure** | `Function[A, Function[B, C]]`, one curried arm | conventional |
+
+So migration means **normalising these declarations onto the generated convention**, not matching each
+one. Adding rows to `foldPair` is source-compatible (a row slot is strictly more permissive than a plain
+one, so existing call sites keep compiling), but it *is* a base-layer edit and `Bool.fold`'s name is a
+deliberate exception. Migrate them deliberately, one at a time, rather than as a side effect of landing
+the feature. A new user type such as `Tree` has no abstract declaration to match and is unaffected.
+
 ## Meta-data: run the transfer function, bounded by the structure
 
 The result's refinement cannot be stated axiomatically. The grade design in `TODO.md` can write
@@ -324,6 +390,25 @@ under the arithmetic operators via `implement[T ~ Numeric[T] & Compare[T]] Numer
 that `[0, 1] + [1, 2]` computes `[1, 3]` on `Interval[BigInteger]` — and the single NbE evaluator
 already runs it, precisely as *Types Are Values* says it should. (Widening-based abstract interpretation *would* be a second engine. Concrete iteration is
 not.)
+
+### The non-recursive half already ships: join the arms
+
+`Bool.fold` is the degenerate eliminator, and it *already* carries its meta-data:
+
+```eliot
+def fold[A](condition: Bool, whenTrue: {Effect} A, whenFalse: {Effect} A): {Effect} A { join(whenTrue, whenFalse) }
+```
+
+`join` is exactly the `branch` operation — the hull of the arms. So the derived fold's meta-data splits
+cleanly in two:
+
+- **case analysis** contributes `join(arm₁, …, armₙ)`, and needs no iteration whatever. A non-recursive
+  type is *entirely* this case: the derived `foldOption`'s meta is `join(ifNone, ifSome)`, full stop.
+- **recursion** contributes the iteration below, and only where a constructor actually has recursive
+  fields.
+
+That the shipped `Bool.fold` already spells the first half in exactly this vocabulary is the strongest
+available evidence the derivation is writing down an existing pattern rather than inventing one.
 
 ### The iteration
 
