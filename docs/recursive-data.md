@@ -97,7 +97,7 @@ reconstructing the untouched side means folding it, which is O(n) per insert and
 
 It costs nothing to provide. The constructor already holds `left` and `right`, so the generated `fold`
 has both in hand and passes them for free. **A catamorphism is just the paramorphism that ignores the
-originals**, which is precisely what the simple `foldTree` wrapper below does.
+originals**, which is precisely what the catamorphism form of the syntax below does.
 
 The tempting simplification — "`para` is derivable from `cata`, so derive the smaller thing" — is true
 mathematically and wrong operationally: the derivation costs a full rebuild of every subtree the algebra
@@ -134,13 +134,13 @@ fold(value <= v, goL, goR)(unit)           -- right: selects a function, applies
 
 Both arms of the correct form are *function values*, so building them is free and only the selected one
 is ever applied. Every conditional descent therefore ends in `(unit)`, outside the `fold`. Without this
-idiom the O(path) behaviour disappears with no diagnostic, which makes it worth stating in the derived
-wrappers' documentation rather than leaving to folklore.
+idiom the O(path) behaviour disappears with no diagnostic, which makes it worth stating in the `fold`
+syntax's own documentation rather than leaving to folklore.
 
 ### What is generated, per data type
 
-A fourth sibling of `createPatternMatchImpl` / `createTypeMatch` in `DataDefinitionDesugarer`,
-emitting the same three shapes those two already emit, plus two conveniences:
+A fourth sibling of `createPatternMatchImpl` / `createTypeMatch` in `DataDefinitionDesugarer`, emitting
+the same three shapes those two already emit, plus the meta-data rule:
 
 1. **implementation marker** — `AbilityImplementation("Recursive", implKey)`, body-less signature
    vessel carrying the default `true` guard, exactly as the `PatternMatch` marker does.
@@ -150,33 +150,46 @@ emitting the same three shapes those two already emit, plus two conveniences:
 4. **`depth`** — the derived nesting-depth meta-data the refinement computation needs as its iteration
    bound (see below): a per-constructor refinement rule, plus the projection that reads it. Derived,
    never user-declared.
-5. **two positional wrappers**, derived non-recursive Eliot, so users never write a Church-encoded
-   algebra — exactly as they never write `handleCases(scrutinee)(casesLambda)`, which `matchdesugar`
-   hides today:
 
-   ```eliot
-   -- the common case: originals dropped, thunks forced. A plain catamorphism.
-   def foldTree[A, B](ifLeaf: {Effect} B, ifNode: B => A => B => {Effect} B, t: Tree[A]): {Effect} B
+**No per-type function is generated.** There is exactly one name, `fold`, the ability's method — that is
+the point of routing through an ability. Arm *count* varies per type while an ability method has one
+arity, so the arms are bundled into the single `Algebra[R]` argument, and `Algebra[R]` is Church-encoded
+and therefore machine-facing. That is not a problem to solve with per-type wrappers; it is the situation
+`PatternMatch` is already in, and it is solved the same way — with syntax (next section).
 
-   -- the general case: each recursive field as (original, suspended fold).
-   def foldTreeWith[A, B](
-      ifLeaf: {Effect} B,
-      ifNode: Tree[A] => (Unit => B) => A => Tree[A] => (Unit => B) => {Effect} B,
-      t: Tree[A]
-   ): {Effect} B
-   ```
+Arms are **rows** inside `Algebra[R]`: an arm's result is `{Effect} R`, which is what `Bool.fold`,
+`foldOption` and `foldEither` already do — `IfDemo.els` documents `Bool.fold`'s arms as *"both arms are
+suspended (`{Effect} A`), so only the selected one ever runs"*. Rows and thunks are **complementary**:
+rows give *effect*-laziness on the arms, thunks give *evaluation*-laziness on recursive positions. A pure
+arm in a row slot is still built strictly ([[gotcha_if_guard_builds_both_arms]]), which is exactly why the
+thunks cannot be replaced by rows.
 
-   **The arms are rows, not plain types.** `{Effect} B` on every arm result is what `Bool.fold`,
-   `foldOption` and `foldEither` already do — `IfDemo.els` documents `Bool.fold`'s arms as *"both arms are
-   suspended (`{Effect} A`), so only the selected one ever runs"*. (`foldPair` is the outlier: pure, with
-   its single arm spelled `Function[A, Function[B, C]]`. See *Migrating the existing folds* below.) Rows
-   and thunks are **complementary**: rows give *effect*-laziness on the arms, thunks give
-   *evaluation*-laziness on recursive positions. A pure arm in a row slot is still built strictly
-   ([[gotcha_if_guard_builds_both_arms]]), which is exactly why the thunks cannot be replaced by rows.
+### The user surface is syntax, exactly as `match` is
 
-   Nullary arms are `Function[Unit, R]` inside the Church-encoded `Algebra`, but the wrapper exposes them
-   as row-typed values (`ifLeaf: {Effect} B`) and passes `_ -> ifLeaf` inward — what the `match` desugar
-   does today.
+Nobody hand-writes `Cases[R]`; they write `match`, and `DataMatchDesugarer` resolves `handleCases` via
+`findAbilityMethodImpl` and emits `handleCases(scrutinee)(casesLambda)`. `fold` gets the same treatment —
+a `FoldExpression` beside `MatchExpression` in the AST, desugared by the same machinery against
+`Recursive.fold`:
+
+```eliot
+def height[A](t: Tree[A]): Int = t fold {
+   case Leaf -> 0
+   case Node(l, v, r) -> max(l, r) + 1
+}
+```
+
+Here `l` and `r` bind the *folded results*, so this is the catamorphism form: the common case, and the one
+that reads like ordinary pattern matching.
+
+**Open: how to spell the paramorphism.** A `para` arm needs *two* binders per recursive field — the
+original subtree and its suspended fold — and Eliot has no syntax for that. The candidates are a second
+keyword form, or a dual binder (`case Node(origL & goL, v, origR & goR) -> …`). This matters because
+`insert` needs it (see the worked example), so it is a real gap in the surface rather than a nicety, and
+the spelling is a language-design decision rather than something to settle by derivation.
+
+Conveniences such as `foldOption`, `orElse` or a dot-chainable `t.foldTree(…)` stay **hand-written**
+library functions over this syntax. A wrapper's parameter names, order and currying are *choices*, and the
+rule below is to derive what is unique and let users write what is a choice.
 
 ### Where the recursion lives: a native, like `handleCases`
 
@@ -204,9 +217,13 @@ is always bottom-up depth-first; what gets built is entirely the algebra's choic
 three orders, one line each, over the strict wrapper:
 
 ```eliot
-def inOrder[A](t: Tree[A]): List[A]   = t.foldTree(empty, l -> v -> r -> l ++ singleton(v) ++ r)
-def preOrder[A](t: Tree[A]): List[A]  = t.foldTree(empty, l -> v -> r -> singleton(v) ++ l ++ r)
-def postOrder[A](t: Tree[A]): List[A] = t.foldTree(empty, l -> v -> r -> l ++ r ++ singleton(v))
+def inOrder[A](t: Tree[A]): List[A] = t fold {
+   case Leaf -> empty
+   case Node(l, v, r) -> l ++ singleton(v) ++ r
+}
+```
+
+Pre-order and post-order differ only in that arm — `singleton(v) ++ l ++ r` and `l ++ r ++ singleton(v)`.
 ```
 
 Breadth-first is *not* available at `R := List[A]` — at a `Node` you hold two fully folded subtrees
@@ -215,7 +232,10 @@ merge pairwise.
 
 ```eliot
 def levels[A](t: Tree[A]): List[List[A]] =
-   t.foldTree(empty, l -> v -> r -> prepend(mergeLevels(l, r), singleton(v)))
+   t fold {
+      case Leaf -> empty
+      case Node(l, v, r) -> prepend(mergeLevels(l, r), singleton(v))
+   }
 
 def levelOrder[A](t: Tree[A]): List[A] = t.levels.flatten
 ```
@@ -272,32 +292,40 @@ def empty[A]: Tree[A] = Leaf
 def single[A](value: A): Tree[A] = Node(empty, value, empty)
 
 /** `t` with `value` inserted in order. Rebuilds only the path descended; the untouched side is reused. */
-def insert[A ~ Compare](value: A, t: Tree[A]): Tree[A] =
-   t.foldTreeWith(
-      single(value),
-      origL -> goL -> v -> origR -> goR ->
-         fold(value <= v, _ -> Node(goL(unit), v, origR),
-                          _ -> Node(origL, v, goR(unit)))(unit)
-   )
+def insert[A ~ Compare](value: A, t: Tree[A]): Tree[A] = t fold {
+   case Leaf -> single(value)
+   case Node(origL & goL, v, origR & goR) ->
+      fold(value <= v, _ -> Node(goL(unit), v, origR),
+                       _ -> Node(origL, v, goR(unit)))(unit)
+}
 
 /** Whether `t` holds `value`. Visits one path, not the whole tree. */
-def contains[A ~ Compare](value: A, t: Tree[A]): Bool =
-   t.foldTreeWith(
-      false,
-      _ -> goL -> v -> _ -> goR ->
-         fold(value <= v, fold(v <= value, _ -> true, goL), goR)(unit)
-   )
+def contains[A ~ Compare](value: A, t: Tree[A]): Bool = t fold {
+   case Leaf -> false
+   case Node(_ & goL, v, _ & goR) ->
+      fold(value <= v, fold(v <= value, _ -> true, goL), goR)(unit)
+}
 
-def size[A](t: Tree[A]): Int = t.foldTree(0, l -> _ -> r -> l + r + 1)
+def size[A](t: Tree[A]): Int = t fold {
+   case Leaf -> 0
+   case Node(l, _, r) -> l + r + 1
+}
 
-def height[A](t: Tree[A]): Int = t.foldTree(0, l -> _ -> r -> max(l, r) + 1)
+def height[A](t: Tree[A]): Int = t fold {
+   case Leaf -> 0
+   case Node(l, _, r) -> max(l, r) + 1
+}
 
-def inOrder[A](t: Tree[A]): List[A] = t.foldTree(empty, l -> v -> r -> l ++ singleton(v) ++ r)
+def inOrder[A](t: Tree[A]): List[A] = t fold {
+   case Leaf -> empty
+   case Node(l, v, r) -> l ++ singleton(v) ++ r
+}
 ```
 
-`insert` and `contains` reach for `foldTreeWith` because they descend one path and keep the other side
-untouched — the paramorphism and the selection idiom together are what make them O(path). Everything
-that genuinely visits every node uses the plain `foldTree`.
+`insert` and `contains` need the **paramorphism** arms — they descend one path and keep the other side
+untouched, which is what makes them O(path) together with the selection idiom. They are written here with
+the candidate dual binder (`origL & goL`), whose spelling is the open syntax question noted above; the
+plain `case Node(l, v, r)` arms used by `size`/`height`/`inOrder` are the settled catamorphism form.
 
 What the compiler derives from the declaration, spelled as if hand-written:
 
@@ -323,40 +351,18 @@ exactly as `range(a)` does for `Int` — which is why the runtime function above
 the derived channel takes a distinguished name or users avoid it; this needs deciding before
 implementation.
 
-## Migrating the existing folds
+## The existing folds are unaffected
 
-The derivation applies to **every** `data` type, not only recursive ones. `Option`, `Either` and `Pair`
-have no recursive fields, so nothing matches the rewrite: no originals, no thunks, `Algebra[R]` ≡
-`Cases[R]`, and the derived `fold` ≡ `handleCases`. For them the derivation is plain case analysis — and
-that is precisely the shape of three of the four hand-written folds this design was motivated by.
+Worth stating plainly, because it bounds the work. The derivation applies to **every** `data` type, not
+only recursive ones: `Option`, `Either` and `Pair` have no recursive fields, so nothing matches the
+rewrite — no originals, no thunks, `Algebra[R]` ≡ `Cases[R]`, and the derived `fold` ≡ `handleCases`. They
+would get a degenerate `Recursive` instance, which is worth having so generic `T ~ Recursive` code covers
+them.
 
-Better still, the derived name is already the right one. `fold<TypeName>` ⇒ `foldOption`, arms from
-constructor names ⇒ `ifNone`/`ifSome`. So migration is a **deletion**, not a rewrite:
-
-```eliot
--- jvm/eliot/eliot/lang/Option.els AND stdlib/eliot-compiler/eliot/lang/Option.els both hold this
--- identical body today; both are deleted, since the derived wrapper *is* foldOption.
-def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B = o match {
-   case None -> ifNone
-   case Some(v) -> ifSome(v)
-}
-```
-
-Leaving a hand-written body beside the derived one is a hard error — *"Has multiple implementations."*
-
-What **stays** is the abstract declaration in `stdlib`: base-layer code calls `foldOption` (`orElse`,
-`mapOption`, `List.head`) and the base has only `type Option[A]`, with no constructors to derive from. So
-the win on an existing type is two bodies, not three. On a genuinely recursive type it is total, because
-today the body cannot be written at all.
-
-**The delicate part is the merge, and it applies only to migration.** Because layer merging is lexical
-([[gotcha_arrow_alias_not_in_data_or_merge]]), a derived signature must be *character-identical* to the
-abstract declaration it replaces. Against `foldOption` the generator must emit `{Effect} B` rows (not
-plain `B`), the `=>` arrow alias (`Function[A, {Effect} B]` would not match textually), the result generic
-named `B` rather than `R`, and the parameters `ifNone`, `ifSome`, `o` in that order with the subject last.
-
-And the four existing eliminators **do not agree with each other**, so no single convention matches them
-all as written:
+But they need **no migration at all**. They are non-recursive, so `match` already eliminates them and
+`foldOption`/`foldEither`/`foldPair` already compile; there is nothing they currently cannot express. And
+because no per-type function is generated, no derived signature has to line up with their abstract
+declarations — which matters, since those four do not even agree with each other:
 
 | | arms | spelling | name |
 |---|---|---|---|
@@ -365,11 +371,13 @@ all as written:
 | `foldEither` | rows | `E => {Effect} B` | conventional |
 | `foldPair` | **none — pure** | `Function[A, Function[B, C]]`, one curried arm | conventional |
 
-So migration means **normalising these declarations onto the generated convention**, not matching each
-one. Adding rows to `foldPair` is source-compatible (a row slot is strictly more permissive than a plain
-one, so existing call sites keep compiling), but it *is* a base-layer edit and `Bool.fold`'s name is a
-deliberate exception. Migrate them deliberately, one at a time, rather than as a side effect of landing
-the feature. A new user type such as `Tree` has no abstract declaration to match and is unaffected.
+Had this design generated a per-type wrapper, each of those would have needed its declaration normalised
+onto the generated convention, character-for-character, because the layer merge is lexical
+([[gotcha_arrow_alias_not_in_data_or_merge]]). Routing through the ability removes that entire class of
+work. If those declarations are ever unified it should be for its own sake, not as a consequence of this
+feature.
+
+So the value here is **entirely in the recursive case** — the one that today cannot be written at all.
 
 ## Meta-data: run the transfer function, bounded by the structure
 
@@ -517,9 +525,9 @@ the two sources supplies it — derived depth or a native's `size` — the bound
   other refinement; and
 - **projectable** — `t.depth`, exactly as the grade design already writes `ls.size.end`.
 
-Keep this distinct from a user-written `def depth(t: Tree[A]): Int = t.foldTree(0, l -> v -> r ->
-max(l(unit), r(unit)) + 1)`. That is an ordinary fold whose result range `[0, H]` comes *out of* this
-mechanism; it does not feed it. The two agreeing is a consistency check, not an input.
+Keep this distinct from a user-written `height` (the worked example above). That is an ordinary fold whose
+result range `[0, H]` comes *out of* this mechanism; it does not feed it. The two agreeing is a consistency
+check, not an input.
 
 ### When the bound is unbounded
 
@@ -621,13 +629,18 @@ cornerstone's stance on totality).
   interpreter".
 - **Derive what is unique; never derive a choice.** The eliminator and (later) `map` are canonical.
   Traversal order, `filter`, and `Foldable` instances are choices and stay in user code.
+- **One name, through the ability.** `fold` is the ability's method, uniform across every type; no per-type
+  function is generated. The Church-encoded `Algebra[R]` is machine-facing and is hidden by *syntax*, the
+  way `match` hides `Cases[R]` — not by generated wrappers, which would reintroduce per-type names and
+  force every existing abstract declaration to be matched character-for-character by the lexical layer
+  merge. Convenience wrappers are a *choice*, so users write them.
 - **The eliminator stays a paramorphism.** Each recursive field yields the original *and* its suspended
   fold. Narrowing to a catamorphism because `para` is cata-derivable is a real regression, not a
   simplification: it forces a full rebuild of every subtree the algebra meant to keep, so `insert` goes
   from O(path) to O(n). The originals cost nothing — the constructor already holds them.
 - **Conditional descent selects a thunk, never forces one.** `fold(c, goL, goR)(unit)`, not
   `fold(c, goL(unit), goR(unit))`, because a pure arm is built strictly. This is the difference between
-  O(path) and O(n) and it fails silently, so it belongs in the derived wrappers' own documentation.
+  O(path) and O(n) and it fails silently, so it belongs in the `fold` syntax's own documentation.
 - **Meta-data is declared or computed, never guessed.** When the bound is finite the interval is
   exact; when it is not, the result is a declared invariant verified in one step, or `⊤`. Widening
   toward a *wider* result is the only sanctioned imprecision, because it can only produce more errors,
