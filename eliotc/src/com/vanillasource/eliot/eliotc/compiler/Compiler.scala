@@ -17,6 +17,7 @@ import scala.jdk.CollectionConverters.*
 object Compiler extends Logging {
   val targetPathKey: Configuration.Key[Path]     = namedKey[Path]("targetPath")
   val visualizeFactsKey: Configuration.Key[Path] = namedKey[Path]("visualizeFacts")
+  val statisticsKey: Configuration.Key[Unit]     = namedKey[Unit]("statistics")
 
   /** Run the compiler, returning whether the compilation produced any errors. The CLI ([[Main]]) maps that to a
     * non-zero exit code so callers (scripts, CI, the IntelliJ before-run build task) can gate on success. Help/parse
@@ -80,16 +81,17 @@ object Compiler extends Logging {
       case None          => IO.pure(true) // no target plugin selected — reported by `sessionFor`, an error exit
       case Some(session) =>
         val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
+        val statisticsAsked   = session.effectiveConfiguration.contains(statisticsKey)
 
         for {
-          // Fact-flow tracking is only done when its visualization was actually asked for: it records something on
-          // every fact read of the compilation, which is not a cost an ordinary build should pay.
+          // Both of these observe every processor invocation and every fact read of the compilation, so neither is
+          // created unless it was actually asked for: an ordinary build should not pay for a diagnostic it discards.
           tracker    <- visualizationPath.traverse(_ => FactVisualizationTracker.create())
-          statistics <- ProcessorStatistics.create()
+          statistics <- Option.when(statisticsAsked)(ProcessorStatistics.create()).sequence
           // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
           _          <- debug[IO]("Compiler starting...")
           started    <- IO.monotonic
-          result     <- session.compileOnce(tracker, Some(statistics))
+          result     <- session.compileOnce(tracker, statistics)
           finished   <- IO.monotonic
           _          <- session.persist()
           _          <- debug[IO]("Compiler exiting normally.")
@@ -97,8 +99,8 @@ object Compiler extends Logging {
           _          <- result.errors.traverse_(_.print())
           // Generate visualization if requested
           _          <- (tracker, visualizationPath).tupled.traverse_(_.generateVisualization(_))
-          // Print where the time went in this run
-          _          <- statistics.report(finished - started).flatMap(Console[IO].println)
+          // Print where the time went in this run, if requested
+          _          <- statistics.traverse_(_.report(finished - started).flatMap(Console[IO].println))
         } yield result.errors.nonEmpty
     }
 
@@ -134,7 +136,10 @@ object Compiler extends Logging {
         .action((path, config) => config.set(targetPathKey, path)),
       opt[Path]("visualize-facts")
         .text("generate an HTML visualization of fact generation flow")
-        .action((path, config) => config.set(visualizeFactsKey, path))
+        .action((path, config) => config.set(visualizeFactsKey, path)),
+      opt[Unit]("statistics")
+        .text("print how much time each processor took after the run")
+        .action((_, config) => config.set(statisticsKey, ()))
     )
   }
 

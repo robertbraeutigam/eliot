@@ -26,6 +26,9 @@ final class ProcessorStatistics private (counters: ConcurrentHashMap[String, Pro
     * and type-tested even when the processor does not handle that kind of key at all.
     *
     * Its invocation count is therefore the number of fact generations of the run, not the number of processor calls.
+    *
+    * Measuring is itself per-invocation work, and it lands in this same figure — so read the dispatch line as an upper
+    * bound. Comparing a run with and without statistics gives the true cost of both.
     */
   def wrapTree(processorTree: CompilerProcessor): CompilerProcessor =
     wrap(processorTree, ProcessorStatistics.dispatchName)
