@@ -13,6 +13,9 @@ final class TrackedCompilerProcessor(
     processorName: String
 ) extends CompilerProcessor {
 
+  /** Delegated, so that tracking a processor does not make it look like it handles every key. */
+  override def handles(factKey: CompilerFactKey[?]): Boolean = underlying.handles(factKey)
+
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     ReaderT { process =>
       val trackedProcess = new TrackedCompilationProcess(process, tracker, processorName)

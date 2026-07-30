@@ -25,6 +25,9 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProces
   */
 final class TimedCompilerProcessor(underlying: CompilerProcessor, counters: ProcessorCounters) extends CompilerProcessor {
 
+  /** Delegated, so that measuring a processor does not make it look like it handles every key. */
+  override def handles(factKey: CompilerFactKey[?]): Boolean = underlying.handles(factKey)
+
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     ReaderT { process =>
       val timed = TimedCompilationProcess(process)

@@ -124,6 +124,34 @@ class SequentialCompilerProcessorsTest extends ProcessorTest {
     }.asserting(_ shouldBe Right(()))
   }
 
+  it should "not invoke a processor that does not handle the key" in {
+    AtomicCell[IO].of(List.empty[Int]).flatMap { tracker =>
+      val sequential = new SequentialCompilerProcessors(
+        Seq(notHandlingProcessor(1, tracker), trackingProcessor(2, tracker, success = true))
+      )
+
+      runCompilerIO(sequential.generate(testKey)) >> tracker.get.asserting(_ shouldBe List(2))
+    }
+  }
+
+  it should "handle a key that any of its processors handles" in {
+    AtomicCell[IO].of(List.empty[Int]).flatMap { tracker =>
+      val sequential = new SequentialCompilerProcessors(
+        Seq(notHandlingProcessor(1, tracker), trackingProcessor(2, tracker, success = true))
+      )
+
+      IO.pure(sequential.handles(testKey)).asserting(_ shouldBe true)
+    }
+  }
+
+  it should "handle no key when none of its processors do" in {
+    AtomicCell[IO].of(List.empty[Int]).flatMap { tracker =>
+      val sequential = new SequentialCompilerProcessors(Seq(notHandlingProcessor(1, tracker)))
+
+      IO.pure(sequential.handles(testKey)).asserting(_ shouldBe false)
+    }
+  }
+
   it should "handle empty processor list" in {
     val sequential = new SequentialCompilerProcessors(Seq.empty)
 
@@ -144,6 +172,17 @@ class SequentialCompilerProcessorsTest extends ProcessorTest {
       _ <- if (success) Monad[CompilerIO].unit
            else registerCompilerError(error(s"Processor $id failed"))
     } yield ()
+
+  /** Tracks its invocation exactly as [[trackingProcessor]] does, but declares that it handles nothing — so a tracked
+    * invocation means the pre-test was ignored.
+    */
+  private def notHandlingProcessor(id: Int, tracker: AtomicCell[IO, List[Int]]): CompilerProcessor =
+    new CompilerProcessor {
+      override def handles(factKey: CompilerFactKey[?]): Boolean = false
+
+      override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
+        trackingProcessor(id, tracker, success = true).generate(factKey)
+    }
 
   private def failingProcessor(errorMessage: String): CompilerProcessor = (factKey: CompilerFactKey[?]) =>
     registerCompilerError(error(errorMessage))

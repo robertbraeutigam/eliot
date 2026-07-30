@@ -12,10 +12,18 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProces
   * produced neither fact nor error.
   */
 class SequentialCompilerProcessors(processors: Seq[CompilerProcessor]) extends CompilerProcessor {
+  /** Processors that cannot handle this key at all are skipped before any of that machinery is set up — of the ~50
+    * processors offered every key, all but one or two are in that position, and error-isolating each of them to have it
+    * immediately do nothing was measurably a tenth of a compilation.
+    */
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     processors
+      .filter(_.handles(factKey))
       .traverse(processor => recoverWithAborted(processor.generate(factKey))(()))
       .flatMap(results => abort[Unit].whenA(results.exists(_._2)))
+
+  /** A sequence handles what any of its members handles. */
+  override def handles(factKey: CompilerFactKey[?]): Boolean = processors.exists(_.handles(factKey))
 
   override def wrapWith(wrapper: CompilerProcessor => CompilerProcessor): CompilerProcessor =
     SequentialCompilerProcessors(processors.map(_.wrapWith(wrapper)))

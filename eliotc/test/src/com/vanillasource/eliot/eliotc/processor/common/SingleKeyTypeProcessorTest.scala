@@ -29,6 +29,14 @@ class SingleKeyTypeProcessorTest extends ProcessorTest {
     }.asserting(_ shouldBe Left(Chain.empty))
   }
 
+  it should "declare that it handles a key of its own type" in {
+    processor.handles(testKey) shouldBe true
+  }
+
+  it should "declare that it does not handle a key of a different type" in {
+    processor.handles(DifferentKey("other-value")) shouldBe false
+  }
+
   it should "handle multiple different keys correctly" in {
     val key1 = TestFactKey("key1")
     val key2 = TestFactKey("key2")
