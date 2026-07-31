@@ -12,6 +12,16 @@ notes.
   `lang/eliot/eliot/compiler/Coerce.els`.
 - Add generics to function literals.
 - Introduce arrays (records / multi-field `data` are already done).
+- **Unify `Int` literal handling across the two tracks.** Managing the `BigInteger`/`Int` split
+  between the compiler track and the runtime track is a constant source of friction. It cannot be
+  solved by simply aliasing `type Int = BigInteger` on the compiler track, because `Int` carries
+  meta-information that is itself expressed in terms of `BigInteger` (`type Int {range:
+  Interval[BigInteger]}`). One unified handling of numeric literals for both tracks is wanted.
+- **A native that produces a meta-carrying type must state its meta-information.** Any type with
+  non-`Unit` meta-information that comes out of a native function *and* has no meta-information
+  definition at that native should be a compile error — the native has to say what it does to the
+  meta-information every time, rather than silently defaulting.
+- Are there still "auto" generics? Can they be removed — and should they be?
 - **Flow grades: quantitative computation tracking (cycles/WCET, stack, peak memory) on the
   effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion; depends on
   the refinement channel (`docs/bounds-as-refinements.md`) landing first — the dependency ladder
@@ -49,6 +59,11 @@ notes.
 
 - Separate the different kinds of I/O (pin output, pin input, timers, …) and let the type
   system infer multiple typeclasses for them.
+- **`printLine` can fail, and nothing says so.** Console output can throw on the platform, so it
+  needs error handling in the row. Does that failure belong on `Suspend`, or as its own effect
+  beside `Console`? (Related to the deliberate decision that console *read* failure stays out of
+  the row — see the `Console` EOF work.)
+- A plain `if..else` needs an effect carrier — it cannot be pure.
 
 ## Syntax sugar & ergonomics
 
@@ -61,6 +76,11 @@ notes.
 - Unify the display of value constructors and type constructors using `[]` and `()`:
   `Box$DataType(String)` → `Box[String]`; `Box("a")` stays `Box("a")`.
 - Introduce a `UserShow[T]` — like `Show[T]`, but intended for end users.
+- **Importing a module should bring in the abilities it implements.** When a module implements an
+  ability, that ability's functions should become available through the import — e.g. `import
+  BigInteger` would also get you `Compare` and `Numeric`.
+- `&&` and `||` currently have the same precedence; `||` should bind looser than `&&`.
+- `a-1` does not parse as `a - 1`.
 
 ## Optimization
 
@@ -109,7 +129,24 @@ notes.
   — a postponed application whose meta *did* solve to a concrete head that then mismatches — is caught.
   Covered by `PostponedFlushTest`.
 
+- **`getFact` still lives.** The processor-facing API is supposed to expose only `getFactOrAbort`
+  / `getFactOrError` / `getFactIfProduced` (see `.claude/rules/eliot-design.md`), but a plain
+  `getFact` is still there on `CompilationProcess` and its wrappers. Either rename it to
+  `getFactIfProduced` or hide it entirely behind the three intent-carrying reads.
+- `OperatorResolvedValue` should carry an `isGuard` flag (the fact currently has none) — check
+  what needs it and whether it can be derived instead of stored.
+- `namedValues` can recurse — the reflection-driven enumeration is not protected against a value
+  that reaches itself.
 - Separate the cache graph from the values, so not everything has to be deserialized.
+- **Cache serialization is slow.**
+- **The cache gets rebuilt** when it should have been reused.
+- **Even with a warm cache the compile is not immediate** — and not just because of statistics
+  collection. See the "warm build still computes" note in git history for what is expected to be
+  recomputed and what is not.
+- **A compile error leaves the old artifacts in place**, so a failed build can be followed by a
+  successful run of a stale jar.
+- **Implement scoped caches**, so the stdlib does not get built again on every compile for the
+  same monomorphizations.
 - **Incremental cache corrupted by concurrent/out-of-date compilers.** A stale `.eliot-cache`
   made a CLI compile report errors from a *previous version* of an edited file (positions and
   types from old content, underlining unrelated new text); deleting the cache fixed it. Suspected
