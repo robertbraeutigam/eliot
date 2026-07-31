@@ -141,7 +141,6 @@ notes.
   mtime) invalidation, a compiler-version/cache-format stamp so a different compiler build never
   reuses (or silently poisons) another's cache, and ideally per-writer isolation or locking for
   concurrent compilers.
-- Default imports should not be hardcoded; all of `lang.*` should be imported.
 - Remove the `Show` instances used for printing expression/fact internals.
 - Rename processors to generators?
 
