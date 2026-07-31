@@ -424,17 +424,38 @@ object RowElaborator {
         expr: Sourced[OperatorResolvedExpression],
         needCarrier: Boolean,
         region: RegionCarrier
-    ): Sourced[OperatorResolvedExpression] = {
-      val boundary                    = if (needCarrier || region.exists) RegionCarrier.Absent else pureBoundaryRegion(expr)
-      val (elaborated, carrierValued) = core(expr, if (boundary.exists) boundary else region)
-      if (needCarrier && !carrierValued) {
-        if (definitelyPure(elaborated)) elaborated.as(pureWrap(elaborated, region))
+    ): Sourced[OperatorResolvedExpression] =
+      if (needCarrier) {
+        val (elaborated, carrierValued) = core(expr, region)
+        if (carrierValued) elaborated
+        else if (definitelyPure(elaborated)) elaborated.as(pureWrap(elaborated, region))
         else {
           deferredAtCarrier = true
           elaborated
         }
-      } else if (!needCarrier && carrierValued && boundary.exists) elaborated.as(runIdWrap(elaborated))
-      else elaborated
+      } else coreAtValuePosition(expr, region)._1
+
+    /** Elaborate a node standing at a **value position** — nothing here expects a carrier — returning it with its
+      * carrier-valued-ness.
+      *
+      * In a region that has a carrier this is plain [[core]]. In a region that has none it is the `Id` boundary: a
+      * node that is nevertheless a computation, and whose carrier nothing else can name, runs on `Id` and is
+      * unwrapped with `runId` (A.4, see [[pureBoundaryRegion]]) — after which it is a plain value, so it is reported
+      * as one.
+      *
+      * A block's tail stands at exactly this position: `{ val note = "x"; bad catch (err -> err) }` must reach the
+      * boundary just as `bad catch (err -> err)` does without the binding around it. Elaborating a tail with bare
+      * [[core]] skipped it, and the block's value stayed a `ThrowCarrier` stack where a `String` was declared.
+      */
+    private def coreAtValuePosition(
+        expr: Sourced[OperatorResolvedExpression],
+        region: RegionCarrier
+    ): (Sourced[OperatorResolvedExpression], Boolean) = {
+      val boundary                    = if (region.exists) RegionCarrier.Absent else pureBoundaryRegion(expr)
+      val (elaborated, carrierValued) = core(expr, if (boundary.exists) boundary else region)
+
+      if (carrierValued && boundary.exists) (elaborated.as(runIdWrap(elaborated)), false)
+      else (elaborated, carrierValued)
     }
 
     /** The carrier of a **value position in a region with no carrier** — a pure definition's body, a `val` binding —
@@ -617,7 +638,7 @@ object RowElaborator {
               val boundFinal          = if (discharged) boundElab.as(runIdWrap(boundElab)) else boundElab
               val (bodyElab, bodyCar) =
                 withBinder(name.value, holdsCarrier = false, isPayload = discharged || definitelyPure(boundFinal))(
-                  core(body, region)
+                  coreAtValuePosition(body, region)
                 )
               val rebuilt             =
                 if ((bodyElab eq body) && (boundFinal eq bound)) expr
@@ -1466,6 +1487,14 @@ object RowElaborator {
           val view     = SignatureView.of(orv.signature)
           val supplied = args.size + extra
           if (supplied < view.parameters.size) Kind.Payload // an under-applied reference is a function value
+          else if (supplied === view.parameters.size && orv.effectRow.returnPinnedEffects.nonEmpty)
+            // A **pinned** return (`{State[S] | Id} Unit`) is a carrier stack, and a saturated call to it yields that
+            // computation. Its head is a concrete type constructor, which [[typeKind]] deliberately does not read as
+            // a carrier, and it mints no binder of the callee's own for [[carrierHeaded]] to find — so without the
+            // declared pinned tag such a call reads as a plain payload and gets `pure`-wrapped at a carrier position,
+            // producing the stack applied to itself. The tag is the same one `topRegionCarrier` reads to give such a
+            // definition its own region, which is what keeps caller and callee agreeing on one carrier.
+            Kind.Carrier
           else {
             val carriers = EffectCarriers.declaredCarrierBinders(orv)
             typeKind(

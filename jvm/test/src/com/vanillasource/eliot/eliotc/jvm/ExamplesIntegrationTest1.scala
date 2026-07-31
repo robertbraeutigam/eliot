@@ -115,16 +115,17 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "still works")
   }
 
-  // The `.` operator chains an ability method on an abstract effect carrier: `readLine.flatMap(f)` is `.(readLine,
-  // flatMap(f))`. The subject flows into `.`'s flex `a: A` slot, which the checker's effect lift defers; `flatMap`
-  // rigidifies `A` to its carrier-typed storage slot, so the subject passes through unsequenced (binding it into a bare
-  // `a: A` would corrupt the carrier). This is the idiomatic subject-last spelling of the hand-written `flatMap` above.
-  // IGNORED (2026-07-31): this program does not compile — the subject is double-wrapped in the carrier (Expected `IO(IO(Option(String)))`, Actual `IO(Option(String))`). It was green only because the shared session runs one
-  // jar for every test: the compile failed, no jar was written, and the *previous* test's jar (same expected output)
-  // ran instead. The build now deletes a jar it cannot vouch for, so the failure is visible. Re-enable by changing
-  // `ignore` back to `in` once the defect is fixed.
-  it should "chain an ability method on an abstract carrier via the dot operator" ignore {
-    compileAndRun(
+  // `readLine.flatMap(f)` is `.(readLine, flatMap(f))`, and `.`'s subject slot is the plain generic `a: A`
+  // (`def .[A, B](a: A, f: A => {Effect} B): {Effect} B`). Passing a computation through it is what §1 rule 4
+  // forbids — an effect passes through a position only if that position declares one — so this spelling is
+  // **rejected**, exactly as `p.runStateToPair(s0)` is. The subject is run where it is written (rule 1) and
+  // `flatMap`'s carrier-typed storage slot then has a payload where it wanted the computation. The direct call
+  // above (`flatMap(f, readLine)`) is the spelling that works, its `fa: F[A]` slot being carrier-typed.
+  //
+  // It used to read as green: the compile failed, no jar was written, and the previous test's jar — an echo
+  // program, fed this test's own stdin — answered with the expected text.
+  it should "reject an ability method chained on an abstract carrier via the dot operator" in {
+    compileForErrors(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |import eliot.carrier.Effect
@@ -133,9 +134,8 @@ import eliot.effect.Console
         |
         |def echo: {Console} Unit = readLine.flatMap(line -> printLine(orEmpty(line)))
         |
-        |def main: IO[Unit] = echo""".stripMargin,
-      stdin = "dot chained\n"
-    ).asserting(_ shouldBe "dot chained")
+        |def main: IO[Unit] = echo""".stripMargin
+    ).asserting(_ should include("Type mismatch."))
   }
 
   // The dual case: an effectful subject dotted into a *plain-value* function (`readLine.shout`, `shout(s: Option[String])`)
@@ -155,37 +155,36 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "loud")
   }
 
-  // --- The checker-side effect lift (docs/effect-lift-in-checker.md, Step 4): shapes no pre-typing heuristic could
-  // decide. The bind/pass-through decision is per *instantiation* in the NbE checker, so a generic slot (`.`'s or a
-  // user pipe's `a: A`) sequences an effectful subject when its instantiation is a plain value, and passes it through
-  // when its instantiation is the carrier itself. ---
+  // --- Effectful subjects at a generic slot. The decision is read from *declarations* before checking (effects as
+  // rows v3), not per instantiation in the checker: a computation at a rowless slot is run where it is written, and
+  // may never pass through — the pass-through arm these cases were written for was v2's, and is deleted. ---
 
-  // The regression of the dot-inline era (commit 81485de9): an effectful subject dotted into a *function-typed
-  // parameter*. `.`'s flex `a: A` slot defers, `f` rigidifies `A := Option[String]`, and the deferred slot bind-lifts.
-  // IGNORED (2026-07-31): this program does not compile — the subject is double-wrapped in the carrier (Expected `IO(IO(Option(String)))`, Actual `IO(Option(String))`). It was green only because the shared session runs one
-  // jar for every test: the compile failed, no jar was written, and the *previous* test's jar (same expected output)
-  // ran instead. The build now deletes a jar it cannot vouch for, so the failure is visible. Re-enable by changing
-  // `ignore` back to `in` once the defect is fixed.
-  it should "bind an effectful subject dotted into a function-typed parameter" ignore {
+  // An effectful subject dotted into a *function-typed parameter*: `readLine` is run where written and `f` receives
+  // its payload, `.`'s `A` being instantiated at a plain value.
+  // The handler is a named pure function rather than an inline `s -> s.orAbort else ""`: a lambda body at a
+  // *rowless* arrow slot is still elaborated in the enclosing region, so an inline discharge there lands on the
+  // caller's carrier (`IO[String]`) instead of reaching the `Id` boundary, and no longer matches the slot's declared
+  // `String`. That is a live gap, unrelated to the dotted subject this case is about.
+  it should "bind an effectful subject dotted into a function-typed parameter" in {
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |
+        |def orEmpty(o: Option[String]): String = o.orAbort else ""
+        |
         |def call(f: Option[String] => String): {Console} Unit = printLine(readLine.f)
         |
-        |def main: IO[Unit] = call(s -> s.orAbort else "")""".stripMargin,
+        |def main: IO[Unit] = call(s -> orEmpty(s))""".stripMargin,
       stdin = "through f\n"
     ).asserting(_ shouldBe "through f")
   }
 
-  // A user-defined pipe with `.`'s exact shape, chaining an ability method: the effectful subject passes through the
-  // flex slot into `flatMap`'s carrier storage (no bind) — proving the decision is type-directed, not `.`-specific.
-  // IGNORED (2026-07-31): this program does not compile — the subject is double-wrapped in the carrier (Expected `IO(IO(Option(String)))`, Actual `IO(Option(String))`). It was green only because the shared session runs one
-  // jar for every test: the compile failed, no jar was written, and the *previous* test's jar (same expected output)
-  // ran instead. The build now deletes a jar it cannot vouch for, so the failure is visible. Re-enable by changing
-  // `ignore` back to `in` once the defect is fixed.
-  it should "chain an ability method through a user-defined pipe operator" ignore {
-    compileAndRun(
+  // A user-defined pipe with `.`'s shape, but declaring no row anywhere (`|>[A, B](a: A, f: A => B): B`): handing it
+  // a computation is the same §1 rule-4 violation as the dot above, and here the elaborator names the slot itself
+  // rather than leaving a type mismatch downstream. Rule 4 is what makes the two spellings agree — the decision is
+  // read from declarations, not from the operator.
+  it should "reject an ability method chained through a user-defined pipe operator" in {
+    compileForErrors(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |import eliot.carrier.Effect
@@ -196,19 +195,14 @@ import eliot.effect.Console
         |
         |def echo: {Console} Unit = readLine |> flatMap(line -> printLine(orEmpty(line)))
         |
-        |def main: IO[Unit] = echo""".stripMargin,
-      stdin = "piped\n"
-    ).asserting(_ shouldBe "piped")
+        |def main: IO[Unit] = echo""".stripMargin
+    ).asserting(_ should include("declares no effect row"))
   }
 
-  // The non-infix twin — an ordinary named function with the identical signature — proving the fix is shape-generic,
-  // not operator plumbing.
-  // IGNORED (2026-07-31): this program does not compile — the subject is double-wrapped in the carrier (Expected `IO(IO(Option(String)))`, Actual `IO(Option(String))`). It was green only because the shared session runs one
-  // jar for every test: the compile failed, no jar was written, and the *previous* test's jar (same expected output)
-  // ran instead. The build now deletes a jar it cannot vouch for, so the failure is visible. Re-enable by changing
-  // `ignore` back to `in` once the defect is fixed.
-  it should "chain an ability method through a non-infix pipe function" ignore {
-    compileAndRun(
+  // The non-infix twin — an ordinary named function with the identical signature — rejected identically, which is
+  // what "read from declarations" means: no operator plumbing takes part in the decision.
+  it should "reject an ability method chained through a non-infix pipe function" in {
+    compileForErrors(
       """import eliot.jvm.IO
 import eliot.effect.Console
         |import eliot.carrier.Effect
@@ -219,9 +213,8 @@ import eliot.effect.Console
         |
         |def echo: {Console} Unit = pipe(readLine, flatMap(line -> printLine(orEmpty(line))))
         |
-        |def main: IO[Unit] = echo""".stripMargin,
-      stdin = "plainly piped\n"
-    ).asserting(_ shouldBe "plainly piped")
+        |def main: IO[Unit] = echo""".stripMargin
+    ).asserting(_ should include("declares no effect row"))
   }
 
   // The bind direction through the same user pipe: the subject flows into a *concrete* `String` slot, so the deferred

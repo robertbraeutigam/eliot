@@ -615,11 +615,7 @@ import eliot.effect.Console
   // state through every statement. Before the fix, the concrete carrier head was unrecognised (a pinned-row value
   // records no `[F[_] ~ E]` binder), so block lowering never inserted `flatMap` and silently dropped every statement
   // but the last (only `bob` survived). Recording the return's `Effect`-instanced carrier head as ambient fixes it.
-  // IGNORED (2026-07-31): this program does not compile — each statement is double-wrapped in the pinned carrier (Expected `{State[List(String)] | Id} Unit`, Actual the same applied twice). It was green only because the shared session runs one
-  // jar for every test: the compile failed, no jar was written, and the *previous* test's jar (same expected output)
-  // ran instead. The build now deletes a jar it cannot vouch for, so the failure is visible. Re-enable by changing
-  // `ignore` back to `in` once the defect is fixed.
-  "a block of pinned-row State statements" should "sequence, threading the state through all of them" ignore {
+  "a block of pinned-row State statements" should "sequence, threading the state through all of them" in {
     compileAndRun(
       """import eliot.jvm.IO
 import eliot.effect.Console
