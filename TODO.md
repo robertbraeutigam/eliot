@@ -6,10 +6,6 @@ notes.
 
 ## Type system & language
 
-- `Coerce` should return `{Throw} To` instead of `Option[To]`, so that it matches the way type
-  returns work and can return a *customized* error message to print at the failing use site (rather
-  than a bare `none` that the checker has to turn into a generic "no coercion" diagnostic). See
-  `lang/eliot/eliot/compiler/Coerce.els`.
 - Add generics to function literals.
 - Introduce arrays (records / multi-field `data` are already done).
 - **Unify `Int` literal handling across the two tracks.** Managing the `BigInteger`/`Int` split
@@ -23,10 +19,11 @@ notes.
   meta-information every time, rather than silently defaulting.
 - Are there still "auto" generics? Can they be removed — and should they be?
 - **Flow grades: quantitative computation tracking (cycles/WCET, stack, peak memory) on the
-  effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion; depends on
-  the refinement channel (`docs/bounds-as-refinements.md`) landing first — the dependency ladder
-  is ranges → sizes → grades (fold cost needs sizes, frame sizes need ranges). Core idea: the
-  effect row generalizes from "set of abilities" to "abilities + **named grades**" —
+  effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion. The dependency
+  ladder is ranges → sizes → grades (fold cost needs sizes, frame sizes need ranges): the
+  refinement channel's **ranges** domain has shipped, so what this still waits on is its **second
+  domain, `List`/`Array` `size`**. Core idea: the effect row generalizes from "set of abilities" to
+  "abilities + **named grades**" —
   `def onTick(s: State): {Timer, cycles: ≤800} Unit` — where a grade is *not* an ability
   (nothing is performed, nothing resolved or discharged) but a quantity with an algebra,
   registered per platform (`flow cycles {Interval[BigInteger]}` +
@@ -73,8 +70,11 @@ notes.
   parsing can be arbitrarily complex.
 - Parse strings and numbers into custom types (string interpolation, regexp parsing, …);
   numeric literals are just a special case of this.
-- Unify the display of value constructors and type constructors using `[]` and `()`:
-  `Box$DataType(String)` → `Box[String]`; `Box("a")` stays `Box("a")`.
+- **The two type printers disagree on constructor application.** `monomorphize/fact/GroundValueRenderer`
+  already renders a type-constructor application the way the user writes it (`List[String]`), but
+  `monomorphize/unify/SemValuePrinter` — which produces the `Expected:`/`Actual:` lines — renders
+  *every* application with parens (`List(String)`). Unify them on `[]` for type constructors and
+  `()` for value constructors, so `Box("a")` stays `Box("a")` while its type reads `Box[String]`.
 - Introduce a `UserShow[T]` — like `Show[T]`, but intended for end users.
 - **Importing a module should bring in the abilities it implements.** When a module implements an
   ability, that ability's functions should become available through the import — e.g. `import
@@ -85,6 +85,12 @@ notes.
 ## Optimization
 
 - Lists consisting only of constants should not take runtime memory.
+- **Sharpen the codegen phantom classification.** The `used` driver dedups its `MonomorphicValue`
+  demand on a codegen-relevant projection of the type arguments (`saturate/fact/BinderRoles.scala`
+  + `used/CodegenProjection.scala`), but a *true* phantom — a size index that never reaches
+  representation — still classifies conservatively as representation, so identical code is not
+  collapse-erased. Refining it is a code-size win, never correctness: the projection only ever
+  folds code that is already identical.
 - Can compile-time bounds be used to optimize the `Seq` implementation? (e.g. only `head` →
   linked list, only iteration → array.)
 - Benchmark goal: complicated functions that generate an LED-light pattern should compile to a
@@ -92,42 +98,6 @@ notes.
   C compiler would compile everything.
 
 ## Compiler architecture & tooling
-
-- **Monomorphization keying — landed as a code-size optimization; demote dropped.** The codegen
-  type-dedup fix is in (it grew out of the recursion-as-effect discussion; the original full plan is in
-  git history): the `used` codegen driver dedups its `MonomorphicValue` demand on a
-  **codegen-relevant projection** of the type args (B1 per-binder relevance analysis in
-  `saturate/fact/BinderRoles.scala`; B2 projection in `used/CodegenProjection.scala`) — phantoms
-  collapse-erase, width-equivalent bounds collapse to a representation key, dispatch/reified families
-  stay specialized — and a **non-convergence backstop** in `used/UsedNamesProcessor.scala` hard-errors
-  on divergent type-level computation instead of hanging (it counts repeated `vfqn` frames in the
-  `processValue` DFS; the original "reuse `activeFactKeys`" sketch was wrong — siblings keep that chain
-  flat). With recursion removed from the language (see the "Total by Default" cornerstone in
-  `.claude/CLAUDE.md`), the unbounded
-  `f[N]→f[N-1]→…` family that motivated **demote** cannot arise, so demote and its B4 policy are
-  **dropped** and the `recursionVariant`/`Demote` machinery deleted. What remains is purely an
-  optimization — the projection only ever folds identical code, never load-bearing for termination —
-  and the backstop is a fail-safe for the residual `Type:Type`/Girard divergence. Possible future
-  tightening: a true phantom (a size index that never reaches representation) currently classifies
-  conservatively as representation, so it is not collapse-erased; refining that is a size win, not
-  correctness.
-
-- **DONE (2026-07-10, bounds-as-refinements Step 0): Fail-safe hole — leftover postponed unification
-  constraints are silently dropped.** The unifier's `postponed` queue
-  (`monomorphize/unify/Unifier.scala`) re-attempts constraints on every `drain()`, but a constraint
-  that never discharged used to be carried along and forgotten at the end of the check — nothing
-  converted survivors into errors, so an unproven equality could pass silently (what let the pre-fix
-  applied-associated-type garbage compile — the body-vs-declared unification postponed forever).
-  **Fixed:** `Unifier.flushPostponed()` runs as the last step of `TypeStackLoop.runPostDrainPipeline`
-  (after `defaultUnsolvedMetas`): a triage re-`drain()` first discharges any constraint the defaulting
-  just made verifiable, then every survivor becomes a hard "Type mismatch." with its recorded context.
-  Two shapes are triaged benign because a *more precise* fail-safe already owns them (`isBenignPostponement`):
-  an applied **abstract associated type** (unsolved `MetaRole.AbstractAssoc` head — postponed by design
-  for the assoc reducer; a genuinely-unreduced one is caught by the assoc-reduction loud-fail / strict
-  quoter) and a **`$bad-apply` head** (a phantom meta defaulted to `VType`/`VConst` then applied —
-  either already diagnosed or a vacuous phantom). The genuine class the flush is the sole backstop for
-  — a postponed application whose meta *did* solve to a concrete head that then mismatches — is caught.
-  Covered by `PostponedFlushTest`.
 
 - **`getFact` still lives.** The processor-facing API is supposed to expose only `getFactOrAbort`
   / `getFactOrError` / `getFactIfProduced` (see `.claude/rules/eliot-design.md`), but a plain
@@ -158,7 +128,6 @@ notes.
 - Default imports should not be hardcoded; all of `lang.*` should be imported.
 - Remove the `Show` instances used for printing expression/fact internals.
 - Rename processors to generators?
-- Make the JVM backend run only when `exec` is set.
 
 ## Microcontroller target
 
