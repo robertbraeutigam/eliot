@@ -54,9 +54,6 @@ notes.
 
 ## Effects & I/O
 
-- Separate the different kinds of I/O (pin output, pin input, timers, …) and let the type
-  system infer multiple typeclasses for them.
-- A plain `if..else` needs an effect carrier — it cannot be pure.
 - **A lambda body at a rowless arrow slot does not get its own pure region.** It is elaborated in
   the *enclosing* region, so a discharge written inline there lands on the caller's carrier
   instead of reaching the `Id` boundary:
