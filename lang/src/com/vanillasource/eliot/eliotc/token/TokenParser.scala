@@ -74,7 +74,7 @@ class TokenParser(sourced: Sourced[?]) {
   lazy val fullParser: Parsley[List[Sourced[Token]]] = lexer.fully(Parsley.many(tokenParser))
 
   private lazy val tokenParser: Parsley[Sourced[Token]] =
-    identifier <|> standaloneSymbolParser <|> negativeIntegerLiteral <|> symbolParser <|> keyword <|> integerLiteral <|> stringLiteral
+    identifier <|> standaloneSymbolParser <|> symbolParser <|> keyword <|> integerLiteral <|> stringLiteral
 
   private lazy val symbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
     lexer.nonlexeme.names.userDefinedOperator.map(Token.Symbol.apply)
@@ -90,19 +90,13 @@ class TokenParser(sourced: Sourced[?]) {
       .map(Token.Keyword.apply)
   ).label("keyword")
 
+  /** An integer literal: digits only, always non-negative. There is no negative-literal rule: a `-` is always an
+    * ordinary operator, so `-` glued to digits (`a-1`, `1-2`) tokenizes as subtraction, exactly as spaced `a - 1`
+    * does. A negative *value* is therefore produced by an operator (`0 - 128`, `3 - 10`), never by literal syntax.
+    */
   private lazy val integerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(
     lexer.nonlexeme.integer.decimal.map(value => Token.IntegerLiteral(value.toString))
   ).label("integer literal")
-
-  /** A negative integer literal: a `-` *immediately* followed by digits (no intervening space), lexed as a single
-    * literal token. Placed before [[symbolParser]] and made `atomic`, so a `-` that is not glued to digits (binary
-    * subtraction `a - b`, the operator name `def -`, the arrow `->`) still backtracks to the symbol parser. This is what
-    * lets dependent-int bounds like `Int[-128, 127]` and large ones (`Int[-9223…, 9223…]`) carry a
-    * negative `BigInteger`. Binary subtraction therefore requires spacing (`a - 1`, not `a-1`), matching Eliot style.
-    */
-  private lazy val negativeIntegerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(
-    Parsley.atomic(character.char('-') *> lexer.nonlexeme.integer.decimal).map(value => Token.IntegerLiteral("-" + value.toString))
-  ).label("negative integer literal")
 
   private lazy val stringLiteral: Parsley[Sourced[Token.StringLiteral]] = sourcedLexeme(
     lexer.nonlexeme.string.fullUtf16.map(Token.StringLiteral(_))

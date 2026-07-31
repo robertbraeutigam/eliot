@@ -45,7 +45,7 @@ object EliotHighlighter {
         while (j < n && code.charAt(j).isLetterOrDigit) j += 1
         val word = code.substring(i, j)
         span(if (keywords(word)) "kw" else if (word.head.isUpper) "ty" else "fn", word); i = j
-      } else if (c.isDigit || (c == '-' && i + 1 < n && code.charAt(i + 1).isDigit)) {
+      } else if (c.isDigit) {
         var j = i + 1
         while (j < n && code.charAt(j).isDigit) j += 1
         span("num", code.substring(i, j)); i = j

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm
 
 /** End-to-end proof of `where`-on-defs — a refinement precondition on an ordinary `def`, verified at each use site by
   * the refinement channel (`docs/bounds-as-refinements.md` §4.3). `def useByte(x: Int): Int where withinByte(range(x))`
-  * demands that every call's argument have a value range provably within a signed byte; the channel reduces the
+  * demands that every call's argument have a value range provably within `[0, 127]`; the channel reduces the
   * generated `^Where` companion over the argument's computed interval and rejects a caller whose range is out of bounds
   * or unknown (⊤). This is the use-site verification that closes the Step-6 enforcement gap (out-of-range `Int` values
   * had no JVM-backed rejection until now).
@@ -10,7 +10,7 @@ package com.vanillasource.eliot.eliotc.jvm
 class WhereOnDefIntegrationTest extends FullIntegrationTest {
   // `withinByte` is a test-local predicate (it deliberately lives only where a test needs it, not in any layer).
   private val withinByte =
-    """|def byteMin: BigInteger = -128
+    """|def byteMin: BigInteger = 0
        |def byteMax: BigInteger = 127
        |def withinByte(i: Interval[BigInteger]): Bool = lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
        |""".stripMargin

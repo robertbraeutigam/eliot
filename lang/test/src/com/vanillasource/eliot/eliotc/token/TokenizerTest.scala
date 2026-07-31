@@ -143,6 +143,16 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
     )
   }
 
+  it should "tokenize a - glued to digits as an operator and a literal, never a negative literal" in {
+    runEngineForTokens("a-1").asserting(
+      _ shouldBe Seq(Identifier("a"), Token.Symbol("-"), IntegerLiteral("1"))
+    )
+  }
+
+  it should "tokenize a leading - before digits as an operator and a literal" in {
+    runEngineForTokens("-128").asserting(_ shouldBe Seq(Token.Symbol("-"), IntegerLiteral("128")))
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(source, SourceTokens.Key(file)).map(_._1.map(_.message))
 
