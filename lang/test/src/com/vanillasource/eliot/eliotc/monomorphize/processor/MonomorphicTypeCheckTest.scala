@@ -992,7 +992,7 @@ class MonomorphicTypeCheckTest
         |import eliot.compiler.Combine
         |import eliot.lang.Option
         |type Int[auto MIN: BigInteger, auto MAX: BigInteger]
-        |type Byte = Int[-128, 127]
+        |type Byte = Int[~128, 127]
         |def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
         |implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] where lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax) { def coerce(value: Int[Smin, Smax]): Int[Tmin, Tmax] = nativeWiden(value) }
         |implement[Amin, Amax, Bmin, Bmax] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }

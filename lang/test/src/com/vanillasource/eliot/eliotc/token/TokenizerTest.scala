@@ -143,6 +143,22 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
     )
   }
 
+  it should "tokenize a ~-signed literal as a negative integer literal" in {
+    runEngineForTokens("~128").asserting(_ shouldBe Seq(IntegerLiteral("-128")))
+  }
+
+  it should "tokenize a - glued to digits as an infix operator, not a negative literal" in {
+    runEngineForTokens("a-1").asserting(
+      _ shouldBe Seq(Identifier("a"), Token.Symbol("-"), IntegerLiteral("1"))
+    )
+  }
+
+  it should "tokenize a ~ glued to a name as the constraint operator, not a negative literal" in {
+    runEngineForTokens("K~Eq").asserting(
+      _ shouldBe Seq(Identifier("K"), Token.Symbol("~"), Identifier("Eq"))
+    )
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(source, SourceTokens.Key(file)).map(_._1.map(_.message))
 

@@ -94,14 +94,16 @@ class TokenParser(sourced: Sourced[?]) {
     lexer.nonlexeme.integer.decimal.map(value => Token.IntegerLiteral(value.toString))
   ).label("integer literal")
 
-  /** A negative integer literal: a `-` *immediately* followed by digits (no intervening space), lexed as a single
-    * literal token. Placed before [[symbolParser]] and made `atomic`, so a `-` that is not glued to digits (binary
-    * subtraction `a - b`, the operator name `def -`, the arrow `->`) still backtracks to the symbol parser. This is what
-    * lets dependent-int bounds like `Int[-128, 127]` and large ones (`Int[-9223…, 9223…]`) carry a
-    * negative `BigInteger`. Binary subtraction therefore requires spacing (`a - 1`, not `a-1`), matching Eliot style.
+  /** A negative integer literal: a `~` *immediately* followed by digits (no intervening space), lexed as a single
+    * literal token whose value carries the leading `-` (e.g. `~128` tokenizes to the literal `-128`). Using `~` — not
+    * `-` — as the literal sign is what frees `-` to be an ordinary infix operator in *every* position, so subtraction
+    * needs no spacing: `a-1`, `1-2` and `a - 1` all parse as subtraction. Placed before [[symbolParser]] and made
+    * `atomic`, so a `~` that is not glued to digits (the ability-constraint separator `T ~ Numeric[T]`, the operator
+    * name `def ~`) still backtracks to the symbol parser. This is what lets dependent-int bounds like `Int[~128, 127]`
+    * and large ones (`Int[~9223…, 9223…]`) carry a negative `BigInteger`.
     */
   private lazy val negativeIntegerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(
-    Parsley.atomic(character.char('-') *> lexer.nonlexeme.integer.decimal).map(value => Token.IntegerLiteral("-" + value.toString))
+    Parsley.atomic(character.char('~') *> lexer.nonlexeme.integer.decimal).map(value => Token.IntegerLiteral("-" + value.toString))
   ).label("negative integer literal")
 
   private lazy val stringLiteral: Parsley[Sourced[Token.StringLiteral]] = sourcedLexeme(

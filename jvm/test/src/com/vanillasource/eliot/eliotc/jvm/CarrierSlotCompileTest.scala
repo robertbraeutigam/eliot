@@ -52,7 +52,7 @@ class CarrierSlotCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     """import eliot.jvm.IO
       |import eliot.effect.Console
       |
-      |def byteMin: BigInteger = -128
+      |def byteMin: BigInteger = ~128
       |def byteMax: BigInteger = 127
       |def withinByte(i: Interval[BigInteger]): Bool = lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
       |def useByte(x: Int): Int where withinByte(range(x)) = x

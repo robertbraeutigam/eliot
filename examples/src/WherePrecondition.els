@@ -1,5 +1,5 @@
 
-def byteMin: BigInteger = -128
+def byteMin: BigInteger = ~128
 def byteMax: BigInteger = 127
 
 def withinByte(i: Interval[BigInteger]): Bool =

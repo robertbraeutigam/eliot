@@ -97,7 +97,6 @@ notes.
 - **Importing a module should bring in the abilities it implements.** When a module implements an
   ability, that ability's functions should become available through the import — e.g. `import
   BigInteger` would also get you `Compare` and `Numeric`.
-- `a-1` does not parse as `a - 1`.
 
 ## Optimization
 
