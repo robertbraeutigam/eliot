@@ -56,10 +56,6 @@ notes.
 
 - Separate the different kinds of I/O (pin output, pin input, timers, …) and let the type
   system infer multiple typeclasses for them.
-- **`printLine` can fail, and nothing says so.** Console output can throw on the platform, so it
-  needs error handling in the row. Does that failure belong on `Suspend`, or as its own effect
-  beside `Console`? (Related to the deliberate decision that console *read* failure stays out of
-  the row — see the `Console` EOF work.)
 - A plain `if..else` needs an effect carrier — it cannot be pure.
 - **A lambda body at a rowless arrow slot does not get its own pure region.** It is elaborated in
   the *enclosing* region, so a discharge written inline there lands on the caller's carrier
