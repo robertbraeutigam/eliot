@@ -6,6 +6,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationSession, Compiler}
+import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -30,11 +31,16 @@ import scala.concurrent.duration.*
 trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   import FullIntegrationTest.shared
 
+  /** The executable jar the shared session builds, so a suite can assert on the artefact on disk itself — that a failed
+    * build left none, that an unchanged rebuild did not rewrite it.
+    */
+  protected def jarPath: Path = shared.jarPath
+
   /** Compile `source` (as module `Test`) to an executable jar and run it in-process, returning its captured standard
     * output. `stdin` is fed to the program's standard input — needed by `Console.readLine`-based programs.
     */
   protected def compileAndRun(source: String, stdin: String = ""): IO[String] =
-    shared.compile(source) >> runJar(shared.jarPath, stdin)
+    compiled(source) >> runJar(shared.jarPath, stdin)
 
   /** Compile `source` and return the compiler's printed diagnostics (captured from standard output). The build is
     * expected to fail; the returned text contains the reported error messages.
@@ -68,7 +74,25 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     * `timeoutMillis` as a hard cap).
     */
   protected def compileAndRunBounded(source: String, timeoutMillis: Long): IO[String] =
-    shared.compile(source) >> runJarBounded(shared.jarPath, timeoutMillis)
+    compiled(source) >> runJarBounded(shared.jarPath, timeoutMillis)
+
+  /** Compile, and fail the test *with the compiler's diagnostics* unless the build produced its jar. A test that goes on
+    * to run the jar must never be allowed to read an artefact this compilation did not produce: the build deletes the
+    * jar it cannot vouch for, so the alternative is an unattributable `ClassNotFoundException` instead of the error that
+    * actually broke the program.
+    *
+    * The gate is `targetProduced`, not the error list: the shared resident session is known to surface stale errors from
+    * facts a previous test's program left reachable, while still building this test's program correctly. Those leaked
+    * diagnostics are a separate defect of the session, and gating on them here would fail every suite.
+    */
+  private def compiled(source: String): IO[Unit] =
+    shared.compile(source).flatMap { result =>
+      IO.raiseError(new IllegalStateException(s"Compilation produced no jar:\n${describe(result.errors)}"))
+        .unlessA(result.targetProduced)
+    }
+
+  private def describe(errors: Seq[CompilerError]): String =
+    errors.map(error => s"${error.contentSource}:${error.sourceRange.from.line}: ${error.message}").mkString("\n")
 
   private def runJarBounded(jarPath: Path, timeoutMillis: Long): IO[String] = {
     // The bounded tests all assert the loop line was printed more than five times; stopping once a comfortable margin of

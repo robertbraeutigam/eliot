@@ -19,21 +19,22 @@ object Compiler extends Logging {
   val visualizeFactsKey: Configuration.Key[Path] = namedKey[Path]("visualizeFacts")
   val statisticsKey: Configuration.Key[Unit]     = namedKey[Unit]("statistics")
 
-  /** Run the compiler, returning whether the compilation produced any errors. The CLI ([[Main]]) maps that to a
-    * non-zero exit code so callers (scripts, CI, the IntelliJ before-run build task) can gate on success. Help/parse
-    * termination is not an error here (`--help` must still exit 0); a missing target plugin is.
+  /** Run the compiler, returning whether the compilation *failed* — it produced errors, or its target produced no
+    * artefact. The CLI ([[Main]]) maps that to a non-zero exit code so callers (scripts, CI, the IntelliJ before-run
+    * build task) can gate on success. Help/parse termination is not a failure here (`--help` must still exit 0); a
+    * missing target plugin is.
     */
   def runCompiler(args: List[String]): IO[Boolean] =
     for {
       plugins   <- allLayers()
       // Run command line parsing with all options from all layers
       configOpt <- parseCommandLine(args, plugins.map(_.commandLineParser()))
-      hadErrors <- configOpt match {
+      failed    <- configOpt match {
                      case None                => IO.pure(false)
                      case Some(configuration) =>
                        runWithConfiguration(configuration, plugins, args)
                    }
-    } yield hadErrors
+    } yield failed
 
   /** Build a resident [[CompilationSession]] for `args` without running it: discover plugins, parse the command line,
     * select the target plugin, and do the one-time session setup (configuring the processor graph, seeding the cache
@@ -101,7 +102,7 @@ object Compiler extends Logging {
           _          <- (tracker, visualizationPath).tupled.traverse_(_.generateVisualization(_))
           // Print where the time went in this run, if requested
           _          <- statistics.traverse_(_.report(finished - started).flatMap(Console[IO].println))
-        } yield result.errors.nonEmpty
+        } yield !result.succeeded
     }
 
   private def collectActivatedPlugins(

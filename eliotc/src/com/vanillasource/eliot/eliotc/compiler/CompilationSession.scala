@@ -53,11 +53,11 @@ final class CompilationSession private (
         prior     <- cache.get
         wrapped   <- IO.delay(wrap(processors, tracker, statistics))
         generator <- IncrementalFactGenerator.create(wrapped, prior, strictAccounting = true)
-        _         <- targetPlugin.run(effectiveConfiguration, generator)
+        produced  <- targetPlugin.run(effectiveConfiguration, generator)
         nextCache <- generator.buildCacheData()
         _         <- cache.set(Some(nextCache)) // last effect ⇒ a cancelled run keeps the old cache
         errors    <- generator.currentErrors()
-      } yield CompilationResult(generator, errors)
+      } yield CompilationResult(generator, errors, produced)
     }
 
   /** Apply all requested instrumentation in a *single* pass, because `wrapWith` hands each wrapper the leaf processor

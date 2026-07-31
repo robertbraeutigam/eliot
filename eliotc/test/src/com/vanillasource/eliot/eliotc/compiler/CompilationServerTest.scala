@@ -111,7 +111,7 @@ object CompilationServerTest {
       id <- started.updateAndGet(_ + 1)
       _  <- gate
       _  <- finished.update(_ :+ id)
-    } yield CompilationResult(generator, Seq.empty)
+    } yield CompilationResult(generator, Seq.empty, targetProduced = true)
 
   /** Poll `fa` until it satisfies `p`, yielding the satisfying value. Bounded by each test's overall timeout. */
   private def eventually[A](fa: IO[A])(p: A => Boolean): IO[A] =

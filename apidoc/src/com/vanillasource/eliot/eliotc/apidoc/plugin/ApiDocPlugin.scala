@@ -58,17 +58,21 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
       SequentialCompilerProcessors(Seq(superProcessor, ValueDocProcessor(rootsWithLayer(configuration))))
     )
 
-  override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
+  override def run(configuration: Configuration, compilation: CompilationProcess): IO[Boolean] =
     for {
+      outDir     <- IO.pure(configuration.getOrElse(Compiler.targetPathKey, Path.of("target")).resolve("apidoc"))
+      // Discard the previous site before anything is read: this run regenerates it unconditionally, so from here on
+      // what is on disk is not what the sources say. A failure below then leaves no site rather than the old one, and
+      // a module that no longer exists cannot leave its page behind.
+      _          <- discardPreviousSite(outDir)
       layerFiles <- collectLayerFiles(configuration, compilation)
       _          <- debug[IO](s"Apidoc collected ${layerFiles.size} source file(s) for documentation.")
       docFor     <- docLookup(compilation, layerFiles)
       built       = DocModelBuilder.build(layerFiles, docFor)
       _          <- built.warnings.traverse_(warn[IO](_))
-      outDir      = configuration.getOrElse(Compiler.targetPathKey, Path.of("target")).resolve("apidoc")
       _          <- writeSite(outDir, HtmlSite.render(built.modules))
       _          <- info[IO](s"Generated documentation for ${built.modules.size} module(s): ${outDir.resolve("index.html")}.")
-    } yield ()
+    } yield true
 
   /** Demand the [[ValueDoc]] fact for every documentable name across the collected files and return a lookup over them,
     * so the built model's docs come from the shared pipeline fact (the same fact the language server reads) rather than
@@ -145,6 +149,17 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
   private def writeSite(outDir: Path, files: Seq[(String, String)]): IO[Unit] = IO.blocking {
     Files.createDirectories(outDir)
     files.foreach { case (relativePath, content) => Files.writeString(outDir.resolve(relativePath), content) }
+  }
+
+  /** Remove the pages of a previous run. The site is a flat directory of generated files ([[HtmlSite.render]] returns
+    * plain file names), so only the regular files directly inside it are deleted — nothing is walked recursively.
+    */
+  private def discardPreviousSite(outDir: Path): IO[Unit] = IO.blocking {
+    if (Files.isDirectory(outDir)) {
+      val entries = Files.list(outDir)
+      try entries.iterator().asScala.filter(Files.isRegularFile(_)).toVector.foreach(Files.delete)
+      finally entries.close()
+    }
   }
 }
 

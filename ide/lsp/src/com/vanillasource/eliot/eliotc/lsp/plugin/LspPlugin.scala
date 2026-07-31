@@ -82,13 +82,13 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
       )
     )
 
-  override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
+  override def run(configuration: Configuration, compilation: CompilationProcess): IO[Boolean] =
     for {
       modules <- workspaceModules(configuration.getOrElse(LangPlugin.pathKey, Seq.empty))
       _       <- debug[IO](s"LSP checking ${modules.size} workspace module(s): ${modules.map(_.show).mkString(", ")}")
       _       <- modules.traverse_(checkModule(compilation, _))
       _       <- documentAllLayers(configuration, compilation)
-    } yield ()
+    } yield true // a whole-workspace check has no artefact to produce; its outcome is its diagnostics
 
   /** Demand the documentation ([[ValueDoc]]) of every declared name across *all* layer roots — the base and
     * platform layers (on the path as dependencies) as well as the user's workspace — so the hover index can document

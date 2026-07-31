@@ -18,5 +18,10 @@ trait CompilerPlugin {
 
   def initialize(@unused configuration: Configuration): StateT[IO, CompilerProcessor, Unit]
 
-  def run(@unused configuration: Configuration, @unused compilation: CompilationProcess): IO[Unit] = IO.unit
+  /** Drive one compilation by demanding whatever this plugin was selected to produce, returning whether that actually
+    * came out. A target that declines without erroring (an abort with no errors) produces nothing and must not read as
+    * a successful build — so this, not just the error count, is what decides the compiler's exit code. Plugins with no
+    * single artefact to produce (a whole-workspace check) always succeed.
+    */
+  def run(@unused configuration: Configuration, @unused compilation: CompilationProcess): IO[Boolean] = IO.pure(true)
 }

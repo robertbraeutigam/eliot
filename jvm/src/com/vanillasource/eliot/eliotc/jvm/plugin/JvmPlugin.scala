@@ -90,8 +90,8 @@ class JvmPlugin extends CompilerPlugin {
     classOf[StdlibPlugin]
   )
 
-  override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
-    compilation.getFact(GenerateExecutableJar.Key(configuration.get(mainKey).get)).void
+  override def run(configuration: Configuration, compilation: CompilationProcess): IO[Boolean] =
+    compilation.getFact(GenerateExecutableJar.Key(configuration.get(mainKey).get)).map(_.isDefined)
 }
 
 object JvmPlugin
