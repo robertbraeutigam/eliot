@@ -25,6 +25,11 @@
 ability Console[F[_]] {
    /**
     * Write `s` to standard output, followed by a line separator.
+    *
+    * There is no failure channel: `printLine` cannot fail from the program's point of view. A write that
+    * breaks underneath a running program (a closed stream, a severed pipe) is an environment failure the
+    * program cannot meaningfully act on, so it terminates the program rather than entering the `{Console}`
+    * row — the same stance every mainstream runtime takes for standard output.
     */
    def printLine(s: String): {Console} Unit
 
