@@ -15,11 +15,10 @@ infix left def &&(a: Bool, b: Bool): Bool
 /**
  * Logical disjunction: `true` when at least one of `a` and `b` is `true`.
  *
- * `||` sits at the *same* precedence as `&&` (unlike most languages, where `&&` binds tighter), so a mixed chain
- * groups left to right: `a || b && c` is `(a || b) && c` — parenthesise when you mean `a || (b && c)`. Operands
- * are ordinary values; there is no short-circuiting.
+ * `||` binds *looser* than `&&` (as in most languages), so a mixed chain groups by conjunction first:
+ * `a || b && c` is `a || (b && c)`. Operands are ordinary values; there is no short-circuiting.
  */
-infix left at && def ||(a: Bool, b: Bool): Bool
+infix left below && def ||(a: Bool, b: Bool): Bool
 
 /**
  * Logical negation: `true` becomes `false` and `false` becomes `true`.
