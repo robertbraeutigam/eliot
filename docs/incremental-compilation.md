@@ -35,8 +35,12 @@ itself unchanged, by reaching the leaves through its edges.
 - `UpToDate` — a constant with no inputs. A processor that is an *input-less compiler constant* would otherwise
   look exactly like a source leaf; depending on `UpToDate` turns it into a non-leaf whose drill terminates at a
   leaf that always compares equal. `SystemNativesProcessor` is the one processor that does this today.
-- `OutputFileStat` — presence, not mtime, of a written artefact. An mtime would self-invalidate on every write;
-  presence is stable across the write and still flips when the output is deleted.
+- `OutputFileStat` — the content digest, not the mtime, of a written artefact. An mtime would self-invalidate on
+  every write; a digest is stable across a rewrite of the same bytes (which is what makes deterministic output a
+  prerequisite, not a nicety) and still differs when the output is deleted, truncated or replaced. It is read
+  *after* the write, so it records what the run actually left on disk. This dependency is the only thing tying an
+  accepted-from-cache writer to the file's real state — presence alone, its earlier shape, let a corrupted jar
+  survive a build that reported success.
 
 **Fingerprints guard reuse.** `CacheFingerprint.compiler` digests every entry on the running compiler's
 classpath (path, size, mtime; recursively for directories), so even an uncommitted recompile of the compiler
@@ -226,7 +230,9 @@ and unstorable — which costs nothing with the logger off.
 - An assertion on the metric itself: a warm run over an unchanged tree regenerates only leaf facts. This is the
   test that would have caught the current state.
 - Fast example sweep plus byte-identity comparison against a cold build — the jar must be identical whether or
-  not the cache was used.
+  not the cache was used. This step became executable only on 2026-07-31: until jar entries were given a fixed
+  timestamp and a fixed order, two builds of the same sources produced different bytes, and the comparison had to
+  be made over unzipped class files instead.
 - The other direction, which matters as much: touch one source file and confirm a bounded, *correct* subset
   recompiles. Steps 1 and 3 both widen what is accepted from cache, so under-invalidation is the risk they
   carry.

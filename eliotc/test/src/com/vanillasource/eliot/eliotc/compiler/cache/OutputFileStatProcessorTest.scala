@@ -11,11 +11,22 @@ import java.nio.file.Files
 class OutputFileStatProcessorTest extends ProcessorTest {
   private val processor = new OutputFileStatProcessor()
 
-  "OutputFileStatProcessor" should "report a present file" in {
+  // The SHA-256 of the empty input, i.e. of a file that exists but has no content.
+  private val emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+  "OutputFileStatProcessor" should "digest a present file" in {
     withTempFile { file =>
       runCompilerIO {
         processor.generate(OutputFileStat.Key(file)) >> getFactOrAbort(OutputFileStat.Key(file))
-      }.asserting(_ shouldBe Right(OutputFileStat(file, present = true)))
+      }.asserting(_ shouldBe Right(OutputFileStat(file, Some(emptyDigest))))
+    }
+  }
+
+  it should "digest a file's content, not its name" in {
+    withTempFile { file =>
+      IO.blocking(Files.writeString(file.toPath, "content")) >> runCompilerIO {
+        processor.generate(OutputFileStat.Key(file)) >> getFactOrAbort(OutputFileStat.Key(file))
+      }.asserting(_ should not be Right(OutputFileStat(file, Some(emptyDigest))))
     }
   }
 
@@ -23,7 +34,7 @@ class OutputFileStatProcessorTest extends ProcessorTest {
     withTempFile { file =>
       IO.blocking(file.delete()) >> runCompilerIO {
         processor.generate(OutputFileStat.Key(file)) >> getFactOrAbort(OutputFileStat.Key(file))
-      }.asserting(_ shouldBe Right(OutputFileStat(file, present = false)))
+      }.asserting(_ shouldBe Right(OutputFileStat(file, None)))
     }
   }
 

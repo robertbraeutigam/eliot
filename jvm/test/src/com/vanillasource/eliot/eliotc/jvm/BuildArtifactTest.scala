@@ -13,6 +13,7 @@ import scala.jdk.CollectionConverters.*
 class BuildArtifactTest extends FullIntegrationTest {
 
   private val working = """def main: {Console} Unit = printLine("working")"""
+  private val other   = """def main: {Console} Unit = printLine("other")"""
   private val broken  = """def main: {Console} Unit = printLine(nonExistentName)"""
 
   "a failed compilation" should "leave no jar behind" in {
@@ -31,6 +32,20 @@ class BuildArtifactTest extends FullIntegrationTest {
     (compileForErrors(broken) >> compileAndRun(working)).asserting(_ shouldBe "working")
   }
 
+  "a jar changed behind the compiler's back" should "be rewritten by an otherwise unchanged build" in {
+    // Up-to-dateness is decided by the artefact's content, not by its mere presence: a corrupted jar is still present,
+    // and used to be accepted by a build that reported success and rewrote nothing.
+    (compileAndRun(working) >> corruptJar >> compileAndRun(working)).asserting(_ shouldBe "working")
+  }
+
+  "the same program" should "compile to byte-identical jars" in {
+    // Deterministic output is what lets the content digest above settle, and what makes a jar comparable byte for byte
+    // against one built from the same sources.
+    (compileAndRun(working) >> bytesOf(jarPath).flatMap(first =>
+      compileAndRun(other) >> compileAndRun(working) >> bytesOf(jarPath).map(_ === first)
+    )).asserting(_ shouldBe true)
+  }
+
   "an unchanged recompilation" should "not rewrite the jar" in {
     // Guards the ordering the artefact invariant rests on: the jar is discarded at the start of a regeneration, so the
     // output-presence dependency must be read *after* the write. Read before, it would record "absent" against a
@@ -41,6 +56,10 @@ class BuildArtifactTest extends FullIntegrationTest {
   }
 
   private def exists(path: Path): IO[Boolean] = IO.blocking(Files.exists(path))
+
+  private def bytesOf(path: Path): IO[Seq[Byte]] = IO.blocking(Files.readAllBytes(path).toSeq)
+
+  private def corruptJar: IO[Unit] = IO.blocking(Files.writeString(jarPath, "not a jar")).void
 
   private def modifiedAt(path: Path): IO[Long] = IO.blocking(Files.getLastModifiedTime(path).toMillis)
 

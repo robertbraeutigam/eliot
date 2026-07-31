@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path}
+import java.time.LocalDateTime
 import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(targetDir: Path) extends SingleFactProcessor[GenerateExecutableJar.Key] with Logging {
@@ -100,13 +101,17 @@ class JvmProgramGenerator(targetDir: Path) extends SingleFactProcessor[GenerateE
       .guarantee(IO.blocking(Files.deleteIfExists(temporaryJarFilePath(mainValue))).void) >>
       info(s"Generated executable jar: ${jarFilePath(mainValue)}.")
 
+  /** Entries are written in name order, not in the order the modules were generated in. The module sequence comes from
+    * the keys of a `Map`, whose iteration order is not a function of the program alone — sorting is what makes the same
+    * program produce the same JAR (see [[timestamped]]).
+    */
   private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedModule]): Unit = {
-    allClasses.foreach { case GeneratedModule(moduleName, vfqn, classFiles) =>
-      classFiles.foreach { classFile =>
-        jos.putNextEntry(new JarEntry(classFile.fileName))
-        jos.write(classFile.bytecode)
-        jos.closeEntry()
-      }
+    val classFiles = allClasses.flatMap(_.classFiles).sortBy(_.fileName)
+
+    classFiles.foreach { classFile =>
+      jos.putNextEntry(timestamped(classFile.fileName))
+      jos.write(classFile.bytecode)
+      jos.closeEntry()
     }
   }
 
@@ -127,8 +132,31 @@ class JvmProgramGenerator(targetDir: Path) extends SingleFactProcessor[GenerateE
   private def jarFileName(mainValue: ValueFQN): String = mainValue.moduleName.name + ".jar"
 
   private def generateManifest(jos: JarOutputStream): Unit = {
-    jos.putNextEntry(new JarEntry("META-INF/MANIFEST.MF"))
+    jos.putNextEntry(timestamped("META-INF/MANIFEST.MF"))
     jos.write("Manifest-Version: 1.0\nMain-Class: main\n".getBytes(StandardCharsets.UTF_8))
     jos.closeEntry()
   }
+
+  /** An entry stamped with a fixed local time instead of "now", so the same program compiles to the same bytes.
+    *
+    * Without it every build produces a different JAR, which costs two things: a JAR cannot be compared byte for byte
+    * against one built from the same sources — the cheapest oracle there is for "did this change alter codegen?" — and
+    * every rewrite changes the artefact's digest ([[OutputFileStat]]) even when the program did not change at all.
+    *
+    * `setTimeLocal` writes the DOS field directly, where `setTime` would convert from the default time zone (making the
+    * bytes depend on where the build runs) and, outside the DOS range, add an extended-timestamp extra field.
+    */
+  private def timestamped(name: String): JarEntry = {
+    val entry = new JarEntry(name)
+    entry.setTimeLocal(JvmProgramGenerator.epoch)
+    entry
+  }
+}
+
+object JvmProgramGenerator {
+
+  /** The start of the MS-DOS epoch a ZIP entry's timestamp field is expressed in — the conventional fixed stamp for a
+    * reproducible archive, and the earliest one representable without spilling into an extra field.
+    */
+  private val epoch: LocalDateTime = LocalDateTime.of(1980, 1, 1, 0, 0, 0)
 }
