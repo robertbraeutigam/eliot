@@ -1,5 +1,5 @@
 
-def byteMin: BigInteger = ~128
+def byteMin: BigInteger = 0
 def byteMax: BigInteger = 127
 
 def withinByte(i: Interval[BigInteger]): Bool =
@@ -7,8 +7,8 @@ def withinByte(i: Interval[BigInteger]): Bool =
 
 /**
  * A `where` refinement precondition (`docs/bounds-as-refinements.md` §4.3). `asByte` demands that its argument's value
- * range *provably* fit a signed byte; the compiler verifies this at every call site — a use-site check — and rejects an
- * out-of-range or unknown-range caller before code generation. `asByte(100)` passes (`100` fits `[-128, 127]`) and the
+ * range *provably* fit `[0, 127]`; the compiler verifies this at every call site — a use-site check — and rejects an
+ * out-of-range or unknown-range caller before code generation. `asByte(100)` passes (`100` fits `[0, 127]`) and the
  * program prints `100`; a call like `asByte(1000)`, or one passing a value of unknown range, would be a compile error.
  */
 def asByte(x: Int): Int where withinByte(range(x)) = x

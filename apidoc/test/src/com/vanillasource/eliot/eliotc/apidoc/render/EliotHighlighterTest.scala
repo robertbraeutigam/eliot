@@ -22,8 +22,8 @@ class EliotHighlighterTest extends AnyFlatSpec with Matchers {
     highlight("42") shouldBe """<span class="num">42</span>"""
   }
 
-  it should "glue a leading minus into a negative integer literal" in {
-    highlight("-128") shouldBe """<span class="num">-128</span>"""
+  it should "classify a leading minus as an operator, not glued into the literal" in {
+    highlight("-128") shouldBe """<span class="op">-</span><span class="num">128</span>"""
   }
 
   it should "classify a string literal with escaped quotes" in {
