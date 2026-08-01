@@ -4,16 +4,27 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.channel.{EffectAccountingProcessor, WovenValueProcessor}
+import com.vanillasource.eliot.eliotc.monomorphize.channel.{
+  EffectAccountingProcessor,
+  NativeMetaDeclarationProcessor,
+  WovenValueProcessor
+}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 // `used` now demands the post-mono `WovenValue` (the effects-as-channel codegen source), so this manual-fact-injection
 // harness runs the `WovenValueProcessor` too: the injected `MonomorphicValue`s carry no `Id`, so weaving is the identity
-// image of each. `WovenValue` in turn demands `EffectAccounting` as a codegen precondition (U4-c-1), so the accounting
-// processor rides along; the injected values declare and perform no effects, so it produces an empty row and passes.
-class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor(), WovenValueProcessor(), EffectAccountingProcessor()) {
+// image of each. `WovenValue` in turn demands `EffectAccounting` and `NativeMetaDeclared` as codegen preconditions, so
+// those processors ride along; the injected values declare and perform no effects and reference no module facts, so
+// accounting produces an empty row and the native-meta check finds no meta-carrying return and both pass.
+class UsedNamesProcessorTest
+    extends ProcessorTest(
+      UsedNamesProcessor(),
+      WovenValueProcessor(),
+      EffectAccountingProcessor(),
+      NativeMetaDeclarationProcessor()
+    ) {
   private val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
   private val intType = GroundValue.Structure(intVfqn, Seq.empty, GroundValue.Type)
 

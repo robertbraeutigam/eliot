@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{FunctionDefinition, Expression as SourceExpression}
+import com.vanillasource.eliot.eliotc.ast.fact.{ArgumentDefinition, FunctionDefinition, Expression as SourceExpression}
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -43,10 +43,14 @@ object MetaTransferDesugarer {
   private def transferCompanion(f: FunctionDefinition): Option[FunctionDefinition] = {
     val generics = f.genericParameters.map(_.name.value).toSet
     // A generic companion keeps its original signature (its type params are reduced at their meta types by the channel,
-    // its concrete params are unprojected pass-throughs); a monomorphic vessel suffixes each concrete type to `T$Meta`.
+    // its concrete params are unprojected pass-throughs); a monomorphic vessel suffixes to `T$Meta` **only the params the
+    // brace projects** (`range(a)`), which by construction are slotted types (a slotless type has no `range` to project),
+    // so their `T$Meta` resolves. A param the brace never mentions (a native's slotless `s: String`, whose meta is the
+    // trivial `Unit`) keeps its declared type verbatim — suffixing it would spell a non-existent `String$Meta`. The
+    // channel passes such a param a `VType` ⊤ placeholder the unprojecting body ignores.
     for {
       metaArgs   <- if (generics.nonEmpty) f.args.some
-                    else f.args.traverse(arg => metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t)))
+                    else f.args.traverse(metaArg(_, f.returnMeta))
       metaReturn <- metaReturnRef(f.typeDefinition, generics)
       body       <- metaBody(f.typeDefinition, f.returnMeta, generics)
     } yield FunctionDefinition(
@@ -57,6 +61,27 @@ object MetaTransferDesugarer {
       Some(body),
       visibility = f.visibility
     )
+  }
+
+  /** One monomorphic-vessel companion parameter: suffixed to its meta structure `T$Meta` when the brace **projects** it
+    * (its name occurs in a brace expression — `a` in `range(a)`), else kept verbatim. Only a slotted type can be
+    * projected, so a suffixed param's `T$Meta` always resolves; an unprojected param (a native's slotless `s: String`) is
+    * left alone rather than spelling a non-existent `String$Meta`.
+    */
+  private def metaArg(arg: ArgumentDefinition, braceExprs: Seq[Sourced[SourceExpression]]): Option[ArgumentDefinition] =
+    if (braceExprs.exists(e => references(e.value, arg.name.value)))
+      metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t))
+    else arg.some
+
+  /** Whether `name` occurs as a reference anywhere in a (brace) expression — the head or an argument of any application,
+    * or nested within. A projected parameter (`a` in `range(a)`) is a bare-name application head, so a simple structural
+    * scan over the shapes a transfer brace can take (applications, flat runs) finds it.
+    */
+  private def references(expr: SourceExpression, name: String): Boolean = expr match {
+    case SourceExpression.FunctionApplication(_, fnName, _, args) =>
+      fnName.value == name || args.exists(a => references(a.value, name))
+    case SourceExpression.FlatExpression(parts)                  => parts.exists(p => references(p.value, name))
+    case _                                                        => false
   }
 
   /** The meta structure of a **concrete** value type expression: its application head `T` suffixed to `T$Meta` (the

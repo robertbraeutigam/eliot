@@ -4,6 +4,20 @@
 type Interval[T]
 
 /**
+ * The ⊤ (top) interval over `T` — "any value of `T`, the whole domain". A native whose result the refinement channel
+ * cannot bound to a finite interval — a parsed number, a platform-sized string length or index — states its range as
+ * `unbounded` in its return brace (`def parseIntInternal(s: String): Int {unbounded}`) to say so *explicitly*, rather
+ * than silently defaulting to ⊤ by omitting the brace.
+ *
+ * It is deliberately body-less and irreducible: the refinement channel reduces a `^Meta` transfer companion built over
+ * it to a stuck term that does not quote to a concrete `Interval(start, end)`, so it records no narrowing (⊤) and the
+ * backend lays the value out at its widest representation (a bignum for `Int`) — exactly the sound, wide default, now
+ * the result of an explicit declaration. It appears only inside `^Meta` companions, which are compiler-pool artifacts,
+ * so it is never reached or code-generated on the runtime track.
+ */
+def unbounded[T]: Interval[T]
+
+/**
  * `Interval` closes under arithmetic by lifting the operation onto each endpoint through the endpoints' own `Numeric`.
  * Because both endpoints share one type `T`, every result endpoint is again a `T`, so each method is a plain
  * `Interval[T] -> Interval[T] -> Interval[T]` — no associated result types, no corner-product join formula:

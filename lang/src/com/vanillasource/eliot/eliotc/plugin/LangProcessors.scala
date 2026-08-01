@@ -20,6 +20,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
 }
 import com.vanillasource.eliot.eliotc.monomorphize.channel.{
   EffectAccountingProcessor,
+  NativeMetaDeclarationProcessor,
   RefinementChannelProcessor,
   WovenValueProcessor
 }
@@ -120,6 +121,7 @@ object LangProcessors {
     CompilerMonomorphicTypeCheckProcessor(),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(),
+    NativeMetaDeclarationProcessor(),
     WovenValueProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),

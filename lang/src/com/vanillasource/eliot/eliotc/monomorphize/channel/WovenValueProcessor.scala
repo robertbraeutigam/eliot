@@ -45,6 +45,10 @@ class WovenValueProcessor()
       // reaches bytecode. Accounting verifies unconditionally (U4-c-2); for a valid program it always resolves and the
       // woven output is byte-identical.
       _ <- getFactOrAbort(EffectAccounting.Key(mv.vfqn, mv.typeArguments))
+      // Native meta-declaration check as a **codegen precondition** (bounds-as-refinements): a native producing a
+      // meta-carrying type without a declared `^Meta` companion fails the check, whose abort here blocks its
+      // `WovenValue` and so its codegen — a native silently defaulting its range to ⊤ never reaches bytecode.
+      _ <- getFactOrAbort(NativeMetaDeclared.Key(mv.vfqn, mv.typeArguments))
       _ <- assertNoIdResidue(mv, erasedSig, normalized)
     } yield WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized)
   }

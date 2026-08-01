@@ -74,7 +74,7 @@ private def outcomeErrorMessage(outcome: ProcessOutcome): String
 /**
  * The exit-code slot of an outcome holder. Implemented by the backend.
  */
-private def outcomeExitCode(outcome: ProcessOutcome): Int
+private def outcomeExitCode(outcome: ProcessOutcome): Int {unbounded}
 
 /**
  * The captured standard output of an outcome holder. Implemented by the backend.

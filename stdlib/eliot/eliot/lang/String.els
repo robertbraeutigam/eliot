@@ -10,7 +10,7 @@ type String
  * parts. Use it for slicing with `substring`/`take`/`drop`, which index in the same units, rather than as a
  * measure of visible text width.
  */
-def length(s: String): Int
+def length(s: String): Int {unbounded}
 
 /**
  * `true` when `s` has no characters at all.
@@ -244,7 +244,7 @@ implement Show[String] {
  * behind `indexOf`, which turns the negative case into an `Abort`. `private` so the sentinel can never
  * escape into user code. Implemented by the backend.
  */
-private def indexOfInternal(part: String, s: String): Int
+private def indexOfInternal(part: String, s: String): Int {unbounded}
 
 /**
  * The number `s` spells, or `0` when it spells none — the raw leaf behind `parseInt`, which turns that case into an
@@ -253,4 +253,4 @@ private def indexOfInternal(part: String, s: String): Int
  * Total on purpose: an `if` *builds* both of its arms even though it runs only one, so a leaf that failed on a
  * malformed numeral would fail before `parseInt`'s guard could choose. Implemented by the backend.
  */
-private def parseIntInternal(s: String): Int
+private def parseIntInternal(s: String): Int {unbounded}
