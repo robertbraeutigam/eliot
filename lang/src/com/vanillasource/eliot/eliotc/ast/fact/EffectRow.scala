@@ -44,6 +44,14 @@ import cats.syntax.all.*
   *   domains (`catch`'s `computation: {Throw[E] | G} A`) — holding the parameter's index and the stack's entries in
   *   declared order. Disjoint from `parameterEffects` by construction (a position's top-level type is either an open
   *   row or a pinned row, never both). Empty when no parameter is a pinned carrier stack.
+  * @param aliasPinnedEffects
+  *   The entries of a **type-level definition whose body is itself a pinned row** (`type Test = {Writer[W] | Id}
+  *   Unit`), in declared order. This is the one place a *body* row is recorded, and it is recorded because for a type
+  *   alias the body **is** the declared type — the alias's own return position is the kind `Type`, so
+  *   `returnPinnedEffects` says nothing about it. It is kept apart from `returnPinnedEffects` precisely so that the
+  *   alias is never mistaken for a value returning a computation: a consumer resolving a *use* of the alias
+  *   (`def testCases: Test`) reads this tag through one level of alias expansion, which is what the elaborator's
+  *   whitelist (docs/effects-as-rows.md §3.2) sanctions. Empty for every other definition.
   * @tparam C
   *   The phase's ability-constraint representation: ast [[GenericParameter.AbilityConstraint]] at the desugarer, then
   *   `NamedValue.CoreAbilityConstraint`, then each later phase's `ResolvedAbilityConstraint`.
@@ -52,11 +60,15 @@ case class EffectRow[C](
     returnEffects: Seq[C] = Seq.empty[C],
     parameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
     returnPinnedEffects: Seq[C] = Seq.empty[C],
-    pinnedParameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]]
+    pinnedParameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
+    aliasPinnedEffects: Seq[C] = Seq.empty[C]
 ) {
 
   /** Position-only view: whether the return position's declared type is a pinned row. */
   def returnPinned: Boolean = returnPinnedEffects.nonEmpty
+
+  /** Position-only view: whether this definition is a type alias whose body is a pinned row. */
+  def aliasPinned: Boolean = aliasPinnedEffects.nonEmpty
 
   /** Position-only view: the value-parameter indices whose declared type is a pinned row. */
   def pinnedParameterIndices: Set[Int] = pinnedParameterEffects.map(_.parameterIndex).toSet
@@ -69,7 +81,8 @@ case class EffectRow[C](
       returnEffects.map(f),
       parameterEffects.map(_.map(f)),
       returnPinnedEffects.map(f),
-      pinnedParameterEffects.map(_.map(f))
+      pinnedParameterEffects.map(_.map(f)),
+      aliasPinnedEffects.map(f)
     )
 
   /** Convert every entry with an effectful function, preserving positions — the resolving fact-chain hops
@@ -80,7 +93,8 @@ case class EffectRow[C](
       returnEffects.traverse(f),
       parameterEffects.traverse(_.traverse(f)),
       returnPinnedEffects.traverse(f),
-      pinnedParameterEffects.traverse(_.traverse(f))
+      pinnedParameterEffects.traverse(_.traverse(f)),
+      aliasPinnedEffects.traverse(f)
     ).mapN(EffectRow.apply)
 }
 

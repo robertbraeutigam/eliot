@@ -227,8 +227,19 @@ object EffectSugarDesugarer {
       pinnedParameterEffects = function.args.zipWithIndex.flatMap { case (arg, index) =>
         val entries = pinnedRowEntries(arg.typeExpression)
         Option.when(entries.nonEmpty)(EffectRow.ParameterEffects(index, entries))
-      }
+      },
+      aliasPinnedEffects = if (isTypeLevel(function)) function.body.toSeq.flatMap(pinnedRowEntries) else Seq.empty
     )
+
+  /** Whether a definition is **type-level**: its declared type is the kind `Type` itself, which is exactly what
+    * [[com.vanillasource.eliot.eliotc.ast.fact.TypeAliasDefinition]] writes for a `type X = …`. For such a definition
+    * the *body* is the declared type, so it is the body — not the return position, which only ever says `Type` — that
+    * a pinned row can stand in. This is the one place a body row is read, and only for this shape.
+    */
+  private def isTypeLevel(function: FunctionDefinition): Boolean = function.typeDefinition.value match {
+    case FunctionApplication(None, name, None, Seq()) => name.value == "Type"
+    case _                                            => false
+  }
 
   /** The distinct *open*-row (`tail == None`) ability entries anywhere within one signature-position expression. */
   private def openRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =

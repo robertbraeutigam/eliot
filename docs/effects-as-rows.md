@@ -2542,3 +2542,52 @@ build — the re-spelling is transparent to every existing call site.
 pinned, and pinned is concrete), so storing a *pure* value in a computation field must be written
 `Box(pure(x))`, which needs `import eliot.carrier.Effect`. Declaring the field at its payload type is
 usually the better answer.
+
+## A.11.13 A pinned row spelled as a type alias (2026-08-01)
+
+Two defects, both the tail of A.11.12's sibling change (`a669f530`, "read a pinned return as a carrier"),
+both found by an out-of-tree project — a test framework whose suite type is written once as an alias:
+
+```eliot
+type Test = {Writer[List[TestCase]] | Id} Unit
+
+infix none below should def in(testCase: TestCase, body: {Throw[AssertionError] | Id} Unit):
+   {Writer[List[TestCase]] | Id} Unit = tell(append(empty, TestCase(...)))
+
+def testCases: Test = { "shouldBe" should "…" in { … }  ...  }
+```
+
+**1. The alias hid the pinned tag from `topRegionCarrier`.** A `type X = …` is a `FunctionDefinition`
+whose *return position is the kind `Type`* and whose **body** is the type it denotes, so
+`pinnedRowEntries(function.typeDefinition)` — which reads the return position — recorded nothing for it,
+and `def testCases: Test` therefore got `RegionCarrier.Absent`. Meanwhile every statement in the block is a
+saturated call to `in`, whose pinned return `a669f530` had just started reading as `Kind.Carrier`. Caller
+and callee disagreed about the one carrier they share: the definition read pure, so its block tail took the
+`Id` boundary and came out `runId`-wrapped, while each statement was a computation on the `WriterCarrier`
+stack the alias names. The symptom is the one [[gotcha_parameter_kind_needs_declared_type]] warns about —
+`Expected:` and `Actual:` rendering **identically** (`{Writer[List(TestCase)] | Id} Unit` both sides),
+because the renderer erases the `Id` the mismatch is made of.
+
+The tag is now recorded for a type-level definition from its body — `EffectRow.aliasPinnedEffects`, kept
+**apart** from `returnPinnedEffects` so an alias is never mistaken for a value returning a computation —
+and `topRegionCarrier` reads it through `expandAlias`, the *one level of type-alias expansion* §3.2 already
+grants (the same expansion `asArrowLike` was doing inline for `=>`; it is now one shared helper).
+
+**2. A reified pinned computation could not be stored.** With a pinned-returning call classified
+`Kind.Carrier`, rule 4's rowless-slot check rejected `append(steps, one)` for
+`def one: {State[S] | Id} Unit` — which is exactly the `List[TestCase]` use §1 rule 3 *sanctions*: a pinned
+row is a reified computation **and** an ordinary type, so handing one on is handing on data. The exemption
+already existed for a pinned *parameter* (`isCapturedValue`) and now covers the saturated call too;
+it also had to move out of the first arm, since the second — "it lands on the type parameter `A`" — was
+reporting the very same value one message later.
+
+**Not done, and fail-safe.** `declaredResultKind` still reads only the *syntactic* pinned tag, so a callee
+whose pinned return is spelled through an alias reads as a payload and is `pure`-wrapped at a carrier
+position. That is a hard checker error, never a silent re-route, and closing it requires the storage
+question of defect 2 to be settled for every consumer of the tag — not just this one.
+
+**Gate**: `__.test` green, including two new `ExamplesIntegrationTest2` cases (the aliased block, and the
+stored pinned computation), and all **39** example jars byte-identical to the pre-change build — jars being
+reproducible since 2026-07-31, the comparison is now an `md5sum` of the jar itself. Cold-cache compile time
+is unchanged (2.46–2.55 s over three runs either side), so the added universe lookup costs nothing
+measurable.

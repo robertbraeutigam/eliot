@@ -231,6 +231,13 @@ object RowElaborator {
     *   - **nominal-run** (`def main: IO[Unit]`): the carrier is the concrete run carrier, read off the boundary
     *     registry rather than guessed from the name.
     *
+    * A pinned return reached through a **type alias** (`type Test = {Writer[W] | Id} Unit`, `def testCases: Test`) is
+    * the same second spelling written once: the alias's own body carries the pinned tag
+    * ([[com.vanillasource.eliot.eliotc.ast.fact.EffectRow.aliasPinnedEffects]]), and expanding it is the one level of
+    * alias expansion the §3.2 whitelist grants. Without it a definition and the pinned-returning callees it sequences
+    * disagree about the very carrier they share — the definition reads pure and wraps the block in `runId`, while each
+    * statement is a computation on the stack the alias names.
+    *
     * A pure return has no carrier at all.
     */
   private def topRegionCarrier(
@@ -243,7 +250,43 @@ object RowElaborator {
     if (carrierHeaded(returnType.value, ownBinders) || runCarrierReturn(view, universe))
       RegionCarrier.Spelled(returnType.as(spine(returnType.value)._1))
     else if (orv.effectRow.returnPinnedEffects.nonEmpty) dropPayloadArgument(returnType)
-    else RegionCarrier.Absent
+    else
+      expandAlias(returnType.value, universe)
+        .collect { case (alias, expanded) if alias.effectRow.aliasPinned => returnType.as(expanded) }
+        .fold(RegionCarrier.Absent)(dropPayloadArgument)
+  }
+
+  /** Expand **one level** of type alias: a type expression whose head references a definition that has a body and
+    * binds exactly as many binders as the expression supplies arguments, read as that body with the arguments
+    * substituted in. Declared information from the universe, no evaluation — the whitelist's alias clause. Yields the
+    * alias's own value beside the expansion, so a caller can read the tags the expansion itself no longer shows.
+    *
+    * The substitution is **simultaneous**, staged through fresh names: `=>` binds `A` and `B`, so expanding
+    * `B => {Effect} B` (`=>[B, F[B]]`) one binder at a time would substitute `A := B` and then re-substitute that very
+    * `B` when `B := F[B]` follows — reading `A => B => {Effect} B` as `A => {Effect} B => {Effect} B` and classifying
+    * the accumulator binder as a computation.
+    */
+  private def expandAlias(
+      tpe: OperatorResolvedExpression,
+      universe: RowChecker.Universe
+  ): Option[(OperatorResolvedValue, OperatorResolvedExpression)] = {
+    val (head, args) = spine(tpe)
+    head match {
+      case ValueReference(name, _) =>
+        for {
+          orv             <- universe.lookup(name.value)
+          body            <- orv.runtime
+          (binders, inner) = RowChecker.peelBinders(body.value)
+          if binders.size == args.size
+          staged           = binders.zipWithIndex.foldLeft(inner) { case (acc, (binder, index)) =>
+                               substitute(acc, binder, ParameterReference(body.as(s"$$alias$$$index")))
+                             }
+          expanded         = args.zipWithIndex.foldLeft(staged) { case (acc, (arg, index)) =>
+                               substitute(acc, s"$$alias$$$index", arg.value)
+                             }
+        } yield (orv, expanded)
+      case _                       => scala.None
+    }
   }
 
   /** A carrier-headed type read as its carrier: the head applied to every argument *but* the payload
@@ -1543,6 +1586,11 @@ object RowElaborator {
       * suspended slot (`whenTrue: {G} A`), a pinned capture (`{Throw[E] | G} A`) and a carrier-codomain handler
       * (`onError: E => G[A]`) are all headed by a carrier rather than by a plain generic, which is exactly what
       * [[determinedBy]] declines to bind.
+      *
+      * A [[isCapturedValue]] *argument* is excluded for the mirror-image reason, and for **both** readings: a reified
+      * pinned computation is data by §1 rule 3, so neither "this argument is a computation" nor "it lands on a
+      * rowless binder" is a violation of it. Guarding only the first left the second reporting the same value one
+      * message later, which is what rejected `append(steps, one)` for a pinned-returning `one`.
       */
     private def recordRowlessSlots(
         callee: ValueFQN,
@@ -1555,8 +1603,8 @@ object RowElaborator {
       view.parameters.zip(finalArgs).zipWithIndex.foreach { case ((declared, arg), index) =>
         val declaresComputation =
           pinned.contains(index) || (runBoundary && index === 0) || hostsComputation(declared.value)
-        if (!declaresComputation) {
-          if (expressionKind(arg.value, 0) === Kind.Carrier && !isCapturedValue(arg.value))
+        if (!declaresComputation && !isCapturedValue(arg.value)) {
+          if (expressionKind(arg.value, 0) === Kind.Carrier)
             violations += Violation(
               arg.as(
                 s"This argument is a computation, but argument ${index + 1} of '${callee.name.name}' declares no " +
@@ -1599,15 +1647,25 @@ object RowElaborator {
     private def hostsComputation(declared: OperatorResolvedExpression): Boolean =
       asArrowLike(declared).isEmpty && spine(declared)._2.nonEmpty
 
-    /** Whether an argument is a **captured** computation — a reference to one of this definition's own pinned
-      * parameters. §1 rule 3: a pinned row is a *reified* computation and therefore an ordinary type, so handing one
-      * on is handing on data, not letting an effect through a position that does not declare it. This is what keeps a
-      * carrier's own generated accessor legal, since destructuring its pinned `obj` passes it to the `match`
-      * eliminator's plain slot.
+    /** Whether an argument is a **captured** computation — one that stands for a computation on a carrier stack of
+      * its own, which this call neither performs nor routes. §1 rule 3: a pinned row is a *reified* computation and
+      * therefore an ordinary type, so handing one on is handing on data, not letting an effect through a position
+      * that does not declare it. Two spellings, and they must agree:
+      *
+      *   - a reference to one of this definition's own **pinned parameters**, which is what keeps a carrier's own
+      *     generated accessor legal (destructuring its pinned `obj` passes it to the `match` eliminator's plain slot);
+      *   - a **saturated call to a pinned-returning definition** (`def one: {State[S] | Id} Unit`), whose value is
+      *     that same reified stack. Since such a call is [[Kind.Carrier]] — so that a region on that very stack
+      *     sequences it rather than `pure`-wrapping it — without this arm the rule-4 check would reject storing one,
+      *     which is exactly the `data` field / `List[TestCase]` use rule 3 sanctions.
       */
-    private def isCapturedValue(expr: OperatorResolvedExpression): Boolean = expr match {
-      case ParameterReference(name) => pinnedParams.contains(name.value)
-      case _                        => false
+    private def isCapturedValue(expr: OperatorResolvedExpression): Boolean = spine(expr) match {
+      case (ParameterReference(name), Seq()) => pinnedParams.contains(name.value)
+      case (ValueReference(name, _), args)   =>
+        universe
+          .lookup(name.value)
+          .exists(orv => orv.effectRow.returnPinned && args.sizeIs == SignatureView.of(orv.signature).parameters.size)
+      case _                                 => false
     }
 
     /** The kinds this call binds the callee's own generics to, read off the arguments occupying the positions that
@@ -1791,38 +1849,14 @@ object RowElaborator {
       }
 
     /** View a type expression as an arrow, seeing through one level of type alias (`Str => G[A]` reaches this phase
-      * as the unexpanded `=>` alias application — an operator-named alias in the *Default* namespace) by expanding
-      * the alias's own declared body over its binders — declared information read from the universe, no evaluation.
-      * The expansion is self-guarding: a head whose declared body is not an arrow yields [[None]].
-      *
-      * The substitution is **simultaneous**, staged through fresh names: `=>` binds `A` and `B`, so expanding
-      * `B => {Effect} B` (`=>[B, F[B]]`) one binder at a time would substitute `A := B` and then re-substitute that
-      * very `B` when `B := F[B]` follows — reading `A => B => {Effect} B` as `A => {Effect} B => {Effect} B` and
-      * classifying the accumulator binder as a computation.
+      * as the unexpanded `=>` alias application — an operator-named alias in the *Default* namespace) via
+      * [[RowElaborator.expandAlias]]. The expansion is self-guarding: a head whose declared body is not an arrow
+      * yields [[None]].
       */
     private def asArrowLike(
         tpe: OperatorResolvedExpression
     ): Option[(Sourced[OperatorResolvedExpression], Sourced[OperatorResolvedExpression])] =
-      asArrow(tpe).orElse {
-        val (head, args) = spine(tpe)
-        head match {
-          case ValueReference(name, _) =>
-            for {
-              orv             <- universe.lookup(name.value)
-              body            <- orv.runtime
-              (binders, inner) = RowChecker.peelBinders(body.value)
-              if binders.size == args.size
-              staged           = binders.zipWithIndex.foldLeft(inner) { case (acc, (binder, index)) =>
-                                   substitute(acc, binder, ParameterReference(body.as(s"$$alias$$$index")))
-                                 }
-              expanded         = args.zipWithIndex.foldLeft(staged) { case (acc, (arg, index)) =>
-                                   substitute(acc, s"$$alias$$$index", arg.value)
-                                 }
-              arrow           <- asArrow(expanded)
-            } yield arrow
-          case _                       => None
-        }
-      }
+      asArrow(tpe).orElse(expandAlias(tpe, universe).flatMap { case (_, expanded) => asArrow(expanded) })
 
     private def freshBinder(): String = {
       nextBinder += 1

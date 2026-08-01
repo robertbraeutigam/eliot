@@ -85,7 +85,8 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
       returnEffects = rows.map(_.returnEffects).find(_.nonEmpty).getOrElse(Seq.empty),
       parameterEffects = rows.map(_.parameterEffects).find(_.nonEmpty).getOrElse(Seq.empty),
       returnPinnedEffects = rows.map(_.returnPinnedEffects).find(_.nonEmpty).getOrElse(Seq.empty),
-      pinnedParameterEffects = rows.map(_.pinnedParameterEffects).find(_.nonEmpty).getOrElse(Seq.empty)
+      pinnedParameterEffects = rows.map(_.pinnedParameterEffects).find(_.nonEmpty).getOrElse(Seq.empty),
+      aliasPinnedEffects = rows.map(_.aliasPinnedEffects).find(_.nonEmpty).getOrElse(Seq.empty)
     )
   }
 

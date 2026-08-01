@@ -636,6 +636,56 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "ada\nbob")
   }
 
+  // The same block, but the pinned row is written once as a TYPE ALIAS and both definitions are declared by its name.
+  // A `type` alias's own return position is the kind `Type`, so the pinned tag lives on its *body*; without reading it
+  // through one alias level (the §3.2 whitelist's alias clause) the definition read as pure — `runId`-wrapping the
+  // whole block — while every statement in it was a computation on the very stack the alias names, and the two
+  // disagreed with a mismatch whose two sides render identically.
+  "a block of pinned-row statements typed by an alias" should "sequence exactly as the spelled-out row does" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.lang.Id
+        |import eliot.effect.State
+        |import eliot.collection.List
+        |
+        |type Names = {State[List[String]] | Id} Unit
+        |
+        |def pushName(n: String): {State[List[String]] | Id} Unit =
+        |   updateState(names -> append(names, n))
+        |
+        |def collectNames: Names = {
+        |   pushName("ada")
+        |   pushName("bob")
+        |}
+        |
+        |def main: IO[Unit] =
+        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
+    ).asserting(_ shouldBe "ada\nbob")
+  }
+
+  // §1 rule 3's other direction: a pinned row is a reified computation AND an ordinary type, so a saturated call to a
+  // pinned-returning definition is *data* to store — here into a `List` whose element type is the alias. Rule 4's
+  // rowless-slot check must not fire on it: `append`'s `A` is a plain generic, but nothing performs anything at this
+  // call, and only a discharger ever consumes the stored stack.
+  "a pinned-row computation" should "be storable in a list through a rowless generic slot" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.lang.Id
+        |import eliot.effect.State
+        |import eliot.collection.List
+        |
+        |type Step = {State[String] | Id} Unit
+        |
+        |def one: {State[String] | Id} Unit = putState("one")
+        |
+        |def steps: List[Step] = append(empty, one)
+        |
+        |def main: IO[Unit] = printLine(show(steps.size))""".stripMargin
+    ).asserting(_ shouldBe "1")
+  }
+
   // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Suspend[StateCarrier[S, G]]` base lift
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
   "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Suspend lift" in {
