@@ -96,7 +96,7 @@ object ImplementationMarkerUtils {
       pattern: String,
       platform: Platform
   ): CompilerIO[Option[ValueFQN]] =
-    getFactIfProduced(ModuleAbilities.Key(moduleName, platform)).map(_.flatMap(_.markerOf(abilityName, pattern)))
+    getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).map(_.markerOf(abilityName, pattern))
 
   private def firstArgTypeConstructorName(signature: Expression): Option[String] = {
     import Expression.*

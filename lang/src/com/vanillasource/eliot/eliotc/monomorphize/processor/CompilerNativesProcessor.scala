@@ -60,7 +60,7 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * error a direct value request would.
     */
   private def inCompilerPool(vfqn: ValueFQN): CompilerIO[Boolean] =
-    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(_.exists(_.names.contains(vfqn.name)))
+    getFactOrAbort(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(_.names.contains(vfqn.name))
 
   /** A **compile-time** value — one the compiler layer defines (concrete here) but the runtime pool leaves abstract, e.g.
     * the compiler-layer effect-carrier overlays that reduce an inline `if..else..raise` guard (the `Effect`/`Abort`
@@ -133,8 +133,8 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
   private def runtimeConcrete(vfqn: ValueFQN): CompilerIO[Boolean] =
     if (isRefinementArtifact(vfqn)) false.pure[CompilerIO]
     else
-      getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime))
-        .map(_.exists(_.names.contains(vfqn.name)))
+      getFactOrAbort(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime))
+        .map(_.names.contains(vfqn.name))
         .ifM(
           getFactIfProduced(SaturatedValue.Key(vfqn, Platform.Runtime)).map(_.exists(_.value.runtime.isDefined)),
           false.pure[CompilerIO]

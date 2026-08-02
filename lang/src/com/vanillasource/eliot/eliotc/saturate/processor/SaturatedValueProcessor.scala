@@ -346,8 +346,8 @@ class SaturatedValueProcessor
     */
   private def recordPlanFor(module: ModuleName, typeName: String)(using platform: Platform): CompilerIO[Option[TypePlan]] = {
     val ctorName = QualifiedName(typeName, Qualifier.Default)
-    getFactIfProduced(UnifiedModuleNames.Key(module, platform)).flatMap {
-      case Some(names) if names.names.contains(ctorName) =>
+    getFactOrAbort(UnifiedModuleNames.Key(module, platform)).flatMap {
+      case names if names.names.contains(ctorName) =>
         getFactIfProduced(OperatorResolvedValue.Key(ValueFQN(module, ctorName), platform)).flatMap {
           case Some(ctor) if isRecordConstructor(ctor, typeName) =>
             SignatureView.of(signatureOf(ctor)).parameters.map(_.value).traverse(fieldContribution).map { fields =>
@@ -356,7 +356,7 @@ class SaturatedValueProcessor
             }
           case _                                                 => none[TypePlan].pure[CompilerIO]
         }
-      case _                                             => none[TypePlan].pure[CompilerIO]
+      case _                                       => none[TypePlan].pure[CompilerIO]
     }
   }
 

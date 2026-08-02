@@ -17,7 +17,7 @@ class NamedValuesIndexProcessorTest extends ProcessorTest(NamedValuesIndexProces
   private def specFqn(module: ModuleName): ValueFQN = ValueFQN(module, QualifiedName("spec", Qualifier.Default))
 
   private def unified(module: ModuleName, names: (QualifiedName, Visibility)*): UnifiedModuleNames =
-    UnifiedModuleNames(module, names.toMap, Platform.Runtime)
+    UnifiedModuleNames(module, names.toMap, present = true, Platform.Runtime)
 
   private def publicDefault(name: String): (QualifiedName, Visibility) =
     QualifiedName(name, Qualifier.Default) -> Visibility.Public

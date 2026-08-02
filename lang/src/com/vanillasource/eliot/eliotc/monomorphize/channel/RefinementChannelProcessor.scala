@@ -187,8 +187,8 @@ class RefinementChannelProcessor
       calleeTypeArgs: Seq[GroundValue],
       argMetas: Seq[Option[GroundValue]]
   ): CompilerIO[Option[GroundValue]] =
-    getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { namesOpt =>
-      if (!namesOpt.exists(_.names.contains(QualifiedName(callee.name.name, Qualifier.Meta))))
+    getFactOrAbort(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { names =>
+      if (!names.names.contains(QualifiedName(callee.name.name, Qualifier.Meta)))
         none[GroundValue].pure[CompilerIO]
       else
         for {
@@ -221,8 +221,8 @@ class RefinementChannelProcessor
   private def metaTypeOf(baseType: GroundValue): CompilerIO[GroundValue] = baseType match {
     case GroundValue.Structure(fqn, _, _) =>
       val metaName = QualifiedName(fqn.name.name + MetaConstructorDesugarer.metaTypeSuffix, Qualifier.Type)
-      getFactIfProduced(UnifiedModuleNames.Key(fqn.moduleName, Platform.Compiler)).map { namesOpt =>
-        if (namesOpt.exists(_.names.contains(metaName)))
+      getFactOrAbort(UnifiedModuleNames.Key(fqn.moduleName, Platform.Compiler)).map { names =>
+        if (names.names.contains(metaName))
           GroundValue.Structure(ValueFQN(fqn.moduleName, metaName), Seq.empty, GroundValue.Type)
         else unitType
       }
@@ -275,8 +275,8 @@ class RefinementChannelProcessor
     * [[whereCompanionName]] in the compiler pool (where [[MetaWhereDesugarer]] emits the `^Where` companion).
     */
   private def hasWhereCompanion(callee: ValueFQN): CompilerIO[Boolean] =
-    getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))
-      .map(_.exists(_.names.contains(whereCompanionName(callee))))
+    getFactOrAbort(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))
+      .map(_.names.contains(whereCompanionName(callee)))
 
   private def rejectWhereAsValueIfBearing(node: Sourced[MonomorphicExpression], callee: ValueFQN): CompilerIO[Unit] =
     hasWhereCompanion(callee).ifM(rejectWhereAsValue(node, callee), ().pure[CompilerIO])

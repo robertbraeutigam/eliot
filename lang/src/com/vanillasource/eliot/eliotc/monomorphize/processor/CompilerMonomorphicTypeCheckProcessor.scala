@@ -81,7 +81,7 @@ class CompilerMonomorphicTypeCheckProcessor()
     * direct value/binding request would raise.
     */
   private def inRuntimePool(vfqn: ValueFQN): CompilerIO[Boolean] =
-    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime)).map(_.exists(_.names.contains(vfqn.name)))
+    getFactOrAbort(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Runtime)).map(_.names.contains(vfqn.name))
 
   override protected def generateFromKeyAndFact(
       key: CompilerMonomorphicValue.Key,
@@ -173,8 +173,8 @@ class CompilerMonomorphicTypeCheckProcessor()
     * companion ([[MetaWhereDesugarer.whereSuffix]] in the [[Qualifier.Meta]] namespace) in the compiler pool.
     */
   private def hasWhereCompanion(callee: ValueFQN): CompilerIO[Boolean] =
-    getFactIfProduced(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))
-      .map(_.exists(_.names.contains(QualifiedName(callee.name.name + MetaWhereDesugarer.whereSuffix, Qualifier.Meta))))
+    getFactOrAbort(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))
+      .map(_.names.contains(QualifiedName(callee.name.name + MetaWhereDesugarer.whereSuffix, Qualifier.Meta)))
 
   /** Resolve an ability in the **compiler** pool: a compiler-track value is entirely compile-time, so all of its
     * ability references belong to the compiler platform.
