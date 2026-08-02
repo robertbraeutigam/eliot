@@ -19,7 +19,7 @@ class MonomorphicTypeCheckProcessor()
     extends TransformationProcessor[SaturatedValue.Key, MonomorphicValue.Key](key => SaturatedValue.Key(key.vfqn)) {
 
   private def fetchBinding(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    getFactIfProduced(NativeBinding.Key(vfqn, Platform.Runtime)).map(_.map(_.semValue))
+    getFactOrAbort(NativeBinding.Key(vfqn, Platform.Runtime)).map(_.semValue)
 
   override protected def generateFromKeyAndFact(
       key: MonomorphicValue.Key,

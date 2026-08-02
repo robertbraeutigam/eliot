@@ -99,7 +99,7 @@ object CarrierBookkeepingTest {
       extends TransformationProcessor[SaturatedValue.Key, CarrierProbe.Key](key => SaturatedValue.Key(key.vfqn)) {
 
     private def fetchBinding(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-      getFactIfProduced(NativeBinding.Key(vfqn, Platform.Runtime)).map(_.map(_.semValue))
+      getFactOrAbort(NativeBinding.Key(vfqn, Platform.Runtime)).map(_.semValue)
 
     private def resolveAbilityImpl(
         vfqn: ValueFQN,

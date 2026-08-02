@@ -89,6 +89,6 @@ class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
   private def groundViaQuote(source: String, name: String): IO[Option[Either[String, GroundValue]]] = {
     val key = NativeBinding.Key(ValueFQN(testModuleName, default(name)))
     runGenerator(source, key, matchImports)
-      .map(_._2.get(key).map(fact => Quoter.quote(0, fact.asInstanceOf[NativeBinding].semValue, MetaStore.empty)))
+      .map(_._2.get(key).flatMap(fact => fact.asInstanceOf[NativeBinding].semValue.map(Quoter.quote(0, _, MetaStore.empty))))
   }
 }

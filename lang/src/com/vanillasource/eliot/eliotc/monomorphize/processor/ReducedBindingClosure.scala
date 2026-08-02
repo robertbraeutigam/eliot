@@ -98,7 +98,7 @@ object ReducedBindingClosure {
           else {
             def raw: CompilerIO[Map[ValueFQN, SemValue]] =
               getFactIfProduced(NativeBinding.Key(fqn, platform)).map {
-                case Some(binding) => acc + (fqn -> binding.semValue)
+                case Some(binding) => binding.semValue.fold(acc)(sv => acc + (fqn -> sv))
                 case None          => acc
               }
             if (deep)

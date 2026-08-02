@@ -1,6 +1,11 @@
 # Retiring the Optional Fact Read (`getFactIfProduced`)
 
-Status: **PLAN (2026-08-02); nothing landed.** Written against the current tree.
+Status: **PLAN (2026-08-02); step 1 landed.** Written against the current tree. §6.1 (the `NativeBinding`
+totalization) is done: the fact now carries `semValue: Option[SemValue]`, `BindingMergerProcessor` publishes a
+`None` payload instead of aborting, and the Bucket-1 readers (`MonomorphicTypeCheckProcessor`,
+`CompilerMonomorphicTypeCheckProcessor`) read it with `getFactOrAbort`. The Bucket-3 cyclic-walk readers
+(`BindingClosure`, `ReducedBindingClosure`) stay tolerant and only inspect the new `Option` payload. The rest is
+still open.
 
 ## 1. The problem, restated
 
@@ -143,7 +148,7 @@ value, not merely a drillable one; decline-caching is the safety net for the gen
 ## 6. Sequencing
 
 1. **Finish the natives** (`NativeBinding` total + its ~5 readers). Smallest, self-contained, and the worked
-   example for the rest. Measure warm-build regeneration count before/after.
+   example for the rest. Measure warm-build regeneration count before/after. **✓ Done.**
 2. **Bucket 1 remainder** (module membership, ability lookups). Biggest cache win.
 3. **Bucket 2.**
 4. **Bucket 3 rename** (cheap; makes intent explicit and prevents backsliding).

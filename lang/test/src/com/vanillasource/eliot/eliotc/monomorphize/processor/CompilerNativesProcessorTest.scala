@@ -68,7 +68,7 @@ class CompilerNativesProcessorTest extends ProcessorTest(LangProcessors(systemMo
   }
 
   it should "reduce a name during checking off its compiler-platform body (native wins over the runtime user body)" in {
-    fact(NativeBinding.Key(fqn("foo"))).asserting(_._1.map(b => reducesTo(b.semValue)) shouldBe Some(Some("b")))
+    fact(NativeBinding.Key(fqn("foo"))).asserting(_._1.map(b => b.semValue.flatMap(reducesTo)) shouldBe Some(Some("b")))
   }
 
   it should "contribute None for a name absent from the compiler pool" in {

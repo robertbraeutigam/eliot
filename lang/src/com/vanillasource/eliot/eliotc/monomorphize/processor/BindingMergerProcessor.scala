@@ -21,7 +21,9 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   *     the use site, never as a producer-side judgment.
   *
   * Selection is pure precedence with no conflict resolution: the first native `Some` → else the first user `Some` →
-  * else abort (no binding; the evaluator stalls at the use site — the companion-clause, use-site error). Uniqueness
+  * else an absent binding (a `NativeBinding` with `semValue = None`; the evaluator stalls at the use site — the
+  * companion-clause, use-site error). The output [[NativeBinding]] is *total* — no name declines — so the fact never
+  * leaves a cache-poison edge and readers consume it with [[getFactOrAbort]]. Uniqueness
   * already holds within each category (native suppliers are disjoint by construction; the user stack is
   * single-implementation by layering), so each category yields at most one value and there is nothing to order or
   * reject. A user body coexisting with a native is the normal case (`add` has a compile-time native and a runtime
@@ -63,10 +65,10 @@ class BindingMergerProcessor(nativeLabels: Seq[String], userLabels: Seq[String])
                       }
                   }
       semValue <- selected match {
-                    case Some(BindingContribution.Leaf(value))     => value.pure[CompilerIO]
+                    case Some(BindingContribution.Leaf(value))     => value.some.pure[CompilerIO]
                     case Some(BindingContribution.Body(saturated)) =>
-                      BindingClosure.buildBinding(saturated, _.runtime, key.platform)
-                    case None                                      => abort[SemValue]
+                      BindingClosure.buildBinding(saturated, _.runtime, key.platform).map(_.some)
+                    case None                                      => none[SemValue].pure[CompilerIO]
                   }
     } yield NativeBinding(key.vfqn, semValue, key.platform)
 }

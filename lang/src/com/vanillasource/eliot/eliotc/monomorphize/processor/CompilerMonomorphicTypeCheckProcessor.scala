@@ -58,21 +58,21 @@ class CompilerMonomorphicTypeCheckProcessor()
     * and stays `None`.
     */
   private def fetchBinding(source: Sourced[?])(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
-    getFactIfProduced(NativeBinding.Key(vfqn, Platform.Compiler)).flatMap {
-      case Some(nb) => Option(nb.semValue).pure[CompilerIO]
-      case None     =>
+    getFactOrAbort(NativeBinding.Key(vfqn, Platform.Compiler)).flatMap {
+      case NativeBinding(_, some @ Some(_), _) => some.pure[CompilerIO]
+      case NativeBinding(_, None, _)           =>
         inRuntimePool(vfqn).ifM(
-          getFactIfProduced(NativeBinding.Key(vfqn, Platform.Runtime)).flatMap {
-            case Some(_) =>
+          getFactOrAbort(NativeBinding.Key(vfqn, Platform.Runtime)).flatMap {
+            case NativeBinding(_, Some(_), _) =>
               compilerError(
                 source.as(s"Cannot use runtime-only value '${vfqn.name.name}' at compile time."),
                 Seq(
                   s"'${vfqn.name.name}' has a runtime implementation but no compile-time definition on the compiler platform."
                 )
               ) >> abort[Option[SemValue]]
-            case None    => Option.empty[SemValue].pure[CompilerIO] // a runtime member abstract on *both* platforms
+            case NativeBinding(_, None, _)    => Option.empty[SemValue].pure[CompilerIO] // abstract on *both* platforms
           },
-          Option.empty[SemValue].pure[CompilerIO]                   // not a runtime member: compiler-only, not a leaf
+          Option.empty[SemValue].pure[CompilerIO]                                        // compiler-only, not a leaf
         )
     }
 
