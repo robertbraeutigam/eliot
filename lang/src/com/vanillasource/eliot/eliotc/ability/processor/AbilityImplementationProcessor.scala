@@ -135,10 +135,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       abilityLocalName: String,
       platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
-    getFactIfProduced(ModuleAbilities.Key(moduleName, platform)).map {
-      case None        => Seq.empty
-      case Some(impls) => impls.namedImplementationMethodsOf(abilityLocalName, functionName)
-    }
+    getFactOrAbort(ModuleAbilities.Key(moduleName, platform))
+      .map(_.namedImplementationMethodsOf(abilityLocalName, functionName))
 
   private def verifyImplementation(
       vfqn: ValueFQN,

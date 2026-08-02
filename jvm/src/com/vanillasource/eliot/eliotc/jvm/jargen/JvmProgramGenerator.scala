@@ -61,12 +61,12 @@ class JvmProgramGenerator(targetDir: Path) extends SingleFactProcessor[GenerateE
     * missing-instance errors already point at the user's own source.
     */
   private def validateMainExists(vfqn: ValueFQN): CompilerIO[Unit] =
-    getFactIfProduced(UnifiedModuleNames.Key(vfqn.moduleName)).flatMap {
-      case None                                            =>
+    getFactOrAbort(UnifiedModuleNames.Key(vfqn.moduleName)).flatMap {
+      case names if !names.present                   =>
         failGlobally(s"Module '${vfqn.moduleName.show}' was not found on the source paths.")
-      case Some(names) if !names.names.contains(vfqn.name) =>
+      case names if !names.names.contains(vfqn.name) =>
         failGlobally(s"Module '${vfqn.moduleName.show}' has no '${vfqn.name.name}' value to run.")
-      case _                                               => ().pure[CompilerIO]
+      case _                                         => ().pure[CompilerIO]
     }
 
   private def failGlobally(message: String): CompilerIO[Unit] =

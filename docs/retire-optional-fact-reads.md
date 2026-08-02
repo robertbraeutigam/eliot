@@ -1,11 +1,26 @@
 # Retiring the Optional Fact Read (`getFactIfProduced`)
 
-Status: **PLAN (2026-08-02); step 1 landed.** Written against the current tree. §6.1 (the `NativeBinding`
-totalization) is done: the fact now carries `semValue: Option[SemValue]`, `BindingMergerProcessor` publishes a
-`None` payload instead of aborting, and the Bucket-1 readers (`MonomorphicTypeCheckProcessor`,
-`CompilerMonomorphicTypeCheckProcessor`) read it with `getFactOrAbort`. The Bucket-3 cyclic-walk readers
-(`BindingClosure`, `ReducedBindingClosure`) stay tolerant and only inspect the new `Option` payload. The rest is
-still open.
+Status: **PLAN (2026-08-02); steps 1 and the module-membership half of step 2 landed.** Written against the current
+tree. §6.1 (the `NativeBinding` totalization) is done: the fact now carries `semValue: Option[SemValue]`,
+`BindingMergerProcessor` publishes a `None` payload instead of aborting, and the Bucket-1 readers
+(`MonomorphicTypeCheckProcessor`, `CompilerMonomorphicTypeCheckProcessor`) read it with `getFactOrAbort`. The
+Bucket-3 cyclic-walk readers (`BindingClosure`, `ReducedBindingClosure`) stay tolerant and only inspect the new
+`Option` payload.
+
+§6.2's **module-membership / pool-routing** fact is now also total: `UnifiedModuleNames` carries `present: Boolean`
+and `UnifiedModuleNamesProcessor` answers with an empty, `present = false` fact for a module that resolves in no
+mount of the pool (reading `PathScan` tolerantly) instead of declining — the `PathScan` producer still owns the
+runtime "Could not find path" error, so the decline's error is not suppressed, only its cache-poison edge is
+removed. Its immediate downstream `ModuleAbilities` is total for free (its producer already read `UnifiedModuleNames`
+with `getFactOrAbort`). Every reader now uses `getFactOrAbort`: the membership probes (`DeclaringPool`,
+`CompilerMonomorphicTypeCheckProcessor`, `CompilerNativesProcessor`, `RefinementChannelProcessor`,
+`SaturatedValueProcessor`) read `names.contains(...)`, which is `false` for an absent module; the two readers that
+must tell absent from present-but-empty (`ModuleValueProcessor` import resolution, `JvmProgramGenerator`'s
+entry-point pre-flight) inspect `present`; the two `ModuleAbilities` probes (`ImplementationMarkerUtils`,
+`AbilityImplementationProcessor`) read the structured lists directly. Verified byte-identical example output
+(`HelloWorld`/`Effects`/`DischargeDemo`/`AbilityDerive`/`Arithmetic`). What remains open in Bucket 1 is the
+**ability-resolution** probes that read *other* facts (`AbilityResolver`, `AbilityMatcher`,
+`AbilityImplementationCheckProcessor`, `ModuleAbilityOverlapCheckProcessor`), plus Bucket 2 and Bucket 3.
 
 ## 1. The problem, restated
 
@@ -149,7 +164,8 @@ value, not merely a drillable one; decline-caching is the safety net for the gen
 
 1. **Finish the natives** (`NativeBinding` total + its ~5 readers). Smallest, self-contained, and the worked
    example for the rest. Measure warm-build regeneration count before/after. **✓ Done.**
-2. **Bucket 1 remainder** (module membership, ability lookups). Biggest cache win.
+2. **Bucket 1 remainder** (module membership, ability lookups). Biggest cache win. **✓ Module membership done**
+   (`UnifiedModuleNames` + `ModuleAbilities` total); ability-resolution probes over other facts still open.
 3. **Bucket 2.**
 4. **Bucket 3 rename** (cheap; makes intent explicit and prevents backsliding).
 5. **§5 decline-caching** for the residual.

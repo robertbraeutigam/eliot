@@ -73,24 +73,21 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
   ): CompilerIO[ImportResult] =
     systemModules.foldLeftM(ImportResult(Map.empty, Map.empty)) { (acc, m) =>
       for {
-        maybeModuleNames <- getFactIfProduced(UnifiedModuleNames.Key(m.value, platform))
-        result           <- maybeModuleNames match {
-                              case Some(moduleNames) =>
-                                val free = (name: QualifiedName) =>
-                                  !takenNames.contains(name) && !acc.dictionary.contains(name) && !acc.privateNames.contains(name)
-                                ImportResult(
-                                  acc.dictionary ++ moduleNames.names.collect {
-                                    case (name, Visibility.Public) if free(name) =>
-                                      (name, ValueFQN(moduleNames.moduleName, name))
-                                  },
-                                  acc.privateNames ++ moduleNames.names.collect {
-                                    case (name, Visibility.Private) if free(name) =>
-                                      (name, ValueFQN(moduleNames.moduleName, name))
-                                  }
-                                ).pure[CompilerIO]
-                              case None              =>
-                                compilerError(m.as(s"Could not find imported module: `${m.value.show}`")).as(acc)
-                            }
+        moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(m.value, platform))
+        result      <- if (moduleNames.present) {
+                         val free = (name: QualifiedName) =>
+                           !takenNames.contains(name) && !acc.dictionary.contains(name) && !acc.privateNames.contains(name)
+                         ImportResult(
+                           acc.dictionary ++ moduleNames.names.collect {
+                             case (name, Visibility.Public) if free(name) =>
+                               (name, ValueFQN(moduleNames.moduleName, name))
+                           },
+                           acc.privateNames ++ moduleNames.names.collect {
+                             case (name, Visibility.Private) if free(name) =>
+                               (name, ValueFQN(moduleNames.moduleName, name))
+                           }
+                         ).pure[CompilerIO]
+                       } else compilerError(m.as(s"Could not find imported module: `${m.value.show}`")).as(acc)
       } yield result
     }
 
@@ -110,44 +107,41 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       platform: Platform
   ): CompilerIO[ImportResult] =
     for {
-      maybeModuleNames <- getFactIfProduced(UnifiedModuleNames.Key(module.value, platform))
-      result           <- maybeModuleNames match {
-                            case Some(moduleNames) =>
-                              val publicNames       = moduleNames.names.collect { case (name, Visibility.Public) =>
-                                name
-                              }.toSet
-                              val privateNameSet    = moduleNames.names.collect { case (name, Visibility.Private) =>
-                                name
-                              }.toSet
-                              val shadowingLocal    = publicNames.intersect(localNames)
-                              val shadowingImported = publicNames.intersect(accumulated.dictionary.keySet)
+      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(module.value, platform))
+      result      <- if (moduleNames.present) {
+                       val publicNames       = moduleNames.names.collect { case (name, Visibility.Public) =>
+                         name
+                       }.toSet
+                       val privateNameSet    = moduleNames.names.collect { case (name, Visibility.Private) =>
+                         name
+                       }.toSet
+                       val shadowingLocal    = publicNames.intersect(localNames)
+                       val shadowingImported = publicNames.intersect(accumulated.dictionary.keySet)
 
-                              if (shadowingLocal.nonEmpty) {
-                                compilerError(
-                                  module.as(
-                                    s"Imported names shadow local names: ${shadowingLocal.toSeq.map(_.show).mkString(", ")}"
-                                  )
-                                )
-                                  .as(accumulated)
-                              } else if (shadowingImported.nonEmpty) {
-                                compilerError(
-                                  module.as(
-                                    s"Imported names shadow other imported names: ${shadowingImported.flatMap(accumulated.dictionary.get).mkString(", ")}"
-                                  )
-                                ).as(accumulated)
-                              } else {
-                                ImportResult(
-                                  accumulated.dictionary ++ publicNames
-                                    .map(name => (name, ValueFQN(moduleNames.moduleName, name)))
-                                    .toMap,
-                                  accumulated.privateNames ++ privateNameSet
-                                    .map(name => (name, ValueFQN(moduleNames.moduleName, name)))
-                                    .toMap
-                                ).pure[CompilerIO]
-                              }
-                            case None              =>
-                              compilerError(module.as(s"Could not find imported module: `${module.value.show}`"))
-                                .as(accumulated)
-                          }
+                       if (shadowingLocal.nonEmpty) {
+                         compilerError(
+                           module.as(
+                             s"Imported names shadow local names: ${shadowingLocal.toSeq.map(_.show).mkString(", ")}"
+                           )
+                         )
+                           .as(accumulated)
+                       } else if (shadowingImported.nonEmpty) {
+                         compilerError(
+                           module.as(
+                             s"Imported names shadow other imported names: ${shadowingImported.flatMap(accumulated.dictionary.get).mkString(", ")}"
+                           )
+                         ).as(accumulated)
+                       } else {
+                         ImportResult(
+                           accumulated.dictionary ++ publicNames
+                             .map(name => (name, ValueFQN(moduleNames.moduleName, name)))
+                             .toMap,
+                           accumulated.privateNames ++ privateNameSet
+                             .map(name => (name, ValueFQN(moduleNames.moduleName, name)))
+                             .toMap
+                         ).pure[CompilerIO]
+                       }
+                     } else compilerError(module.as(s"Could not find imported module: `${module.value.show}`"))
+                       .as(accumulated)
     } yield result
 }
