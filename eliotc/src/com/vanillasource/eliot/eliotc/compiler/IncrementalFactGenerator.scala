@@ -40,7 +40,7 @@ final class IncrementalFactGenerator(
     producedDuring: Ref[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]],
     carriedForward: Ref[IO, Map[CompilerFactKey[?], CacheEntry]],
     unchangedChecks: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]],
-    regeneratedCount: Ref[IO, Int]
+    regeneratedKeysRef: Ref[IO, Set[CompilerFactKey[?]]]
 ) extends CompilationProcess
     with Logging {
 
@@ -164,7 +164,7 @@ final class IncrementalFactGenerator(
     */
   private def regenerate(key: CompilerFactKey[?], ancestors: List[CompilerFactKey[?]]): IO[Unit] =
     for {
-      _          <- regeneratedCount.update(_ + 1)
+      _          <- regeneratedKeysRef.update(_ + key)
       _          <- directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty)))
       sawMissing <- Ref.of[IO, Boolean](false)
       tracking    = new DependencyTrackingProcess(this, key, directDependencies, producedDuring, errors, sawMissing, ancestors)
@@ -217,6 +217,23 @@ final class IncrementalFactGenerator(
 
   def currentErrors(): IO[Seq[CompilerError]] = errors.get.map(_.toList)
 
+  /** The keys this run regenerated (ran a processor for from scratch) rather than accepting from the prior cache. On a
+    * warm build over an unchanged tree this is exactly the set of world leaves — facts with no recorded dependencies,
+    * e.g. every `FileStat`, the `OutputFileStat` digest, and the `UpToDate` anchor constant — which are always
+    * regenerated as the boundary with the external world.
+    */
+  def regeneratedKeys(): IO[Set[CompilerFactKey[?]]] = regeneratedKeysRef.get
+
+  /** The regenerated keys that were **not** world leaves in the prior cache — facts re-run from scratch despite having
+    * recorded dependencies (or being newly seen this run). On a warm build over an unchanged tree this MUST be empty:
+    * every non-leaf fact validates structurally and is accepted from cache. A non-empty result is a warm-build
+    * regression surfacing as needless recomputation — a contributor whose input-less generation lost its `UpToDate`
+    * anchor (an edge-less entry read as a leaf), an equality-unstable fact, or a genuinely missing prior — see
+    * `docs/incremental-compilation.md` §3 and §8.
+    */
+  def nonLeafRegenerations(): IO[Set[CompilerFactKey[?]]] =
+    regeneratedKeysRef.get.map(_.filterNot(key => prior.get(key).exists(_.directDeps.isEmpty)))
+
   /** Build the cache to persist after this run. Two sources are merged:
     *
     *   - facts **materialised** this run (regenerated or accepted) — a fresh entry with their value and recorded
@@ -238,7 +255,7 @@ final class IncrementalFactGenerator(
       deps        <- directDependencies.get
       pushedBy    <- producedDuring.get
       carried     <- carriedForward.get
-      regenerated <- regeneratedCount.get
+      regenerated <- regeneratedKeysRef.get.map(_.size)
       _           <- debug[IO](s"Incremental run: regenerated $regenerated fact(s); ${factMap.size} materialised, " +
                        s"${carried.size} validated unchanged without recompute.")
     } yield {
@@ -271,7 +288,7 @@ object IncrementalFactGenerator {
       producedDuring  <- Ref.of[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]](Map.empty)
       carriedForward  <- Ref.of[IO, Map[CompilerFactKey[?], CacheEntry]](Map.empty)
       unchangedChecks <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]](Map.empty)
-      regenerated     <- Ref.of[IO, Int](0)
+      regenerated     <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
     } yield new IncrementalFactGenerator(
       generator,
       prior.map(_.entries).getOrElse(Map.empty),
