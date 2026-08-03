@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
+import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleConstructors,
   ModuleName,
@@ -39,7 +40,14 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= ContributedBinding.matchLabel) abort
-    else matchReduction(key.vfqn).map(red => ContributedBinding(key.vfqn, key.label, red.map(BindingContribution.Leaf(_))))
+    // A `None` contribution (every name that is not a match-dispatch impl — the common case) reads no fact, so without
+    // an anchor its entry has an empty dependency set and the incremental cache treats it as a source leaf, regenerating
+    // it on every no-change build. Depending on the always-clean `UpToDate` leaf (the value is immaterial, only the edge
+    // matters) makes it a drillable non-leaf the cache proves unchanged instead. Same pattern, and same deliberate
+    // tolerance (`getFactIfProduced`), as `SystemNativesProcessor`.
+    else
+      getFactIfProduced(UpToDate.Key()) >>
+        matchReduction(key.vfqn).map(red => ContributedBinding(key.vfqn, key.label, red.map(BindingContribution.Leaf(_))))
 
   /** The match-dispatch native reduction for `vfqn`, or `None` (totality) if `vfqn` is not a `handleCases`/`typeMatch`
     * implementation method.
