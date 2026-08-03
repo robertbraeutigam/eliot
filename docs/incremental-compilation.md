@@ -1,8 +1,13 @@
 # Incremental Compilation: Why a Warm Build Still Computes
 
-Status: **DIAGNOSED (2026-07-31); fix designed, none of it landed.** The three invalidation sources below are
-measured and reproducible. Step 2 of the plan was written and validated, then reverted together with a Step 1
-attempt that failed on cache size (§5). Everything here is written against `7588845b`.
+Status: **WARM BUILD IS NOW LEAF-ONLY (2026-08-03).** Two fixes landed. §3.3 (the decline-poison) landed
+2026-08-02 as the `NativeBinding` / `UnifiedModuleNames` totalization (`docs/retire-optional-fact-reads.md`
+§6.1–6.2), taking a warm build from 2129 → 366 regenerations. §3.2 (the edge-less contributors) then landed as
+Step 2, the `UpToDate` anchor on `StdlibNativesProcessor` / `DataTypeNativesProcessor` / `MatchNativesProcessor`,
+taking it 366 → **252 — world leaves only, with every native contributor and `MonomorphicTypeCheckProcessor` at 0
+calls**. What remains (§3.1: ~18 value-less `NativeBinding`/`ContributedBinding` top-level demands) needs Step 1
+(the `FactCodec`), is cheap, and is the only thing between here and the load floor (§7). §8 records both
+measurements. The original diagnosis (§§1–7) is written against `7588845b` and still holds.
 
 The engine works as designed; what follows is not a bug *in* the incremental algorithm but a set of fact types
 and outcomes the algorithm was never told the truth about.
@@ -256,3 +261,90 @@ facts against today's 2129, with no processor active but `FileStatProcessor`.
   fingerprints, which never existed. They are documented in §1 here; the scaladoc reference should be corrected.
 - **Two wrong class docs**: `MonomorphicValue` and `IncrementalFactGenerator` both claim the monomorphize layer
   cannot be persisted (§4).
+
+## 8. Remeasurement after the totalization (2026-08-03)
+
+The `NativeBinding` / `UnifiedModuleNames` / `ModuleAbilities` totalization landed 2026-08-02 and removed the
+§3.3 decline-poison. Re-measured on `examples.run jvm exe-jar -m DischargeDemo`, warm build immediately after an
+identical build, instrumenting `regenerate` (why each fact re-ran) and `computeUnchanged` (which dependency was
+judged changed):
+
+```
+Before (7588845b): regenerated 2129;  4385 ms;  MonomorphicTypeCheck 1341 ms (51.6%), 251 calls
+After  (this tree): regenerated  366;   944 ms;  MonomorphicTypeCheck  214 ms (22.7%),   4 calls
+```
+
+The 366 regenerations break down by *why* they re-ran, not just by type:
+
+| count | reason              | fact type          | verdict                                             |
+| ----- | ------------------- | ------------------ | --------------------------------------------------- |
+| 249   | value-leaf          | `FileStat`         | **correct** — world leaf                            |
+| 1     | value-leaf          | `OutputFileStat`   | **correct** — world leaf                            |
+| 1     | value-leaf          | `UpToDate`         | **correct** — the anchor constant                   |
+| 1     | value-leaf          | `SourceContent`    | correct enough — synthetic-main source, empty deps  |
+| **92**| **value-leaf**      | **`ContributedBinding`** | **BUG — §3.2**: edge-less, so read as a leaf   |
+| **4** | **dep-changed**     | **`MonomorphicValue`**   | **BUG — the §3.4 cascade, 214 ms**             |
+| 14    | valueless-topdemand | `NativeBinding`    | §3.1 residue — value-less, demanded top-level       |
+| 3+1   | valueless           | `ContributedBinding`     | §3.1 residue                                   |
+
+"value-leaf" = the prior entry has a stored value but an **empty** `directDeps`, so `resolve` treats it as a
+world leaf and regenerates it unconditionally. That is the whole of the 92-fact bug: `StdlibNativesProcessor`
+answers a name from a static `Map` (hit path) or `None` (miss path) **without reading any fact**, so its
+`ContributedBinding`s carry no edges and are indistinguishable from a `FileStat`. `SystemNativesProcessor` already
+avoids this by depending on `UpToDate.Key()`; the other contributors never got the anchor.
+
+**Confirmed cascade.** Instrumenting the single changed-dependency verdict shows exactly **one**
+`edgeless-unstorable ContributedBinding` — a value-less *and* edge-less contribution (its `SemValue` closure will
+not serialize, and it read nothing, so it has neither a comparable value nor edges to drill). That one fact reads
+as "changed" every run and poisons the ~4 `MonomorphicValue`s that transitively depend on it, forcing the 214 ms
+re-typecheck. It is the same defect as the 92 above, one step worse.
+
+### The fix: Step 2 (the `UpToDate` anchor) — LANDED 2026-08-03
+
+This is exactly §6 Step 2, and the measurement proved it fixes *both* residual bugs in one move — the earlier
+revert had bundled it with the cache-size Step-1 attempt (§5), so it never landed on its own.
+
+Gave every input-less contributor the `UpToDate` edge, uniformly at the top of the generation so *every* return
+path (hit, miss, and abort-guarded) is covered — the same two lines `SystemNativesProcessor` already carries:
+
+```scala
+getFactIfProduced(UpToDate.Key()) >> …the existing body…
+```
+
+- `StdlibNativesProcessor` — reads nothing on the hit path; the 92 facts are almost all its and
+  `DataTypeNativesProcessor`/`MatchNativesProcessor`'s `None`/`Leaf` contributions.
+- `DataTypeNativesProcessor`, `MatchNativesProcessor` — read facts on their *hit* path but contribute `None`
+  without reading for every name that is not theirs (most names), so the anchor must sit above the branch.
+- `UserValueNativesProcessor` / `BodyContributorProcessor` — read `SaturatedValue` on the user path, so mostly
+  have edges already; anchor anyway for uniformity and the body-less-`None` path.
+
+After the anchor, each such `ContributedBinding` becomes a non-leaf whose one edge is the always-equal `UpToDate`
+constant: `resolve` validates it structurally and **accepts it from cache** instead of regenerating, and the
+value-less one is drilled (not re-typechecked), which removes the `MonomorphicValue` cascade.
+
+**Measured result** (same `DischargeDemo` warm build): **366 → 252 regenerations**, and the `--statistics` roster
+shows **only `FileStatProcessor` (249) and `OutputFileStatProcessor` (1) active** — every native contributor,
+`BindingMergerProcessor`, and both `MonomorphicTypeCheckProcessor`s at **0 calls**. Wall time 944 ms → 724 ms
+(processor time 355 ms → 112 ms, almost all of it the 249 unavoidable file stats). 252 is the leaf floor: 249
+`FileStat` + `OutputFileStat` + `UpToDate` + the synthetic-main `SourceContent`. The projected ~18 value-less
+`NativeBinding` top-level demands from §3.1 turned out to vanish too — they were only demanded *because* the 4
+`MonomorphicValue`s regenerated; with the cascade gone they are validated as drilled dependencies, not top-level
+demands. Step 1 (the `FactCodec`) is now only needed for the load floor (§7), not for regeneration count.
+
+**Verification run.** `./mill __.test` green. Byte-identical cold-vs-warm jar (`cmp` clean; the warm jar runs and
+prints the right output) — the anchor only *widens* cache acceptance, and this is the under-invalidation guard.
+Touch-one-source test: editing `demo(true)` → `demo(false)` moved the warm count 252 → 357 (a bounded subset, not
+the full 2129) and the output correctly flipped to `discharged: OFF`, then back on restore — so a real change
+still propagates. The `UpToDate` read stays `getFactIfProduced` (tolerant): a minimal test bundle without
+`UpToDateProcessor` loses incrementality here but never fails.
+
+**Still worth adding** (§6 Step 6): a standing metric assertion — a warm run over an unchanged tree regenerates
+only world leaves — as an integration test over a real two-run cache, so a future contributor that forgets the
+anchor is caught automatically rather than by re-running the manual reproduction below. It guards *any* contributor,
+not just these three, and pairs with Step 5's permanent DEBUG trace.
+
+Reproduction: enable `<Logger name="com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator"
+level="debug"/>`, build twice **with identical flags** (a differing `--statistics` changes the config fingerprint
+and discards the cache), and read the `Incremental run: regenerated N` line. The per-reason breakdown above came
+from temporary traces in `regenerate`/`computeUnchanged`, reverted — Step 5's permanent DEBUG trace would make it
+standing.

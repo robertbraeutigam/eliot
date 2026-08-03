@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.stdlib.plugin
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
+import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{bigIntFQN, boolFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
@@ -121,12 +122,18 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= StdlibNativesProcessor.stdlibLabel) abort
+    // The hit path answers from the static `bindings` map without reading any fact, so without an anchor those
+    // contributions (`Bool.fold`, `Numeric.add`, the `String` reductions, …) have an empty dependency set and the
+    // incremental cache treats them as source leaves, regenerating them on every no-change build. Depending on the
+    // always-clean `UpToDate` leaf (the value is immaterial, only the edge matters) makes each a drillable non-leaf the
+    // cache proves unchanged instead. Same pattern, and same deliberate tolerance (`getFactIfProduced`), as
+    // `SystemNativesProcessor`; the miss path already reads ability-marker facts but the anchor covers it uniformly.
     else
-      bindings.get(key.vfqn) match {
+      getFactIfProduced(UpToDate.Key()) >> (bindings.get(key.vfqn) match {
         case some @ Some(_) => ContributedBinding(key.vfqn, key.label, some.map(BindingContribution.Leaf(_))).pure[CompilerIO]
         case None           =>
           abilityImplNativeFor(key.vfqn).map(sem => ContributedBinding(key.vfqn, key.label, sem.map(BindingContribution.Leaf(_))))
-      }
+      })
 
   /** The natives attached *directly* to an ability-implementation method rather than to a plain `Default`-qualified leaf.
     * An impl method's FQN carries a per-module `index` assigned during resolution, so it cannot be keyed statically in

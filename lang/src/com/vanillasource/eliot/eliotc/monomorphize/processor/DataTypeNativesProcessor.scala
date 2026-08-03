@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{functionDataTypeFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -30,7 +31,14 @@ class DataTypeNativesProcessor extends SingleFactProcessor[ContributedBinding.Ke
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= ContributedBinding.dataTypeLabel) abort
-    else dataTypeReduction(key.vfqn).map(red => ContributedBinding(key.vfqn, key.label, red.map(BindingContribution.Leaf(_))))
+    // A `None` contribution (every name that is not a data-type constructor — the common case) reads no fact, so
+    // without an anchor its entry has an empty dependency set and the incremental cache treats it as a source leaf,
+    // regenerating it on every no-change build. Depending on the always-clean `UpToDate` leaf (the value is immaterial,
+    // only the edge matters) makes it a drillable non-leaf the cache proves unchanged instead. Same pattern, and same
+    // deliberate tolerance (`getFactIfProduced`), as `SystemNativesProcessor`.
+    else
+      getFactIfProduced(UpToDate.Key()) >>
+        dataTypeReduction(key.vfqn).map(red => ContributedBinding(key.vfqn, key.label, red.map(BindingContribution.Leaf(_))))
 
   /** A body-less `Type`-qualified constructor's inert `VTopDef` reduction, or `None` (totality) for anything else: a
     * non-`Type` name, the system-owned `Function`/`Type`, a type alias (has a body), or a name with no resolved value.
