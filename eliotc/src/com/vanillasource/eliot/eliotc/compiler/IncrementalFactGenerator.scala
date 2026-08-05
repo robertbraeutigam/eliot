@@ -234,13 +234,23 @@ final class IncrementalFactGenerator(
   def nonLeafRegenerations(): IO[Set[CompilerFactKey[?]]] =
     regeneratedKeysRef.get.map(_.filterNot(key => prior.get(key).exists(_.directDeps.isEmpty)))
 
-  /** Build the cache to persist after this run. Two sources are merged:
+  /** Build the cache to persist after this run. Three sources are merged, later winning on key collision:
     *
+    *   - **retained prior** entries — every prior entry for a key this run did **not** touch (never demanded: neither
+    *     resolved, materialised, nor drilled). This is what makes the cache *accumulate* rather than replace: facts
+    *     reachable only from a *different* configuration (e.g. another example's `main`) survive a build that never
+    *     asked for them, so switching back stays warm. Retained entries are never served stale — the next demand
+    *     re-validates their dependencies down to the world leaves before accepting them.
+    *   - facts **validated structurally but not materialised** (value-less facts proven unchanged) — their prior
+    *     edges-only entry, carried forward so the graph stays drillable.
     *   - facts **materialised** this run (regenerated or accepted) — a fresh entry with their value and recorded
     *     dependencies. Only facts that resolved to a value are included, so failures are never cached and re-surface.
-    *   - facts **validated structurally but not materialised** (value-less facts proven unchanged) — their prior
-    *     edges-only entry, carried forward so the graph stays drillable. A fact neither materialised nor carried (no
-    *     longer reachable, or removed) drops out, so the cache self-prunes.
+    *
+    * The retention explicitly **excludes** every key this run resolved (`directDependencies`) or carried, so a key that
+    * was regenerated this run and *failed* (or recomputed to a new value) can never keep its stale prior value: its
+    * fresh outcome — a new entry, or, for a failure, no entry at all — is authoritative. Only genuinely untouched keys
+    * fall through to the prior. This is the one subtlety that keeps accumulation sound: without it, a fact that started
+    * failing would be masked by its own stale success next run.
     *
     * A materialised fact gets its dependency set from one of two places: its own `directDependencies` entry (it was
     * generated), or — for a fact **pushed** by a processor for a key other than the one being generated — the final
@@ -263,7 +273,9 @@ final class IncrementalFactGenerator(
         val recordedDeps = deps.get(key).orElse(pushedBy.get(key).map(producer => deps.getOrElse(producer, Set.empty)))
         key -> CacheEntry(Some(fact), recordedDeps.getOrElse(Set.empty))
       }
-      FactCacheData(FactCache.CACHE_VERSION, fresh ++ carried.view.filterKeys(k => !fresh.contains(k)).toMap)
+      val touched  = factMap.keySet ++ deps.keySet ++ carried.keySet // resolved, materialised, or drilled this run
+      val retained = prior.view.filterKeys(k => !touched(k)).toMap    // untouched prior facts accumulate
+      FactCacheData(FactCache.CACHE_VERSION, retained ++ carried ++ fresh)
     }
 }
 
