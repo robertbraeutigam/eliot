@@ -27,6 +27,12 @@ class CacheFingerprintTest extends AnyFlatSpec with Matchers {
     CacheFingerprint.config(base.set(factoryKey, (p: Path) => p.toString)) shouldBe CacheFingerprint.config(base)
   }
 
+  it should "be unchanged by a demand-scoped key (e.g. the selected main), so its caches share one file" in {
+    val selectedMain = Configuration.demandScopedKey[String]("mainFunction")
+    CacheFingerprint.config(base.set(selectedMain, "HelloWorld")) shouldBe
+      CacheFingerprint.config(base.set(selectedMain, "Calculator"))
+  }
+
   it should "still differ when a fact-affecting argument changes" in {
     CacheFingerprint.config(base.set(mainKey, "Other")) should not be CacheFingerprint.config(base)
   }

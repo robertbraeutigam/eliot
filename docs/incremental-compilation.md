@@ -383,3 +383,53 @@ warm build with `--statistics` on. `CACHE_VERSION` bumped 32 → 33.
 Known residual, deliberately ignored: a *permanently* retired config (renamed `main`, dropped flag) leaves its
 `.eliot-cache-<oldconfig>` behind. Accumulation is bounded by real config diversity, not build count; a light LRU
 sweep on save is the follow-up if it ever matters.
+
+## 10. One accumulating cache across examples (2026-08-05)
+
+§9 gave each `-m` main its *own* file, so two examples over the same roots never *replaced* each other — but they
+never *shared* either: every example cold-built the whole stdlib/prelude subgraph the first time it was compiled, and
+a fact computed for one was never reused by the next. This step makes them share **one** file that **accumulates**,
+so the common subgraph is built once and a switch back to a previous main stays warm.
+
+Two independent mechanisms, both required:
+
+1. **The selected `main` stops splitting the cache file.** `mainKey` moves from `namedKey` to a new
+   `Configuration.demandScopedKey` (`docs/cache-identity-configuration.md` §5), so `CacheFingerprint.config` yields the
+   *same* fingerprint — hence the same `.eliot-cache-<config>` file and a passing header check — for every main over
+   the same roots/backend. Nothing else carries the main into the fingerprint (`extraRuntimeMountsKey`,
+   `runBoundaryFunctions` are already `opaqueKey`), so this one reclassification fully collapses the dimension. Roots,
+   backend and non-diagnostic flags still contribute, so a different backend or source set still gets its own file.
+
+2. **`buildCacheData` accumulates instead of pruning.** It previously rebuilt the next cache from *this run's*
+   materialised + carried facts, dropping every prior entry not touched — so even a shared file would be rewritten to
+   one main's facts per build. It now **retains every prior entry the run did not touch**, merged under this run's
+   fresh and carried entries. Untouched facts (another example's monomorphic values, its `UsedNames`) survive.
+
+**Why this is sound — the demand-scoped invariant.** A `demandScopedKey` may exclude itself from the identity only
+because the value it injects reaches the fact graph through exactly one **edge-less, always-regenerated leaf**: for the
+selected main, the synthetic-entry `SourceContent(eliot-synthetic:main.els)` written by `SyntheticMainSourceProcessor`.
+`resolve` never serves a leaf from cache (it regenerates and equality-checks it), so every main-dependent fact —
+`UsedNames.Key(main::main)`, the synthetic entry's `MonomorphicValue`, the app-main class — is reached from that leaf
+through recorded edges and is invalidated on demand the moment the main differs. A cache shared across mains therefore
+*self-heals*: the shared subgraph validates unchanged and is reused, the main-specific subgraph is re-derived. Facts
+whose key already encodes the main (`GenerateExecutableJar.Key`, `GeneratedModule.Key`) simply coexist under distinct
+keys. Retained entries are never served stale either — the next demand re-validates their dependencies down to the
+world leaves before accepting them.
+
+**The one subtlety in the accumulation.** Retention explicitly excludes every key the run *resolved*
+(`directDependencies`) or *carried*, not merely those it materialised. A key regenerated to a **failure** this run
+(errored, produced no fact) is in `directDependencies` but not in the fresh map, so it is dropped rather than kept at
+its stale prior success — otherwise a later run whose inputs are stable at the failing value would accept the stale
+value and swallow the error. `IncrementalFactGeneratorTest` pins both directions: untouched facts are retained across a
+run that never asked for them, and a fact that regenerates to a failure keeps re-erroring instead of reverting to its
+cached success.
+
+The invariant is the checkpoint for any future `demandScopedKey`: a key may be demand-scoped only if its whole effect
+on facts is confined to in-key facts and self-healing edge-less leaves. A key that fails this — one whose value changes
+a *shared* fact without an invalidating leaf in the path — would miscompile under sharing; it must stay `namedKey`.
+
+The persisted shape is unchanged, so no `CACHE_VERSION` bump. Growth is the §9 tradeoff, one step larger: a retired
+example's facts linger (never served stale — re-validated on demand). Still bounded by real example diversity; a
+per-entry last-used stamp with an LRU sweep on save is the follow-up if it ever matters (that *would* bump the
+version). The resident-server (LSP) in-memory cache now accumulates across edits for the same reason; correct because
+every acceptance re-validates, and verified against the LSP warm-edit suites.

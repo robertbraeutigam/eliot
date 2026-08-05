@@ -17,7 +17,7 @@ import com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStatProcessor
 import com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
+import com.vanillasource.eliot.eliotc.plugin.Configuration.demandScopedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
@@ -28,7 +28,11 @@ class JvmPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
   import cmdLineBuilder.*
 
-  private val mainKey = namedKey[ValueFQN]("mainFunction")
+  // Demand-scoped, not contributing: `-m` selects the monomorphization root, so two examples over the same roots and
+  // backend compute identical values for every shared fact and may share one accumulating cache file. The main enters
+  // the fact graph only through the synthetic-entry `SourceContent` leaf (SyntheticMainSourceProcessor), which is
+  // always regenerated and equality-checked, so a shared cache self-heals per main (see Configuration.demandScopedKey).
+  private val mainKey = demandScopedKey[ValueFQN]("mainFunction")
 
   override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
     cmd("jvm")

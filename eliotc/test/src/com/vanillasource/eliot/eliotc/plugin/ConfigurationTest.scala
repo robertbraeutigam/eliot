@@ -16,6 +16,10 @@ class ConfigurationTest extends AnyFlatSpec with Matchers {
     Configuration().set(Configuration.opaqueKey[String]("fn"), "x").identityContributions shouldBe empty
   }
 
+  it should "exclude a demandScopedKey value" in {
+    Configuration().set(Configuration.demandScopedKey[String]("main"), "Main").identityContributions shouldBe empty
+  }
+
   it should "render a namedKey value through its custom serializer" in {
     Configuration()
       .set(Configuration.namedKey[String]("k")(_.toUpperCase), "abc")

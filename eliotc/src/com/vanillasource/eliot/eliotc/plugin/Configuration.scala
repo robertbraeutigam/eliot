@@ -69,6 +69,20 @@ object Configuration {
     */
   def opaqueKey[T](name: String): Key[T] = NamedKey(name, _ => None)
 
+  /** A key that never contributes because it selects *which* facts are demanded — the monomorphization root — not the
+    * *value* of any shared fact. Two runs differing only in such a key (e.g. the selected `main`) compute identical
+    * values for every fact they have in common, so their caches may safely coexist and accumulate under one file
+    * instead of splitting into a cold file per value.
+    *
+    * Behaviourally identical to [[opaqueKey]] (`None`), but the rationale is different and must be, because such a key
+    * is **not** redundant with a contributing key — it is a genuine input. Excluding it is sound only under a runtime
+    * invariant: the value it does inject enters the fact graph through an **edge-less, always-regenerated leaf** (for
+    * the selected `main`, the synthetic-entry `SourceContent`), so a cache shared across its values self-heals — every
+    * `main`-dependent fact is invalidated on demand by that leaf's equality cutoff. A key may be declared
+    * demand-scoped only when it meets that invariant; see `docs/incremental-compilation.md` §10.
+    */
+  def demandScopedKey[T](name: String): Key[T] = NamedKey(name, _ => None)
+
   def stringKey(name: String): Key[String] = namedKey[String](name)
   def intKey(name: String): Key[Int]       = namedKey[Int](name)
 }

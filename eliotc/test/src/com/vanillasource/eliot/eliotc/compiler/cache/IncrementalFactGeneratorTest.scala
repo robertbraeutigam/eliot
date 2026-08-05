@@ -224,7 +224,9 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     }
   }
 
-  it should "prune facts that are no longer reachable from the requested fact" in {
+  it should "retain facts not reached this run (the cache accumulates, it does not replace)" in {
+    // Two independent subgraphs, a/da and b/db, model two configurations (e.g. two examples) sharing one cache. A run
+    // that demands only 'da' must keep b and db from the prior — untouched facts survive so switching back stays warm.
     val test = for {
       srcA  <- Ref.of[IO, Int](1)
       srcB  <- Ref.of[IO, Int](2)
@@ -240,10 +242,34 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
                )
       run1  <- runBuild(proc, None)(g => g.getFact(NumberKey("da")) *> g.getFact(NumberKey("db")))
       run2  <- runBuild(proc, Some(run1._2))(_.getFact(NumberKey("da"))) // only 'da' requested now
-    } yield (run1._2.entries.keySet, run2._2.entries.keySet)
-    test.asserting { case (keys1, keys2) =>
+      dbN   <- counts("db").get
+    } yield (run1._2.entries.keySet, run2._2.entries.keySet, dbN)
+    test.asserting { case (keys1, keys2, dbN) =>
       keys1 shouldBe Set(NumberKey("a"), NumberKey("b"), NumberKey("da"), NumberKey("db"))
-      keys2 shouldBe Set(NumberKey("a"), NumberKey("da")) // b and db pruned
+      keys2 shouldBe Set(NumberKey("a"), NumberKey("b"), NumberKey("da"), NumberKey("db")) // b and db retained
+      dbN shouldBe 1 // db was never regenerated in run2 — it survived untouched from the prior
+    }
+  }
+
+  it should "not retain a stale value for a fact that regenerated to a failure this run" in {
+    // 'checked' succeeds while its leaf is non-negative and fails (errors + declines) once it goes negative. The failure
+    // run must drop 'checked' entirely — never keep its earlier success — or a later run whose leaf is stable at the bad
+    // value would accept the stale value and swallow the error. This is the soundness guard on accumulation.
+    val test = for {
+      src     <- Ref.of[IO, Int](10)
+      counts  <- counters("leaf", "checked")
+      proc     = graph(Map("leaf" -> Leaf(src), "checked" -> Checked("leaf")), counts)
+      run1    <- runBuild(proc, None)(_.getFact(NumberKey("checked")))
+      _       <- src.set(-1)
+      run2    <- runBuild(proc, Some(run1._2))(g => g.getFact(NumberKey("checked")).product(g.currentErrors()))
+      run3    <- runBuild(proc, Some(run2._2))(g => g.getFact(NumberKey("checked")).product(g.currentErrors()))
+    } yield (run1._1, run2._1._1, run2._1._2.map(_.message), run3._1._1, run3._1._2.map(_.message))
+    test.asserting { case (r1, r2, errs2, r3, errs3) =>
+      r1 shouldBe Some(NumberFact("checked", 10))
+      r2 shouldBe None                 // fails on the negative leaf
+      errs2 shouldBe Seq("negative")
+      r3 shouldBe None                 // still fails; the stale 10 was never retained
+      errs3 shouldBe Seq("negative")   // and the error re-surfaces rather than being masked
     }
   }
 
@@ -448,6 +474,8 @@ object IncrementalFactGeneratorTest {
   case class Writer(dep: String, sideEffect: IO[Unit])                 extends Node
   case class Failing(message: String)                                  extends Node
   case class Pushing(dep: String, sibling: String, f: Int => Int)      extends Node
+  /** Succeeds echoing its dependency's value while it is non-negative; errors and declines once it goes negative. */
+  case class Checked(dep: String)                                      extends Node
 
   private def err(message: String): CompilerError =
     CompilerError(message, Seq.empty, "", "", PositionRange.zero)
@@ -497,6 +525,11 @@ object IncrementalFactGeneratorTest {
         case Some(Pushing(dep, sib, f)) =>
           getFactOrAbort(NumberKey(dep)).flatMap(d =>
             registerFactIfClear(NumberFact(sib, f(d.value))).as(NumberFact(key.name, f(d.value)))
+          )
+        case Some(Checked(dep))        =>
+          getFactOrAbort(NumberKey(dep)).flatMap(d =>
+            if (d.value >= 0) NumberFact(key.name, d.value).pure[CompilerIO]
+            else registerCompilerError(err("negative")) >> abort[NumberFact]
           )
         case None                      => abort[NumberFact]
       }
