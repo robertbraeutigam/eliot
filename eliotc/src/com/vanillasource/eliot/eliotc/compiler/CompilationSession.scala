@@ -97,15 +97,14 @@ object CompilationSession {
   def create(
       targetPlugin: CompilerPlugin,
       activatedPlugins: Seq[CompilerPlugin],
-      configuration: Configuration,
-      args: List[String]
+      configuration: Configuration
   ): IO[CompilationSession] =
     for {
       effectiveConfig <- activatedPlugins.traverse_(_.configure()).runS(configuration)
       processors      <- activatedPlugins.traverse_(_.initialize(effectiveConfig)).runS(NullProcessor())
       targetPath       = effectiveConfig.get(Compiler.targetPathKey).get
       compilerFp      <- CacheFingerprint.compiler
-      configFp         = CacheFingerprint.config(args)
+      configFp         = CacheFingerprint.config(effectiveConfig)
       seeded          <- FactCache.load(targetPath, compilerFp, configFp)
       cache           <- Ref.of[IO, Option[FactCacheData]](seeded)
       lock            <- Mutex[IO]

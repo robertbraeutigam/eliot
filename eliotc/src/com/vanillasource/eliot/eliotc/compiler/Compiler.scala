@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
-import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
+import com.vanillasource.eliot.eliotc.plugin.Configuration.{diagnosticKey, namedKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
 import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
@@ -16,8 +16,10 @@ import scala.jdk.CollectionConverters.*
 
 object Compiler extends Logging {
   val targetPathKey: Configuration.Key[Path]     = namedKey[Path]("targetPath")
-  val visualizeFactsKey: Configuration.Key[Path] = namedKey[Path]("visualizeFacts")
-  val statisticsKey: Configuration.Key[Unit]     = namedKey[Unit]("statistics")
+  // Diagnostic-only: these turn on observation (a fact-flow graph, per-processor timing) without changing any fact, so
+  // they must not enter the cache identity — otherwise a `--statistics` run could never observe a warm build.
+  val visualizeFactsKey: Configuration.Key[Path] = diagnosticKey[Path]("visualizeFacts")
+  val statisticsKey: Configuration.Key[Unit]     = diagnosticKey[Unit]("statistics")
 
   /** Run the compiler, returning whether the compilation *failed* — it produced errors, or its target produced no
     * artefact. The CLI ([[Main]]) maps that to a non-zero exit code so callers (scripts, CI, the IntelliJ before-run
@@ -32,7 +34,7 @@ object Compiler extends Logging {
       failed    <- configOpt match {
                      case None                => IO.pure(false)
                      case Some(configuration) =>
-                       runWithConfiguration(configuration, plugins, args)
+                       runWithConfiguration(configuration, plugins)
                    }
     } yield failed
 
@@ -50,13 +52,12 @@ object Compiler extends Logging {
     for {
       plugins   <- allLayers()
       configOpt <- parseCommandLine(args, plugins.map(_.commandLineParser()))
-      session   <- configOpt.flatTraverse(sessionFor(_, plugins, args))
+      session   <- configOpt.flatTraverse(sessionFor(_, plugins))
     } yield session
 
   private def sessionFor(
       configuration: Configuration,
-      plugins: Seq[CompilerPlugin],
-      args: List[String]
+      plugins: Seq[CompilerPlugin]
   ): IO[Option[CompilationSession]] =
     // Select active plugins
     plugins.find(_.isSelectedBy(configuration)) match {
@@ -69,16 +70,15 @@ object Compiler extends Logging {
           _       <-
             debug[IO](s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}")
           // One-time setup: configure plugins, collect processors, seed the cache from disk
-          session <- CompilationSession.create(targetPlugin, activatedPlugins, configuration, args)
+          session <- CompilationSession.create(targetPlugin, activatedPlugins, configuration)
         } yield Some(session)
     }
 
   private def runWithConfiguration(
       configuration: Configuration,
-      plugins: Seq[CompilerPlugin],
-      args: List[String]
+      plugins: Seq[CompilerPlugin]
   ): IO[Boolean] =
-    sessionFor(configuration, plugins, args).flatMap {
+    sessionFor(configuration, plugins).flatMap {
       case None          => IO.pure(true) // no target plugin selected — reported by `sessionFor`, an error exit
       case Some(session) =>
         val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)

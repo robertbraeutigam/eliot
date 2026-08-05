@@ -62,8 +62,7 @@ class LibraryNamespaceSkipTest extends AsyncFlatSpec with AsyncIOSpec with Match
         session <- CompilationSession.create(
                      lspPlugin,
                      Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
-                     config,
-                     List(root.toString)
+                     config
                    )
         compile  = session.compileOnce().map(_.errors.map(_.message))
         result  <- body(root, compile)

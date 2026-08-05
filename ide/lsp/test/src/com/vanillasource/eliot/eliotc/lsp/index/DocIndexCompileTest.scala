@@ -65,8 +65,7 @@ class DocIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
         session <- CompilationSession.create(
                      lspPlugin,
                      Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
-                     configuration,
-                     List(sourceDir.toString)
+                     configuration
                    )
         result  <- session.compileOnce()
         facts   <- result.generator.currentFacts()

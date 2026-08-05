@@ -35,7 +35,7 @@ import java.nio.file.{Files, Path}
   * Bump [[CACHE_VERSION]] whenever a persisted fact's shape changes, so an out-of-date cache is discarded.
   */
 object FactCache extends Logging {
-  val CACHE_VERSION: Int         = 33
+  val CACHE_VERSION: Int         = 34
   private val CACHE_FILE: String = ".eliot-cache"
 
   /** The complete on-disk image: the cache data plus the header that must match the current run to reuse it. */

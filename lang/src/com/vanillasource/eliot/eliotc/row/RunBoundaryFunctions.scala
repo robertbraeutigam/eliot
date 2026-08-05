@@ -32,5 +32,7 @@ object RunBoundaryFunctions {
     * [[com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding.extraNativeLabelsKey]] threads
     * native-contributor labels.
     */
-  val configKey: Configuration.Key[Set[ValueFQN]] = Configuration.namedKey("runBoundaryFunctions")
+  // Opaque to the cache identity: this set is a deterministic function of the active plugin set (fixed within a
+  // compiler build, and covered by the compiler fingerprint) and the selected `main`, which already contributes.
+  val configKey: Configuration.Key[Set[ValueFQN]] = Configuration.opaqueKey("runBoundaryFunctions")
 }

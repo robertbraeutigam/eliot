@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.plugin.Configuration
-import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
+import com.vanillasource.eliot.eliotc.plugin.Configuration.opaqueKey
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
@@ -86,8 +86,13 @@ object PathScanner {
   /** Substitutes how filesystem root paths become mounts; the LSP sets this to route files with unsaved editor buffers
     * to its `vfs:` namespace. Absent means plain [[FilesystemMount]].
     */
-  val mountFactoryKey: Configuration.Key[Path => SourceMount] = namedKey[Path => SourceMount]("sourceMountFactory")
+  // Opaque to the cache identity: a function value has no stable representation, and this mount routing is a driver
+  // (LSP) concern derived from the source roots that already contribute — see Configuration.opaqueKey.
+  val mountFactoryKey: Configuration.Key[Path => SourceMount] = opaqueKey[Path => SourceMount]("sourceMountFactory")
 
-  /** Additional runtime-pool mounts contributed by plugins (e.g. the jvm target's synthesized `main.els` module). */
-  val extraRuntimeMountsKey: Configuration.Key[Seq[SourceMount]] = namedKey[Seq[SourceMount]]("extraRuntimeMounts")
+  /** Additional runtime-pool mounts contributed by plugins (e.g. the jvm target's synthesized `main.els` module).
+    * Opaque to the cache identity: injected mounts are a deterministic function of the selected `main` and source roots,
+    * which already contribute, and a `SourceMount` has no stable `toString`.
+    */
+  val extraRuntimeMountsKey: Configuration.Key[Seq[SourceMount]] = opaqueKey[Seq[SourceMount]]("extraRuntimeMounts")
 }

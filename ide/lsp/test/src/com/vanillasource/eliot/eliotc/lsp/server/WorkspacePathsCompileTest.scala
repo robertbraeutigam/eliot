@@ -57,8 +57,7 @@ import eliot.effect.Console
           session <- CompilationSession.create(
                        lspPlugin,
                        Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
-                       configuration,
-                       (loaded.runtimeRoots ++ loaded.compilerRoots).map(_.toString).toList
+                       configuration
                      )
           result  <- session.compileOnce()
         } yield result.errors
