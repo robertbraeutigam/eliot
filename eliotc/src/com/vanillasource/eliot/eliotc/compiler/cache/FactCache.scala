@@ -18,8 +18,16 @@ import java.nio.file.{Files, Path}
   *      can still drill *through* it next run. Only the value is dropped, never the dependency structure. (An entry whose
   *      *key* or `directDeps` cannot serialize is dropped entirely, since its edge is unusable; this is not expected to
   *      happen — keys are first-order.)
-  *   3. A different compiler or configuration must never be served a stale cache. The on-disk header carries a compiler
-  *      fingerprint and a configuration fingerprint (plus [[CACHE_VERSION]]); `load` returns the cache only if all match.
+  *   3. A different compiler or configuration must never be served a stale cache. Because the two fingerprints have
+  *      opposite lifecycles, they are placed differently:
+  *        - The **configuration** fingerprint (prod vs test, selected `main`, backend) changes rarely and the variants
+  *          should *coexist*, so it goes in the **file name** — `.eliot-cache-<config>`. Two configs against the same
+  *          target directory keep separate files instead of overwriting each other on every switch.
+  *        - The **compiler** fingerprint changes on every recompile of the compiler and an old-compiler cache is dead
+  *          weight, so it stays in the **header**: a compiler change fails the header check and `save` overwrites the
+  *          same-named file in place, rather than minting a fresh file per compiler build.
+  *      The full configuration fingerprint is *also* kept in the header as an exact-match backstop (the name is a
+  *      truncated, sanitized index, not the source of truth); `load` returns the cache only if header and version match.
   *
   * Both directions are fail-safe: `load` returns `None` on any problem (missing file, deserialization error, version or
   * fingerprint mismatch), and `save` warns rather than failing the build if writing is impossible.
@@ -27,17 +35,24 @@ import java.nio.file.{Files, Path}
   * Bump [[CACHE_VERSION]] whenever a persisted fact's shape changes, so an out-of-date cache is discarded.
   */
 object FactCache extends Logging {
-  val CACHE_VERSION: Int         = 32
+  val CACHE_VERSION: Int         = 33
   private val CACHE_FILE: String = ".eliot-cache"
 
   /** The complete on-disk image: the cache data plus the header that must match the current run to reuse it. */
   private case class OnDiskCache(compilerFingerprint: String, configFingerprint: String, data: FactCacheData)
 
-  def cacheFile(targetDir: Path): Path = targetDir.resolve(CACHE_FILE)
+  /** The cache file for a given configuration. The configuration fingerprint is folded into the name so distinct
+    * configurations (prod, test, a different `main`) coexist under one target directory instead of clobbering each
+    * other. The fingerprint is expected to be a hex digest; it is sanitized and truncated only to bound the name — the
+    * header carries the full value for the exact check, so a (hex-impossible) name collision degrades to a cold build,
+    * never to serving the wrong cache.
+    */
+  def cacheFile(targetDir: Path, configFingerprint: String): Path =
+    targetDir.resolve(s"$CACHE_FILE-${configFingerprint.filter(_.isLetterOrDigit).take(16)}")
 
   def load(targetDir: Path, compilerFingerprint: String, configFingerprint: String): IO[Option[FactCacheData]] =
     IO.blocking {
-      val file = cacheFile(targetDir)
+      val file = cacheFile(targetDir, configFingerprint)
       if (Files.exists(file)) {
         val in = new FactInputStream(new FileInputStream(file.toFile))
         try {
@@ -65,7 +80,7 @@ object FactCache extends Logging {
         else None                                                            // unusable edge ⇒ drop the whole entry
       }
       val onDisk = OnDiskCache(compilerFingerprint, configFingerprint, FactCacheData(data.version, prepared))
-      val out    = new FactOutputStream(new FileOutputStream(cacheFile(targetDir).toFile))
+      val out    = new FactOutputStream(new FileOutputStream(cacheFile(targetDir, configFingerprint).toFile))
       try out.writeObject(onDisk)
       finally out.close()
       (data.entries.size, prepared.size, prepared.count(_._2.value.isEmpty))
