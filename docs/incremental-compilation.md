@@ -344,7 +344,38 @@ anchor is caught automatically rather than by re-running the manual reproduction
 not just these three, and pairs with Step 5's permanent DEBUG trace.
 
 Reproduction: enable `<Logger name="com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator"
-level="debug"/>`, build twice **with identical flags** (a differing `--statistics` changes the config fingerprint
-and discards the cache), and read the `Incremental run: regenerated N` line. The per-reason breakdown above came
-from temporary traces in `regenerate`/`computeUnchanged`, reverted — Step 5's permanent DEBUG trace would make it
-standing.
+level="debug"/>`, build twice, and read the `Incremental run: regenerated N` line. (Since §9, `--statistics` no
+longer perturbs the config fingerprint, so a warm build can be observed with it on.) The per-reason breakdown
+above came from temporary traces in `regenerate`/`computeUnchanged`, reverted — Step 5's permanent DEBUG trace
+would make it standing.
+
+## 9. Per-configuration cache files (2026-08-05)
+
+Until now the cache was a single `<target>/.eliot-cache` whose header carried the compiler fingerprint, the
+config fingerprint and `CACHE_VERSION`; a run whose header did not match got a cold build and then **overwrote**
+the file. So two configurations sharing a target directory — prod and test, or two different `-m` mains — cleared
+each other on every switch, and neither was ever warm.
+
+The fix keys the two fingerprints by their **opposite lifecycles**:
+
+- the **config** fingerprint (rarely changes; variants should coexist) goes into the **file name**,
+  `.eliot-cache-<config>`, so prod and test keep separate files under one target;
+- the **compiler** fingerprint (changes on every recompile; an old-compiler cache is dead weight) stays in the
+  **header**, so a compiler change fails the header check and `save` overwrites the *same-named* file in place —
+  no new file is minted per compiler build, and there is no accumulation from compiler churn (`FactCache.cacheFile`
+  now takes the config fingerprint; the full value is still in the header as an exact-match backstop, so the
+  truncated, sanitized name is only an index — a hex-impossible name collision degrades to a cold build, never to
+  serving the wrong cache).
+
+This preserves the `UpToDate` soundness argument — each file is inherently scoped to one compiler+config, so an
+anchored constant can never leak across a config boundary — and is orthogonal to §§3–8 (it changes cache
+*retention across* builds, not regeneration *within* one).
+
+Paired change: `CacheFingerprint.config` now **excludes the diagnostic-only flags** `--statistics` and
+`--visualize-facts` (the latter with its path argument). They observe every processor invocation but change no
+fact, so folding them into the fingerprint gave a diagnostic run a fresh config — you could not even observe a
+warm build with `--statistics` on. `CACHE_VERSION` bumped 32 → 33.
+
+Known residual, deliberately ignored: a *permanently* retired config (renamed `main`, dropped flag) leaves its
+`.eliot-cache-<oldconfig>` behind. Accumulation is bounded by real config diversity, not build count; a light LRU
+sweep on save is the follow-up if it ever matters.

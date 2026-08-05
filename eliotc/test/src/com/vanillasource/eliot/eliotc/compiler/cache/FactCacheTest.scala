@@ -53,9 +53,20 @@ class FactCacheTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }.asserting(_ shouldBe None)
   }
 
+  it should "keep distinct configurations in separate files so neither clobbers the other" in {
+    val other = sample.copy(entries = Map(CacheKey("z") -> CacheEntry(Some(CacheFact("z", 9)), Set.empty)))
+    withTempDir { dir =>
+      FactCache.save(dir, compilerFp, "config-prod", sample) >>
+        FactCache.save(dir, compilerFp, "config-test", other) >>
+        FactCache.load(dir, compilerFp, "config-prod")
+    }.asserting(_ shouldBe Some(sample))
+  }
+
   it should "return None for a corrupt cache file" in {
     withTempDir { dir =>
-      IO.blocking(Files.write(FactCache.cacheFile(dir), "not a serialized cache".getBytes(StandardCharsets.UTF_8))) >>
+      IO.blocking(
+        Files.write(FactCache.cacheFile(dir, configFp), "not a serialized cache".getBytes(StandardCharsets.UTF_8))
+      ) >>
         FactCache.load(dir, compilerFp, configFp)
     }.asserting(_ shouldBe None)
   }
