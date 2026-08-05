@@ -64,8 +64,7 @@ class TypeHintRangeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
         session <- CompilationSession.create(
                      lspPlugin,
                      Seq(lspPlugin, LangPlugin(), StdlibPlugin()),
-                     configuration,
-                     List(sourceDir.toString)
+                     configuration
                    )
         result  <- session.compileOnce()
         facts   <- result.generator.currentFacts()

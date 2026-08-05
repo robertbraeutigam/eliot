@@ -50,7 +50,11 @@ itself unchanged, by reaching the leaves through its edges.
 **Fingerprints guard reuse.** `CacheFingerprint.compiler` digests every entry on the running compiler's
 classpath (path, size, mtime; recursively for directories), so even an uncommitted recompile of the compiler
 discards the cache — which is what makes "natives are constant within a compiler version" true. `config`
-digests the command-line arguments. Both, plus `FactCache.CACHE_VERSION`, are matched on load.
+digests the effective `Configuration`: each `Configuration.Key` decides via `identityContribution` whether — and
+as what — its value participates, so diagnostic-only flags (`--statistics`, `--visualize-facts`) and
+unrepresentable injected values (a mount factory) opt out at their declaration rather than through a list of
+exceptions (see `docs/cache-identity-configuration.md`). Both, plus `FactCache.CACHE_VERSION`, are matched on
+load.
 
 Failures are deliberately never cached, so a fact that errored has no entry and re-emits its error every run
 until fixed.

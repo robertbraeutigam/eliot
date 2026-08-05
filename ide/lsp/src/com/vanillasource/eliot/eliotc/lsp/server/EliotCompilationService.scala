@@ -157,8 +157,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
       session <- CompilationSession.create(
                    lspPlugin,
                    Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
-                   configuration,
-                   (runtimeRoots ++ compilerRoots).map(_.toString).toList
+                   configuration
                  )
       handle  <- CompilationServer.start(session, publishResult).allocated
     } yield handle).unsafeRunSync()(using runtime)

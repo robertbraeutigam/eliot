@@ -172,8 +172,7 @@ class IncrementalDataDeclCompileTest extends AsyncFlatSpec with AsyncIOSpec with
       CompilationSession.create(
         lspPlugin,
         Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
-        configuration,
-        List(sourceDir.toString)
+        configuration
       )
     )
   }
@@ -198,8 +197,7 @@ class IncrementalDataDeclCompileTest extends AsyncFlatSpec with AsyncIOSpec with
         session <- CompilationSession.create(
                      lspPlugin,
                      Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
-                     configuration,
-                     List(sourceDir.toString)
+                     configuration
                    )
         compile  = session.compileOnce().map(_.errors.map(_.message))
         result  <- body(vfs, file.toUri, compile)

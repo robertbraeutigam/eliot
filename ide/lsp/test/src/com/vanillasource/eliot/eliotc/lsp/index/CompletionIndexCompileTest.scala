@@ -64,8 +64,7 @@ import eliot.effect.Console
         session <- CompilationSession.create(
                      lspPlugin,
                      Seq(lspPlugin, LangPlugin(), StdlibPlugin()),
-                     configuration,
-                     List(sourceDir.toString)
+                     configuration
                    )
         result  <- session.compileOnce()
         facts   <- result.generator.currentFacts()
