@@ -78,32 +78,38 @@ object Compiler extends Logging {
       configuration: Configuration,
       plugins: Seq[CompilerPlugin]
   ): IO[Boolean] =
-    sessionFor(configuration, plugins).flatMap {
-      case None          => IO.pure(true) // no target plugin selected — reported by `sessionFor`, an error exit
-      case Some(session) =>
-        val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
-        val statisticsAsked   = session.effectiveConfiguration.contains(statisticsKey)
+    for {
+      // Start the clock before session setup so the total spans the whole lifecycle: the cache load and the
+      // fingerprint digest happen inside `sessionFor` (before any compile), and `--statistics` accounts for them.
+      started    <- IO.monotonic
+      sessionOpt <- sessionFor(configuration, plugins)
+      failed     <- sessionOpt match {
+                      case None          => IO.pure(true) // no target plugin — reported by `sessionFor`, an error exit
+                      case Some(session) =>
+                        val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
+                        val statisticsAsked   = session.effectiveConfiguration.contains(statisticsKey)
 
-        for {
-          // Both of these observe every processor invocation and every fact read of the compilation, so neither is
-          // created unless it was actually asked for: an ordinary build should not pay for a diagnostic it discards.
-          tracker    <- visualizationPath.traverse(_ => FactVisualizationTracker.create())
-          statistics <- Option.when(statisticsAsked)(ProcessorStatistics.create()).sequence
-          // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
-          _          <- debug[IO]("Compiler starting...")
-          started    <- IO.monotonic
-          result     <- session.compileOnce(tracker, statistics)
-          finished   <- IO.monotonic
-          _          <- session.persist()
-          _          <- debug[IO]("Compiler exiting normally.")
-          // Print the compiler errors
-          _          <- result.errors.traverse_(_.print())
-          // Generate visualization if requested
-          _          <- (tracker, visualizationPath).tupled.traverse_(_.generateVisualization(_))
-          // Print where the time went in this run, if requested
-          _          <- statistics.traverse_(_.report(finished - started).flatMap(Console[IO].println))
-        } yield !result.succeeded
-    }
+                        for {
+                          // Both observe every processor invocation and every fact read, so neither is created unless
+                          // asked for: an ordinary build should not pay for a diagnostic it discards.
+                          tracker    <- visualizationPath.traverse(_ => FactVisualizationTracker.create())
+                          statistics <- Option.when(statisticsAsked)(ProcessorStatistics.create()).sequence
+                          // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
+                          _          <- debug[IO]("Compiler starting...")
+                          result     <- session.compileOnce(tracker, statistics)
+                          _          <- session.persist()
+                          finished   <- IO.monotonic
+                          _          <- debug[IO]("Compiler exiting normally.")
+                          // Print the compiler errors
+                          _          <- result.errors.traverse_(_.print())
+                          // Generate visualization if requested
+                          _          <- (tracker, visualizationPath).tupled.traverse_(_.generateVisualization(_))
+                          // Print where the time went in this run, if requested — including the coarse cache phases
+                          phases     <- session.phaseSnapshot
+                          _          <- statistics.traverse_(_.report(finished - started, phases).flatMap(Console[IO].println))
+                        } yield !result.succeeded
+                    }
+    } yield failed
 
   private def collectActivatedPlugins(
       initialPlugin: CompilerPlugin,

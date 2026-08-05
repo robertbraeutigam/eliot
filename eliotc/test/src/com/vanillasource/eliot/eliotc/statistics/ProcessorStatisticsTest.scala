@@ -41,6 +41,21 @@ class ProcessorStatisticsTest extends AsyncFlatSpec with AsyncIOSpec with Matche
       .asserting(_.view.mapValues(_.factsProduced).toMap shouldBe Map("A" -> 1L, "B" -> 1L))
   }
 
+  "the report" should "account each cache phase as its own explicit line" in {
+    ProcessorStatistics
+      .create()
+      .flatMap(_.report(1.second, Map(PhaseTimings.cacheLoad -> 200.millis, PhaseTimings.cacheSave -> 100.millis)))
+      .asserting(_ should (include("(loading the incremental cache)") and include("(persisting the incremental cache)")))
+  }
+
+  it should "subtract the cache phases from the engine remainder so every millisecond lands in one row" in {
+    // 1000 ms total, no processors, 200 ms load + 100 ms save ⇒ the engine remainder must be exactly 700 ms.
+    ProcessorStatistics
+      .create()
+      .flatMap(_.report(1.second, Map(PhaseTimings.cacheLoad -> 200.millis, PhaseTimings.cacheSave -> 100.millis)))
+      .asserting(_ should include regex """(?m)^\s*700\s.*\(compiler engine, plugin setup and i/o\)""")
+  }
+
   /** Runs the given processors under measurement, asking for the fact of the first one, and returns the collected
     * statistics keyed by the processor's distinguishing last character.
     *

@@ -8,7 +8,9 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
-import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
+import com.vanillasource.eliot.eliotc.statistics.{PhaseTimings, ProcessorStatistics}
+
+import scala.concurrent.duration.FiniteDuration
 import com.vanillasource.eliot.eliotc.visualization.{FactVisualizationTracker, TrackedCompilerProcessor}
 
 import java.nio.file.Path
@@ -30,7 +32,8 @@ final class CompilationSession private (
     compilerFingerprint: String,
     configFingerprint: String,
     cache: Ref[IO, Option[FactCacheData]],
-    compileLock: Mutex[IO]
+    compileLock: Mutex[IO],
+    phaseTimings: PhaseTimings
 ) extends Logging {
 
   /** Run one full compilation against the current in-memory cache, then store the resulting cache for the next run.
@@ -54,7 +57,7 @@ final class CompilationSession private (
         wrapped   <- IO.delay(wrap(processors, tracker, statistics))
         generator <- IncrementalFactGenerator.create(wrapped, prior, strictAccounting = true)
         produced  <- targetPlugin.run(effectiveConfiguration, generator)
-        nextCache <- generator.buildCacheData()
+        nextCache <- phaseTimings.time(PhaseTimings.buildCache)(generator.buildCacheData())
         _         <- cache.set(Some(nextCache)) // last effect ⇒ a cancelled run keeps the old cache
         errors    <- generator.currentErrors()
       } yield CompilationResult(generator, errors, produced)
@@ -86,7 +89,17 @@ final class CompilationSession private (
     * and from a server on shutdown. Fail-safe: [[FactCache.save]] warns rather than failing.
     */
   def persist(): IO[Unit] =
-    cache.get.flatMap(_.traverse_(FactCache.save(targetPath, compilerFingerprint, configFingerprint, _)))
+    cache.get.flatMap(
+      _.traverse_(data =>
+        phaseTimings.time(PhaseTimings.cacheSave)(FactCache.save(targetPath, compilerFingerprint, configFingerprint, data))
+      )
+    )
+
+  /** The coarse cache-phase timings (fingerprint, load, build, save) recorded across this session so far, by phase id.
+    * `--statistics` reports them as explicit lines so the cache load/store cost — invisible to the per-processor total,
+    * since it falls outside the compile window — is accounted rather than lost.
+    */
+  def phaseSnapshot: IO[Map[String, FiniteDuration]] = phaseTimings.snapshot
 }
 
 object CompilationSession {
@@ -103,9 +116,10 @@ object CompilationSession {
       effectiveConfig <- activatedPlugins.traverse_(_.configure()).runS(configuration)
       processors      <- activatedPlugins.traverse_(_.initialize(effectiveConfig)).runS(NullProcessor())
       targetPath       = effectiveConfig.get(Compiler.targetPathKey).get
-      compilerFp      <- CacheFingerprint.compiler
+      phaseTimings    <- PhaseTimings.create()
+      compilerFp      <- phaseTimings.time(PhaseTimings.fingerprint)(CacheFingerprint.compiler)
       configFp         = CacheFingerprint.config(effectiveConfig)
-      seeded          <- FactCache.load(targetPath, compilerFp, configFp)
+      seeded          <- phaseTimings.time(PhaseTimings.cacheLoad)(FactCache.load(targetPath, compilerFp, configFp))
       cache           <- Ref.of[IO, Option[FactCacheData]](seeded)
       lock            <- Mutex[IO]
     } yield new CompilationSession(
@@ -116,6 +130,7 @@ object CompilationSession {
       compilerFp,
       configFp,
       cache,
-      lock
+      lock,
+      phaseTimings
     )
 }
