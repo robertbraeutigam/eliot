@@ -510,15 +510,26 @@ behind. MVStore remains a fine engine for `objects: id → bytes` plus `entries:
 
 ### Build order (de-risking first)
 
-1. **Derivation prototype, coverage proven by the compiler** — done and measured, §14. The refusal set is the
-   leaves plus the known declines, and the numbers clear the go/no-go.
-2. **Codec + id + store layout** behind the existing backend seam — index loaded eagerly, values written and read
-   lazily. Fold in §6 Step 3 (cache declines) here, since it changes the entry shape anyway.
-3. **Switch the equality cutoff to id comparison** — the load win, and the only step that changes what "unchanged"
+**The one hard sequencing constraint, from §14:** explicit codecs and content addressing **ship together**. Codecs
+alone measured 4.89× *worse* than the Java graph, and only 0.55× once sub-values are shared — so a release that has
+the first without the second puts a fivefold regression on disk. Everything below is one step 2 in that sense; the
+numbering is the order to build in, not the order to land in.
+
+1. **Derivation prototype, coverage proven by the compiler** — done and measured, §14. The refusal set is the leaves
+   plus the known declines, and the numbers clear the go/no-go.
+2. **Make the fact model encodable, and put the decision on the type.** Two pieces, both main-source and both
+   verifiable on their own: replace `GroundValue.Direct(value: Any)` with a sealed literal (§14), and move the
+   instances from the test-side `FactCodecs` onto the types as `derives FactCodec`, which is where §6 Step 1's
+   "abstract with no default, every type states it once" rule wants them.
+3. **Codec + id + store layout** behind the existing backend seam — content-hash ids in place of the in-stream
+   back-references, `entries: keyId → (valueId, depIds)` as the index, index read eagerly and values lazily. The
+   `Output`/`Input` seam already localises sharing to one place, so this touches neither the codecs nor the
+   derivation. Fold in §6 Step 3 (cache declines) here, since it changes the entry shape anyway.
+4. **Switch the equality cutoff to id comparison** — the load win, and the only step that changes what "unchanged"
    is *decided from*.
-4. **GC sweep** from the live index roots.
-5. **§6 Step 6 verification**, weighted toward under-invalidation: byte-identity cold-vs-warm, and
-   touch-one-source-file for a bounded *correct* subset. Step 3 above changes the invalidation decision itself, so
+5. **GC sweep** from the live index roots.
+6. **§6 Step 6 verification**, weighted toward under-invalidation: byte-identity cold-vs-warm, and
+   touch-one-source-file for a bounded *correct* subset. Step 4 above changes the invalidation decision itself, so
    that direction matters more here than in any previous step.
 
 ## 14. Step 1 measured: the codec prototype (2026-08-06)
