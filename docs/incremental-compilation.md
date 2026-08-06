@@ -12,7 +12,7 @@ from ~64% of it to ~29%:
 | 2 — the fact model made encodable, decision on the key | **DONE**, §15. `CompilerFactKey.valueCodec`, abstract, no default. |
 | 3 — the content-addressed store | **DONE**, §17. Wired behind `ELIOT_CACHE_BACKEND=store`. |
 | 4 — lazy values, the cutoff by content id | **DONE**, §18. Warm build **50% faster** (load −79%, save −76%), **half the disk**, **zero growth**, jar byte-identical, under-invalidation checked. |
-| 5–6 — compaction, flip the default | not started. |
+| 5–6 — compaction, flip the default | not started. §19 measures the remaining load and closes the "lazy index" question: not worth it. |
 
 The **default is still the Java-serialized whole graph**, so an ordinary build is unchanged until step 6 flips it.
 §17 and §18 are the current state; §16 is the handover that preceded them and is superseded on two points it names.
@@ -935,5 +935,59 @@ measures against Java as the baseline.
   untyped bytes. Now much less urgent than it looked — a warm build no longer grows the store at all, so garbage
   accumulates only from genuinely changed facts.
 - **§13 step 6** — flipping the default, and retiring `FactCache.canSerialize` with the Java graph.
-- The load floor is now the **index**: ~101 KB read and decoded per build, one key per entry plus every edge. Making
-  *that* lazy is the next thing worth measuring if the 107 ms matters.
+- The load floor is now the **index** — measured in §19, which answers whether making it lazy is worth anything.
+
+## 19. Where the remaining load goes, and why it is not worth chasing (2026-08-06)
+
+§18 left the load at 107 ms and named the index as the floor. Measured rather than assumed, with the load broken into
+its parts:
+
+```
+reading the 1.19 MB object region        1.1 ms
+decoding the index (keys and edges)     88.1 ms   2,398 entries, 12,647 dep refs
+  the same decode, 2nd pass in-process  41.3 ms
+  3rd pass                              40.5 ms
+  4th pass                              33.6 ms
+```
+
+**Three findings, and together they close the question.**
+
+1. **Reading the objects is free.** 1.1 ms for 1.19 MB — the values really are lazy, and nothing is gained by moving
+   keys out of the object region or by mapping the file. Whatever the load costs, it is not I/O.
+2. **Over half of it is JIT warm-up, not work.** The same decode drops from 88 ms to ~35 ms by the fourth pass in the
+   same JVM. A CLI build gets exactly one pass, so it pays the cold price every time and *no algorithmic change
+   removes it*. A resident session (the LSP) already pays only the ~35 ms.
+3. **Decoding scales with the whole store, not with the build.** With five examples accumulated into one cache (§10),
+   entries go 2,398 → 4,136 and the load goes 107 → 147 ms, though a single example needs only its own slice.
+
+**So would a lazy index pay?** Only for the slice nothing reaches. The structural drill visits every *reachable*
+entry and every one of its edges, and it needs those keys as objects to ask the engine to recompute what they
+identify — so the reachable set must be decoded either way. The saving is the unreachable remainder, ~40% of entries
+in the five-config store above, or ~25 ms of a cold 147 ms. Against that: `prior` would have to be re-keyed by a hash
+of the *encoded* key, and every lookup would then pay an encode-and-hash roughly as expensive as the decode it saves.
+**Not worth it**, and recorded here so it is not re-proposed.
+
+One micro-fix did land while looking: the index's type-name table was a `List` indexed per dependency reference
+(O(n)) with a `Map[String, codec]` lookup on each. It is now an array of already-resolved codecs, one lookup per
+distinct name. It measured **no change** — kept because it is strictly less work, not because it helped.
+
+### What the profile looks like now
+
+Warm build against a five-config accumulated store — the harder of the two scenarios, and the one that shows the gap
+widening as a cache ages:
+
+```
+phase              Java (default)      content store
+cache load           692 ms  37.5%      147 ms  18.2%      -79%
+cache save           616 ms  33.4%      141 ms  17.4%      -77%
+build-cache           16 ms              11 ms
+fingerprint           51 ms              47 ms
+engine               337 ms  18.2%      352 ms  43.5%
+processors            46 ms              33 ms
+total              1,847 ms             809 ms             -56%
+on-disk             3.62 MB            2.48 MB             0.69×
+```
+
+**The cache is no longer the dominant cost.** At 36% of a warm build (down from ~71% on this scenario), it is behind
+`compiler engine, plugin setup and i/o` at 43.5% — which is JVM start, plugin discovery and processor-graph
+construction, and is now the thing to measure if a warm build needs to get faster still.

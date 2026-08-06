@@ -91,7 +91,7 @@ final class ContentAddressedCacheBackend private (
         header.bodyLength == bodies.length
 
     Option.when(acceptable) {
-      val names   = Seq.fill(FactCodec.readVarInt(in))(in.readUTF())
+      val names   = Array.fill(FactCodec.readVarInt(in))(in.readUTF()).map(keyCodecs)
       val input   = new ContentAddressedInput(bodies)
       val entries = Seq.fill(FactCodec.readVarInt(in))(readEntry(in, names, input))
 
@@ -106,7 +106,7 @@ final class ContentAddressedCacheBackend private (
     }
   }
 
-  private def readEntry(in: DataInputStream, names: Seq[String], input: ContentAddressedInput): Read = {
+  private def readEntry(in: DataInputStream, names: Array[FactCodec[CompilerFactKey[?]]], input: ContentAddressedInput): Read = {
     val (key, keyOffset) = readKey(in, names, input)
     val located          = Option.when(in.readBoolean())(readStoredValue(in, input, key))
     val deps             = Seq.fill(FactCodec.readVarInt(in))(readKey(in, names, input)._1).toSet
@@ -133,11 +133,15 @@ final class ContentAddressedCacheBackend private (
     new ObjectIdOutput().identify(fact)(using key.valueCodec.get.asInstanceOf[FactCodec[CompilerFact]])
 
   /** Read a key's type name index and offset, then decode it with the codec that name registers. */
-  private def readKey(in: DataInputStream, names: Seq[String], input: ContentAddressedInput): (CompilerFactKey[?], Int) = {
-    val name   = names(FactCodec.readVarInt(in))
+  private def readKey(
+      in: DataInputStream,
+      names: Array[FactCodec[CompilerFactKey[?]]],
+      input: ContentAddressedInput
+  ): (CompilerFactKey[?], Int) = {
+    val codec  = names(FactCodec.readVarInt(in))
     val offset = FactCodec.readVarInt(in)
 
-    (input.read(offset)(using keyCodecs(name)), offset)
+    (input.read(offset)(using codec), offset)
   }
 
   private def materialise(input: ContentAddressedInput, key: CompilerFactKey[?], offset: Int): CompilerFact =
