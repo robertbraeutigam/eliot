@@ -14,8 +14,15 @@ codecs over a content-addressed object store, replacing Java serialization outri
 | 5 — compaction | not started, and no longer urgent: a warm build appends nothing (§18). |
 | 6 — flip the default, retire the old path | **DONE**, §20. Java serialization deleted; there is no backend switch. |
 
-§17, §18 and §20 are the current state; §19 is the profile that says where the remaining time goes. §16 is the
-handover that preceded them and is superseded on two points it names.
+§17, §18 and §20 are the current state; §19 is the profile that says where the remaining time goes, and **§23
+corrects the one attribution it guessed at**. §16 is the handover that preceded them and is superseded on two points
+it names.
+
+**The cache work is finished; the next bottleneck is not the cache and not the compiler.** §23 measures it: ~41% of a
+warm build is JVM boot, log4j and cats-effect initialisation, and Scala classloading — all of it *before*
+`--statistics` starts counting, which is why three sections looked for it in the wrong place. An AppCDS archive takes
+a warm build from 1,331 ms to 908 ms with no compiler change and a byte-identical jar; it is a **packaging** change
+(`ide/lsp/package.sh`), not a compiler one, and is not yet applied.
 
 §§1–2 are the model everything else refers to. §§3–10 are the diagnosis, its fixes and the retention changes, kept as
 the record of what each defect looked like.
@@ -989,8 +996,14 @@ on-disk             3.62 MB            2.48 MB             0.69×
 ```
 
 **The cache is no longer the dominant cost.** At 36% of a warm build (down from ~71% on this scenario), it is behind
-`compiler engine, plugin setup and i/o` at 43.5% — which is JVM start, plugin discovery and processor-graph
-construction, and is now the thing to measure if a warm build needs to get faster still.
+`compiler engine, plugin setup and i/o` at 43.5%, which is now the thing to measure if a warm build needs to get
+faster still.
+
+> **The attribution in that last sentence was wrong — CORRECTED by §23.** It read "which is JVM start, plugin
+> discovery and processor-graph construction". Measured: JVM start is not in that row at all (the clock starts after
+> it), plugin discovery is 6 ms, and only processor-graph construction is genuinely there. The row is real; two of
+> its three named causes are not in it. Worse, the guess pointed at the wrong scale — the largest single cost of a
+> warm build is *outside* every row of this report.
 
 ## 20. Step 6: the store is the only backend (2026-08-06)
 
@@ -1231,3 +1244,119 @@ an archive extraction — is not covered, because it defeats the premise that a 
 needs the restored mtime to equal the cached one over different content, which is contrived outside a test, and the
 only complete answer is hashing every build at the price measured above. Recorded rather than implied: the rule
 closes the window the filesystem's own coarseness opens, not every way an mtime can lie.
+
+## 23. The next bottleneck is process startup, and `--statistics` cannot see it (2026-08-06)
+
+§19 named `compiler engine, plugin setup and i/o` as the thing to measure next, and guessed at what is in it. This
+section measures it. The guess was wrong in a way worth recording, because the shape of the error is structural: the
+report accounts for **every millisecond of its own window** and says nothing about the window's placement.
+
+### The window starts too late
+
+`Compiler.runWithConfiguration` reads the clock *after* `allLayers()` and `parseCommandLine`, and the process has by
+then been running for some time. So `--statistics` reports 849 ms against a process that takes ~1,400 ms. **The
+missing ~570 ms is 41% of a warm build and appears in no row.** It is the same ~575 ms that `eliotc --help` takes,
+so it is fixed cost, independent of the program being compiled and of the cache.
+
+The full ledger for a warm `HelloWorld` build (jar classpath, settled tree, five-config store):
+
+| segment | ms | where it shows up |
+|---|---:|---|
+| **JVM boot + library and class init before `runCompiler`** | **~570 (43%)** | **nowhere — before the clock** |
+| ServiceLoader plugin discovery | 6 | `engine` |
+| CLI parse | ~20 | `engine` |
+| plugin `configure()` + `initialize()` (the processor graph) | ~150 | `engine` |
+| cache fingerprint | 59 | own row |
+| cache load | 113 | own row |
+| the compile itself (`targetPlugin.run`) | ~250 | processors 83 + dispatch 93 + remainder |
+| build cache graph | 20 | own row |
+| persist | 110 | own row |
+
+That is what corrects §19: of its three named causes for the `engine` row, plugin discovery is 6 ms, JVM start is not
+in the row at all, and only the processor graph is really there.
+
+### What the invisible 570 ms is made of
+
+Measured as `System.nanoTime` deltas around each initialisation, on a cold JVM:
+
+```
+JVM boot to main                                       ~60 ms
+log4j2 LoggerContext init (XML config + plugin registry)  ~265 ms
+cats-effect IORuntime.global (pool construction)         ~140 ms
+classloading Compiler$ and its Scala transitive closure  ~165 ms
+```
+
+The parts overlap — whichever runs first absorbs the shared classloading, so they do not add cleanly — but the total
+matches the measured prefix. **Almost all of it is classloading and one-time library initialisation, and none of it
+is the compiler's own work.** No algorithmic change touches it, exactly as §19 found for the load's JIT component;
+unlike that one, this is addressable.
+
+### AppCDS: −32% of the whole warm build, byte-identical
+
+A class-data-sharing archive is the entire fix, and it needs no compiler change:
+
+```
+avg 1,331 ms   min 1,284 ms   warm build, as shipped
+avg   908 ms   min   838 ms   warm build + AppCDS
+```
+
+The jar is **byte-identical** across cold-without-archive, cold-with-archive and warm-with-archive.
+
+It shrinks every row, not just the prefix — which is itself the confirmation that those rows were classloading rather
+than work:
+
+| | as shipped | + AppCDS |
+|---|---:|---:|
+| prefix before `runCompiler` | ~570 | ~340 |
+| plugin `configure()` + `initialize()` | ~150 | ~35 |
+| cache fingerprint | 59 | 10 |
+| cache load | 113 | 81 |
+| persist | 110 | 85 |
+| the compile itself | ~250 | ~250 |
+
+Three practical constraints:
+
+- **The classpath must be jars.** JDK 21 refuses to dump an archive with a directory on the classpath ("Cannot have
+  non-empty directory in paths"). `ide/lsp/package.sh` already ships per-module jars and so qualifies as-is; the mill
+  dev path (`examples.run`, class directories) does not without jarring first.
+- **Generate at package time**, with one representative `-XX:ArchiveClassesAtExit` run, ship the `.jsa`, and add
+  `-XX:SharedArchiveFile` to the launcher.
+- **A stale archive is fail-safe.** `-Xshare:auto` is the default, so a classpath that no longer matches degrades
+  silently to ordinary classloading. It cannot produce a wrong build and cannot fail a build.
+
+### Measured and rejected, so they are not re-proposed
+
+- **`-XX:TieredStopAtLevel=1`** — a small *regression* (1,375 vs 1,397 ms). The intuition that a short-lived CLI
+  should skip C2 is wrong here: the compile itself is hot enough to want it.
+- **log4j's `SimpleLoggerContextFactory`** — worth a further ~6% (816 vs 874 ms with AppCDS), but it **silences the
+  user-facing INFO output**, including "Generated executable jar". Not a drop-in, and not worth that trade.
+- **log4j property tuning** (`disable.jmx`, `shutdownHookEnabled=false`, `is.webapp=false`) — 869 vs 882 ms, inside
+  noise. The 265 ms is XML config parsing and the plugin registry, not JMX.
+- **`-Xshare:off`** — confirms the default JDK archive is already earning ~110 ms (1,510 vs 1,397 ms). AppCDS extends
+  that mechanism to the application's own classes rather than introducing a new one.
+
+### What the profile looks like after AppCDS
+
+~340 ms prefix, ~250 ms compile, ~165 ms cache load + save, ~35 ms plugin setup. Two observations for whoever picks
+this up next:
+
+- **log4j2's ~150 ms (post-archive) is now the largest single startup item.** Reaching it means taking the
+  user-facing output off log4j — `User` printing directly, log4j kept for debug only — rather than reconfiguring it.
+- **Dispatch (105 ms) exceeds all processors combined (98 ms)** on a warm build: 304 generations, each offered to
+  every one of ~45 processors, error-isolated and type-tested. Read it as the upper bound it is (the measurement
+  lands in that same figure, §"two compiler diagnostics" in CLAUDE.md), but it is the only remaining row inside the
+  compile window with obvious structure to attack.
+
+### The lesson for the report itself
+
+A subtraction remainder is only as honest as its window. The `engine` row was arithmetically correct the whole time
+and still pointed three sections of work at the wrong place, because nothing in the report could say "and 41% of the
+run happened before I started counting". If `--statistics` is ever extended, the first thing to add is not a finer
+breakdown of `engine` — it is the prefix, taken from `ProcessHandle.current().info().startInstant()` or an explicit
+JVM-start stamp, so the total the report accounts against is the total the user waits for.
+
+### Not applicable to the LSP
+
+This is CLI latency. A resident `CompilationSession` pays the prefix once at server start, so hover and diagnostics
+never see it. It is what `./mill examples.run`, the example sweep, and the IntelliJ before-run build task pay on
+every single invocation.

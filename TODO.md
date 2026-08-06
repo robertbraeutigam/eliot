@@ -123,12 +123,22 @@ notes.
   what needs it and whether it can be derived instead of stored.
 - `namedValues` can recurse — the reflection-driven enumeration is not protected against a value
   that reaches itself.
-- **The warm build's dominant cost is now plugin/JVM startup**, not the cache. Replacing Java
-  serialization with explicit codecs over a content-addressed object store cut a warm build in
-  half (load −79%, save −77%) and the cache is down to ~36% of it, behind `compiler engine, plugin
-  setup and i/o` at ~43%. See `docs/incremental-compilation.md` — §19 for that profile, and for
-  why a lazy index is measured and rejected. Left on the cache itself: caching *declines* (§6 step
-  3) and compaction (§13 step 5, no longer urgent since a warm build appends nothing).
+- **The warm build's dominant cost is JVM/library startup, and it is a packaging fix, not a
+  compiler one.** Replacing Java serialization with explicit codecs over a content-addressed
+  object store cut a warm build in half (load −79%, save −77%) and the cache is down to ~36% of
+  it. §23 then measured what is left: **~41% of a warm build happens before `--statistics` starts
+  counting** — JVM boot, log4j2's LoggerContext init (~265 ms), cats-effect's `IORuntime.global`
+  (~140 ms) and Scala classloading (~165 ms). An **AppCDS archive** takes a warm build from
+  1,331 ms to 908 ms (−32%) with a byte-identical jar and no compiler change: dump one archive in
+  `ide/lsp/package.sh` and add `-XX:SharedArchiveFile` to the launcher (needs a jar classpath,
+  which the packaged distribution already has; a stale archive degrades silently under the default
+  `-Xshare:auto`). After that, log4j's remaining ~150 ms wants the *user-facing* output moved off
+  log4j entirely, and dispatch (105 ms, > all processors combined) is the only structured cost
+  left inside the compile window. See `docs/incremental-compilation.md` §23; §19 is the earlier
+  profile and why a lazy index is measured and rejected. Measured and rejected: C1-only
+  (`TieredStopAtLevel=1`) is a regression, and log4j's SimpleLogger silences user output. Left on
+  the cache itself: caching *declines* (§6 step 3) and compaction (§13 step 5, no longer urgent
+  since a warm build appends nothing).
 - **Cache sharing across target directories.** One cache now accumulates across mains for the same
   roots and backend (§10), so the stdlib subgraph is built once per configuration rather than once
   per example. Two *different* compiler builds sharing a target directory still take turns
