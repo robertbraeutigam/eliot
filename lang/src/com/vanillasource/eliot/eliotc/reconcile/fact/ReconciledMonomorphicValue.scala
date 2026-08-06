@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.reconcile.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -32,5 +36,7 @@ case class ReconciledMonomorphicValue(
 
 object ReconciledMonomorphicValue {
   case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue], arity: Int)
-      extends CompilerFactKey[ReconciledMonomorphicValue]
+      extends CompilerFactKey[ReconciledMonomorphicValue] {
+        override def valueCodec: Option[FactCodec[ReconciledMonomorphicValue]] = Some(LangFactCodecs.reconciledMonomorphicValueCodec)
+      }
 }

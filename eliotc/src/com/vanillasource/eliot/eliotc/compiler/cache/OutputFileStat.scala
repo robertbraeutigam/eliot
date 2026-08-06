@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.compiler.cache
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.CoreFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.io.File
@@ -24,5 +28,7 @@ case class OutputFileStat(file: File, digest: Option[String]) extends CompilerFa
 }
 
 object OutputFileStat {
-  case class Key(file: File) extends CompilerFactKey[OutputFileStat]
+  case class Key(file: File) extends CompilerFactKey[OutputFileStat] {
+    override def valueCodec: Option[FactCodec[OutputFileStat]] = Some(CoreFactCodecs.outputFileStatCodec)
+  }
 }

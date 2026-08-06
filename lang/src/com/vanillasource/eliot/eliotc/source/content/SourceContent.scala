@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.source.content
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -17,5 +21,7 @@ case class SourceContent(uri: URI, content: Sourced[String]) extends CompilerFac
 }
 
 object SourceContent {
-  case class Key(uri: URI) extends CompilerFactKey[SourceContent]
+  case class Key(uri: URI) extends CompilerFactKey[SourceContent] {
+    override def valueCodec: Option[FactCodec[SourceContent]] = Some(LangFactCodecs.sourceContentCodec)
+  }
 }

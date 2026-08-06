@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.lsp.virtual
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.CoreFactCodecs.given
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.io.File
@@ -14,5 +16,9 @@ case class VfsStat(file: File, stamp: Option[Long]) extends CompilerFact {
 }
 
 object VfsStat {
-  case class Key(file: File) extends CompilerFactKey[VfsStat]
+  private val codec: FactCodec[VfsStat] = FactCodec.derived
+
+  case class Key(file: File) extends CompilerFactKey[VfsStat] {
+    override def valueCodec: Option[FactCodec[VfsStat]] = Some(codec)
+  }
 }

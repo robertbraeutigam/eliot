@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -52,5 +56,7 @@ object RefinementTable {
   /** Keyed exactly like [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.Key]] — the same `vfqn` at
     * different type arguments is a different instance, hence a different table.
     */
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[RefinementTable]
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[RefinementTable] {
+    override def valueCodec: Option[FactCodec[RefinementTable]] = Some(LangFactCodecs.refinementTableCodec)
+  }
 }

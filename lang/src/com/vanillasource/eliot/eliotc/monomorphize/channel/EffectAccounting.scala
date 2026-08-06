@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -40,5 +44,7 @@ object EffectAccounting {
   /** Keyed exactly like [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.Key]] — the same `vfqn` at
     * different type arguments is a different instance, hence a different accounting.
     */
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[EffectAccounting]
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[EffectAccounting] {
+    override def valueCodec: Option[FactCodec[EffectAccounting]] = Some(LangFactCodecs.effectAccountingCodec)
+  }
 }

@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.fact
 
+import com.vanillasource.eliot.eliotc.jvm.codec.JvmFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -8,5 +12,7 @@ case class GeneratedModule(moduleName: ModuleName, vfqn: ValueFQN, classFiles: S
 }
 
 object GeneratedModule {
-  case class Key(moduleName: ModuleName, vfqn: ValueFQN) extends CompilerFactKey[GeneratedModule]
+  case class Key(moduleName: ModuleName, vfqn: ValueFQN) extends CompilerFactKey[GeneratedModule] {
+    override def valueCodec: Option[FactCodec[GeneratedModule]] = Some(JvmFactCodecs.generatedModuleCodec)
+  }
 }

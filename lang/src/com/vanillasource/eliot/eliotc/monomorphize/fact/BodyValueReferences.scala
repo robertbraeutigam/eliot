@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -31,5 +35,7 @@ case class BodyValueReferences(
 }
 
 object BodyValueReferences {
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[BodyValueReferences]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[BodyValueReferences] {
+    override def valueCodec: Option[FactCodec[BodyValueReferences]] = Some(LangFactCodecs.bodyValueReferencesCodec)
+  }
 }

@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.plugin.Configuration
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -38,7 +40,10 @@ case class ContributedBinding(
 }
 
 object ContributedBinding {
-  case class Key(vfqn: ValueFQN, label: String) extends CompilerFactKey[ContributedBinding]
+  case class Key(vfqn: ValueFQN, label: String) extends CompilerFactKey[ContributedBinding] {
+    /** Declined: its `BindingContribution.Leaf` carries a `SemValue` closure — serializable, never equal (§3.1, §4). */
+    override def valueCodec: Option[FactCodec[ContributedBinding]] = None
+  }
 
   /** The lang layer's compiler-intrinsic native reducers (`Function`/`Type`/`Bool` primitives). */
   val systemLabel: String = "system"

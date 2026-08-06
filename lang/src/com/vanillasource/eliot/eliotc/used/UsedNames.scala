@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.used
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -10,7 +14,9 @@ case class UsedNames(rootFQN: ValueFQN, usedNames: Map[ValueFQN, UsageStats]) ex
 }
 
 object UsedNames {
-  case class Key(rootFQN: ValueFQN) extends CompilerFactKey[UsedNames]
+  case class Key(rootFQN: ValueFQN) extends CompilerFactKey[UsedNames] {
+    override def valueCodec: Option[FactCodec[UsedNames]] = Some(LangFactCodecs.usedNamesCodec)
+  }
 
   case class UsageStats(
       // A list of monomorphic type parameters this value is used with

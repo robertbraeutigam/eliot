@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.jvm.jargen
 
+import com.vanillasource.eliot.eliotc.jvm.codec.JvmFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -8,5 +12,7 @@ case class GenerateExecutableJar(vfqn: ValueFQN) extends CompilerFact {
 }
 
 object GenerateExecutableJar {
-  case class Key(vfqn: ValueFQN) extends CompilerFactKey[GenerateExecutableJar]
+  case class Key(vfqn: ValueFQN) extends CompilerFactKey[GenerateExecutableJar] {
+    override def valueCodec: Option[FactCodec[GenerateExecutableJar]] = Some(JvmFactCodecs.generateExecutableJarCodec)
+  }
 }

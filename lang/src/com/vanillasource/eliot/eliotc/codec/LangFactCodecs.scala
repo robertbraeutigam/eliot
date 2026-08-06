@@ -1,8 +1,20 @@
-package com.vanillasource.eliot.eliotc.jvm.codec
+package com.vanillasource.eliot.eliotc.codec
 
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.CoreFactCodecs.given
 
-object FactCodecs {
+/** [[FactCodec]] instances for every type reachable from a `lang` compiler fact — the bulk of the fact model.
+  *
+  * One line per type, and nothing states a shape: `FactCodec.derived` reads each from the compiler's own `Mirror`,
+  * and a sum's cases are built inside its derivation rather than listed. A field whose type has no instance is a
+  * **compile error**, so this file is a proof of coverage rather than a claim of it — which is the property the cache
+  * needs (`docs/incremental-compilation.md` §13): a value that cannot be equality-stable must not encode by accident.
+  *
+  * The instances are grouped here rather than written on each declaration because these are *structural* types, not
+  * facts: they have no persistence decision to make. The decision lives where it belongs, on
+  * `CompilerFactKey.valueCodec`, which every fact states once with no default.
+  */
+object LangFactCodecs {
   given codec_com_vanillasource_eliot_eliotc_uncurry_fact_MonomorphicParameterDefinition: FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicExpression: FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicExpression_Expression: FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.Expression] = FactCodec.derived
@@ -202,95 +214,42 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_SemExpression_ParameterReference: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.SemExpression.ParameterReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_Track: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.Track] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_TypeStackLoop_Result: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop.Result] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_pos_Position: FactCodec[com.vanillasource.eliot.eliotc.pos.Position] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_pos_PositionRange: FactCodec[com.vanillasource.eliot.eliotc.pos.PositionRange] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_compiler_cache_JavaSerializationCacheBackend: FactCodec[com.vanillasource.eliot.eliotc.compiler.cache.JavaSerializationCacheBackend] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_compiler_cache_OutputFileStat: FactCodec[com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStat] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_compiler_cache_OutputFileStat_Key: FactCodec[com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStat.Key] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_compiler_cache_UpToDate: FactCodec[com.vanillasource.eliot.eliotc.compiler.cache.UpToDate] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_compiler_cache_UpToDate_Key: FactCodec[com.vanillasource.eliot.eliotc.compiler.cache.UpToDate.Key] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_feedback_CompilerError: FactCodec[com.vanillasource.eliot.eliotc.feedback.CompilerError] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_jvm_jargen_GenerateExecutableJar: FactCodec[com.vanillasource.eliot.eliotc.jvm.jargen.GenerateExecutableJar] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_jvm_jargen_GenerateExecutableJar_Key: FactCodec[com.vanillasource.eliot.eliotc.jvm.jargen.GenerateExecutableJar.Key] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_jvm_classgen_processor_NativeImplementation_GenericNativeSignature: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.GenericNativeSignature] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_jvm_classgen_processor_TypeState: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_jvm_classgen_asm_JvmIdentifier: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.asm.JvmIdentifier] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_GeneratedModule: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_GeneratedModule_Key: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule.Key] = FactCodec.derived
-  /** Hand-written because `ClassFile.bytecode` is a bare `Array[Byte]`, and there is deliberately no
-    * `FactCodec[Array[Byte]]`: an array *encodes* fine and compares by **reference**, which is exactly the §3.1 /
-    * §4 defect (`read(write(v))` never equals `recompute(v)`). Writing the codec here rather than as a general
-    * instance keeps that decision at the one place it applies. This makes `GeneratedModule` **encodable**; it does not
-    * make it **equality-stable** — that needs `ClassFile` to carry a value-comparable representation, and the
-    * conformance harness reports it as a law failure until it does.
-    */
-  given codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_ClassFile
-      : FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile] =
-    new FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile] {
-      override def write(
-          out: FactCodec.Output,
-          value: com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
-      ): Unit = {
-        FactCodec[String].write(out, value.fileName)
-        FactCodec[Seq[Byte]].write(out, value.bytecode.toSeq)
-      }
-
-      override def read(in: FactCodec.Input): com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile =
-        com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile(
-          FactCodec[String].read(in),
-          FactCodec[Seq[Byte]].read(in).toArray
-        )
-    }
-
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Type: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Type.type] = FactCodec.singleton(com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Type)
 
-  /** Every compiler fact type that has an encoding, keyed by its runtime class. The two absentees are the
-    * declines: `ContributedBinding` and `NativeBinding` carry `SemValue` closures (§3.1, §4). */
-  val registry: Map[Class[?], FactCodec[Any]] = Map(
-    classOf[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation] -> codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementationCheck] -> codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementationCheck.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.ability.fact.ModuleAbilityOverlapCheck] -> codec_com_vanillasource_eliot_eliotc_ability_fact_ModuleAbilityOverlapCheck.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.ast.fact.SourceAST] -> codec_com_vanillasource_eliot_eliotc_ast_fact_SourceAST.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue] -> codec_com_vanillasource_eliot_eliotc_block_fact_BlockDesugaredValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStat] -> codec_com_vanillasource_eliot_eliotc_compiler_cache_OutputFileStat.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.compiler.cache.UpToDate] -> codec_com_vanillasource_eliot_eliotc_compiler_cache_UpToDate.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.core.fact.CoreAST] -> codec_com_vanillasource_eliot_eliotc_core_fact_CoreAST.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule] -> codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_GeneratedModule.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.jvm.jargen.GenerateExecutableJar] -> codec_com_vanillasource_eliot_eliotc_jvm_jargen_GenerateExecutableJar.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue] -> codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.module.fact.ModuleAbilities] -> codec_com_vanillasource_eliot_eliotc_module_fact_ModuleAbilities.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.module.fact.ModuleConstructors] -> codec_com_vanillasource_eliot_eliotc_module_fact_ModuleConstructors.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.module.fact.ModuleNames] -> codec_com_vanillasource_eliot_eliotc_module_fact_ModuleNames.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.module.fact.ModuleValue] -> codec_com_vanillasource_eliot_eliotc_module_fact_ModuleValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleNames] -> codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleNames.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleValue] -> codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting] -> codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable] -> codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue] -> codec_com_vanillasource_eliot_eliotc_monomorphize_channel_WovenValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.monomorphize.fact.BodyValueReferences] -> codec_com_vanillasource_eliot_eliotc_monomorphize_fact_BodyValueReferences.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.monomorphize.fact.CompilerMonomorphicValue] -> codec_com_vanillasource_eliot_eliotc_monomorphize_fact_CompilerMonomorphicValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue] -> codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.namedvalues.fact.NamedValuesIndex] -> codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesIndex.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.namedvalues.fact.NamedValuesRewrittenValue] -> codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesRewrittenValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue] -> codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue] -> codec_com_vanillasource_eliot_eliotc_reconcile_fact_ReconciledMonomorphicValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue] -> codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.row.fact.RowElaboratedValue] -> codec_com_vanillasource_eliot_eliotc_row_fact_RowElaboratedValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue] -> codec_com_vanillasource_eliot_eliotc_saturate_fact_SaturatedValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.source.content.SourceContent] -> codec_com_vanillasource_eliot_eliotc_source_content_SourceContent.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.source.file.FileContent] -> codec_com_vanillasource_eliot_eliotc_source_file_FileContent.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.source.scan.PathScan] -> codec_com_vanillasource_eliot_eliotc_source_scan_PathScan.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.source.scan.PoolModules] -> codec_com_vanillasource_eliot_eliotc_source_scan_PoolModules.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.source.stat.FileStat] -> codec_com_vanillasource_eliot_eliotc_source_stat_FileStat.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue] -> codec_com_vanillasource_eliot_eliotc_termination_fact_RecursionCheckedValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.token.SourceTokens] -> codec_com_vanillasource_eliot_eliotc_token_SourceTokens.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicValue] -> codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicValue.asInstanceOf[FactCodec[Any]],
-    classOf[com.vanillasource.eliot.eliotc.used.UsedNames] -> codec_com_vanillasource_eliot_eliotc_used_UsedNames.asInstanceOf[FactCodec[Any]],
-  )
-
-  /** Fact types deliberately not encodable, with the reason. */
-  val declined: Map[String, String] = Map(
-    "com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding" -> "carries a SemValue closure (a function field), which cannot be equality-stable",
-    "com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding" -> "carries a SemValue closure (a function field), which cannot be equality-stable",
-  )
+  // Aliases the fact keys use to state their own persistence decision.
+  val abilityImplementationCodec: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation] = codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation
+  val abilityImplementationCheckCodec: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementationCheck] = codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementationCheck
+  val moduleAbilityOverlapCheckCodec: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.ModuleAbilityOverlapCheck] = codec_com_vanillasource_eliot_eliotc_ability_fact_ModuleAbilityOverlapCheck
+  val sourceASTCodec: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.SourceAST] = codec_com_vanillasource_eliot_eliotc_ast_fact_SourceAST
+  val blockDesugaredValueCodec: FactCodec[com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue] = codec_com_vanillasource_eliot_eliotc_block_fact_BlockDesugaredValue
+  val coreASTCodec: FactCodec[com.vanillasource.eliot.eliotc.core.fact.CoreAST] = codec_com_vanillasource_eliot_eliotc_core_fact_CoreAST
+  val matchDesugaredValueCodec: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue] = codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue
+  val moduleAbilitiesCodec: FactCodec[com.vanillasource.eliot.eliotc.module.fact.ModuleAbilities] = codec_com_vanillasource_eliot_eliotc_module_fact_ModuleAbilities
+  val moduleConstructorsCodec: FactCodec[com.vanillasource.eliot.eliotc.module.fact.ModuleConstructors] = codec_com_vanillasource_eliot_eliotc_module_fact_ModuleConstructors
+  val moduleNamesCodec: FactCodec[com.vanillasource.eliot.eliotc.module.fact.ModuleNames] = codec_com_vanillasource_eliot_eliotc_module_fact_ModuleNames
+  val moduleValueCodec: FactCodec[com.vanillasource.eliot.eliotc.module.fact.ModuleValue] = codec_com_vanillasource_eliot_eliotc_module_fact_ModuleValue
+  val unifiedModuleNamesCodec: FactCodec[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleNames] = codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleNames
+  val unifiedModuleValueCodec: FactCodec[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleValue] = codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleValue
+  val effectAccountingCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting] = codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting
+  val refinementTableCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable] = codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable
+  val wovenValueCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue] = codec_com_vanillasource_eliot_eliotc_monomorphize_channel_WovenValue
+  val bodyValueReferencesCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.BodyValueReferences] = codec_com_vanillasource_eliot_eliotc_monomorphize_fact_BodyValueReferences
+  val compilerMonomorphicValueCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.CompilerMonomorphicValue] = codec_com_vanillasource_eliot_eliotc_monomorphize_fact_CompilerMonomorphicValue
+  val monomorphicValueCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue] = codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicValue
+  val namedValuesIndexCodec: FactCodec[com.vanillasource.eliot.eliotc.namedvalues.fact.NamedValuesIndex] = codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesIndex
+  val namedValuesRewrittenValueCodec: FactCodec[com.vanillasource.eliot.eliotc.namedvalues.fact.NamedValuesRewrittenValue] = codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesRewrittenValue
+  val operatorResolvedValueCodec: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue] = codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedValue
+  val reconciledMonomorphicValueCodec: FactCodec[com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue] = codec_com_vanillasource_eliot_eliotc_reconcile_fact_ReconciledMonomorphicValue
+  val resolvedValueCodec: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue] = codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue
+  val rowElaboratedValueCodec: FactCodec[com.vanillasource.eliot.eliotc.row.fact.RowElaboratedValue] = codec_com_vanillasource_eliot_eliotc_row_fact_RowElaboratedValue
+  val saturatedValueCodec: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue] = codec_com_vanillasource_eliot_eliotc_saturate_fact_SaturatedValue
+  val sourceContentCodec: FactCodec[com.vanillasource.eliot.eliotc.source.content.SourceContent] = codec_com_vanillasource_eliot_eliotc_source_content_SourceContent
+  val fileContentCodec: FactCodec[com.vanillasource.eliot.eliotc.source.file.FileContent] = codec_com_vanillasource_eliot_eliotc_source_file_FileContent
+  val pathScanCodec: FactCodec[com.vanillasource.eliot.eliotc.source.scan.PathScan] = codec_com_vanillasource_eliot_eliotc_source_scan_PathScan
+  val poolModulesCodec: FactCodec[com.vanillasource.eliot.eliotc.source.scan.PoolModules] = codec_com_vanillasource_eliot_eliotc_source_scan_PoolModules
+  val fileStatCodec: FactCodec[com.vanillasource.eliot.eliotc.source.stat.FileStat] = codec_com_vanillasource_eliot_eliotc_source_stat_FileStat
+  val recursionCheckedValueCodec: FactCodec[com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue] = codec_com_vanillasource_eliot_eliotc_termination_fact_RecursionCheckedValue
+  val sourceTokensCodec: FactCodec[com.vanillasource.eliot.eliotc.token.SourceTokens] = codec_com_vanillasource_eliot_eliotc_token_SourceTokens
+  val uncurriedMonomorphicValueCodec: FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicValue] = codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicValue
+  val usedNamesCodec: FactCodec[com.vanillasource.eliot.eliotc.used.UsedNames] = codec_com_vanillasource_eliot_eliotc_used_UsedNames
 }

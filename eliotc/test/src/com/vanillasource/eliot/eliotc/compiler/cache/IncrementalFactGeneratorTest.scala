@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.compiler.cache
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
@@ -462,10 +464,14 @@ object IncrementalFactGeneratorTest {
     override def key(): CompilerFactKey[NumberFact] = NumberKey(name)
   }
 
-  case class NumberKey(name: String) extends CompilerFactKey[NumberFact]
+  case class NumberKey(name: String) extends CompilerFactKey[NumberFact] {
+    override def valueCodec: Option[FactCodec[NumberFact]] = None // a test double is never persisted
+  }
 
   /** A key type no processor in these tests handles — for exercising the missing-producer diagnostic. */
-  case class UnhandledKey(name: String) extends CompilerFactKey[NumberFact]
+  case class UnhandledKey(name: String) extends CompilerFactKey[NumberFact] {
+    override def valueCodec: Option[FactCodec[NumberFact]] = None // a test double is never persisted
+  }
 
   sealed trait Node
   case class Leaf(source: Ref[IO, Int])                                extends Node

@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.block.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity}
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -32,5 +36,7 @@ case class BlockDesugaredValue(
 }
 
 object BlockDesugaredValue {
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[BlockDesugaredValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[BlockDesugaredValue] {
+    override def valueCodec: Option[FactCodec[BlockDesugaredValue]] = Some(LangFactCodecs.blockDesugaredValueCodec)
+  }
 }

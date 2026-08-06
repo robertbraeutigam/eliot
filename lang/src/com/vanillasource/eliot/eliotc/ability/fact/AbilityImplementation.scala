@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.ability.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -68,5 +72,7 @@ object AbilityImplementation {
       abilityValueFQN: ValueFQN,
       typeArguments: Seq[GroundValue],
       platform: Platform = Platform.Runtime
-  ) extends CompilerFactKey[AbilityImplementation]
+  ) extends CompilerFactKey[AbilityImplementation] {
+    override def valueCodec: Option[FactCodec[AbilityImplementation]] = Some(LangFactCodecs.abilityImplementationCodec)
+  }
 }

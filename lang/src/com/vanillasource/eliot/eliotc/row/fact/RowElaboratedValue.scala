@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.row.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -26,5 +30,7 @@ case class RowElaboratedValue(value: OperatorResolvedValue) extends CompilerFact
 }
 
 object RowElaboratedValue {
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[RowElaboratedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[RowElaboratedValue] {
+    override def valueCodec: Option[FactCodec[RowElaboratedValue]] = Some(LangFactCodecs.rowElaboratedValueCodec)
+  }
 }

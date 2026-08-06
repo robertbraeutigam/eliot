@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.uncurry.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
@@ -41,5 +45,7 @@ case class UncurriedMonomorphicValue(
 
 object UncurriedMonomorphicValue {
   case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue], arity: Int)
-      extends CompilerFactKey[UncurriedMonomorphicValue]
+      extends CompilerFactKey[UncurriedMonomorphicValue] {
+        override def valueCodec: Option[FactCodec[UncurriedMonomorphicValue]] = Some(LangFactCodecs.uncurriedMonomorphicValueCodec)
+      }
 }

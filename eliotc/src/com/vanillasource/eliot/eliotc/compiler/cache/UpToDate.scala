@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.compiler.cache
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.CoreFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 /** The compiler-constant anchor for incremental compilation.
@@ -19,5 +23,7 @@ case class UpToDate() extends CompilerFact {
 }
 
 object UpToDate {
-  case class Key() extends CompilerFactKey[UpToDate]
+  case class Key() extends CompilerFactKey[UpToDate] {
+    override def valueCodec: Option[FactCodec[UpToDate]] = Some(CoreFactCodecs.upToDateCodec)
+  }
 }

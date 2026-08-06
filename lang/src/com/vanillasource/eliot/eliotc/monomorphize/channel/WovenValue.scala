@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -55,7 +59,9 @@ object WovenValue {
     * instance in this slice (the Suspend-riding base carrier), so the key is the mono key. (`weave key = mono key ×
     * stack`, docs/effects-as-channel.md §6; the stack dimension is added when control-effect carriers arrive.)
     */
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[WovenValue]
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[WovenValue] {
+    override def valueCodec: Option[FactCodec[WovenValue]] = Some(LangFactCodecs.wovenValueCodec)
+  }
 
   @tailrec
   private def countLeadingLambdas(expression: MonomorphicExpression.Expression, count: Int): Int =

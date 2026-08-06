@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity}
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -29,5 +33,7 @@ case class MatchDesugaredValue(
 object MatchDesugaredValue {
   case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[MatchDesugaredExpression])
 
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[MatchDesugaredValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[MatchDesugaredValue] {
+    override def valueCodec: Option[FactCodec[MatchDesugaredValue]] = Some(LangFactCodecs.matchDesugaredValueCodec)
+  }
 }

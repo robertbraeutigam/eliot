@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.ast.fact.Visibility
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -13,5 +17,7 @@ case class ModuleNames(uri: URI, names: Sourced[Map[QualifiedName, Visibility]])
 }
 
 object ModuleNames {
-  case class Key(uri: URI) extends CompilerFactKey[ModuleNames]
+  case class Key(uri: URI) extends CompilerFactKey[ModuleNames] {
+    override def valueCodec: Option[FactCodec[ModuleNames]] = Some(LangFactCodecs.moduleNamesCodec)
+  }
 }

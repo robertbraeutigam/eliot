@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.namedvalues.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -20,5 +24,7 @@ case class NamedValuesIndex(name: String, platform: Platform, fqns: Seq[ValueFQN
 }
 
 object NamedValuesIndex {
-  case class Key(name: String, platform: Platform = Platform.Runtime) extends CompilerFactKey[NamedValuesIndex]
+  case class Key(name: String, platform: Platform = Platform.Runtime) extends CompilerFactKey[NamedValuesIndex] {
+    override def valueCodec: Option[FactCodec[NamedValuesIndex]] = Some(LangFactCodecs.namedValuesIndexCodec)
+  }
 }

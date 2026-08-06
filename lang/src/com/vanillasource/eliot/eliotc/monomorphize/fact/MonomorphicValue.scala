@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
@@ -54,7 +58,9 @@ object MonomorphicValue {
   /** Composite key that uniquely identifies a monomorphic specialization. The same generic function with different type
     * arguments produces different keys.
     */
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[MonomorphicValue]
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[MonomorphicValue] {
+    override def valueCodec: Option[FactCodec[MonomorphicValue]] = Some(LangFactCodecs.monomorphicValueCodec)
+  }
 
   @tailrec
   private def countLeadingLambdas(expression: MonomorphicExpression.Expression, count: Int): Int =

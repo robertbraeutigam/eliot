@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.processor
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import cats.data.Chain
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
@@ -37,7 +39,9 @@ object ProcessorTest {
 
   /** Test fact key for TestFact.
     */
-  case class TestFactKey(value: String) extends CompilerFactKey[TestFact]
+  case class TestFactKey(value: String) extends CompilerFactKey[TestFact] {
+    override def valueCodec: Option[FactCodec[TestFact]] = None // a test double is never persisted
+  }
 
   /** Different fact type for testing type-specific processors.
     */
@@ -47,7 +51,9 @@ object ProcessorTest {
 
   /** Key for DifferentFact.
     */
-  case class DifferentKey(value: String) extends CompilerFactKey[DifferentFact]
+  case class DifferentKey(value: String) extends CompilerFactKey[DifferentFact] {
+    override def valueCodec: Option[FactCodec[DifferentFact]] = None // a test double is never persisted
+  }
 
   /** Helper to create a test compiler error.
     */

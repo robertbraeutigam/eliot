@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.source.stat
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.io.File
@@ -12,5 +16,7 @@ case class FileStat(file: File, lastModified: Option[Instant]) extends CompilerF
 }
 
 object FileStat {
-  case class Key(file: File) extends CompilerFactKey[FileStat]
+  case class Key(file: File) extends CompilerFactKey[FileStat] {
+    override def valueCodec: Option[FactCodec[FileStat]] = Some(LangFactCodecs.fileStatCodec)
+  }
 }

@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -36,5 +38,8 @@ case class NativeBinding(
 }
 
 object NativeBinding {
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[NativeBinding]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[NativeBinding] {
+    /** Declined: its contribution carries a `SemValue` closure — serializable, never equal (§3.1, §4). */
+    override def valueCodec: Option[FactCodec[NativeBinding]] = None
+  }
 }

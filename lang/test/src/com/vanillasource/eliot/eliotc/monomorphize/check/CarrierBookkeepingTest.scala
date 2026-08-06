@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
@@ -88,7 +90,9 @@ object CarrierBookkeepingTest {
   }
 
   object CarrierProbe {
-    case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[CarrierProbe]
+    case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[CarrierProbe] {
+      override def valueCodec: Option[FactCodec[CarrierProbe]] = None // a test double is never persisted
+    }
   }
 
   /** A [[com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor]] twin that runs the same

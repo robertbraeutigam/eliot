@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.token
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -16,5 +20,7 @@ case class SourceTokens(uri: URI, tokens: Sourced[Seq[Sourced[Token]]], docComme
 }
 
 object SourceTokens {
-  case class Key(uri: URI) extends CompilerFactKey[SourceTokens]
+  case class Key(uri: URI) extends CompilerFactKey[SourceTokens] {
+    override def valueCodec: Option[FactCodec[SourceTokens]] = Some(LangFactCodecs.sourceTokensCodec)
+  }
 }

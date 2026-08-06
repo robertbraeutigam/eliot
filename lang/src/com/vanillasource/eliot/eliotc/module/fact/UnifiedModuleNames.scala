@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.ast.fact.Visibility
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -30,5 +34,7 @@ case class UnifiedModuleNames(
 
 object UnifiedModuleNames {
   case class Key(moduleName: ModuleName, platform: Platform = Platform.Runtime)
-      extends CompilerFactKey[UnifiedModuleNames]
+      extends CompilerFactKey[UnifiedModuleNames] {
+        override def valueCodec: Option[FactCodec[UnifiedModuleNames]] = Some(LangFactCodecs.unifiedModuleNamesCodec)
+      }
 }

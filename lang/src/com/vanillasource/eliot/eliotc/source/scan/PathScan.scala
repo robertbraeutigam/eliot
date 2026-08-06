@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.source.scan
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -24,5 +28,7 @@ case class PathScan(
 }
 
 object PathScan {
-  case class Key(path: Path, platform: Platform = Platform.Runtime) extends CompilerFactKey[PathScan]
+  case class Key(path: Path, platform: Platform = Platform.Runtime) extends CompilerFactKey[PathScan] {
+    override def valueCodec: Option[FactCodec[PathScan]] = Some(LangFactCodecs.pathScanCodec)
+  }
 }

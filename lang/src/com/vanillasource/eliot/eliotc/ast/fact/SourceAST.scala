@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -13,5 +17,7 @@ case class SourceAST(uri: URI, ast: Sourced[AST]) extends CompilerFact {
 }
 
 object SourceAST {
-  case class Key(uri: URI) extends CompilerFactKey[SourceAST]
+  case class Key(uri: URI) extends CompilerFactKey[SourceAST] {
+    override def valueCodec: Option[FactCodec[SourceAST]] = Some(LangFactCodecs.sourceASTCodec)
+  }
 }

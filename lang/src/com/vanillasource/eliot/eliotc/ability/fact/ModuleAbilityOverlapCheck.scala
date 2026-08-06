@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.ability.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -27,5 +31,7 @@ case class ModuleAbilityOverlapCheck(
 
 object ModuleAbilityOverlapCheck {
   case class Key(moduleName: ModuleName, abilityName: String, platform: Platform = Platform.Runtime)
-      extends CompilerFactKey[ModuleAbilityOverlapCheck]
+      extends CompilerFactKey[ModuleAbilityOverlapCheck] {
+        override def valueCodec: Option[FactCodec[ModuleAbilityOverlapCheck]] = Some(LangFactCodecs.moduleAbilityOverlapCheckCodec)
+      }
 }

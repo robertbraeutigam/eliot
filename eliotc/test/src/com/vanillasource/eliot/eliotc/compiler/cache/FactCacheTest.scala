@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.compiler.cache
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -118,7 +120,9 @@ object FactCacheTest {
   case class CacheFact(name: String, value: Int) extends CompilerFact {
     override def key(): CompilerFactKey[CacheFact] = CacheKey(name)
   }
-  case class CacheKey(name: String) extends CompilerFactKey[CacheFact]
+  case class CacheKey(name: String) extends CompilerFactKey[CacheFact] {
+    override def valueCodec: Option[FactCodec[CacheFact]] = None // a test double is never persisted
+  }
 
   /** A plain class that is not `Serializable` (mirrors the closures inside `SemValue`). */
   class NotSerializable
@@ -127,13 +131,17 @@ object FactCacheTest {
   case class BadFact(resource: NotSerializable) extends CompilerFact {
     override def key(): CompilerFactKey[BadFact] = BadKey
   }
-  case object BadKey extends CompilerFactKey[BadFact]
+  case object BadKey extends CompilerFactKey[BadFact] {
+    override def valueCodec: Option[FactCodec[BadFact]] = None // a test double is never persisted
+  }
 
   /** A fact carrying a `java.nio.file.Path`, whose implementations are not `Serializable`. */
   case class PathFact(path: java.nio.file.Path) extends CompilerFact {
     override def key(): CompilerFactKey[PathFact] = PathKey(path.toString)
   }
-  case class PathKey(name: String) extends CompilerFactKey[PathFact]
+  case class PathKey(name: String) extends CompilerFactKey[PathFact] {
+    override def valueCodec: Option[FactCodec[PathFact]] = None // a test double is never persisted
+  }
 
   def withTempDir[A](use: Path => IO[A]): IO[A] =
     IO.blocking(Files.createTempDirectory("eliot-cache-test"))

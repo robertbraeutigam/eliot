@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -40,5 +44,7 @@ case class ModuleConstructors(
 
 object ModuleConstructors {
   case class Key(moduleName: ModuleName, platform: Platform = Platform.Runtime)
-      extends CompilerFactKey[ModuleConstructors]
+      extends CompilerFactKey[ModuleConstructors] {
+        override def valueCodec: Option[FactCodec[ModuleConstructors]] = Some(LangFactCodecs.moduleConstructorsCodec)
+      }
 }

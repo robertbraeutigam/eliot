@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.ability.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -19,5 +23,7 @@ case class AbilityImplementationCheck(
 
 object AbilityImplementationCheck {
   case class Key(abilityFQN: AbilityFQN, typeArguments: Seq[GroundValue], platform: Platform = Platform.Runtime)
-      extends CompilerFactKey[AbilityImplementationCheck]
+      extends CompilerFactKey[AbilityImplementationCheck] {
+        override def valueCodec: Option[FactCodec[AbilityImplementationCheck]] = Some(LangFactCodecs.abilityImplementationCheckCodec)
+      }
 }

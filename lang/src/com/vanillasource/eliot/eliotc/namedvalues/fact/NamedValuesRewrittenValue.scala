@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.namedvalues.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -26,5 +30,7 @@ case class NamedValuesRewrittenValue(value: OperatorResolvedValue) extends Compi
 
 object NamedValuesRewrittenValue {
   case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime)
-      extends CompilerFactKey[NamedValuesRewrittenValue]
+      extends CompilerFactKey[NamedValuesRewrittenValue] {
+        override def valueCodec: Option[FactCodec[NamedValuesRewrittenValue]] = Some(LangFactCodecs.namedValuesRewrittenValueCodec)
+      }
 }

@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.source.scan
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -14,5 +18,7 @@ case class PoolModules(platform: Platform, modules: Set[ModuleName]) extends Com
 }
 
 object PoolModules {
-  case class Key(platform: Platform = Platform.Runtime) extends CompilerFactKey[PoolModules]
+  case class Key(platform: Platform = Platform.Runtime) extends CompilerFactKey[PoolModules] {
+    override def valueCodec: Option[FactCodec[PoolModules]] = Some(LangFactCodecs.poolModulesCodec)
+  }
 }

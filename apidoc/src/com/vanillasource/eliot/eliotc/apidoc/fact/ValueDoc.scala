@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.eliotc.apidoc.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs.given
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 /** The documentation *tile* for one fully-qualified name — its rendered definition signature and its documentation —
@@ -20,5 +22,9 @@ case class ValueDoc(vfqn: ValueFQN, signature: Option[String], doc: Option[Strin
 }
 
 object ValueDoc {
-  case class Key(vfqn: ValueFQN) extends CompilerFactKey[ValueDoc]
+  private val codec: FactCodec[ValueDoc] = FactCodec.derived
+
+  case class Key(vfqn: ValueFQN) extends CompilerFactKey[ValueDoc] {
+    override def valueCodec: Option[FactCodec[ValueDoc]] = Some(codec)
+  }
 }

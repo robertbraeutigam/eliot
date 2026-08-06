@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.termination.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -25,5 +29,7 @@ case class RecursionCheckedValue(value: OperatorResolvedValue) extends CompilerF
 }
 
 object RecursionCheckedValue {
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[RecursionCheckedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[RecursionCheckedValue] {
+    override def valueCodec: Option[FactCodec[RecursionCheckedValue]] = Some(LangFactCodecs.recursionCheckedValueCodec)
+  }
 }

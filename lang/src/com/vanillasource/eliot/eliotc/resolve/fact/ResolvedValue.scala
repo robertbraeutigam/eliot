@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity}
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -28,5 +32,7 @@ case class ResolvedValue(
 object ResolvedValue {
   case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[Expression])
 
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[ResolvedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[ResolvedValue] {
+    override def valueCodec: Option[FactCodec[ResolvedValue]] = Some(LangFactCodecs.resolvedValueCodec)
+  }
 }

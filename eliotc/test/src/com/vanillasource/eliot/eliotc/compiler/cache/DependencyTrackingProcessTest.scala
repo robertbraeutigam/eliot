@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.compiler.cache
 
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import cats.data.Chain
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{IO, Ref}
@@ -156,5 +158,7 @@ object DependencyTrackingProcessTest {
   case class Fact(name: String) extends CompilerFact {
     override def key(): CompilerFactKey[Fact] = Key(name)
   }
-  case class Key(name: String) extends CompilerFactKey[Fact]
+  case class Key(name: String) extends CompilerFactKey[Fact] {
+    override def valueCodec: Option[FactCodec[Fact]] = None // a test double is never persisted
+  }
 }

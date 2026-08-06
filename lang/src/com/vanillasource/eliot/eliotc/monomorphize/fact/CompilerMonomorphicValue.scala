@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -50,5 +54,7 @@ case class CompilerMonomorphicValue(
 object CompilerMonomorphicValue {
 
   /** Composite key mirroring [[MonomorphicValue.Key]]: same value, different type arguments → different key. */
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[CompilerMonomorphicValue]
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[CompilerMonomorphicValue] {
+    override def valueCodec: Option[FactCodec[CompilerMonomorphicValue]] = Some(LangFactCodecs.compilerMonomorphicValueCodec)
+  }
 }

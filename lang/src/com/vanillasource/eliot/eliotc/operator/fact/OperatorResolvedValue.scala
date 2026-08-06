@@ -1,5 +1,9 @@
 package com.vanillasource.eliot.eliotc.operator.fact
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+
 import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -30,5 +34,7 @@ case class OperatorResolvedValue(
 object OperatorResolvedValue {
   case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[OperatorResolvedExpression])
 
-  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[OperatorResolvedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[OperatorResolvedValue] {
+    override def valueCodec: Option[FactCodec[OperatorResolvedValue]] = Some(LangFactCodecs.operatorResolvedValueCodec)
+  }
 }
