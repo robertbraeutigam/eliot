@@ -1121,3 +1121,113 @@ One thing found while proving the tests, which is worth knowing before writing a
 prettifying thousands of deeply nested facts outlasts any timeout — a broken store looked like a hung suite for 50
 minutes. The new cases compare through a `Boolean` for that reason, losing no strength (every key, edge and value is
 still compared) and gaining a failure that arrives in six seconds.
+
+## 22. The world leaf stops trusting a recent mtime (2026-08-06)
+
+§21 closed the concurrent-writer half of the field report and left the other half open: the world leaf compares source
+files by mtime, and an mtime does not identify content. This is that half.
+
+### The defect
+
+`FileStat` is a world leaf — always regenerated, and its equality against the cached value is the *sole* oracle for
+"did this source file change?". Its two failure directions are not symmetric:
+
+- **mtime moved, content did not** — `FileContent` is re-read, compares equal, propagation stops there. One read, no
+  harm.
+- **content moved, mtime did not** — the leaf matches, so `FileContent` is served *from cache with the old content*,
+  and the whole build proceeds on the previous version of the file. Silent, and the compiler reports errors against
+  source it is no longer reading.
+
+The second is what the field report described (errors carrying positions and types from a previous version of an
+edited file) and what makes `FullIntegrationTest` — which rewrites one `Test.els` per test against a resident
+session — intermittently compile the *previous* test's program.
+
+### What was measured first, because two obvious fixes are worthless
+
+| | measured on the development machine |
+|---|---|
+| Timestamp granularity | **4.00 ms** — the kernel tick, not the API |
+| Two immediate writes, nanosecond precision | **identical** (`…737618666Z` both) |
+| 8,818 writes over 300 ms | **99.1%** collided with the previous timestamp |
+| Filesystem clock vs JVM clock | filesystem reads **4–5 ms behind** |
+| 111 source files / 167 KB: `File.lastModified()` | 0.19–0.38 ms |
+| the same via `readAttributes` (mtime + size) | 0.14–0.28 ms |
+| the same, read + SHA-256 | **21.5 ms cold**, 1.0 ms once JIT-warm |
+
+Two conclusions, both recorded so they are not re-proposed. **Nanosecond timestamps buy nothing**: the kernel stamps
+at tick granularity and zero-fills the rest, so "use `readAttributes` for nanosecond precision" does not narrow the
+window at all. And **hashing every source on every build is affordable but wrong**: ~21 ms on the single cold pass a
+CLI build gets (~2.7% of a warm build), scaling with the source tree rather than with the change — a real price paid
+on every build to cover a 4 ms window.
+
+### The rule
+
+An mtime identifies content only once it can no longer move without being seen. Stat at `T`, read mtime `M`; a later
+modification at `W > T` gets `floor(W) >= floor(T)`, so it can only reproduce `M` if `M` falls in the same tick as
+`T`. **If `M` lies a full tick before `T`, every later modification is visible** and the mtime is conclusive. Inside
+that window it is not.
+
+So the leaf answers with an identity whose precision is chosen by whether the cheap one is currently trustworthy.
+`FileStat` gains `unsettled: Option[String]`: `None` means compare on the mtime exactly as before, and `Some(nonce)`
+means this stat identifies nothing. An unsettled file never compares equal to itself, so it is re-read, and the
+existing equality cutoff at `FileContent` — which holds the whole content — stops propagation whenever the content
+did not actually change. The cost of the doubt is one file read and nothing downstream.
+
+**The token is a nonce, deliberately not a timestamp.** The defect being guarded against is a clock too coarse to
+tell two observations apart, and `IO.realTime` is millisecond-resolution; dating the observation would rebuild the
+same hole one level down. A `Boolean` "is recent" flag is worse still — two builds inside the window would compare
+equal and the defect would survive untouched. Nothing reads the token; only its inequality is load-bearing.
+
+Two details are load-bearing and easy to lose:
+
+- **The clock is read before the stat.** Soundness needs `M + margin <= T`; a clock read *after* the stat gives
+  `now >= T`, which does not imply it. It reads like a harmless reordering.
+- **The margin must dominate the tick plus the clock skew**, measured at 4.00 ms and 4–5 ms. Two seconds is three
+  orders of magnitude above both, and costs nothing that matters: the only files inside it are ones just written.
+
+Directories fall out for free. `FilesystemMount.walk` takes a `FileStat` on every directory it walks as a *listing*
+dependency, so it had the same defect — two files created inside one tick left the second invisible. An unsettled
+directory simply forces the re-walk, and `PoolModules` equality then stops propagation when the listing is unchanged.
+No listing digest was needed.
+
+### What it costs
+
+| scenario | before | after |
+|---|---|---|
+| warm build, settled tree | 111 stats, 0 reads | **identical** |
+| build after an edit | 1 read | 1 read |
+| first build past the margin | 0 reads | 1 read, once, then 0 |
+| forced mass-touch inside the window | (silently wrong) | one read per file — the correct price |
+
+Measured: warm-build load 109–116 ms and save 94–104 ms across three runs, against §21's 111/116 ms. The change adds
+one clock read and one comparison per leaf and replaces `File.lastModified()` with a `readAttributes` that measured
+slightly *faster*; no file is read on a settled tree, so there is nothing to regress.
+
+### An invariant that became conditional
+
+`WarmBuildLeafOnlyTest` asserts that a warm build regenerates **only world leaves**, and it failed — correctly. It
+wrote `Test.els` and compiled twice immediately, so the file was inside the window, its leaf differed by design, and
+its `FileContent` was legitimately re-read. **"Untouched" is no longer sufficient; the tree must also have settled.**
+The test now backdates its source before compiling, which is what any source tree more than a couple of seconds old
+looks like, and the invariant holds exactly as before. The same caveat applies to §18's zero-append property: it is a
+property of a *settled* warm build, and was re-verified as such (1,192,578 bytes across three consecutive builds).
+
+### Verified
+
+- `__.test` green (1,625).
+- **Every new test was checked against the defect it exists for.** Neutering the rule (never unsettled) fails the
+  file rewrite, the directory add, and two leaf cases; making the token a constant — the "boolean flag" mistake —
+  fails the file rewrite, the directory add, and the two-observations case. Nothing else moves in either mutation.
+- **End to end through the CLI**, which is the field report itself: a program rewritten with its mtime held fixed and
+  recent builds and runs as the *new* program. Against the unfixed compiler the same sequence silently runs the old
+  one.
+- Byte-identity: the `DischargeDemo` jar is identical across cold and two warm builds, and the store appends zero
+  bytes. The example sweep builds 39/39 (`PluginA/B/C` carry no `main`).
+
+### What is still open
+
+A modification that *sets the mtime backwards onto exactly the cached value* — `touch -d`, `cp -p`, `rsync --times`,
+an archive extraction — is not covered, because it defeats the premise that a later write produces a later stamp. It
+needs the restored mtime to equal the cached one over different content, which is contrived outside a test, and the
+only complete answer is hashing every build at the price measured above. Recorded rather than implied: the rule
+closes the window the filesystem's own coarseness opens, not every way an mtime can lie.

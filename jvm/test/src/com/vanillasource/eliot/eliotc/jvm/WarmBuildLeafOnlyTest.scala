@@ -28,6 +28,12 @@ import java.nio.file.{Files, Path}
   * compiles the *same* source file **in place, untouched** between the two runs: rewriting it (as `compileAndRun` does)
   * would move its mtime and force the non-leaf `SourceContent` to recompute-and-compare, which is not the unchanged-tree
   * scenario §8 measures. Writing once and compiling twice reproduces that measurement exactly.
+  *
+  * Untouched is necessary but no longer sufficient: the tree must also have **settled**. A file written moments ago has
+  * an mtime too recent to identify its content ([[com.vanillasource.eliot.eliotc.source.stat.FileStat.unsettled]]), so
+  * its leaf differs between the two runs by design and its `FileContent` is legitimately re-read — a real cost of a
+  * build that follows an edit within the settle margin, and not the steady state this invariant is about. The source is
+  * therefore backdated before compiling, which is what a source tree older than a couple of seconds looks like.
   */
 class WarmBuildLeafOnlyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
@@ -72,11 +78,22 @@ class WarmBuildLeafOnlyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
       sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-warm-src"))
       targetDir  <- IO.blocking(Files.createTempDirectory("eliot-warm-target"))
       _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
+      _          <- settle(sourceDir.resolve("Test.els")) >> settle(sourceDir)
       args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++ layerPathArgs
       sessionOpt <- Compiler.createSession(args)
       session    <- IO.fromOption(sessionOpt)(new IllegalStateException("Could not create the compilation session."))
       result     <- use(session)
     } yield result
+
+  /** Backdate a path so its mtime is old enough to identify its content, making it indistinguishable from a source tree
+    * that has been sitting on disk. Verified and retried, since `setLastModified` is best-effort on some filesystems.
+    */
+  private def settle(path: Path, attempts: Int = 100): IO[Unit] =
+    IO.blocking { path.toFile.setLastModified(SettledMtime); path.toFile.lastModified() }.flatMap { actual =>
+      if (actual == SettledMtime || attempts <= 0) IO.unit else settle(path, attempts - 1)
+    }
+
+  private val SettledMtime = 1_600_000_000_000L
 
   private def layerPathArgs: List[String] = {
     val repoRoot             =

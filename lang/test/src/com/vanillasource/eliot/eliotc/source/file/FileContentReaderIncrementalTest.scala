@@ -14,6 +14,7 @@ import org.scalatest.matchers.should.Matchers
 
 import java.io.File
 import java.nio.file.Files
+import java.time.Duration
 
 /** End-to-end check that, under incremental compilation, reading a source file is gated by its [[FileStat]]: the
   * (expensive) read is skipped while the file's mtime is unchanged and redone when it changes. Reads are counted by
@@ -66,8 +67,30 @@ class FileContentReaderIncrementalTest extends AsyncFlatSpec with AsyncIOSpec wi
     }
   }
 
+  /** The defect this whole guard exists for: a filesystem stamps mtimes at a coarse tick, so a file rewritten inside one
+    * tick keeps the mtime it had. Comparing on the mtime alone then reports "unchanged" and the build silently keeps
+    * compiling the previous content. The rewrite here holds the mtime fixed, which is what a same-tick rewrite does.
+    *
+    * The margin is widened rather than the test racing a real two seconds, so "this mtime is too recent to be trusted"
+    * is decided by the processor's rule and not by how long the test took to run.
+    */
+  it should "re-read a file rewritten without its mtime moving, when that mtime is too recent to be trusted" in {
+    withTempFile("v1") { file =>
+      Ref.of[IO, Int](0).flatMap { reads =>
+        (for {
+          run1 <- run(processors(reads, AlwaysUnsettled), None, file)
+          _    <- IO.blocking(Files.writeString(file.toPath, "v2")) >> setMtime(file, PinnedMtime)
+          run2 <- run(processors(reads, AlwaysUnsettled), Some(run1._2), file)
+        } yield run2._1).asserting(_ shouldBe Some(FileContent(file, "v2")))
+      }
+    }
+  }
+
+  /** A margin long enough that any real mtime is inside it, making the unsettled branch deterministic. */
+  private val AlwaysUnsettled = Duration.ofDays(365 * 100)
+
   /** The real reader plus stat processor, with reads of `FileContent` counted into `reads`. */
-  private def processors(reads: Ref[IO, Int]): CompilerProcessor = {
+  private def processors(reads: Ref[IO, Int], settleMargin: Duration = Duration.ZERO): CompilerProcessor = {
     val countingReader = new CompilerProcessor {
       private val reader = new FileContentReader()
       override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] = factKey match {
@@ -75,7 +98,7 @@ class FileContentReaderIncrementalTest extends AsyncFlatSpec with AsyncIOSpec wi
         case _                  => reader.generate(factKey)
       }
     }
-    SequentialCompilerProcessors(Seq(FileStatProcessor(), countingReader))
+    SequentialCompilerProcessors(Seq(FileStatProcessor(settleMargin), countingReader))
   }
 
   // Fixed mtimes far apart, so a "changed" file is unambiguously distinguishable from an "unchanged" one regardless of

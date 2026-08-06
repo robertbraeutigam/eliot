@@ -84,7 +84,7 @@ class VirtualFileSystemTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     val vfs = new VirtualFileSystem
     runCompilerIO {
       VfsStatProcessor(vfs).generate(VfsStat.Key(file)) >>
-        registerFactIfClear(FileStat(file, None)) >> // not on disk either
+        registerFactIfClear(FileStat(file, None, None)) >> // not on disk either
         VfsRoutedMount(file.getParentFile.toPath).resolve(Path.of(file.getName))
     }.asserting(_ shouldBe Right(None))
   }

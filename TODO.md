@@ -129,12 +129,6 @@ notes.
   setup and i/o` at ~43%. See `docs/incremental-compilation.md` — §19 for that profile, and for
   why a lazy index is measured and rejected. Left on the cache itself: caching *declines* (§6 step
   3) and compaction (§13 step 5, no longer urgent since a warm build appends nothing).
-- **The world leaf invalidates on mtime, not content.** `FileStat` compares
-  `File.lastModified()`, and a content digest only stops propagation one level up, at
-  `SourceTokens`. Live and observed: a `FullIntegrationTest` suite, which rewrites one `Test.els`
-  per test against a resident session, intermittently compiles the **previous** test's program —
-  millisecond resolution lets two writes land in one tick. This is the remaining half of the
-  field report closed by §21 (concurrent writers); the lock fixed the other cause, not this one.
 - **Cache sharing across target directories.** One cache now accumulates across mains for the same
   roots and backend (§10), so the stdlib subgraph is built once per configuration rather than once
   per example. Two *different* compiler builds sharing a target directory still take turns
