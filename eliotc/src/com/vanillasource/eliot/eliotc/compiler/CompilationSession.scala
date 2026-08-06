@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.compiler
 import cats.effect.{IO, Ref}
 import cats.effect.std.Mutex
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, FactCache, FactCacheData}
+import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, FactCacheData, IncrementalCacheBackend}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerProcessor}
@@ -31,6 +31,7 @@ final class CompilationSession private (
     targetPath: Path,
     compilerFingerprint: String,
     configFingerprint: String,
+    backend: IncrementalCacheBackend,
     cache: Ref[IO, Option[FactCacheData]],
     compileLock: Mutex[IO],
     phaseTimings: PhaseTimings
@@ -90,9 +91,7 @@ final class CompilationSession private (
     */
   def persist(): IO[Unit] =
     cache.get.flatMap(
-      _.traverse_(data =>
-        phaseTimings.time(PhaseTimings.cacheSave)(FactCache.save(targetPath, compilerFingerprint, configFingerprint, data))
-      )
+      _.traverse_(data => phaseTimings.time(PhaseTimings.cacheSave)(backend.save(data)))
     )
 
   /** The coarse cache-phase timings (fingerprint, load, build, save) recorded across this session so far, by phase id.
@@ -119,7 +118,8 @@ object CompilationSession {
       phaseTimings    <- PhaseTimings.create()
       compilerFp      <- phaseTimings.time(PhaseTimings.fingerprint)(CacheFingerprint.compiler)
       configFp         = CacheFingerprint.config(effectiveConfig)
-      seeded          <- phaseTimings.time(PhaseTimings.cacheLoad)(FactCache.load(targetPath, compilerFp, configFp))
+      backend         <- IncrementalCacheBackend.create(targetPath, compilerFp, configFp)
+      seeded          <- phaseTimings.time(PhaseTimings.cacheLoad)(backend.load())
       cache           <- Ref.of[IO, Option[FactCacheData]](seeded)
       lock            <- Mutex[IO]
     } yield new CompilationSession(
@@ -129,6 +129,7 @@ object CompilationSession {
       targetPath,
       compilerFp,
       configFp,
+      backend,
       cache,
       lock,
       phaseTimings
