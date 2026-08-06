@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.monomorphize.processor.EscalatingReducer
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -324,12 +325,12 @@ class RefinementChannelProcessor
     }
 
   private def isBoolTrue(gv: GroundValue): Boolean = gv match {
-    case GroundValue.Direct(true, _) => true
+    case GroundValue.Direct(Literal.BooleanValue(true), _) => true
     case _                           => false
   }
 
   private def isBoolFalse(gv: GroundValue): Boolean = gv match {
-    case GroundValue.Direct(false, _) => true
+    case GroundValue.Direct(Literal.BooleanValue(false), _) => true
     case _                            => false
   }
 

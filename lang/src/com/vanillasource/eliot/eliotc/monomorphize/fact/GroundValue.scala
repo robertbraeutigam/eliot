@@ -17,7 +17,47 @@ sealed trait GroundValue {
 }
 
 object GroundValue {
-  case class Direct(value: Any, override val valueType: GroundValue) extends GroundValue
+
+  /** The payload of a [[Direct]]: the closed set of primitive constants the evaluator can produce.
+    *
+    * This was an `Any` until 2026-08-06. Only four shapes ever occupied it — the three the read-back documents
+    * (`BigInt`, `String`, `Boolean`) plus the unit placeholder — but `Any` said so nowhere, so every consumer had to
+    * re-discover the set by type-testing, and the exhaustive arm could only be a defensive fallback. Naming the set
+    * makes the matches exhaustive, and makes the ground domain encodable: no codec can be written for `Any`, and
+    * `GroundValue` is reachable from most of the monomorphize layer (`docs/incremental-compilation.md` §14).
+    */
+  enum Literal {
+    case IntegerValue(value: BigInt)
+    case StringValue(value: String)
+    case BooleanValue(value: Boolean)
+
+    /** The placeholder a value of no interest reduces to — `MatchNativesProcessor`'s unit. Never materialises as a
+      * runtime constant.
+      */
+    case UnitValue
+  }
+
+  object Literal {
+    given Show[Literal] = {
+      case IntegerValue(value) => value.toString
+      case StringValue(value)  => value
+      case BooleanValue(value) => value.toString
+      case UnitValue           => "()"
+    }
+  }
+
+  case class Direct(value: Literal, override val valueType: GroundValue) extends GroundValue
+
+  /** Construction sugar, so a call site whose payload type is already statically known does not have to name the
+    * [[Literal]] case. Pattern sites deliberately get no such sugar: matching is where the closed set has to be
+    * visible.
+    */
+  object Direct {
+    def apply(value: BigInt, valueType: GroundValue): Direct  = Direct(Literal.IntegerValue(value), valueType)
+    def apply(value: String, valueType: GroundValue): Direct  = Direct(Literal.StringValue(value), valueType)
+    def apply(value: Boolean, valueType: GroundValue): Direct = Direct(Literal.BooleanValue(value), valueType)
+    def apply(value: Unit, valueType: GroundValue): Direct    = Direct(Literal.UnitValue, valueType)
+  }
 
   /** A type-constructor or data-constructor application identified by [[typeName]] applied to positional [[args]]. */
   case class Structure(typeName: ValueFQN, args: Seq[GroundValue], override val valueType: GroundValue)
@@ -108,7 +148,7 @@ object GroundValue {
 
   given Show[GroundValue] = {
     case Type                                     => "Type"
-    case Direct(value, _)                         => value.toString
+    case Direct(value, _)                         => value.show
     case Structure(name, _, valueType) if valueType === Type => name.name.name
     case Structure(_, _, _)                       => "Structure(...)"
     case Param(index, Nil, _)                     => s"?p$index"

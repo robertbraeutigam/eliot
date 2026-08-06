@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.GuardChannel
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -243,8 +244,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     */
   private def interpretGuard(verdict: GroundValue, keep: Verdict): CompilerIO[Verdict] =
     verdict match {
-      case GroundValue.Direct(true, _)                                            => keep.pure[CompilerIO]
-      case GroundValue.Direct(false, _)                                           => decline
+      case GroundValue.Direct(Literal.BooleanValue(true), _)                                            => keep.pure[CompilerIO]
+      case GroundValue.Direct(Literal.BooleanValue(false), _)                                           => decline
       case GroundValue.Structure(fqn, _, _) if fqn == WellKnownTypes.boolTrueFQN  => keep.pure[CompilerIO]
       case GroundValue.Structure(fqn, _, _) if fqn == WellKnownTypes.boolFalseFQN => decline
       case GroundValue.Structure(fqn, args, _) if fqn == WellKnownTypes.rightFQN  =>
@@ -263,7 +264,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     */
   private def rejectionText(field: Option[GroundValue]): String =
     field match {
-      case Some(GroundValue.Direct(s: String, _)) => s
+      case Some(GroundValue.Direct(Literal.StringValue(s), _)) => s
       case _                                      => GuardChannel.fallbackRejectionMessage
     }
 

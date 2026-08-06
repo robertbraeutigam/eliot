@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.lsp.index
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.monomorphize.channel.{IdNormalizer, RefinementTable}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.lsp.virtual.VfsUris
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -118,11 +119,8 @@ object TypeHintIndex {
     }
 
   private def directBigInt(gv: GroundValue): Option[BigInt] = gv match {
-    case GroundValue.Direct(v: BigInt, _)               => Some(v)
-    case GroundValue.Direct(v: java.math.BigInteger, _) => Some(BigInt(v))
-    case GroundValue.Direct(v: Int, _)                  => Some(BigInt(v))
-    case GroundValue.Direct(v: Long, _)                 => Some(BigInt(v))
-    case _                                              => None
+    case GroundValue.Direct(Literal.IntegerValue(value), _) => Some(value)
+    case _                                                  => None
   }
 
   /** Every typed node of one monomorphized value. Compound bodies (an application or a function literal) are fully

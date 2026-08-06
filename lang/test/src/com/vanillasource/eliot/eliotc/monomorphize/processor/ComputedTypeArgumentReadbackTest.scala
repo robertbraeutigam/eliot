@@ -4,6 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor
 import com.vanillasource.eliot.eliotc.used.UsedNames
@@ -99,7 +100,7 @@ class ComputedTypeArgumentReadbackTest
     */
   private def indicesOf(versions: Map[ValueFQN, Set[Seq[GroundValue]]], name: String): Set[BigInt] =
     versions.getOrElse(ValueFQN(testModuleName, default(name)), Set.empty).collect {
-      case Seq(GroundValue.Direct(v: BigInt, _), _*) => v
+      case Seq(GroundValue.Direct(Literal.IntegerValue(v), _), _*) => v
     }
 
   /** Ambient stubs plus the `Arithmetic` arithmetic (`subtract`/`add`), `Compare`'s `lessThanOrEqual`, and the `Bool` `fold`

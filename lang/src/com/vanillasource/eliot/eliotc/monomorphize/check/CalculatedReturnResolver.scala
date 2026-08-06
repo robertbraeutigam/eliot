@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -314,7 +315,7 @@ class CalculatedReturnResolver(
     */
   private def extractGuardMessage(msgSem: SemValue): CheckIO[String] =
     force(msgSem).map {
-      case VConst(GroundValue.Direct(s: String, _)) => s
+      case VConst(GroundValue.Direct(Literal.StringValue(s), _)) => s
       case _                                        => GuardChannel.fallbackRejectionMessage
     }
 

@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
@@ -197,7 +198,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     VNative(bigIntType, a => VNative(bigIntType, b => intEqualsResult(implFqn, a, b)))
 
   private def intEqualsResult(implFqn: ValueFQN, a: SemValue, b: SemValue): SemValue = (a, b) match {
-    case (VConst(GroundValue.Direct(x: BigInt, _)), VConst(GroundValue.Direct(y: BigInt, _))) =>
+    case (VConst(GroundValue.Direct(Literal.IntegerValue(x), _)), VConst(GroundValue.Direct(Literal.IntegerValue(y), _))) =>
       if (x === y) Evaluator.trueValue else Evaluator.falseValue
     case _                                                                                    =>
       stuck(implFqn, a, b)
@@ -231,7 +232,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     VNative(bigIntType, a => VNative(bigIntType, b => lessThanOrEqualResult(a, b)))
 
   private def lessThanOrEqualResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
-    case (VConst(GroundValue.Direct(x: BigInt, _)), VConst(GroundValue.Direct(y: BigInt, _))) =>
+    case (VConst(GroundValue.Direct(Literal.IntegerValue(x), _)), VConst(GroundValue.Direct(Literal.IntegerValue(y), _))) =>
       if (x <= y) Evaluator.trueValue else Evaluator.falseValue
     case _                                                                                    =>
       stuck(compareLessThanOrEqualFQN, a, b)
@@ -245,7 +246,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   private def bigIntBinaryResult(fqn: ValueFQN, op: (BigInt, BigInt) => BigInt, a: SemValue, b: SemValue): SemValue =
     (a, b) match {
-      case (VConst(GroundValue.Direct(x: BigInt, t)), VConst(GroundValue.Direct(y: BigInt, _))) =>
+      case (VConst(GroundValue.Direct(Literal.IntegerValue(x), t)), VConst(GroundValue.Direct(Literal.IntegerValue(y), _))) =>
         VConst(GroundValue.Direct(op(x, y), t))
       case _                                                                                    =>
         stuck(fqn, a, b)
@@ -256,7 +257,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     VNative(boolType, a => VNative(boolType, b => andResult(a, b)))
 
   private def andResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
-    case (VConst(GroundValue.Direct(x: Boolean, _)), VConst(GroundValue.Direct(y: Boolean, _))) =>
+    case (VConst(GroundValue.Direct(Literal.BooleanValue(x), _)), VConst(GroundValue.Direct(Literal.BooleanValue(y), _))) =>
       VConst(GroundValue.Direct(x && y, Evaluator.boolGroundType))
     case _                                                                                      =>
       stuck(boolAndFQN, a, b)
@@ -267,7 +268,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     VNative(boolType, a => VNative(boolType, b => orResult(a, b)))
 
   private def orResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
-    case (VConst(GroundValue.Direct(x: Boolean, _)), VConst(GroundValue.Direct(y: Boolean, _))) =>
+    case (VConst(GroundValue.Direct(Literal.BooleanValue(x), _)), VConst(GroundValue.Direct(Literal.BooleanValue(y), _))) =>
       VConst(GroundValue.Direct(x || y, Evaluator.boolGroundType))
     case _                                                                                      =>
       stuck(boolAndFQN, a, b)
@@ -278,7 +279,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     VNative(boolType, a => notResult(a))
 
   private def notResult(a: SemValue): SemValue = a match {
-    case VConst(GroundValue.Direct(x: Boolean, _)) =>
+    case VConst(GroundValue.Direct(Literal.BooleanValue(x), _)) =>
       VConst(GroundValue.Direct(!x, Evaluator.boolGroundType))
     case _                                         =>
       stuck(boolAndFQN, a)
@@ -295,8 +296,8 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     VNative(boolType, cond => VNative(VType, whenTrue => VNative(VType, whenFalse => foldResult(cond, whenTrue, whenFalse))))
 
   private def foldResult(cond: SemValue, whenTrue: SemValue, whenFalse: SemValue): SemValue = cond match {
-    case VConst(GroundValue.Direct(true, _))  => whenTrue
-    case VConst(GroundValue.Direct(false, _)) => whenFalse
+    case VConst(GroundValue.Direct(Literal.BooleanValue(true), _))  => whenTrue
+    case VConst(GroundValue.Direct(Literal.BooleanValue(false), _)) => whenFalse
     case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
   }
 

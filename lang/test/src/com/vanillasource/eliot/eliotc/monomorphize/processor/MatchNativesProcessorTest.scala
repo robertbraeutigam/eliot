@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 
 /** Verifies that [[MatchNativesProcessor]] makes the NbE evaluator reduce `match` on a concrete scrutinee to a ground
@@ -33,7 +34,7 @@ class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
         "def unwrap(b: Box): String = b match { case Box(x) -> x }\n" +
         "def result: String = unwrap(Box(\"hi\"))",
       "result"
-    ).asserting(_.collect { case GroundValue.Direct(value, _) => value } shouldBe Some("hi"))
+    ).asserting(_.collect { case GroundValue.Direct(Literal.StringValue(value), _) => value } shouldBe Some("hi"))
   }
 
   it should "reduce a type-match selecting the matching constructor (typeMatch)" in {
@@ -42,7 +43,7 @@ class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
         "def tagName(t: Type): String = t match { case Tag[name] -> \"matched\" case _ -> \"untagged\" }\n" +
         "def result: String = tagName(Tag[\"hello\"])",
       "result"
-    ).asserting(_.collect { case GroundValue.Direct(value, _) => value } shouldBe Some("matched"))
+    ).asserting(_.collect { case GroundValue.Direct(Literal.StringValue(value), _) => value } shouldBe Some("matched"))
   }
 
   it should "bind a type argument out of a type-match (typeMatch)" in {
@@ -51,7 +52,7 @@ class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
         "def tagName(t: Type): String = t match { case Tag[name] -> name case _ -> \"untagged\" }\n" +
         "def result: String = tagName(Tag[\"hello\"])",
       "result"
-    ).asserting(_.collect { case GroundValue.Direct(value, _) => value } shouldBe Some("hello"))
+    ).asserting(_.collect { case GroundValue.Direct(Literal.StringValue(value), _) => value } shouldBe Some("hello"))
   }
 
   it should "reduce a type-match falling through to the wildcard (typeMatch)" in {
@@ -60,7 +61,7 @@ class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
         "def tagName(t: Type): String = t match { case Tag[name] -> \"matched\" case _ -> \"untagged\" }\n" +
         "def result: String = tagName(Other[\"hello\"])",
       "result"
-    ).asserting(_.collect { case GroundValue.Direct(value, _) => value } shouldBe Some("untagged"))
+    ).asserting(_.collect { case GroundValue.Direct(Literal.StringValue(value), _) => value } shouldBe Some("untagged"))
   }
 
   // The closed-term entry point: "evaluate to a SemValue, force, quote" (Quoter, which forces internally) reads a

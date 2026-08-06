@@ -5,7 +5,7 @@ import java.math.BigInteger
 import java.net.URI
 import java.nio.file.{Path, Paths}
 import scala.collection.mutable
-import scala.compiletime.{erasedValue, summonInline}
+import scala.compiletime.{erasedValue, summonFrom, summonInline}
 import scala.deriving.Mirror
 
 /** An explicit binary encoding for one type, written and read field by field.
@@ -239,39 +239,66 @@ object FactCodec {
     * *named* (`given x: FactCodec[T] = FactCodec.derived`); an auto-derived given would re-expand `derived` at every
     * recursive occurrence and never terminate at compile time.
     */
-  inline def derived[A](using mirror: Mirror.Of[A]): FactCodec[A] = {
-    lazy val elementCodecs = summonCodecs[mirror.MirroredElemTypes]
-
+  inline def derived[A](using mirror: Mirror.Of[A]): FactCodec[A] =
     inline mirror match {
-      case sum: Mirror.SumOf[A]         =>
-        instance(
-          (out, value) =>
-            out.shared(value) {
-              val tag = sum.ordinal(value)
-              writeVarInt(out.raw, tag)
-              elementCodecs(tag).asInstanceOf[FactCodec[A]].write(out, value)
-            },
-          in => in.shared(elementCodecs(readVarInt(in.raw)).asInstanceOf[FactCodec[A]].read(in))
-        )
-      case product: Mirror.ProductOf[A] =>
-        instance(
-          (out, value) =>
-            out.shared(value) {
-              value
-                .asInstanceOf[Product]
-                .productIterator
-                .zip(elementCodecs.iterator)
-                .foreach { case (field, codec) => codec.asInstanceOf[FactCodec[Any]].write(out, field) }
-            },
-          in => in.shared(product.fromProduct(Tuple.fromArray(elementCodecs.map(_.read(in)).toArray)))
-        )
+      case sum: Mirror.SumOf[A]         => sumCodec(sum, caseCodecs[mirror.MirroredElemTypes])
+      case product: Mirror.ProductOf[A] => productCodec(product, summonCodecs[mirror.MirroredElemTypes])
     }
+
+  private def sumCodec[A](sum: Mirror.SumOf[A], cases: => List[FactCodec[?]]): FactCodec[A] = {
+    lazy val caseCodecs = cases
+
+    instance(
+      (out, value) =>
+        out.shared(value) {
+          val tag = sum.ordinal(value)
+          writeVarInt(out.raw, tag)
+          caseCodecs(tag).asInstanceOf[FactCodec[A]].write(out, value)
+        },
+      in => in.shared(caseCodecs(readVarInt(in.raw)).asInstanceOf[FactCodec[A]].read(in))
+    )
+  }
+
+  private def productCodec[A](product: Mirror.ProductOf[A], fields: => List[FactCodec[?]]): FactCodec[A] = {
+    lazy val fieldCodecs = fields
+
+    instance(
+      (out, value) =>
+        out.shared(value) {
+          value
+            .asInstanceOf[Product]
+            .productIterator
+            .zip(fieldCodecs.iterator)
+            .foreach { case (field, codec) => codec.asInstanceOf[FactCodec[Any]].write(out, field) }
+        },
+      in => in.shared(product.fromProduct(Tuple.fromArray(fieldCodecs.map(_.read(in)).toArray)))
+    )
   }
 
   private inline def summonCodecs[T <: Tuple]: List[FactCodec[?]] =
     inline erasedValue[T] match {
       case _: EmptyTuple => Nil
       case _: (t *: ts)  => summonInline[FactCodec[t]] :: summonCodecs[ts]
+    }
+
+  /** The codecs for a sum's cases. A case gets its codec **built here from its own `Mirror`** rather than summoned,
+    * so a sealed hierarchy costs *one* named instance for its root instead of one per case. That matters more than
+    * convenience: an `enum` case cannot carry a `derives` clause at all, so requiring an instance per case would make
+    * "the decision lives on the type" impossible to express for every sum in the fact model.
+    *
+    * An explicitly written instance still wins where one exists — that is what lets a case whose derivation would be
+    * wrong (a reference-compared array, an untyped slot) be hand-written and picked up here.
+    */
+  private inline def caseCodecs[T <: Tuple]: List[FactCodec[?]] =
+    inline erasedValue[T] match {
+      case _: EmptyTuple => Nil
+      case _: (t *: ts)  => caseCodec[t] :: caseCodecs[ts]
+    }
+
+  private inline def caseCodec[T]: FactCodec[T] =
+    summonFrom {
+      case codec: FactCodec[T]           => codec
+      case product: Mirror.ProductOf[T]  => productCodec(product, summonCodecs[product.MirroredElemTypes])
     }
 
   /** A codec for a sum case that is a plain `object` rather than a `case object`, and so has no `Mirror`. It writes

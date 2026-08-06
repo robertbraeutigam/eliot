@@ -2,23 +2,6 @@ package com.vanillasource.eliot.eliotc.jvm.codec
 
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
 
-/** One named [[FactCodec]] instance per type reachable from a compiler fact — the coverage half of
-  * `docs/incremental-compilation.md` §13's first step, and the thing that makes coverage a fact rather than a hope:
-  * the *compiler* proves it, because a field whose type has no instance does not compile.
-  *
-  * Reading this file: the [[registry]] at the bottom is the answer — every fact type that has an encoding, and
-  * [[declined]] beside it, the ones that deliberately do not. Everything above is the transitive closure of what
-  * those need, one derived line per type. It is bulk, not design: nothing here states a shape, because
-  * `FactCodec.derived` reads each shape from the compiler's own `Mirror`.
-  *
-  * Two entries are **hand-written**, and both mark a place where the fact model is untyped or reference-compared —
-  * `GroundValue.Direct`'s `Any` payload and `ClassFile`'s `Array[Byte]`. They are written out here rather than given
-  * general instances so the decision stays at the one place it applies; each carries its own explanation.
-  *
-  * This lives in `test` on purpose: step 1 is a measurement, so nothing about a real build changes. If the numbers
-  * hold (§14), step 2 moves these instances onto the types themselves as `derives FactCodec`, which is where the
-  * "decision belongs to the type" rule (§6 Step 1) wants them, and this file disappears.
-  */
 object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_uncurry_fact_MonomorphicParameterDefinition: FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicExpression: FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression] = FactCodec.derived
@@ -36,28 +19,16 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_AbilityFQN: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_FunctionApplication: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionApplication] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_IntegerLiteral: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.IntegerLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_StringLiteral: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.StringLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_ParameterReference: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.ParameterReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_ValueReference: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.ValueReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_FunctionLiteral: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_FlatExpression: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.FlatExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_MatchExpression: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.MatchExpression] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_BlockExpression: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.BlockExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_MatchCase: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.MatchCase] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_BlockLine: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Pattern: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Pattern] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Pattern_ConstructorPattern: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Pattern.ConstructorPattern] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Pattern_VariablePattern: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Pattern.VariablePattern] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Pattern_WildcardPattern: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Pattern.WildcardPattern] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_PrecedenceDeclaration: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.PrecedenceDeclaration] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_QualifiedName: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.QualifiedName] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Qualifier: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Qualifier] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Qualifier_Default: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Qualifier.Default.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Qualifier_Type: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Qualifier.Type.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Qualifier_Meta: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Qualifier.Meta.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Qualifier_Ability: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Qualifier.Ability] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Qualifier_AbilityImplementation: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Qualifier.AbilityImplementation] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue_ResolvedAbilityConstraint: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue.ResolvedAbilityConstraint] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue_Key: FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue.Key] = FactCodec.derived
@@ -68,12 +39,8 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_termination_fact_RecursionCheckedValue_Key: FactCodec[com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_FunctionApplication: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.FunctionApplication] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_IntegerLiteral: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.IntegerLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_StringLiteral: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.StringLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_ParameterReference: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.ParameterReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_ValueReference: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.ValueReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_FunctionLiteral: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.FunctionLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_FlatExpression: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.FlatExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue_ResolvedAbilityConstraint: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue.ResolvedAbilityConstraint] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue_Key: FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue.Key] = FactCodec.derived
@@ -84,31 +51,17 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_NamedValueReference: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.NamedValueReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_FunctionApplication: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.FunctionApplication] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_FunctionLiteral: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.FunctionLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_IntegerLiteral: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.IntegerLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_StringLiteral: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.StringLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_FlatExpression: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.FlatExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_MatchExpression: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.MatchExpression] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_BlockExpression: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.BlockExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_MatchCase: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.MatchCase] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_BlockLine: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_NamedValue: FactCodec[com.vanillasource.eliot.eliotc.core.fact.NamedValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_NamedValue_CoreAbilityConstraint: FactCodec[com.vanillasource.eliot.eliotc.core.fact.NamedValue.CoreAbilityConstraint] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Pattern: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Pattern] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Pattern_ConstructorPattern: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Pattern.ConstructorPattern] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_Pattern_VariablePattern: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Pattern.VariablePattern] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_Pattern_WildcardPattern: FactCodec[com.vanillasource.eliot.eliotc.core.fact.Pattern.WildcardPattern] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_PrecedenceDeclaration: FactCodec[com.vanillasource.eliot.eliotc.core.fact.PrecedenceDeclaration] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_RoleHint: FactCodec[com.vanillasource.eliot.eliotc.core.fact.RoleHint] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_RoleHint_NoHint: FactCodec[com.vanillasource.eliot.eliotc.core.fact.RoleHint.NoHint.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_RoleHint_ValueConstructor: FactCodec[com.vanillasource.eliot.eliotc.core.fact.RoleHint.ValueConstructor] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_RoleHint_TypeConstructor: FactCodec[com.vanillasource.eliot.eliotc.core.fact.RoleHint.TypeConstructor] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_RoleHint_FieldAccessor: FactCodec[com.vanillasource.eliot.eliotc.core.fact.RoleHint.FieldAccessor] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation_Resolution: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation.Resolution] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation_Resolution_Resolved: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation.Resolution.Resolved] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation_Resolution_NoImplementation: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation.Resolution.NoImplementation.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation_Resolution_Rejected: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation.Resolution.Rejected] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation_Resolution_Ambiguous: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation.Resolution.Ambiguous.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation_Key: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementationCheck: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementationCheck] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementationCheck_Key: FactCodec[com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementationCheck.Key] = FactCodec.derived
@@ -127,14 +80,7 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_module_fact_ModuleValue_Key: FactCodec[com.vanillasource.eliot.eliotc.module.fact.ModuleValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_module_fact_QualifiedName: FactCodec[com.vanillasource.eliot.eliotc.module.fact.QualifiedName] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_module_fact_Qualifier: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Qualifier] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_module_fact_Qualifier_Default: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Default.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_module_fact_Qualifier_Type: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Type.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_module_fact_Qualifier_Meta: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Meta.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_module_fact_Qualifier_Ability: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Ability] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_module_fact_Qualifier_AbilityImplementation: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Qualifier.AbilityImplementation] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_module_fact_Role: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Role] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_module_fact_Role_Runtime: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Role.Runtime.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_module_fact_Role_Signature: FactCodec[com.vanillasource.eliot.eliotc.module.fact.Role.Signature.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleNames: FactCodec[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleNames] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleNames_Key: FactCodec[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleNames.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleValue: FactCodec[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleValue] = FactCodec.derived
@@ -151,16 +97,9 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_reconcile_fact_ReconciledMonomorphicValue: FactCodec[com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_reconcile_fact_ReconciledMonomorphicValue_Key: FactCodec[com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_platform_Platform: FactCodec[com.vanillasource.eliot.eliotc.platform.Platform] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_platform_Platform_Compiler: FactCodec[com.vanillasource.eliot.eliotc.platform.Platform.Compiler.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_platform_Platform_Runtime: FactCodec[com.vanillasource.eliot.eliotc.platform.Platform.Runtime.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_token_SourceTokens: FactCodec[com.vanillasource.eliot.eliotc.token.SourceTokens] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_token_SourceTokens_Key: FactCodec[com.vanillasource.eliot.eliotc.token.SourceTokens.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_token_Token: FactCodec[com.vanillasource.eliot.eliotc.token.Token] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_token_Token_Identifier: FactCodec[com.vanillasource.eliot.eliotc.token.Token.Identifier] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_token_Token_Symbol: FactCodec[com.vanillasource.eliot.eliotc.token.Token.Symbol] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_token_Token_Keyword: FactCodec[com.vanillasource.eliot.eliotc.token.Token.Keyword] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_token_Token_IntegerLiteral: FactCodec[com.vanillasource.eliot.eliotc.token.Token.IntegerLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_token_Token_StringLiteral: FactCodec[com.vanillasource.eliot.eliotc.token.Token.StringLiteral] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_source_file_FileContent: FactCodec[com.vanillasource.eliot.eliotc.source.file.FileContent] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_source_file_FileContent_Key: FactCodec[com.vanillasource.eliot.eliotc.source.file.FileContent.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_source_content_SourceContent: FactCodec[com.vanillasource.eliot.eliotc.source.content.SourceContent] = FactCodec.derived
@@ -183,9 +122,6 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_operator_processor_TokenClassifier_Operand: FactCodec[com.vanillasource.eliot.eliotc.operator.processor.TokenClassifier.Operand] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_FunctionApplication: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.FunctionApplication] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_IntegerLiteral: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.IntegerLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_StringLiteral: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.StringLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_ParameterReference: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.ParameterReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_ValueReference: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.ValueReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_FunctionLiteral: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.FunctionLiteral] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_SignatureView: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView] = FactCodec.derived
@@ -195,9 +131,6 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedValue_Key: FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_saturate_fact_BinderRoles: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_saturate_fact_BinderRoles_Disposition: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles.Disposition] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_saturate_fact_BinderRoles_Disposition_CollapseErase: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles.Disposition.CollapseErase.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_saturate_fact_BinderRoles_Disposition_CollapseToRepresentation: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles.Disposition.CollapseToRepresentation.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_saturate_fact_BinderRoles_Disposition_Specialize: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles.Disposition.Specialize.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_saturate_fact_BinderRoles_Role: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles.Role] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_saturate_fact_SaturatedValue: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_saturate_fact_SaturatedValue_Key: FactCodec[com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue.Key] = FactCodec.derived
@@ -209,24 +142,11 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_ast_fact_EffectRow_ParameterEffects[C: FactCodec]: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.EffectRow.ParameterEffects[C]] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_FunctionApplication: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionApplication] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_FunctionLiteral: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_IntegerLiteral: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.IntegerLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_StringLiteral: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.StringLiteral] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_FlatExpression: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.FlatExpression] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_MatchExpression: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.MatchExpression] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_BlockExpression: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.BlockExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_BlockLine: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_EffectfulType: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.EffectfulType] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_MatchCase: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.MatchCase] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Application: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Application.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Prefix: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Prefix.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Infix: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Infix] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Postfix: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Postfix.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Associativity: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Associativity_Left: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity.Left.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Associativity_Right: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity.Right.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity_Associativity_None: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity.None.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_FunctionDefinition: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_GenericParameter: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_GenericParameter_AbilityConstraint: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.AbilityConstraint] = FactCodec.derived
@@ -234,24 +154,15 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_ast_fact_LambdaParameterDefinition: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.LambdaParameterDefinition] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Pattern: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Pattern] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Pattern_ConstructorPattern: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Pattern.ConstructorPattern] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Pattern_VariablePattern: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Pattern.VariablePattern] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Pattern_WildcardPattern: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Pattern.WildcardPattern] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_PrecedenceDeclaration: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_PrecedenceDeclaration_Relation: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration.Relation] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_PrecedenceDeclaration_Relation_Above: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration.Relation.Above.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_PrecedenceDeclaration_Relation_Below: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration.Relation.Below.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_PrecedenceDeclaration_Relation_At: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration.Relation.At.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_SourceAST: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.SourceAST] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_SourceAST_Key: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.SourceAST.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Visibility: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Visibility] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Visibility_Public: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Visibility.Public.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_Visibility_Private: FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Visibility.Private.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_parser_InputStream[I: FactCodec]: FactCodec[com.vanillasource.eliot.eliotc.ast.parser.InputStream[I]] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_parser_ParserError: FactCodec[com.vanillasource.eliot.eliotc.ast.parser.ParserError] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_parser_ParserResult[A: FactCodec]: FactCodec[com.vanillasource.eliot.eliotc.ast.parser.ParserResult[A]] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_parser_ParserResult_Consume: FactCodec[com.vanillasource.eliot.eliotc.ast.parser.ParserResult.Consume] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_parser_ParserResult_Consume_Consumed: FactCodec[com.vanillasource.eliot.eliotc.ast.parser.ParserResult.Consume.Consumed.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_parser_ParserResult_Consume_NotConsumed: FactCodec[com.vanillasource.eliot.eliotc.ast.parser.ParserResult.Consume.NotConsumed.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_row_RowChecker_RowResult: FactCodec[com.vanillasource.eliot.eliotc.row.RowChecker.RowResult] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_row_RowElaborator_Elaborated: FactCodec[com.vanillasource.eliot.eliotc.row.RowElaborator.Elaborated] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_row_RowElaborator_Violation: FactCodec[com.vanillasource.eliot.eliotc.row.RowElaborator.Violation] = FactCodec.derived
@@ -268,19 +179,13 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable_Key: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_WovenValue: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_WovenValue_Key: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue.Key] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_domain_SemValue_VType: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.VType.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_domain_SemValue_VConst: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.VConst] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_domain_SemValue_NeutralHead_Param: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.NeutralHead.Param] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_domain_SemValue_NeutralHead_SignatureBinder: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.NeutralHead.SignatureBinder] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_domain_SemValue_Spine_SNil: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.Spine.SNil.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_BindingContribution_Body: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Body] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_BodyValueReferences: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.BodyValueReferences] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_BodyValueReferences_Key: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.BodyValueReferences.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_CompilerMonomorphicValue: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.CompilerMonomorphicValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_CompilerMonomorphicValue_Key: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.CompilerMonomorphicValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Literal: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Structure: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Structure] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Param: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Param] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicExpression: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicExpression_Expression: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression.Expression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicExpression_FunctionApplication: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression.FunctionApplication] = FactCodec.derived
@@ -292,14 +197,10 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicValue: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicValue_Key: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_CheckState_CarrierHead: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.CheckState.CarrierHead] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_check_CheckState_CarrierHead_TopDef: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.CheckState.CarrierHead.TopDef] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_check_CheckState_CarrierHead_Meta: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.CheckState.CarrierHead.Meta] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_SemExpression_IntegerLiteral: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.SemExpression.IntegerLiteral] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_SemExpression_StringLiteral: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.SemExpression.StringLiteral] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_SemExpression_ParameterReference: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.SemExpression.ParameterReference] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_Track: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.Track] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_check_Track_Runtime: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.Track.Runtime.type] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_check_Track_Compiler: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.Track.Compiler.type] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_TypeStackLoop_Result: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop.Result] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_pos_Position: FactCodec[com.vanillasource.eliot.eliotc.pos.Position] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_pos_PositionRange: FactCodec[com.vanillasource.eliot.eliotc.pos.PositionRange] = FactCodec.derived
@@ -316,41 +217,6 @@ object FactCodecs {
   given codec_com_vanillasource_eliot_eliotc_jvm_classgen_asm_JvmIdentifier: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.asm.JvmIdentifier] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_GeneratedModule: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_GeneratedModule_Key: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule.Key] = FactCodec.derived
-  /** Hand-written because `GroundValue.Direct(value: Any, ...)` has an untyped payload slot: no codec can be derived
-    * for `Any`. At runtime the slot holds exactly one of three shapes (see `PostDrainQuoter`'s scaladoc: `BigInt`,
-    * `String`, `Boolean`), so this writes a discriminating tag and fails loudly on anything else — the encoding the
-    * eventual `Direct(value: Literal)` refactor would produce, measured now without doing the refactor.
-    */
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Direct
-      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Direct] =
-    new FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Direct] {
-      override def write(
-          out: FactCodec.Output,
-          value: com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Direct
-      ): Unit = {
-        value.value match {
-          case v: BigInt  => out.raw.writeByte(0); FactCodec[BigInt].write(out, v)
-          case v: String  => out.raw.writeByte(1); FactCodec[String].write(out, v)
-          case v: Boolean => out.raw.writeByte(2); FactCodec[Boolean].write(out, v)
-          case other      => throw new IllegalStateException(s"Untyped GroundValue.Direct payload: ${other.getClass}")
-        }
-        summon[FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue]].write(out, value.valueType)
-      }
-
-      override def read(in: FactCodec.Input): com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Direct = {
-        val payload: Any = in.raw.readByte() match {
-          case 0 => FactCodec[BigInt].read(in)
-          case 1 => FactCodec[String].read(in)
-          case 2 => FactCodec[Boolean].read(in)
-          case t => throw new IllegalStateException(s"Unknown GroundValue.Direct payload tag: $t")
-        }
-        com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Direct(
-          payload,
-          summon[FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue]].read(in)
-        )
-      }
-    }
-
   /** Hand-written because `ClassFile.bytecode` is a bare `Array[Byte]`, and there is deliberately no
     * `FactCodec[Array[Byte]]`: an array *encodes* fine and compares by **reference**, which is exactly the §3.1 /
     * §4 defect (`read(write(v))` never equals `recompute(v)`). Writing the codec here rather than as a general

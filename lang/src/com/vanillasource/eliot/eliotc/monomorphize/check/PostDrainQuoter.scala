@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{UnifiedModuleValue, ValueFQN,
 import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter, SemExpressionEvaluator}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 import com.vanillasource.eliot.eliotc.monomorphize.processor.EscalatingReducer
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -329,7 +330,7 @@ class PostDrainQuoter(
       // type. The backend's ordinary integer-literal path emits it, so no `integerLiteral` reference survives into the
       // monomorphic tree and no backend intrinsic is needed.
       typeArgs.traverse(a => quoteSem(a, vfqn)).flatMap {
-        case Seq(GroundValue.Direct(v: BigInt, _)) =>
+        case Seq(GroundValue.Direct(Literal.IntegerValue(v), _)) =>
           (MonomorphicExpression.IntegerLiteral(vfqn.as(v)): MonomorphicExpression.Expression).pure[CompilerIO]
         case _                                     =>
           compilerAbort(vfqn.as("integerLiteral must have a single integer value argument."))
@@ -444,11 +445,11 @@ class PostDrainQuoter(
     */
   private def materialise(ground: GroundValue, at: Sourced[?]): CompilerIO[Option[MonomorphicExpression]] =
     ground match {
-      case GroundValue.Direct(v: BigInt, vt)  =>
+      case GroundValue.Direct(Literal.IntegerValue(v), vt)  =>
         Some(MonomorphicExpression(vt, MonomorphicExpression.IntegerLiteral(at.as(v)))).pure[CompilerIO]
-      case GroundValue.Direct(v: String, vt)  =>
+      case GroundValue.Direct(Literal.StringValue(v), vt)  =>
         Some(MonomorphicExpression(vt, MonomorphicExpression.StringLiteral(at.as(v)))).pure[CompilerIO]
-      case GroundValue.Direct(v: Boolean, vt) =>
+      case GroundValue.Direct(Literal.BooleanValue(v), vt) =>
         val ctor = if (v) WellKnownTypes.boolTrueFQN else WellKnownTypes.boolFalseFQN
         Some(MonomorphicExpression(vt, MonomorphicExpression.MonomorphicValueReference(at.as(ctor), Seq.empty)))
           .pure[CompilerIO]

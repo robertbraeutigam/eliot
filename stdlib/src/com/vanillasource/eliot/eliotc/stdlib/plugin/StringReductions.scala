@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 
 import java.util.Locale
 
@@ -201,14 +202,14 @@ object StringReductions {
 
   private object ConcreteString {
     def unapply(v: SemValue): Option[String] = v match {
-      case VConst(GroundValue.Direct(s: String, _)) => Some(s)
+      case VConst(GroundValue.Direct(Literal.StringValue(s), _)) => Some(s)
       case _                                        => None
     }
   }
 
   private object ConcreteInt {
     def unapply(v: SemValue): Option[BigInt] = v match {
-      case VConst(GroundValue.Direct(i: BigInt, _)) => Some(i)
+      case VConst(GroundValue.Direct(Literal.IntegerValue(i), _)) => Some(i)
       case _                                        => None
     }
   }

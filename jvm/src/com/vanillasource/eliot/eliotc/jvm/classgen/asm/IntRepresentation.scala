@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 
 /** The JVM backend's `Int` width policy: decode a refinement-channel value-range meta (an `Interval[BigInteger]`
   * [[GroundValue]], the `[min, max]` the channel pinned for a node) into the machine layout that carries it — the
@@ -83,14 +84,7 @@ object IntRepresentation {
     }
 
   private def directBigInt(gv: GroundValue): Option[BigInt] = gv match {
-    case GroundValue.Direct(value, _) =>
-      value match {
-        case b: BigInt               => Some(b)
-        case b: java.math.BigInteger => Some(BigInt(b))
-        case i: Int                  => Some(BigInt(i))
-        case l: Long                 => Some(BigInt(l))
-        case _                       => None
-      }
-    case _                            => None
+    case GroundValue.Direct(Literal.IntegerValue(value), _) => Some(value)
+    case _                                                  => None
   }
 }
