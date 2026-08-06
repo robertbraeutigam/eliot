@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.compiler.cache.codec
 
+import com.vanillasource.eliot.eliotc.plugin.Configuration
 import com.vanillasource.eliot.eliotc.processor.CompilerFactKey
 
 import scala.reflect.ClassTag
@@ -28,6 +29,14 @@ object FactKeyCodecs {
     * `JvmFactCodecs`, …) and unioned by whoever opens a store.
     */
   type Registry = Map[String, FactCodec[CompilerFactKey[?]]]
+
+  /** Where each layer contributes its own registrations, in `configure()`, as the platform layers contribute run
+    * boundaries and native labels. The store is opened from the effective configuration, so it sees the union of
+    * whatever plugins are active — which is exactly the set of fact types that build can produce.
+    */
+  // Opaque to the cache identity: a deterministic function of the active plugin set, which is fixed within a compiler
+  // build and already covered by the compiler fingerprint.
+  val configKey: Configuration.Key[Registry] = Configuration.opaqueKey("factKeyCodecs")
 
   /** Register one key type under its own class name. */
   def of[K <: CompilerFactKey[?]](codec: FactCodec[K])(using tag: ClassTag[K]): (String, FactCodec[CompilerFactKey[?]]) =

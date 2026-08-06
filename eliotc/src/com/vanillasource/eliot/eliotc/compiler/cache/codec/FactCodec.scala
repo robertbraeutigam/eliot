@@ -371,11 +371,11 @@ object FactCodec {
   /** Zig-zag encoded so small negative numbers stay short, then written seven bits at a time, low group first, with
     * the high bit marking continuation.
     */
-  private[codec] def writeVarInt(out: DataOutput, value: Int): Unit = writeVarLong(out, value.toLong)
+  private[cache] def writeVarInt(out: DataOutput, value: Int): Unit = writeVarLong(out, value.toLong)
 
-  private[codec] def readVarInt(in: DataInput): Int = readVarLong(in).toInt
+  private[cache] def readVarInt(in: DataInput): Int = readVarLong(in).toInt
 
-  private[codec] def writeVarLong(out: DataOutput, value: Long): Unit = {
+  private[cache] def writeVarLong(out: DataOutput, value: Long): Unit = {
     var remaining = (value << 1) ^ (value >> 63) // zig-zag
     while ((remaining & ~0x7fL) != 0) {
       out.writeByte(((remaining & 0x7f) | 0x80).toInt)
@@ -384,7 +384,7 @@ object FactCodec {
     out.writeByte(remaining.toInt)
   }
 
-  private[codec] def readVarLong(in: DataInput): Long = {
+  private[cache] def readVarLong(in: DataInput): Long = {
     var shift  = 0
     var result = 0L
     var byte   = in.readByte().toInt

@@ -124,11 +124,10 @@ class FactCodecConformanceTest extends AsyncFlatSpec with AsyncIOSpec with Match
 
   private def roundTripThroughStore(facts: Seq[CompilerFact]): Seq[CompilerFact] = {
     val store   = ContentAddressedOutput.empty
-    val ids     = facts.map(fact => store.write(fact)(using codecOf(fact)))
-    val offsets = store.objectOffsets
+    val offsets = facts.map(fact => store.write(fact)(using codecOf(fact)))
     val input   = new ContentAddressedInput(store.appendedBytes)
 
-    ids.zip(facts).map((id, fact) => input.read(offsets(id))(using codecOf(fact)))
+    offsets.zip(facts).map((offset, fact) => input.read(offset)(using codecOf(fact)))
   }
 
   private def reportStore(shared: Int, store: ContentAddressedOutput): IO[Unit] = IO.delay {

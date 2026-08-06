@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.compiler
 import cats.effect.{IO, Ref}
 import cats.effect.std.Mutex
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs
 import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, FactCacheData, IncrementalCacheBackend}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -118,7 +119,12 @@ object CompilationSession {
       phaseTimings    <- PhaseTimings.create()
       compilerFp      <- phaseTimings.time(PhaseTimings.fingerprint)(CacheFingerprint.compiler)
       configFp         = CacheFingerprint.config(effectiveConfig)
-      backend         <- IncrementalCacheBackend.create(targetPath, compilerFp, configFp)
+      backend         <- IncrementalCacheBackend.create(
+                           targetPath,
+                           compilerFp,
+                           configFp,
+                           effectiveConfig.get(FactKeyCodecs.configKey).getOrElse(Map.empty)
+                         )
       seeded          <- phaseTimings.time(PhaseTimings.cacheLoad)(backend.load())
       cache           <- Ref.of[IO, Option[FactCacheData]](seeded)
       lock            <- Mutex[IO]

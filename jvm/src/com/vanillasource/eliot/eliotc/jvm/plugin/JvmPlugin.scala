@@ -4,6 +4,8 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs
+import com.vanillasource.eliot.eliotc.jvm.codec.JvmFactCodecs
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{
@@ -58,7 +60,7 @@ class JvmPlugin extends CompilerPlugin {
     */
   override def configure(): StateT[IO, Configuration, Unit] =
     StateT.modify(configuration =>
-      if (configuration.contains(mainKey))
+      (if (configuration.contains(mainKey))
         configuration
           .updatedWith(
             PathScanner.extraRuntimeMountsKey,
@@ -68,7 +70,11 @@ class JvmPlugin extends CompilerPlugin {
             RunBoundaryFunctions.configKey,
             boundaries => (boundaries.getOrElse(Set.empty) + SyntheticMainSourceProcessor.runMainVfqn).some
           )
-      else configuration
+      else configuration)
+        .updatedWith(
+          FactKeyCodecs.configKey,
+          codecs => (codecs.getOrElse(Map.empty) ++ JvmFactCodecs.keyCodecs).some
+        )
     )
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =

@@ -5,11 +5,13 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
 import com.vanillasource.eliot.eliotc.ast.fact.SourceAST
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.lsp.mainroot.{LspMainRootMount, LspMainRootSourceProcessor}
 import com.vanillasource.eliot.eliotc.lsp.virtual.{
   VfsRoutedMount,
   VfsSourceContentProcessor,
+  VfsStat,
   VfsStatProcessor,
   VirtualFileSystem
 }
@@ -61,6 +63,10 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
   override def configure(): StateT[IO, Configuration, Unit] =
     StateT.modify(configuration =>
       configuration
+        .updatedWith(
+          FactKeyCodecs.configKey,
+          codecs => (codecs.getOrElse(Map.empty) ++ VfsStat.keyCodecs).some
+        )
         .set(PathScanner.mountFactoryKey, root => new VfsRoutedMount(root))
         .updatedWith(
           PathScanner.extraRuntimeMountsKey,

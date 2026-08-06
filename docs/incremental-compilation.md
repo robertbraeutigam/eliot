@@ -10,7 +10,7 @@ content-addressed object store, replacing Java serialization outright — and **
 | ---- | ----- |
 | 1 — the encoding, coverage proven by the compiler | **DONE**, §14. 0.55× the Java graph with sharing, 4.89× without. |
 | 2 — the fact model made encodable, decision on the key | **DONE**, §15. `CompilerFactKey.valueCodec`, abstract, no default. |
-| 3 — the content-addressed store | **IN PROGRESS**, §17. The object encoding round-trips at 0.49× Java; the file format and backend are not written. |
+| 3 — the content-addressed store | **IN PROGRESS**, §17. Wired behind `ELIOT_CACHE_BACKEND=store`: a warm build is **38% faster** (load −49%, save −75%) on **half the disk**, jar byte-identical. Lazy load and the id-based cutoff (step 4) are still to come. |
 
 **Nothing a build does has changed yet.** Every cache read and write still goes through the Java-serialized whole
 graph; the codecs exist, are complete, and are exercised only by their conformance test. §16 says what is on disk,
@@ -806,6 +806,56 @@ New in `eliotc/…/cache/codec/`: `ObjectId`, `ContentAddressedOutput` (write: f
 methods did touch exactly that pair, plus the `shared` signature on the read side. `FactCodecConformanceTest` gains
 the store round-trip law and the size assertion. **Still nothing a build does has changed**: no backend uses this yet.
 
-Remaining in step 3: the on-disk file format (body region + entry index) and a `ContentAddressedCacheBackend` behind
-the existing seam, the entry shape carrying declines (§6 Step 3), and lazy value materialisation through
-`CacheEntry`. Then §13's steps 4–6 as written.
+### The store as a backend, and what it measures (2026-08-06)
+
+`ContentAddressedCacheBackend` is wired behind the existing seam and selected by **`ELIOT_CACHE_BACKEND=store`**, the
+default still being the Java graph. Two files with opposite lifecycles, which is why they are two:
+
+- **the body region** (`.eliot-objects-<config>`) is **append-only**. An offset written last run resolves this run
+  precisely because nothing before it ever moves; a save appends what is new and rewrites nothing.
+- **the index** (`.eliot-index-<config>`) is rewritten every save, and is the only thing a load must read in full.
+
+**A carried-forward value is never re-encoded**, and this is not an optimisation — it is what makes the append model
+work at all. On a warm build every entry survives, so re-encoding would append the whole graph every run. An entry's
+value is written only where this run produced a *different object* for it, recognised by **reference**, since a value
+carried out of the store is literally the object that was read. `ContentAddressedCacheBackendTest` pins it: saving
+back what was loaded appends zero bytes.
+
+An entry is placed **whole or not at all**. A key type with no registered codec cannot be read back, and dropping
+merely the *dependency* naming it would leave an entry claiming fewer inputs than it has — under-invalidation, the one
+failure direction that yields a wrong build rather than a slow one.
+
+**Measured** (`examples.run jvm exe-jar -m DischargeDemo`, warm after an identical build, same machine, same tree as
+§12):
+
+```
+phase              Java (default)      content store
+cache load           537 ms  35.9%      276 ms  29.7%
+cache save           395 ms  26.4%       97 ms  10.4%
+build-cache           35 ms              33 ms
+fingerprint           49 ms              46 ms
+engine               375 ms             366 ms
+processors            31 ms              29 ms
+total              1,494 ms             930 ms        -38%
+on-disk             2.49 MB            1.26 MB        0.51×
+```
+
+**Load −49%, save −75%, the whole warm build −38%, and the jar is byte-identical** across java-warm, store-cold and
+store-warm. Note what has *not* been done yet: load still materialises every value eagerly, and the equality cutoff
+still deserialises and compares. Both are §13 step 4, so the load column has considerably further to fall.
+
+**Growth, measured rather than estimated**: a warm build appends **~17.9 KB**, 1.4% of the store — exactly the world
+leaves, recomputed to equal-but-fresh objects that reference identity cannot recognise. So the store doubles in ~50
+warm builds, which sets the compaction trigger comfortably. It is also **subsumed by step 4**: once the cutoff
+compares `ObjectId`s, a recomputed leaf's id is computed anyway, and finding it equal to the stored one means its
+offset is already known, so nothing is appended at all.
+
+### What is left after this
+
+- **§13 step 4** — the equality cutoff as an id comparison, and lazy value materialisation. Together these are the
+  remaining load win *and* the fix for steady-state growth.
+- **§6 Step 3** — the entry shape carrying declines. The index already has a per-entry outcome flag to widen.
+- **§13 step 5** — compaction. Necessarily decode-and-re-encode of the live entries, not a mark-and-sweep: the bodies
+  are untyped bytes, so nothing can walk them without a codec.
+- **§13 step 6** — verification, weighted toward under-invalidation, then flipping the default and retiring both the
+  MVStore spike and `FactCache.canSerialize`.

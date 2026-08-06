@@ -51,10 +51,11 @@ final class ContentAddressedOutput(existing: Map[ObjectId, Int], firstOffset: In
     current.hash.write(id.bytes)
   }
 
-  /** Encode one value as an object of its own and answer its id — the store's entry point, as opposed to
-    * [[FactCodec.Output.shared]], which is what codecs call on their way down.
+  /** Encode one value as an object of its own and answer where it now lives — the store's entry point, as opposed to
+    * [[FactCodec.Output.shared]], which is what codecs call on their way down. A value whose content is already in the
+    * store is not appended again, so this may well point back into what was there before.
     */
-  def write[A](value: A)(using codec: FactCodec[A]): ObjectId = store(value, codec.write(this, value))
+  def write[A](value: A)(using codec: FactCodec[A]): Int = offsets(store(value, codec.write(this, value)))
 
   /** Everything this encoding adds to the body region, to be appended at `firstOffset`. Objects found already present
     * contribute nothing, which is what makes a save write only what is new.

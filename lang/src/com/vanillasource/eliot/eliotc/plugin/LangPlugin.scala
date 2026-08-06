@@ -3,7 +3,9 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{CoreFactCodecs, FactKeyCodecs}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
@@ -26,6 +28,18 @@ import scopt.{OParser, OParserBuilder}
 import java.nio.file.Path
 
 class LangPlugin extends CompilerPlugin {
+
+  /** Contribute this layer's fact key codecs, so a store opened from the effective configuration can read back every
+    * key type these processors can produce (see `FactKeyCodecs`).
+    */
+  override def configure(): StateT[IO, Configuration, Unit] =
+    StateT.modify(
+      _.updatedWith(
+        FactKeyCodecs.configKey,
+        codecs => (codecs.getOrElse(Map.empty) ++ CoreFactCodecs.keyCodecs ++ LangFactCodecs.keyCodecs).some
+      )
+    )
+
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
 
   import cmdLineBuilder.*

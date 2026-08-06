@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.compiler.cache
 
 import cats.effect.IO
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs
 
 import java.nio.file.Path
 
@@ -9,8 +10,11 @@ import java.nio.file.Path
   *
   *   - [[JavaSerializationCacheBackend]] — the default: one Java-serialized object graph per config
   *     (`FactCache`). Compact (shared structure), but load and save both scale with the *whole* accumulated graph.
-  *   - [[MvStoreCacheBackend]] — a spike (H2 MVStore): one persistent per-entry key/value store that writes only
-  *     the entries that actually changed since the last run. Selected only when `ELIOT_CACHE_BACKEND=mvstore`.
+  *   - [[ContentAddressedCacheBackend]] — the replacement §13 is building towards: explicit codecs over an
+  *     append-only content-addressed object store. Selected by `ELIOT_CACHE_BACKEND=store` while it is measured
+  *     against the default.
+  *   - [[MvStoreCacheBackend]] — the §12 spike (H2 MVStore), refuted by §14 and due for removal. Selected only when
+  *     `ELIOT_CACHE_BACKEND=mvstore`.
   *
   * See `docs/incremental-compilation.md` §11 for the load/save cost this spike targets.
   */
@@ -24,9 +28,16 @@ object IncrementalCacheBackend {
   /** Pick the backend for this session. Defaults to the Java-serialization graph; the MVStore spike is opt-in via
     * `ELIOT_CACHE_BACKEND=mvstore`, so every build and test keeps the current behaviour unless explicitly measuring.
     */
-  def create(targetPath: Path, compilerFingerprint: String, configFingerprint: String): IO[IncrementalCacheBackend] =
+  def create(
+      targetPath: Path,
+      compilerFingerprint: String,
+      configFingerprint: String,
+      keyCodecs: FactKeyCodecs.Registry
+  ): IO[IncrementalCacheBackend] =
     sys.env.get("ELIOT_CACHE_BACKEND") match {
       case Some("mvstore") => MvStoreCacheBackend.open(targetPath, compilerFingerprint, configFingerprint)
+      case Some("store")   =>
+        ContentAddressedCacheBackend.create(targetPath, compilerFingerprint, configFingerprint, keyCodecs)
       case _               => IO.pure(JavaSerializationCacheBackend(targetPath, compilerFingerprint, configFingerprint))
     }
 }

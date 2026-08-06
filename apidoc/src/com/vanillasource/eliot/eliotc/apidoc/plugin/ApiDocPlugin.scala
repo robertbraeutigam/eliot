@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.apidoc.processor.ValueDocProcessor
 import com.vanillasource.eliot.eliotc.apidoc.render.HtmlSite
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
@@ -33,6 +34,14 @@ import scala.jdk.CollectionConverters.*
   * dependency (and is kept off the classpath by the build module), so no codegen processor is ever activated.
   */
 class ApiDocPlugin extends CompilerPlugin with Logging {
+
+  /** Contribute this layer's fact key codecs, so a store opened from the effective configuration can read back every
+    * key type these processors can produce (see `FactKeyCodecs`).
+    */
+  override def configure(): StateT[IO, Configuration, Unit] =
+    StateT.modify(
+      _.updatedWith(FactKeyCodecs.configKey, codecs => (codecs.getOrElse(Map.empty) ++ ValueDoc.keyCodecs).some)
+    )
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
   import cmdLineBuilder.*
 
