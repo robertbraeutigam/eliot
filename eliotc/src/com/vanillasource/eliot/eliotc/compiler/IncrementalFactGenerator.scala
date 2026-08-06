@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.compiler
 import cats.data.Chain
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.cache.{CacheEntry, DependencyTrackingProcess, FactCache, FactCacheData}
+import com.vanillasource.eliot.eliotc.compiler.cache.{CacheEntry, DependencyTrackingProcess, FactCacheData}
 import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
@@ -302,7 +302,7 @@ final class IncrementalFactGenerator(
       }
       val touched  = factMap.keySet ++ deps.keySet ++ carried.keySet // resolved, materialised, or drilled this run
       val retained = prior.view.filterKeys(k => !touched(k)).toMap    // untouched prior facts accumulate
-      FactCacheData(FactCache.CACHE_VERSION, retained ++ carried ++ fresh)
+      FactCacheData(retained ++ carried ++ fresh)
     }
 }
 

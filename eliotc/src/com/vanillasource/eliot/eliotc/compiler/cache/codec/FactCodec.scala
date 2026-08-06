@@ -10,8 +10,9 @@ import scala.deriving.Mirror
 
 /** An explicit binary encoding for one type, written and read field by field.
   *
-  * This exists to replace Java serialization in the incremental cache (`docs/incremental-compilation.md` §13). Two
-  * properties are the point, and both are lost the moment encoding is done reflectively or by `ObjectOutputStream`:
+  * This is how the incremental cache persists facts (`docs/incremental-compilation.md` §13), in place of the Java
+  * serialization it replaced. Two properties are the point, and both are lost the moment encoding is done reflectively
+  * or by an `ObjectOutputStream`:
   *
   *   - **Nothing is written that the reader does not need.** A codec emits its own fields; the type is known from the
   *     position in the encoding, so no class descriptor — no class name, no `serialVersionUID`, no field names or
@@ -33,11 +34,11 @@ import scala.deriving.Mirror
   * positions) cost one byte instead of four.
   *
   * **Structure sharing is a property of the [[Output]], not of the codecs.** A derived codec writes every product and
-  * sum through [[Output.shared]]; what that does with a repeated value is the sink's decision, and the three answers
-  * are the three implementations. [[Output.Plain]] writes every value out in full — independent frames, the §5 layout.
-  * [[Output.Sharing]] replaces a value **equal** to one already written with a back-reference within the stream.
-  * [[ContentAddressedOutput]] makes it an object of its own and refers to it by offset, which is the one the cache
-  * runs on; it deduplicates across runs as well as within one, and lets a reader chase only what it is asked for.
+  * sum through [[Output.shared]]; what that does with a repeated value is the sink's decision. [[Output.Plain]] writes
+  * every value out in full — independent frames, the §5 layout, which measured 4.89× the alternative.
+  * [[ContentAddressedOutput]] makes each an object of its own and refers to it by offset; that is the one the cache
+  * runs on, and it deduplicates across runs as well as within one while letting a reader chase only what it is asked
+  * for.
   */
 trait FactCodec[A] {
 
@@ -73,19 +74,6 @@ object FactCodec {
       override def shared(value: Any)(body: => Unit): Unit = body
     }
 
-    /** Deduplicates within one stream: a value equal to one already written is replaced by a back-reference to it. Ids
-      * are assigned in write order, and only *after* the value's body is written, so the reader assigns the same ids as
-      * it goes.
-      */
-    final class Sharing(val raw: DataOutput) extends Output {
-      private val ids = mutable.HashMap.empty[Any, Int]
-
-      override def shared(value: Any)(body: => Unit): Unit =
-        ids.get(value) match {
-          case Some(id) => raw.writeByte(0); writeVarInt(raw, id)
-          case None     => raw.writeByte(1); body; ids.update(value, ids.size)
-        }
-    }
   }
 
   /** The reading counterpart of [[Output]]. An implementation must be paired with the one that wrote the bytes. */
@@ -113,21 +101,11 @@ object FactCodec {
       override def shared[A](reader: AnyRef)(body: => A): A = body
     }
 
-    /** Reads what [[Output.Sharing]] wrote, assigning ids in the same order the writer did. */
-    final class Sharing(val raw: DataInput) extends Input {
-      private val values = mutable.ArrayBuffer.empty[Any]
-
-      override def shared[A](reader: AnyRef)(body: => A): A =
-        if (raw.readByte() == 1) {
-          val value = body
-          values += value
-          value
-        } else values(readVarInt(raw)).asInstanceOf[A]
-    }
   }
 
-  /** Encode a single value to an independent byte array, with no sharing at all. Used by the conformance harness to
-    * measure the per-frame layout; the real store is [[ContentAddressedOutput]].
+  /** Encode a single value to an independent byte array, sharing nothing. The real store is
+    * [[ContentAddressedOutput]]; this is the unshared counterpart the conformance harness measures against, and the
+    * simplest way to round-trip one value in a test.
     */
   def toBytes[A](value: A)(using codec: FactCodec[A]): Array[Byte] = {
     val bytes = new java.io.ByteArrayOutputStream()
@@ -139,23 +117,6 @@ object FactCodec {
 
   def fromBytes[A](bytes: Array[Byte])(using codec: FactCodec[A]): A =
     codec.read(new Input.Plain(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes))))
-
-  /** Encode many values into one stream that deduplicates equal sub-values. Not what the cache uses, but the bar it
-    * is measured against: the most a single-stream format can share, and the number §13's size premise rests on.
-    */
-  def toSharedBytes[A](values: Seq[A])(using codec: FactCodec[A]): Array[Byte] = {
-    val bytes  = new java.io.ByteArrayOutputStream()
-    val stream = new java.io.DataOutputStream(bytes)
-    val out    = new Output.Sharing(stream)
-    values.foreach(codec.write(out, _))
-    stream.flush()
-    bytes.toByteArray
-  }
-
-  def fromSharedBytes[A](bytes: Array[Byte], count: Int)(using codec: FactCodec[A]): Seq[A] = {
-    val in = new Input.Sharing(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes)))
-    Seq.fill(count)(codec.read(in))
-  }
 
   // --- leaves -------------------------------------------------------------------------------------------------
 
@@ -227,8 +188,8 @@ object FactCodec {
     in => new java.io.File(FactCodec[String].read(in))
   )
 
-  /** A `Path` is encoded as its string form, mirroring the serializable stand-in `FactCache` needs for the same
-    * reason: `java.nio.file.Path` is not `Serializable` and carries a filesystem reference.
+  /** A `Path` is encoded as its string form: a `java.nio.file.Path` carries a reference to the filesystem that made
+    * it, which is not a thing a cache can store or would want back.
     */
   given FactCodec[Path] = shared(
     instance((out, value) => FactCodec[String].write(out, value.toString), in => Paths.get(FactCodec[String].read(in)))

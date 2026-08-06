@@ -39,9 +39,9 @@ import java.nio.file.{Files, Path, StandardOpenOption}
   * the bodies are untyped bytes, so a mark-and-sweep cannot walk them and GC is necessarily a decode-and-re-encode of
   * the live entries.
   *
-  * Both directions are fail-safe, as with [[FactCache]]: `load` answers `None` on any problem (missing file, format or
-  * fingerprint mismatch, a body region that does not match the index it was written with), and `save` warns rather
-  * than failing the build.
+  * Both directions are fail-safe: `load` answers `None` on any problem (missing file, format or fingerprint mismatch,
+  * a body region that does not match the index it was written with), and `save` warns rather than failing the build.
+  * The worst either can do is cost a full compilation.
   */
 final class ContentAddressedCacheBackend private (
     objectsFile: Path,
@@ -50,15 +50,14 @@ final class ContentAddressedCacheBackend private (
     configFingerprint: String,
     keyCodecs: FactKeyCodecs.Registry,
     placement: Ref[IO, ContentAddressedCacheBackend.Placement]
-) extends IncrementalCacheBackend
-    with Logging {
+) extends Logging {
 
-  override def load(): IO[Option[FactCacheData]] =
+  def load(): IO[Option[FactCacheData]] =
     IO.blocking(readFiles())
       .flatMap(_.traverse { case (data, next) => placement.set(next).as(data) })
       .handleErrorWith(t => warn[IO]("Could not read the incremental cache; doing a full compilation.", t).as(None))
 
-  override def save(data: FactCacheData): IO[Unit] =
+  def save(data: FactCacheData): IO[Unit] =
     placement.get
       .flatMap(current => IO.blocking(writeFiles(data, current)))
       .flatMap { case (next, written, dropped) =>
@@ -81,11 +80,11 @@ final class ContentAddressedCacheBackend private (
       in: DataInputStream,
       bodies: Array[Byte]
   ): Option[(FactCacheData, ContentAddressedCacheBackend.Placement)] = {
-    val header    = ContentAddressedCacheBackend.Header(in.readUTF(), in.readInt(), in.readInt(), in.readUTF(), in.readUTF(), in.readInt())
+    val header     =
+      ContentAddressedCacheBackend.Header(in.readUTF(), in.readInt(), in.readUTF(), in.readUTF(), in.readInt())
     val acceptable =
       header.magic == ContentAddressedCacheBackend.MAGIC &&
         header.formatVersion == ContentAddressedCacheBackend.FORMAT_VERSION &&
-        header.cacheVersion == FactCache.CACHE_VERSION &&
         header.compilerFingerprint == compilerFingerprint &&
         header.configFingerprint == configFingerprint &&
         header.bodyLength == bodies.length
@@ -96,7 +95,7 @@ final class ContentAddressedCacheBackend private (
       val entries = Seq.fill(FactCodec.readVarInt(in))(readEntry(in, names, input))
 
       (
-        FactCacheData(header.cacheVersion, entries.map(read => read.key -> read.entry).toMap),
+        FactCacheData(entries.map(read => read.key -> read.entry).toMap),
         ContentAddressedCacheBackend.Placement(
           bodies.length,
           entries.map(read => read.key -> read.keyOffset).toMap,
@@ -169,7 +168,7 @@ final class ContentAddressedCacheBackend private (
     // a rejected load) whatever is on disk is unreachable and must be replaced rather than extended.
     if (current.bodyLength === 0) Files.write(objectsFile, appended)
     else Files.write(objectsFile, appended, StandardOpenOption.APPEND)
-    writeIndex(data.version, current.bodyLength + appended.length, encoded)
+    writeIndex(current.bodyLength + appended.length, encoded)
 
     (
       ContentAddressedCacheBackend.Placement(
@@ -182,7 +181,7 @@ final class ContentAddressedCacheBackend private (
     )
   }
 
-  private def writeIndex(version: Int, bodyLength: Int, entries: Seq[ContentAddressedCacheBackend.Encoded]): Unit = {
+  private def writeIndex(bodyLength: Int, entries: Seq[ContentAddressedCacheBackend.Encoded]): Unit = {
     val names = entries.flatMap(entry => entry.keyName +: entry.deps.map(_._1)).distinct
     val index = names.zipWithIndex.toMap
     val out   = new DataOutputStream(Files.newOutputStream(indexFile))
@@ -190,7 +189,6 @@ final class ContentAddressedCacheBackend private (
     try {
       out.writeUTF(ContentAddressedCacheBackend.MAGIC)
       out.writeInt(ContentAddressedCacheBackend.FORMAT_VERSION)
-      out.writeInt(version)
       out.writeUTF(compilerFingerprint)
       out.writeUTF(configFingerprint)
       out.writeInt(bodyLength)
@@ -315,9 +313,10 @@ object ContentAddressedCacheBackend {
         )
       )
 
-  /** One pair of files per configuration, named as [[FactCache.cacheFile]] is and for the same reason: distinct
-    * configurations coexist under one target directory instead of clobbering each other, with the header carrying the
-    * full fingerprint as the exact check.
+  /** One pair of files per configuration, so distinct configurations coexist under one target directory instead of
+    * clobbering each other. The name holds a truncated, sanitized fingerprint only to bound it; the header carries the
+    * full value for the exact check, so a name collision degrades to a cold build rather than to serving the wrong
+    * cache.
     */
   private def fileFor(targetDir: Path, prefix: String, configFingerprint: String): Path =
     targetDir.resolve(s"$prefix-${configFingerprint.filter(_.isLetterOrDigit).take(16)}")
@@ -325,7 +324,6 @@ object ContentAddressedCacheBackend {
   private case class Header(
       magic: String,
       formatVersion: Int,
-      cacheVersion: Int,
       compilerFingerprint: String,
       configFingerprint: String,
       bodyLength: Int

@@ -916,8 +916,8 @@ ordering, the 4b inventory — is superseded: 4b is cancelled and A.11 owns the 
 into mill's forked test JVMs, but mill **prefixes every forwarded line with a worker id**, so
 `grep '^SPLICE'` finds nothing — never anchor a grep. Sample keys must carry the range **end** as well as
 the start (elaborator-generated nodes reuse an argument's `Sourced`, so start-only keys conflate distinct
-nodes) and, for an argument, its spine **head**. And `target/.eliot-cache` must be deleted before every
-run or the pipeline replays facts and the trace comes back empty.
+nodes) and, for an argument, its spine **head**. And the cache (`target/.eliot-*`) must be deleted before
+every run or the pipeline replays facts and the trace comes back empty.
 
 ### A.9.6 Gotchas banked from the slice-4a attempt
 
@@ -2027,8 +2027,8 @@ A.9.4 owns the method. The harness A.11.7-S left is the fast path and should be 
 examples by direct `java -cp` (classpath from `./mill show examples.runClasspath`) with
 `--path lang/eliot --path stdlib/eliot --path jvm/eliot` **appended** — `build.mill`'s `examples.run`
 adds those, `Main` does not, so a direct invocation without them fails all 40 on "Could not find path
-eliot/…". A full sweep is ~3 minutes against ~45 through `./mill examples.run`. Delete
-`target/.eliot-cache` between runs, and never pipe a long mill run through `tail` — it buffers and
+eliot/…". A full sweep is ~3 minutes against ~45 through `./mill examples.run`. Delete the cache
+(`target/.eliot-*`) between runs, and never pipe a long mill run through `tail` — it buffers and
 progress is invisible.
 
 ### Known-unknowns to clear before the deletion, not during it

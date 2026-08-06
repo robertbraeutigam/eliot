@@ -4,7 +4,7 @@ import cats.effect.{IO, Ref}
 import cats.effect.std.Mutex
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs
-import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, FactCacheData, IncrementalCacheBackend}
+import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, ContentAddressedCacheBackend, FactCacheData}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerProcessor}
@@ -32,7 +32,7 @@ final class CompilationSession private (
     targetPath: Path,
     compilerFingerprint: String,
     configFingerprint: String,
-    backend: IncrementalCacheBackend,
+    backend: ContentAddressedCacheBackend,
     cache: Ref[IO, Option[FactCacheData]],
     compileLock: Mutex[IO],
     phaseTimings: PhaseTimings
@@ -88,7 +88,7 @@ final class CompilationSession private (
     }
 
   /** Flush the in-memory cache to disk so the next *process* start is warm. Call from the CLI after its single compile,
-    * and from a server on shutdown. Fail-safe: [[FactCache.save]] warns rather than failing.
+    * and from a server on shutdown. Fail-safe: the save warns rather than failing.
     */
   def persist(): IO[Unit] =
     cache.get.flatMap(
@@ -119,7 +119,7 @@ object CompilationSession {
       phaseTimings    <- PhaseTimings.create()
       compilerFp      <- phaseTimings.time(PhaseTimings.fingerprint)(CacheFingerprint.compiler)
       configFp         = CacheFingerprint.config(effectiveConfig)
-      backend         <- IncrementalCacheBackend.create(
+      backend         <- ContentAddressedCacheBackend.create(
                            targetPath,
                            compilerFp,
                            configFp,

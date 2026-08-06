@@ -166,7 +166,7 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
       src      <- Ref.of[IO, Int](10)
       counts   <- counters("leaf", "derived")
       proc      = graph(Map("leaf" -> Leaf(src), "derived" -> Derived("leaf", _ * 2)), counts)
-      prior     = FactCacheData(FactCache.CACHE_VERSION, Map(NumberKey("derived") -> staleEntry))
+      prior     = FactCacheData(Map(NumberKey("derived") -> staleEntry))
       run      <- runBuild(proc, Some(prior))(_.getFact(NumberKey("derived")))
       derivedN <- counts("derived").get
     } yield (run._1, derivedN)
@@ -186,7 +186,7 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
                   NumberKey("mid")  -> CacheEntry(None, Set(NumberKey("leaf"))),
                   NumberKey("top")  -> CacheEntry(Some(NumberFact("top", 12)), Set(NumberKey("mid")))
                 )
-      run    <- runBuild(proc, Some(FactCacheData(FactCache.CACHE_VERSION, prior)))(_.getFact(NumberKey("top")))
+      run    <- runBuild(proc, Some(FactCacheData(prior)))(_.getFact(NumberKey("top")))
       midN   <- counts("mid").get
       topN   <- counts("top").get
     } yield (run._1, midN, topN, run._2.entries.get(NumberKey("mid")))

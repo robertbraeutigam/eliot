@@ -123,24 +123,26 @@ notes.
   what needs it and whether it can be derived instead of stored.
 - `namedValues` can recurse — the reflection-driven enumeration is not protected against a value
   that reaches itself.
-- **The warm build's remaining cost is the cache format** — ~60% of it is cache load + save, the
-  processors do essentially nothing, and the regeneration count is already at the leaf floor. This
-  subsumes the former separate items (separate the graph from the values; cache serialization is
-  slow; the cache gets rebuilt when it should have been reused; a warm compile is not immediate).
-  Diagnosis, measurements and the plan — explicit per-type codecs over a content-addressed object
-  store — are in `docs/incremental-compilation.md`, §13 for what to build next.
+- **The warm build's dominant cost is now plugin/JVM startup**, not the cache. Replacing Java
+  serialization with explicit codecs over a content-addressed object store cut a warm build in
+  half (load −79%, save −77%) and the cache is down to ~36% of it, behind `compiler engine, plugin
+  setup and i/o` at ~43%. See `docs/incremental-compilation.md` — §19 for that profile, and for
+  why a lazy index is measured and rejected. Left on the cache itself: caching *declines* (§6 step
+  3) and compaction (§13 step 5, no longer urgent since a warm build appends nothing).
 - **A compile error leaves the old artifacts in place**, so a failed build can be followed by a
   successful run of a stale jar.
 - **Implement scoped caches**, so the stdlib does not get built again on every compile for the
   same monomorphizations.
-- **Incremental cache corrupted by concurrent/out-of-date compilers.** A stale `.eliot-cache`
-  made a CLI compile report errors from a *previous version* of an edited file (positions and
-  types from old content, underlining unrelated new text); deleting the cache fixed it. Suspected
-  trigger: an out-of-date IntelliJ plugin's resident LSP compiler running against the same
-  workspace breaks the cache every time it runs. Harden the cache: content-hash (not
-  mtime) invalidation, a compiler-version/cache-format stamp so a different compiler build never
-  reuses (or silently poisons) another's cache, and ideally per-writer isolation or locking for
-  concurrent compilers.
+- **Incremental cache corrupted by concurrent/out-of-date compilers.** A stale cache made a CLI
+  compile report errors from a *previous version* of an edited file (positions and types from old
+  content, underlining unrelated new text); deleting the cache fixed it. Suspected trigger: an
+  out-of-date IntelliJ plugin's resident LSP compiler running against the same workspace breaks
+  the cache every time it runs. Of the three asks, only the **compiler-version stamp** is in place
+  (`CacheFingerprint.compiler`, plus a magic and a format version in the store header), so a
+  different compiler build can no longer reuse another's cache. Still open: the world leaf
+  `FileStat` invalidates on **mtime**, not content — a content digest only stops propagation one
+  level up, at `SourceTokens` — and **concurrent writers are unhandled**, with two compilers
+  sharing a target directory racing on one append-only object region and one index.
 - Remove the `Show` instances used for printing expression/fact internals.
 - Rename processors to generators?
 

@@ -1,10 +1,9 @@
 # Incremental Compilation: Why a Warm Build Still Computes
 
-Status (2026-08-06): **the store works and is measured; it is not yet the default.** Regeneration has been at the
-leaf floor since §8; the cost was I/O, with §11 measuring **~60% of a warm build in cache load + save**. §13's plan —
-explicit per-type codecs over a content-addressed object store, replacing Java serialization outright — is built
-through step 4, and behind `ELIOT_CACHE_BACKEND=store` a warm build is now **half** what it was, with cache I/O down
-from ~64% of it to ~29%:
+Status (2026-08-06): **done and shipped as the only backend.** Regeneration has been at the leaf floor since §8; the
+cost was then I/O, with §11 measuring **~60% of a warm build in cache load + save**. §13's plan — explicit per-type
+codecs over a content-addressed object store, replacing Java serialization outright — is complete. A warm build is
+**half** what it was, and the cache is no longer the dominant cost:
 
 | Step | State |
 | ---- | ----- |
@@ -12,10 +11,11 @@ from ~64% of it to ~29%:
 | 2 — the fact model made encodable, decision on the key | **DONE**, §15. `CompilerFactKey.valueCodec`, abstract, no default. |
 | 3 — the content-addressed store | **DONE**, §17. Wired behind `ELIOT_CACHE_BACKEND=store`. |
 | 4 — lazy values, the cutoff by content id | **DONE**, §18. Warm build **50% faster** (load −79%, save −76%), **half the disk**, **zero growth**, jar byte-identical, under-invalidation checked. |
-| 5–6 — compaction, flip the default | not started. §19 measures the remaining load and closes the "lazy index" question: not worth it. |
+| 5 — compaction | not started, and no longer urgent: a warm build appends nothing (§18). |
+| 6 — flip the default, retire the old path | **DONE**, §20. Java serialization deleted; there is no backend switch. |
 
-The **default is still the Java-serialized whole graph**, so an ordinary build is unchanged until step 6 flips it.
-§17 and §18 are the current state; §16 is the handover that preceded them and is superseded on two points it names.
+§17, §18 and §20 are the current state; §19 is the profile that says where the remaining time goes. §16 is the
+handover that preceded them and is superseded on two points it names.
 
 §§1–2 are the model everything else refers to. §§3–10 are the diagnosis, its fixes and the retention changes, kept as
 the record of what each defect looked like.
@@ -991,3 +991,37 @@ on-disk             3.62 MB            2.48 MB             0.69×
 **The cache is no longer the dominant cost.** At 36% of a warm build (down from ~71% on this scenario), it is behind
 `compiler engine, plugin setup and i/o` at 43.5% — which is JVM start, plugin discovery and processor-graph
 construction, and is now the thing to measure if a warm build needs to get faster still.
+
+## 20. Step 6: the store is the only backend (2026-08-06)
+
+Java serialization is gone from the compiler. The store is not selected, configured or switched — it is how the cache
+works.
+
+**Deleted**, not deprecated: `FactCache` (the whole-graph stream, its `Path` stand-in and its trial-serialization
+probe), `JavaSerializationCacheBackend`, `FactSerialization`, `FactCacheTest`, the `IncrementalCacheBackend` seam and
+the `ELIOT_CACHE_BACKEND` environment switch. The seam existed to A/B two backends; with one backend it was an
+interface with a single implementation, so `CompilationSession` now holds the store directly.
+
+**`FactCache.canSerialize` goes with it**, which closes §2. Persistability was decided by *trial serialization* — "did
+this serialize?" — which cannot ask the question the cache actually runs on, "will it still compare equal?". Every
+defect in §3 came from that gap. It is now a compile-time property of the fact key (§15) with no runtime probe behind
+it.
+
+**`FactCacheData.version` is deleted too.** It existed to discard a cache whose persisted fact shapes had changed —
+which cannot happen without the compiler changing, and `CacheFingerprint.compiler` digests the whole running
+classpath, so any such change already discards it. §13 called versioning a non-problem; this is that, applied. The
+store header keeps its magic and format version, which identify the *file* rather than the fact model.
+
+**Two codec paths went with the Java baseline.** `Output.Sharing` / `Input.Sharing` and `toSharedBytes` existed only
+to measure the codecs against Java's one shared graph (§14). With nothing to compare against they were main-source
+code no build ran, so the standing size guard now compares the store against the same facts as **independent frames**,
+which is the property that actually matters and uses the `Plain` path the round-trip law already needs. It measures
+**0.10×** — the store is a tenth of unshared frames.
+
+Verified: `__.test` green (871), and a default build with no environment set writes `.eliot-objects-<config>` /
+`.eliot-index-<config>`, with the jar byte-identical cold and warm.
+
+Two things are worth keeping in view now that the old path is gone. There is **no fallback** — a defect in the store
+is a defect in the cache, which is what the conformance law, the backend round-trip and the byte-identity check exist
+for. And **concurrent writers are still unhandled**: two compilers sharing a target directory race on one append-only
+region and one index (TODO.md carries this, alongside the world leaf still invalidating on mtime rather than content).
