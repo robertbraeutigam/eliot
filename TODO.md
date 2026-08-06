@@ -129,26 +129,16 @@ notes.
   setup and i/o` at ~43%. See `docs/incremental-compilation.md` — §19 for that profile, and for
   why a lazy index is measured and rejected. Left on the cache itself: caching *declines* (§6 step
   3) and compaction (§13 step 5, no longer urgent since a warm build appends nothing).
-- **A compile error leaves the old artifacts in place**, so a failed build can be followed by a
-  successful run of a stale jar.
-- **Implement scoped caches**, so the stdlib does not get built again on every compile for the
-  same monomorphizations.
-- **Incremental cache corrupted by concurrent/out-of-date compilers.** A stale cache made a CLI
-  compile report errors from a *previous version* of an edited file (positions and types from old
-  content, underlining unrelated new text); deleting the cache fixed it. Suspected trigger: an
-  out-of-date IntelliJ plugin's resident LSP compiler running against the same workspace breaks
-  the cache every time it runs. Of the three asks, only the **compiler-version stamp** is in place
-  (`CacheFingerprint.compiler`, plus a magic and a format version in the store header), so a
-  different compiler build can no longer reuse another's cache. **Concurrent writers are handled as
-  of §21**: a shared/exclusive lock on the cache (never on the build — a failed acquisition costs a
-  full compilation and nothing else), a save rebased onto the region's actual end, a region id that
-  catches a region replaced rather than extended, and the index published by atomic rename. Still
-  open: the world leaf `FileStat` invalidates on **mtime**, not content — a content digest only
-  stops propagation one level up, at `SourceTokens`. That half is *live and observed*: a
-  `FullIntegrationTest` suite, which rewrites one `Test.els` per test against a resident session,
-  intermittently compiles the **previous** test's program — `File.lastModified()` has millisecond
-  resolution and two writes can land in one tick. It is the same symptom as the field report above,
-  from the other cause.
+- **The world leaf invalidates on mtime, not content.** `FileStat` compares
+  `File.lastModified()`, and a content digest only stops propagation one level up, at
+  `SourceTokens`. Live and observed: a `FullIntegrationTest` suite, which rewrites one `Test.els`
+  per test against a resident session, intermittently compiles the **previous** test's program —
+  millisecond resolution lets two writes land in one tick. This is the remaining half of the
+  field report closed by §21 (concurrent writers); the lock fixed the other cause, not this one.
+- **Cache sharing across target directories.** One cache now accumulates across mains for the same
+  roots and backend (§10), so the stdlib subgraph is built once per configuration rather than once
+  per example. Two *different* compiler builds sharing a target directory still take turns
+  replacing the region and both stay cold (§21) — correct, but never warm.
 - Remove the `Show` instances used for printing expression/fact internals.
 - Rename processors to generators?
 
