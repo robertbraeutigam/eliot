@@ -33,11 +33,11 @@ import scala.deriving.Mirror
   * positions) cost one byte instead of four.
   *
   * **Structure sharing is a property of the [[Output]], not of the codecs.** A derived codec writes every product and
-  * sum through [[Output.shared]]; whether that deduplicates is the stream's decision. With sharing off, each value is
-  * written out in full — independent frames, the §5 layout. With sharing on, a value **equal** to one already written
-  * costs a back-reference instead of its bytes, which is the byte-level model of §13's content-addressed store
-  * (dedup by value, not by identity, so structurally identical subtrees from unrelated facts collapse). Measuring the
-  * two against each other is what tells you whether explicit codecs alone pay, or only pay with sharing.
+  * sum through [[Output.shared]]; what that does with a repeated value is the sink's decision, and the three answers
+  * are the three implementations. [[Output.Plain]] writes every value out in full — independent frames, the §5 layout.
+  * [[Output.Sharing]] replaces a value **equal** to one already written with a back-reference within the stream.
+  * [[ContentAddressedOutput]] makes it an object of its own and refers to it by offset, which is the one the cache
+  * runs on; it deduplicates across runs as well as within one, and lets a reader chase only what it is asked for.
   */
 trait FactCodec[A] {
 
@@ -52,65 +52,108 @@ object FactCodec {
 
   def apply[A](using codec: FactCodec[A]): FactCodec[A] = codec
 
-  /** A sink for encoded values, optionally deduplicating equal ones.
-    *
-    * @param sharing
-    *   when true, a value equal to one already written is replaced by a back-reference to it. Ids are assigned in
-    *   write order, and only *after* the value's body is written, so the reader assigns the same ids as it goes.
+  /** A sink for encoded values. Every product, sum and shared leaf is written through [[Output.shared]], which is the
+    * **one** place a repeated value may be collapsed (`docs/incremental-compilation.md` §16).
     */
-  final class Output(val raw: DataOutput, sharing: Boolean) {
-    private val ids = mutable.HashMap.empty[Any, Int]
+  trait Output {
 
-    def shared(value: Any)(body: => Unit): Unit =
-      if (!sharing) body
-      else
+    /** Where a codec's own bytes go. Not necessarily the same sink for the whole encoding: an implementation that
+      * carves the value into separate objects redirects this while a body is being written.
+      */
+    def raw: DataOutput
+
+    /** Write `value`'s body, or a reference to an equal one already written. */
+    def shared(value: Any)(body: => Unit): Unit
+  }
+
+  object Output {
+
+    /** Writes every value out in full — independent frames, no sharing at all (the §5 layout). */
+    final class Plain(val raw: DataOutput) extends Output {
+      override def shared(value: Any)(body: => Unit): Unit = body
+    }
+
+    /** Deduplicates within one stream: a value equal to one already written is replaced by a back-reference to it. Ids
+      * are assigned in write order, and only *after* the value's body is written, so the reader assigns the same ids as
+      * it goes.
+      */
+    final class Sharing(val raw: DataOutput) extends Output {
+      private val ids = mutable.HashMap.empty[Any, Int]
+
+      override def shared(value: Any)(body: => Unit): Unit =
         ids.get(value) match {
           case Some(id) => raw.writeByte(0); writeVarInt(raw, id)
-          case None     => raw.writeByte(1); body; ids.put(value, ids.size)
+          case None     => raw.writeByte(1); body; ids.update(value, ids.size)
         }
+    }
   }
 
-  /** The reading counterpart of [[Output]]; `sharing` must match the writer's. */
-  final class Input(val raw: DataInput, sharing: Boolean) {
-    private val values = mutable.ArrayBuffer.empty[Any]
+  /** The reading counterpart of [[Output]]. An implementation must be paired with the one that wrote the bytes. */
+  trait Input {
 
-    def shared[A](body: => A): A =
-      if (!sharing) body
-      else if (raw.readByte() == 1) {
-        val value = body
-        values += value
-        value
-      } else values(readVarInt(raw)).asInstanceOf[A]
+    /** Where a codec's own bytes come from — redirected, like [[Output.raw]], while a separately stored object is
+      * being read.
+      */
+    def raw: DataInput
+
+    /** Read a value's body, or resolve the reference standing in for one already read.
+      *
+      * `reader` identifies *who* is reading, and an implementation that caches by position must key on it as well.
+      * Two types whose encodings coincide legitimately share one stored object — the bytes are the same and each
+      * reader supplies its own codec — so position alone does not determine what a decoded value is. `Sourced[String]`
+      * and `Sourced[Token]` are the case that proves it: same class, same bytes, different types.
+      */
+    def shared[A](reader: AnyRef)(body: => A): A
   }
 
-  /** Encode a single value to an independent byte array, with no cross-value sharing. Used by the conformance
-    * harness for the per-frame measurement; the real store writes many values into one sharing stream.
+  object Input {
+
+    /** Reads what [[Output.Plain]] wrote: every value in full. */
+    final class Plain(val raw: DataInput) extends Input {
+      override def shared[A](reader: AnyRef)(body: => A): A = body
+    }
+
+    /** Reads what [[Output.Sharing]] wrote, assigning ids in the same order the writer did. */
+    final class Sharing(val raw: DataInput) extends Input {
+      private val values = mutable.ArrayBuffer.empty[Any]
+
+      override def shared[A](reader: AnyRef)(body: => A): A =
+        if (raw.readByte() == 1) {
+          val value = body
+          values += value
+          value
+        } else values(readVarInt(raw)).asInstanceOf[A]
+    }
+  }
+
+  /** Encode a single value to an independent byte array, with no sharing at all. Used by the conformance harness to
+    * measure the per-frame layout; the real store is [[ContentAddressedOutput]].
     */
   def toBytes[A](value: A)(using codec: FactCodec[A]): Array[Byte] = {
     val bytes = new java.io.ByteArrayOutputStream()
     val out   = new java.io.DataOutputStream(bytes)
-    codec.write(new Output(out, sharing = false), value)
+    codec.write(new Output.Plain(out), value)
     out.flush()
     bytes.toByteArray
   }
 
   def fromBytes[A](bytes: Array[Byte])(using codec: FactCodec[A]): A =
-    codec.read(new Input(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes)), sharing = false))
+    codec.read(new Input.Plain(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes))))
 
-  /** Encode many values into one stream that deduplicates equal sub-values — the byte-level model of the
-    * content-addressed store, and the number §13's size premise actually rests on.
+  /** Encode many values into one stream that deduplicates equal sub-values. Not what the cache uses, but the bar it
+    * is measured against: the most a single-stream format can share, and the number §13's size premise rests on.
     */
   def toSharedBytes[A](values: Seq[A])(using codec: FactCodec[A]): Array[Byte] = {
     val bytes  = new java.io.ByteArrayOutputStream()
     val stream = new java.io.DataOutputStream(bytes)
-    val out    = new Output(stream, sharing = true)
+    val out    = new Output.Sharing(stream)
     values.foreach(codec.write(out, _))
     stream.flush()
     bytes.toByteArray
   }
 
   def fromSharedBytes[A](bytes: Array[Byte], count: Int)(using codec: FactCodec[A]): Seq[A] = {
-    val in = new Input(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes)), sharing = true)
+    val in = new Input.Sharing(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes)))
     Seq.fill(count)(codec.read(in))
   }
 
@@ -248,6 +291,8 @@ object FactCodec {
   private def sumCodec[A](sum: Mirror.SumOf[A], cases: => List[FactCodec[?]]): FactCodec[A] = {
     lazy val caseCodecs = cases
 
+    val reader = new Object
+
     instance(
       (out, value) =>
         out.shared(value) {
@@ -255,12 +300,14 @@ object FactCodec {
           writeVarInt(out.raw, tag)
           caseCodecs(tag).asInstanceOf[FactCodec[A]].write(out, value)
         },
-      in => in.shared(caseCodecs(readVarInt(in.raw)).asInstanceOf[FactCodec[A]].read(in))
+      in => in.shared(reader)(caseCodecs(readVarInt(in.raw)).asInstanceOf[FactCodec[A]].read(in))
     )
   }
 
   private def productCodec[A](product: Mirror.ProductOf[A], fields: => List[FactCodec[?]]): FactCodec[A] = {
     lazy val fieldCodecs = fields
+
+    val reader = new Object
 
     instance(
       (out, value) =>
@@ -271,7 +318,7 @@ object FactCodec {
             .zip(fieldCodecs.iterator)
             .foreach { case (field, codec) => codec.asInstanceOf[FactCodec[Any]].write(out, field) }
         },
-      in => in.shared(product.fromProduct(Tuple.fromArray(fieldCodecs.map(_.read(in)).toArray)))
+      in => in.shared(reader)(product.fromProduct(Tuple.fromArray(fieldCodecs.map(_.read(in)).toArray)))
     )
   }
 
@@ -307,8 +354,11 @@ object FactCodec {
   def singleton[A](value: A): FactCodec[A] = instance((_, _) => (), _ => value)
 
   /** Route a codec through the stream's sharing table, so an equal value already written costs a back-reference. */
-  private def shared[A](codec: FactCodec[A]): FactCodec[A] =
-    instance((out, value) => out.shared(value)(codec.write(out, value)), in => in.shared(codec.read(in)))
+  private def shared[A](codec: FactCodec[A]): FactCodec[A] = {
+    val reader = new Object
+
+    instance((out, value) => out.shared(value)(codec.write(out, value)), in => in.shared(reader)(codec.read(in)))
+  }
 
   def instance[A](writer: (Output, A) => Unit, reader: Input => A): FactCodec[A] =
     new FactCodec[A] {
@@ -321,11 +371,11 @@ object FactCodec {
   /** Zig-zag encoded so small negative numbers stay short, then written seven bits at a time, low group first, with
     * the high bit marking continuation.
     */
-  private def writeVarInt(out: DataOutput, value: Int): Unit = writeVarLong(out, value.toLong)
+  private[codec] def writeVarInt(out: DataOutput, value: Int): Unit = writeVarLong(out, value.toLong)
 
-  private def readVarInt(in: DataInput): Int = readVarLong(in).toInt
+  private[codec] def readVarInt(in: DataInput): Int = readVarLong(in).toInt
 
-  private def writeVarLong(out: DataOutput, value: Long): Unit = {
+  private[codec] def writeVarLong(out: DataOutput, value: Long): Unit = {
     var remaining = (value << 1) ^ (value >> 63) // zig-zag
     while ((remaining & ~0x7fL) != 0) {
       out.writeByte(((remaining & 0x7f) | 0x80).toInt)
@@ -334,7 +384,7 @@ object FactCodec {
     out.writeByte(remaining.toInt)
   }
 
-  private def readVarLong(in: DataInput): Long = {
+  private[codec] def readVarLong(in: DataInput): Long = {
     var shift  = 0
     var result = 0L
     var byte   = in.readByte().toInt

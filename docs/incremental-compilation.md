@@ -10,7 +10,7 @@ content-addressed object store, replacing Java serialization outright — and **
 | ---- | ----- |
 | 1 — the encoding, coverage proven by the compiler | **DONE**, §14. 0.55× the Java graph with sharing, 4.89× without. |
 | 2 — the fact model made encodable, decision on the key | **DONE**, §15. `CompilerFactKey.valueCodec`, abstract, no default. |
-| 3 — the content-addressed store | **NOT STARTED**. §16 is the handover. |
+| 3 — the content-addressed store | **IN PROGRESS**, §17. The object encoding round-trips at 0.49× Java; the file format and backend are not written. |
 
 **Nothing a build does has changed yet.** Every cache read and write still goes through the Java-serialized whole
 graph; the codecs exist, are complete, and are exercised only by their conformance test. §16 says what is on disk,
@@ -728,3 +728,75 @@ shape anyway.
 `./mill jvm.test.testOnly com.vanillasource.eliot.eliotc.jvm.codec.FactCodecConformanceTest` prints the three sizes
 and a per-fact-type breakdown for a small real build (1,659 facts). §11's four cache-phase lines come from
 `--statistics` on a warm build; §12's handover notes say how to run the MVStore comparison while it still exists.
+
+## 17. Step 3, first half: the object encoding, and why references are offsets (2026-08-06)
+
+§13 specified the store as `id → bytes` with **children written as their ids**, and §16 made "a stable type tag" the
+first thing to settle. Building it measured both away. What §13 got right is the shape — content-addressed objects,
+dedup by construction, lazy chase — and that shape now exists and round-trips. What it got wrong is the reference.
+
+**Measured, over the same 1,659 facts of §14, against the shared stream (1,090,464 bytes) rather than against Java,
+because §14 already established the stream as the bar:**
+
+```
+explicit codecs, one shared stream:        1,090,464 bytes   (baseline)
+content-addressed, 16-byte ids inline:     6,239,311 bytes   5.72×
+content-addressed, varint object numbers:  1,173,712 bytes   1.08×
+content-addressed, varint byte offsets:      980,192 bytes   0.90×
+```
+
+**§13's literal layout is a 5.7× regression, and the distribution says why.** Of 61,653 objects in a real build's fact
+graph, **48,607 — 79% — are referred to exactly once**, holding 84% of the body bytes. Compiler facts decompose into
+*tiny* objects: ~15 bytes each. A 16-byte reference does not annotate such a body, it doubles it, and four in five of
+them are pointed at from exactly one place, so the reference can never be amortised over reuse. The multiply-referred
+minority (12,370 objects, 158 KB) is where all the sharing value is, and it is small.
+
+**The fix is to separate the two jobs an id was doing.** They pull in opposite directions and only one of them has to
+be on disk:
+
+- **Identity** — `ObjectId`, a 128-bit Merkle hash: the object's own bytes with each child contributing *its id*,
+  never a position. Nothing run-specific enters it, so it means the same thing in any store. This is what dedup keys
+  on and what lets a recomputed value be compared to a stored one by 16 bytes without reading the stored side (§13
+  claim 5). It is computed during encoding and **never written into a body**.
+- **Location** — the object's **byte offset** in the append-only body region, varint-encoded. Stable for exactly the
+  reason a sequence number is (the region only grows), but *self-locating*: unlike numbers, offsets need no table to
+  be written or read, which matters precisely because a per-object table entry is the cost that 79% of objects cannot
+  carry. That is the whole gap between 1.08× and 0.90×.
+
+All six of §13's properties survive this, because none of them was about the reference width. The store is 0.90× the
+shared stream and 0.49× Java **before any cross-run dedup**, so §13 claim 1 — that owning the format lands *below*
+today's 2.49 MB rather than merely level with it — now has a second measurement behind it.
+
+### The type tag dissolves, and a subtler hazard replaces it
+
+§16 required a stable tag → codec table because "decoding has to pick a codec before it has a key". With the store
+laid out this way it does not: a fact's value is decoded with the codec its own key states, and every object below it
+is reached structurally by a codec that already knows what it is reading. **No tag appears anywhere in the format.**
+
+What does need care is the opposite of what §16 expected. **The store is untyped on purpose**, and two different types
+routinely encode to identical bytes — a `URI` and its own string form, `Sourced[String]` and `Sourced[Token]`. Sharing
+their *storage* is sound: the bytes are the same and the reader always supplies the codec. Sharing a *reader's cache*
+of decoded values is not, and that is a live bug, not a hypothetical — it is what the round-trip law caught on the
+first build, across a dozen fact types. `ContentAddressedInput` therefore keys its memo on **offset and reader**, the
+reader being an identity token each derived codec carries. Recording the shape, since the instinct is to reach for a
+class name: a class name does not discriminate generic types, and `Sourced[A]` alone makes that routine.
+
+Two mechanical traps, both worth naming because both look like working code:
+
+- **`mutable.HashMap.getOrElseUpdate` may not be used here, on either side.** Computing an object's id writes its
+  children, and decoding an object decodes its children — both re-enter the very map the update is being placed in.
+  The symptom is not an exception; it is a silently wrong graph.
+- **A `lazy val` cannot tie the self-reference knot** for a codec that names itself, because the builder forces it
+  while initialising. A plain identity token is what the reader memo actually needs.
+
+### What exists now, and what step 3 still owes
+
+New in `eliotc/…/cache/codec/`: `ObjectId`, `ContentAddressedOutput` (write: frames, Merkle hashing, dedup, append),
+`ContentAddressedInput` (read: follow an offset, memoize per reader). `FactCodec.Output`/`Input` are now traits with
+`Plain` / `Sharing` implementations beside the content-addressed pair — the swap §16 predicted would touch one pair of
+methods did touch exactly that pair, plus the `shared` signature on the read side. `FactCodecConformanceTest` gains
+the store round-trip law and the size assertion. **Still nothing a build does has changed**: no backend uses this yet.
+
+Remaining in step 3: the on-disk file format (body region + entry index) and a `ContentAddressedCacheBackend` behind
+the existing seam, the entry shape carrying declines (§6 Step 3), and lazy value materialisation through
+`CacheEntry`. Then §13's steps 4–6 as written.

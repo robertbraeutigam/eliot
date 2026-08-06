@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.codec
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.compiler.cache.FactSerialization
-import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{ContentAddressedInput, ContentAddressedOutput, FactCodec}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import org.scalatest.Assertion
@@ -57,6 +57,57 @@ class FactCodecConformanceTest extends AsyncFlatSpec with AsyncIOSpec with Match
 
       report(encodable, frames, shared, java).as(shared should be < java)
     }
+  }
+
+  /** The store the codecs are actually for (§17). Both properties are checked here because they are one design: the
+    * objects are content-addressed so that equal subtrees collapse, and a fact is read back by following byte offsets
+    * so that nothing is decoded unless something asks for it.
+    *
+    * The size is measured against the *shared stream*, not against Java, because §14 already established that as the
+    * bar: it is the encoding with in-stream back-references, which is the most a single-stream format can share. A
+    * store that beats it does so by deduplicating across the whole build rather than within one write.
+    */
+  it should "round-trip a build's facts through a content-addressed object store" in {
+    withFacts { facts =>
+      val encodable = facts.filter(fact => fact.key().valueCodec.isDefined && FactSerialization.canSerialize(fact))
+      val restored  = roundTripThroughStore(encodable)
+
+      IO.pure(restored.zip(encodable).filterNot(pair => pair._1 == pair._2).map(pair => simpleName(pair._2)) shouldBe Nil)
+    }
+  }
+
+  it should "store a build's facts in less space than one shared stream" in {
+    withFacts { facts =>
+      val encodable = facts.filter(fact => fact.key().valueCodec.isDefined && FactSerialization.canSerialize(fact))
+      val shared    = FactCodec.toSharedBytes(encodable)(using taggedCodec(encodable)).length
+      val store     = storeOf(encodable)
+
+      reportStore(shared, store).as(store.appendedBytes.length should be < shared)
+    }
+  }
+
+  private def storeOf(facts: Seq[CompilerFact]): ContentAddressedOutput = {
+    val store = ContentAddressedOutput.empty
+
+    facts.foreach(fact => store.write(fact)(using codecOf(fact)))
+    store
+  }
+
+  private def roundTripThroughStore(facts: Seq[CompilerFact]): Seq[CompilerFact] = {
+    val store   = ContentAddressedOutput.empty
+    val ids     = facts.map(fact => store.write(fact)(using codecOf(fact)))
+    val offsets = store.objectOffsets
+    val input   = new ContentAddressedInput(store.appendedBytes)
+
+    ids.zip(facts).map((id, fact) => input.read(offsets(id))(using codecOf(fact)))
+  }
+
+  private def reportStore(shared: Int, store: ContentAddressedOutput): IO[Unit] = IO.delay {
+    val stored = store.appendedBytes.length
+
+    info(f"explicit codecs, shared sub-values:     ${shared}%,12d bytes  (baseline)")
+    info(f"content-addressed object store:         ${stored}%,12d bytes  ${stored.toDouble / shared}%.2f×")
+    info(f"distinct objects:                       ${store.objectOffsets.size}%,12d")
   }
 
   /** One write-only codec over a heterogeneous fact list, so the whole build goes into a single sharing stream. The
