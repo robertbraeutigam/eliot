@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.codec
 
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
@@ -12,7 +12,8 @@ import org.scalatest.Assertion
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-import java.nio.file.{Files, Path}
+import java.nio.channels.{FileChannel, FileLock}
+import java.nio.file.{Files, Path, StandardOpenOption}
 
 /** The store as a cache backend, against the facts of a real build (`docs/incremental-compilation.md` §17).
   *
@@ -68,6 +69,73 @@ class ContentAddressedCacheBackendTest extends AsyncFlatSpec with AsyncIOSpec wi
     }
   }
 
+  /** Two compilers sharing a target directory, the race that produces a *wrong* build rather than a slow one (§21).
+    *
+    * Both load the same region, then both append — different content, since they hold different facts. The second one
+    * to write may only continue from where the region actually ends now, not from the length it loaded; taking the
+    * loaded length would publish offsets that address the other compiler's bytes.
+    */
+  it should "continue from where the region actually ends when another compiler appended in between" in {
+    withCache { (data, cacheDir) =>
+      for {
+        _      <- open(cacheDir).flatMap(_.save(firstEntries(data, 10)))
+        first  <- open(cacheDir)
+        second <- open(cacheDir)
+        _      <- first.load()
+        _      <- second.load()
+        _      <- second.save(firstEntries(data, 20))
+        _      <- first.save(data)
+        loaded <- open(cacheDir).flatMap(_.load())
+      } yield loaded.map(sameAs(data)) shouldBe Some(true)
+    }
+  }
+
+  /** The other half of the same problem: offsets held in memory mean nothing once the region they came from has been
+    * replaced rather than extended, so the save that holds them stands down instead of appending into it.
+    */
+  it should "stand down rather than write into a region that was replaced underneath it" in {
+    withCache { (data, cacheDir) =>
+      val replacement = firstEntries(data, 10)
+
+      for {
+        _      <- open(cacheDir).flatMap(_.save(data))
+        stale  <- open(cacheDir)
+        _      <- stale.load()
+        _      <- IO.blocking(clear(cacheDir))
+        _      <- open(cacheDir).flatMap(_.save(replacement))
+        _      <- stale.save(data)
+        loaded <- open(cacheDir).flatMap(_.load())
+      } yield loaded.map(sameAs(replacement)) shouldBe Some(true)
+    }
+  }
+
+  /** A save appends the bodies before it publishes the index naming them, so a compiler killed in between leaves a
+    * region longer than its index claims. The prefix the index does describe never moved, and is still readable.
+    */
+  it should "load a region left longer than its index by an interrupted save" in {
+    withCache { (data, cacheDir) =>
+      for {
+        _      <- open(cacheDir).flatMap(_.save(data))
+        _      <- IO.blocking(Files.write(objectsFileIn(cacheDir), Array[Byte](1, 2, 3), StandardOpenOption.APPEND))
+        loaded <- open(cacheDir).flatMap(_.load())
+      } yield loaded.map(sameAs(data)) shouldBe Some(true)
+    }
+  }
+
+  /** The cache is locked, the build is not: a compiler that cannot have the lock does *more work*, and never waits on
+    * another build to finish.
+    */
+  it should "forfeit a save rather than wait for a compiler holding the cache" in {
+    withCache { (data, cacheDir) =>
+      for {
+        _      <- open(cacheDir).flatMap(_.save(firstEntries(data, 10)))
+        before <- storeSize(cacheDir)
+        _      <- heldLock(cacheDir).surround(open(cacheDir).flatMap(_.save(data)))
+        after  <- storeSize(cacheDir)
+      } yield after shouldBe before
+    }
+  }
+
   /** What the store is expected to hold back: a fact whose key declines to persist keeps its edges and loses its
     * value (§15), exactly as the Java-serialized cache does for the same two types.
     */
@@ -80,6 +148,16 @@ class ContentAddressedCacheBackendTest extends AsyncFlatSpec with AsyncIOSpec wi
   private def readable(data: FactCacheData): Map[CompilerFactKey[?], (Option[CompilerFact], Set[CompilerFactKey[?]])] =
     data.entries.map { case (key, entry) => key -> (entry.value, entry.directDeps) }
 
+  /** Whether a loaded cache is exactly the one that was saved — every key, every edge, every value.
+    *
+    * Answered as a single `Boolean` rather than by comparing the two maps, because a `shouldBe` between two whole
+    * fact graphs prettifies its difference on failure, and doing that to thousands of deeply nested facts takes
+    * longer than any timeout: a broken store would show up as a hung suite instead of a failed assertion.
+    */
+  private def sameAs(original: FactCacheData)(loaded: FactCacheData): Boolean =
+    loaded.entries.keySet == original.entries.keySet && matchesEverything(original)(loaded) &&
+      loaded.entries.forall { case (key, entry) => original.entries.get(key).map(_.directDeps).contains(entry.directDeps) }
+
   private def matchesEverything(original: FactCacheData)(loaded: FactCacheData): Boolean =
     loaded.entries.forall { case (key, entry) =>
       original.entries.get(key).flatMap(_.value).filter(_ => key.valueCodec.isDefined) match {
@@ -90,6 +168,33 @@ class ContentAddressedCacheBackendTest extends AsyncFlatSpec with AsyncIOSpec wi
 
   private def storeSize(cacheDir: Path): IO[Long] =
     IO.blocking(Files.list(cacheDir).toList.stream().mapToLong(Files.size).sum())
+
+  /** A prefix of a run's facts, standing in for a compiler that holds different facts from another one. */
+  private def firstEntries(data: FactCacheData, count: Int): FactCacheData =
+    FactCacheData(data.entries.take(count))
+
+  private def clear(cacheDir: Path): Unit =
+    Files.list(cacheDir).toList.forEach(Files.delete)
+
+  private def objectsFileIn(cacheDir: Path): Path = fileIn(cacheDir, ".eliot-objects")
+
+  /** Found by prefix rather than spelled out, so the test does not restate the backend's naming rule. */
+  private def fileIn(cacheDir: Path, prefix: String): Path =
+    Files.list(cacheDir).toList.stream().filter(_.getFileName.toString.startsWith(prefix)).findFirst().orElseThrow()
+
+  /** The cache lock, held the way another compiler in another process would hold it. */
+  private def heldLock(cacheDir: Path): Resource[IO, FileLock] =
+    Resource
+      .fromAutoCloseable(
+        IO.blocking(
+          FileChannel.open(
+            fileIn(cacheDir, ".eliot-lock"),
+            StandardOpenOption.READ,
+            StandardOpenOption.WRITE
+          )
+        )
+      )
+      .flatMap(channel => Resource.make(IO.blocking(channel.lock()))(held => IO.blocking(held.release())))
 
   private def open(cacheDir: Path): IO[ContentAddressedCacheBackend] = openWith(cacheDir, "test-compiler")
 

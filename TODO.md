@@ -139,10 +139,16 @@ notes.
   out-of-date IntelliJ plugin's resident LSP compiler running against the same workspace breaks
   the cache every time it runs. Of the three asks, only the **compiler-version stamp** is in place
   (`CacheFingerprint.compiler`, plus a magic and a format version in the store header), so a
-  different compiler build can no longer reuse another's cache. Still open: the world leaf
-  `FileStat` invalidates on **mtime**, not content — a content digest only stops propagation one
-  level up, at `SourceTokens` — and **concurrent writers are unhandled**, with two compilers
-  sharing a target directory racing on one append-only object region and one index.
+  different compiler build can no longer reuse another's cache. **Concurrent writers are handled as
+  of §21**: a shared/exclusive lock on the cache (never on the build — a failed acquisition costs a
+  full compilation and nothing else), a save rebased onto the region's actual end, a region id that
+  catches a region replaced rather than extended, and the index published by atomic rename. Still
+  open: the world leaf `FileStat` invalidates on **mtime**, not content — a content digest only
+  stops propagation one level up, at `SourceTokens`. That half is *live and observed*: a
+  `FullIntegrationTest` suite, which rewrites one `Test.els` per test against a resident session,
+  intermittently compiles the **previous** test's program — `File.lastModified()` has millisecond
+  resolution and two writes can land in one tick. It is the same symptom as the field report above,
+  from the other cause.
 - Remove the `Show` instances used for printing expression/fact internals.
 - Rename processors to generators?
 

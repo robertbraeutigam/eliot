@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.compiler.cache
 
-import cats.effect.{IO, Ref}
+import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.{
   ContentAddressedInput,
@@ -14,7 +14,11 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.io.{DataInputStream, DataOutputStream}
-import java.nio.file.{Files, Path, StandardOpenOption}
+import java.nio.channels.{FileChannel, FileLock, OverlappingFileLockException}
+import java.nio.file.{Files, Path, StandardCopyOption, StandardOpenOption}
+
+import scala.concurrent.duration.*
+import scala.util.Random
 
 /** The incremental cache over a content-addressed object store (`docs/incremental-compilation.md` §13, §17).
   *
@@ -39,13 +43,28 @@ import java.nio.file.{Files, Path, StandardOpenOption}
   * the bodies are untyped bytes, so a mark-and-sweep cannot walk them and GC is necessarily a decode-and-re-encode of
   * the live entries.
   *
+  * **Two compilers may share a target directory, and the cache is what is locked — never the build** (§21). A build
+  * system blocks a second build because it owns the output; this owns only a cache, and a cache can always be thrown
+  * away. So a third file, `.eliot-lock-<config>`, is held shared for a load and exclusively for a save, `tryLock`ed
+  * for at most [[ContentAddressedCacheBackend.LOCK_TIMEOUT]] — and failing to get it is not an error: a load answers
+  * `None`, a save does nothing, and the only cost either way is a full compilation. Three things make the locked
+  * window sound rather than merely serialized:
+  *
+  *   - a save is based at the region's **actual** length, read under the lock, rather than the length its own load
+  *     saw, so a compiler that appended in between is extended rather than overwritten;
+  *   - the header carries a random **region id**, minted whenever the region is *replaced* and unchanged across every
+  *     append, so offsets held in memory can be told to belong to a region that no longer exists;
+  *   - the index is published by **atomic rename** after the bodies are appended, so a reader never sees half of one
+  *     and an interrupted save leaves the previous cache intact.
+  *
   * Both directions are fail-safe: `load` answers `None` on any problem (missing file, format or fingerprint mismatch,
-  * a body region that does not match the index it was written with), and `save` warns rather than failing the build.
-  * The worst either can do is cost a full compilation.
+  * a body region shorter than the index it was written with), and `save` warns rather than failing the build. The
+  * worst either can do is cost a full compilation.
   */
 final class ContentAddressedCacheBackend private (
     objectsFile: Path,
     indexFile: Path,
+    lockFile: Path,
     compilerFingerprint: String,
     configFingerprint: String,
     keyCodecs: FactKeyCodecs.Registry,
@@ -53,17 +72,65 @@ final class ContentAddressedCacheBackend private (
 ) extends Logging {
 
   def load(): IO[Option[FactCacheData]] =
-    IO.blocking(readFiles())
-      .flatMap(_.traverse { case (data, next) => placement.set(next).as(data) })
+    withLock(shared = true)(
+      IO.blocking(readFiles()).flatMap(_.traverse { case (data, next) => placement.set(next).as(data) })
+    )(busy("doing a full compilation.").as(None))
       .handleErrorWith(t => warn[IO]("Could not read the incremental cache; doing a full compilation.", t).as(None))
 
   def save(data: FactCacheData): IO[Unit] =
-    placement.get
-      .flatMap(current => IO.blocking(writeFiles(data, current)))
-      .flatMap { case (next, written, dropped) =>
-        placement.set(next) >> reportSave(data, next, written, dropped)
-      }
+    withLock(shared = false)(
+      placement.get
+        .flatMap(current => IO.blocking(writeFiles(data, current)))
+        .flatMap {
+          case Some((next, written, dropped)) => placement.set(next) >> reportSave(data, next, written, dropped)
+          case None                           => debug[IO]("The incremental cache was replaced by another compiler; not writing it.")
+        }
+    )(busy("not writing it."))
       .handleErrorWith(t => warn[IO]("Could not write the incremental cache; the next build will be a full one.", t))
+
+  private def busy(consequence: String): IO[Unit] =
+    debug[IO](
+      s"Another compiler held the incremental cache for ${ContentAddressedCacheBackend.LOCK_TIMEOUT}; $consequence"
+    )
+
+  /** Run `action` holding the cache lock, or `whenBusy` if it cannot be had within the timeout.
+    *
+    * Never waits longer than a save takes by an order of magnitude: contention that outlasts that is a hung compiler
+    * rather than a busy one, and waiting on it would be exactly the build-blocking this design refuses. An OS file
+    * lock dies with the process holding it, so there is no stale lock to break. Within one JVM an overlapping request
+    * throws instead of answering empty, which counts as busy for the same reason.
+    */
+  private def withLock[A](shared: Boolean)(action: IO[A])(whenBusy: => IO[A]): IO[A] =
+    lock(shared).use(_.fold(whenBusy)(_ => action))
+
+  private def lock(shared: Boolean): Resource[IO, Option[FileLock]] =
+    Resource
+      .make(IO.blocking(openLockFile()))(channel => IO.blocking(channel.close()))
+      .flatMap(channel =>
+        Resource.make(acquire(channel, shared, ContentAddressedCacheBackend.LOCK_ATTEMPTS))(
+          _.traverse_(held => IO.blocking(held.release()))
+        )
+      )
+
+  private def openLockFile(): FileChannel = {
+    Files.createDirectories(lockFile.getParent)
+    FileChannel.open(
+      lockFile,
+      StandardOpenOption.CREATE,
+      StandardOpenOption.READ,
+      StandardOpenOption.WRITE
+    )
+  }
+
+  private def acquire(channel: FileChannel, shared: Boolean, remaining: Int): IO[Option[FileLock]] =
+    IO.blocking(Option(channel.tryLock(0L, Long.MaxValue, shared)))
+      .recover { case _: OverlappingFileLockException => None }
+      .flatMap {
+        case Some(held)             => IO.pure(Some(held))
+        case None if remaining <= 1 => IO.pure(None)
+        case None                   =>
+          IO.sleep(ContentAddressedCacheBackend.LOCK_RETRY) >> acquire(channel, shared, remaining - 1)
+      }
 
   private def readFiles(): Option[(FactCacheData, ContentAddressedCacheBackend.Placement)] =
     Option
@@ -80,16 +147,7 @@ final class ContentAddressedCacheBackend private (
       in: DataInputStream,
       bodies: Array[Byte]
   ): Option[(FactCacheData, ContentAddressedCacheBackend.Placement)] = {
-    val header     =
-      ContentAddressedCacheBackend.Header(in.readUTF(), in.readInt(), in.readUTF(), in.readUTF(), in.readInt())
-    val acceptable =
-      header.magic == ContentAddressedCacheBackend.MAGIC &&
-        header.formatVersion == ContentAddressedCacheBackend.FORMAT_VERSION &&
-        header.compilerFingerprint == compilerFingerprint &&
-        header.configFingerprint == configFingerprint &&
-        header.bodyLength == bodies.length
-
-    Option.when(acceptable) {
+    readHeader(in).filter(acceptable(_, bodies.length)).map { header =>
       val names   = Array.fill(FactCodec.readVarInt(in))(in.readUTF()).map(keyCodecs)
       val input   = new ContentAddressedInput(bodies)
       val entries = Seq.fill(FactCodec.readVarInt(in))(readEntry(in, names, input))
@@ -97,13 +155,40 @@ final class ContentAddressedCacheBackend private (
       (
         FactCacheData(entries.map(read => read.key -> read.entry).toMap),
         ContentAddressedCacheBackend.Placement(
-          bodies.length,
+          Some(header.regionId),
+          header.bodyLength,
           entries.map(read => read.key -> read.keyOffset).toMap,
           entries.flatMap(read => read.located.map { case (stored, offset) => stored.id -> offset }).toMap
         )
       )
     }
   }
+
+  /** The header, or nothing when this is not an index of a shape this compiler knows.
+    *
+    * The magic and the format version are checked *before* the rest is read, so an index left by an older format is
+    * declined rather than decoded as garbage — which would surface as a warning on the first build after an upgrade.
+    */
+  private def readHeader(in: DataInputStream): Option[ContentAddressedCacheBackend.Header] = {
+    val magic         = in.readUTF()
+    val formatVersion = in.readInt()
+
+    Option.when(
+      magic == ContentAddressedCacheBackend.MAGIC && formatVersion == ContentAddressedCacheBackend.FORMAT_VERSION
+    )(ContentAddressedCacheBackend.Header(in.readUTF(), in.readUTF(), in.readLong(), in.readInt()))
+  }
+
+  /** Whether an index describes a store this compiler may reuse.
+    *
+    * The length test is `<=`, not `==`: the bodies are appended *before* the index that names them is published, so a
+    * region longer than its index claims is what an interrupted save leaves behind, not evidence of a race. The
+    * prefix the index does claim can never have moved — that is what append-only means — and the region id is what
+    * catches a region that was replaced rather than extended.
+    */
+  private def acceptable(header: ContentAddressedCacheBackend.Header, bodyLength: Int): Boolean =
+    header.compilerFingerprint == compilerFingerprint &&
+      header.configFingerprint == configFingerprint &&
+      header.bodyLength <= bodyLength
 
   private def readEntry(in: DataInputStream, names: Array[FactCodec[CompilerFactKey[?]]], input: ContentAddressedInput): Read = {
     val (key, keyOffset) = readKey(in, names, input)
@@ -154,43 +239,89 @@ final class ContentAddressedCacheBackend private (
       entry: CacheEntry
   )
 
+  /** Write what this run holds, or answer `None` when the region it was loaded from is gone (§21).
+    *
+    * Called with the cache lock held, which is what lets it read the region's real state rather than assume it.
+    */
   private def writeFiles(
       data: FactCacheData,
       current: ContentAddressedCacheBackend.Placement
-  ): (ContentAddressedCacheBackend.Placement, Int, Int) = {
-    val out      = new ContentAddressedOutput(current.values, current.bodyLength)
-    val located  = Located(out, current)
-    val encoded  = data.entries.toSeq.flatMap { case (key, entry) => located.entry(key, entry) }
-    val appended = out.appendedBytes
+  ): Option[(ContentAddressedCacheBackend.Placement, Int, Int)] =
+    continuation(current).map { case (regionId, base) =>
+      val out      = new ContentAddressedOutput(current.values, base)
+      val located  = Located(out, current)
+      val encoded  = data.entries.toSeq.flatMap { case (key, entry) => located.entry(key, entry) }
+      val appended = out.appendedBytes
 
-    Files.createDirectories(objectsFile.getParent)
-    // Appending is only sound on top of the region the index was read from; with no prior placement (a cold start, or
-    // a rejected load) whatever is on disk is unreachable and must be replaced rather than extended.
-    if (current.bodyLength === 0) Files.write(objectsFile, appended)
-    else Files.write(objectsFile, appended, StandardOpenOption.APPEND)
-    writeIndex(current.bodyLength + appended.length, encoded)
+      Files.createDirectories(objectsFile.getParent)
+      if (base === 0) Files.write(objectsFile, appended)
+      else Files.write(objectsFile, appended, StandardOpenOption.APPEND)
+      writeIndex(regionId, base + appended.length, encoded)
 
-    (
-      ContentAddressedCacheBackend.Placement(
-        current.bodyLength + appended.length,
-        located.keys,
-        encoded.flatMap(_.value).map(placed => placed.id -> placed.offset).toMap
-      ),
-      appended.length,
-      data.entries.size - encoded.size
-    )
-  }
+      (
+        ContentAddressedCacheBackend.Placement(
+          Some(regionId),
+          base + appended.length,
+          located.keys,
+          encoded.flatMap(_.value).map(placed => placed.id -> placed.offset).toMap
+        ),
+        appended.length,
+        data.entries.size - encoded.size
+      )
+    }
 
-  private def writeIndex(bodyLength: Int, entries: Seq[ContentAddressedCacheBackend.Encoded]): Unit = {
-    val names = entries.flatMap(entry => entry.keyName +: entry.deps.map(_._1)).distinct
-    val index = names.zipWithIndex.toMap
-    val out   = new DataOutputStream(Files.newOutputStream(indexFile))
+  /** Which region this save writes, and the offset it continues at — or nothing, when it may not write at all.
+    *
+    * Three cases, and the middle one is the reason the region id exists:
+    *
+    *   - **nothing loaded** (a cold start, or a load that was rejected): whatever is on disk is unreachable to this
+    *     run, so the region is *replaced* under a **new** id. Any compiler still holding offsets into the old one
+    *     finds the id changed at its own next save and stands down, rather than appending into a region that no
+    *     longer means what its offsets say.
+    *   - **the region we loaded is still there**: extend it — but from its **actual** end, read here under the lock,
+    *     not from the length this run loaded. Another compiler may have appended in between, and its bytes are as
+    *     immutable as any others; basing at the loaded length would write our objects on top of the offsets we then
+    *     publish. This is the race that produces a wrong build rather than a slow one.
+    *   - **the region was replaced underneath us**: every offset carried in memory belongs to a store that is gone.
+    *     Skip. The cache is an optimisation, so forfeiting one save costs a colder next build and nothing else.
+    */
+  private def continuation(current: ContentAddressedCacheBackend.Placement): Option[(Long, Int)] =
+    current.region match {
+      case None           => Some((Random.nextLong(), 0))
+      case Some(regionId) => Option.when(regionOnDisk().contains(regionId))((regionId, currentBodyLength()))
+    }
+
+  /** The id of the region the published index describes, if there is one this compiler could have written. */
+  private def regionOnDisk(): Option[Long] =
+    Option.when(Files.exists(indexFile))(()).flatMap { _ =>
+      val in = new DataInputStream(Files.newInputStream(indexFile))
+
+      try readHeader(in).filter(acceptable(_, currentBodyLength())).map(_.regionId)
+      catch { case _: Exception => None }
+      finally in.close()
+    }
+
+  private def currentBodyLength(): Int =
+    if (Files.exists(objectsFile)) Files.size(objectsFile).toInt else 0
+
+  /** Publish the index by **atomic rename**, after the bodies it names are already appended.
+    *
+    * Both halves of that matter. A reader holding only the shared lock still never sees a partly written index, and a
+    * compiler killed during a save leaves the *previous* index in place — a truncating write in its position would
+    * destroy a good cache to make an unusable one.
+    */
+  private def writeIndex(regionId: Long, bodyLength: Int, entries: Seq[ContentAddressedCacheBackend.Encoded]): Unit = {
+    val names     = entries.flatMap(entry => entry.keyName +: entry.deps.map(_._1)).distinct
+    val index     = names.zipWithIndex.toMap
+    val temporary = indexFile.resolveSibling(s"${indexFile.getFileName}${ContentAddressedCacheBackend.TEMPORARY_SUFFIX}")
+    val out       = new DataOutputStream(Files.newOutputStream(temporary))
 
     try {
       out.writeUTF(ContentAddressedCacheBackend.MAGIC)
       out.writeInt(ContentAddressedCacheBackend.FORMAT_VERSION)
       out.writeUTF(compilerFingerprint)
       out.writeUTF(configFingerprint)
+      out.writeLong(regionId)
       out.writeInt(bodyLength)
       FactCodec.writeVarInt(out, names.size)
       names.foreach(out.writeUTF)
@@ -211,6 +342,8 @@ final class ContentAddressedCacheBackend private (
         }
       }
     } finally out.close()
+
+    val _ = Files.move(temporary, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
   }
 
   private def reportSave(
@@ -289,10 +422,20 @@ final class ContentAddressedCacheBackend private (
 }
 
 object ContentAddressedCacheBackend {
-  private val MAGIC: String          = "ELIOT-CAS"
-  private val FORMAT_VERSION: Int    = 2
-  private val OBJECTS_FILE: String   = ".eliot-objects"
-  private val INDEX_FILE: String     = ".eliot-index"
+  private val MAGIC: String            = "ELIOT-CAS"
+  private val FORMAT_VERSION: Int      = 3
+  private val OBJECTS_FILE: String     = ".eliot-objects"
+  private val INDEX_FILE: String       = ".eliot-index"
+  private val LOCK_FILE: String        = ".eliot-lock"
+  private val TEMPORARY_SUFFIX: String = ".tmp"
+
+  /** How long a load or a save will wait for the cache lock before giving up on the cache entirely. A save is
+    * ~100–150 ms, so contention outlasting this is a hung compiler and not a busy one — and waiting on that would be
+    * the build-blocking this design exists to avoid.
+    */
+  private val LOCK_ATTEMPTS: Int          = 20
+  private val LOCK_RETRY: FiniteDuration  = 50.millis
+  private[cache] val LOCK_TIMEOUT: FiniteDuration = LOCK_RETRY * LOCK_ATTEMPTS.toLong
 
   def create(
       targetPath: Path,
@@ -301,11 +444,12 @@ object ContentAddressedCacheBackend {
       keyCodecs: FactKeyCodecs.Registry
   ): IO[ContentAddressedCacheBackend] =
     Ref
-      .of[IO, Placement](Placement(0, Map.empty, Map.empty))
+      .of[IO, Placement](Placement.empty)
       .map(
         new ContentAddressedCacheBackend(
           fileFor(targetPath, OBJECTS_FILE, configFingerprint),
           fileFor(targetPath, INDEX_FILE, configFingerprint),
+          fileFor(targetPath, LOCK_FILE, configFingerprint),
           compilerFingerprint,
           configFingerprint,
           keyCodecs,
@@ -321,11 +465,11 @@ object ContentAddressedCacheBackend {
   private def fileFor(targetDir: Path, prefix: String, configFingerprint: String): Path =
     targetDir.resolve(s"$prefix-${configFingerprint.filter(_.isLetterOrDigit).take(16)}")
 
+  /** What an index says about itself, past the magic and format version that gate reading it at all. */
   private case class Header(
-      magic: String,
-      formatVersion: Int,
       compilerFingerprint: String,
       configFingerprint: String,
+      regionId: Long,
       bodyLength: Int
   )
 
@@ -341,10 +485,21 @@ object ContentAddressedCacheBackend {
     *
     * `values` is keyed by **content**, not by which key or which object: that is what lets a leaf recomputed to an
     * equal-but-fresh value resolve to the bytes already on disk instead of appending them again.
+    *
+    * Every offset in here is meaningful **only in `region`**, the incarnation of the body region it was read from. An
+    * offset survives an append because the region only grows; it does not survive the region being replaced, and that
+    * is what the id is compared for before a save extends anything (§21).
     */
   private case class Placement(
+      region: Option[Long],
       bodyLength: Int,
       keys: Map[CompilerFactKey[?], Int],
       values: Map[ObjectId, Int]
   )
+
+  private object Placement {
+
+    /** Nothing loaded: no region to extend, and no offset that means anything. */
+    val empty: Placement = Placement(None, 0, Map.empty, Map.empty)
+  }
 }

@@ -1025,3 +1025,99 @@ Two things are worth keeping in view now that the old path is gone. There is **n
 is a defect in the cache, which is what the conformance law, the backend round-trip and the byte-identity check exist
 for. And **concurrent writers are still unhandled**: two compilers sharing a target directory race on one append-only
 region and one index (TODO.md carries this, alongside the world leaf still invalidating on mtime rather than content).
+— *Concurrent writers are handled as of §21; the mtime leaf is still open.*
+
+## 21. Concurrent compilers: the cache is locked, the build is not (2026-08-06)
+
+§20 left "concurrent writers are unhandled" as the last correctness item on the store, and TODO.md carries a field
+report that matches it: a CLI compile reporting errors with positions and types from a *previous* version of an
+edited file, cured by deleting the cache, suspected to be a resident LSP compiler sharing the workspace.
+
+### The three races, and which one can produce a wrong build
+
+Read off the layout (§17): the body region is append-only and addressed by byte offset, the index is a full rewrite
+carrying the region's length in its header.
+
+1. **Stale append base.** `writeFiles` builds its writer at `current.bodyLength` — the length read at *load* time. Two
+   compilers loading at `N` and appending `a` and `b` bytes leave the second one's index claiming its objects start at
+   `N` when they start at `N+a`. Every offset it wrote points into the other's bytes.
+2. **Torn index.** The index is written with a truncating `newOutputStream`, so a loader can read it mid-rewrite —
+   and a compiler killed during a save destroys the old index without finishing the new one.
+3. **Lost entries.** The last index published wins wholesale; the loser's entries become unreachable bytes.
+
+Race 3 is benign — a slower next build. Race 2 is fail-safe today: it throws, `load` catches, cold build. Race 1 is
+**not** sound. It is *usually* caught by the header's `bodyLength == bodies.length` check, which is why this has
+mostly shown up as unexplained cold builds — but two compilers appending the **same number of bytes with different
+content**, which is exactly what two compilers reacting to the same edit do, passes that check and resolves offsets
+into the wrong objects. A decode of valid-looking garbage is the reported symptom.
+
+There is a fourth path with the same ending, and it explains the field report's "out-of-date compiler" trigger. When
+a load is *rejected* (a different `CacheFingerprint.compiler`), the following save truncates the region — while the
+other compiler, whose in-memory placement still describes the old region, appends to it at its own base. Neither the
+file name nor the header distinguishes one incarnation of the region from another, so nothing detects it.
+
+### The principle: lock the cache, never the build
+
+Mill blocks a second build because it owns the *output*; the lock protects a build directory that genuinely must not
+have two writers. `javac` blocks nothing because it has no shared persistent state at all. This compiler is the
+second thing with a bit of the first: its only shared state is a **cache**, which is by definition discardable. So
+the lock protects the cache, is never waited on for long, and every way of failing to get it degrades to *doing more
+work*, never to blocking a build and never to trusting a wrong byte.
+
+### What landed
+
+**A single lock file per configuration, shared for load and exclusive for save** (`.eliot-lock-<config>`). Acquisition
+is `tryLock` polled for at most a second — a save is 100–141 ms, so contention that outlasts that is a hung process,
+not a busy one. Failing to acquire is not an error: a load answers `None` (cold build), a save does nothing (the next
+process start is cold). An OS file lock is released when the process dies, so there are no stale locks to break.
+
+**A region id in the header, and the save rebases onto the region's real end.** The header gains a random 64-bit
+`regionId`, minted whenever the region is *replaced* and carried unchanged across every append. It is what a save
+checks before extending: our placement's offsets mean something only in the incarnation they were read from, so a
+save whose region id no longer matches the one on disk skips rather than corrupting. When the ids do match, the
+writer is based at the region's **actual** length read under the lock, not the length loaded at startup — which is
+what makes an interleaved append correct rather than merely detected. Format version 2 → 3.
+
+**The index is published by atomic rename.** Written to `<index>.tmp`, then `ATOMIC_MOVE` over the real name, with the
+objects appended *first*. A reader now sees one complete index — the old or the new — and a compiler killed mid-save
+leaves the previous cache intact plus some unreferenced bytes, instead of leaving no cache at all.
+
+**The length check relaxes from `==` to `<=`.** With appends ordered before publication, a region longer than its
+index claims is the normal aftermath of an interrupted save, not evidence of a race — the prefix `[0, bodyLength)` is
+immutable and is exactly what the index describes. The region id is what guards the case `==` was standing in for.
+
+### What this does not fix
+
+- **Two different compiler builds sharing a target directory** still take turns replacing the region, so both stay
+  cold. It is now *correct* — the region id catches the replacement — but not fast. Putting the compiler fingerprint
+  in the file name would fix it outright and was rejected: every compiler rebuild would then orphan a store pair with
+  nothing to reclaim it, which is a worse trade in the repository this is developed in.
+- **The world leaf still invalidates on mtime, not content** (TODO.md). Independent of this, and the other half of
+  the field report — the fix here should not be read as closing that.
+
+### What it buys the plan
+
+Compaction (§13 step 5) is the one operation that *moves* offsets, which invalidates the in-memory placement of every
+process that loaded beforehand. The region id is exactly the stamp that makes it detectable: compaction mints a new
+one, and every other writer's next save sees the mismatch and stands down. It needed to exist before compaction could
+be written, and now it does.
+
+### Verified
+
+- `__.test` green. Five new cases in `ContentAddressedCacheBackendTest`, one per property: the interleaved append,
+  the replaced region, the over-long region, the forfeited save, and the unchanged no-growth invariant.
+- **The three new cases were each checked against the defect they exist for** — reverting the rebase to the loaded
+  length, dropping the region-id comparison, and restoring `==` in the length check each fail exactly one case and
+  nothing else.
+- **Byte-identity**: the `DischargeDemo` jar is identical cold and warm under format 3, and a warm build still
+  appends **zero bytes** (1,192,558 both runs).
+- **Under-invalidation**: an edit produces a warm jar byte-identical to a cold build of the same content, and
+  reverting the edit restores the original jar exactly.
+- **Cost**: warm-build load 111 ms, save 116 ms with `--statistics`, unchanged against §18's 107/100 ms. A `tryLock`
+  and a header read do not show up.
+
+One thing found while proving the tests, which is worth knowing before writing another: comparing two whole
+`FactCacheData`s with `shouldBe` **hangs on failure** rather than failing. ScalaTest prettifies the difference, and
+prettifying thousands of deeply nested facts outlasts any timeout — a broken store looked like a hung suite for 50
+minutes. The new cases compare through a `Boolean` for that reason, losing no strength (every key, edge and value is
+still compared) and gaining a failure that arrives in six seconds.
