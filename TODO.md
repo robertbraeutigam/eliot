@@ -123,12 +123,12 @@ notes.
   what needs it and whether it can be derived instead of stored.
 - `namedValues` can recurse — the reflection-driven enumeration is not protected against a value
   that reaches itself.
-- Separate the cache graph from the values, so not everything has to be deserialized.
-- **Cache serialization is slow.**
-- **The cache gets rebuilt** when it should have been reused.
-- **Even with a warm cache the compile is not immediate** — and not just because of statistics
-  collection. See the "warm build still computes" note in git history for what is expected to be
-  recomputed and what is not.
+- **The warm build's remaining cost is the cache format** — ~60% of it is cache load + save, the
+  processors do essentially nothing, and the regeneration count is already at the leaf floor. This
+  subsumes the former separate items (separate the graph from the values; cache serialization is
+  slow; the cache gets rebuilt when it should have been reused; a warm compile is not immediate).
+  Diagnosis, measurements and the plan — explicit per-type codecs over a content-addressed object
+  store — are in `docs/incremental-compilation.md`, §13 for what to build next.
 - **A compile error leaves the old artifacts in place**, so a failed build can be followed by a
   successful run of a stale jar.
 - **Implement scoped caches**, so the stdlib does not get built again on every compile for the

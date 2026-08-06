@@ -19,7 +19,9 @@ import java.nio.file.Path
   *
   * Note that per-object framing deliberately gives up the cross-entry structure sharing (back-references, single
   * class-descriptor table) that the whole-graph stream provides — that trade-off is measured in
-  * `docs/incremental-compilation.md` §5, and is why this path is a spike selected only by an env flag.
+  * `docs/incremental-compilation.md` §5 and §12 (~17× on disk), and is why this path is a spike selected only by an
+  * env flag. The resolution is §13: explicit per-type codecs over a content-addressed store, which removes Java
+  * serialization from the cache rather than framing it differently.
   */
 object FactSerialization {
 

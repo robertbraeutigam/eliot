@@ -28,12 +28,17 @@ import scala.jdk.CollectionConverters.*
   * `commit` then flushes only the pages those puts/removes dirtied. So an unchanged tree writes essentially nothing,
   * and a one-fact change writes essentially one fact.
   *
-  * Two honest limitations of the spike, both to be read off the measurement rather than assumed away:
+  * Two honest limitations of the spike, both measured rather than assumed away (`docs/incremental-compilation.md`
+  * §12) — and both are why the spike stayed a spike:
   *
-  *   - **Load is still eager.** `load` deserializes every entry to rebuild [[FactCacheData]], so the load cost is not
-  *     expected to drop here — cutting it needs lazy value materialisation (the graph/value split), a separate step.
-  *   - **Per-entry framing gives up cross-entry structure sharing**, so on-disk size may grow relative to the shared
-  *     graph (the §5 trade-off). The spike is exactly how we measure whether that growth is acceptable.
+  *   - **Load is still eager.** `load` deserializes every entry to rebuild [[FactCacheData]], so the load cost does
+  *     not drop here; measured, it got *worse* (1333 → 3113 ms). Cutting it needs lazy value materialisation.
+  *   - **Per-entry framing gives up cross-entry structure sharing**, so on-disk size grows relative to the shared
+  *     graph (the §5 trade-off): measured at ~17× (2.49 MB → 42 MB).
+  *
+  * The delta-write hypothesis itself was confirmed (save 978 → 28 ms), so the engine was never the bottleneck — the
+  * Java-serialization framing and the eager load are. The resolution is §13: explicit per-type codecs over a
+  * content-addressed object store, which lands behind this same [[IncrementalCacheBackend]] seam.
   *
   * The [[snapshot]] holds entries in their *prepared* (stored) shape, so a fact whose value cannot be serialized
   * (dropped to `None` on disk) compares unequal to its live value and is rewritten every run — the same small
