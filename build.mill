@@ -5,7 +5,6 @@ import mill._, scalalib._
 object `package` extends Module {
    object `eliotc` extends DefaultScalaModule {
      override def extraDeps = Seq(
-       mvn"com.h2database:h2-mvstore:2.2.224",
      )
    }
 

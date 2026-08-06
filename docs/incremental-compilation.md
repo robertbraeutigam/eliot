@@ -1,20 +1,21 @@
 # Incremental Compilation: Why a Warm Build Still Computes
 
-Status (2026-08-06): **regeneration is at the leaf floor; the encoding is built and proven; the store is not.** A
-warm build over an unchanged tree re-runs only world leaves (§8), pinned by `WarmBuildLeafOnlyTest`. What is left is
-I/O: §11 measures **~60% of a warm build in cache load + save**, and §12 showed a per-entry store fixes save
-(978 → 28 ms) but not load, at 17× on disk. §13 is the plan that resolves both — explicit per-type codecs over a
-content-addressed object store, replacing Java serialization outright — and **its first two steps have landed**:
+Status (2026-08-06): **the store works and is measured; it is not yet the default.** Regeneration has been at the
+leaf floor since §8; the cost was I/O, with §11 measuring **~60% of a warm build in cache load + save**. §13's plan —
+explicit per-type codecs over a content-addressed object store, replacing Java serialization outright — is built
+through step 4, and behind `ELIOT_CACHE_BACKEND=store` a warm build is now **half** what it was, with cache I/O down
+from ~64% of it to ~29%:
 
 | Step | State |
 | ---- | ----- |
 | 1 — the encoding, coverage proven by the compiler | **DONE**, §14. 0.55× the Java graph with sharing, 4.89× without. |
 | 2 — the fact model made encodable, decision on the key | **DONE**, §15. `CompilerFactKey.valueCodec`, abstract, no default. |
-| 3 — the content-addressed store | **IN PROGRESS**, §17. Wired behind `ELIOT_CACHE_BACKEND=store`: a warm build is **38% faster** (load −49%, save −75%) on **half the disk**, jar byte-identical. Lazy load and the id-based cutoff (step 4) are still to come. |
+| 3 — the content-addressed store | **DONE**, §17. Wired behind `ELIOT_CACHE_BACKEND=store`. |
+| 4 — lazy values, the cutoff by content id | **DONE**, §18. Warm build **50% faster** (load −79%, save −76%), **half the disk**, **zero growth**, jar byte-identical, under-invalidation checked. |
+| 5–6 — compaction, flip the default | not started. |
 
-**Nothing a build does has changed yet.** Every cache read and write still goes through the Java-serialized whole
-graph; the codecs exist, are complete, and are exercised only by their conformance test. §16 says what is on disk,
-what step 3 must decide first, and what would go wrong if it is done in the wrong order.
+The **default is still the Java-serialized whole graph**, so an ordinary build is unchanged until step 6 flips it.
+§17 and §18 are the current state; §16 is the handover that preceded them and is superseded on two points it names.
 
 §§1–2 are the model everything else refers to. §§3–10 are the diagnosis, its fixes and the retention changes, kept as
 the record of what each defect looked like.
@@ -850,12 +851,88 @@ warm builds, which sets the compaction trigger comfortably. It is also **subsume
 compares `ObjectId`s, a recomputed leaf's id is computed anyway, and finding it equal to the stored one means its
 offset is already known, so nothing is appended at all.
 
-### What is left after this
+## 18. Step 4: the cutoff stops materializing, and the store stops growing (2026-08-06)
 
-- **§13 step 4** — the equality cutoff as an id comparison, and lazy value materialisation. Together these are the
-  remaining load win *and* the fix for steady-state growth.
-- **§6 Step 3** — the entry shape carrying declines. The index already has a per-entry outcome flag to widen.
-- **§13 step 5** — compaction. Necessarily decode-and-re-encode of the live entries, not a mark-and-sweep: the bodies
-  are untyped bytes, so nothing can walk them without a codec.
-- **§13 step 6** — verification, weighted toward under-invalidation, then flipping the default and retiring both the
-  MVStore spike and `FactCache.canSerialize`.
+§13 step 4 was "switch the equality cutoff to id comparison". Building it found that the larger win was one layer
+above: **most of the cutoff should not run at all.**
+
+### The comparison that compared a value with itself
+
+`computeUnchanged` validated a value-bearing derived fact by calling `getFactUntyped` on it — which resolves the key,
+finds its dependencies unchanged, **accepts the cached value**, and hands it back, whereupon the entry compared that
+value against itself. Every derived fact on a warm build was materialised to satisfy a tautology.
+
+A fact is a pure function of its recorded dependencies — the assumption `acceptPrior` already rests on. So
+dependencies that all hold mean **the fact holds**, with nothing recomputed and nothing read. The branch is now the
+same drill the value-less facts always took, and the two differ only in the bookkeeping afterwards: a value-less
+entry is carried forward to stay drillable, a value-bearing one is simply untouched and retained. Recompute-and-
+compare is left with exactly the two cases that need it — a **world leaf**, whose only oracle is running it, and a
+fact whose dependencies genuinely moved, where equality is what stops propagation.
+
+Consequently a no-change run materialises **no fact value at all** beyond the leaves it must re-read. This is
+backend-independent and helps the Java graph too — though not much, since that one deserialises everything at load
+regardless.
+
+### The cutoff itself, and the order that turned out to matter
+
+`CacheEntry` holds a `CachedValue` rather than an `Option[CompilerFact]`: `hasValue` and `matches` are what
+change-detection asks, and neither reads anything. A stored value is an `ObjectId` plus a thunk — `matches` hashes the
+*recomputed* side with `ObjectIdOutput` and compares 16 bytes, never touching the stored side; the fact behind it is
+decoded only where something consumes it (`acceptPrior`, and nowhere else).
+
+The store's own growth turned out to need the same idea, applied in the opposite order, and this is the finding worth
+keeping:
+
+> **Identify before placing.** Seeding the writer with the ids it already holds is not enough. Encoding descends into
+> a value's children and appends each as it goes, so by the time it can tell the value as a whole is a duplicate, the
+> whole subtree underneath is already on disk. Hashing first costs no bytes and no buffers and asks the only question
+> that matters.
+
+With that, a warm build appends **zero bytes** — measured over three consecutive runs, the object region does not move
+— where before it grew ~17.9 KB a run. The cold-build path skips the pre-check when there is nothing to match against,
+so nothing is hashed twice.
+
+### Measured
+
+`examples.run jvm exe-jar -m DischargeDemo`, warm after an identical build, same machine and tree as §12/§17:
+
+```
+phase              Java (default)      content store
+cache load           520 ms  35.9%      107 ms  14.7%      -79%
+cache save           412 ms  28.5%      100 ms  13.8%      -76%
+build-cache           18 ms              11 ms
+fingerprint           46 ms              48 ms
+engine               341 ms             349 ms
+processors            36 ms              33 ms
+total              1,447 ms             727 ms             -50%
+on-disk             2.49 MB            1.29 MB             0.52×
+warm-build growth        —              0 bytes
+```
+
+**A warm build is half what it was**, and cache I/O has gone from ~64% of it to ~29%. What is left in the load is
+reading and decoding the index — every key, every dependency edge — which is now the floor rather than the values.
+
+### Verification
+
+- `__.test` green (871).
+- **Byte-identity**: the jar is identical across java-warm, store-cold and store-warm.
+- **Under-invalidation**, the direction that matters more (§6 Step 6): an mtime-only touch changes nothing; a real
+  source edit produces a warm-build jar **byte-identical to a cold build of the same content**; reverting the edit
+  restores the original jar exactly.
+
+### Retired here
+
+The **MVStore spike** (`MvStoreCacheBackend`, the `h2-mvstore` dependency, the `ELIOT_CACHE_BACKEND=mvstore` arm).
+§16 scheduled it for removal once step 3 landed; carrying a refuted design through the entry-shape change was the
+concrete reason to do it now. Its findings stay in §12. `FactSerialization` remains — the conformance test still
+measures against Java as the baseline.
+
+### What is left
+
+- **§6 Step 3** — the entry shape carrying declines. The index already writes a per-entry flag to widen.
+- **§13 step 5** — compaction: decode-and-re-encode of the live entries, not a mark-and-sweep, since the bodies are
+  untyped bytes. Now much less urgent than it looked — a warm build no longer grows the store at all, so garbage
+  accumulates only from genuinely changed facts.
+- **§13 step 6** — flipping the default, and retiring `FactCache.canSerialize` with the Java graph.
+- The load floor is now the **index**: ~101 KB read and decoded per build, one key per entry plus every edge. Making
+  *that* lazy is the next thing worth measuring if the 107 ms matters.

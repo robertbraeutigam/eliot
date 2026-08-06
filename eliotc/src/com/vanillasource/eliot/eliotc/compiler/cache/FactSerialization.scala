@@ -11,7 +11,7 @@ import java.io.{
 import java.nio.file.Path
 
 /** Per-object Java serialization for cache facts, factored out so a per-entry store (see
-  * [[MvStoreCacheBackend]]) can encode/decode individual keys and entries independently of the whole-graph
+  * the conformance measurement) can encode/decode individual keys and entries independently of the whole-graph
   * [[FactCache]] stream.
   *
   * It handles the same eliot-specific reality as [[FactCache]]: `java.nio.file.Path` is not `Serializable`, so a

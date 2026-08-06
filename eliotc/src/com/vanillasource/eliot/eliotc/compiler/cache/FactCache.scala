@@ -76,7 +76,7 @@ object FactCache extends Logging {
       Files.createDirectories(targetDir)
       val prepared = data.entries.flatMap { case (key, entry) =>
         if (canSerialize(key) && canSerialize(entry.directDeps))
-          Some(key -> entry.copy(value = entry.value.filter(canSerialize))) // keep edges; drop a non-serializable value
+          Some(key -> CacheEntry(entry.value.filter(canSerialize), entry.directDeps)) // keep edges, drop the value
         else None                                                            // unusable edge ⇒ drop the whole entry
       }
       val onDisk = OnDiskCache(compilerFingerprint, configFingerprint, FactCacheData(data.version, prepared))

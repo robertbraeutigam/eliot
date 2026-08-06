@@ -14,14 +14,19 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
   * per-generation [[DependencyTrackingProcess]] (the `ancestors` parameter of [[getFact]]) — and decides, per
   * dependency, whether it changed since last run via [[depUnchanged]]:
   *
-  *   - a dependency with a **stored value** (every leaf, and every serializable derived fact) is recomputed and compared
-  *     by value — this is the equality cutoff: a changed leaf whose derived value recomputes equal stops propagation;
-  *   - a **value-less** dependency (a non-serializable `SemValue`-bearing fact) is validated **structurally** by drilling
-  *     through its recorded `directDeps` to the leaves, *without materialising the value*. Its prior edges-only entry is
-  *     carried forward when the structural check passes, so it stays drillable next run.
+  *   - a dependency with a **stored value** (every leaf, and every persistable derived fact) is recomputed and compared
+  *     against what the cache holds ([[com.vanillasource.eliot.eliotc.compiler.cache.CacheEntry.matches]]) — this is the
+  *     equality cutoff: a changed leaf whose derived value recomputes equal stops propagation. A backend that stores
+  *     values by content hash answers it without reading the stored side at all;
+  *   - a **derived** dependency is validated **structurally** by drilling through its recorded `directDeps` to the
+  *     leaves, *without materialising anything*. A fact is a pure function of its recorded inputs, so dependencies that
+  *     all hold mean the fact holds — there is nothing to recompute and nothing to compare. A value-less one has its
+  *     edges-only entry carried forward so it stays drillable; a value-bearing one simply stays untouched and is
+  *     retained. Only when a dependency has genuinely moved is the fact recomputed and compared.
   *
-  * Consequently a no-change run materialises no `SemValue` at all (the whole monomorphize layer is skipped), and a
-  * value-less fact is regenerated only when a genuinely changed dependent actually reads its value.
+  * Consequently a no-change run materialises **no fact value at all** beyond the world leaves it must re-read — not a
+  * `SemValue`, not a monomorphic value, nothing the build does not actually consume. A fact is regenerated only when a
+  * genuinely changed dependent reads it.
   *
   * Leaf facts — those whose recorded dependency set is empty, e.g. a `stat` of a source file — are always regenerated,
   * forming the boundary with the external world. Failures are never cached, so a fact that failed has no prior entry and
@@ -98,7 +103,7 @@ final class IncrementalFactGenerator(
       ancestors: List[CompilerFactKey[?]]
   ): IO[Unit] =
     prior.get(key) match {
-      case Some(entry) if entry.value.isDefined && entry.directDeps.nonEmpty =>
+      case Some(entry) if entry.hasValue && entry.directDeps.nonEmpty =>
         entry.directDeps.toList.forallM(depUnchanged).flatMap {
           case true  => acceptPrior(key, entry, deferred)
           case false => regenerate(key, ancestors)
@@ -125,22 +130,44 @@ final class IncrementalFactGenerator(
       result      <- modify._1.get
     } yield result
 
+  /** Whether the prior entry for `key` still stands, decided the cheapest way that is sound for its shape.
+    *
+    *   - **No prior entry** — new, or previously failed, so changed.
+    *   - **A world leaf** (no recorded dependencies) — the only thing that can tell is running it: recompute and
+    *     compare against what the cache holds. This is the boundary with the outside world and the one place the
+    *     equality cutoff earns its name.
+    *   - **A derived fact whose dependencies all hold** — unchanged *by construction*, with nothing recomputed and
+    *     nothing materialised. A fact is a pure function of its recorded inputs, which is the assumption
+    *     [[acceptPrior]] already rests on; recomputing it here would compare the stored value against itself. A
+    *     value-less one is carried forward so it stays drillable, a value-bearing one needs nothing — untouched keys
+    *     retain their prior entry ([[buildCacheData]]).
+    *   - **A derived fact whose dependencies moved** — recompute and compare if there is a value to compare against.
+    *     Equality here is what stops propagation: a changed input whose result recomputes the same invalidates
+    *     nothing further. With no value the drill has failed and there is nothing left to try.
+    */
   private def computeUnchanged(key: CompilerFactKey[?]): IO[Boolean] =
     prior.get(key) match {
-      case None                                     => false.pure[IO]   // new / previously failed ⇒ changed
-      case Some(entry) if entry.value.isDefined     =>                  // leaf or serializable derived: recompute & compare
-        getFactUntyped(key).map {
-          case Some(current) => entry.value.exists(v => (v eq current) || v == current)
-          case None          => false // no longer producible ⇒ changed
+      case None                                    => false.pure[IO]
+      case Some(entry) if entry.directDeps.isEmpty => recomputeAndCompare(key, entry)
+      case Some(entry)                             =>
+        entry.directDeps.toList.forallM(depUnchanged).flatMap {
+          case true  => carriedForward.update(_.updated(key, entry)).unlessA(entry.hasValue).as(true)
+          case false => recomputeAndCompare(key, entry)
         }
-      case Some(entry) if entry.directDeps.nonEmpty =>                  // value-less derived: drill structurally
-        entry.directDeps.toList
-          .forallM(depUnchanged)
-          .flatTap(unchanged => carriedForward.update(_.updated(key, entry)).whenA(unchanged))
-      case Some(_)                                  => false.pure[IO]   // value-less leaf: cannot validate ⇒ changed
     }
 
-  /** Accept the cached fact and carry its trace forward so it re-persists with the right metadata. */
+  private def recomputeAndCompare(key: CompilerFactKey[?], entry: CacheEntry): IO[Boolean] =
+    if (entry.hasValue)
+      getFactUntyped(key).map {
+        case Some(current) => entry.matches(current)
+        case None          => false // no longer producible ⇒ changed
+      }
+    else false.pure[IO]
+
+  /** Accept the cached fact and carry its trace forward so it re-persists with the right metadata. This is the one
+    * place a stored value is actually read: everything else about an entry — whether it has a value, and whether a
+    * recomputed one matches it — is answerable without materialising.
+    */
   private def acceptPrior(
       key: CompilerFactKey[?],
       entry: CacheEntry,

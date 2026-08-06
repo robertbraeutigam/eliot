@@ -2,7 +2,14 @@ package com.vanillasource.eliot.eliotc.compiler.cache
 
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.cache.codec.{ContentAddressedInput, ContentAddressedOutput, FactCodec, FactKeyCodecs}
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{
+  ContentAddressedInput,
+  ContentAddressedOutput,
+  FactCodec,
+  FactKeyCodecs,
+  ObjectId,
+  ObjectIdOutput
+}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -91,7 +98,7 @@ final class ContentAddressedCacheBackend private (
         ContentAddressedCacheBackend.Placement(
           bodies.length,
           entries.map(read => read.key -> read.keyOffset).toMap,
-          entries.flatMap(read => read.valueLocation).toMap
+          entries.flatMap(read => read.located.map { case (stored, offset) => stored.id -> offset }).toMap
         )
       )
     }
@@ -99,12 +106,29 @@ final class ContentAddressedCacheBackend private (
 
   private def readEntry(in: DataInputStream, names: Seq[String], input: ContentAddressedInput): Read = {
     val (key, keyOffset) = readKey(in, names, input)
-    val valueOffset      = Option.when(in.readBoolean())(FactCodec.readVarInt(in))
-    val value            = valueOffset.map(materialise(input, key, _))
+    val located          = Option.when(in.readBoolean())(readStoredValue(in, input, key))
     val deps             = Seq.fill(FactCodec.readVarInt(in))(readKey(in, names, input)._1).toSet
 
-    Read(key, keyOffset, valueOffset, CacheEntry(value, deps))
+    Read(key, keyOffset, located, CacheEntry(located.map(_._1).getOrElse(CachedValue.Absent), deps))
   }
+
+  /** A value is *located*, not read: the offset and id come out of the index, and the bytes behind them are touched
+    * only if something consumes the fact. Comparing a recomputed value against it needs the id alone.
+    */
+  private def readStoredValue(
+      in: DataInputStream,
+      input: ContentAddressedInput,
+      key: CompilerFactKey[?]
+  ): (CachedValue.Stored, Int) = {
+    val offset = FactCodec.readVarInt(in)
+    val id     = ObjectId(in.readLong(), in.readLong())
+
+    (new CachedValue.Stored(id, () => materialise(input, key, offset), identify(key, _)), offset)
+  }
+
+  /** Hash a recomputed fact exactly as the store hashed the one it holds. */
+  private def identify(key: CompilerFactKey[?], fact: CompilerFact): ObjectId =
+    new ObjectIdOutput().identify(fact)(using key.valueCodec.get.asInstanceOf[FactCodec[CompilerFact]])
 
   /** Read a key's type name index and offset, then decode it with the codec that name registers. */
   private def readKey(in: DataInputStream, names: Seq[String], input: ContentAddressedInput): (CompilerFactKey[?], Int) = {
@@ -118,18 +142,18 @@ final class ContentAddressedCacheBackend private (
     input.read(offset)(using key.valueCodec.get.asInstanceOf[FactCodec[CompilerFact]])
 
   /** One entry as it comes back, with where its parts live so the next save can reuse them untouched. */
-  private case class Read(key: CompilerFactKey[?], keyOffset: Int, valueOffset: Option[Int], entry: CacheEntry) {
-    def valueLocation: Option[(ContentAddressedCacheBackend.Identity, Int)] =
-      (entry.value, valueOffset).tupled.map { case (value, offset) =>
-        ContentAddressedCacheBackend.Identity(value) -> offset
-      }
-  }
+  private case class Read(
+      key: CompilerFactKey[?],
+      keyOffset: Int,
+      located: Option[(CachedValue.Stored, Int)],
+      entry: CacheEntry
+  )
 
   private def writeFiles(
       data: FactCacheData,
       current: ContentAddressedCacheBackend.Placement
   ): (ContentAddressedCacheBackend.Placement, Int, Int) = {
-    val out      = new ContentAddressedOutput(Map.empty, current.bodyLength)
+    val out      = new ContentAddressedOutput(current.values, current.bodyLength)
     val located  = Located(out, current)
     val encoded  = data.entries.toSeq.flatMap { case (key, entry) => located.entry(key, entry) }
     val appended = out.appendedBytes
@@ -142,7 +166,11 @@ final class ContentAddressedCacheBackend private (
     writeIndex(data.version, current.bodyLength + appended.length, encoded)
 
     (
-      ContentAddressedCacheBackend.Placement(current.bodyLength + appended.length, located.keys, located.values),
+      ContentAddressedCacheBackend.Placement(
+        current.bodyLength + appended.length,
+        located.keys,
+        encoded.flatMap(_.value).map(placed => placed.id -> placed.offset).toMap
+      ),
       appended.length,
       data.entries.size - encoded.size
     )
@@ -166,8 +194,12 @@ final class ContentAddressedCacheBackend private (
       entries.foreach { entry =>
         FactCodec.writeVarInt(out, index(entry.keyName))
         FactCodec.writeVarInt(out, entry.keyOffset)
-        out.writeBoolean(entry.valueOffset.isDefined)
-        entry.valueOffset.foreach(FactCodec.writeVarInt(out, _))
+        out.writeBoolean(entry.value.isDefined)
+        entry.value.foreach { placed =>
+          FactCodec.writeVarInt(out, placed.offset)
+          out.writeLong(placed.id.high)
+          out.writeLong(placed.id.low)
+        }
         FactCodec.writeVarInt(out, entry.deps.size)
         entry.deps.foreach { case (name, offset) =>
           FactCodec.writeVarInt(out, index(name))
@@ -195,8 +227,9 @@ final class ContentAddressedCacheBackend private (
     * the one failure direction that produces a wrong build rather than a slow one.
     */
   private final class Located(out: ContentAddressedOutput, prior: ContentAddressedCacheBackend.Placement) {
-    var keys: Map[CompilerFactKey[?], Int]                     = prior.keys
-    var values: Map[ContentAddressedCacheBackend.Identity, Int] = prior.values
+    private var keyOffsets: Map[CompilerFactKey[?], Int] = prior.keys
+
+    def keys: Map[CompilerFactKey[?], Int] = keyOffsets
 
     def entry(key: CompilerFactKey[?], entry: CacheEntry): Option[ContentAddressedCacheBackend.Encoded] =
       for {
@@ -205,42 +238,55 @@ final class ContentAddressedCacheBackend private (
       } yield ContentAddressedCacheBackend.Encoded(
         FactKeyCodecs.nameOf(key),
         keyOffset,
-        entry.value.filter(_ => key.valueCodec.isDefined).map(valueLocation(key, _)),
+        Option.when(key.valueCodec.isDefined)(entry.stored).flatMap(valueLocation(key, _)),
         depOffsets
       )
 
     private def keyLocation(key: CompilerFactKey[?]): Option[Int] =
-      keys.get(key).orElse {
+      keyOffsets.get(key).orElse {
         keyCodecs.get(FactKeyCodecs.nameOf(key)).map { codec =>
-          val offset = out.write(key)(using codec.asInstanceOf[FactCodec[CompilerFactKey[?]]])
+          val offset = out.write(key)(using codec.asInstanceOf[FactCodec[CompilerFactKey[?]]]).offset
 
-          keys = keys.updated(key, offset)
+          keyOffsets = keyOffsets.updated(key, offset)
           offset
         }
       }
 
-    /** Reuse by **reference**, not by value: a fact carried forward from the store is the very object that was read,
-      * while a leaf recomputed this run is a fresh object even when it is equal. Comparing by value would mean hashing
-      * whole fact graphs on every save, which is the cost this design exists to avoid.
+    /** Where a value goes, **without reading it unless it has to, and without writing it unless it is new**.
+      *
+      * A value still in the store is placed from its id alone — materialising it merely to write it back is precisely
+      * the cost the lazy read exists to avoid.
+      *
+      * One held in memory is **identified before it is placed**, and that order is the point. Encoding descends into
+      * a value's children and appends each as it goes, so by the time the writer can tell that the value as a whole is
+      * one it already holds, it has already appended the whole subtree underneath it. Hashing first — which costs no
+      * bytes and no buffers — asks the only question that matters: is this exactly what is on disk already? On a warm
+      * build the answer is yes for every world leaf, which is otherwise the one thing that grows the store every run.
       */
-    private def valueLocation(key: CompilerFactKey[?], value: CompilerFact): Int = {
-      val identity = ContentAddressedCacheBackend.Identity(value)
+    private def valueLocation(key: CompilerFactKey[?], value: CachedValue): Option[ContentAddressedOutput.Placed] =
+      value match {
+        case CachedValue.Absent         => None
+        case stored: CachedValue.Stored =>
+          prior.values.get(stored.id).map(ContentAddressedOutput.Placed(stored.id, _))
+        case CachedValue.InMemory(fact) =>
+          val codec = key.valueCodec.get.asInstanceOf[FactCodec[CompilerFact]]
 
-      values.getOrElse(
-        identity, {
-          val offset = out.write(value)(using key.valueCodec.get.asInstanceOf[FactCodec[CompilerFact]])
+          Some(held(fact, codec).getOrElse(out.write(fact)(using codec)))
+      }
 
-          values = values.updated(identity, offset)
-          offset
-        }
-      )
-    }
+    /** The value's existing place, if the store already holds exactly it. Skipped when there is nothing to match
+      * against, so a cold build does not hash everything twice.
+      */
+    private def held(fact: CompilerFact, codec: FactCodec[CompilerFact]): Option[ContentAddressedOutput.Placed] =
+      Option
+        .when(prior.values.nonEmpty)(new ObjectIdOutput().identify(fact)(using codec))
+        .flatMap(id => prior.values.get(id).map(ContentAddressedOutput.Placed(id, _)))
   }
 }
 
 object ContentAddressedCacheBackend {
   private val MAGIC: String          = "ELIOT-CAS"
-  private val FORMAT_VERSION: Int    = 1
+  private val FORMAT_VERSION: Int    = 2
   private val OBJECTS_FILE: String   = ".eliot-objects"
   private val INDEX_FILE: String     = ".eliot-index"
 
@@ -283,26 +329,18 @@ object ContentAddressedCacheBackend {
   private case class Encoded(
       keyName: String,
       keyOffset: Int,
-      valueOffset: Option[Int],
+      value: Option[ContentAddressedOutput.Placed],
       deps: Seq[(String, Int)]
   )
 
-  /** Where everything the store already holds lives, carried between a load and the saves that follow it. */
+  /** Where everything the store already holds lives, carried between a load and the saves that follow it.
+    *
+    * `values` is keyed by **content**, not by which key or which object: that is what lets a leaf recomputed to an
+    * equal-but-fresh value resolve to the bytes already on disk instead of appending them again.
+    */
   private case class Placement(
       bodyLength: Int,
       keys: Map[CompilerFactKey[?], Int],
-      values: Map[Identity, Int]
+      values: Map[ObjectId, Int]
   )
-
-  /** Reference identity for a fact, so a value carried forward from the store is recognised as the object that was
-    * read rather than compared field by field.
-    */
-  private final class Identity(val fact: CompilerFact) {
-    override def hashCode(): Int = System.identityHashCode(fact)
-
-    override def equals(other: Any): Boolean = other match {
-      case that: Identity => this.fact eq that.fact
-      case _              => false
-    }
-  }
 }

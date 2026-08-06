@@ -6,7 +6,8 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.{CoreFactCodecs, FactKeyCodecs}
-import com.vanillasource.eliot.eliotc.compiler.cache.{CacheEntry, ContentAddressedCacheBackend, FactCacheData}
+import com.vanillasource.eliot.eliotc.compiler.cache.{ContentAddressedCacheBackend, FactCacheData}
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import org.scalatest.Assertion
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -31,7 +32,19 @@ class ContentAddressedCacheBackendTest extends AsyncFlatSpec with AsyncIOSpec wi
       for {
         _      <- open(cacheDir).flatMap(_.save(data))
         loaded <- open(cacheDir).flatMap(_.load())
-      } yield loaded.map(_.entries) shouldBe Some(persistable(data).entries)
+      } yield loaded.map(readable) shouldBe Some(persistable(data))
+    }
+  }
+
+  /** A loaded value is compared to a recomputed one by content hash, never materialised for the sake of it — so the
+    * cutoff must answer *true* for exactly the fact that was stored, and false for anything else.
+    */
+  it should "recognise a recomputed fact by its content, without reading the stored one" in {
+    withCache { (data, cacheDir) =>
+      for {
+        _      <- open(cacheDir).flatMap(_.save(data))
+        loaded <- open(cacheDir).flatMap(_.load())
+      } yield loaded.map(matchesEverything(data)) shouldBe Some(true)
     }
   }
 
@@ -58,11 +71,22 @@ class ContentAddressedCacheBackendTest extends AsyncFlatSpec with AsyncIOSpec wi
   /** What the store is expected to hold back: a fact whose key declines to persist keeps its edges and loses its
     * value (§15), exactly as the Java-serialized cache does for the same two types.
     */
-  private def persistable(data: FactCacheData): FactCacheData =
-    FactCacheData(
-      data.version,
-      data.entries.map { case (key, entry) => key -> CacheEntry(entry.value.filter(_ => key.valueCodec.isDefined), entry.directDeps) }
-    )
+  private def persistable(data: FactCacheData): Map[CompilerFactKey[?], (Option[CompilerFact], Set[CompilerFactKey[?]])] =
+    data.entries.map { case (key, entry) =>
+      key -> (entry.value.filter(_ => key.valueCodec.isDefined), entry.directDeps)
+    }
+
+  /** A loaded entry holds its value on disk rather than in a field, so it is compared through what it answers. */
+  private def readable(data: FactCacheData): Map[CompilerFactKey[?], (Option[CompilerFact], Set[CompilerFactKey[?]])] =
+    data.entries.map { case (key, entry) => key -> (entry.value, entry.directDeps) }
+
+  private def matchesEverything(original: FactCacheData)(loaded: FactCacheData): Boolean =
+    loaded.entries.forall { case (key, entry) =>
+      original.entries.get(key).flatMap(_.value).filter(_ => key.valueCodec.isDefined) match {
+        case Some(fact) => entry.matches(fact)
+        case None       => !entry.hasValue
+      }
+    }
 
   private def storeSize(cacheDir: Path): IO[Long] =
     IO.blocking(Files.list(cacheDir).toList.stream().mapToLong(Files.size).sum())
