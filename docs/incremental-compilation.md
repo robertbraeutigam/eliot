@@ -773,6 +773,15 @@ today's 2.49 MB rather than merely level with it — now has a second measuremen
 laid out this way it does not: a fact's value is decoded with the codec its own key states, and every object below it
 is reached structurally by a codec that already knows what it is reading. **No tag appears anywhere in the format.**
 
+**What is left of the tag is keys, and only keys.** A fact's value is decoded by the codec its own key states; a
+*key* has nothing above it to say what it is, and the validation walk must materialise dependency keys to ask the
+engine to recompute what they identify. So keys are stored beside their class name, mapped back through
+`FactKeyCodecs.Registry` — assembled per layer beside the structural instances, exactly as §16 specified: stable
+across runs (a name, not an ordering), and complete-or-loud, since `valueCodec`'s compile-time completeness cannot
+extend to a table that is consulted before a key exists. The conformance test pins that every key type a real build
+materialises is registered and reads back equal. The two **declining** facts appear in the table like any other: a
+decline withholds the value, never the edges, so its key is still stored and still walked.
+
 What does need care is the opposite of what §16 expected. **The store is untyped on purpose**, and two different types
 routinely encode to identical bytes — a `URI` and its own string form, `Sourced[String]` and `Sourced[Token]`. Sharing
 their *storage* is sound: the bytes are the same and the reader always supplies the codec. Sharing a *reader's cache*

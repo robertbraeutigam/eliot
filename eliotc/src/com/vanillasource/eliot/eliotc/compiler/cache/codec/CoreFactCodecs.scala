@@ -16,4 +16,10 @@ object CoreFactCodecs {
   // Aliases the fact keys use to state their own persistence decision.
   val outputFileStatCodec: FactCodec[com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStat] = codec_com_vanillasource_eliot_eliotc_compiler_cache_OutputFileStat
   val upToDateCodec: FactCodec[com.vanillasource.eliot.eliotc.compiler.cache.UpToDate] = codec_com_vanillasource_eliot_eliotc_compiler_cache_UpToDate
+
+  /** This layer's contribution to the key tag table; see [[FactKeyCodecs]]. */
+  val keyCodecs: FactKeyCodecs.Registry = Map(
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_compiler_cache_OutputFileStat_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_compiler_cache_UpToDate_Key)
+  )
 }

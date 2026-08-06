@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.apidoc.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{FactCodec, FactKeyCodecs}
 import com.vanillasource.eliot.eliotc.codec.LangFactCodecs.given
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -23,6 +23,11 @@ case class ValueDoc(vfqn: ValueFQN, signature: Option[String], doc: Option[Strin
 
 object ValueDoc {
   private val codec: FactCodec[ValueDoc] = FactCodec.derived
+
+  /** This layer's contribution to the key tag table; see
+    * [[com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs]].
+    */
+  val keyCodecs: FactKeyCodecs.Registry = Map(FactKeyCodecs.of(FactCodec.derived[Key]))
 
   case class Key(vfqn: ValueFQN) extends CompilerFactKey[ValueDoc] {
     override def valueCodec: Option[FactCodec[ValueDoc]] = Some(codec)

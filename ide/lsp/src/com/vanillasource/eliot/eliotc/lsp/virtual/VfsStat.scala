@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.lsp.virtual
 
-import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{FactCodec, FactKeyCodecs}
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.CoreFactCodecs.given
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
@@ -17,6 +17,11 @@ case class VfsStat(file: File, stamp: Option[Long]) extends CompilerFact {
 
 object VfsStat {
   private val codec: FactCodec[VfsStat] = FactCodec.derived
+
+  /** This layer's contribution to the key tag table; see
+    * [[com.vanillasource.eliot.eliotc.compiler.cache.codec.FactKeyCodecs]].
+    */
+  val keyCodecs: FactKeyCodecs.Registry = Map(FactKeyCodecs.of(FactCodec.derived[Key]))
 
   case class Key(file: File) extends CompilerFactKey[VfsStat] {
     override def valueCodec: Option[FactCodec[VfsStat]] = Some(codec)

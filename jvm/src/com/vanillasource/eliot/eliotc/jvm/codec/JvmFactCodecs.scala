@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.codec
 
-import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{FactCodec, FactKeyCodecs}
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.CoreFactCodecs.given
 import com.vanillasource.eliot.eliotc.codec.LangFactCodecs.given
 
@@ -39,4 +39,10 @@ object JvmFactCodecs {
   // Aliases the fact keys use to state their own persistence decision.
   val generatedModuleCodec: FactCodec[com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule] = codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_GeneratedModule
   val generateExecutableJarCodec: FactCodec[com.vanillasource.eliot.eliotc.jvm.jargen.GenerateExecutableJar] = codec_com_vanillasource_eliot_eliotc_jvm_jargen_GenerateExecutableJar
+
+  /** This layer's contribution to the key tag table; see [[FactKeyCodecs]]. */
+  val keyCodecs: FactKeyCodecs.Registry = Map(
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_jvm_jargen_GenerateExecutableJar_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_jvm_classgen_fact_GeneratedModule_Key)
+  )
 }

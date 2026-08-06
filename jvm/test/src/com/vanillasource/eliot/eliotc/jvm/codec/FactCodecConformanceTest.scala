@@ -3,9 +3,16 @@ package com.vanillasource.eliot.eliotc.jvm.codec
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.compiler.cache.FactSerialization
-import com.vanillasource.eliot.eliotc.compiler.cache.codec.{ContentAddressedInput, ContentAddressedOutput, FactCodec}
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{
+  ContentAddressedInput,
+  ContentAddressedOutput,
+  CoreFactCodecs,
+  FactCodec,
+  FactKeyCodecs
+}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
-import com.vanillasource.eliot.eliotc.processor.CompilerFact
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import org.scalatest.Assertion
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -57,6 +64,28 @@ class FactCodecConformanceTest extends AsyncFlatSpec with AsyncIOSpec with Match
 
       report(encodable, frames, shared, java).as(shared should be < java)
     }
+  }
+
+  /** The guard §16 asked for. `CompilerFactKey.valueCodec` is compile-time-complete for a fact's *value*; a key's own
+    * codec cannot be stated that way, because decoding a dependency has no key to read it from. The tag table is
+    * therefore a runtime map, and this is what makes an omission loud: every key type a real build materialises must
+    * be registered. Only that direction is checkable here — a build exercises a subset of the fact model, so a
+    * registration with no live key type is not evidence of anything.
+    */
+  "the key tag table" should "cover every fact key type a build materialises" in {
+    withFacts(facts => IO.pure(facts.map(fact => FactKeyCodecs.nameOf(fact.key())).toSet -- keyCodecs.keySet shouldBe Set.empty))
+  }
+
+  it should "read back every key it registers" in {
+    withFacts(facts => IO.pure(facts.map(_.key()).distinct.filterNot(roundTripsAsKey) shouldBe Nil))
+  }
+
+  private val keyCodecs: FactKeyCodecs.Registry = CoreFactCodecs.keyCodecs ++ LangFactCodecs.keyCodecs ++ JvmFactCodecs.keyCodecs
+
+  private def roundTripsAsKey(key: CompilerFactKey[?]): Boolean = {
+    val codec = keyCodecs(FactKeyCodecs.nameOf(key))
+
+    FactCodec.fromBytes(FactCodec.toBytes(key)(using codec))(using codec) == key
   }
 
   /** The store the codecs are actually for (§17). Both properties are checked here because they are one design: the

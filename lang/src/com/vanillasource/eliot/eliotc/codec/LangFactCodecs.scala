@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.codec
 
-import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
+import com.vanillasource.eliot.eliotc.compiler.cache.codec.{FactCodec, FactKeyCodecs}
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.CoreFactCodecs.given
 
 /** [[FactCodec]] instances for every type reachable from a `lang` compiler fact — the bulk of the fact model.
@@ -109,6 +109,8 @@ object LangFactCodecs {
   given codec_com_vanillasource_eliot_eliotc_reconcile_fact_ReconciledMonomorphicValue: FactCodec[com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_reconcile_fact_ReconciledMonomorphicValue_Key: FactCodec[com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_platform_Platform: FactCodec[com.vanillasource.eliot.eliotc.platform.Platform] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_ContributedBinding_Key: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding.Key] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_NativeBinding_Key: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_token_SourceTokens: FactCodec[com.vanillasource.eliot.eliotc.token.SourceTokens] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_token_SourceTokens_Key: FactCodec[com.vanillasource.eliot.eliotc.token.SourceTokens.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_token_Token: FactCodec[com.vanillasource.eliot.eliotc.token.Token] = FactCodec.derived
@@ -252,4 +254,46 @@ object LangFactCodecs {
   val sourceTokensCodec: FactCodec[com.vanillasource.eliot.eliotc.token.SourceTokens] = codec_com_vanillasource_eliot_eliotc_token_SourceTokens
   val uncurriedMonomorphicValueCodec: FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicValue] = codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicValue
   val usedNamesCodec: FactCodec[com.vanillasource.eliot.eliotc.used.UsedNames] = codec_com_vanillasource_eliot_eliotc_used_UsedNames
+
+  /** This layer's contribution to the key tag table; see [[FactKeyCodecs]]. The two declining facts appear here too:
+    * a decline withholds the *value*, never the edges, so its key is still stored and still walked. */
+  val keyCodecs: FactKeyCodecs.Registry = Map(
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_fact_ContributedBinding_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_fact_NativeBinding_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_used_UsedNames_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_termination_fact_RecursionCheckedValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_core_fact_CoreAST_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementation_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_ability_fact_AbilityImplementationCheck_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_ability_fact_ModuleAbilityOverlapCheck_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_module_fact_ModuleAbilities_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_module_fact_ModuleConstructors_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_module_fact_ModuleNames_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_module_fact_ModuleValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleNames_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_reconcile_fact_ReconciledMonomorphicValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_token_SourceTokens_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_source_file_FileContent_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_source_content_SourceContent_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_source_scan_PathScan_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_source_scan_PoolModules_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_source_stat_FileStat_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_block_fact_BlockDesugaredValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_saturate_fact_SaturatedValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_ast_fact_SourceAST_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_row_fact_RowElaboratedValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesIndex_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesRewrittenValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_WovenValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_fact_BodyValueReferences_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_fact_CompilerMonomorphicValue_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicValue_Key)
+  )
 }
