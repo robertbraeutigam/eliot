@@ -817,10 +817,11 @@ default still being the Java graph. Two files with opposite lifecycles, which is
 - **the index** (`.eliot-index-<config>`) is rewritten every save, and is the only thing a load must read in full.
 
 **A carried-forward value is never re-encoded**, and this is not an optimisation — it is what makes the append model
-work at all. On a warm build every entry survives, so re-encoding would append the whole graph every run. An entry's
-value is written only where this run produced a *different object* for it, recognised by **reference**, since a value
-carried out of the store is literally the object that was read. `ContentAddressedCacheBackendTest` pins it: saving
-back what was loaded appends zero bytes.
+work at all. On a warm build every entry survives, so re-encoding would append the whole graph every run. A value
+still in the store is placed from its identity alone, without being read. (This first shipped keyed on *reference*
+identity — the object carried out of the store is the one that was read — which §18 replaced with content identity,
+since that also covers a value recomputed to an equal-but-fresh object.) `ContentAddressedCacheBackendTest` pins it:
+saving back what was loaded appends zero bytes.
 
 An entry is placed **whole or not at all**. A key type with no registered codec cannot be read back, and dropping
 merely the *dependency* naming it would leave an entry claiming fewer inputs than it has — under-invalidation, the one

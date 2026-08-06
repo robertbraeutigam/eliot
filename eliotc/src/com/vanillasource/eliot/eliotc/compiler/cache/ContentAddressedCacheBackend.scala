@@ -26,16 +26,18 @@ import java.nio.file.{Files, Path, StandardOpenOption}
   *   - **the index** (`.eliot-index-<config>`) is rewritten every save. It is the only thing a load must read in full:
   *     per entry, where its key is, where its value is, and where each dependency's key is.
   *
-  * **A carried-forward value is never re-encoded.** This is not an optimisation but what makes the append model work
-  * at all: on a warm build every entry survives, and re-encoding them would append the entire graph again on every
-  * run. An entry's value is written only when this run actually produced a *different object* for it — which, on a
-  * warm build, is just the world leaves. Everything else keeps the offset it already had.
+  * **A value is never written twice.** This is not an optimisation but what makes the append model work at all: on a
+  * warm build every entry survives, and re-encoding them would append the entire graph again on every run. A value
+  * still in the store is placed from its [[ObjectId]] without being read, and one held in memory is *hashed before it
+  * is encoded* — so a world leaf that recomputed to an equal-but-fresh object resolves to the bytes already on disk.
+  * A warm build therefore appends nothing at all.
   *
-  * Consequently duplicate storage is possible here, unlike in §13's original framing: a leaf that recomputes to an
-  * equal-but-fresh object is appended again, a few kilobytes a build. That is the deliberate trade for not persisting
-  * an `ObjectId → offset` index, which measured *larger than the object bodies themselves*. Compaction reclaims it,
-  * and compaction is needed regardless — the bodies are untyped bytes, so a mark-and-sweep cannot walk them and GC is
-  * necessarily a decode-and-re-encode of the live entries.
+  * Duplicate storage is still *possible* here, unlike in §13's original framing, because the ids carried between runs
+  * are the entries' roots rather than every object: a genuinely new value re-appends any sub-object it shares with
+  * something already stored. That is the deliberate trade for not persisting a whole `ObjectId → offset` index, which
+  * measured *larger than the object bodies themselves*. Compaction reclaims it, and compaction is needed regardless —
+  * the bodies are untyped bytes, so a mark-and-sweep cannot walk them and GC is necessarily a decode-and-re-encode of
+  * the live entries.
   *
   * Both directions are fail-safe, as with [[FactCache]]: `load` answers `None` on any problem (missing file, format or
   * fingerprint mismatch, a body region that does not match the index it was written with), and `save` warns rather
