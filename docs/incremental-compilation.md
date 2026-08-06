@@ -20,9 +20,11 @@ it names.
 
 **The cache work is finished; the next bottleneck is not the cache and not the compiler.** §23 measures it: ~41% of a
 warm build is JVM boot, log4j and cats-effect initialisation, and Scala classloading — all of it *before*
-`--statistics` starts counting, which is why three sections looked for it in the wrong place. An AppCDS archive takes
-a warm build from 1,331 ms to 908 ms with no compiler change and a byte-identical jar; it is a **packaging** change
-(`ide/lsp/package.sh`), not a compiler one, and is not yet applied.
+`--statistics` starts counting, which is why three sections looked for it in the wrong place. §24 then prices the
+biggest named piece of it, log4j, at ~110 ms (~8%) with **no switch that recovers any of it** — only not loading
+`log4j-core` at all. Both sections are measurement; neither has been acted on, and §23's AppCDS option
+(1,331 → 908 ms, byte-identical jar, no compiler change) is **declined** — it constrains ordinary JVM operation more
+than the time is worth.
 
 §§1–2 are the model everything else refers to. §§3–10 are the diagnosis, its fixes and the retention changes, kept as
 the record of what each defect looked like.
@@ -1281,13 +1283,16 @@ Measured as `System.nanoTime` deltas around each initialisation, on a cold JVM:
 
 ```
 JVM boot to main                                       ~60 ms
-log4j2 LoggerContext init (XML config + plugin registry)  ~265 ms
+log4j2 LoggerContext init                                ~265 ms   ← isolated; marginal cost is ~110 ms, see §24
 cats-effect IORuntime.global (pool construction)         ~140 ms
 classloading Compiler$ and its Scala transitive closure  ~165 ms
 ```
 
 The parts overlap — whichever runs first absorbs the shared classloading, so they do not add cleanly — but the total
-matches the measured prefix. **Almost all of it is classloading and one-time library initialisation, and none of it
+matches the measured prefix. **Read each line as an upper bound, not as a marginal cost.** §24 measures log4j's
+marginal cost by removing it and finds ~110 ms, not 265: the isolated probe was the first thing in that JVM to touch
+the classloader, so it paid for warm-up the compiler would have paid anyway. The same caveat applies to the other
+three lines. **Almost all of it is classloading and one-time library initialisation, and none of it
 is the compiler's own work.** No algorithmic change touches it, exactly as §19 found for the load's JIT component;
 unlike that one, this is addressable.
 
@@ -1331,7 +1336,7 @@ Three practical constraints:
 - **log4j's `SimpleLoggerContextFactory`** — worth a further ~6% (816 vs 874 ms with AppCDS), but it **silences the
   user-facing INFO output**, including "Generated executable jar". Not a drop-in, and not worth that trade.
 - **log4j property tuning** (`disable.jmx`, `shutdownHookEnabled=false`, `is.webapp=false`) — 869 vs 882 ms, inside
-  noise. The 265 ms is XML config parsing and the plugin registry, not JMX.
+  noise. Confirmed independently in §24, which also rules out JMX and a version upgrade.
 - **`-Xshare:off`** — confirms the default JDK archive is already earning ~110 ms (1,510 vs 1,397 ms). AppCDS extends
   that mechanism to the application's own classes rather than introducing a new one.
 
@@ -1340,8 +1345,8 @@ Three practical constraints:
 ~340 ms prefix, ~250 ms compile, ~165 ms cache load + save, ~35 ms plugin setup. Two observations for whoever picks
 this up next:
 
-- **log4j2's ~150 ms (post-archive) is now the largest single startup item.** Reaching it means taking the
-  user-facing output off log4j — `User` printing directly, log4j kept for debug only — rather than reconfiguring it.
+- **log4j2 is the largest single startup item that is not the JVM itself.** §24 measures what it is really worth
+  (~110 ms, ~8%) and establishes that there is no switch: reaching it means not loading `log4j-core` at all.
 - **Dispatch (105 ms) exceeds all processors combined (98 ms)** on a warm build: 304 generations, each offered to
   every one of ~45 processors, error-isolated and type-tested. Read it as the upper bound it is (the measurement
   lands in that same figure, §"two compiler diagnostics" in CLAUDE.md), but it is the only remaining row inside the
@@ -1360,3 +1365,90 @@ JVM-start stamp, so the total the report accounts against is the total the user 
 This is CLI latency. A resident `CompilationSession` pays the prefix once at server start, so hover and diagnostics
 never see it. It is what `./mill examples.run`, the example sweep, and the IntelliJ before-run build task pay on
 every single invocation.
+
+## 24. What log4j actually costs, and why there is no switch to flip (2026-08-06)
+
+§23 named log4j as the largest non-JVM item in the startup prefix and put it at ~265 ms. This section takes it
+apart. Two results: **the 265 ms was an isolated-probe number and the marginal cost is ~110 ms**, and **there is
+nothing to turn off** — no lookup, no scan, no flag. The cost is that 500-odd classes have to be read and defined.
+
+### It is not a network lookup, and not a plugin scan
+
+The obvious suspects were checked first, because log4j has a documented history of exactly this
+([LOG4J2-2717](https://issues.apache.org/jira/browse/LOG4J2-2717) is a multi-*second* startup caused by network
+interface enumeration in `UuidUtil`, and [LOG4J2-2795](https://issues.apache.org/jira/browse/LOG4J2-2795) tracks
+`LogManager.getLogger` at ~600 ms cold):
+
+| suspect | measured here |
+|---|---|
+| DNS — `InetAddress.getLocalHost().getCanonicalHostName()` | **9 ms** |
+| NIC enumeration — `NetworkInterface.getNetworkInterfaces()`, 10 interfaces | **4 ms** |
+| plugin registry — `PluginCache.loadCacheFiles` | **~4 ms** (the `Log4j2Plugins.dat` cache is present, so there is no classpath scan) |
+| XML config — `XmlConfiguration.<init>` + `setFeature` | **~10 ms** |
+| JMX — `Server.reregisterMBeansAfterReconfigure` | **~6 ms** |
+
+LOG4J2-2717 is a Windows pathology; on this Linux box the NIC path is 4 ms. **None of the named causes is the cost.**
+
+Sampling the main thread every 2 ms through `LogManager.getLogger`, ~72 of 78 samples land in
+`jdk.internal.loader.Resource.getBytes`, `BuiltinClassLoader.defineClass`, `AbstractClassLoaderValue$Memoizer.get`
+and `BootClassLoader.loadClassOrNull`. It is **raw classloading**, and the class count says the same thing:
+
+```
+classes loaded by one warm build   9,865
+  log4j-core                         502
+  log4j-api                          101   ← 603 for logging
+  scala-library + scala3-library      681
+  cats-effect                         292
+```
+
+**Logging loads twice as many classes as cats-effect.** That is the whole story.
+
+### Every switch was measured, and none of them works
+
+Interleaved A/B, eight rounds, **each variant given its own `-o` output directory** (see the trap below), min and
+average in ms:
+
+| variant | min | avg |
+|---|---:|---:|
+| A — log4j-core 2.22.1, as shipped | 1,282 | 1,313 |
+| B — A + `-Dlog4j2.disableJmx=true -Dlog4j2.disable.jmx=true` | 1,250 | 1,307 |
+| C — log4j-core 2.25.4 | 1,255 | 1,319 |
+| D — C + `-Dlog4j2.disableJmx=true` | 1,276 | 1,321 |
+| **E — log4j-api only, `log4j-core` off the classpath** | **1,139** | **1,205** |
+
+- **Disabling JMX buys nothing measurable**, in either spelling, on either version, despite the manual saying it
+  "increases the time for a cold app start". The MBean registration is ~6 ms; the classes behind it get loaded
+  anyway.
+- **Upgrading to 2.25.4 buys nothing measurable** either, though it is a free correctness/currency win if wanted:
+  output is byte-for-byte the same, JMX is off by default from 2.24.0, and it loads 23 fewer classes (620 vs 643).
+- **Removing `log4j-core` is worth ~110–140 ms, ~8–9%** — and it is the *ceiling*, not a starting point. There is no
+  configuration that gets part of it: the jar is either loaded or it is not.
+
+### What removing it would actually mean
+
+The compiler barely logs. Across every module there are **35 call sites** — 22 `debug`, 7 `error`, 4 `warn`,
+2 `info` — against **32 types** mixing in `Logging`. The configuration that matters is `log4j2.xml`: root at `info`,
+`FactGenerator` pinned to `error`, and eight commented-out per-package `debug` loggers that a developer uncomments
+when chasing a phase. Replacing that is a small internal logger, not a project.
+
+One inconsistency to fix at the same time, and the reason the §23 `SimpleLoggerContextFactory` experiment silenced
+the build: **user-facing output is split across two mechanisms.** Errors go through `User`, which prints via
+`cats.effect.std.Console`. But the success line — `JvmProgramGenerator`'s "Generated executable jar: …" — is a
+log4j `info`, so it is *logging configuration*, not program output, and any change to the logging backend can
+delete it. Product output belongs in `User` regardless of what happens to log4j.
+
+### The benchmark trap that nearly produced a fake result
+
+The first run of the table above showed A, C and E at ~3,400 ms and B and D at ~1,280 ms — an apparent **2.1-second
+JMX effect**. It was an artefact, and the giveaway is that E has no JMX code on the classpath at all.
+
+Each variant has a different classpath, so each has a different **compiler fingerprint** and therefore a different
+cache configuration — but they all shared one `target/` directory. A build whose config does not match the region
+replaces it, so in an A-B-C-D-E round every variant preceded by a *different* config started cold and every variant
+preceded by *itself* ran warm. The alternation printed as a clean, reproducible, entirely fictitious flag effect.
+
+This is the limitation TODO already records from §21 ("two different compiler builds sharing a target directory take
+turns replacing the region and both stay cold") — worth restating here because it does not present as a cache
+problem. It presents as whatever variable the benchmark happened to be alternating on. **Any A/B over compiler
+variants must give each variant its own `-o` directory**, and a result where the ordering explains the numbers
+better than the variable does should be assumed to be this until proven otherwise.

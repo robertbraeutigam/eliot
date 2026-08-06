@@ -127,18 +127,22 @@ notes.
   compiler one.** Replacing Java serialization with explicit codecs over a content-addressed
   object store cut a warm build in half (load −79%, save −77%) and the cache is down to ~36% of
   it. §23 then measured what is left: **~41% of a warm build happens before `--statistics` starts
-  counting** — JVM boot, log4j2's LoggerContext init (~265 ms), cats-effect's `IORuntime.global`
-  (~140 ms) and Scala classloading (~165 ms). An **AppCDS archive** takes a warm build from
-  1,331 ms to 908 ms (−32%) with a byte-identical jar and no compiler change: dump one archive in
-  `ide/lsp/package.sh` and add `-XX:SharedArchiveFile` to the launcher (needs a jar classpath,
-  which the packaged distribution already has; a stale archive degrades silently under the default
-  `-Xshare:auto`). After that, log4j's remaining ~150 ms wants the *user-facing* output moved off
-  log4j entirely, and dispatch (105 ms, > all processors combined) is the only structured cost
-  left inside the compile window. See `docs/incremental-compilation.md` §23; §19 is the earlier
-  profile and why a lazy index is measured and rejected. Measured and rejected: C1-only
-  (`TieredStopAtLevel=1`) is a regression, and log4j's SimpleLogger silences user output. Left on
-  the cache itself: caching *declines* (§6 step 3) and compaction (§13 step 5, no longer urgent
-  since a warm build appends nothing).
+  counting** — JVM boot, log4j, cats-effect's `IORuntime.global` and Scala classloading. AppCDS
+  would take a warm build from 1,331 ms to 908 ms (−32%, byte-identical jar, no compiler change)
+  but is **declined**: it constrains ordinary JVM operation more than the time is worth. §24 then
+  prices log4j — the biggest named piece — honestly: **~110 ms, ~8%, and there is no switch.** Not
+  DNS (9 ms), not NIC enumeration (4 ms — LOG4J2-2717 is a Windows pathology), not the plugin scan
+  (the `Log4j2Plugins.dat` cache works), not JMX (no measurable win in either spelling), not the
+  version (2.25.4 is identical, if wanted as a currency upgrade). It is **603 classes** —
+  log4j-core 502 + api 101, twice cats-effect's 292 — and the only way to get the 110 ms is to not
+  load `log4j-core`. That is affordable: the whole compiler has **35 log call sites** (22 debug,
+  7 error, 4 warn, 2 info) across 32 `Logging` types, so an internal logger replaces it. Fix the
+  split output at the same time: errors go through `User`/`Console`, but the "Generated executable
+  jar" success line is a log4j `info` — product output that any logging change can delete. After
+  that, dispatch (105 ms, > all processors combined) is the only structured cost left inside the
+  compile window. See `docs/incremental-compilation.md` §23–§24; §19 is the earlier profile.
+  Left on the cache itself: caching *declines* (§6 step 3) and compaction (§13 step 5, no longer
+  urgent since a warm build appends nothing).
 - **Cache sharing across target directories.** One cache now accumulates across mains for the same
   roots and backend (§10), so the stdlib subgraph is built once per configuration rather than once
   per example. Two *different* compiler builds sharing a target directory still take turns
