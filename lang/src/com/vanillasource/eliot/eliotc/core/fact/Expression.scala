@@ -5,7 +5,7 @@ import cats.{Eq, Show}
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-trait Expression
+sealed trait Expression
 
 object Expression {
 
