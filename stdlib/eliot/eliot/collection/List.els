@@ -116,26 +116,6 @@ def groupBy[A, K ~ Eq](key: A => {Effect} K, list: List[A]): {Effect} List[Pair[
    list.foldLeft(empty, e -> groups -> addToGroup(key(e), e, groups))
 
 /**
- * Add `element` to the group `groups` holds for `key`, or start a new group at the end when there is none.
- *
- * `private` because it is `groupBy`'s step, not an operation of its own. It rebuilds the whole association list in
- * one pass, carrying "was the key found" beside it — a list is only foldable front to back, so deciding whether to
- * start a new group has to wait until the existing groups are exhausted.
- */
-private def addToGroup[A, K ~ Eq](key: K, element: A, groups: List[Pair[K, List[A]]]): List[Pair[K, List[A]]] =
-   groups
-      .foldLeft(
-         pair(false, empty),
-         group -> acc -> acc.foldPair(found -> rebuilt -> group.foldPair(groupKey -> members ->
-            fold(
-               groupKey == key,
-               pair(true, append(rebuilt, pair(groupKey, append(members, element)))),
-               pair(found, append(rebuilt, group))
-            )))
-      )
-      .foldPair(found -> rebuilt -> fold(found, rebuilt, append(rebuilt, pair(key, append(empty, element)))))
-
-/**
  * The number of elements in `list`.
  *
  * ```eliot
@@ -391,6 +371,36 @@ def put[K ~ Eq, V](key: K, value: V, entries: List[Pair[K, V]]): List[Pair[K, V]
    )
 
 /**
+ * `List` is a monoid under concatenation: `combine` appends the elements of the second list after the first (a
+ * platform-independent fold, identical on every target), and `empty` is the empty list. This makes `List` usable as
+ * the accumulated log of a `Writer` effect, and lets `++` concatenate lists.
+ */
+implement[A] Combine[List[A]] {
+   def combine(a: List[A], b: List[A]): List[A] = b.foldLeft(a, e -> acc -> append(acc, e))
+   def empty: List[A] = empty
+}
+
+/**
+ * Add `element` to the group `groups` holds for `key`, or start a new group at the end when there is none.
+ *
+ * `private` because it is `groupBy`'s step, not an operation of its own. It rebuilds the whole association list in
+ * one pass, carrying "was the key found" beside it — a list is only foldable front to back, so deciding whether to
+ * start a new group has to wait until the existing groups are exhausted.
+ */
+private def addToGroup[A, K ~ Eq](key: K, element: A, groups: List[Pair[K, List[A]]]): List[Pair[K, List[A]]] =
+   groups
+      .foldLeft(
+         pair(false, empty),
+         group -> acc -> acc.foldPair(found -> rebuilt -> group.foldPair(groupKey -> members ->
+            fold(
+               groupKey == key,
+               pair(true, append(rebuilt, pair(groupKey, append(members, element)))),
+               pair(found, append(rebuilt, group))
+            )))
+      )
+      .foldPair(found -> rebuilt -> fold(found, rebuilt, append(rebuilt, pair(key, append(empty, element)))))
+
+/**
  * `true` when `position` is the position `index` names. Spelled as two `Compare` tests because `Int` has no `Eq`
  * instance — the ordering is the only equality an `Int` has, and `a <= b && b <= a` is exactly it.
  */
@@ -408,13 +418,3 @@ private def keyOf[K, V](entry: Pair[K, V]): K = entry.foldPair(entryKey -> _ -> 
  */
 private def matchingValue[K ~ Eq, V](key: K, entry: Pair[K, V]): Option[V] =
    entry.foldPair(entryKey -> entryValue -> fold(entryKey == key, some(entryValue), none))
-
-/**
- * `List` is a monoid under concatenation: `combine` appends the elements of the second list after the first (a
- * platform-independent fold, identical on every target), and `empty` is the empty list. This makes `List` usable as
- * the accumulated log of a `Writer` effect, and lets `++` concatenate lists.
- */
-implement[A] Combine[List[A]] {
-   def combine(a: List[A], b: List[A]): List[A] = b.foldLeft(a, e -> acc -> append(acc, e))
-   def empty: List[A] = empty
-}

@@ -47,10 +47,6 @@ implement[X, G[_] ~ Effect] Dep[X, DepCarrier[X, G]] {
    def dependency: DepCarrier[X, G, X] = DepCarrier(providedValue)
 }
 
-// The reader `ask` as a named function: returns the provided environment as the result, purely. Kept top-level (not an
-// inline lambda) so the native `Dep` instance above stays lambda-free — see its doc.
-private def providedValue[X, G[_] ~ Effect](x: X): G[X] = pure(x)
-
 /**
  * The `Dep` lift instance (inductive step): a *foreign* dependency type `X2` read on a `DepCarrier[X1]` layer that owns
  * a *different* dependency type `X1` is delegated inward — `dependency` runs on the inner `G` (which must itself be
@@ -64,3 +60,7 @@ private def providedValue[X, G[_] ~ Effect](x: X): G[X] = pure(x)
 implement[X1, X2, G[_] ~ Dep[X2] & Effect] Dep[X2, DepCarrier[X1, G]] where X1 != X2 {
    def dependency: DepCarrier[X1, G, X2] = DepCarrier(x1 -> dependency)
 }
+
+// The reader `ask` as a named function, used by the native `Dep` instance above: returns the provided environment as
+// the result, purely. Kept top-level (not an inline lambda) so that instance stays lambda-free — see its doc.
+private def providedValue[X, G[_] ~ Effect](x: X): G[X] = pure(x)

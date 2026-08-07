@@ -385,6 +385,20 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  // A private `data` is private in *every* name it mints, its synthetic implementations included — otherwise those leak
+  // out of the module, and the visibility-order rule sees public declarations sitting among the private ones.
+  it should "have private visibility for handleCases of a private data" in {
+    namedValues("private data Box[A](value: A)").asserting { nvs =>
+      findByNameAndImplQualifier(nvs, "handleCases").head.visibility shouldBe Visibility.Private
+    }
+  }
+
+  it should "make every name a private data mints private" in {
+    namedValues("private data Box[A](value: A)").asserting { nvs =>
+      nvs.map(_.visibility).distinct shouldBe Seq(Visibility.Private)
+    }
+  }
+
   it should "have correct type for handleCases on single-constructor data" in {
     namedValues("data Box[A](value: A)").asserting { nvs =>
       val nv = findByNameAndImplQualifier(nvs, "handleCases").head

@@ -7,7 +7,6 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   DataDefinition,
   FunctionDefinition,
   GenericParameter,
-  Visibility,
   Expression as SourceExpression,
   Pattern as SourcePattern
 }
@@ -32,13 +31,18 @@ object DataDefinitionDesugarer {
     // The synthetic `PatternMatch`/`TypeMatch` implementations are keyed by the data type's own name — there is exactly
     // one of each per data type per module, so the name is a stable, position-independent identity (matching the
     // `(ability, pattern)` scheme user implementations use, with the data type standing in for the pattern).
-    val implKey                                            = definition.name.value
-    val mainFunctions: Seq[(FunctionDefinition, RoleHint)] =
-      (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
-        .map { case (fd, hint) => (fd.copy(visibility = definition.visibility), hint) }
-    mainFunctions ++
+    val implKey = definition.name.value
+    // Every name a `data` mints inherits the declaration's visibility — the type constructor, value constructors and
+    // accessors, *and* the synthetic PatternMatch/TypeMatch implementations, which is why the visibility is applied
+    // once here rather than at each construction site. A `private data` whose implementations stayed public would leak
+    // them out of the module (harmless in practice, since a private type can only be matched inside its own module,
+    // but a leak nonetheless) and would report itself to VisibilityOrderChecker as a public declaration sitting among
+    // the private ones. Dispatch is unaffected: ModuleAbilitiesProcessor indexes implementations from every name in
+    // the module, not from the visibility-filtered import dictionary.
+    (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition) ++
       createPatternMatchImpl(definition, implKey).map(_ -> RoleHint.NoHint) ++
-      createTypeMatch(definition, implKey).map(_ -> RoleHint.NoHint)
+      createTypeMatch(definition, implKey).map(_ -> RoleHint.NoHint))
+      .map { case (fd, hint) => (fd.copy(visibility = definition.visibility), hint) }
   }
 
   private def createTypeFunction(definition: DataDefinition): Seq[(FunctionDefinition, RoleHint)] =
@@ -195,8 +199,7 @@ object DataDefinitionDesugarer {
           definition.genericParameters,
           Seq(ArgumentDefinition(s.as(resultParamName), typeExpr(s.as("Type")))),
           typeExpr(s.as("Type")),
-          None,
-          visibility = Visibility.Public
+          None
         )
 
         val handleCasesDef = FunctionDefinition(
@@ -212,8 +215,7 @@ object DataDefinitionDesugarer {
             ArgumentDefinition(s.as("cases"), churchCasesType)
           ),
           typeExpr(s.as(resultParamName)),
-          None,
-          visibility = Visibility.Public
+          None
         )
 
         Seq(implMarker, casesTypeDef, handleCasesDef)
@@ -265,8 +267,7 @@ object DataDefinitionDesugarer {
       definition.genericParameters,
       Seq(ArgumentDefinition(s.as(resultParamName), typeExpr(s.as("Type")))),
       typeExpr(s.as("Type")),
-      None,
-      visibility = Visibility.Public
+      None
     )
 
     val typeMatchDef = FunctionDefinition(
@@ -278,8 +279,7 @@ object DataDefinitionDesugarer {
         ArgumentDefinition(s.as("elseCase"), elseCaseType)
       ),
       typeExpr(s.as(resultParamName)),
-      None,
-      visibility = Visibility.Public
+      None
     )
 
     Seq(implMarker, fieldsTypeDef, typeMatchDef)

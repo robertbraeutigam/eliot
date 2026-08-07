@@ -152,7 +152,7 @@ class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq
   }
 
   "visibility" should "resolve private value in same module" in {
-    runEngineForValue("data T\nprivate def b: T\ndef a: T = b").flatMap {
+    runEngineForValue("data T\ndef a: T = b\nprivate def b: T").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
       case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))
@@ -160,7 +160,7 @@ class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq
   }
 
   it should "resolve private value via module prefix in same module" in {
-    runEngineForValue("data T\nprivate def b: T\ndef a: T = Test::b").flatMap {
+    runEngineForValue("data T\ndef a: T = Test::b\nprivate def b: T").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
       case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))

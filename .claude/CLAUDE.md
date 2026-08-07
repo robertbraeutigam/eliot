@@ -95,7 +95,12 @@ subset of its data.
 1. **source** — reading source files (multi-mount, platform-scoped; see the Layers cornerstone)
 2. **token** — tokenizer
 3. **ast** — building the AST
-4. **core** — building the core language AST (desugars `data`, effect rows, meta transfers)
+4. **core** — building the core language AST (desugars `data`, effect rows, meta transfers). Two checks ride the
+   desugared named values here: `StrictPositivityChecker` and `VisibilityOrderChecker` (a file's public API must be a
+   *prefix* — no public declaration may follow a private one, C++'s `private:` section as an ordering rule). The
+   visibility check runs post-desugar precisely so `def`/`type`/`data`/`ability`/`implement` need no per-construct
+   arms; `ability`/`implement` mint public values and so are covered with no exception, and a `private data` is
+   private in *every* name it mints.
 5. **module** — from modules to individual values; unifies same-named modules from different paths
 6. **resolve** — resolve identifiers to fully qualified names or parameters
 7. **matchdesugar** — pattern matches into function applications; exhaustiveness, nested/constructor/wildcard patterns

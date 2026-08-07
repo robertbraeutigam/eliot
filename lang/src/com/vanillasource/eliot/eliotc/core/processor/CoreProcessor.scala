@@ -69,8 +69,12 @@ class CoreProcessor
     // concrete carrier, so its row must be pinned (`{Throw[E] | Id} A`). Reported here, with the definitions still
     // lowered (see EffectSugarDesugarer) so other checks proceed.
     val rowErrors        = sourceAstData.typeDefinitions.flatMap(EffectSugarDesugarer.rowErrors)
+    // Visibility-order check: a file's public API must be a prefix of its declarations, so no public declaration may
+    // follow a private one. Runs on the desugared named values (not the source AST) so `def`/`type`/`data`/`ability`/
+    // `implement` all answer to one rule with no per-construct arms. See VisibilityOrderChecker.
+    val visibilityErrors = VisibilityOrderChecker.check(coreAstData.namedValues)
 
-    (positivityErrors ++ rowErrors).traverse_(message => Sourced.compilerError(message)) >>
+    (positivityErrors ++ rowErrors ++ visibilityErrors).traverse_(message => Sourced.compilerError(message)) >>
       debug[CompilerIO](
         s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.show).mkString(", ")}"
       ) >>
