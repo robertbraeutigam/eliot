@@ -1,7 +1,8 @@
 # Retiring the Optional Fact Read (`getFactIfProduced`)
 
-Status: **PLAN (2026-08-02); steps 1 and the module-membership half of step 2 landed.** Written against the current
-tree. §6.1 (the `NativeBinding` totalization) is done: the fact now carries `semValue: Option[SemValue]`,
+Status: **PLAN (2026-08-02); steps 1, the module-membership half of step 2, and the Bucket-2 `RefinementTable`
+site landed.** Written against the current tree. §6.1 (the `NativeBinding` totalization) is done: the fact now
+carries `semValue: Option[SemValue]`,
 `BindingMergerProcessor` publishes a `None` payload instead of aborting, and the Bucket-1 readers
 (`MonomorphicTypeCheckProcessor`, `CompilerMonomorphicTypeCheckProcessor`) read it with `getFactOrAbort`. The
 Bucket-3 cyclic-walk readers (`BindingClosure`, `ReducedBindingClosure`) stay tolerant and only inspect the new
@@ -126,6 +127,19 @@ the error explicitly (this is the semantic-drift risk E1 flagged; it is handled 
 `ReconcileProcessor` (`RefinementTable`), `PostDrainQuoter` (`roleHint` via `UnifiedModuleValue`). Same treatment
 as Bucket 1: a total fact with an empty / none case, read with `getFactOrAbort`.
 
+- **`ReconcileProcessor` (`RefinementTable`) — done.** `RefinementChannelProcessor` is already a 1:1
+  `TransformationProcessor` over `MonomorphicValue` that *always* yields a table (empty `metas` when no node's range
+  is pinned; a `where` violation reports via `Sourced.compilerError`, which does not abort, and still yields). The
+  reconcile pass's own input (`UncurriedMonomorphicValue`) is strictly downstream of that same `MonomorphicValue`,
+  so the table is always producible at the read — the `getFactIfProduced` was a defensive optional read over an
+  already-total fact. Flipped to `getFactOrAbort` (which additionally *demands* the table, demand-driven-safe), and
+  the `.map(...).getOrElse(empty)` collapsed to a direct read. Pure hygiene here, not a cache-poison fix: the fact
+  already had a cache entry, so the edge was never poisoned — this retires the optional read and makes intent
+  explicit. Verified: `lang.test` (455) + `jvm.test` (150) green, `Arithmetic` example runs byte-clean.
+- **`PostDrainQuoter` (`roleHint`) — still open**, and *not* a fact-totalization: it reads `UnifiedModuleValue`,
+  which is **dual-read** (mandatory `getFactOrAbort` consumers elsewhere), so the fact itself cannot be flipped to
+  an absent-carrying total without breaking them — see the dual-read caveat in §6.
+
 ### Bucket 3 — Skip-broken-callee and cyclic-walk reads → **keep tolerant, but rename**
 
 These tolerate a genuine *upstream failure* (an error already reported) or a not-yet-resolved node in a
@@ -166,9 +180,22 @@ value, not merely a drillable one; decline-caching is the safety net for the gen
    example for the rest. Measure warm-build regeneration count before/after. **✓ Done.**
 2. **Bucket 1 remainder** (module membership, ability lookups). Biggest cache win. **✓ Module membership done**
    (`UnifiedModuleNames` + `ModuleAbilities` total); ability-resolution probes over other facts still open.
-3. **Bucket 2.**
+3. **Bucket 2.** **✓ `RefinementTable` done** (`ReconcileProcessor` flipped to `getFactOrAbort`); `roleHint`
+   blocked on the dual-read caveat below.
 4. **Bucket 3 rename** (cheap; makes intent explicit and prevents backsliding).
 5. **§5 decline-caching** for the residual.
+
+**Dual-read caveat (learned closing the `RefinementTable` site).** Totalizing *the fact itself* — flipping its
+producer to publish an absent-carrying payload and its readers to `getFactOrAbort` — is only sound when the fact
+is read tolerantly **everywhere**. A fact that is *also* read via `getFactOrAbort` by the main pipeline (a
+"dual-read" fact) cannot be flipped: the mandatory readers rely on absence to abort their own computation, and a
+total producer would hand them a bogus "absent" value instead. `OperatorResolvedValue` is the cautionary case — 9
+mandatory `getFactOrAbort` sites (ability/jvm processors) against ~8 tolerant probes — so despite being the
+highest-count tolerant key among the remainder, it is **not** a fact-totalization target; its tolerant probes must
+be handled reader-side (a sibling lookup fact, or Bucket-3 rename) instead. Same for `UnifiedModuleValue`
+(4 mandatory readers), which blocks the `PostDrainQuoter` `roleHint` site. Clean totalization targets are scarcer
+than the bucket counts suggest: check for `getFactOrAbort`/`getFactOrError` readers of a fact *before* planning to
+totalize it.
 
 ## 7. Verification
 

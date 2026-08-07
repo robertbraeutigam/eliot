@@ -40,8 +40,13 @@ class ReconcileProcessor
       umv: UncurriedMonomorphicValue
   ): CompilerIO[ReconciledMonomorphicValue] =
     for {
-      refinementTable <- getFactIfProduced(RefinementTable.Key(key.vfqn, key.typeArguments))
-      metas            = refinementTable.map(t => metaByPosition(t.metas)).getOrElse(Map.empty[PositionRange, GroundValue])
+      // The channel is total and strictly upstream: [[RefinementChannelProcessor]] is a 1:1 transformation of the
+      // instance's [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]], always yielding a table
+      // (empty when no node's range is pinned), and this pass's own input [[UncurriedMonomorphicValue]] is downstream
+      // of that same `MonomorphicValue`. So the table is always producible here — demand it with `getFactOrAbort`
+      // rather than tolerating an absence that, in a healthy build, cannot occur.
+      refinementTable <- getFactOrAbort(RefinementTable.Key(key.vfqn, key.typeArguments))
+      metas            = metaByPosition(refinementTable.metas)
       reconciledBody   = umv.body.map(b => walk(b.as(UncurriedMonomorphicExpression(umv.returnType, b.value)), metas))
     } yield ReconciledMonomorphicValue(
       vfqn = key.vfqn,
