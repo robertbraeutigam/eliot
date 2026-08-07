@@ -20,6 +20,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
 }
 import com.vanillasource.eliot.eliotc.monomorphize.channel.{
   EffectAccountingProcessor,
+  MetaTransferAccountingProcessor,
   RefinementChannelProcessor,
   WovenValueProcessor
 }
@@ -120,6 +121,9 @@ object LangProcessors {
     CompilerMonomorphicTypeCheckProcessor(),
     RefinementChannelProcessor(),
     EffectAccountingProcessor(),
+    // R2 meta-transfer accounting. Landed but not yet armed: nothing demands its fact in a normal build, so it is
+    // dormant until wired as a `WovenValue` precondition (docs/total-meta-transfers.md §P2).
+    MetaTransferAccountingProcessor(),
     WovenValueProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     BodyValueReferencesProcessor(),
