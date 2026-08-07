@@ -30,7 +30,7 @@ object GenericParameter {
   case class AbilityConstraint(abilityName: Sourced[String], typeParameters: Seq[Sourced[Expression]])
 
   val signatureEquality: Eq[GenericParameter] = (x: GenericParameter, y: GenericParameter) =>
-    x.name.value === y.name.value && x.typeRestriction.value.show === y.typeRestriction.value.show
+    x.name.value === y.name.value && x.typeRestriction.value.render === y.typeRestriction.value.render
 
   given ASTComponent[Seq[GenericParameter]] = new ASTComponent[Seq[GenericParameter]] {
     override def parser: Parser[Sourced[Token], Seq[GenericParameter]] =

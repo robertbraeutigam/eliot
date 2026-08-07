@@ -62,7 +62,7 @@ object SignatureRenderer {
 
   /** `implement[gp] Ability[patternTypes]` — reconstructed from the implementation marker function. */
   def implementation(abilityName: String, marker: FunctionDefinition): String = {
-    val pattern = marker.args.map(_.typeExpression.value.show).mkString("[", ", ", "]")
+    val pattern = marker.args.map(_.typeExpression.value.render).mkString("[", ", ", "]")
     s"implement${genericList(marker.genericParameters)} $abilityName$pattern"
   }
 
@@ -84,7 +84,7 @@ object SignatureRenderer {
   private def valueDefinition(fn: FunctionDefinition): String = {
     val modifiers = visibilityPrefix(fn.visibility) + fixityPrefix(fn.fixity, fn.precedence)
     val args      = if (fn.args.isEmpty) "" else valueArgs(fn.args)
-    s"${modifiers}def ${fn.name.value.name}${genericList(fn.genericParameters)}$args: ${fn.typeDefinition.value.show}"
+    s"${modifiers}def ${fn.name.value.name}${genericList(fn.genericParameters)}$args: ${fn.typeDefinition.value.render}"
   }
 
   private def typeDefinition(fn: FunctionDefinition): String = {
@@ -92,7 +92,7 @@ object SignatureRenderer {
     // For a `type`, the parameters live in `args` (TypeAliasDefinition moves them there) and are bracketed with `[]`.
     val params = if (fn.args.isEmpty) "" else fn.args.map(typeParameter).mkString("[", ", ", "]")
     val meta   = metaSlotList(fn.metaSlots)
-    val body   = fn.body.map(b => s" = ${b.value.show}").getOrElse("")
+    val body   = fn.body.map(b => s" = ${b.value.render}").getOrElse("")
     s"${prefix}type ${fn.name.value.name}$params$meta$body"
   }
 
@@ -102,7 +102,7 @@ object SignatureRenderer {
     */
   private def metaSlotList(slots: Seq[ArgumentDefinition]): String =
     if (slots.isEmpty) ""
-    else slots.map(slot => s"${slot.name.value}: ${slot.typeExpression.value.show}").mkString(" {", ", ", "}")
+    else slots.map(slot => s"${slot.name.value}: ${slot.typeExpression.value.render}").mkString(" {", ", ", "}")
 
   private def visibilityPrefix(visibility: Visibility): String =
     visibility match {
@@ -151,7 +151,7 @@ object SignatureRenderer {
   }
 
   private def constraint(defaultGeneric: String)(c: GenericParameter.AbilityConstraint): String =
-    c.typeParameters.map(_.value.show) match {
+    c.typeParameters.map(_.value.render) match {
       case Seq(single) if single === defaultGeneric => c.abilityName.value
       case Seq()                                    => c.abilityName.value
       case params                                   => s"${c.abilityName.value}${params.mkString("[", ", ", "]")}"
@@ -162,7 +162,7 @@ object SignatureRenderer {
     */
   private def kindOrRestriction(restriction: Expression): String =
     if (isType(restriction)) ""
-    else kindBrackets(restriction).map(b => b).getOrElse(s": ${restriction.show}")
+    else kindBrackets(restriction).map(b => b).getOrElse(s": ${restriction.render}")
 
   private def isType(expr: Expression): Boolean = expr match {
     case FunctionApplication(None, name, genericArguments, arguments) =>
@@ -188,5 +188,5 @@ object SignatureRenderer {
   }
 
   private def valueArgs(args: Seq[ArgumentDefinition]): String =
-    args.map(a => s"${a.name.value}: ${a.typeExpression.value.show}").mkString("(", ", ", ")")
+    args.map(a => s"${a.name.value}: ${a.typeExpression.value.render}").mkString("(", ", ", ")")
 }

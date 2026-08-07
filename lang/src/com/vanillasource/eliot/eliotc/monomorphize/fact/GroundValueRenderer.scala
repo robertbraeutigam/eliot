@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, WellKnownTypes}
 /** Renders a [[GroundValue]] — a fully evaluated, concrete monomorphic type — as a compact, human-readable type string
   * for anything a user reads: LSP hover / type hints, and the type arguments of an ability-demand diagnostic.
   *
-  * The compiler's own `Show[GroundValue]` is deliberately terse (it collapses every non-`Type` structure to
+  * The compiler's own `GroundValue.debugString` is deliberately terse (it collapses every non-`Type` structure to
   * `"Structure(...)"` and drops type arguments), which is fine for debug logging but useless — and, for a carrier,
   * actively misleading — in front of a user. This renderer instead shows the structure a reader expects:
   *

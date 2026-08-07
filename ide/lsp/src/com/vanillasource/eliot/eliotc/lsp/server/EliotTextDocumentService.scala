@@ -188,7 +188,7 @@ object EliotTextDocumentService {
     * runtime value — which is what a reader expects to see.
     */
   private def signatureOf(value: ResolvedValue): String =
-    s"${value.name.value.show} : ${value.signature.value.show}"
+    s"${value.name.value.show} : ${value.signature.value.render}"
 
   /** Map an in-scope-name entry to an lsp4j completion item: the bare name is both label and insert text, the kind
     * drives the icon, and the rendered signature (when known) becomes the detail shown alongside.

@@ -305,7 +305,7 @@ object EffectSugarDesugarer {
         )
       case EffectfulType(effects, resultType, None) if effects.nonEmpty       =>
         val name = carrierName.getOrElse(
-          throw IllegalStateException(s"An effect set introduced no carrier: ${expr.value.show}")
+          throw IllegalStateException(s"An effect set introduced no carrier: ${expr.value.render}")
         )
         expr.as(FunctionApplication(None, expr.as(name), Some(Seq(recurse(resultType))), Seq.empty))
       case EffectfulType(_, resultType, _)                                    =>
@@ -360,7 +360,7 @@ object EffectSugarDesugarer {
   }
 
   private def constraintKey(ac: GenericParameter.AbilityConstraint): String =
-    ac.abilityName.value + "|" + ac.typeParameters.map(_.value.show).mkString(",")
+    ac.abilityName.value + "|" + ac.typeParameters.map(_.value.render).mkString(",")
 
   /** The kind `Function[Type, Type]` of a `[F[_]]` carrier, built exactly as the `[F[_]]` arity sugar produces it. */
   private def functionKind(anchor: Sourced[?]): Expression =

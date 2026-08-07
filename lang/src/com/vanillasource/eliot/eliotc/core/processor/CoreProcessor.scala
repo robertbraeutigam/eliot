@@ -76,7 +76,7 @@ class CoreProcessor
 
     (positivityErrors ++ rowErrors ++ visibilityErrors).traverse_(message => Sourced.compilerError(message)) >>
       debug[CompilerIO](
-        s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.show).mkString(", ")}"
+        s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.render).mkString(", ")}"
       ) >>
       CoreAST(sourceAst.uri, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }

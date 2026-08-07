@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.fact
 
-import cats.{Applicative, Show}
+import cats.Applicative
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression
@@ -61,17 +61,18 @@ object MatchDesugaredExpression {
       throw IllegalStateException("BlockExpression should not exist after block desugaring")
   }
 
-  given Show[MatchDesugaredExpression] = {
-    case IntegerLiteral(Sourced(_, _, value))                                => value.toString()
-    case StringLiteral(Sourced(_, _, value))                                 => s"\"$value\""
-    case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-      s"${target.show}(${argument.show})"
-    case FunctionLiteral(param, paramType, body)                             =>
-      s"(${paramType.map(_.value.show).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.show}"
-    case ParameterReference(name)                                            => name.value
-    case ValueReference(name, typeArgs)                                      =>
-      name.value.show +
-        (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
-    case FlatExpression(parts)                                               => parts.map(_.value.show).mkString(" ")
-  }
+  extension (self: MatchDesugaredExpression)
+    def render: String = self match {
+      case IntegerLiteral(Sourced(_, _, value))                                => value.toString()
+      case StringLiteral(Sourced(_, _, value))                                 => s"\"$value\""
+      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+        s"${target.render}(${argument.render})"
+      case FunctionLiteral(param, paramType, body)                             =>
+        s"(${paramType.map(_.value.render).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.render}"
+      case ParameterReference(name)                                            => name.value
+      case ValueReference(name, typeArgs)                                      =>
+        name.value.show +
+          (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.render).mkString("[", ", ", "]"))
+      case FlatExpression(parts)                                               => parts.map(_.value.render).mkString(" ")
+    }
 }

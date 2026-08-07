@@ -76,7 +76,7 @@ class MonomorphicUncurryingProcessor
         case None                          =>
           compilerAbort(
             name.as("Could not extract parameters."),
-            Seq(s"Remaining arity: $arity", s"Signature: ${signature.show}")
+            Seq(s"Remaining arity: $arity", s"Signature: ${signature.debugString}")
           )
       }
     }

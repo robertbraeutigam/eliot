@@ -444,11 +444,11 @@ class OperatorResolverProcessorTest
     rv.effectRow.pinnedParameterEffects.map(pe => (pe.parameterIndex, pe.effects.map(_.abilityFQN.abilityName)))
 
   private def signatureShow(rv: OperatorResolvedValue): String =
-    rv.signature.value.show
+    rv.signature.value.render
 
   private def constraintShow(rv: OperatorResolvedValue): Map[String, Seq[(String, Seq[String])]] =
     rv.paramConstraints.view
-      .mapValues(_.map(c => (c.abilityFQN.abilityName, c.typeArgs.map(_.show))))
+      .mapValues(_.map(c => (c.abilityFQN.abilityName, c.typeArgs.map(_.render))))
       .toMap
 
   private def runEngineForResolvedValue(source: String, name: String): IO[OperatorResolvedValue] =

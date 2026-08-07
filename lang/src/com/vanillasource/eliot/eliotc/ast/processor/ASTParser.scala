@@ -51,7 +51,7 @@ class ASTParser
                }
                .sequence_
       ast <- astResult.value.map(_._2) match {
-               case Some(value) => debug[CompilerIO](s"Generated AST for $uri: ${value.show}.").as(value)
+               case Some(value) => debug[CompilerIO](s"Generated AST for $uri: ${value.render}.").as(value)
                case None        => abort
              }
     } yield SourceAST(uri, sourceTokens.tokens.as(attachDocComments(ast, sourceTokens.docComments)))

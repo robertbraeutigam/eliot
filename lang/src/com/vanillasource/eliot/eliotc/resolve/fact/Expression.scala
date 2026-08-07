@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.resolve.fact
 
 import cats.Applicative
 import cats.syntax.all.*
-import cats.Show
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -71,23 +70,24 @@ object Expression {
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }
 
-  given Show[Expression] = {
-    case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
-    case StringLiteral(Sourced(_, _, value))                                           => s"\"$value\""
-    case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-      s"${target.show}(${argument.show})"
-    case FunctionLiteral(param, paramType, body)                                       =>
-      s"(${paramType.map(_.value.show).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.show}"
-    case ParameterReference(name)                => name.value
-    case ValueReference(name, typeArgs)          =>
-      name.value.show +
-        (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
-    case FlatExpression(parts)                   => parts.map(_.value.show).mkString(" ")
-    case MatchExpression(scrutinee, cases)        =>
-      s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
-    case BlockExpression(lines)                  =>
-      lines
-        .map(l => l.binderName.map(n => s"val ${n.value} = ").getOrElse("") + l.expression.value.show)
-        .mkString("{ ", "; ", " }")
-  }
+  extension (self: Expression)
+    def render: String = self match {
+      case IntegerLiteral(Sourced(_, _, value))                               => value.toString()
+      case StringLiteral(Sourced(_, _, value))                                => s"\"$value\""
+      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+        s"${target.render}(${argument.render})"
+      case FunctionLiteral(param, paramType, body)                            =>
+        s"(${paramType.map(_.value.render).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.render}"
+      case ParameterReference(name)                => name.value
+      case ValueReference(name, typeArgs)          =>
+        name.value.show +
+          (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.render).mkString("[", ", ", "]"))
+      case FlatExpression(parts)                   => parts.map(_.value.render).mkString(" ")
+      case MatchExpression(scrutinee, cases)       =>
+        s"${scrutinee.value.render} match { ${cases.map(c => s"case ${c.pattern.value.render} -> ${c.body.value.render}").mkString(" ")} }"
+      case BlockExpression(lines)                  =>
+        lines
+          .map(l => l.binderName.map(n => s"val ${n.value} = ").getOrElse("") + l.expression.value.render)
+          .mkString("{ ", "; ", " }")
+    }
 }
