@@ -350,10 +350,25 @@ metavariable side is the better rename target — worth doing before this lands 
 after the layer merge, excluding ability method declarations (§2.2). Nothing consumes it yet; publish the
 list and eyeball it.
 
-**P2 — R2 enforcement + the missing statements.** Error on a leaf whose ground return meta type is not
-`Unit` and which states nothing; then fix what it uncovers — `String::length`, `indexOfInternal`,
-`parseIntInternal`, `Process::exitCode`, jvm `outcomeExitCode`, and the generic leaves of §5.
-**This alone closes the original TODO**, and is worth shipping even if nothing else follows.
+**P1/P2 mechanism — LANDED (not yet armed).** The leaf predicate turned out to be exactly the body test the
+mono fact already carries — `MonomorphicValue.runtime.isEmpty` (no need for the two-track/`NativeBinding`
+detection §2/§3 sketch). The R2 check rides each `MonomorphicValue` as
+`monomorphize/channel/MetaTransferAccountingProcessor` (on the `EffectAccountingProcessor` template): a
+body-less value whose **declared** return head is a concrete meta-carrying type and which declares no `^Meta`
+companion is reported at the value. A **type-parameter return head** (`foldLeftInternal : F[B]`, `runId : A`)
+is exempt — the meta is forwarded, not originated, so it is the §6 higher-order case, not this one. Proven
+against the real stdlib: armed, it fires on exactly `String::length`, `indexOfInternal`, `parseIntInternal`,
+and `Process::exitCode`/jvm `outcomeExitCode`; folds, carrier returns, bodied values, and the brace-carrying
+arithmetic leaves all pass. Registered but **undemanded** (dormant) — arming is a one-line `getFactOrAbort`
+precondition in `WovenValueProcessor`.
+
+**P2 — arm it + the missing statements (remaining).** Wire the precondition, then state the transfers the
+armed check demands — `String::length`, `indexOfInternal`, `parseIntInternal`, `Process::exitCode`, jvm
+`outcomeExitCode`, and the generic leaves of §5. Their bounds are **platform data**, so by the
+platform-independence cornerstone they belong in the platform layer, not the base (the brace desugars to a
+separate `^Meta` companion, so a jvm-layer brace over a base-abstract declaration merges cleanly with no
+`signatureEquality` change). `parseInt`'s honest range is unbounded (JVM `Int` is BigInteger-backed), so it
+needs either open `Interval` endpoints (§5) or a stated ⊤. **This is what closes the original TODO.**
 
 **P3 — R3 enforcement.** Error on a brace over a bodied value. Should be a no-op on today's tree
 (`Numeric[Int]`, `fold`, `integerLiteral` are all leaves) — a good sign and a good test.
