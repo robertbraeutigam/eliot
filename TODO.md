@@ -137,7 +137,6 @@ notes.
   roots and backend (§10), so the stdlib subgraph is built once per configuration rather than once
   per example. Two *different* compiler builds sharing a target directory still take turns
   replacing the region and both stay cold (§21) — correct, but never warm.
-- Remove the `Show` instances used for printing expression/fact internals.
 - Rename processors to generators?
 
 ## Microcontroller target
