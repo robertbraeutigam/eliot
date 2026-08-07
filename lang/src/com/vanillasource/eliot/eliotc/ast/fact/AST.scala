@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
-import cats.Show
 import cats.syntax.all.*
 import ASTComponent.component
 import Primitives.*
@@ -18,12 +17,13 @@ case class AST(
 )
 
 object AST {
-  given Show[AST] = (ast: AST) =>
-    s"import statements: ${ast.importStatements
-        .map(_.show)
-        .mkString(", ")}, function definitions: ${ast.functionDefinitions
-        .map(_.show)
-        .mkString(", ")}, type definitions: ${ast.typeDefinitions.map(_.show).mkString(", ")}"
+  extension (self: AST)
+    def render: String =
+      s"import statements: ${self.importStatements
+          .map(_.render)
+          .mkString(", ")}, function definitions: ${self.functionDefinitions
+          .map(_.render)
+          .mkString(", ")}, type definitions: ${self.typeDefinitions.map(_.render).mkString(", ")}"
 
   given ASTComponent[(Seq[ParserError], AST)] = new ASTComponent[(Seq[ParserError], AST)] {
     override def parser: Parser[Sourced[Token], (Seq[ParserError], AST)] =

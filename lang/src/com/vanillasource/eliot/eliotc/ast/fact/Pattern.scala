@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
-import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
@@ -23,17 +22,18 @@ object Pattern {
 
   case class WildcardPattern(source: Sourced[String]) extends Pattern
 
-  given Show[Pattern] = {
-    case ConstructorPattern(Some(mod), name, pats, isType) =>
-      val (open, close) = if (isType) ("[", "]") else ("(", ")")
-      s"${mod.value}::${name.value}$open${pats.map(_.value.show).mkString(", ")}$close"
-    case ConstructorPattern(None, name, pats, _) if pats.isEmpty => name.value
-    case ConstructorPattern(None, name, pats, isType) =>
-      val (open, close) = if (isType) ("[", "]") else ("(", ")")
-      s"${name.value}$open${pats.map(_.value.show).mkString(", ")}$close"
-    case VariablePattern(name)  => name.value
-    case WildcardPattern(_)     => "_"
-  }
+  extension (self: Pattern)
+    def render: String = self match {
+      case ConstructorPattern(Some(mod), name, pats, isType) =>
+        val (open, close) = if (isType) ("[", "]") else ("(", ")")
+        s"${mod.value}::${name.value}$open${pats.map(_.value.render).mkString(", ")}$close"
+      case ConstructorPattern(None, name, pats, _) if pats.isEmpty => name.value
+      case ConstructorPattern(None, name, pats, isType) =>
+        val (open, close) = if (isType) ("[", "]") else ("(", ")")
+        s"${name.value}$open${pats.map(_.value.render).mkString(", ")}$close"
+      case VariablePattern(name)  => name.value
+      case WildcardPattern(_)     => "_"
+    }
 
   given ASTComponent[Pattern] = new ASTComponent[Pattern] {
     override def parser: Parser[Sourced[Token], Pattern] =

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
-import cats.{Eq, Show}
+import cats.Eq
 import ASTComponent.component
 import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.*
@@ -56,10 +56,11 @@ object FunctionDefinition {
       x.args.length === y.args.length &&
       (x.genericParameters zip y.genericParameters).forall(GenericParameter.signatureEquality.eqv) &&
       (x.args zip y.args).forall(ArgumentDefinition.signatureEquality.eqv) &&
-      x.typeDefinition.value.show === y.typeDefinition.value.show
+      x.typeDefinition.value.render === y.typeDefinition.value.render
 
-  given Show[FunctionDefinition] = (fd: FunctionDefinition) =>
-    s"${fd.name.show}(${fd.args.map(_.show).mkString(", ")}): ${fd.body.show}"
+  extension (self: FunctionDefinition)
+    def render: String =
+      s"${self.name.show}(${self.args.map(_.render).mkString(", ")}): ${self.body.show}"
 
   private val targetName: Parser[Sourced[Token], Sourced[String]] =
     sourced(

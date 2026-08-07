@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
-import cats.Show
 import cats.syntax.all.*
 import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.fact.{ASTComponent, ImportStatement}
@@ -18,7 +17,8 @@ case class ImportStatement(
 }
 
 object ImportStatement {
-  given Show[ImportStatement] = (t: ImportStatement) => s"${(t.packageNames :+ t.moduleName).map(_.show).mkString(".")}"
+  extension (self: ImportStatement)
+    def render: String = s"${(self.packageNames :+ self.moduleName).map(_.show).mkString(".")}"
 
   given ASTComponent[ImportStatement] = new ASTComponent[ImportStatement] {
     override def parser: Parser[Sourced[Token], ImportStatement] = for {

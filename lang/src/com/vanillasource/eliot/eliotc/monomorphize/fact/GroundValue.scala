@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
-import cats.{Eq, Show}
+import cats.Eq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 
@@ -38,12 +38,13 @@ object GroundValue {
   }
 
   object Literal {
-    given Show[Literal] = {
-      case IntegerValue(value) => value.toString
-      case StringValue(value)  => value
-      case BooleanValue(value) => value.toString
-      case UnitValue           => "()"
-    }
+    extension (self: Literal)
+      def debugString: String = self match {
+        case IntegerValue(value) => value.toString
+        case StringValue(value)  => value
+        case BooleanValue(value) => value.toString
+        case UnitValue           => "()"
+      }
   }
 
   case class Direct(value: Literal, override val valueType: GroundValue) extends GroundValue
@@ -146,12 +147,17 @@ object GroundValue {
 
   given Eq[GroundValue] = Eq.fromUniversalEquals
 
-  given Show[GroundValue] = {
-    case Type                                     => "Type"
-    case Direct(value, _)                         => value.show
-    case Structure(name, _, valueType) if valueType === Type => name.name.name
-    case Structure(_, _, _)                       => "Structure(...)"
-    case Param(index, Nil, _)                     => s"?p$index"
-    case Param(index, args, _)                    => s"?p$index[${args.map(_.show).mkString(", ")}]"
-  }
+  /** A deliberately terse, one-line debug rendering of a ground value (a plain method, never the `cats.Show`
+    * typeclass). It collapses every non-`Type` structure to `Structure(...)`; the user-facing, fully-applied
+    * rendering is [[GroundValueRenderer.render]].
+    */
+  extension (self: GroundValue)
+    def debugString: String = self match {
+      case Type                                               => "Type"
+      case Direct(value, _)                                   => value.debugString
+      case Structure(name, _, valueType) if valueType === Type => name.name.name
+      case Structure(_, _, _)                                 => "Structure(...)"
+      case Param(index, Nil, _)                               => s"?p$index"
+      case Param(index, args, _)                              => s"?p$index[${args.map(_.debugString).mkString(", ")}]"
+    }
 }

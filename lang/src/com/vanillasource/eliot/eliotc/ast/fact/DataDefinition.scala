@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
-import cats.{Eq, Show}
+import cats.Eq
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
@@ -25,7 +25,7 @@ object DataDefinition {
     x.genericParameters.length === y.genericParameters.length &&
       (x.genericParameters zip y.genericParameters).forall(GenericParameter.signatureEquality.eqv)
 
-  given Show[DataDefinition] = (fd: DataDefinition) => s"${fd.name.show}"
+  extension (self: DataDefinition) def render: String = s"${self.name.show}"
 
   given ASTComponent[DataDefinition] = new ASTComponent[DataDefinition] {
     override val parser: Parser[Sourced[Token], DataDefinition] = for {

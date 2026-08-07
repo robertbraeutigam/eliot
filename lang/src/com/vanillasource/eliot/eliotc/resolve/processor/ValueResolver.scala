@@ -54,9 +54,9 @@ class ValueResolver
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
       resolvedEffectRow   <- resolveEffectRow(namedValue.effectRow)
       resolvedPrecedence  <- resolvePrecedenceDeclarations(namedValue.precedence)
-      _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedSignature.value.show}")
+      _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedSignature.value.render}")
       _                   <- debug[ScopedIO](
-                               s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
+                               s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.render).getOrElse("<abstract>")}"
                              )
     } yield ResolvedValue(
       unifiedValue.vfqn,

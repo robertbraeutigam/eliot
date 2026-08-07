@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
-import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.{isIdentifier, sourced, symbol}
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
@@ -11,7 +10,7 @@ import com.vanillasource.eliot.eliotc.token.Token
 case class LambdaParameterDefinition(name: Sourced[String], typeExpression: Option[Sourced[Expression]])
 
 object LambdaParameterDefinition {
-  given Show[LambdaParameterDefinition] = _.name.show
+  extension (self: LambdaParameterDefinition) def render: String = self.name.show
 
   given ASTComponent[LambdaParameterDefinition] = new ASTComponent[LambdaParameterDefinition] {
     override def parser: Parser[Sourced[Token], LambdaParameterDefinition] = for {

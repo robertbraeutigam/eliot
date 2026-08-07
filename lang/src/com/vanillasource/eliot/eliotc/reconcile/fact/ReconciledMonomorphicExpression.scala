@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.reconcile.fact
 
-import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
@@ -55,16 +54,17 @@ object ReconciledMonomorphicExpression {
       typeArguments: Seq[GroundValue]
   ) extends Expression
 
-  given Show[Expression] = {
-    case IntegerLiteral(Sourced(_, _, value))                       => value.toString()
-    case StringLiteral(Sourced(_, _, value))                        => s"\"$value\""
-    case FunctionApplication(Sourced(_, _, targetValue), arguments) =>
-      targetValue.expression.show + arguments.map(_.value.expression.show).mkString("(", ", ", ")")
-    case FunctionLiteral(parameters, body)                          =>
-      parameters.map(_.name.value).mkString("(", ", ", ")") + " -> " + body.value.expression.show
-    case MonomorphicValueReference(valueName, _)                    => valueName.value.show
-    case ParameterReference(parameterName)                          => parameterName.value
-  }
+  extension (self: Expression)
+    def render: String = self match {
+      case IntegerLiteral(Sourced(_, _, value))                       => value.toString()
+      case StringLiteral(Sourced(_, _, value))                        => s"\"$value\""
+      case FunctionApplication(Sourced(_, _, targetValue), arguments) =>
+        targetValue.expression.render + arguments.map(_.value.expression.render).mkString("(", ", ", ")")
+      case FunctionLiteral(parameters, body)                          =>
+        parameters.map(_.name.value).mkString("(", ", ", ")") + " -> " + body.value.expression.render
+      case MonomorphicValueReference(valueName, _)                    => valueName.value.show
+      case ParameterReference(parameterName)                          => parameterName.value
+    }
 
   extension (expression: Expression) {
 

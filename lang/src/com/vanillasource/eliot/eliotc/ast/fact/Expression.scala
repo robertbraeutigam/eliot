@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
-import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
@@ -85,39 +84,44 @@ object Expression {
       )
     )
 
-  given Show[Expression] = {
-    case IntegerLiteral(Sourced(_, _, value))                                                 => value
-    case StringLiteral(Sourced(_, _, value))                                                  => value
-    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, ns @ _ :: _) =>
-      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
-      s"$module::$fn$gaStr(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, _)           =>
-      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
-      s"$module::$fn$gaStr"
-    case FunctionApplication(None, Sourced(_, _, value), ga, ns @ _ :: _)                     =>
-      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
-      s"$value$gaStr(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(None, Sourced(_, _, value), ga, _)                               =>
-      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
-      s"$value$gaStr"
-    case FunctionLiteral(parameters, body)                                                    => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
-    case FlatExpression(parts)                                                                => parts.map(_.value.show).mkString(" ")
-    case MatchExpression(scrutinee, cases)                                                    =>
-      s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
-    case EffectfulType(effects, resultType, tail)                                             =>
-      val members = effects.map(showAbilityConstraint)
-      val tailStr = tail.fold("")(t => s" | ${t.value.show}")
-      s"{${members.mkString(", ")}$tailStr} ${resultType.value.show}"
-    case BlockExpression(lines)                                                               =>
-      lines.map(showBlockLine).mkString("{ ", "; ", " }")
-  }
+  /** Render this expression back to concrete source-like syntax. A plain diagnostic/apidoc renderer (never the
+    * `cats.Show` typeclass, so generic `Show`-constrained code cannot pick an internal AST node up by accident).
+    */
+  extension (self: Expression)
+    def render: String = self match {
+      case IntegerLiteral(Sourced(_, _, value))                                                 => value
+      case StringLiteral(Sourced(_, _, value))                                                  => value
+      case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, ns @ _ :: _) =>
+        val gaStr = ga.fold("")(_.map(_.value.render).mkString("[", ", ", "]"))
+        s"$module::$fn$gaStr(${ns.map(_.value.render).mkString(", ")})"
+      case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, _)           =>
+        val gaStr = ga.fold("")(_.map(_.value.render).mkString("[", ", ", "]"))
+        s"$module::$fn$gaStr"
+      case FunctionApplication(None, Sourced(_, _, value), ga, ns @ _ :: _)                     =>
+        val gaStr = ga.fold("")(_.map(_.value.render).mkString("[", ", ", "]"))
+        s"$value$gaStr(${ns.map(_.value.render).mkString(", ")})"
+      case FunctionApplication(None, Sourced(_, _, value), ga, _)                               =>
+        val gaStr = ga.fold("")(_.map(_.value.render).mkString("[", ", ", "]"))
+        s"$value$gaStr"
+      case FunctionLiteral(parameters, body)                                                    =>
+        parameters.map(_.render).mkString("(", ", ", ")") + " -> " + body.show
+      case FlatExpression(parts)                                                                => parts.map(_.value.render).mkString(" ")
+      case MatchExpression(scrutinee, cases)                                                    =>
+        s"${scrutinee.value.render} match { ${cases.map(c => s"case ${c.pattern.value.render} -> ${c.body.value.render}").mkString(" ")} }"
+      case EffectfulType(effects, resultType, tail)                                             =>
+        val members = effects.map(renderAbilityConstraint)
+        val tailStr = tail.fold("")(t => s" | ${t.value.render}")
+        s"{${members.mkString(", ")}$tailStr} ${resultType.value.render}"
+      case BlockExpression(lines)                                                               =>
+        lines.map(renderBlockLine).mkString("{ ", "; ", " }")
+    }
 
-  private def showBlockLine(line: BlockLine): String =
-    line.binder.map(b => s"val ${b.show} = ").getOrElse("") + line.expression.value.show
+  private def renderBlockLine(line: BlockLine): String =
+    line.binder.map(b => s"val ${b.render} = ").getOrElse("") + line.expression.value.render
 
-  private def showAbilityConstraint(ac: GenericParameter.AbilityConstraint): String =
+  private def renderAbilityConstraint(ac: GenericParameter.AbilityConstraint): String =
     ac.abilityName.value +
-      (if (ac.typeParameters.isEmpty) "" else ac.typeParameters.map(_.value.show).mkString("[", ", ", "]"))
+      (if (ac.typeParameters.isEmpty) "" else ac.typeParameters.map(_.value.render).mkString("[", ", ", "]"))
 
   // Shared sub-parsers, all using fullParser for inner expression positions
 

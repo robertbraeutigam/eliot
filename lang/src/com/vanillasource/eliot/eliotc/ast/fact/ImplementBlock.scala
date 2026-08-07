@@ -46,8 +46,8 @@ object ImplementBlock {
           // from an otherwise same-pattern sibling. `Show[Expression]` drops
           // source positions, so the key is stable across layers that spell the pattern identically (the same
           // character-exact discipline the layer merge already requires).
-          patternKey           = pattern.map(_.value.show).mkString(", ") +
-            guard.map(g => s" where ${g.value.show}").getOrElse("")
+          patternKey           = pattern.map(_.value.render).mkString(", ") +
+            guard.map(g => s" where ${g.value.render}").getOrElse("")
         } yield (
           errors,
           functions.map(f =>

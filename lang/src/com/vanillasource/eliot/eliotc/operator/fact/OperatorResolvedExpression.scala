@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.operator.fact
 
-import cats.{Applicative, Monad, Show}
+import cats.{Applicative, Monad}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
@@ -239,16 +239,17 @@ object OperatorResolvedExpression {
       throw IllegalStateException("FlatExpression should not exist after operator resolution")
   }
 
-  given Show[OperatorResolvedExpression] = {
-    case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
-    case StringLiteral(Sourced(_, _, value))                                           => s"\"$value\""
-    case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-      s"${target.show}(${argument.show})"
-    case FunctionLiteral(param, paramType, body)                                       =>
-      s"(${paramType.map(_.value.show).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.show}"
-    case ParameterReference(name)                                                      => name.value
-    case ValueReference(name, typeArgs)                                                =>
-      name.value.show +
-        (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
-  }
+  extension (self: OperatorResolvedExpression)
+    def render: String = self match {
+      case IntegerLiteral(Sourced(_, _, value))                               => value.toString()
+      case StringLiteral(Sourced(_, _, value))                                => s"\"$value\""
+      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+        s"${target.render}(${argument.render})"
+      case FunctionLiteral(param, paramType, body)                            =>
+        s"(${paramType.map(_.value.render).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.render}"
+      case ParameterReference(name)                                           => name.value
+      case ValueReference(name, typeArgs)                                     =>
+        name.value.show +
+          (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.render).mkString("[", ", ", "]"))
+    }
 }

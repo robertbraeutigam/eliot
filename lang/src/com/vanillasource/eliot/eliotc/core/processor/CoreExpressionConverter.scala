@@ -111,7 +111,7 @@ object CoreExpressionConverter {
         // EffectfulType reaching here means it was written somewhere the desugarer does not reach (only signature and
         // body positions are handled). Fail loudly rather than mis-convert it.
         throw IllegalStateException(
-          s"Effect braces `{…}` are only supported in function signature positions: ${expr.value.show}"
+          s"Effect braces `{…}` are only supported in function signature positions: ${expr.value.render}"
         )
     }
 

@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.core.fact
 
-import cats.{Eq, Show}
+import cats.Eq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact
@@ -51,7 +51,7 @@ object NamedValue {
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
     structuralEquality.eqv(x.signature.value, y.signature.value)
 
-  given Show[NamedValue] = (namedValue: NamedValue) =>
-    s"${namedValue.qualifiedName.value}: ${namedValue.signature.value.show}"
+  extension (self: NamedValue)
+    def render: String = s"${self.qualifiedName.value}: ${self.signature.value.render}"
 
 }

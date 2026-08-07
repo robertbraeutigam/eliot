@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
-import cats.{Eq, Show}
+import cats.Eq
 import Primitives.{isIdentifier, sourced, symbol}
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -20,9 +20,9 @@ case class ArgumentDefinition(name: Sourced[String], typeExpression: Sourced[Exp
 
 object ArgumentDefinition {
   val signatureEquality: Eq[ArgumentDefinition] = (x: ArgumentDefinition, y: ArgumentDefinition) =>
-    x.name.value === y.name.value && x.typeExpression.value.show === y.typeExpression.value.show
+    x.name.value === y.name.value && x.typeExpression.value.render === y.typeExpression.value.render
 
-  given Show[ArgumentDefinition] = _.name.show
+  extension (self: ArgumentDefinition) def render: String = self.name.show
 
   given ASTComponent[ArgumentDefinition] = new ASTComponent[ArgumentDefinition] {
     // The argument type uses `typeRunParser` (the shared type-position parser), so an infix type operator reads bare

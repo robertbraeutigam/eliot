@@ -752,7 +752,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   it should "parse a pinned row's base after the pipe" in {
     runEngineForFunctionReturnTypes("def f: {Throw[Error] | Id} Unit = a").asserting(
       _.collect { case ("f", Expression.EffectfulType(effects, _, tail)) =>
-        (effects.size, tail.map(_.value.show))
+        (effects.size, tail.map(_.value.render))
       } shouldBe Seq((1, Some("Id")))
     )
   }
@@ -765,7 +765,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "parse an applied pinned base like StateCarrier[S, Id]" in {
     runEngineForFunctionReturnTypes("def f: {Throw[Error] | StateCarrier[S, Id]} Unit = a").asserting(
-      _.collect { case ("f", Expression.EffectfulType(_, _, tail)) => tail.map(_.value.show) } shouldBe
+      _.collect { case ("f", Expression.EffectfulType(_, _, tail)) => tail.map(_.value.render) } shouldBe
         Seq(Some("StateCarrier[S, Id]"))
     )
   }
@@ -820,7 +820,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     } yield {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
-          functions.map(f => (f.name.value.name, f.whereClause.map(_.value.show)))
+          functions.map(f => (f.name.value.name, f.whereClause.map(_.value.render)))
         }
         .toSeq
         .flatten
@@ -928,7 +928,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     } yield {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
-          functions.map(f => (f.name.value.name, f.typeDefinition.value.show))
+          functions.map(f => (f.name.value.name, f.typeDefinition.value.render))
         }
         .toSeq
         .flatten
