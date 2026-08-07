@@ -80,22 +80,12 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue
   ): CheckIO[TypeStackLoop.Result] =
     for {
-      // Whether this value's return is *calculated* (its source return is an under-applied omittable constructor —
-      // a bare `Int`, a bare W2-grown `Counter`), derived structurally from the signature rather than a persisted flag.
-      isCalc <- checker.calcReturns.isCalculatedReturnExpr(returnExprOf(resolvedValue))
-
-      // W4 (Limit 5): a calculated return needs a body to calculate from. Reject a body-less calculated return at the
-      // definition before its under-applied return reaches a use site (where it would otherwise surface as a confusing
-      // mismatch).
-      _ <- failOnAbstractCalculatedReturn(isCalc, resolvedValue)
-
-      bodyToCheck = resolvedValue.runtime
-
       // Establish the value's signature at the concrete type arguments (signature-unification C1/C2): re-inflate its
       // signature twin's ground signature — the twin is **mandatory**, there is no in-place walk. Leftover binders the
       // key carries no argument for re-inflate to fresh metavariables (a partial-arity mono's `GroundValue.Param`s),
       // which keep its constraint-covered ability refs deferrable (§4.7).
       instantiated <- establishSignature(resolvedValue, typeArguments)
+      bodyToCheck   = resolvedValue.runtime
 
       // Effect-lift bookkeeping: record the value's own *ambient* effect-carrier heads, now that every signature
       // binder is bound in ρ (an explicit type argument to its concrete value, a leftover to its instantiation meta).
@@ -108,14 +98,12 @@ class TypeStackLoop(
       _ <- track.pinCarriers(checker, resolvedValue)
 
       // Settle the return position at the read (signature-unification C1) — one stateless, shape-driven step:
-      //   - a *calculated* (bare, omittable) return with a body ⟹ `installReturnMeta` (W3): its position becomes a fresh
-      //     metavariable that checking the body solves to the body's inferred type;
-      //   - otherwise, on the **runtime** track, discharge a guard off the re-inflated leaf shape
-      //     (`dischargeGuardedSignature`): `Right(t)` ⤳ the plain type `t`, `Left(msg)` aborts with the author message, an
-      //     `Either`/`Bool` carrier-headed return (a guard the twin published undischarged) is deferred to the body — all
-      //     recognised on the ground shape, no `sawGuard` flag;
+      //   - on the **runtime** track, discharge a guard off the re-inflated leaf shape (`dischargeGuardedSignature`):
+      //     `Right(t)` ⤳ the plain type `t`, `Left(msg)` aborts with the author message, an `Either`/`Bool`
+      //     carrier-headed return (a guard the twin published undischarged) is deferred to the body — all recognised on
+      //     the ground shape, no `sawGuard` flag;
       //   - on the **compiler** track (the guard's *producer*) the carrier signature is left undischarged for a consumer.
-      settled                 <- settleAtRead(instantiated, isCalc, bodyToCheck.isDefined, resolvedValue)
+      settled                 <- settleAtRead(instantiated, bodyToCheck.isDefined, resolvedValue)
       (checkSig, returnMeta)   = settled
 
       // Capture ρ now, before `check` binds the runtime value parameters as `FunctionLiteral` binders — so ρ holds only
@@ -211,7 +199,7 @@ class TypeStackLoop(
     * (signature-unification C2). Publish its undischarged **carrier type** (`Either[String, Type]`) instead, which the
     * value mono re-inflates and defers to the body (Use-Site Verification): the guard is re-decided at every concrete
     * instance above. The guard-ness is recognised by shape — the checked return's *type* is an `Either`/`Bool` carrier
-    * ([[CalculatedReturnResolver.isGuardCarrier]]) — no `sawGuard` flag. This arm is only a no-parameter guard's
+    * ([[GuardDischargeResolver.isGuardCarrier]]) — no `sawGuard` flag. This arm is only a no-parameter guard's
     * abstract-site check (the sole Param-stuck-guard source, §7 census); anything else stuck hard-errors (fail-safe).
     */
   private def publishStuckGuardCarrier(
@@ -220,7 +208,7 @@ class TypeStackLoop(
       quoter: PostDrainQuoter,
       resolvedValue: OperatorResolvedValue
   ): CheckIO[GroundValue] =
-    checker.calcReturns.isGuardCarrier(checked.expressionType).flatMap {
+    checker.guards.isGuardCarrier(checked.expressionType).flatMap {
       case true if view.parameters.isEmpty =>
         liftF(quoter.quoteSem(checked.expressionType, resolvedValue.name))
       case _                               =>
@@ -261,53 +249,31 @@ class TypeStackLoop(
       } yield ()
     }
 
-  /** The return-position expression of a value's signature, for the calculated-return detection. */
-  private def returnExprOf(resolvedValue: OperatorResolvedValue): OperatorResolvedExpression =
-    SignatureView.of(resolvedValue.signature).returnType.value
-
-  /** W4 (Limit 5): a calculated return is *calculated from the body*; a value with no body the checker can see cannot
-    * calculate it, and an output position must not quantify it instead, so the bare return must be stated explicitly.
-    * A body-less value here is a truly abstract declaration (`runtime` is `None` — e.g. a platform-layer signature
-    * awaiting an implementation): [[CalculatedReturnResolver.installReturnMeta]] would not run, so this is reported at
-    * the definition rather than letting the under-applied return escape to a use site.
+  /** Fail-safe for a *deferred guard* return the body did not pin down. A `{Throw[String]}` return guard the signature
+    * twin published undischarged is deferred to a fresh return metavariable ([[settleAtRead]]); after the
+    * drain-and-resolve loop that meta should have been solved to the body's inferred type. If it is still a bare
+    * metavariable the body left it unconstrained, and if it forced to a stuck neutral the result depends on a variable
+    * the inputs do not determine. Either way report a specific error — naming the producer and, for a neutral, the
+    * stuck head — rather than letting [[defaultUnsolvedMetas]] silently make the return `Type`. (A return solved to some
+    * *other* non-quotable form — an unforced top-level definition, a residual native/lambda — is caught instead by the
+    * strict post-drain quoter, which knows precisely which of those are irreducible, so those are left to it.)
     */
-  private def failOnAbstractCalculatedReturn(isCalc: Boolean, resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
-    if (isCalc && resolvedValue.runtime.isEmpty) {
-      val name = resolvedValue.vfqn.name.name
-      liftF(
-        compilerError(
-          resolvedValue.name.as(
-            s"Abstract declaration '$name' must state its return type explicitly; there is no body to calculate it from."
-          ),
-          Seq("Add an explicit return type, or provide a concrete implementation.")
-        ) >> abort[Unit]
-      )
-    } else pure(())
-
-  /** Fail-safe for a calculated return (W3) the body did not pin down (Limit 2). After the drain-and-resolve loop the
-    * return metavariable should have been solved to the body's inferred type; if it is still a bare metavariable the
-    * body left it unconstrained, and if it forced to a stuck neutral the result depends on a variable the inputs do not
-    * determine. Either way report a specific error — naming the producer and, for a neutral, the stuck head — rather
-    * than letting [[defaultUnsolvedMetas]] silently make the return `Type`. (A return solved to some *other*
-    * non-quotable form — an unforced top-level definition, a residual native/lambda — is caught instead by the strict
-    * post-drain quoter, which knows precisely which of those are irreducible, so those are left to it.)
-    */
-  private def failOnUndeterminedCalculatedReturn(
+  private def failOnUndeterminedDeferredReturn(
       returnMeta: SemValue.VMeta,
       resolvedValue: OperatorResolvedValue
   ): CheckIO[Unit] =
     checker.force(returnMeta).flatMap {
       case _: SemValue.VMeta                                     =>
-        reportUncalculableReturn(resolvedValue, "the body leaves it unconstrained")
+        reportUndeterminedReturn(resolvedValue, "the body leaves it unconstrained")
       case SemValue.VNeutral(head, _) =>
-        reportUncalculableReturn(resolvedValue, s"the result depends on '${head.name}', which the inputs do not determine")
+        reportUndeterminedReturn(resolvedValue, s"the result depends on '${head.name}', which the inputs do not determine")
       case _                                                     => pure(())
     }
 
-  private def reportUncalculableReturn(resolvedValue: OperatorResolvedValue, reason: String): CheckIO[Unit] =
+  private def reportUndeterminedReturn(resolvedValue: OperatorResolvedValue, reason: String): CheckIO[Unit] =
     liftF(
       compilerError(
-        resolvedValue.name.as(s"Cannot calculate the return type of '${resolvedValue.vfqn.name.name}': $reason."),
+        resolvedValue.name.as(s"Cannot determine the return type of '${resolvedValue.vfqn.name.name}': $reason."),
         Seq("Write an explicit return type.")
       ) >> abort[Unit]
     )
@@ -363,7 +329,7 @@ class TypeStackLoop(
   /** The post-check resolution sequence (D1) that settles every metavariable, in order:
     *
     *   - SATURATION ([[resolveAbilitiesToFixedPoint]]): drain-interleaved ability resolution, to a fixed point.
-    *   - FINALIZATION: carrier-kind verification, then the calculated-return fail-safe.
+    *   - FINALIZATION: carrier-kind verification, then the deferred-return fail-safe.
     *   - a final drain: a finalization step can commit new solutions (carrier-kind verification unifies a solution's
     *     kind against its expectation), so the equality core settles once more before defaulting — a constraint
     *     postponed against a meta those solutions ground still resolves instead of its metas defaulting to `Type`.
@@ -377,7 +343,7 @@ class TypeStackLoop(
     for {
       _ <- resolveAbilitiesToFixedPoint(abilityRefs, resolvedValue.paramConstraints)
       _ <- checker.carriers.verifyCarrierKinds
-      _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
+      _ <- returnMeta.traverse_(failOnUndeterminedDeferredReturn(_, resolvedValue))
       _ <- modify(s => s.withUnifier(s.unifier.drain()))
       _ <- defaultUnsolvedMetas
       // Fail-safe (TODO.md): any constraint still postponed after the finalizer is an equality obligation the check
@@ -485,28 +451,22 @@ class TypeStackLoop(
     }
   }
 
-  /** Settle the value's return position at the read (signature-unification C1), stateless and shape-driven:
-    *   - a *calculated* return with a body ⟹ [[CalculatedReturnResolver.installReturnMeta]] (W3 — the body solves the
-    *     fresh meta);
-    *   - otherwise the **runtime** track discharges/defers a guard off the re-inflated ground leaf
-    *     ([[CalculatedReturnResolver.dischargeGuardedSignature]], recognising the guard by its `Right`/`Left`/carrier
-    *     shape, not a flag), while the **compiler** track (the guard's *producer*) leaves the carrier undischarged.
+  /** Settle the value's return position at the read (signature-unification C1), stateless and shape-driven: the
+    * **runtime** track discharges/defers a guard off the re-inflated ground leaf
+    * ([[GuardDischargeResolver.dischargeGuardedSignature]], recognising the guard by its `Right`/`Left`/carrier shape,
+    * not a flag), while the **compiler** track (the guard's *producer*) leaves the carrier undischarged.
     */
   private def settleAtRead(
       instantiated: SemValue,
-      isCalc: Boolean,
       hasBody: Boolean,
       resolvedValue: OperatorResolvedValue
   ): CheckIO[(SemValue, Option[SemValue.VMeta])] =
-    if (isCalc && hasBody)
-      checker.calcReturns.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
-    else
-      track.platform match {
-        case Platform.Runtime  =>
-          checker.calcReturns.dischargeGuardedSignature(instantiated, hasBody, resolvedValue.name)
-        case Platform.Compiler =>
-          pure((instantiated, Option.empty[SemValue.VMeta]))
-      }
+    track.platform match {
+      case Platform.Runtime  =>
+        checker.guards.dischargeGuardedSignature(instantiated, hasBody, resolvedValue.name)
+      case Platform.Compiler =>
+        pure((instantiated, Option.empty[SemValue.VMeta]))
+    }
 
   /** Record the value-under-check's own *ambient* effect-carrier heads into [[CheckState.ambientCarriers]], from its two
     * possible spellings of a carrier — an *open* effect row (a carrier binder) and a *pinned* one (a concrete carrier

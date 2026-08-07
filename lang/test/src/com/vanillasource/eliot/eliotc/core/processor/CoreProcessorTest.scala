@@ -610,11 +610,14 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  // The synthesized carrier's *inferability* has no hand-written surface (the `auto` keyword was retired), so the
+  // signature structure and constraints are compared against the plainly-written carrier form here, and the carrier's
+  // `inferableArity` is pinned separately by "mark the synthesized carrier inferable" above.
   it should "produce the same signature as the hand-written carrier form" in {
-    (namedValue("def f(x: {Suspend} String): {Suspend} Unit"), namedValue("def f[auto F[_] ~ Suspend](x: F[String]): F[Unit]"))
+    (namedValue("def f(x: {Suspend} String): {Suspend} Unit"), namedValue("def f[F[_] ~ Suspend](x: F[String]): F[Unit]"))
       .mapN { (sugar, hand) =>
-        (sugar.signature.value.structure, constraintShapes(sugar), sugar.inferableArity) shouldBe
-          (hand.signature.value.structure, constraintShapes(hand), hand.inferableArity)
+        (sugar.signature.value.structure, constraintShapes(sugar)) shouldBe
+          (hand.signature.value.structure, constraintShapes(hand))
       }
   }
 

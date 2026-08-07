@@ -978,7 +978,7 @@ discharge + the dot-chained discharger).
 2. **No partial rollout** — bridge-off breaks the stdlib's own `runStateToValue` body, so the flip is
    whole-program (done at A.11.5).
 3. **Untested then, and still worth watching**: `Inf`; the compile-time track's `Either` carriers and
-   `CalculatedReturnResolver`; guarded instances beyond `Throw`'s; two distinct `State[S]` layers (for
+   `GuardDischargeResolver` (then `CalculatedReturnResolver`); guarded instances beyond `Throw`'s; two distinct `State[S]` layers (for
    which the stdlib has no lift instance in any case). The spike's `main` used the nominal-run `IO[Unit]`
    form throughout, not a row.
 
@@ -2271,7 +2271,7 @@ granularity and then bypassed individually over the whole gate **and** all 40 ex
 | reader | reads (gate) | bypassed ⇒ |
 | --- | --- | --- |
 | `EffectLifter.effectCarrierSplit`, meta-headed arm | 733 runtime / 41 compiler | 3 `GuardSignatureIntegrationTest` + its own 2 unit tests; **examples 37/40, every class file byte-identical** |
-| `CalculatedReturnResolver.isGuardCarrier` | 11 | 5 `GuardSignatureIntegrationTest` |
+| `GuardDischargeResolver.isGuardCarrier` | 11 | 5 `GuardSignatureIntegrationTest` |
 | `Track.Compiler.pinInferredReturnCarriers` | 11 call sites, 18 metas pinned | 4 `GuardSignatureIntegrationTest` |
 
 **So the flag's entire live surface is the compiler track's inline guard** — `if..else..raise`, whose

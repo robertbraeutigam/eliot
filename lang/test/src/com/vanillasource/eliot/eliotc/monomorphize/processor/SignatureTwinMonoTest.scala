@@ -55,10 +55,6 @@ class SignatureTwinMonoTest extends ProcessorTest(LangProcessors(systemModules =
       |def eqParam[E ~ Eq](a: E): E = a
       |
       |def raiseGuard: {Throw[String]} Type = raise("empty")
-      |
-      |type Counter[auto N]
-      |
-      |def bump(c: Counter): Counter = c
       |""".stripMargin
 
   // The compile-time `Either` carrier plus the effect abilities it implements — the machinery a `{Throw[String]}` guard
@@ -164,15 +160,4 @@ class SignatureTwinMonoTest extends ProcessorTest(LangProcessors(systemModules =
       .asserting { case (rt, sig, errs) => (rt.isDefined, sig, errs) shouldBe (true, rt, Seq.empty) }
   }
 
-  "the signature twin's compiler mono for a calculated return (W3)" should "produce the under-applied return hole (§3.5)" in {
-    // Signature-unification Phase B: the twin is an ordinary body mono, so it no longer *declines* a calculated return —
-    // it produces the signature with the return left as an **under-applied constructor head** (`Counter` with zero
-    // arguments), which the value mono's own body still solves via its return meta. The `Quoter` grounds the
-    // body-less `VTopDef(Counter, None, …)` at any arity, so the hole rides the twin fact with no fact-shape change.
-    bothSignatures(fqn("bump"), Seq(GroundValue.Type))
-      .asserting { case (_, sig, errs) =>
-        (sig.map(_.deepReturnType), errs) shouldBe
-          (Some(GroundValue.Structure(fqn("Counter", Qualifier.Type), Seq.empty, GroundValue.Type)), Seq.empty)
-      }
-  }
 }

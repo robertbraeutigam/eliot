@@ -139,16 +139,13 @@ object SignatureRenderer {
     if (parameters.isEmpty) "" else parameters.map(genericParameter).mkString("[", ", ", "]")
 
   private def genericParameter(gp: GenericParameter): String = {
-    val auto        = if (gp.inferable) "auto " else ""
     val constraints =
       if (gp.abilityConstraints.isEmpty) "" else " ~ " + gp.abilityConstraints.map(constraint(gp.name.value)).mkString(" & ")
-    s"$auto${gp.name.value}${kindOrRestriction(gp.typeRestriction.value)}$constraints"
+    s"${gp.name.value}${kindOrRestriction(gp.typeRestriction.value)}$constraints"
   }
 
-  private def typeParameter(arg: ArgumentDefinition): String = {
-    val auto = if (arg.inferable) "auto " else ""
-    s"$auto${arg.name.value}${kindOrRestriction(arg.typeExpression.value)}"
-  }
+  private def typeParameter(arg: ArgumentDefinition): String =
+    s"${arg.name.value}${kindOrRestriction(arg.typeExpression.value)}"
 
   private def constraint(defaultGeneric: String)(c: GenericParameter.AbilityConstraint): String =
     c.typeParameters.map(_.value.render) match {

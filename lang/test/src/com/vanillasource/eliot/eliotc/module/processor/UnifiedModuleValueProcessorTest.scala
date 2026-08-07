@@ -32,25 +32,14 @@ class UnifiedModuleValueProcessorTest extends ProcessorTest(LangProcessors(syste
     runEngineForErrors("def a: A", "nonexistent").asserting(_ shouldBe Seq("Could not find 'nonexistent'." at ""))
   }
 
-  it should "carry the leading auto-marked binder count of a type constructor" in {
-    runEngineForType("type Int[auto MIN: BigInteger, auto MAX: BigInteger]", "Int")
-      .asserting(_.namedValue.inferableArity shouldBe 2)
-  }
-
-  it should "carry a zero count for an unmarked type parameter" in {
+  // There is no user surface for inferable binders (the `auto` keyword was retired), so a user-written type or function
+  // carries a zero inferable arity; the effect carrier — the one inferable binder — is synthesized in the core phase.
+  it should "carry a zero inferable arity for a user-written type parameter" in {
     runEngineForType("type IO[A]", "IO").asserting(_.namedValue.inferableArity shouldBe 0)
   }
 
-  it should "count only the leading run of auto-marked parameters" in {
-    runEngineForType("type Pair[auto A, B]", "Pair").asserting(_.namedValue.inferableArity shouldBe 1)
-  }
-
-  it should "not count an auto-marked parameter that follows an unmarked one" in {
-    runEngineForType("type Pair[A, auto B]", "Pair").asserting(_.namedValue.inferableArity shouldBe 0)
-  }
-
-  it should "carry the count of auto-marked generic parameters of a function" in {
-    runEngineForValue("def f[auto A, B]: A", "f").asserting(_.namedValue.inferableArity shouldBe 1)
+  it should "carry a zero inferable arity for a user-written function generic" in {
+    runEngineForValue("def f[A, B]: A", "f").asserting(_.namedValue.inferableArity shouldBe 0)
   }
 
   private def runEngineForValue(source: String, name: String): IO[UnifiedModuleValue] =

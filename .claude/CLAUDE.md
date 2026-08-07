@@ -130,7 +130,9 @@ subset of its data.
       `Checker.resolveDeferredSlot`): an inline guard's carrier is inferred and pinned to `Either[E]` post hoc —
       the sole live reader of the `Unifier`'s higher-kinded-meta record.
     - other non-equality collaborators, each hooked from `TypeStackLoop.runPostDrainResolution`:
-      `check/CarrierKindChecker`, `check/CalculatedReturnResolver`, `check/AbilityResolver`.
+      `check/CarrierKindChecker`, `check/GuardDischargeResolver` (W2b effectful-signature guard discharge —
+      formerly `CalculatedReturnResolver`, whose calculated-return half was removed with the `auto`/implicit-generics
+      feature), `check/AbilityResolver`.
     - riders on `MonomorphicValue`: `channel/RefinementChannelProcessor` (Int ranges) and
       `channel/EffectAccountingProcessor` (effects), both post-mono channels.
 14. **used** — collects used value names starting from a `main`
@@ -289,7 +291,7 @@ operation, an ability impl, a calculated bound — is **deferred to the concrete
 checker decides it exactly. A modular checker would reject the definition or demand a constraint; Eliot accepts it
 and verifies each use — the same monomorphize-from-`main` stance already used for codegen and ability resolution,
 extended from compilation to correctness. This applies to the *implicit/calculated layer* (`infer` params,
-calculated returns, abilities); explicit parametric defs still get the ordinary abstract check.
+effectful-signature guards, abilities); explicit parametric defs still get the ordinary abstract check.
 
 **Trade-off** (intentional): more burden on library authors (totality comes from *tests* — generators and probing,
 see `docs/ide-type-hints.md` — not a proof); users may meet a type error "not of their making" (a library's latent

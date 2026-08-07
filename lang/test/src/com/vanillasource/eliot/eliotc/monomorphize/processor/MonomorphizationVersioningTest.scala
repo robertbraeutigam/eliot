@@ -153,7 +153,7 @@ class MonomorphizationVersioningTest
         |import eliot.compiler.Coerce
         |import eliot.compiler.Combine
         |import eliot.lang.Option
-        |type Int[auto MIN: BigInteger, auto MAX: BigInteger]
+        |type Int[MIN: BigInteger, MAX: BigInteger]
         |type Byte = Int[0, 255]
         |def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
         |implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] where lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax) { def coerce(value: Int[Smin, Smax]): Int[Tmin, Tmax] = nativeWiden(value) }

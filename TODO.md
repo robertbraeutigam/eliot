@@ -17,7 +17,6 @@ notes.
   non-`Unit` meta-information that comes out of a native function *and* has no meta-information
   definition at that native should be a compile error — the native has to say what it does to the
   meta-information every time, rather than silently defaulting.
-- Are there still "auto" generics? Can they be removed — and should they be?
 - **Flow grades: quantitative computation tracking (cycles/WCET, stack, peak memory) on the
   effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion. The dependency
   ladder is ranges → sizes → grades (fold cost needs sizes, frame sizes need ranges): the
