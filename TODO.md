@@ -89,9 +89,6 @@ notes.
 - Parse strings and numbers into custom types (string interpolation, regexp parsing, …);
   numeric literals are just a special case of this.
 - Introduce a `UserShow[T]` — like `Show[T]`, but intended for end users.
-- **Importing a module should bring in the abilities it implements.** When a module implements an
-  ability, that ability's functions should become available through the import — e.g. `import
-  BigInteger` would also get you `Compare` and `Numeric`.
 
 ## Optimization
 
