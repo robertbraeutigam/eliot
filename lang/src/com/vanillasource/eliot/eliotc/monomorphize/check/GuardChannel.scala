@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 /** The compile-time `Throw[String]` guard channel's read-back protocol — the conventions shared by its two
   * interpreters, so they cannot drift:
   *
-  *   - [[CalculatedReturnResolver.dischargeGuardedReturn]] reads a *signature return* guard in the semantic domain
+  *   - [[GuardDischargeResolver.dischargeGuardedReturn]] reads a *signature return* guard in the semantic domain
   *     (`Right(t)` ⤳ the payload type, `Left(msg)` ⤳ the author's diagnostic) — the W2b effectful-signatures
   *     discharge;
   *   - [[com.vanillasource.eliot.eliotc.ability.processor.AbilityImplementationProcessor]] reads an

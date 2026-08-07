@@ -213,7 +213,7 @@ exercise your leaf at runtime, drive it from an effect** (`readLine == "yes"`), 
 3. **Confirm it's actually there**: `javap -c -p -classpath target/<M>.jar <Class>` — look for your `invokestatic`
    / `GETSTATIC` / `IFEQ`, not a folded constant. `unzip -l target/<M>.jar` shows which classes survived.
 4. `./mill jvm.test lang.test stdlib.test` — the jvm integration tests run the whole pipeline; also run an
-   Int-arithmetic example (`Ranges`, `ImplicitIntReturn`) since arithmetic shares the intrinsic/`NativeType` path.
+   Int-arithmetic example (`Ranges`, `IntReturn`) since arithmetic shares the intrinsic/`NativeType` path.
 
 ## Gotchas
 

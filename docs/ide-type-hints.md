@@ -118,27 +118,18 @@ processor or driver wiring.
 - `lang/.../used/*`, `lang/.../uncurry/*` — error on `Unknown`.
 - `ide/lsp/.../index/TypeHintIndex.scala` — expected/actual flavour for expected-type hints.
 
-## Deferred follow-on: implicit-generics propagation & explorability
+## Deferred follow-on: dependent-signature explorability
 
-Separate from error recovery, gated on Layer A (partial facts) and the existing `TypeHintIndex`. The
-`auto`/implicit-generics feature itself is shipped (input and data-field generalization, calculated
-returns, limit diagnostics; any limit that can't be crossed hard-errors at the use site).
+> **Removed:** the `auto`/implicit-generics feature (bounds-as-type-parameters — input and data-field
+> generalization, calculated returns, the `SaturatedValueProcessor` saturation and the calc-return
+> back-edge) has been deleted. It was built for a bounds-parameterized `Int[MIN, MAX]`, which was
+> superseded by the nullary `Int {range: Interval[BigInteger]}` carrying its range in the refinement
+> channel, leaving the machinery with no live use. `SaturatedValueProcessor` is now a pass-through and
+> the checker's guard discharge is in `GuardDischargeResolver`. The propagation items that once lived
+> here (transitive record bounds, calc-return over a `Combine` join, the symbolic-signature fallback,
+> stable synthesized binder names) went with it.
 
-Propagation & display:
-
-- **Transitive bounds through nested records.** Make `SaturatedValueProcessor.inferableInfo`'s
-  `fieldContribution` read the grown arity (`inferableInfo`) instead of the raw arity, guarding the
-  recursive lookup against cycles, so `data Outer(inner: Counter)` grows `Outer` by `Counter`'s
-  bounds.
-- **Calc-return over a `Combine` join.** `double(pick(a, b))` can't ground the callee's type args at
-  the call because the join resolves only at drain; postpone calc-return resolution into
-  `drainAndResolveLoop` so the join grounds first. (Today `Checker.readMonomorphicReturn` hard-errors
-  via `reportUngroundCalculatedReturn`.)
-- **Symbolic `ElaboratedSignature` fallback** for never-called producers: check the body with input
-  binders neutral, forward-evaluate (`x + x ⤳ Int[add MIN MIN, add MAX MAX]`), quote the symbolic
-  return. Kept off the from-`main` compile path.
-- **Readable, stable binder names** instead of `$Int$0`/`$Counter$1`
-  (`SaturatedValueProcessor.freshName` / `TypePlan.binderName`).
+Separate from error recovery, gated on Layer A (partial facts) and the existing `TypeHintIndex`.
 
 Explorability (legible dependent signatures, by example):
 

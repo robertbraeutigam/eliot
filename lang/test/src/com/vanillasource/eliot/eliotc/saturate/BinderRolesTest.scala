@@ -14,9 +14,8 @@ import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue
   * full codegen-relevance classification — reified (R1), dispatched (R2), representation (R3) — and the derived
   * [[Disposition]] the codegen-key projection consumes.
   *
-  * The reified cases pin the binding-wrap behaviour (a reified binder, a non-reified ordinary generic, reification
-  * through a nested value reference's type argument, and the alignment win where the reified prefix must cover the
-  * *saturated* binder list). The disposition cases pin the B1 classification against the keying-plan scenarios:
+  * The reified cases pin the binding-wrap behaviour (a reified binder, a non-reified ordinary generic, and reification
+  * through a nested value reference's type argument). The disposition cases pin the B1 classification against the keying-plan scenarios:
   * representation-collapse (S2/S3 `id`), reified ⟶ specialize (S4 `tag`, and the self-referential S5 `gen`), dispatch ⟶
   * specialize (S6 `describe`), and an obvious phantom ⟶ erase.
   */
@@ -37,14 +36,6 @@ class BinderRolesTest extends ProcessorTest(LangProcessors()*) {
   "a binder reified through a nested value reference's type argument" should "be classified reified" in {
     reifiedOf("def bigOf[V: BigInteger]: BigInteger = V\ndef h[N: BigInteger]: BigInteger = bigOf[N]", "h")
       .asserting(_ shouldBe (Seq.empty, Seq(("N", true))))
-  }
-
-  // The alignment win: `x: Int` saturates to `Int[$Int$0, $Int$1]`, prepending two synthesized binders before the
-  // explicit reified `V`. The analysis runs on the saturated signature, so the roles (and the wrapped prefix) span all
-  // three binders in checker order — the unsaturated signature would expose only `V`, mis-aligning the binding wrap.
-  "a value that auto-saturates a parameter and reifies an explicit generic" should "classify the saturated binders" in {
-    reifiedOf("def tagged[V: BigInteger](x: Int): BigInteger = V", "tagged")
-      .asserting(_ shouldBe (Seq.empty, Seq(("$Int$0", false), ("$Int$1", false), ("V", true))))
   }
 
   // --- disposition classification (the B1 keying concern) --------------------------------------------------------

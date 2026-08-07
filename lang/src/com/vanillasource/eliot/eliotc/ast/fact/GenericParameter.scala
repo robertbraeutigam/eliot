@@ -14,10 +14,11 @@ import com.vanillasource.eliot.eliotc.token.Token
 /** A generic-parameter binder, e.g. `MIN: BigInteger` in `type Int[MIN: BigInteger, MAX: BigInteger]`.
   *
   * @param inferable
-  *   True when the binder is marked `auto` (`type Int[auto MIN, auto MAX]`), declaring it *omittable* at use sites: the
-  *   compiler may supply it rather than the user spelling it. Surface keyword for the implicit/inferred-generics
-  *   feature. Purely informational for now — saturation is a later work item; a bare
-  *   under-applied constructor still errors exactly as before.
+  *   True when the binder is *omittable* at use sites: the compiler supplies it rather than the caller spelling it.
+  *   There is no user surface for this — it is set only internally, by
+  *   [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]], to mark the synthesized effect carrier
+  *   `F[_]` so a `{E} A` row's carrier need never be written at a call. The former `auto` keyword (for a user-written
+  *   implicit-generics feature) was retired together with the saturation machinery it fed.
   */
 case class GenericParameter(
     name: Sourced[String],
@@ -47,9 +48,6 @@ object GenericParameter {
 
     override def parser: Parser[Sourced[Token], GenericParameter] =
       for {
-        // `auto` is a soft keyword (a plain lowercase identifier, like `opaque`/`left`), unambiguous here because a
-        // generic-parameter name is always upper-case: a lowercase `auto` can only be the marker.
-        inferable          <- identifierWith("auto").as(true).optional().map(_.getOrElse(false))
         name               <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
         typeRestriction    <- (arityAsTypeRestriction(name.map(_.content)) or explicitTypeRestriction)
                                 .optional()
@@ -58,8 +56,7 @@ object GenericParameter {
       } yield GenericParameter(
         name.map(_.content),
         typeRestriction,
-        abilityConstraints.map(ac => extendWithDefault(ac, name.map(_.content))),
-        inferable
+        abilityConstraints.map(ac => extendWithDefault(ac, name.map(_.content)))
       )
 
     /** When an ability constraint is defined [A ~ Show] (with no parameters), we add the generic parameter its declared

@@ -56,7 +56,7 @@ case class Unifier(
   /** Whether a metavariable was peeled from a *higher-kinded* (`[F[_]]`) binder. A higher-kinded meta is the only
     * metavariable shape that can stand for a carrier, so this is what the two compiler-track carrier readers key on —
     * the inline-guard kind acceptance
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.CalculatedReturnResolver.isGuardCarrier]]) and the effect
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.GuardDischargeResolver.isGuardCarrier]]) and the effect
     * lift's meta-headed split
     * ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.effectCarrierSplit]]). It is deliberately
     * unfiltered by ability constraints: a callee's own `G[_]` may carry an effectful result whether or not it declares

@@ -263,7 +263,10 @@ object ProcessorTest {
     */
   val effectPackage: Seq[String] = ModuleName.effectPackage
 
-  val intStubContent: String     = "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
+  // A two-parameter `Int` used by many monomorphization tests as an ordinary multi-argument type constructor (the tests
+  // predate production's nullary `Int {range: Interval[BigInteger]}`, whose bounds live in the refinement channel). The
+  // parameters are ordinary explicit generics — the retired `auto` implicit-generics marker is gone.
+  val intStubContent: String     = "type Int[MIN: BigInteger, MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"
 
   /** The real `PatternMatch`/`TypeMatch` ability declarations (the canonical `systemImports` register them empty, since

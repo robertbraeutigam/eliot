@@ -20,12 +20,11 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
   private def gp(
       name: String,
       restriction: Expression = ty("Type"),
-      inferable: Boolean = false,
       constraints: Seq[GenericParameter.AbilityConstraint] = Seq.empty
-  ): GenericParameter = GenericParameter(s(name), s(restriction), constraints, inferable)
+  ): GenericParameter = GenericParameter(s(name), s(restriction), constraints)
 
-  private def arg(name: String, t: Expression, inferable: Boolean = false): ArgumentDefinition =
-    ArgumentDefinition(s(name), s(t), inferable)
+  private def arg(name: String, t: Expression): ArgumentDefinition =
+    ArgumentDefinition(s(name), s(t))
 
   private def fn(
       name: String,
@@ -92,12 +91,6 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
         precedence = Seq(PrecedenceDeclaration(PrecedenceDeclaration.Relation.At, Seq(s("+"))))
       )
     ) shouldBe "infix left at + def +(l: Int, r: Int): Int"
-  }
-
-  it should "render an abstract type with auto, bounded parameters" in {
-    SignatureRenderer.function(
-      fn("Int", Qualifier.Type, args = Seq(arg("MIN", ty("BigInteger"), inferable = true), arg("MAX", ty("BigInteger"), inferable = true)))
-    ) shouldBe "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
   }
 
   it should "render the compiler-tracked meta-slot brace of a type" in {

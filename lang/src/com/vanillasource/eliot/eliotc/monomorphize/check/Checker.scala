@@ -49,13 +49,13 @@ class Checker(
   private[check] val carriers: CarrierKindChecker =
     new CarrierKindChecker(force, (tm, env) => evalExpr(tm, env), doUnify, platform)
 
-  /** The calculated-return back-edge (D7): fills a value's bare omittable return from its monomorphized body
-    * (implicit-generics W3/W4). A non-equality *non-local inference*, kept out of this checker's definitional equality
-    * concern. Called from [[infer]] / [[applyInferred]] (read sides) and [[TypeStackLoop]] (callee-side
-    * `installReturnMeta`). See [[CalculatedReturnResolver]].
+  /** The effectful-signatures guard discharge (W2b): runs a `{Throw[String]}` return guard on the compile-time
+    * `Either[String, _]` carrier to obtain (or reject) the return type. A non-equality concern, kept out of this
+    * checker's definitional equality concern. Called from [[infer]] / [[applyInferred]] (read sides) and
+    * [[TypeStackLoop]] (callee side). See [[GuardDischargeResolver]].
     */
-  private[check] val calcReturns: CalculatedReturnResolver =
-    new CalculatedReturnResolver(force, freshMeta, platform)
+  private[check] val guards: GuardDischargeResolver =
+    new GuardDischargeResolver(force, freshMeta)
 
   /** The ability-resolution saturation concern: discovering ability-qualified references and resolving each to its
     * concrete impl. A non-equality *saturation* pass, kept out of this checker's definitional equality concern. Called
@@ -251,22 +251,10 @@ class Checker(
     for {
       forcedExpected <- force(expected)
       guardKind      <- forcedExpected match {
-                          case VType => calcReturns.isGuardCarrier(inferred)
+                          case VType => guards.isGuardCarrier(inferred)
                           case _     => pure(false)
                         }
-      // The W3-hole acceptance (signature-unification §3.3, arm 3): an under-applied omittable constructor (a bare
-      // `Int`, a bare W2-grown `Counter`) in a `Type` position denotes a *calculated return* — its missing arguments
-      // the body computes — so accept it as-is rather than unifying its type-constructor kind against `Type` (which
-      // would reject `BigInteger -> Type` ≠ `Type`). Stateless: the under-applied head is published unchanged and the
-      // consumer's read recognises it (`isCalculatedReturn`). This fires only where a bare omittable constructor is
-      // checked against `Type` — in practice the signature twin's arrow chain, since the value mono flattens its own
-      // calculated return to a `Type` placeholder before ever checking it.
-      w3Hole         <- (forcedExpected, guardKind) match {
-                          case (VType, false) => calcReturns.isCalculatedReturnExpr(tm.value)
-                          case _              => pure(false)
-                        }
       outcome        <- if (guardKind) pure(SlotOutcome.Resolved(expr): SlotOutcome)
-                        else if (w3Hole) pure(SlotOutcome.Resolved(expr): SlotOutcome)
                         else resolveLadder(tm, expr, inferred, expected)
     } yield outcome
 
@@ -453,20 +441,10 @@ class Checker(
                                                 evalExpr(sv.value.signature.value, env = Some(Env.empty))
                                                   .map(sig => explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue))
                                             }
-                        // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no
-                        // parameters left to apply, so its whole type is its (under-applied) source return (`def y: Int
-                        // = x` ⟹ a bare `Int`) — is resolved from its monomorphized return here, so a no-argument
-                        // producer used by name works instead of leaking the under-applied return into a mismatch.
-                        // `resolveCompleteCalculatedReturn` self-gates on that under-application; the applied case keeps
-                        // a `VPi` here (resolved by `applyInferred`), and a calculated-return *function* passed
-                        // unapplied keeps the under-applied return inside its codomain (the higher-order limit, out of
-                        // scope).
-                        calcReturn       <- calcReturns.resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
-                        afterCalc         = calcReturn.getOrElse(appliedSig)
                         // Discharge a `{Throw[String]}` guard on a *complete* (fully applied) value read by name (W2b):
                         // `def y: Bar = foo` where `foo`'s return is `Right(Bar)`. A guarded *function* read unapplied
                         // stays a `VPi`/`VLam` (the guard is in its codomain), so it is left untouched here.
-                        discharged       <- calcReturns.dischargeGuardedReturn(afterCalc, vfqn).map(_.getOrElse(afterCalc))
+                        discharged       <- guards.dischargeGuardedReturn(appliedSig, vfqn).map(_.getOrElse(appliedSig))
                       } yield (
                         SemExpression(discharged, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
                         discharged
@@ -698,18 +676,14 @@ class Checker(
       rawRetType               = vpi.codomain(argSem)
       retType                 <- rawRetType match {
                                    case _: VMeta => pure(rawRetType)
+                                   // Renormalise the codomain (re-firing any stuck guard natives now that the argument
+                                   // checks solved their bounds), then discharge a `{Throw[String]}` guard the callee
+                                   // returns (W2b) — `Right(t)` ⤳ `t`, `Left` aborts, a still-stuck guard is left to
+                                   // defer at this generic caller's own site.
                                    case other    =>
-                                     calcReturns.resolveCalculatedReturn(updatedTarget, other).flatMap {
-                                       case Some(resolved) => pure(resolved)
-                                       // Not a calculated return: renormalise the codomain (re-firing any stuck guard
-                                       // natives now that the argument checks solved their bounds), then discharge a
-                                       // `{Throw[String]}` guard the callee returns (W2b) — `Right(t)` ⤳ `t`, `Left`
-                                       // aborts, a still-stuck guard is left to defer at this generic caller's own site.
-                                       case None           =>
-                                         renormalize(other).flatMap(rn =>
-                                           calcReturns.dischargeGuardedReturn(rn, target).map(_.getOrElse(rn))
-                                         )
-                                     }
+                                     renormalize(other).flatMap(rn =>
+                                       guards.dischargeGuardedReturn(rn, target).map(_.getOrElse(rn))
+                                     )
                                  }
     } yield (
       SemExpression(
