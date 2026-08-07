@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.unify
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.EffectRowRendering
-import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -12,7 +12,9 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, GroundValu
   * metas display their solution.
   *
   * Function types (both [[VPi]] at the semantic level and [[GroundValue.Structure]] encoding `Function[A, B]`) are
-  * rendered with arrow notation `A -> B`. Unsolved metas appear as `?N`.
+  * rendered with arrow notation `A -> B`. A constructor application is bracketed by its head's qualifier — `[]` for a
+  * type constructor, `()` for a value constructor — so a type reads `Box[String]` and a value reads `Box("a")`,
+  * agreeing with [[GroundValueRenderer]]. Unsolved metas appear as `?N`.
   *
   * '''Effect carriers and `Id` are never printed''' (docs/effects-as-channel.md §9): a carrier stack is inverted back
   * to the **pinned effect row** that spells it (`{Abort | IO} String`, not `AbortCarrier(IO, String)`) and the identity
@@ -72,7 +74,9 @@ object SemValuePrinter {
   }
 
   /** An FQN-headed application: the identity carrier's payload wrapper prints as its payload, a canonical carrier stack
-    * as its pinned row, anything else as `name(args)`.
+    * as its pinned row, anything else as `name[args]` for a **type constructor** ([[Qualifier.Type]]) and `name(args)`
+    * for a **value constructor**, matching how the user writes them (`Box[String]` the type, `Box("a")` the value) and
+    * agreeing with [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValueRenderer]] on the ground side.
     */
   private def showHeaded(fqn: ValueFQN, spine: Spine, metaStore: MetaStore, depth: Int): String = {
     val args = spine.toList
@@ -81,7 +85,7 @@ object SemValuePrinter {
       case _                                            =>
         layerOf(fqn, args)
           .map(EffectRowRendering.row(_, peel(metaStore, depth), render(metaStore, depth)))
-          .getOrElse(applied(fqn.name.name, spine, metaStore, depth))
+          .getOrElse(appliedHeaded(fqn, spine, metaStore, depth))
     }
   }
 
@@ -101,6 +105,15 @@ object SemValuePrinter {
   private def applied(name: String, spine: Spine, metaStore: MetaStore, depth: Int): String = {
     val args = spine.toList.map(go(_, metaStore, depth, topLevel = false))
     if (args.isEmpty) name else s"$name(${args.mkString(", ")})"
+  }
+
+  /** Like [[applied]], but bracketed by the head's qualifier: `[]` for a type constructor, `()` otherwise. */
+  private def appliedHeaded(fqn: ValueFQN, spine: Spine, metaStore: MetaStore, depth: Int): String = {
+    val name = fqn.name.name
+    val args = spine.toList.map(go(_, metaStore, depth, topLevel = false))
+    if (args.isEmpty) name
+    else if (fqn.name.qualifier === Qualifier.Type) s"$name[${args.mkString(", ")}]"
+    else s"$name(${args.mkString(", ")})"
   }
 
   private def parenIf(cond: Boolean, s: String): String =

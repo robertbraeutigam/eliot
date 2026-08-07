@@ -43,6 +43,11 @@ class GroundValueRendererTest extends AnyFlatSpec with Matchers {
     render(con(listFQN, string)) shouldBe "List[String]"
   }
 
+  it should "render a value constructor application with parentheses, not brackets" in {
+    val boxValue = ValueFQN(ModuleName(Seq("app"), "Boxes"), QualifiedName("Box", Qualifier.Default))
+    render(GroundValue.Structure(boxValue, Seq(string), GroundValue.Type)) shouldBe "Box(String)"
+  }
+
   it should "render a function type as a right-associative arrow" in {
     render(con(WellKnownTypes.functionDataTypeFQN, string, con(listFQN, string))) shouldBe "String -> List[String]"
   }

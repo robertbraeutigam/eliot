@@ -88,11 +88,6 @@ notes.
   parsing can be arbitrarily complex.
 - Parse strings and numbers into custom types (string interpolation, regexp parsing, …);
   numeric literals are just a special case of this.
-- **The two type printers disagree on constructor application.** `monomorphize/fact/GroundValueRenderer`
-  already renders a type-constructor application the way the user writes it (`List[String]`), but
-  `monomorphize/unify/SemValuePrinter` — which produces the `Expected:`/`Actual:` lines — renders
-  *every* application with parens (`List(String)`). Unify them on `[]` for type constructors and
-  `()` for value constructors, so `Box("a")` stays `Box("a")` while its type reads `Box[String]`.
 - Introduce a `UserShow[T]` — like `Show[T]`, but intended for end users.
 - **Importing a module should bring in the abilities it implements.** When a module implements an
   ability, that ability's functions should become available through the import — e.g. `import
@@ -119,8 +114,6 @@ notes.
   / `getFactOrError` / `getFactIfProduced` (see `.claude/rules/eliot-design.md`), but a plain
   `getFact` is still there on `CompilationProcess` and its wrappers. Either rename it to
   `getFactIfProduced` or hide it entirely behind the three intent-carrying reads.
-- `OperatorResolvedValue` should carry an `isGuard` flag (the fact currently has none) — check
-  what needs it and whether it can be derived instead of stored.
 - `namedValues` can recurse — the reflection-driven enumeration is not protected against a value
   that reaches itself.
 - **The warm build's dominant cost is JVM/library startup, and it is a packaging fix, not a

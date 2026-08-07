@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.EffectRowRendering
-import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, WellKnownTypes}
 
 /** Renders a [[GroundValue]] — a fully evaluated, concrete monomorphic type — as a compact, human-readable type string
   * for anything a user reads: LSP hover / type hints, and the type arguments of an ability-demand diagnostic.
@@ -76,9 +76,15 @@ object GroundValueRenderer {
       case None    => render(value)
     }
 
+  /** A plain application, bracketed by the head's qualifier so it reads the way the user writes it: `[]` for a type
+    * constructor ([[Qualifier.Type]], e.g. `Box[String]` the type), `()` for a value constructor (e.g. `Box("a")` the
+    * value). [[SemValuePrinter]] applies the same rule on the semantic side, so the two printers agree.
+    */
   private def application(structure: GroundValue.Structure): String =
     if (structure.args.isEmpty) structure.typeName.name.name
-    else s"${structure.typeName.name.name}[${structure.args.map(render).mkString(", ")}]"
+    else if (structure.typeName.name.qualifier === Qualifier.Type)
+      s"${structure.typeName.name.name}[${structure.args.map(render).mkString(", ")}]"
+    else s"${structure.typeName.name.name}(${structure.args.map(render).mkString(", ")})"
 
   /** A canonical-carrier application rendered as the pinned row that spells it, split according to the caller's
     * context (see the class doc). Ability arguments and the payload are types; the base slot is a type constructor,
