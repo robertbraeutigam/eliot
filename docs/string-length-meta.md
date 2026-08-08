@@ -3,6 +3,10 @@
 Status: **design proposal**. The load-bearing mechanism was **prototyped end-to-end and reverted** — every claim
 marked *verified* below was run against the real tree; everything else is design.
 
+One of §11's open decisions is now **settled**: the unit is the **code-point count** (§5.1), which adds a
+prerequisite stage S0 (the index family switches units with `length`) and rules out a byte-size slot (§5.2) and any
+second slot before S5 (§5.3). The rest of §11 is still open.
+
 Prior art, and the two documents this one sits between:
 
 - `docs/total-meta-transfers.md` — meta as a shadow logic (R1–R4, the leaf/derive split). Its §2.3 defers
@@ -19,9 +23,15 @@ Prior art, and the two documents this one sits between:
 type String {size: Interval[BigInteger]}
 ```
 
-A `String` gains one meta slot: the interval of its length, in the units `String::length` counts. That single line
-turns on the whole channel for strings — merges, `where` preconditions, transfers, hover — because everything
-downstream of a slot declaration is already domain-agnostic.
+A `String` gains one meta slot: the interval of its length, in the units `String::length` counts — which §5.1
+decides is the **code-point count**, and which S0 makes true of every target. That single line turns on the whole
+channel for strings — merges, `where` preconditions, transfers, hover — because everything downstream of a slot
+declaration is already domain-agnostic.
+
+**One** slot, deliberately, and it holds a count of code points rather than of storage units. Both halves of that
+are load-bearing and §5 argues them: the unit must be a property of the string *value* or a `where` stops meaning
+the same thing on two targets (§5.1), and byte size does not join it as a second slot because a byte count is what a
+backend *derives* from `size`, exactly as an `Int`'s machine width is derived from its `range` (§5.2).
 
 Why `String` and not `List` first, even though the TODO names `List`/`Array` `size` as the next domain: **`String`
 is nullary.** `meta(List[A])` wants to be structural (`List$Meta(size, meta(A))`, meta as a functor on the type
@@ -37,6 +47,9 @@ What it buys today:
   (`def banner(s: String): Unit where fitsDisplay(size(s))`).
 - **Cross-domain flow**: `length`'s stated transfer turns a string's size into an `Int`'s range, so a literal's
   length feeds `Int` arithmetic, `Int` `where`s, and (later) array bounds. *Verified* (§4.4).
+- **A bound on a parsed number**: `parseInt` on a string of `n` code points yields an `Int` in `[-(10ⁿ-1), 10ⁿ-1]`,
+  so a fixed-width input field lands in a known `Int` range without a `where` on the number. This is the everyday
+  motivation, and it is the reason the unit has to be a count of characters rather than of bytes (§5.1, §6).
 - A representation story for a future MCU backend: a `String` whose size is pinned to `[0, 16]` can be laid out as
   a fixed buffer, exactly as an `Int` pinned to `[0, 255]` is laid out as a byte today.
 - The first honest test of R2 (`total-meta-transfers.md`) against a leaf set that is *not* three arithmetic
@@ -80,25 +93,29 @@ def stringLiteral[N: BigInteger]: String {Interval(N, N)}
 ```scala
 // RefinementChannelProcessor.walkFlow, beside the IntegerLiteral arm
 case MonomorphicExpression.StringLiteral(value) =>
+  val text = value.value
   metaViaCompanion(
     WellKnownTypes.stringLiteralFQN,
-    Seq(GroundValue.Direct(Literal.IntegerValue(BigInt(value.value.length)), bigIntType)),
+    Seq(GroundValue.Direct(Literal.IntegerValue(BigInt(text.codePointCount(0, text.length))), bigIntType)),
     Seq.empty
   ).map(meta => Flow(meta, recordAt(node, meta)))
 ```
 
-Nineteen lines including the `WellKnownTypes` entry and the slot itself — *verified*, end to end (§4).
+Nineteen lines including the `WellKnownTypes` entry and the slot itself — *verified*, end to end (§4). The
+prototype counted `text.length`; with §5.1 resolved to code points that is the wrong measure (it counts UTF-16 units)
+and `codePointCount` replaces it. Nothing else in the arm changes.
 
 Note what the channel does and does not decide. It supplies a raw `BigInteger` — the literal's measured length —
 exactly as the integer seed supplies the literal's value; the *interval*, the singleton, and the `String$Meta`
 wrapper are all built in Eliot, in the brace. The channel still constructs no domain structure. It does now know
 that a string's meta is measured by counting, which is one notch more domain knowledge than the integer seed
-carries, and §5 is the price of that notch.
+carries — but because §5.1 fixes the unit as the code-point count, that knowledge is **platform-independent**: the
+channel is not guessing a host representation, it is counting the same thing every target's `length` counts.
 
-The orthodox alternative — pass the literal *string* as the type argument and let the brace call a compile-time
-`sizeOf(v: String): BigInteger` native — keeps that last notch in Eliot and makes the unit **platform-contributable**
-(§5). It costs one native and one more name. Recommended if §5 is decided the strict way; the measured-count form
-above is fine if it is decided the pragmatic way.
+That is what retires the alternative the prototype left open (passing the literal *string* as the type argument and
+letting the brace call a per-platform compile-time `sizeOf(v: String): BigInteger` native). A contributed native is
+only needed when the unit is platform data; once the unit is the string value's own code-point count, the direct
+count is both cheaper and *more* correct — one native and one name saved. See §5.1.
 
 ### 3.2 The slot cannot be called `length`
 
@@ -199,32 +216,102 @@ domains compose through the ordinary machinery.
 
 ---
 
-## 5. Which units? The one platform-independence question
+## 5. Units, and why byte size is not a second slot
+
+### 5.1 The unit is the code-point count — decided
 
 `String.els` documents `length` as counting "the platform's storage units, not user-perceived characters", and the
 JVM leaf is `java.lang.String::length` — UTF-16 code units. A UTF-8 target would count differently for the same
-literal. So "the length of `"日本"`" is not a platform-independent number, and the seed has to get it from
+literal. So "the length of `"日本"`" is not today a platform-independent number, and the seed has to get it from
 *somewhere*.
 
-Three answers, in increasing strictness:
+Three answers were on the table:
 
-1. **Pragmatic (what the prototype did).** The channel counts with the host's `String.length`. That is exactly what
-   `StringReductions` already does for the compile-time `length` native — so the seed is consistent with the
-   compile-time leaf **by construction**, and the pre-existing tension (a UTF-8 target's runtime `length` would
-   disagree with `StringReductions`) is inherited, not created. Cheapest, and honest about being a JVM-flavoured
-   assumption living in a platform-independent module.
-2. **Contributed (recommended if the strict reading wins).** The seed calls a compile-time `sizeOf` native that
-   lives *beside `length`'s own compile-time reduction* — today `StringReductions`, tomorrow whichever layer owns
-   the target's `length` leaf. Then the unit is defined once, per platform, in exactly the place that already has to
-   agree with the runtime leaf value-for-value. This is the `§2.1` rule of `total-meta-transfers.md` ("a leaf's
-   transfer is platform data") applied to the seed.
-3. **Define it away.** Declare the language's string length to be the **code-point** count and make every platform's
-   `length` conform (JVM: `codePointCount`). Platform-independent by fiat, at the cost of a behaviour change to
-   `length` and of making JVM slicing indices no longer the same units. Out of scope here, but worth recording as
-   the only answer that makes `size` a portable number.
+1. **Pragmatic.** The channel counts with the host's `String.length` (what the prototype did). That is exactly what
+   `StringReductions` already does for the compile-time `length` native, so the seed agrees with the compile-time
+   leaf by construction — but it bakes a JVM-flavoured assumption into a platform-independent module.
+2. **Contributed.** The seed calls a per-platform compile-time `sizeOf` native living beside that platform's own
+   `length` reduction. The unit is then defined once per platform, in the place that already has to agree with the
+   runtime leaf value-for-value (`total-meta-transfers.md` §2.1, "a leaf's transfer is platform data").
+3. **Define it away.** Declare the language's string length to be the **code-point** count and make every
+   platform's `length` conform (JVM: `codePointCount`).
 
-Whichever is chosen, say it in `String.els`'s doc comment: **the meta counts the same units `length` returns.** The
-meta must never be able to disagree with the function.
+**Take (3).** (1) and (2) both leave `size` a per-target number, and a `where` precondition over a per-target
+number is a precondition that holds on the JVM and fails on an MCU — a portability hole in the one channel whose
+whole purpose is a portable compile-time guarantee. Only the code-point count is a property of the *string value*
+rather than of a representation, which is what the Platform-Independence cornerstone requires of anything the base
+layer can name. This is a **language decision**, not a channel implementation detail, and it is the answer that
+also makes §6's two unbounded leaves statable.
+
+**The bill is larger than "a behaviour change to `length`".** `String.els:8-11` already promises that `length` and
+the index family agree — "Use it for slicing with `substring`/`take`/`drop`, which index in the same units". So the
+unit cannot be changed in `length` alone; it changes in every index-taking leaf, or the API becomes incoherent
+(`s.substring(0, s.length)` would truncate a string containing a non-BMP code point):
+
+| leaf | today | after |
+|---|---|---|
+| `length` | `String.length()` (`StringNatives.scala:138`) | `codePointCount(0, length())` |
+| `substring` | UTF-16 indices (`StringNatives.scala:214`) | `offsetByCodePoints` on both clamped indices |
+| `take` / `drop` | bodied on `substring` | unchanged — inherit it |
+| `indexOfInternal` | UTF-16 index | `codePointCount(0, idx)` on the result |
+| compile-time reductions | `s.length` / host `substring` (`StringReductions.scala:40`, `:76-93`) | same translation, so the two tracks keep agreeing |
+
+That is ~5 leaves plus their compile-time twins, and it costs O(n) index translation on the JVM.
+
+**Land it as its own change, ahead of the meta work, and justify it without the meta work.** Today `length("日本語𝕏")`
+returns a different number per target, so any string-slicing user program is already non-portable — the meta domain
+does not create that defect, it only makes it visible. "Eliot string indices are code points" stands on its own as a
+cornerstone fix; smuggling it in as a refinement-channel prerequisite makes both changes harder to review.
+
+Then say it in `String.els`'s doc comment: **the meta counts the same units `length` returns, and that unit is the
+code point.** The meta must never be able to disagree with the function.
+
+### 5.2 Byte size is a backend derivation, not a slot
+
+The tempting next step is a second slot — `type String {size: …, bytes: …}` — on the grounds that when a string is
+*stored* it is bytes that matter. The need is real; the slot is the wrong home for it, and `Int` already settled the
+question.
+
+`type Int {range: Interval[BigInteger]}` carries no byte width. It carries the **value range**, and the backend
+derives Byte/Short/Int/BigInteger from it (`IntRepresentation.isIntegerType` gates every width decision — §2, §8).
+The width is not meta-information; it is what a backend computes *from* meta-information using knowledge only it
+has.
+
+Strings are the same shape: **bytes is to `size` what the JVM's `Byte` choice is to an `Int`'s range.** An MCU
+backend that wants to lay a `[0,16]`-size string into a fixed buffer multiplies `size` by its own maximum
+bytes-per-code-point — a number only that backend knows. A `bytes` slot in `stdlib/eliot/eliot/lang/String.els`
+would have the base layer assert that every string has a byte count, in units the base layer is forbidden to name.
+That is exactly the "no platform *representation*" line.
+
+The mechanism cannot rescue it either. A transfer brace desugars in `core` (phase 4) into an ordinary named value —
+`length^Meta` — which `module` (phase 5) then merges across layers, so two layers each giving it a body is "Has
+multiple implementations." **Per-platform transfer braces are impossible**; the only per-platform hook is a native
+leaf reduction (§5.1's rejected option 2). A `bytes` slot would therefore be a base-layer slot that no base-layer
+brace could ever honestly fill.
+
+### 5.3 Any second slot is downstream of the ⊤ decision
+
+This is a general constraint on the domain, worth stating once because it applies to every future slot and not just
+to bytes.
+
+Multi-slot metas are structurally free: `MetaConstructorDesugarer` reuses `DataDefinitionDesugarer` verbatim and the
+auto-derived `Meta` instance joins field-wise, so `String$Meta(size, bytes)` and its lattice would fall out with no
+compiler change. The cost is on the *transfer* side. A brace is a positional comma-separated list applied straight
+to the meta constructor (`MetaTransferDesugarer.metaBody` builds `String$Meta(braceExprs*)`, parsed by
+`optionalBracketedCommaSeparatedItems`), so **partial statement is not expressible**: a def either states every slot
+or carries no brace at all and is ⊤ in all of them.
+
+With one slot, "unstated ⇒ ⊤" is free. With two, "I know the size but not the bytes" has to be *spelled* as an
+explicit unbounded interval — which is precisely the open-endpoint question §6 and S5 defer. **A second slot pulls
+the ⊤ decision forward out of S5 into S2**, against §7's sequencing. Keep the domain at one slot until S5 lands.
+
+The second slot that would genuinely earn itself later is not raw bytes but an **encoding claim** — a small
+`ascii ⊑ latin1 ⊑ unicode` lattice, letting a backend tighten bytes to exactly `size` for an ASCII string. It is a
+real fact no function of `size` determines, and it would be the first non-`Interval` domain, which is what proves
+the lattice is generic rather than `Interval`-shaped. Two things it would need beyond the slot: a user-declared
+`Meta[Encoding]` instance (the derived compound join dispatches per slot to the *domain's* instance, and only
+`Meta[Interval[T]]` exists today) and a domain head that is a simple type application, since
+`MetaConstructorDesugarer.slotJoin` yields no instance otherwise. Still downstream of S5.
 
 ---
 
@@ -240,16 +327,32 @@ it out is what shows where the domain is genuinely hard. `n` abbreviates `size(s
 | `substring(start, end, s)` | `{Interval(0, min(end(range(end)) - start(range(start)), end(n)))}` | clamping makes the lower bound `0` |
 | `take` / `drop` | derived from `substring` — **if** derivation existed (§9) | today: bodied ⇒ ⊤ |
 | `trim` | `{Interval(0, end(n))}` | |
-| `toUpperCase` / `toLowerCase` | `{Interval(start(n), end(n) * 3)}` | **not** length-preserving: `ß` ⤳ `SS`, `ﬃ` ⤳ `FFI`. The discipline catches a bug an eyeball would not |
+| `toUpperCase` / `toLowerCase` | `{Interval(start(n), end(n) * 3)}` | **not** length-preserving: `ß` ⤳ `SS`, `ﬃ` ⤳ `FFI`. The discipline catches a bug an eyeball would not. The `* 3` factor is a code-point fact, so §5.1 makes this row portable rather than JVM-flavoured |
 | `repeat(count, s)` | `{Interval(0, end(range(count)) * end(n))}` | the other cross-direction: an `Int` meta drives a `String` meta |
 | `replace(target, replacement, s)` | `{Interval(0, end(n) + (end(n) + 1) * end(size(replacement)))}` | an empty `target` inserts between every pair, so the occurrence count is `n+1` |
-| `Show[Int]::show` | needs a digit count of `range(value)` | **no honest bound on the JVM**, where `Int` is `BigInteger`-backed |
-| `parseIntInternal`, `readLine`, environment/file/process reads | platform max | **no honest bound on the JVM** |
+| `Show[Int]::show` | a digit count of `range(value)`, plus one for the sign | statable — see below |
+| `parseIntInternal` | `{Interval(-(10ⁿ - 1), 10ⁿ - 1)}` | statable — see below |
+| `readLine`, environment/file/process reads | platform max | **no honest bound on the JVM** |
 
-The last two rows matter more than the rest: `total-meta-transfers.md` §5 argues that no leaf needs a ⊤ form,
-because "on a real target every meta-carrying type has a representation, hence a bound". Strings on the JVM are the
-counterexample that argument's own §P2 already half-concedes for `parseInt`. Either `Interval` grows open endpoints,
-or these leaves state `2³¹-1`-flavoured bounds that are true but useless, or R2 keeps an escape.
+**§5.1 retires the two hardest rows.** Both were unbounded *because* the unit was a storage count:
+
+- `parseIntInternal`: `n` code points admit at most `n` decimal digits (`isInteger` allows an optional sign, which
+  only reduces the count), so `|value| ≤ 10ⁿ - 1`. Honest, and exactly the bound that motivates the domain — a
+  parsed field of known width lands in a known `Int` range.
+- `Show[Int]::show`: the digit count of an interval is a function of its endpoints, so `show` is bounded whenever
+  its argument's range is. It inherits ⊤ only from a ⊤ argument, which is the ordinary situation, not a missing
+  bound of its own.
+
+One prerequisite `parseIntInternal` exposes: the brace needs **exponentiation over `BigInteger` at compile time**,
+and `StdlibNativesProcessor` offers only `add`/`subtract`/`multiply`. It cannot be written in Eliot either — a
+recursion-free core has no loop (the *Total by Default* cornerstone) — so this is one new native leaf, in the same
+place the arithmetic leaves already live.
+
+That leaves one genuinely unbounded row instead of three. `total-meta-transfers.md` §5 argues that no leaf needs a
+⊤ form, because "on a real target every meta-carrying type has a representation, hence a bound"; an unbounded
+*input* read (`readLine`, a file, an environment variable) remains the counterexample, and the ⊤ question (S5) is
+still owed for it — either `Interval` grows open endpoints, or these leaves state `2³¹-1`-flavoured bounds that are
+true but useless, or R2 keeps an escape.
 
 ---
 
@@ -261,7 +364,9 @@ five leaves: `String::length`, `indexOfInternal`, `parseIntInternal`, `Process::
 
 Declaring `String` meta-carrying makes **every body-less `String`-returning leaf** join that list — the `String.els`
 set above, plus `Path::show`, `File::message`, `Process::standardOutput`/`standardError`, `Environment`'s and the
-jvm layer's private internals. Roughly a dozen more, several of which have no honest bound (§6).
+jvm layer's private internals. Roughly a dozen more. §5.1 helps here: the `String.els` set is now statable almost
+throughout (§6), so what is left needing the ⊤ escape is the *input* leaves — `readLine`, environment, file and
+process reads — a narrower and more clearly-motivated set than the mixed bag the pragmatic unit would have left.
 
 The sequencing conclusion is one line: **land the `String` domain while R2 is dormant, and treat "arm R2" as
 strictly downstream of the ⊤ decision.** Arming first would force a dozen dishonest braces; arming after, with open
@@ -333,8 +438,14 @@ transfer, and until P4 exists it derives nothing. Correct and useless — exactl
 
 Each stage compiles and passes the example sweep on its own.
 
+- **S0 — code-point indices** (§5.1). `length` and the whole index family (`substring`, `indexOfInternal`, and their
+  `StringReductions` twins) switch to code-point units; `take`/`drop` inherit it. A **prerequisite, not part of this
+  feature**: it is a cornerstone fix that stands on its own, it touches no channel code, and it should be reviewed as
+  a language change rather than as refinement plumbing. Test: a non-BMP string round-tripping through
+  `length`/`substring`/`indexOf`, and `Unicode.els` extended past its ASCII literal.
 - **S1 — the slot.** `type String {size: Interval[BigInteger]}` + the `eliot.compiler.Meta` import in `String.els`,
-  plus a doc-comment sentence defining the unit (§5). Inert: no seed, so every node stays ⊤. *Verified.*
+  plus a doc-comment sentence defining the unit as the code-point count (§5.1). Inert: no seed, so every node stays
+  ⊤. *Verified.*
 - **S2 — the seed.** `Runtime::stringLiteral`, `WellKnownTypes.stringLiteralFQN`, the channel arm, and the LSP
   `boundsOf` gate (§3.3). Test: the §4.3 `where` example, positive and negative, as a new `examples/src` entry plus
   a channel test. *Verified except the LSP gate.*
@@ -342,10 +453,11 @@ Each stage compiles and passes the example sweep on its own.
   `{size(s)}`. Test: the §4.4 program compiles **and runs**, plus a `javap` check that the narrow conversion is
   emitted.
 - **S4 — the remaining `String.els` transfers** (§6), each with its bound argued in the doc comment. Stop at the
-  leaves that have an honest bound; leave the unbounded ones unstated and ⊤.
+  leaves that have an honest bound; leave the input leaves unstated and ⊤. Includes the compile-time `pow` leaf that
+  `parseIntInternal`'s bound needs.
 - **S5 — decide ⊤** (open `Interval` endpoints or a stated platform max), then arm R2 (§7). This is where the
   original TODO — *"a native that produces a meta-carrying type must state its meta-information"* — actually closes,
-  for both domains at once.
+  for both domains at once. It is also the gate on **any second slot** in any domain (§5.3).
 
 `List`/`Array` size (structural meta) and the meta interpretation (P4) stay out; S1–S4 is a complete, useful feature
 without either.
@@ -355,13 +467,17 @@ without either.
 ## 11. Decisions needed before code
 
 1. **Slot name `size`** (§3.2) — or do the `Qualifier.Meta` accessor-namespace fix first and call it `length`.
-2. **Unit** (§5): the host count, a contributed per-platform `sizeOf`, or code points by fiat. This one is a
-   language decision, not an implementation detail.
+2. ~~**Unit**~~ — **decided: the code-point count** (§5.1), with the index family switching units alongside `length`
+   in a prerequisite change (S0). Two consequences settled with it: **byte size is not a slot** (§5.2, a backend
+   derivation on the `Int`-range/width precedent), and **no second slot before S5** (§5.3).
 3. **Backend option (1)** for the result edge (§8) — confirm, since (2) is the tempting cheap answer that guts the
    feature.
 4. **Scope**: S1+S2 alone (a working `where` domain, no stated transfers) is a defensible landing point and needs
    neither §8 nor the ⊤ question. S3+S4 is where it becomes useful.
 5. **Order vs. R2** (§7): confirm the domain lands while accounting stays dormant.
+6. **Is S0 in scope for whoever takes this?** It is a separable language change with its own justification (§5.1).
+   Landing it first is the recommendation; landing the domain on the pragmatic unit and switching later is *not* a
+   safe fallback, because every `where` written in the meantime silently changes meaning.
 
 ---
 
@@ -371,4 +487,9 @@ without either.
 - The meta interpretation (P4): bodied values keep deriving nothing.
 - Any narrowing of `String` *representation* on the JVM (there is none to pick); the layout payoff is an MCU
   backend's, not this change's.
-- Changing what `length` counts, unless §5 is decided the third way.
+- A **byte-size slot** (§5.2). Byte count is a backend derivation from `size` plus the target's encoding, exactly as
+  an `Int`'s machine width is derived from its `range` rather than carried beside it. The base layer names neither.
+- An **encoding-claim slot** (`ascii ⊑ latin1 ⊑ unicode`, §5.3) — the second slot most likely to earn itself, and the
+  first non-`Interval` domain, but gated on S5 like any second slot.
+- Changing what `length` counts is **no longer a non-goal**: §5.1 decides it, and S0 makes it a prerequisite of this
+  feature rather than something it must work around.
