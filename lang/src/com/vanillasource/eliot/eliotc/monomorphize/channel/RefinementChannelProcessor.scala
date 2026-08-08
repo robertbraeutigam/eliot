@@ -37,13 +37,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     future selector merges for free. The arms keep their own (narrower) intervals; the reconcile pass re-encodes
   *     each to the merged representation at the branch (`docs/generic-refinement-merges.md` §1).
   *
-  * Everything else is ⊤ (unknown, recorded as no entry, laid out as a bignum) — a parameter, a value reference, a
-  * `match` (`handleCases`) result, the body of a lambda, an ordinary call with no `^Meta` companion. These are the
-  * boundaries of §4/§7 Q4: the flow analysis is intra-procedural, so a value crossing a call/return/field/lambda
-  * boundary is ⊤ there (sound: "I know nothing" is always true, just imprecise). The walk still *descends into* the
-  * arguments of ordinary calls (so a literal/arithmetic argument narrows and is reconciled to the callee's parameter
-  * representation at the call), but never into a lambda body or a branch's arms-as-lambdas (a narrow value returned
-  * through a lambda's `apply` bridge would fail its `CHECKCAST` — see the class note on `LambdaGenerator`).
+  * Everything else is ⊤ (unknown, laid out as a bignum) — a parameter, a value reference, a `match` (`handleCases`)
+  * result, the body of a lambda, an ordinary call with no `^Meta` companion. These are the boundaries of §4/§7 Q4: the
+  * flow analysis is intra-procedural, so a value crossing a call/return/field/lambda boundary is ⊤ there (sound: "I know
+  * nothing" is always true, just imprecise). A ⊤ node is still *recorded*, as a `None` verdict — see [[recordAt]] for
+  * why omitting it is unsound at an aliased position.
+  *
+  * The walk **descends everywhere**: into the arguments of ordinary calls (so a literal/arithmetic argument narrows and
+  * is reconciled to the callee's parameter representation at the call), into a lambda's body, and into the head of an
+  * application the channel cannot recognise (an applied lambda — what a pure `val` block lowers to). Descending is what
+  * makes the use-site `where` demand total; *recording* is the narrower privilege, and it stops at a lambda (a narrow
+  * value returned through a lambda's `apply` bridge would fail its `CHECKCAST` — see the class note on
+  * `LambdaGenerator`), which is why those two subtrees are walked for their checks and their records discarded.
   *
   * Why a post-pass and not a rider inside the checker: refinements are, by the design's held invariant, strictly
   * *downstream* of type formation (they flow into checks and codegen, never back into a type), so the channel can run
@@ -66,16 +71,12 @@ class RefinementChannelProcessor
   import RefinementChannelProcessor.*
 
   /** The result of walking one node: the opaque meta [[GroundValue]] the channel knows for the node's *own* value
-    * (⊤ = [[None]]) and every per-node meta recorded in the subtree (this node's plus its descendants').
+    * (⊤ = [[None]]) and every per-node verdict recorded in the subtree (this node's plus its descendants').
     */
   private case class Flow(
       own: Option[GroundValue],
       records: Seq[RefinementTable.NodeMeta]
   )
-
-  private object Flow {
-    val topBoundary: Flow = Flow(None, Seq.empty)
-  }
 
   override protected def generateFromKeyAndFact(
       key: RefinementTable.Key,
@@ -94,7 +95,7 @@ class RefinementChannelProcessor
     for {
       result <- normalizedBody match {
                   case Some(body) => walkFlow(body.as(MonomorphicExpression(erasedSig, body.value)))
-                  case None       => Flow.topBoundary.pure[CompilerIO]
+                  case None       => Flow(None, Seq.empty).pure[CompilerIO]
                 }
     } yield RefinementTable(key.vfqn, key.typeArguments, result.records)
   }
@@ -137,10 +138,17 @@ class RefinementChannelProcessor
             } yield Flow(merge, argResults.flatMap(_.records) ++ recordAt(node, merge))
           case _ =>
             // Any other application (a `match`, a `typeMatch`, an applied lambda): the result is a ⊤ boundary; descend
-            // into the arguments as above.
-            args.traverse(walkFlow).map { rs =>
-              Flow(None, rs.flatMap(_.records))
-            }
+            // into the arguments as above — **and into the head**. The head is where a pure `val` block keeps its
+            // continuation (`val x = e ; rest` lowers to `(x -> rest)(e)`, `BlockDesugaringProcessor`), so walking only
+            // the arguments checked the *bound* expression and silently skipped everything after the binding: a `where`
+            // demand there was never made and a `where`-bearing def referenced there was never rejected — the very hole
+            // the [[MonomorphicExpression.FunctionLiteral]] arm below exists to close, reappearing one level up. Its
+            // records are discarded on the same grounds as that arm's (this node is a ⊤ boundary either way); only the
+            // walk's `checkWhere`/rejection effects remain.
+            for {
+              _          <- walkFlow(head)
+              argResults <- args.traverse(walkFlow)
+            } yield Flow(None, argResults.flatMap(_.records) ++ recordAt(node, None))
         }
 
       case MonomorphicExpression.FunctionLiteral(_, _, body) =>
@@ -150,7 +158,7 @@ class RefinementChannelProcessor
         // parameters make its body a leading lambda, so without this every call in a parametered def would escape the
         // check — the §4.3 use-site verification must not have that hole). The records are discarded; only `checkWhere`'s
         // effects during the walk remain.
-        walkFlow(body).as(Flow.topBoundary)
+        walkFlow(body).as(Flow(None, recordAt(node, None)))
 
       case MonomorphicExpression.MonomorphicValueReference(vfqn, _) =>
         // A **bare** reference to a def — *not* the head of a full application (that path is the `FunctionApplication`
@@ -159,11 +167,11 @@ class RefinementChannelProcessor
         // `MonomorphicValueReference`, so the demand is made nowhere (`docs/refinement-channel-follow-ups.md` §2.1).
         // Reject it loudly — the Use-Site Verification cornerstone requires every manifest use to be checked. ⊤ for the
         // node itself (a function value carries no integer range).
-        rejectWhereAsValueIfBearing(node, vfqn.value).as(Flow.topBoundary)
+        rejectWhereAsValueIfBearing(node, vfqn.value).as(Flow(None, recordAt(node, None)))
 
       case _ =>
         // A parameter reference or a string literal: ⊤ (no known integer range at this node).
-        Flow.topBoundary.pure[CompilerIO]
+        Flow(None, recordAt(node, None)).pure[CompilerIO]
     }
 
   /** The refinement result of a call, when its callee declares a `^Meta` companion — a **transfer** (`add^Meta`,
@@ -230,11 +238,17 @@ class RefinementChannelProcessor
     case other                            => other.pure[CompilerIO]
   }
 
+  /** Record this node's verdict — its pinned meta, or ⊤. Every *walked* node records, ⊤ included: a consumer can only
+    * match this table against its own tree by source position, and desugaring makes positions non-unique (a pure `val`
+    * block's synthesized lambda and application both carry the bound expression's range), so a ⊤ node that omitted its
+    * verdict would let a sibling's meta be read as its own. Recording ⊤ makes such a position ambiguous, which the
+    * reconcile pass already drops. See [[RefinementTable.NodeMeta]].
+    */
   private def recordAt(
       node: Sourced[MonomorphicExpression],
       meta: Option[GroundValue]
   ): Seq[RefinementTable.NodeMeta] =
-    meta.map(RefinementTable.NodeMeta(node.range, _)).toSeq
+    Seq(RefinementTable.NodeMeta(node.range, meta))
 
   /** Demand a callee's `where` precondition (bounds-as-refinements §4.3) at this call site, when it declares one. A def
     * `def f(x: Int): T where withinByte(range(x))` desugars to a `^Where` companion `f$Where(x: Int$Meta): Bool =

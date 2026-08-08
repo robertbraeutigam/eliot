@@ -78,9 +78,12 @@ class ReconcileProcessor
 
 object ReconcileProcessor {
 
-  /** Collapse the channel's per-node meta values to a position-keyed map, keeping a position only when every entry at it
-    * agrees on one meta (a position carrying two distinct metas is dropped, so the node stays ⊤). The meta is an opaque
-    * domain [[GroundValue]] the pass carries verbatim — it neither builds nor inspects it.
+  /** Collapse the channel's per-node verdicts to a position-keyed map, keeping a position only when every entry at it
+    * agrees on **one** verdict, and that verdict is a pinned meta. A position carrying two distinct metas is dropped, and
+    * so is one carrying a meta *and* a ⊤ — the shape a desugar-synthesized node produces by sharing its source range with
+    * a real one (`BlockDesugaringProcessor` anchors a `val`'s lambda and application on the bound expression's range), in
+    * which case neither node may take the other's meta. Both drops leave the node ⊤, which is always sound. The meta is
+    * an opaque domain [[GroundValue]] the pass carries verbatim — it neither builds nor inspects it.
     */
   private[reconcile] def metaByPosition(entries: Seq[RefinementTable.NodeMeta]): Map[PositionRange, GroundValue] =
     entries
@@ -88,4 +91,5 @@ object ReconcileProcessor {
       .collect {
         case (position, es) if es.map(_.meta).distinct.sizeIs == 1 => position -> es.head.meta
       }
+      .collect { case (position, Some(meta)) => position -> meta }
 }

@@ -32,7 +32,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * @param typeArguments
   *   The concrete type arguments of the instance.
   * @param metas
-  *   One entry per tracked node of the runtime body, in walk order.
+  *   One entry per **walked** node of the runtime body, in walk order — including the nodes the channel leaves ⊤
+  *   ([[NodeMeta.meta]] = [[None]]), which is what keeps a position's verdict unambiguous (see [[NodeMeta]]).
   */
 case class RefinementTable(
     vfqn: ValueFQN,
@@ -45,13 +46,23 @@ case class RefinementTable(
 
 object RefinementTable {
 
-  /** The channel's knowledge for one body node: the node's **meta value** — an opaque domain [[GroundValue]] (the type's
-    * `$Meta` structure, e.g. `Int$Meta(Interval(lo, hi))`), at the node's source position. The channel neither builds
-    * nor inspects its shape except to seed a literal; the consumers that own the domain (the JVM backend's width decode,
-    * the LSP hover) unwrap it. A serializable first-order value ([[GroundValue]] is used in fact keys), so the table
-    * participates in the incremental cache.
+  /** The channel's **verdict** for one walked body node, at the node's source position: [[Some]] meta value — an opaque
+    * domain [[GroundValue]] (the type's `$Meta` structure, e.g. `Int$Meta(Interval(lo, hi))`) — or [[None]] for a ⊤
+    * boundary. The channel neither builds nor inspects a meta's shape except to seed a literal; the consumers that own
+    * the domain (the JVM backend's width decode, the LSP hover) unwrap it. A serializable first-order value
+    * ([[GroundValue]] is used in fact keys), so the table participates in the incremental cache.
+    *
+    * **Why ⊤ is recorded rather than omitted.** A consumer matches this table against a *different* tree (the reconcile
+    * pass stamps the uncurried body) and the only correspondence between the two is the source position — but desugaring
+    * makes positions non-unique: `BlockDesugaringProcessor` anchors a `val`'s synthesized lambda *and* its application
+    * on the bound expression's own range, so three nodes share one position. Recording only the pinned nodes let the
+    * bound expression's meta leak onto the synthesized application, whose value is the block's continuation, not the
+    * bound expression — a `Byte` stamped on a `BigInteger`-returning `Function.apply`, i.e. a `VerifyError` at class
+    * load. With ⊤ recorded, such a position simply carries disagreeing verdicts and the existing "drop an ambiguous
+    * position" rule ([[com.vanillasource.eliot.eliotc.reconcile.processor.ReconcileProcessor.metaByPosition]]) makes it
+    * ⊤ for every node sharing it — sound, at the cost of not narrowing an aliased node.
     */
-  case class NodeMeta(position: PositionRange, meta: GroundValue)
+  case class NodeMeta(position: PositionRange, meta: Option[GroundValue])
 
   /** Keyed exactly like [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.Key]] — the same `vfqn` at
     * different type arguments is a different instance, hence a different table.

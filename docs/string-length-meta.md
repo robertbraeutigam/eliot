@@ -428,6 +428,23 @@ interpretation** of `total-meta-transfers.md` §6.2/P4, which interprets a calle
 metas. `String` size is not a reason to build it, and it is not blocked by its absence — but the first user report
 will be "why is my string's size unknown", and the answer should already be written down.
 
+Two facts about *today's* channel sharpen this, both worth knowing before S2/S3 (found while auditing this section;
+the first is still open, the second is fixed):
+
+- **"a lambda body is ⊤" is really "any def that takes a parameter is ⊤, throughout".** `walkFlow`'s lambda arm drops
+  its subtree's *records*, not merely its own verdict — and a def's own parameters are leading `FunctionLiteral`s in
+  the monomorphized body, so a parametered def produces an **empty** `RefinementTable`. The examples above narrow
+  because they are paramless; move the identical expression into `def banner(unused: Bool): String` and it is ⊤ again.
+  `where` demands still fire there (they are checks made during the walk, not records), so this is precision only. It
+  dissolves under P4, whose §7 separates "what the meta is" from "what may be stamped" — which is exactly this
+  conflation.
+- **A meta may not be recorded without also recording the ⊤s around it.** The table is matched to the backend's tree
+  by *source position*, and desugaring makes positions non-unique: a pure `val` block lowers to `(x -> rest)(e)` with
+  the synthesized lambda and application both anchored on the bound expression's range. Recording only pinned nodes
+  let the bound expression's meta be read as the application's, and the backend duly re-encoded a `Function.apply`
+  result to `Byte` — §8's hazard, reached with no stated transfer at all. The channel now records ⊤ verdicts too, so
+  an aliased position is ambiguous and drops to ⊤. Any new recording site inherits this obligation.
+
 `String::show` being the identity is a good miniature of this: it is *bodied*, so under R3 it may not state a
 transfer, and until P4 exists it derives nothing. Correct and useless — exactly the pattern §8.3 of
 `total-meta-transfers.md` predicted for `foldLeft`.

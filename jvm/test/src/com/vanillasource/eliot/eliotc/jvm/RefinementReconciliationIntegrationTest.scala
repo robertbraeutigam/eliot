@@ -33,6 +33,40 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "700")
   }
 
+  // The channel's table is keyed by source position, but desugaring makes positions non-unique: a pure `val` block
+  // lowers to `(x -> rest)(e)` with the synthesized lambda *and* application both anchored on the bound expression's own
+  // range (`BlockDesugaringProcessor.buildTower`), so three nodes share one position. The bound literal's `[1, 1]` was
+  // therefore stamped on the application too — whose value is the continuation, not the literal — and the backend
+  // re-encoded the `Function.apply` result as a `Byte`: `VerifyError: 'java/math/BigInteger' is not assignable to
+  // 'java/lang/Byte'` at class load. A position with disagreeing verdicts must stay ⊤ for every node sharing it.
+  "an integer literal bound by a pure val block" should "not leak its range onto the block's application node" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+        |import eliot.effect.Console
+        |
+        |def compute: Int = {
+        |  val ignored = 1
+        |  42
+        |}
+        |
+        |def main: IO[Unit] = printLine(show(compute))""".stripMargin
+    ).asserting(_ shouldBe "42")
+  }
+
+  it should "run when the binding is the block's result" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+        |import eliot.effect.Console
+        |
+        |def compute: Int = {
+        |  val v = 1
+        |  v
+        |}
+        |
+        |def main: IO[Unit] = printLine(show(compute))""".stripMargin
+    ).asserting(_ shouldBe "1")
+  }
+
   "an integer literal as an effect-discharge fallback" should "run widened into the discharged slot" in {
     compileAndRun(
       """import eliot.jvm.IO
