@@ -97,16 +97,17 @@ object TypeHintIndex {
       )
     )
 
-  /** Collapse a table's per-node metas to a position-keyed `[min, max]` map, keeping a position only when every entry at
-    * it agrees on one meta: a position carrying two or more distinct metas is dropped rather than displayed ambiguously.
-    * The channel carries an opaque domain meta; the hover (which shows `Int` value ranges) decodes the `Int$Meta(Interval
-    * [min, max])` shape with [[boundsOf]], exactly as the JVM backend does for width selection.
+  /** Collapse a table's per-node verdicts to a position-keyed `[min, max]` map, keeping a position only when every entry
+    * at it agrees on one verdict: a position carrying two or more distinct metas — or a meta and a ⊤, which is what a
+    * desugar-synthesized node sharing a real node's source range produces — is dropped rather than displayed
+    * ambiguously. The channel carries an opaque domain meta; the hover (which shows `Int` value ranges) decodes the
+    * `Int$Meta(Interval[min, max])` shape with [[boundsOf]], exactly as the JVM backend does for width selection.
     */
   private def unambiguousIntervals(table: RefinementTable): Map[PositionRange, (BigInt, BigInt)] =
     table.metas
       .groupBy(_.position)
       .collect { case (position, entries) if entries.map(_.meta).distinct.sizeIs == 1 => position -> entries.head.meta }
-      .flatMap { case (position, meta) => boundsOf(meta).map(position -> _) }
+      .flatMap { case (position, meta) => meta.flatMap(boundsOf).map(position -> _) }
 
   /** Decode `[min, max]` from an `Int$Meta(Interval(min, max))` meta value — the value-range domain's shape. [[None]] for
     * any other meta (a future domain), which is simply not shown as a range.

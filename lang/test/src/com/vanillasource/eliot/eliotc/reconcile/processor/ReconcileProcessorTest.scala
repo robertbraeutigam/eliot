@@ -47,6 +47,17 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
     ReconcileProcessor.metaByPosition(Seq(nm(1, metaVal(5)), nm(1, metaVal(5)))).get(pos(1)) shouldBe Some(metaVal(5))
   }
 
+  // A desugar-synthesized node shares its source range with a real one (a pure `val` block's lambda and application are
+  // both anchored on the bound expression's range), so the channel's ⊤ verdict for the synthesized node lands at the
+  // same position as the bound expression's meta. Neither node may then take the other's verdict.
+  it should "drop a position carrying both a meta and a top verdict" in {
+    ReconcileProcessor.metaByPosition(Seq(nm(1, metaVal(5)), top(1))).get(pos(1)) shouldBe None
+  }
+
+  it should "drop a position carrying only a top verdict" in {
+    ReconcileProcessor.metaByPosition(Seq(top(1))).get(pos(1)) shouldBe None
+  }
+
   // ---- fixtures -----------------------------------------------------------------------------------------------------
 
   /** The `Numeric[Int]` `add` instance method — the integer-addition leaf the refinement channel narrows through (no
@@ -88,7 +99,10 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
   ): Sourced[UncurriedMonomorphicExpression] =
     at(n, U(tpe, U.FunctionApplication(target, args)))
 
-  private def nm(p: Int, meta: GroundValue): RefinementTable.NodeMeta = RefinementTable.NodeMeta(pos(p), meta)
+  private def nm(p: Int, meta: GroundValue): RefinementTable.NodeMeta = RefinementTable.NodeMeta(pos(p), Some(meta))
+
+  /** The channel's ⊤ verdict at a position — recorded, not omitted (see `RefinementTable.NodeMeta`). */
+  private def top(p: Int): RefinementTable.NodeMeta = RefinementTable.NodeMeta(pos(p), None)
   private def table(metas: RefinementTable.NodeMeta*): RefinementTable = RefinementTable(mainFqn, Seq.empty, metas)
 
   private def umv(body: Sourced[UncurriedMonomorphicExpression], returnType: GroundValue): UncurriedMonomorphicValue =

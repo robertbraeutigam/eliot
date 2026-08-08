@@ -51,6 +51,35 @@ class WhereOnDefIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("cannot be passed as a value"))
   }
 
+  // A pure `val` block lowers to `(x -> rest)(e)` (`BlockDesugaringProcessor`), so the block's continuation is the
+  // *head* of an application, not one of its arguments. The channel walked only the arguments, so every call after a
+  // pure binding escaped the use-site demand entirely — a violated precondition compiled clean and ran. The walk must
+  // reach an unrecognised head too, or `where` means nothing past the first `val`.
+  it should "reject a call whose argument range exceeds the bound after a pure val binding" in {
+    compileForErrors(
+      useByte +
+        "def compute: Int = {\n  val ignored = 1\n  useByte(1000)\n}\n" +
+        "def main: IO[Unit] = printLine(show(compute))"
+    ).asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
+  }
+
+  it should "reject a where-bearing def passed as a bare value after a pure val binding" in {
+    compileForErrors(
+      useByte +
+        "def call(f: Int => Int, x: Int): Int = f(x)\n" +
+        "def compute: Int = {\n  val ignored = 1\n  call(useByte, 1000)\n}\n" +
+        "def main: IO[Unit] = printLine(show(compute))"
+    ).asserting(_ should include("cannot be passed as a value"))
+  }
+
+  it should "accept an in-range call after a pure val binding" in {
+    compileAndRun(
+      useByte +
+        "def compute: Int = {\n  val ignored = 1\n  useByte(127)\n}\n" +
+        "def main: IO[Unit] = printLine(show(compute))"
+    ).asserting(_ shouldBe "127")
+  }
+
   it should "reject a partial application of a where-bearing def passed as a value" in {
     compileForErrors(
       "import eliot.jvm.IO\nimport eliot.effect.Console\n" + withinByte +
