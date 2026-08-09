@@ -3,11 +3,12 @@ import eliot.effect.Abort
 type String
 
 /**
- * The number of characters in `s`.
+ * The number of code points in `s`.
  *
- * Counts the platform's storage units, not user-perceived characters: a code point outside the Basic
- * Multilingual Plane counts as more than one on a UTF-16 platform, and a combining sequence counts as its
- * parts. Use it for slicing with `substring`/`take`/`drop`, which index in the same units, rather than as a
+ * Counts the text rather than its storage, so the answer is the same on every platform however the string is
+ * held — a code point outside the Basic Multilingual Plane counts as one, not as the two units a UTF-16
+ * target stores it in. It is not a count of user-perceived characters: a combining sequence counts as its
+ * parts. Use it for slicing with `substring`/`take`/`drop`, which index in the same unit, rather than as a
  * measure of visible text width.
  */
 def length(s: String): Int
@@ -61,11 +62,14 @@ def endsWith(end: String, s: String): Bool
 def contains(part: String, s: String): Bool
 
 /**
- * The characters of `s` from `start` (inclusive) to `end` (exclusive).
+ * The code points of `s` from `start` (inclusive) to `end` (exclusive).
  *
  * Total: both indices are clamped into `0`..`s.length` and `end` is raised to `start` when it would precede
  * it, so any pair of indices yields a string and none ever fails. That makes slicing safe without a prior
  * length check — an over-long `end` simply runs to the end of `s`, and an inverted range yields `""`.
+ *
+ * Indices count code points, the same unit `length` returns, so a slice can never cut a character in half
+ * whatever the platform stores underneath.
  *
  * ```eliot
  * // The label of a "key=value" setting: everything before the first '='.
@@ -79,14 +83,14 @@ def contains(part: String, s: String): Bool
 def substring(start: Int, end: Int, s: String): String
 
 /**
- * The first `count` characters of `s`, or all of `s` when it is shorter.
+ * The first `count` code points of `s`, or all of `s` when it is shorter.
  *
  * Total, like `substring`: a negative `count` yields `""`.
  */
 def take(count: Int, s: String): String = s.substring(0, count)
 
 /**
- * `s` without its first `count` characters, or `""` when it has no more than that many.
+ * `s` without its first `count` code points, or `""` when it has no more than that many.
  *
  * Total, like `substring`: a negative `count` yields `s` unchanged.
  */
@@ -95,9 +99,10 @@ def drop(count: Int, s: String): String = s.substring(count, s.length)
 /**
  * The index of the first occurrence of `part` in `s`, aborting when `part` does not occur.
  *
- * The result is a valid `substring` start: `substring(indexOf(part, s), length(s), s)` is the tail of `s` from
- * the match onwards. The absent case is the `Abort` effect rather than a sentinel index, so a caller either
- * discharges it with `else` or propagates it — a missing match can never be mistaken for a position.
+ * The result counts code points, like every other index, and is a valid `substring` start:
+ * `substring(indexOf(part, s), length(s), s)` is the tail of `s` from the match onwards. The absent case is the
+ * `Abort` effect rather than a sentinel index, so a caller either discharges it with `else` or propagates it —
+ * a missing match can never be mistaken for a position.
  *
  * ```eliot
  * // The extension of a file name — everything after its first dot. Aborts on a

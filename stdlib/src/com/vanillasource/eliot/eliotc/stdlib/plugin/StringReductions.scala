@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
 
 import java.util.Locale
+import java.util.regex.Matcher
 
 /** The compile-time reductions for the `eliot.lang.String` operations — the compiler-track twin of the JVM backend's
   * `StringNatives`. Together they are what makes a string operation *platform behaviour the compiler can also run*: the
@@ -23,9 +24,13 @@ import java.util.Locale
   * therefore never "reduces" to anything here — it stays a call, exactly as intended.
   *
   * '''The two sides must agree, value for value.''' A divergence would mean a program computes one string while being
-  * checked and another while running, which no later phase can catch. Two rules keep them equal and are the reason the
-  * Scala below looks slightly laboured: case conversion pins [[Locale.ROOT]] (never the ambient default locale), and
-  * `substring`/`repeat` clamp their indices in `BigInt` — before any narrowing — exactly as the emitted bytecode does.
+  * checked and another while running, which no later phase can catch. Three rules keep them equal and are the reason
+  * the Scala below looks slightly laboured: case conversion pins [[Locale.ROOT]] (never the ambient default locale),
+  * `substring`/`repeat` clamp their indices in `BigInt` — before any narrowing — exactly as the emitted bytecode does,
+  * and every index is a '''code-point''' index. The last one is a language decision rather than a host detail: Eliot
+  * fixes `length` and the index family in code points so they mean the same number on every target, while a Scala
+  * `String` is UTF-16 like the JVM's, so `length`, `substring` and `indexOfInternal` translate here exactly as
+  * `StringNatives` translates them in bytecode.
   */
 object StringReductions {
 
@@ -37,7 +42,7 @@ object StringReductions {
 
   /** The exact-FQN string reductions, folded into [[StdlibNativesProcessor]]'s binding table. */
   val bindings: Map[ValueFQN, SemValue] = Map(
-    unary("length")(s => intValue(s.length)),
+    unary("length")(s => intValue(codePointCount(s))),
     unary("isEmpty")(s => boolValue(s.isEmpty)),
     unary("isBlank")(s => boolValue(s.isBlank)),
     unary("trim")(s => stringValue(s.strip())),
@@ -46,7 +51,7 @@ object StringReductions {
     stringStringNative("startsWith")((prefix, s) => boolValue(s.startsWith(prefix))),
     stringStringNative("endsWith")((suffix, s) => boolValue(s.endsWith(suffix))),
     stringStringNative("contains")((part, s) => boolValue(s.contains(part))),
-    stringStringNative("indexOfInternal")((part, s) => intValue(s.indexOf(part))),
+    stringStringNative("indexOfInternal")((part, s) => intValue(indexOfCodePoint(part, s))),
     unary("isInteger")(s => boolValue(s.matches(IntegerPattern))),
     substringNative,
     replaceNative,
@@ -79,7 +84,8 @@ object StringReductions {
   // ----------------------------------------------------------------------------------------------------------------
 
   /** `substring(start, end, s)` — total by the same clamping the backend emits: both indices into `0..length`, with
-    * `end` raised to `start` when it would precede it.
+    * `end` raised to `start` when it would precede it. Both are code-point indices, converted to the host's storage
+    * offsets only once clamped, exactly as the emitted bytecode does.
     */
   private def substringNative: (ValueFQN, SemValue) = {
     val fqn = stringFqn("substring")
@@ -94,15 +100,28 @@ object StringReductions {
               s =>
                 (start, end, s) match {
                   case (ConcreteInt(from), ConcreteInt(to), ConcreteString(text)) =>
-                    val lo = clamp(from, text.length)
-                    val hi = clamp(to, text.length).max(lo)
-                    stringValue(text.substring(lo, hi))
+                    val count = codePointCount(text)
+                    val lo    = clamp(from, count)
+                    val hi    = clamp(to, count).max(lo)
+                    stringValue(text.substring(storageOffset(text, lo), storageOffset(text, hi)))
                   case _                                                          => stuck(fqn, start, end, s)
                 }
             )
         )
     )
   }
+
+  /** `replace(target, replacement, s)` — every occurrence of `target` replaced literally, and the empty `target`
+    * inserting `replacement` into every gap between code points, exactly as the emitted bytecode does. A host
+    * `String.replace` would count a surrogate pair as two gaps, so that case goes through [[CodePointGaps]] with the
+    * replacement quoted, since it sits in a regex position there.
+    */
+  private def replaceLiterally(target: String, replacement: String, text: String): String =
+    if (target.isEmpty) text.replaceAll(CodePointGaps, Matcher.quoteReplacement(replacement))
+    else text.replace(target, replacement)
+
+  /** The string's start, and the position after each code point — the gaps an empty `target` replaces into. */
+  private val CodePointGaps = "(?s)(?<=.)|^"
 
   private def replaceNative: (ValueFQN, SemValue) = {
     val fqn = stringFqn("replace")
@@ -116,7 +135,8 @@ object StringReductions {
               stringType,
               s =>
                 (target, replacement, s) match {
-                  case (ConcreteString(t), ConcreteString(r), ConcreteString(text)) => stringValue(text.replace(t, r))
+                  case (ConcreteString(t), ConcreteString(r), ConcreteString(text)) =>
+                    stringValue(replaceLiterally(t, r, text))
                   case _                                                            => stuck(fqn, target, replacement, s)
                 }
             )
@@ -225,6 +245,25 @@ object StringReductions {
     * bytecode uses.
     */
   private def clamp(index: BigInt, limit: Int): Int = index.max(BigInt(0)).min(BigInt(limit)).toInt
+
+  /** The number of code points in `text` — what Eliot's `length` counts, and the unit its indices are in. A Scala
+    * `String` is UTF-16, so this is not `text.length`.
+    */
+  private def codePointCount(text: String): Int = text.codePointCount(0, text.length)
+
+  /** The UTF-16 offset of the code-point index `index` within `text`. Only called with an index already clamped into
+    * `0..codePointCount`, which is what makes it total.
+    */
+  private def storageOffset(text: String, index: Int): Int = text.offsetByCodePoints(0, index)
+
+  /** The code-point index of the first occurrence of `part` in `s`, or the host's negative "not found" index unchanged
+    * — a sentinel is not a position, so it is not translated. The `private` Eliot leaf never exposes it: `indexOf`
+    * turns it into an `{Abort}`.
+    */
+  private def indexOfCodePoint(part: String, s: String): Int = {
+    val index = s.indexOf(part)
+    if (index < 0) index else s.codePointCount(0, index)
+  }
 
   private def stringValue(s: String): SemValue = VConst(GroundValue.Direct(s, Evaluator.stringGroundType))
 

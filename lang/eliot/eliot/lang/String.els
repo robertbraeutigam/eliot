@@ -1,4 +1,14 @@
 /**
  * A string of Unicode text. The stored representation is platform-dependent.
+ *
+ * A string is a sequence of **code points**, and that is the unit everything counting or indexing into it
+ * uses: `length` counts code points, and `substring`, `take`, `drop` and `indexOf` all index in them. The
+ * unit is a property of the text itself rather than of a platform's storage, so a length or an index means
+ * the same number on every target — a string held as UTF-16 and the same string held as UTF-8 have the same
+ * length, and no slice can ever cut a character in half.
+ *
+ * What a code point is *not* is a user-perceived character: a combining sequence (`e` followed by an acute
+ * accent) is more than one, and so is an emoji built from several. Use `length` as a measure of content,
+ * not of the width something occupies on a display.
  */
 type String

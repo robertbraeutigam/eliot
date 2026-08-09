@@ -461,6 +461,23 @@ class ListIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "a-b-c/.")
   }
 
+  /** A character is a code point, so the empty separator cuts between code points — never between the two halves of
+    * one. The count is the discriminator: this platform stores the emoji as two UTF-16 units, so cutting at storage
+    * boundaries would answer four pieces instead of three.
+    */
+  it should "cut between code points, not between storage units" in {
+    compileAndRun(
+      sampleProgram +
+        """
+          |def main: {Console} Unit = {
+          |   val line = readLine orElse ""
+          |   val text = line ++ "😀b"
+          |   printLine(show(split("", text).size) ++ "/" ++ show(split("", text).joined("").length))
+          |}""".stripMargin,
+      stdin = "a\n"
+    ).asserting(_ shouldBe "3/3")
+  }
+
   "words" should "drop every empty piece, whatever the whitespace" in {
     compileAndRun(
       sampleProgram +

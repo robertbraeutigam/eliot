@@ -283,8 +283,8 @@ def insert[A ~ Compare](element: A, sortedList: List[A]): List[A] =
  * the empty list.
  *
  * The **empty separator** is the one special case: it cuts between every pair of characters, so `split("", s)` is the
- * characters of `s` (and `empty` for an empty `s`) — the way to look at a string one character at a time. Characters
- * are the platform's storage units, exactly as `String.length` counts them.
+ * characters of `s` (and `empty` for an empty `s`) — the way to look at a string one character at a time. A character
+ * is a code point, exactly as `String.length` counts them, so no piece is ever half of one.
  *
  * A string operation that answers a list, so it lives here rather than in `eliot.lang.String`: a module cannot both
  * declare `isEmpty` and import the one `List` declares.

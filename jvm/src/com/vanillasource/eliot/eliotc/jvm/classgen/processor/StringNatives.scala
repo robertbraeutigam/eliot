@@ -24,6 +24,14 @@ import org.objectweb.asm.{Label, MethodVisitor}
   *     would happily produce a value. `indexOfInternal` keeps Java's negative "not found" index, which the `private`
   *     Eliot leaf never exposes: `indexOf` turns it into an `{Abort}`.
   *
+  * '''Eliot string indices are code points, `java.lang.String`'s are UTF-16 code units.''' The language fixes the unit
+  * as the code point so that a length, an index and a `where` precondition over them mean the same number on every
+  * target — a property of the string value rather than of a platform's storage. This platform's storage unit is not
+  * that, so every index crossing the boundary is translated: `length` counts with `codePointCount`, `substring` clamps
+  * in code points and converts each end with `offsetByCodePoints`, and `indexOfInternal` re-measures Java's answer as a
+  * code-point count. The translation is O(n) on this platform, and it is what keeps a slice from ever cutting a
+  * surrogate pair in half.
+  *
   * `Int` parameters and returns cross the ⊤/bignum boundary as `java.math.BigInteger` (see `NativeType`), so an index
   * arrives at full precision and is narrowed to a machine `int` only *after* clamping — a wildly out-of-range index
   * cannot wrap around into a valid one.
@@ -58,6 +66,7 @@ object StringNatives {
   private val JArrays     = "java/util/Arrays"
   private val JCollection = "java/util/Collections"
   private val JPattern    = "java/util/regex/Pattern"
+  private val JMatcher    = "java/util/regex/Matcher"
   private val StringArray = s"[L$JString;"
 
   /** The grammar `java.math.BigInteger(String)` accepts, and therefore exactly what `parseInt` may be handed: an
@@ -67,6 +76,18 @@ object StringNatives {
 
   /** The separator `words` splits on: any run of whitespace. */
   private val WhitespaceRun = "\\s+"
+
+  /** What the *empty* separator cuts `split` at: every code-point boundary, which is what makes `split("", s)` the code
+    * points of `s` rather than its storage units. A plain empty regex would cut between the two halves of a surrogate
+    * pair; `(?<=.)` matches after a whole code point, and `(?s)` is what lets a line terminator be one.
+    */
+  private val CodePointBoundary = "(?s)(?<=.)"
+
+  /** Every gap an *empty* `target` inserts a replacement into: the string's start, and the position after each code
+    * point. [[CodePointBoundary]] plus `^`, and for the same reason — `java.lang.String.replace` with an empty target
+    * would insert between the halves of a surrogate pair.
+    */
+  private val CodePointGaps = s"$CodePointBoundary|^"
 
   /** The leaf natives keyed by their `Default`-qualified FQN, folded into [[NativeImplementation.implementations]]. */
   val implementations: Seq[(ValueFQN, NativeImplementation)] = Seq(
@@ -133,9 +154,11 @@ object StringNatives {
   // Measures and predicates
   // --------------------------------------------------------------------------------------------------------------
 
+  /** `length(s)` — the number of '''code points''' in `s`, not the number of UTF-16 units `java.lang.String.length()`
+    * answers, so a string outside the Basic Multilingual Plane counts the same here as on any other target.
+    */
   private def length(mv: MethodVisitor): Unit = {
-    mv.visitVarInsn(ALOAD, 0)
-    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "length", "()I", false)
+    codePointCount(mv, 0)
     intToBigInteger(mv)
   }
 
@@ -172,10 +195,29 @@ object StringNatives {
     boxBool(mv)
   }
 
+  /** `indexOfInternal(part, s)` — the '''code-point''' index of the first occurrence of `part`, or Java's negative "not
+    * found" index unchanged. Java answers a UTF-16 offset, so a found position is re-measured as the number of code
+    * points before it; that is what makes the result a valid `substring` start, which is the contract `indexOf`
+    * documents.
+    */
   private def indexOf(mv: MethodVisitor): Unit = {
+    val index    = 2
+    val notFound = new Label()
+    val end      = new Label()
     mv.visitVarInsn(ALOAD, 1)
     mv.visitVarInsn(ALOAD, 0)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "indexOf", s"(L$JString;)I", false)
+    mv.visitVarInsn(ISTORE, index)
+    mv.visitVarInsn(ILOAD, index)
+    mv.visitJumpInsn(IFLT, notFound)
+    mv.visitVarInsn(ALOAD, 1)
+    mv.visitInsn(ICONST_0)
+    mv.visitVarInsn(ILOAD, index)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "codePointCount", "(II)I", false)
+    mv.visitJumpInsn(GOTO, end)
+    mv.visitLabel(notFound)
+    mv.visitVarInsn(ILOAD, index) // the sentinel is not an index, so it is not translated
+    mv.visitLabel(end)
     intToBigInteger(mv)
   }
 
@@ -183,19 +225,19 @@ object StringNatives {
   // Transformations
   // --------------------------------------------------------------------------------------------------------------
 
-  /** `substring(start, end, s)`, made total: `start` and `end` are clamped into `0..s.length()` in `BigInteger`
+  /** `substring(start, end, s)`, made total: `start` and `end` are clamped into `0..s.length` in `BigInteger`
     * arithmetic (so no index can wrap while being narrowed) and `end` is raised to `start` when it would precede it.
+    *
+    * Both indices count '''code points''', so each clamped end is converted to the storage offset
+    * `java.lang.String.substring` wants (`offsetByCodePoints`) only once it is known to be in range. A surrogate pair
+    * is therefore indivisible: no pair of indices can cut one in half.
     */
   private def substring(mv: MethodVisitor): Unit = {
-    val n       = 3
-    val nBig    = 4
-    val lo      = 5
-    val hi      = 6
+    val nBig    = 3
+    val lo      = 4
+    val hi      = 5
     val ordered = new Label()
-    mv.visitVarInsn(ALOAD, 2)
-    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "length", "()I", false)
-    mv.visitVarInsn(ISTORE, n)
-    mv.visitVarInsn(ILOAD, n)
+    codePointCount(mv, 2)
     intToBigInteger(mv)
     mv.visitVarInsn(ASTORE, nBig)
     clampIndex(mv, 0, nBig)
@@ -209,8 +251,8 @@ object StringNatives {
     mv.visitVarInsn(ISTORE, hi) // an inverted range collapses to empty
     mv.visitLabel(ordered)
     mv.visitVarInsn(ALOAD, 2)
-    mv.visitVarInsn(ILOAD, lo)
-    mv.visitVarInsn(ILOAD, hi)
+    storageOffset(mv, 2, lo)
+    storageOffset(mv, 2, hi)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "substring", s"(II)L$JString;", false)
   }
 
@@ -231,11 +273,30 @@ object StringNatives {
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "toLowerCase", s"(L$JLocale;)L$JString;", false)
   }
 
+  /** `replace(target, replacement, s)` — every occurrence of `target` replaced literally.
+    *
+    * The empty `target` is the special case: it matches with zero width, so the replacement is inserted into every gap
+    * — and `java.lang.String.replace` would count a surrogate pair as two gaps rather than one. That case therefore
+    * goes through [[CodePointGaps]] instead, with the replacement quoted so it stays plain text in a regex position.
+    */
   private def replace(mv: MethodVisitor): Unit = {
+    val literal = new Label()
+    val end     = new Label()
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "isEmpty", "()Z", false)
+    mv.visitJumpInsn(IFEQ, literal)
+    mv.visitVarInsn(ALOAD, 2)
+    mv.visitLdcInsn(CodePointGaps)
+    mv.visitVarInsn(ALOAD, 1)
+    mv.visitMethodInsn(INVOKESTATIC, JMatcher, "quoteReplacement", s"(L$JString;)L$JString;", false)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "replaceAll", s"(L$JString;L$JString;)L$JString;", false)
+    mv.visitJumpInsn(GOTO, end)
+    mv.visitLabel(literal)
     mv.visitVarInsn(ALOAD, 2)
     mv.visitVarInsn(ALOAD, 0)
     mv.visitVarInsn(ALOAD, 1)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "replace", s"(L$JCharSeq;L$JCharSeq;)L$JString;", false)
+    mv.visitLabel(end)
   }
 
   /** `repeat(count, s)`, made total: `count` is clamped into `0..Integer.MAX_VALUE` before narrowing, so a negative
@@ -264,9 +325,10 @@ object StringNatives {
     * everything), and the negative limit is what keeps the trailing empty pieces Java's default drops — without it
     * `split(",", "a,b,")` would answer two pieces and stop being `joined`'s inverse.
     *
-    * The empty separator is the special case: it matches with zero width, so Java cuts between every pair of characters
-    * and adds one trailing empty piece. Dropping that piece (`subList`) is what makes `split("", s)` exactly the
-    * characters of `s`, and `split("", "")` the empty list.
+    * The empty separator is the special case: it matches with zero width, so Java cuts at every boundary and adds one
+    * trailing empty piece. Dropping that piece (`subList`) is what makes `split("", s)` exactly the characters of `s`,
+    * and `split("", "")` the empty list. The boundary it cuts at is a *code-point* boundary ([[CodePointBoundary]]
+    * rather than an empty pattern), since that is what a character is here.
     */
   private def split(mv: MethodVisitor): Unit = {
     val characters = new Label()
@@ -283,7 +345,7 @@ object StringNatives {
     mv.visitJumpInsn(GOTO, end)
     mv.visitLabel(characters)
     mv.visitVarInsn(ALOAD, 1)
-    mv.visitLdcInsn("")
+    mv.visitLdcInsn(CodePointBoundary)
     mv.visitInsn(ICONST_M1)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "split", s"(L$JString;I)$StringArray", false)
     mv.visitMethodInsn(INVOKESTATIC, JArrays, "asList", s"([L$JObject;)L$JList;", false)
@@ -405,6 +467,28 @@ object StringNatives {
 
   private def boxBool(mv: MethodVisitor): Unit =
     mv.visitMethodInsn(INVOKESTATIC, JBoolean, "valueOf", s"(Z)L$JBoolean;", false)
+
+  /** Leave the number of code points in the `java.lang.String` at `stringSlot` on the stack as a machine `int` — the
+    * measure Eliot's `length` answers, and the unit both of `substring`'s indices are in.
+    */
+  private def codePointCount(mv: MethodVisitor, stringSlot: Int): Unit = {
+    mv.visitVarInsn(ALOAD, stringSlot)
+    mv.visitInsn(ICONST_0)
+    mv.visitVarInsn(ALOAD, stringSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "length", "()I", false)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "codePointCount", "(II)I", false)
+  }
+
+  /** Leave the UTF-16 offset of the code-point index held in `indexSlot`, within the string at `stringSlot`, on the
+    * stack as a machine `int`. Only ever called with an index already clamped into `0..codePointCount`, which is what
+    * makes `offsetByCodePoints` total here.
+    */
+  private def storageOffset(mv: MethodVisitor, stringSlot: Int, indexSlot: Int): Unit = {
+    mv.visitVarInsn(ALOAD, stringSlot)
+    mv.visitInsn(ICONST_0)
+    mv.visitVarInsn(ILOAD, indexSlot)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JString, "offsetByCodePoints", "(II)I", false)
+  }
 
   /** Leave `min(max(argument, 0), length)` on the stack as a machine `int`. The clamp runs in `BigInteger` and only the
     * already-in-range result is narrowed, so an index far outside `int` cannot wrap into a valid position.
