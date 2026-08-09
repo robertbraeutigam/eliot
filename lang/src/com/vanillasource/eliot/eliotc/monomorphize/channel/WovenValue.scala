@@ -19,8 +19,9 @@ import scala.annotation.tailrec
   * runtime body) so codegen (`uncurry`, `used`, the jvm backend) reads it in place of `MonomorphicValue`, and is keyed
   * identically. The checker leaves the body already monadic (binds/`pure` inserted by the uniform elaboration) and
   * resolved; the woven stage erases the pervasive identity carrier `Id` (`runId`/`Id`/`Effect[Id]` methods rewritten
-  * away, `Id[X]` types collapsed to `X`) so pure code recovers its efficient shape and no effect machinery ships for it.
-  * A value that carries no `Id` (already-effectful or genuinely pure with none inserted) weaves to the identity image.
+  * away, `Id[X]` types collapsed to `X`) so pure code recovers its efficient shape and no effect machinery ships for
+  * it. A value that carries no `Id` (already-effectful or genuinely pure with none inserted) weaves to the identity
+  * image.
   *
   * @param vfqn
   *   The value this weave belongs to (the same instance identity as its `MonomorphicValue`).

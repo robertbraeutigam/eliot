@@ -10,9 +10,10 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   * generation.
   *
   * The width-agnostic rendering, arithmetic and comparison leaves *are* the `Int` ability instance methods — the
-  * `Show[Int]` `show` (rendered via `Long.toString`/`BigInteger.toString`), the `Numeric[Int]` `add`/`subtract`/`multiply`,
-  * the `Compare[Int]` `lessThanOrEqual` and the `Eq[Int]` `equals`, with no separate `intToString`/`nativeAdd`/`intLessThanOrEqual` def — each one
-  * unbox/op/rebox instruction group whose width is read from the operand/result representations, so it is cheapest inline.
+  * `Show[Int]` `show` (rendered via `Long.toString`/`BigInteger.toString`), the `Numeric[Int]`
+  * `add`/`subtract`/`multiply`, the `Compare[Int]` `lessThanOrEqual` and the `Eq[Int]` `equals`, with no separate
+  * `intToString`/`nativeAdd`/`intLessThanOrEqual` def — each one unbox/op/rebox instruction group whose width is read
+  * from the operand/result representations, so it is cheapest inline.
   *
   * Integer *literals* are NOT intrinsics: `integerLiteral[V]` is rewritten into a plain `MonomorphicExpression.
   * IntegerLiteral(V)` at the `lang` readback boundary (`PostDrainQuoter`), so it reaches codegen as an ordinary
@@ -26,9 +27,10 @@ object Intrinsics {
   /** The `Bool` primitives and operators, emitted inline over the `java.lang.Boolean` representation (see
     * [[NativeType]]): the nullary constants `true`/`false` (a `GETSTATIC` of `Boolean.TRUE`/`FALSE`), the eliminator
     * `fold(cond, whenTrue, whenFalse)` (a branch that emits only the taken arm), and the logical `&&`/`||`/`!`. These
-    * are body-less in the base `Bool.els`; the compiler-side reductions (`SystemNativesProcessor`/`StdlibNativesProcessor`)
-    * fold them away whenever every operand is a compile-time constant, so an inline emission is reached only for a
-    * genuinely runtime `Bool` (one derived from an effect result, e.g. `readLine == "yes"`).
+    * are body-less in the base `Bool.els`; the compiler-side reductions
+    * (`SystemNativesProcessor`/`StdlibNativesProcessor`) fold them away whenever every operand is a compile-time
+    * constant, so an inline emission is reached only for a genuinely runtime `Bool` (one derived from an effect result,
+    * e.g. `readLine == "yes"`).
     */
   val boolTrueFQN: ValueFQN  = langBool("true")
   val boolFalseFQN: ValueFQN = langBool("false")
@@ -42,11 +44,11 @@ object Intrinsics {
 
   val all: Set[ValueFQN] = boolOps
 
-  /** Whether `vfqn` is the `Int`-module instance method `name` of ability `ability` — an `Int` ability-impl leaf carried
-    * body-less *directly* on its instance in the base `Int.els` (no `nativeAdd`/`intLessThanOrEqual` indirection).
-    * Recognised by the ability-impl qualifier rather than a plain name, since an instance method's FQN is `add#Numeric,Int`
-    * (a [[Qualifier.AbilityImplementation]]), not a plain [[Qualifier.Default]]. Module `Int` has exactly one instance of
-    * each such ability, so the pattern string need not be matched.
+  /** Whether `vfqn` is the `Int`-module instance method `name` of ability `ability` — an `Int` ability-impl leaf
+    * carried body-less *directly* on its instance in the base `Int.els` (no `nativeAdd`/`intLessThanOrEqual`
+    * indirection). Recognised by the ability-impl qualifier rather than a plain name, since an instance method's FQN is
+    * `add#Numeric,Int` (a [[Qualifier.AbilityImplementation]]), not a plain [[Qualifier.Default]]. Module `Int` has
+    * exactly one instance of each such ability, so the pattern string need not be matched.
     */
   private def intAbilityImpl(vfqn: ValueFQN, ability: String, names: Set[String]): Boolean =
     vfqn.moduleName == ModuleName(defaultSystemPackage, "Int") &&
@@ -72,9 +74,9 @@ object Intrinsics {
   def numericIntArith(vfqn: ValueFQN): Boolean =
     intAbilityImpl(vfqn, "Numeric", Set("add", "subtract", "multiply"))
 
-  /** The `Compare[Int]` ordering method (`lessThanOrEqual`) — the ordering leaf. One leaf covers every width: the result
-    * is a `Bool` (no result-width growth to dispatch on), and the emission picks its working representation (primitive
-    * `long` via `LCMP`, or `BigInteger.compareTo`) from the operands' lowered representations.
+  /** The `Compare[Int]` ordering method (`lessThanOrEqual`) — the ordering leaf. One leaf covers every width: the
+    * result is a `Bool` (no result-width growth to dispatch on), and the emission picks its working representation
+    * (primitive `long` via `LCMP`, or `BigInteger.compareTo`) from the operands' lowered representations.
     */
   def compareIntOrdering(vfqn: ValueFQN): Boolean =
     intAbilityImpl(vfqn, "Compare", Set("lessThanOrEqual"))
@@ -88,8 +90,8 @@ object Intrinsics {
   def eqIntEquality(vfqn: ValueFQN): Boolean =
     intAbilityImpl(vfqn, "Eq", Set("equals"))
 
-  /** Whether `vfqn` is one of the two `Int` comparison leaves — the ordering `lessThanOrEqual` or the equality
-    * `equals` — which share an emission and differ only in the jump condition.
+  /** Whether `vfqn` is one of the two `Int` comparison leaves — the ordering `lessThanOrEqual` or the equality `equals`
+    * — which share an emission and differ only in the jump condition.
     */
   def intComparison(vfqn: ValueFQN): Boolean =
     compareIntOrdering(vfqn) || eqIntEquality(vfqn)

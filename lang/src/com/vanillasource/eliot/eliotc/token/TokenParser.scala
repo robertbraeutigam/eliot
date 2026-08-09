@@ -14,6 +14,7 @@ import parsley.token.predicate.Basic
 import parsley.{Parsley, character}
 
 class TokenParser(sourced: Sourced[?]) {
+
   /** Escape sequences allowed inside string literals: the usual one-character control escapes (including `\e` for the
     * ESC / `0x1B` character), the self-escaping delimiters `\\`, `\"`, `\'`, and a Java-style four-hex-digit unicode
     * escape `\uXXXX`. Astral-plane characters are written as a UTF-16 surrogate pair of `\u` escapes, matching Java.
@@ -35,7 +36,8 @@ class TokenParser(sourced: Sourced[?]) {
       ),
       multiMap = Map.empty,
       decimalEscape = NumericEscape.Illegal,
-      hexadecimalEscape = NumericEscape.Supported(prefix = Some('u'), numDigits = NumberOfDigits.Exactly(4), maxValue = 0xffff),
+      hexadecimalEscape =
+        NumericEscape.Supported(prefix = Some('u'), numDigits = NumberOfDigits.Exactly(4), maxValue = 0xffff),
       octalEscape = NumericEscape.Illegal,
       binaryEscape = NumericEscape.Illegal,
       emptyEscape = None,
@@ -52,8 +54,22 @@ class TokenParser(sourced: Sourced[?]) {
         operatorLetter = Basic("!#$%&*+./<=>?@\\^|-~;".contains(_))
       ),
       SymbolDesc(
-        hardKeywords =
-          Set("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val", "private", "where"),
+        hardKeywords = Set(
+          "import",
+          "data",
+          "def",
+          "ability",
+          "implement",
+          "match",
+          "case",
+          "type",
+          "infix",
+          "prefix",
+          "postfix",
+          "val",
+          "private",
+          "where"
+        ),
         hardOperators = Set("(", ")", "[", "]", "->", "_", "::", ":"),
         caseSensitive = true
       ),
@@ -86,13 +102,28 @@ class TokenParser(sourced: Sourced[?]) {
 
   private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
     character
-      .strings("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val", "private", "where")
+      .strings(
+        "import",
+        "data",
+        "def",
+        "ability",
+        "implement",
+        "match",
+        "case",
+        "type",
+        "infix",
+        "prefix",
+        "postfix",
+        "val",
+        "private",
+        "where"
+      )
       .map(Token.Keyword.apply)
   ).label("keyword")
 
   /** An integer literal: digits only, always non-negative. There is no negative-literal rule: a `-` is always an
-    * ordinary operator, so `-` glued to digits (`a-1`, `1-2`) tokenizes as subtraction, exactly as spaced `a - 1`
-    * does. A negative *value* is therefore produced by an operator (`0 - 128`, `3 - 10`), never by literal syntax.
+    * ordinary operator, so `-` glued to digits (`a-1`, `1-2`) tokenizes as subtraction, exactly as spaced `a - 1` does.
+    * A negative *value* is therefore produced by an operator (`0 - 128`, `3 - 10`), never by literal syntax.
     */
   private lazy val integerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(
     lexer.nonlexeme.integer.decimal.map(value => Token.IntegerLiteral(value.toString))

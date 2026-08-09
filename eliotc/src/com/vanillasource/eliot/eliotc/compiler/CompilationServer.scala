@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 
 /** A resident compilation server: a single worker loop that drives [[CompilationSession.compileOnce]] with
   * **cancel-restart** semantics. Each [[requestCompile]] supersedes any compile already in flight — the running
-  * compilation is cancelled (its session cache left at the last good state, see [[CompilationSession.compileOnce]]) and a
-  * fresh one starts, so the latest request always wins. Bursts coalesce: while a compile runs, any number of requests
+  * compilation is cancelled (its session cache left at the last good state, see [[CompilationSession.compileOnce]]) and
+  * a fresh one starts, so the latest request always wins. Bursts coalesce: while a compile runs, any number of requests
   * collapse into at most one pending recompile.
   *
   * The worker is request-driven — it idles until the first [[requestCompile]] — and runs as a background fiber for the
@@ -57,8 +57,8 @@ final class CompilationServer private (
 
 object CompilationServer {
 
-  /** Start a server over a [[CompilationSession]]. The worker runs as a background fiber for the resource's lifetime; on
-    * release it is cancelled (cancelling any in-flight compile) and the session cache is flushed to disk so the next
+  /** Start a server over a [[CompilationSession]]. The worker runs as a background fiber for the resource's lifetime;
+    * on release it is cancelled (cancelling any in-flight compile) and the session cache is flushed to disk so the next
     * process start is warm.
     *
     * @param onResult

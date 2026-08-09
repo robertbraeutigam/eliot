@@ -15,10 +15,9 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
   *   - later the §5 reify-legality check.
   *
   * The carrier of an effect ability carries the ability's non-carrier type arguments in its *leading* slots, then the
-  * base carrier, then the result type (`Throw[E, F]` ⤳ `ThrowCarrier[E, base, result]`), so the base is always the
-  * last spine element of the (result-unapplied) carrier value. The reverse direction (a carrier stack → its surface
-  * row) is [[abilityNameOfCarrier]] here, assembled into a row by
-  * [[com.vanillasource.eliot.eliotc.effect.EffectRowRendering]].
+  * base carrier, then the result type (`Throw[E, F]` ⤳ `ThrowCarrier[E, base, result]`), so the base is always the last
+  * spine element of the (result-unapplied) carrier value. The reverse direction (a carrier stack → its surface row) is
+  * [[abilityNameOfCarrier]] here, assembled into a row by [[com.vanillasource.eliot.eliotc.effect.EffectRowRendering]].
   */
 object EffectCarrierNaming {
 

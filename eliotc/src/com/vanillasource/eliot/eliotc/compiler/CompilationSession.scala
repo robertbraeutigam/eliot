@@ -42,12 +42,15 @@ final class CompilationSession private (
     *
     * Serialized via the lock so overlapping requests cannot corrupt the hand-off. The cache is updated as the *last*
     * step, so a run cancelled mid-flight leaves the previous good cache untouched — cancel-restart on a newer edit is
-    * safe. Failures are never cached (they are not materialised), so a broken fact re-runs next time and re-surfaces its
-    * error.
+    * safe. Failures are never cached (they are not materialised), so a broken fact re-runs next time and re-surfaces
+    * its error.
     *
-    * @param tracker optional fact-flow visualization; omit in server mode.
-    * @param statistics optional per-processor timing; omit in server mode.
-    * @return the live generator (queryable for LSP features) plus the run's diagnostics.
+    * @param tracker
+    *   optional fact-flow visualization; omit in server mode.
+    * @param statistics
+    *   optional per-processor timing; omit in server mode.
+    * @return
+    *   the live generator (queryable for LSP features) plus the run's diagnostics.
     */
   def compileOnce(
       tracker: Option[FactVisualizationTracker] = None,
@@ -104,8 +107,8 @@ final class CompilationSession private (
 
 object CompilationSession {
 
-  /** One-time setup: let the activated plugins configure each other, collect their processors, compute fingerprints, and
-    * seed the in-memory cache from disk. The returned session is then re-runnable.
+  /** One-time setup: let the activated plugins configure each other, collect their processors, compute fingerprints,
+    * and seed the in-memory cache from disk. The returned session is then re-runnable.
     */
   def create(
       targetPlugin: CompilerPlugin,

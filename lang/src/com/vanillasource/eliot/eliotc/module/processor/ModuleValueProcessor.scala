@@ -25,8 +25,9 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       coreAST        <- getFactOrAbort(CoreAST.Key(key.uri))
       moduleNames    <- getFactOrAbort(ModuleNames.Key(key.uri))
       sourcedImports  = coreAST.ast.as(coreAST.ast.value.importStatements)
-      explicitImports = sourcedImports.value
-                          .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
+      explicitImports =
+        sourcedImports.value
+          .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
       // The auto-imported prelude is a *weak* tier: a module the file also imports explicitly is dropped here (the
       // explicit import stands alone), and in extractSystemNames an ambient name colliding with a local declaration
       // or an explicitly imported name is silently skipped — locals and explicit imports always win, so the prelude
@@ -141,7 +142,8 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                              .toMap
                          ).pure[CompilerIO]
                        }
-                     } else compilerError(module.as(s"Could not find imported module: `${module.value.show}`"))
-                       .as(accumulated)
+                     } else
+                       compilerError(module.as(s"Could not find imported module: `${module.value.show}`"))
+                         .as(accumulated)
     } yield result
 }

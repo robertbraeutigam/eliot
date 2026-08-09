@@ -47,7 +47,7 @@ object ImplementBlock {
           // source positions, so the key is stable across layers that spell the pattern identically (the same
           // character-exact discipline the layer merge already requires).
           patternKey           = pattern.map(_.value.render).mkString(", ") +
-            guard.map(g => s" where ${g.value.render}").getOrElse("")
+                                   guard.map(g => s" where ${g.value.render}").getOrElse("")
         } yield (
           errors,
           functions.map(f =>
@@ -59,7 +59,8 @@ object ImplementBlock {
             // being demanded at the call site — bounds-as-refinements §4.2/§4.3), plus `doc`, `fixity`, `precedence` —
             // and every future `FunctionDefinition` field would re-open it. `f.copy` closes it.
             f.copy(
-              name = f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey))),
+              name =
+                f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey))),
               genericParameters = genericParameters ++ f.genericParameters,
               visibility = Visibility.Public
             )

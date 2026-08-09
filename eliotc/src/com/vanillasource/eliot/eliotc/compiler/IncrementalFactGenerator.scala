@@ -15,9 +15,9 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
   * dependency, whether it changed since last run via [[depUnchanged]]:
   *
   *   - a dependency with a **stored value** (every leaf, and every persistable derived fact) is recomputed and compared
-  *     against what the cache holds ([[com.vanillasource.eliot.eliotc.compiler.cache.CacheEntry.matches]]) — this is the
-  *     equality cutoff: a changed leaf whose derived value recomputes equal stops propagation. A backend that stores
-  *     values by content hash answers it without reading the stored side at all;
+  *     against what the cache holds ([[com.vanillasource.eliot.eliotc.compiler.cache.CacheEntry.matches]]) — this is
+  *     the equality cutoff: a changed leaf whose derived value recomputes equal stops propagation. A backend that
+  *     stores values by content hash answers it without reading the stored side at all;
   *   - a **derived** dependency is validated **structurally** by drilling through its recorded `directDeps` to the
   *     leaves, *without materialising anything*. A fact is a pure function of its recorded inputs, so dependencies that
   *     all hold mean the fact holds — there is nothing to recompute and nothing to compare. A value-less one has its
@@ -29,8 +29,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
   * genuinely changed dependent reads it.
   *
   * Leaf facts — those whose recorded dependency set is empty, e.g. a `stat` of a source file — are always regenerated,
-  * forming the boundary with the external world. Failures are never cached, so a fact that failed has no prior entry and
-  * is regenerated (re-emitting its error) on every run until fixed.
+  * forming the boundary with the external world. Failures are never cached, so a fact that failed has no prior entry
+  * and is regenerated (re-emitting its error) on every run until fixed.
   *
   * With an empty `prior` (cold start) every fact is regenerated, so behavior matches a non-incremental generator plus
   * harmless dependency recording.
@@ -77,7 +77,8 @@ final class IncrementalFactGenerator(
             case Some(Some(existing)) if (existing eq fact) || existing == fact => IO.unit
             case Some(Some(_))                                                  =>
               errors.update(
-                _ :+ CompilerError.global(s"Internal error: fact ${fact.key()} was produced twice with different values.")
+                _ :+ CompilerError
+                  .global(s"Internal error: fact ${fact.key()} was produced twice with different values.")
               )
             case _                                                              =>
               errors.update(
@@ -108,7 +109,7 @@ final class IncrementalFactGenerator(
           case true  => acceptPrior(key, entry, deferred)
           case false => regenerate(key, ancestors)
         }
-      case _                                                                 => regenerate(key, ancestors)
+      case _                                                          => regenerate(key, ancestors)
     }
 
   /** Whether `key`'s value is unchanged since last run, memoized once per run. The validity oracle a parent uses for
@@ -142,8 +143,8 @@ final class IncrementalFactGenerator(
     *     value-less one is carried forward so it stays drillable, a value-bearing one needs nothing — untouched keys
     *     retain their prior entry ([[buildCacheData]]).
     *   - **A derived fact whose dependencies moved** — recompute and compare if there is a value to compare against.
-    *     Equality here is what stops propagation: a changed input whose result recomputes the same invalidates
-    *     nothing further. With no value the drill has failed and there is nothing left to try.
+    *     Equality here is what stops propagation: a changed input whose result recomputes the same invalidates nothing
+    *     further. With no value the drill has failed and there is nothing left to try.
     */
   private def computeUnchanged(key: CompilerFactKey[?]): IO[Boolean] =
     prior.get(key) match {
@@ -181,20 +182,21 @@ final class IncrementalFactGenerator(
     * handles the "produced nothing" case.
     *
     * The key is marked present in `directDependencies` up front (empty), so that even a generated leaf — which makes no
-    * `getFact` calls — is recorded as *generated* (not mistaken for an injected fact, see [[buildCacheData]]). Reads then
-    * accumulate into the same entry as they happen, before the fact becomes observable.
+    * `getFact` calls — is recorded as *generated* (not mistaken for an injected fact, see [[buildCacheData]]). Reads
+    * then accumulate into the same entry as they happen, before the fact becomes observable.
     *
     * The generation must account for its outcome: it ends with the fact registered, at least one error recorded, an
     * explicit abort (the sanctioned *decline*), or a missing dependency read (the failure is attributable upstream). A
-    * generation with none of these — a missing producer for the key type, or a processor that silently produced
-    * nothing — is reported as an internal error instead of being indistinguishable from a legitimate decline.
+    * generation with none of these — a missing producer for the key type, or a processor that silently produced nothing
+    * — is reported as an internal error instead of being indistinguishable from a legitimate decline.
     */
   private def regenerate(key: CompilerFactKey[?], ancestors: List[CompilerFactKey[?]]): IO[Unit] =
     for {
       _          <- regeneratedKeysRef.update(_ + key)
       _          <- directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty)))
       sawMissing <- Ref.of[IO, Boolean](false)
-      tracking    = new DependencyTrackingProcess(this, key, directDependencies, producedDuring, errors, sawMissing, ancestors)
+      tracking    =
+        new DependencyTrackingProcess(this, key, directDependencies, producedDuring, errors, sawMissing, ancestors)
       outcome    <- generator.generate(key).run(tracking).runS(Chain.empty).value
       es          = outcome.fold(identity, identity)
       _          <- errors.update(_ ++ es)
@@ -293,15 +295,17 @@ final class IncrementalFactGenerator(
       pushedBy    <- producedDuring.get
       carried     <- carriedForward.get
       regenerated <- regeneratedKeysRef.get.map(_.size)
-      _           <- debug[IO](s"Incremental run: regenerated $regenerated fact(s); ${factMap.size} materialised, " +
-                       s"${carried.size} validated unchanged without recompute.")
+      _           <- debug[IO](
+                       s"Incremental run: regenerated $regenerated fact(s); ${factMap.size} materialised, " +
+                         s"${carried.size} validated unchanged without recompute."
+                     )
     } yield {
-      val fresh = factMap.map { case (key, fact) =>
+      val fresh    = factMap.map { case (key, fact) =>
         val recordedDeps = deps.get(key).orElse(pushedBy.get(key).map(producer => deps.getOrElse(producer, Set.empty)))
         key -> CacheEntry(Some(fact), recordedDeps.getOrElse(Set.empty))
       }
       val touched  = factMap.keySet ++ deps.keySet ++ carried.keySet // resolved, materialised, or drilled this run
-      val retained = prior.view.filterKeys(k => !touched(k)).toMap    // untouched prior facts accumulate
+      val retained = prior.view.filterKeys(k => !touched(k)).toMap   // untouched prior facts accumulate
       FactCacheData(retained ++ carried ++ fresh)
     }
 }

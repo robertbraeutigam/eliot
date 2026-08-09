@@ -26,17 +26,17 @@ object TypeAliasDefinition {
       // the named meta slots the type carries, each `name: Domain` (an `ArgumentDefinition`). Parsed here — after the
       // generic params `[…]`, before the optional `= body` — because `component[Seq[GenericParameter]]` sees `{` (not
       // `[`) and yields empty, leaving the brace unconsumed exactly at this point. Absent for an ordinary alias.
-      metaSlots                     <- optionalBracketedCommaSeparatedItems("{", component[ArgumentDefinition], "}")
+      metaSlots           <- optionalBracketedCommaSeparatedItems("{", component[ArgumentDefinition], "}")
       // A type-alias body is a type position, so parse it with `typeRunParser` (an operator run of type atoms), NOT the
       // greedy full expression parser. The full parser would consume the following top-level definition's leading
       // `left`/`right`/… fixity identifiers as an application chain, silently dropping its fixity; `typeRunParser` stops
       // cleanly at the next definition because every definition-introducing token (`infix`/`prefix`/`postfix`/`def`/
       // `type`/…) is a hard keyword and so is not a type-atom start. This lets an alias body carry a bare type operator,
       // e.g. `type Pred = A => Bool`.
-      body                          <- (symbol("=") *> sourced(Expression.typeRunParser)).optional()
+      body                <- (symbol("=") *> sourced(Expression.typeRunParser)).optional()
     } yield {
-      val args     = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction, gp.inferable))
-      val typeExpr = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), None, Seq.empty))
+      val args      = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction, gp.inferable))
+      val typeExpr  = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), None, Seq.empty))
       // Operators are never upper-case and are always referenced bare (no `[]`), so their references resolve in the
       // Default namespace (see `CoreExpressionConverter`). An operator-named alias must therefore live in the Default
       // namespace too — exactly like the equivalent `def` — or its uses would never find it; an ordinary (upper-case)

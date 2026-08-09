@@ -19,12 +19,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * per-type synthetic — so nothing downstream special-cases "does this type have a meta?", yet no slotless type needs a
   * generated `T$Meta` (which, being a *concrete* alias, would clash for a type declared in more than one layer).
   *
-  * `type Int {range: Interval[BigInteger]}` desugars exactly as if the user had written
-  * `data Int$Meta(range: Interval[BigInteger])` — a type constructor, a value constructor, a per-slot accessor, and a
-  * `PatternMatch` implementation the accessor reduces through — **plus** the auto-derived `Meta[Int$Meta]` instance. So
-  * the meta of an `Int` is an `Int$Meta` structure whose `range` field is an `Interval`, joined field-wise, while the
-  * meta of a `Bool` or a `String` is the trivial `Unit` (its one `Meta[Unit]` instance, declared with `Unit`, is the
-  * do-nothing join).
+  * `type Int {range: Interval[BigInteger]}` desugars exactly as if the user had written `data Int$Meta(range:
+  * Interval[BigInteger])` — a type constructor, a value constructor, a per-slot accessor, and a `PatternMatch`
+  * implementation the accessor reduces through — **plus** the auto-derived `Meta[Int$Meta]` instance. So the meta of an
+  * `Int` is an `Int$Meta` structure whose `range` field is an `Interval`, joined field-wise, while the meta of a `Bool`
+  * or a `String` is the trivial `Unit` (its one `Meta[Unit]` instance, declared with `Unit`, is the do-nothing join).
   *
   * The `$Meta` suffix keeps the meta type's name distinct from the ordinary `Int^Type` without a new namespace: `$` is
   * not a valid identifier character (the lexer's `isLetter`/`isLetterOrDigit`), so `Int$Meta` can never collide with a
@@ -58,10 +57,10 @@ object MetaConstructorDesugarer {
   }
 
   /** The auto-derived `Meta[<Name>$Meta]` **instance** — the lattice join over the type's meta structure (Step 1 of
-    * `docs/generic-refinement-merges.md`). A *user* declares `Meta` only for their own domain (`Meta[Interval[T]]`); the
-    * compiler derives the matching instance for the compound *meta structure* `Int$Meta` field-wise, so `fold`'s generic
-    * `^Meta` companion (`join(whenTrue, whenFalse)`, reduced by the channel at the meta type args) has a `Meta[Int$Meta]`
-    * to reduce through:
+    * `docs/generic-refinement-merges.md`). A *user* declares `Meta` only for their own domain (`Meta[Interval[T]]`);
+    * the compiler derives the matching instance for the compound *meta structure* `Int$Meta` field-wise, so `fold`'s
+    * generic `^Meta` companion (`join(whenTrue, whenFalse)`, reduced by the channel at the meta type args) has a
+    * `Meta[Int$Meta]` to reduce through:
     *
     * {{{
     *   implement Meta[Int$Meta] {
@@ -69,11 +68,11 @@ object MetaConstructorDesugarer {
     *   }
     * }}}
     *
-    * Each slot is joined by the `Meta` ability's own `join`, dispatched on the slot's domain (`range(a) : Interval[..]` ⤳
-    * the `Meta[Interval[T]]` instance). The compound join thus routes through the domain's *instance*, not a hand-copied
-    * plain function: the refinement channel's post-monomorphize executor links each instance at its own monomorphization
-    * (`docs/refinement-channel-follow-ups.md`), so a transitively-reached Eliot-body instance dispatches. The
-    * result is rewrapped in the meta *constructor* `Int$Meta(..)`.
+    * Each slot is joined by the `Meta` ability's own `join`, dispatched on the slot's domain (`range(a) : Interval[..]`
+    * ⤳ the `Meta[Interval[T]]` instance). The compound join thus routes through the domain's *instance*, not a
+    * hand-copied plain function: the refinement channel's post-monomorphize executor links each instance at its own
+    * monomorphization (`docs/refinement-channel-follow-ups.md`), so a transitively-reached Eliot-body instance
+    * dispatches. The result is rewrapped in the meta *constructor* `Int$Meta(..)`.
     *
     * The marker/method shapes mirror [[DataDefinitionDesugarer.createPatternMatchImpl]] and the surface `implement`
     * desugar ([[com.vanillasource.eliot.eliotc.ast.fact.ImplementBlock]]): a body-less marker whose sole arg is the
@@ -83,8 +82,8 @@ object MetaConstructorDesugarer {
     * implementation found", never accepts a wrong join); the only slotted type today is `Int`'s clean `Interval` slot.
     */
   private def metaJoinInstance(definition: FunctionDefinition): Seq[(FunctionDefinition, RoleHint)] = {
-    val metaTypeName = definition.name.map(_.name + metaTypeSuffix)
-    val metaTypeRef  = app(metaTypeName)
+    val metaTypeName  = definition.name.map(_.name + metaTypeSuffix)
+    val metaTypeRef   = app(metaTypeName)
     val implQualifier = Qualifier.AbilityImplementation("Meta", metaTypeName.value)
     val perSlotJoins  = definition.metaSlots.traverse(slotJoin)
     perSlotJoins.toSeq.flatMap { joins =>
@@ -99,7 +98,10 @@ object MetaConstructorDesugarer {
       val join   = FunctionDefinition(
         metaTypeName.as(QualifiedName("join", implQualifier)),
         Seq.empty,
-        Seq(ArgumentDefinition(metaTypeName.as("a"), metaTypeRef), ArgumentDefinition(metaTypeName.as("b"), metaTypeRef)),
+        Seq(
+          ArgumentDefinition(metaTypeName.as("a"), metaTypeRef),
+          ArgumentDefinition(metaTypeName.as("b"), metaTypeRef)
+        ),
         metaTypeRef,
         Some(app(metaTypeName, joins)),
         visibility = definition.visibility

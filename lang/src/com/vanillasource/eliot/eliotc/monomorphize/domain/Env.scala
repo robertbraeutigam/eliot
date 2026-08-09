@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.domain
 
-/** De Bruijn level-indexed environment for NbE evaluation. Parameter references resolve by *name*
-  * ([[lookupByName]], last-bound-wins); [[level]] mints fresh neutrals (`NeutralHead.Param(level, name)`).
+/** De Bruijn level-indexed environment for NbE evaluation. Parameter references resolve by *name* ([[lookupByName]],
+  * last-bound-wins); [[level]] mints fresh neutrals (`NeutralHead.Param(level, name)`).
   *
   * @param bindings
   *   Values indexed by de Bruijn level

@@ -10,12 +10,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A compiler-platform monomorphized value: the compiler track's analogue of [[MonomorphicValue]].
   *
-  * It is produced by
-  * [[com.vanillasource.eliot.eliotc.monomorphize.processor.CompilerMonomorphicTypeCheckProcessor]] by running the same
-  * checker in the `Platform.Compiler` source pool, so its bodies, ability instances, and native leaves come from the
-  * compiler layer (never the runtime target). It is a **distinct fact type** from [[MonomorphicValue]] on purpose: the
-  * compiler processor cannot even name `MonomorphicValue.Key`, so the `compiler-mono → runtime-mono` edge is impossible
-  * by construction and acyclicity is enforced rather than merely disciplined.
+  * It is produced by [[com.vanillasource.eliot.eliotc.monomorphize.processor.CompilerMonomorphicTypeCheckProcessor]] by
+  * running the same checker in the `Platform.Compiler` source pool, so its bodies, ability instances, and native leaves
+  * come from the compiler layer (never the runtime target). It is a **distinct fact type** from [[MonomorphicValue]] on
+  * purpose: the compiler processor cannot even name `MonomorphicValue.Key`, so the `compiler-mono → runtime-mono` edge
+  * is impossible by construction and acyclicity is enforced rather than merely disciplined.
   *
   * It is keyed per-instantiation, exactly like [[MonomorphicValue]]: the same value reduced at different type arguments
   * is a different fact. A compile-time ability dispatched on a generic parameter can only reduce once that generic is
@@ -55,6 +54,8 @@ object CompilerMonomorphicValue {
 
   /** Composite key mirroring [[MonomorphicValue.Key]]: same value, different type arguments → different key. */
   case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[CompilerMonomorphicValue] {
-    override def valueCodec: Option[FactCodec[CompilerMonomorphicValue]] = Some(LangFactCodecs.compilerMonomorphicValueCodec)
+    override def valueCodec: Option[FactCodec[CompilerMonomorphicValue]] = Some(
+      LangFactCodecs.compilerMonomorphicValueCodec
+    )
   }
 }

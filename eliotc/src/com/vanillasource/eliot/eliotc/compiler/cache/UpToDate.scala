@@ -15,8 +15,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * stored value, so the constant is proven unchanged without being materialised.
   *
   * This keeps the generator free of any "is this a pure constant?" special case. It is sound only because a compiler or
-  * configuration change discards the whole cache: [[UpToDate]] means
-  * "constant for this compiler and configuration".
+  * configuration change discards the whole cache: [[UpToDate]] means "constant for this compiler and configuration".
   */
 case class UpToDate() extends CompilerFact {
   override def key(): CompilerFactKey[UpToDate] = UpToDate.Key()

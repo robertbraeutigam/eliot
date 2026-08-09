@@ -34,13 +34,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 object IdNormalizer {
 
-  /** Normalize one monomorphic value's runtime body. The **newtype accessor `runId`** is a special case: its own body is
-    * the data-accessor `PatternMatch.handleCases` machinery over `Id`, so left intact it would keep `used` pulling in the
-    * whole `Id` pattern-match apparatus (the data class, the `handleCases` impl, the selector lambdas) and a first-class
-    * `runId` reference would still run that apparatus over an `Id` wrapper the newtype representation no longer allocates
-    * — a crash. Because `Id[A] ≡ A`, `runId` **is** the identity, so its body is rewritten to `obj -> obj`; `used` then
-    * sees no `handleCases`, the apparatus is never generated, and any `runId` reference (applied or first-class) is a
-    * safe identity. Every other value's body gets the ordinary [[normalize]] rewrites.
+  /** Normalize one monomorphic value's runtime body. The **newtype accessor `runId`** is a special case: its own body
+    * is the data-accessor `PatternMatch.handleCases` machinery over `Id`, so left intact it would keep `used` pulling
+    * in the whole `Id` pattern-match apparatus (the data class, the `handleCases` impl, the selector lambdas) and a
+    * first-class `runId` reference would still run that apparatus over an `Id` wrapper the newtype representation no
+    * longer allocates — a crash. Because `Id[A] ≡ A`, `runId` **is** the identity, so its body is rewritten to `obj ->
+    * obj`; `used` then sees no `handleCases`, the apparatus is never generated, and any `runId` reference (applied or
+    * first-class) is a safe identity. Every other value's body gets the ordinary [[normalize]] rewrites.
     */
   def normalizeValue(
       vfqn: ValueFQN,
@@ -51,9 +51,10 @@ object IdNormalizer {
 
   /** Normalize the body expression of one monomorphic value, applying the `Id` rewrites bottom-up. The value's runtime
     * body is a `Sourced` *untyped* top-level expression (its children carry types); it is bridged to the typed
-    * [[normalizeNode]] with `topType` as the top node's type — the value's signature, so that a first-class `Id`-machinery
-    * reference standing as the *whole body* (`def r = runId`) still carries the function type its eta-expansion needs.
-    * (For every non-leaf top node the type is otherwise discarded; each child carries its own type.)
+    * [[normalizeNode]] with `topType` as the top node's type — the value's signature, so that a first-class
+    * `Id`-machinery reference standing as the *whole body* (`def r = runId`) still carries the function type its
+    * eta-expansion needs. (For every non-leaf top node the type is otherwise discarded; each child carries its own
+    * type.)
     */
   def normalize(
       body: Sourced[MonomorphicExpression.Expression],
@@ -61,8 +62,8 @@ object IdNormalizer {
   ): Sourced[MonomorphicExpression.Expression] =
     normalizeNode(body.map(MonomorphicExpression(topType, _))).map(_.expression)
 
-  /** Rewrite the single-parameter data-accessor body `obj -> handleCases(obj){ Id(x) -> x }` to the identity
-    * `obj -> obj`. A body that is not the expected single lambda is left as-is (defensive — never a silent mis-rewrite).
+  /** Rewrite the single-parameter data-accessor body `obj -> handleCases(obj){ Id(x) -> x }` to the identity `obj ->
+    * obj`. A body that is not the expected single lambda is left as-is (defensive — never a silent mis-rewrite).
     */
   private def identityAccessorBody(
       body: Sourced[MonomorphicExpression.Expression]
@@ -78,8 +79,8 @@ object IdNormalizer {
     }
 
   /** Normalize one node, rewriting an `Id`-machinery application at its root and recursing into what remains. A dropped
-    * wrapper (`runId`/`Id`/`pure@Effect[Id]`) yields its (normalized) argument node *with the argument's own type* — the
-    * outer `Id`-headed type is discarded, which the newtype representation makes representationally identical.
+    * wrapper (`runId`/`Id`/`pure@Effect[Id]`) yields its (normalized) argument node *with the argument's own type* —
+    * the outer `Id`-headed type is discarded, which the newtype representation makes representationally identical.
     */
   private def normalizeNode(node: Sourced[MonomorphicExpression]): Sourced[MonomorphicExpression] =
     node.value.expression match {
@@ -141,8 +142,8 @@ object IdNormalizer {
   /** `ref: F -> M -> R` ⤳ `f -> m -> f(m)` (`f` bound at the continuation type `F`, `m` at `M`, `f(m)` at `R`). */
   private def etaApply(node: Sourced[MonomorphicExpression]): Sourced[MonomorphicExpression] =
     (for {
-      (fType, rest)        <- node.value.expressionType.asFunctionType
-      (mType, resultType)  <- rest.asFunctionType
+      (fType, rest)       <- node.value.expressionType.asFunctionType
+      (mType, resultType) <- rest.asFunctionType
     } yield {
       val f       = node.as("$idEtaFn")
       val m       = node.as("$idEtaArg")
@@ -193,13 +194,13 @@ object IdNormalizer {
   private def eraseIdInNode(node: Sourced[MonomorphicExpression]): Sourced[MonomorphicExpression] =
     node.map { me =>
       val erased = me.expression match {
-        case MonomorphicExpression.FunctionApplication(target, argument)      =>
+        case MonomorphicExpression.FunctionApplication(target, argument)       =>
           MonomorphicExpression.FunctionApplication(eraseIdInNode(target), eraseIdInNode(argument))
         case MonomorphicExpression.FunctionLiteral(name, parameterType, inner) =>
           MonomorphicExpression.FunctionLiteral(name, eraseIdTypes(parameterType), eraseIdInNode(inner))
         case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)   =>
           MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs.map(eraseIdTypes))
-        case other                                                            => other
+        case other                                                             => other
       }
       MonomorphicExpression(eraseIdTypes(me.expressionType), erased)
     }
@@ -207,8 +208,9 @@ object IdNormalizer {
   /** Any `Id`-machinery *references* still present in a (normalized) body — the residue the load-bearing fail-safe
     * reports (docs/effects-as-channel.md §6): a warning during U1 bring-up, a hard error from U4. A non-empty result
     * means a body shape [[normalize]] did not reach (e.g. a rare first-class combinator reference); the jvm newtype
-    * representation of `Id` still keeps such residue a no-op rather than an allocation, which is why U1 only warns. Node
-    * *types* are intentionally excluded — `Id[X]` legitimately survives on nodes until the U1b type/key erasure slice.
+    * representation of `Id` still keeps such residue a no-op rather than an allocation, which is why U1 only warns.
+    * Node *types* are intentionally excluded — `Id[X]` legitimately survives on nodes until the U1b type/key erasure
+    * slice.
     */
   def residualIdReferences(body: MonomorphicExpression.Expression): Seq[ValueFQN] =
     collectReferences(body).filter(isIdMachinery)
@@ -234,11 +236,11 @@ object IdNormalizer {
 
   private def bodyTypes(expr: MonomorphicExpression.Expression): Seq[GroundValue] =
     expr match {
-      case MonomorphicExpression.FunctionApplication(target, argument)      =>
+      case MonomorphicExpression.FunctionApplication(target, argument)       =>
         nodeTypes(target) ++ nodeTypes(argument)
-      case MonomorphicExpression.FunctionLiteral(_, parameterType, inner)   => parameterType +: nodeTypes(inner)
+      case MonomorphicExpression.FunctionLiteral(_, parameterType, inner)    => parameterType +: nodeTypes(inner)
       case MonomorphicExpression.MonomorphicValueReference(_, typeArguments) => typeArguments
-      case _                                                                => Seq.empty
+      case _                                                                 => Seq.empty
     }
 
   private def nodeTypes(node: Sourced[MonomorphicExpression]): Seq[GroundValue] =
@@ -261,17 +263,17 @@ object IdNormalizer {
   private def isDropWrapperRef(node: Sourced[MonomorphicExpression]): Boolean =
     headRef(node).exists { case (fqn, typeArgs) =>
       fqn == WellKnownTypes.runIdFQN || fqn == WellKnownTypes.idConstructorFQN ||
-        isEffectIdMethod(fqn, "pure") || isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectPureFQN)
+      isEffectIdMethod(fqn, "pure") || isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectPureFQN)
     }
 
-  /** A two-argument `Effect[Id]` combinator whose application collapses to plain application
-    * (`flatMap@Effect[Id](f, m)`/`map@Effect[Id](f, m) ⤳ f(m)`).
+  /** A two-argument `Effect[Id]` combinator whose application collapses to plain application (`flatMap@Effect[Id](f,
+    * m)`/`map@Effect[Id](f, m) ⤳ f(m)`).
     */
   private def isApplyCombinatorRef(node: Sourced[MonomorphicExpression]): Boolean =
     headRef(node).exists { case (fqn, typeArgs) =>
       isEffectIdMethod(fqn, "flatMap") || isEffectIdMethod(fqn, "map") ||
-        isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectFlatMapFQN) ||
-        isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectMapFQN)
+      isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectFlatMapFQN) ||
+      isAbstractEffectIdCombinator(fqn, typeArgs, WellKnownTypes.effectMapFQN)
     }
 
   private def headRef(node: Sourced[MonomorphicExpression]): Option[(ValueFQN, Seq[GroundValue])] =

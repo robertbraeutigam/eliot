@@ -5,8 +5,8 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 
 /** Maps a fully-qualified name to its documentation *tile* — the rendered definition signature plus the documentation —
   * for hover. Rebuilt after every compile from the [[com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc]] facts the
-  * whole-workspace driver demanded, so hovering a name shows the very tile the apidoc site renders (same signature, same
-  * margin-stripped Markdown).
+  * whole-workspace driver demanded, so hovering a name shows the very tile the apidoc site renders (same signature,
+  * same margin-stripped Markdown).
   *
   * Only names with something to show (a signature or a doc) are kept; a hover of anything else finds nothing here and
   * falls back to the concrete-type / declared-signature hint.

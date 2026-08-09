@@ -42,12 +42,13 @@ object InfixPrecedenceResolver {
       else if (isHigher(b, a)) Some(-1)
       else anchoredComparison(a, b)
 
-    /** Fallback for two operators with no explicitly declared ordering. `apply` (application) is the guaranteed
-      * unique maximum — the resolver forbids `above`/`at apply` — so an operator that shares `apply`'s precedence
-      * island (is connected to it through any chain of `above`/`below`/`at`, in any direction) belongs to the
-      * tightest-binding tier and binds tighter than any operator sitting in an island unconnected to `apply`. Two
-      * operators on the same side (both connected, or both unconnected) keep no relative ordering, so a genuinely
-      * ambiguous pair still errors. */
+    /** Fallback for two operators with no explicitly declared ordering. `apply` (application) is the guaranteed unique
+      * maximum — the resolver forbids `above`/`at apply` — so an operator that shares `apply`'s precedence island (is
+      * connected to it through any chain of `above`/`below`/`at`, in any direction) belongs to the tightest-binding
+      * tier and binds tighter than any operator sitting in an island unconnected to `apply`. Two operators on the same
+      * side (both connected, or both unconnected) keep no relative ordering, so a genuinely ambiguous pair still
+      * errors.
+      */
     private def anchoredComparison(a: ValueFQN, b: ValueFQN): Option[Int] =
       (applyComponent.contains(a), applyComponent.contains(b)) match {
         case (true, false) => Some(1)
@@ -80,8 +81,9 @@ object InfixPrecedenceResolver {
 
   /** Build the precedence order over the *transitive closure* of the present operators' precedence declarations
     * (following each declaration's targets). The closure is required so that connectivity to `apply` is computed
-    * correctly even when the connecting operator does not itself appear in the expression — e.g. `+` declared
-    * `above p` where `p` is `below apply` puts `+` in `apply`'s island through the absent `p`. */
+    * correctly even when the connecting operator does not itself appear in the expression — e.g. `+` declared `above p`
+    * where `p` is `below apply` puts `+` in `apply`'s island through the absent `p`.
+    */
   private def buildPrecedenceOrder(operators: Seq[InfixOp])(using platform: Platform): CompilerIO[PrecedenceOrder] =
     fetchPrecedenceClosure(operators.map(_.vfqn).toSet, Map.empty).map { rvs =>
       val decls       = rvs.toSeq.flatMap((vfqn, rv) => rv.precedence.map(vfqn -> _))
@@ -106,8 +108,9 @@ object InfixPrecedenceResolver {
       )
     }
 
-  /** Fetch `ResolvedValue`s transitively along precedence-declaration targets, starting from the present
-    * operators. `apply` itself is never fetched — it declares no precedence and appears only as a target node. */
+  /** Fetch `ResolvedValue`s transitively along precedence-declaration targets, starting from the present operators.
+    * `apply` itself is never fetched — it declares no precedence and appears only as a target node.
+    */
   private def fetchPrecedenceClosure(
       frontier: Set[ValueFQN],
       acc: Map[ValueFQN, ResolvedValue]
@@ -123,16 +126,17 @@ object InfixPrecedenceResolver {
   }
 
   /** The set of names in `apply`'s connected component over the *undirected* precedence graph (an edge for every
-    * `above`/`below`/`at` relation). Membership marks the tightest-binding tier — see [[anchoredComparison]]. */
+    * `above`/`below`/`at` relation). Membership marks the tightest-binding tier — see [[anchoredComparison]].
+    */
   private def applyComponentOf(edges: Seq[(ValueFQN, ValueFQN)]): Set[ValueFQN] = {
     val adjacency = (edges ++ edges.map(_.swap)).groupMap(_._1)(_._2).map((k, v) => k -> v.toSet)
 
     @tailrec
     def bfs(queue: List[ValueFQN], visited: Set[ValueFQN]): Set[ValueFQN] =
       queue match {
-        case Nil                                  => visited
+        case Nil                                 => visited
         case current :: rest if visited(current) => bfs(rest, visited)
-        case current :: rest                      =>
+        case current :: rest                     =>
           bfs(rest ++ adjacency.getOrElse(current, Set.empty).toList, visited + current)
       }
 

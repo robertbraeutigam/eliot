@@ -8,9 +8,9 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** Builds [[PoolModules]] by enumerating the mounts of the requested platform pool and unioning their module-relative
   * `.els` paths into module names. Mirrors [[PathScanner]]'s pooling: a [[Platform.Runtime]] request enumerates the
-  * runtime mounts, a [[Platform.Compiler]] request enumerates the compiler-overlay mounts *and* the runtime mounts
-  * (the compiler pool borrows the whole runtime track). The listing dependencies each mount records (a walked
-  * directory's `FileStat`) become this fact's dependencies, so a file appearing or disappearing re-walks and rebuilds.
+  * runtime mounts, a [[Platform.Compiler]] request enumerates the compiler-overlay mounts *and* the runtime mounts (the
+  * compiler pool borrows the whole runtime track). The listing dependencies each mount records (a walked directory's
+  * `FileStat`) become this fact's dependencies, so a file appearing or disappearing re-walks and rebuilds.
   *
   * Mount-dependent (constructed from the CLI roots), so — like [[PathScanner]] — it is contributed by `LangPlugin`
   * rather than living in the mount-free `LangProcessors` list.

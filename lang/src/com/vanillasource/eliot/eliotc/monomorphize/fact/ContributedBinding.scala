@@ -41,6 +41,7 @@ case class ContributedBinding(
 
 object ContributedBinding {
   case class Key(vfqn: ValueFQN, label: String) extends CompilerFactKey[ContributedBinding] {
+
     /** Declined: its `BindingContribution.Leaf` carries a `SemValue` closure — serializable, never equal (§3.1, §4). */
     override def valueCodec: Option[FactCodec[ContributedBinding]] = None
   }

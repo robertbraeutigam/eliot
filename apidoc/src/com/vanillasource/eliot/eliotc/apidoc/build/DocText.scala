@@ -7,10 +7,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** The single source of Eliot's *documentation* merge across platform layers.
   *
   * Both consumers of the doc pipeline go through this object, so they can never disagree: the apidoc HTML backend (via
-  * [[DocModelBuilder]]) and the language server's hover (via the [[com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc]]
-  * fact produced by [[com.vanillasource.eliot.eliotc.apidoc.processor.ValueDocProcessor]]). It only decides *which* doc
-  * comment is canonical and how it is cleaned up; extracting the comment text from a file is the front end's job (the
-  * `/** ... */` attached to each declaration's `doc` field).
+  * [[DocModelBuilder]]) and the language server's hover (via the
+  * [[com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc]] fact produced by
+  * [[com.vanillasource.eliot.eliotc.apidoc.processor.ValueDocProcessor]]). It only decides *which* doc comment is
+  * canonical and how it is cleaned up; extracting the comment text from a file is the front end's job (the `/** ... */`
+  * attached to each declaration's `doc` field).
   *
   * A name is documented once, on the declaration in its **lowest layer** (`lang` before `stdlib` before `compiler`
   * before `jvm`); any doc comment on a higher layer's copy of the same name is ignored and reported as a warning.
@@ -40,8 +41,8 @@ object DocText {
   }
 
   /** A doc lookup computed purely from the in-memory layer files — the self-contained default source for
-    * [[DocModelBuilder]] and its tests. The pipeline injects a `ValueDoc`-backed lookup instead, but both resolve to the
-    * same answer because both extract with [[docOf]] and select with [[selectDoc]].
+    * [[DocModelBuilder]] and its tests. The pipeline injects a `ValueDoc`-backed lookup instead, but both resolve to
+    * the same answer because both extract with [[docOf]] and select with [[selectDoc]].
     */
   def fromLayerFiles(layerFiles: Seq[(ModuleName, String, AST)]): ValueFQN => Selected = {
     val byModule = layerFiles.groupBy(_._1)
@@ -55,12 +56,12 @@ object DocText {
 
   /** A human label for a name's kind, used only in the ignored-duplicate warning text. */
   def kindLabel(qn: QualifiedName): String = qn.qualifier match {
-    case Qualifier.Type                          => "type"
-    case Qualifier.Meta                          => "meta"
+    case Qualifier.Type                                   => "type"
+    case Qualifier.Meta                                   => "meta"
     case Qualifier.Ability(ability) if qn.name == ability => "ability"
-    case Qualifier.Ability(_)                    => "ability method"
-    case _: Qualifier.AbilityImplementation      => "implementation"
-    case Qualifier.Default                        => "def"
+    case Qualifier.Ability(_)                             => "ability method"
+    case _: Qualifier.AbilityImplementation               => "implementation"
+    case Qualifier.Default                                => "def"
   }
 
   /** Choose the single canonical doc — the one on the lowest layer — and report every other layer's doc as ignored.
@@ -72,7 +73,7 @@ object DocText {
     */
   def selectDoc(kind: String, name: String, docsByLayer: Seq[(String, Sourced[String])]): Selected =
     docsByLayer.sortBy { case (layer, _) => (layerRank.getOrElse(layer, 4), layer) } match {
-      case Nil                                      => Selected(None, Seq.empty)
+      case Nil                                     => Selected(None, Seq.empty)
       case (selectedLayer, selectedDoc) +: ignored =>
         val doc      = Some(stripMargins(selectedDoc.value)).filter(_.nonEmpty)
         val warnings = ignored.map { case (ignoredLayer, _) =>
@@ -82,7 +83,8 @@ object DocText {
     }
 
   /** Strip the leading-`*` margins of a block documentation comment, Scaladoc-style, drop trailing whitespace on each
-    * line (so a one-line block comment does not keep the space before its closing delimiter), and trim blank edge lines.
+    * line (so a one-line block comment does not keep the space before its closing delimiter), and trim blank edge
+    * lines.
     */
   def stripMargins(raw: String): String = {
     val margin = "^\\s*\\* ?".r

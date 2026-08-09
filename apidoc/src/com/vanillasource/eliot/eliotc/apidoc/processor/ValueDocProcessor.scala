@@ -17,10 +17,10 @@ import java.nio.file.Path
   * is built from, so the compiler proper (which drops docs at the core boundary) is never involved.
   *
   * It resolves the name's module to a file under every layer root — the compiler/runtime/user roots, each paired with a
-  * layer label, captured at construction exactly as `PathScanner` captures its roots — reads each layer's [[SourceAST]],
-  * then renders the definition through apidoc's own [[SignatureRenderer.forName]] (so hover shows the very tile the site
-  * shows) and merges the doc comments through [[DocText]] (lowest layer wins, duplicates warned). A layer with no such
-  * file contributes nothing.
+  * layer label, captured at construction exactly as `PathScanner` captures its roots — reads each layer's
+  * [[SourceAST]], then renders the definition through apidoc's own [[SignatureRenderer.forName]] (so hover shows the
+  * very tile the site shows) and merges the doc comments through [[DocText]] (lowest layer wins, duplicates warned). A
+  * layer with no such file contributes nothing.
   */
 class ValueDocProcessor(rootsWithLayer: Seq[(Path, String)]) extends SingleFactProcessor[ValueDoc.Key] {
 
@@ -34,7 +34,8 @@ class ValueDocProcessor(rootsWithLayer: Seq[(Path, String)]) extends SingleFactP
       layerAsts  <- present.traverse { case (file, layer) =>
                       getFactOrAbort(SourceAST.Key(file.toURI)).map(sourceAst => layer -> sourceAst.ast.value)
                     }
-      docs        = layerAsts.collect { case (layer, ast) => (layer, DocText.docOf(ast, key.vfqn.name)) }
+      docs        = layerAsts
+                      .collect { case (layer, ast) => (layer, DocText.docOf(ast, key.vfqn.name)) }
                       .collect { case (layer, Some(doc)) => layer -> doc }
       selected    = DocText.selectDoc(DocText.kindLabel(key.vfqn.name), key.vfqn.name.name, docs)
       signature   = renderSignature(key.vfqn.name, layerAsts.map(_._2))
@@ -48,7 +49,8 @@ class ValueDocProcessor(rootsWithLayer: Seq[(Path, String)]) extends SingleFactP
   private def renderSignature(qn: QualifiedName, asts: Seq[AST]): Option[String] = {
     val functions      = asts.flatMap(_.functionDefinitions)
     val matching       = functions.filter(_.name.value == qn)
-    val matchingData   = if (qn.qualifier == Qualifier.Type) asts.flatMap(_.typeDefinitions).filter(_.name.value == qn.name) else Seq.empty
+    val matchingData   =
+      if (qn.qualifier == Qualifier.Type) asts.flatMap(_.typeDefinitions).filter(_.name.value == qn.name) else Seq.empty
     val commonGenerics = qn.qualifier match {
       case Qualifier.Ability(ability) if qn.name != ability => markerGenericCount(functions, ability)
       case _                                                => 0

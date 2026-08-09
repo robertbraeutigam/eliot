@@ -57,10 +57,9 @@ case class Unifier(
     * metavariable shape that can stand for a carrier, so this is what the two compiler-track carrier readers key on —
     * the inline-guard kind acceptance
     * ([[com.vanillasource.eliot.eliotc.monomorphize.check.GuardDischargeResolver.isGuardCarrier]]) and the effect
-    * lift's meta-headed split
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.effectCarrierSplit]]). It is deliberately
-    * unfiltered by ability constraints: a callee's own `G[_]` may carry an effectful result whether or not it declares
-    * `~ Effect`.
+    * lift's meta-headed split ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.effectCarrierSplit]]).
+    * It is deliberately unfiltered by ability constraints: a callee's own `G[_]` may carry an effectful result whether
+    * or not it declares `~ Effect`.
     */
   def isHigherKindedMeta(id: Int): Boolean = higherKindedMetas.contains(id)
 
@@ -95,8 +94,8 @@ case class Unifier(
     if (after.errors.size == errors.size) UnifyResult.Unified(after)
     else UnifyResult.Contradiction(after.copy(errors = errors))
 
-  /** Unify two semantic values, reporting errors with the given context message and source position — pure
-    * definitional equality.
+  /** Unify two semantic values, reporting errors with the given context message and source position — pure definitional
+    * equality.
     */
   def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
     val fl = Evaluator.force(l, metaStore)
@@ -144,7 +143,7 @@ case class Unifier(
       case (VMeta(id, spine), rhs)                            =>
         solveMeta(id, spine, rhs, context)
 
-      case (lhs, VMeta(id, spine))                                        =>
+      case (lhs, VMeta(id, spine))                                              =>
         solveMeta(id, spine, lhs, context)
 
       // VTopDef equality by FQN: same constructor → unify spines pointwise (definitional equality). Constructors
@@ -155,7 +154,7 @@ case class Unifier(
       // Stuck native equality by FQN: a native application is *not* injective (`add(1, 3) == add(2, 2)`), so it is
       // never injectivity-decomposed against a meta (see `tryDecomposeApplied`); two stuck natives are definitionally
       // equal only when the same operation is applied to pointwise-equal arguments.
-      case (VStuckNative(fqn1, sp1), VStuckNative(fqn2, sp2)) if fqn1 == fqn2 =>
+      case (VStuckNative(fqn1, sp1), VStuckNative(fqn2, sp2)) if fqn1 == fqn2   =>
         unifySpines(fl, fr, sp1, sp2, context)
 
       case _ =>
@@ -200,9 +199,9 @@ case class Unifier(
     *   - **Equal arity** (`m == n`): `?id := H` (unapplied) plus pointwise spine unification `s_i ~ r_i`.
     *   - **Partial application** (`n > m`): `?id := H r1..r(n-m)` (the head applied to the leading prefix) plus
     *     pointwise unification of the trailing `m` args `s_i ~ r(n-m+i)`. This is what lets a *carrier* meta solve to a
-    *     type constructor partially applied to a prefix — `?F[A] ~ AbortCarrier[G, A] ⟹ ?F := AbortCarrier[G]` (the effects
-    *     discharge path) — exactly as `?F[A] ~ Box[A] ⟹ ?F := Box` works for the equal-arity case. The solution is
-    *     unique: with `H` injective, only `?F = H r1..r(n-m)` makes `?F s1..sm = H r1..rn` hold for all the trailing
+    *     type constructor partially applied to a prefix — `?F[A] ~ AbortCarrier[G, A] ⟹ ?F := AbortCarrier[G]` (the
+    *     effects discharge path) — exactly as `?F[A] ~ Box[A] ⟹ ?F := Box` works for the equal-arity case. The solution
+    *     is unique: with `H` injective, only `?F = H r1..r(n-m)` makes `?F s1..sm = H r1..rn` hold for all the trailing
     *     args.
     *
     * Fires only when the rhs's head is rigid and `n >= m`:
@@ -211,11 +210,11 @@ case class Unifier(
     *     reaching here, so we should not see them; the `None` guard is a belt-and-braces check.
     *   - [[VNeutral]] — rigid bound variables with a spine.
     *
-    * `n < m` and non-rigid rhs shapes return `None`, leaving the caller to postpone. Cases like `?A [?B] ~
-    * Function [Int, String]` have multiple valid solutions and correctly postpone. A [[VStuckNative]] head
-    * (`add(x, y)`, `min(x, y)`, …) is deliberately **not** in the rigid set: a native application is non-injective, so
-    * decomposing `?F [a] ~ add(x, y)` to `?F := add` would be unsound — it falls through to `None` and postpones,
-    * leaving the meta for `renormalize`/defaulting once the arguments concretise.
+    * `n < m` and non-rigid rhs shapes return `None`, leaving the caller to postpone. Cases like `?A [?B] ~ Function
+    * [Int, String]` have multiple valid solutions and correctly postpone. A [[VStuckNative]] head (`add(x, y)`, `min(x,
+    * y)`, …) is deliberately **not** in the rigid set: a native application is non-injective, so decomposing `?F [a] ~
+    * add(x, y)` to `?F := add` would be unsound — it falls through to `None` and postpones, leaving the meta for
+    * `renormalize`/defaulting once the arguments concretise.
     */
   private def tryDecomposeApplied(
       id: MetaId,
@@ -225,9 +224,9 @@ case class Unifier(
   ): Option[Unifier] = rhs match {
     case VTopDef(fqn, None, rhsSpine, _) =>
       decomposeSpines(id, metaSpine, rhsSpine, prefix => VTopDef(fqn, None, prefix), context)
-    case VNeutral(head, rhsSpine)     =>
+    case VNeutral(head, rhsSpine)        =>
       decomposeSpines(id, metaSpine, rhsSpine, prefix => VNeutral(head, prefix), context)
-    case _                            => None
+    case _                               => None
   }
 
   /** Decompose `?id metaSpine ~ head rhsSpine` by injectivity. `rebuildHead` reattaches the leading prefix of
@@ -263,20 +262,20 @@ case class Unifier(
     * classifies it benign.
     *
     * A leading triage re-[[drain]] runs first — with the metas now defaulted to [[SemValue.VType]], a constraint that
-    * was only waiting on those metas trivially re-verifies and is
-    * discharged. Whatever remains postponed after that is, in general, an equality obligation the check could never
-    * discharge; per the fail-safe rule it must surface as an error rather than be silently carried along and forgotten
-    * (the hole that let pre-fix applied-associated-type garbage compile — see TODO.md).
+    * was only waiting on those metas trivially re-verifies and is discharged. Whatever remains postponed after that is,
+    * in general, an equality obligation the check could never discharge; per the fail-safe rule it must surface as an
+    * error rather than be silently carried along and forgotten (the hole that let pre-fix applied-associated-type
+    * garbage compile — see TODO.md).
     *
     * One shape is exempt because a *more precise* fail-safe already owns it (see [[isBenignPostponement]]): a
-    * `$bad-apply` head, the read-back artifact of a phantom meta defaulted to a non-applicable value. Flushing it
-    * would reject currently-correct programs whose types are settled through other channels (e.g. the
-    * guard/effectful-signature discharge), never through this postponed constraint. The genuine class this
-    * flush is the sole backstop for — a postponed application whose meta *did* solve to a concrete head that then
-    * mismatches the other side — is caught.
+    * `$bad-apply` head, the read-back artifact of a phantom meta defaulted to a non-applicable value. Flushing it would
+    * reject currently-correct programs whose types are settled through other channels (e.g. the
+    * guard/effectful-signature discharge), never through this postponed constraint. The genuine class this flush is the
+    * sole backstop for — a postponed application whose meta *did* solve to a concrete head that then mismatches the
+    * other side — is caught.
     *
-    * The recorded context (source position and message — typically "Type mismatch.") is reused verbatim, and the
-    * stored `(actual, expected)` pair drives the same `Expected/Actual` hint as any other mismatch.
+    * The recorded context (source position and message — typically "Type mismatch.") is reused verbatim, and the stored
+    * `(actual, expected)` pair drives the same `Expected/Actual` hint as any other mismatch.
     */
   def flushPostponed(): Unifier = {
     val triaged = drain()
@@ -341,23 +340,25 @@ case class Unifier(
     */
   private def occursIn(id: MetaId, value: SemValue): Boolean =
     Evaluator.force(value, metaStore) match {
-      case VMeta(other, spine)    => other.value == id.value || spine.toList.exists(occursIn(id, _))
-      case VTopDef(_, _, spine, _)   => spine.toList.exists(occursIn(id, _))
-      case VStuckNative(_, spine) => spine.toList.exists(occursIn(id, _))
-      case VNeutral(_, spine)     => spine.toList.exists(occursIn(id, _))
-      case VPi(domain, codomain)  =>
+      case VMeta(other, spine)     => other.value == id.value || spine.toList.exists(occursIn(id, _))
+      case VTopDef(_, _, spine, _) => spine.toList.exists(occursIn(id, _))
+      case VStuckNative(_, spine)  => spine.toList.exists(occursIn(id, _))
+      case VNeutral(_, spine)      => spine.toList.exists(occursIn(id, _))
+      case VPi(domain, codomain)   =>
         val (fresh, _) = freshVar()
         occursIn(id, domain) || occursIn(id, codomain(fresh))
-      case VLam(_, closure)       =>
+      case VLam(_, closure)        =>
         val (fresh, _) = freshVar()
         occursIn(id, closure(fresh))
-      case VNative(paramType, _)  => occursIn(id, paramType)
-      case VConst(_) | VType      => false
+      case VNative(paramType, _)   => occursIn(id, paramType)
+      case VConst(_) | VType       => false
     }
 
   /** Record an "infinite type" rejection from the occurs-check, reusing the source position of `context`. */
   private[monomorphize] def addOccursError(context: Sourced[String]): Unifier =
-    copy(errors = UnifyError(Sourced(context.uri, context.range, "Cannot construct infinite type."), None, None) :: errors)
+    copy(errors =
+      UnifyError(Sourced(context.uri, context.range, "Cannot construct infinite type."), None, None) :: errors
+    )
 
   private def freshVar(): (SemValue, Unifier) = {
     val v = VNeutral(NeutralHead.Fresh(NeutralHead.Origin.Unify, depth), Spine.SNil)

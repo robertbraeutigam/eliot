@@ -22,7 +22,9 @@ object HtmlSite {
     val indexPage =
       "index.html" -> page("Eliot API documentation", renderSidebar(modules, None), indexContent(modules))
     val modulePages =
-      modules.map(module => module.fileName -> page(module.title, renderSidebar(modules, Some(module.title)), moduleContent(module)))
+      modules.map(module =>
+        module.fileName -> page(module.title, renderSidebar(modules, Some(module.title)), moduleContent(module))
+      )
     (indexPage +: modulePages) :+ ("style.css" -> css)
   }
 
@@ -138,7 +140,9 @@ object HtmlSite {
       node.module match {
         case Some(m) =>
           val cls = if (active.contains(m.title)) """ class="active"""" else ""
-          s"""<li class="tree-leaf" data-name="${escape(m.title)}"><a$cls href="${escape(m.fileName)}">${escape(node.segment)}</a></li>"""
+          s"""<li class="tree-leaf" data-name="${escape(m.title)}"><a$cls href="${escape(m.fileName)}">${escape(
+              node.segment
+            )}</a></li>"""
         case None    =>
           s"""<li class="tree-leaf" data-name="${escape(node.fullPath)}"><span>${escape(node.segment)}</span></li>"""
       }
@@ -147,14 +151,19 @@ object HtmlSite {
         case Some(m) => s"""<a href="${escape(m.fileName)}">${escape(node.segment)}</a>"""
         case None    => escape(node.segment)
       }
-      s"""<li class="tree-dir" data-name="${escape(node.fullPath)}"><details class="tree-pkg" open><summary>$summary</summary><ul class="tree">${renderForest(node.children, active)}</ul></details></li>"""
+      s"""<li class="tree-dir" data-name="${escape(
+          node.fullPath
+        )}"><details class="tree-pkg" open><summary>$summary</summary><ul class="tree">${renderForest(
+          node.children,
+          active
+        )}</ul></details></li>"""
     }
 
   private def indexContent(modules: Seq[DocModule]): String = {
     val totalItems = modules.map(_.items.size).sum
-    val rows = modules
+    val rows       = modules
       .map { module =>
-        val kinds = module.items.groupBy(_.kind).view.mapValues(_.size)
+        val kinds   = module.items.groupBy(_.kind).view.mapValues(_.size)
         val summary = DocItem.Kind.values.toSeq
           .flatMap(k => kinds.get(k).map(n => s"""<span class="count">$n ${escape(k.label)}</span>"""))
           .mkString
@@ -173,9 +182,14 @@ object HtmlSite {
     val sections = DocItem.Kind.values.toSeq.flatMap { kind =>
       val items = module.items.filter(_.kind == kind)
       if (items.isEmpty) None
-      else Some(s"""<section class="group"><h2 class="group-title">${escape(sectionTitle(kind))}</h2>${items.map(renderItem).mkString}</section>""")
+      else
+        Some(s"""<section class="group"><h2 class="group-title">${escape(sectionTitle(kind))}</h2>${items
+            .map(renderItem)
+            .mkString}</section>""")
     }
-    s"""<h1 class="module-title"><span class="chip chip-module">module</span>${escape(module.title)}</h1>$doc${sections.mkString}"""
+    s"""<h1 class="module-title"><span class="chip chip-module">module</span>${escape(
+        module.title
+      )}</h1>$doc${sections.mkString}"""
   }
 
   private def sectionTitle(kind: DocItem.Kind): String = kind match {
@@ -185,22 +199,29 @@ object HtmlSite {
   }
 
   private def renderItem(item: DocItem): String = {
-    val badges = badgesFor(item)
-    val doc    = item.doc.map(d => s"""<div class="doc">${MarkdownRenderer.render(d)}</div>""").getOrElse("")
-    val members =
+    val badges          = badgesFor(item)
+    val doc             = item.doc.map(d => s"""<div class="doc">${MarkdownRenderer.render(d)}</div>""").getOrElse("")
+    val members         =
       if (item.members.isEmpty) ""
       else if (item.kind == DocItem.Kind.Ability)
         s"""<div class="members"><h3>Methods</h3>${item.members.map(renderMember).mkString}</div>"""
       else
         // A type's per-layer concrete definitions (its `data`/`type` forms) collapse like the Implementations block —
         // closed by default, so an abstract type leads with its contract, not with its platform representations.
-        s"""<details class="members impls"><summary>Definitions</summary>${item.members.map(renderMember).mkString}</details>"""
+        s"""<details class="members impls"><summary>Definitions</summary>${item.members
+            .map(renderMember)
+            .mkString}</details>"""
     val implementations =
       if (item.implementations.isEmpty) ""
-      else s"""<details class="members impls"><summary>Implementations</summary>${item.implementations.map(renderImplementation).mkString}</details>"""
+      else
+        s"""<details class="members impls"><summary>Implementations</summary>${item.implementations
+            .map(renderImplementation)
+            .mkString}</details>"""
 
     s"""<section class="item item-${item.kind.toString.toLowerCase}" id="${escape(item.anchor)}">
-       |<div class="item-head"><span class="chip chip-${item.kind.toString.toLowerCase}">${escape(item.kind.label)}</span><h2 class="item-name"><a href="#${escape(item.anchor)}">${escape(item.name)}</a></h2>$badges</div>
+       |<div class="item-head"><span class="chip chip-${item.kind.toString.toLowerCase}">${escape(
+        item.kind.label
+      )}</span><h2 class="item-name"><a href="#${escape(item.anchor)}">${escape(item.name)}</a></h2>$badges</div>
        |<pre class="sig"><code>${EliotHighlighter.highlight(item.signature)}</code></pre>
        |$doc$members$implementations
        |</section>""".stripMargin
@@ -209,13 +230,17 @@ object HtmlSite {
   private def renderMember(member: DocItem.Member): String = {
     val layer = member.layer.map(l => s"""<span class="badge badge-layer">${escape(l)}</span>""").getOrElse("")
     val doc   = member.doc.map(d => s"""<div class="doc">${MarkdownRenderer.render(d)}</div>""").getOrElse("")
-    s"""<div class="member"><div class="member-sig"><pre class="sig"><code>${EliotHighlighter.highlight(member.signature)}</code></pre>$layer</div>$doc</div>"""
+    s"""<div class="member"><div class="member-sig"><pre class="sig"><code>${EliotHighlighter.highlight(
+        member.signature
+      )}</code></pre>$layer</div>$doc</div>"""
   }
 
   private def renderImplementation(impl: DocItem.Implementation): String = {
     val layers = impl.layers.map(l => s"""<span class="badge badge-layer">${escape(l)}</span>""").mkString
     val doc    = impl.doc.map(d => s"""<div class="doc">${MarkdownRenderer.render(d)}</div>""").getOrElse("")
-    s"""<div class="member"><div class="member-sig"><pre class="sig"><code>${EliotHighlighter.highlight(impl.signature)}</code></pre>$layers</div>$doc</div>"""
+    s"""<div class="member"><div class="member-sig"><pre class="sig"><code>${EliotHighlighter.highlight(
+        impl.signature
+      )}</code></pre>$layers</div>$doc</div>"""
   }
 
   private def badgesFor(item: DocItem): String = {

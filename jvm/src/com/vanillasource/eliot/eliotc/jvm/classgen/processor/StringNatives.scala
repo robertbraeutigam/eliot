@@ -152,8 +152,8 @@ object StringNatives {
   }
 
   private def startsWith(mv: MethodVisitor): Unit = {
-    mv.visitVarInsn(ALOAD, 1)                                        // the subject is the last parameter
-    mv.visitVarInsn(ALOAD, 0)                                        // the prefix
+    mv.visitVarInsn(ALOAD, 1) // the subject is the last parameter
+    mv.visitVarInsn(ALOAD, 0) // the prefix
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "startsWith", s"(L$JString;)Z", false)
     boxBool(mv)
   }
@@ -187,10 +187,10 @@ object StringNatives {
     * arithmetic (so no index can wrap while being narrowed) and `end` is raised to `start` when it would precede it.
     */
   private def substring(mv: MethodVisitor): Unit = {
-    val n      = 3
-    val nBig   = 4
-    val lo     = 5
-    val hi     = 6
+    val n       = 3
+    val nBig    = 4
+    val lo      = 5
+    val hi      = 6
     val ordered = new Label()
     mv.visitVarInsn(ALOAD, 2)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "length", "()I", false)
@@ -206,7 +206,7 @@ object StringNatives {
     mv.visitVarInsn(ILOAD, lo)
     mv.visitJumpInsn(IF_ICMPGE, ordered)
     mv.visitVarInsn(ILOAD, lo)
-    mv.visitVarInsn(ISTORE, hi)                                      // an inverted range collapses to empty
+    mv.visitVarInsn(ISTORE, hi) // an inverted range collapses to empty
     mv.visitLabel(ordered)
     mv.visitVarInsn(ALOAD, 2)
     mv.visitVarInsn(ILOAD, lo)
@@ -264,9 +264,9 @@ object StringNatives {
     * everything), and the negative limit is what keeps the trailing empty pieces Java's default drops — without it
     * `split(",", "a,b,")` would answer two pieces and stop being `joined`'s inverse.
     *
-    * The empty separator is the special case: it matches with zero width, so Java cuts between every pair of
-    * characters and adds one trailing empty piece. Dropping that piece (`subList`) is what makes `split("", s)` exactly
-    * the characters of `s`, and `split("", "")` the empty list.
+    * The empty separator is the special case: it matches with zero width, so Java cuts between every pair of characters
+    * and adds one trailing empty piece. Dropping that piece (`subList`) is what makes `split("", s)` exactly the
+    * characters of `s`, and `split("", "")` the empty list.
     */
   private def split(mv: MethodVisitor): Unit = {
     val characters = new Label()
@@ -338,11 +338,11 @@ object StringNatives {
     * boundary as a `java.math.BigInteger`, so the parse is the representation's own constructor and no width is chosen
     * here.
     *
-    * '''Total, and it has to be.''' `parseInt` guards this leaf with `if(s.isInteger, parseIntInternal(s))`, and an `if`
-    * *builds* both arms even though it runs only one — so a leaf that threw on a non-numeral would throw before the
-    * guard ever chose. The zero is therefore unreachable through `parseInt` (which aborts on exactly the strings that
-    * produce it) and never observable; it exists so the arm can be built. The same reason `indexOfInternal` answers a
-    * negative index instead of failing.
+    * '''Total, and it has to be.''' `parseInt` guards this leaf with `if(s.isInteger, parseIntInternal(s))`, and an
+    * `if` *builds* both arms even though it runs only one — so a leaf that threw on a non-numeral would throw before
+    * the guard ever chose. The zero is therefore unreachable through `parseInt` (which aborts on exactly the strings
+    * that produce it) and never observable; it exists so the arm can be built. The same reason `indexOfInternal`
+    * answers a negative index instead of failing.
     */
   private def parseInt(mv: MethodVisitor): Unit = {
     val notANumber = new Label()

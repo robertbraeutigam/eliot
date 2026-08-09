@@ -38,8 +38,8 @@ object CommonPatterns {
     * `AbortCarrier` and, once carriers erase to reference types, the *same* JVM descriptor, yet they are genuinely
     * different specializations with different bodies (`AbortCarrier(IO(..))` vs `AbortCarrier(AbortCarrier(..))`). A
     * head-only suffix collapses them onto one method name; [[JvmClassGenerator]]'s signature-dedup then treats them as
-    * byte-identical and silently drops one body — a whole-program miscompile surfacing as a runtime `ClassCastException`
-    * in the wrong-carrier accessor. Recursing on the applied arguments keeps the depth distinct.
+    * byte-identical and silently drops one body — a whole-program miscompile surfacing as a runtime
+    * `ClassCastException` in the wrong-carrier accessor. Recursing on the applied arguments keeps the depth distinct.
     *
     * Value-level (`Direct`) arguments — e.g. the `Int[MIN, MAX]` refinement bounds — carry no carrier structure and are
     * dropped, so `Int[0, 3]` and `Int[0, 5]` still mangle identically and legitimately share their one `Byte` method.
@@ -58,11 +58,11 @@ object CommonPatterns {
     *
     * The impl-disambiguator is required because two implementations of the same ability share the method's *local* name
     * (`dependency`) and, when the method is return-type-dispatched into an erasing carrier, also share the erased JVM
-    * descriptor: the `Dep` reader's native `Dep[X, DepCarrier[X, G]].dependency` and its cross-lift
-    * `Dep[X2, DepCarrier[X1, G]].dependency` are both `() -> DepCarrier`. Without the implementation index in the name
-    * they collide into one JVM method (a duplicate-method `ClassFormatError`, or one call silently binding to the wrong
-    * impl). Implementations whose methods differ in their value-parameter descriptors (the common `Show[Hello]`/`Show[World]`
-    * case) never collided, but folding the index in uniformly is harmless for them.
+    * descriptor: the `Dep` reader's native `Dep[X, DepCarrier[X, G]].dependency` and its cross-lift `Dep[X2,
+    * DepCarrier[X1, G]].dependency` are both `() -> DepCarrier`. Without the implementation index in the name they
+    * collide into one JVM method (a duplicate-method `ClassFormatError`, or one call silently binding to the wrong
+    * impl). Implementations whose methods differ in their value-parameter descriptors (the common
+    * `Show[Hello]`/`Show[World]` case) never collided, but folding the index in uniformly is harmless for them.
     */
   def mangledMethodName(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): String =
     vfqn.name.name + implementationSuffix(vfqn.name.qualifier) + mangleSuffix(typeArgs)

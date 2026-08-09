@@ -205,14 +205,15 @@ object ProcessorTest {
 
   /** The `Combine` ability stub, mirroring the real `eliot.lang.Combine` (a monoid — the `++` operator delegates to
     * `combine`, and `empty` is the identity). Minimal: the ability head with its two primitives; the `String` reduction
-    * is supplied by `StdlibNativesProcessor`/the jvm backend under the `Combine[String]::combine` impl method, and tests
-    * exercising the `++` operator itself enrich this module via [[ambientStubsWith]]. */
+    * is supplied by `StdlibNativesProcessor`/the jvm backend under the `Combine[String]::combine` impl method, and
+    * tests exercising the `++` operator itself enrich this module via [[ambientStubsWith]].
+    */
   val combineAbilityStubContent: String = "ability Combine[A] { def combine(a: A, b: A): A\n def empty: A }"
 
   val optionStubContent: String = "type Option[A]\ndef none[A]: Option[A]"
 
-  /** The `Compare` ability stub, mirroring the real `eliot.lang.Compare`: `lessThanOrEqual` is the single primitive (its
-    * `BigInteger` reduction is supplied by `StdlibNativesProcessor` under the ability-method FQN), `min`/`max` are
+  /** The `Compare` ability stub, mirroring the real `eliot.lang.Compare`: `lessThanOrEqual` is the single primitive
+    * (its `BigInteger` reduction is supplied by `StdlibNativesProcessor` under the ability-method FQN), `min`/`max` are
     * derived, and `BigInteger` implements it with a body-less method (the native attaches to the implementation). The
     * `Int` environment resolves `lessThanOrEqual`/`min`/`max` through this ability rather than through plain
     * `BigInteger` defs. Requires a `fold`-carrying `Bool` stub for `min`/`max` (the `intImports` Bool override provides
@@ -227,12 +228,13 @@ object ProcessorTest {
 
   /** The `Arithmetic` ability stub, mirroring the real `eliot.lang.Arithmetic`: `add`/`subtract`/`multiply` are the
     * primitives (their `BigInteger` reductions are supplied by `StdlibNativesProcessor` under the ability-method FQNs),
-    * and `BigInteger` implements them body-less (the natives attach to the implementation). `Arithmetic` is heterogeneous
-    * — two operand types `A`/`B` with a per-operation result type — so each `BigInteger` result is the associated type
-    * `AddResult`/`SubResult`/`MulResult` = `BigInteger`. The generic `+`/`-`/`*` operators are defined *on top of* this
-    * ability (`def +[X, Y ~ Arithmetic[X, Y]](...): AddResult = add(...)` in the real `Arithmetic` module) rather than
-    * per type — this minimal stub omits them, and tests needing the operators declare their own. (`multiplyMin`/
-    * `multiplyMax`, the `*` corner-product bounds, stay plain `BigInteger` defs — see the `intImports` `BigInteger` stub.)
+    * and `BigInteger` implements them body-less (the natives attach to the implementation). `Arithmetic` is
+    * heterogeneous — two operand types `A`/`B` with a per-operation result type — so each `BigInteger` result is the
+    * associated type `AddResult`/`SubResult`/`MulResult` = `BigInteger`. The generic `+`/`-`/`*` operators are defined
+    * *on top of* this ability (`def +[X, Y ~ Arithmetic[X, Y]](...): AddResult = add(...)` in the real `Arithmetic`
+    * module) rather than per type — this minimal stub omits them, and tests needing the operators declare their own.
+    * (`multiplyMin`/ `multiplyMax`, the `*` corner-product bounds, stay plain `BigInteger` defs — see the `intImports`
+    * `BigInteger` stub.)
     */
   val arithmeticStubContent: String =
     "ability Arithmetic[A, B] { type AddResult\n type SubResult\n type MulResult\n def add(a: A, b: B): AddResult\n def subtract(a: A, b: B): SubResult\n def multiply(a: A, b: B): MulResult }\n" +
@@ -241,8 +243,8 @@ object ProcessorTest {
   /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal `n`
     * is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
     * auto-imported) and the test harness must register matching stubs. These minimal versions only declare the abstract
-    * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/arithmetic environment lives in the
-    * `Int` tests' own import lists.
+    * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/arithmetic environment lives in the `Int`
+    * tests' own import lists.
     */
   /** The package holding desugaring machinery relocated out of the `eliot.lang` prelude (`PatternMatch`/`TypeMatch`).
     * Re-exported here so the few tests that build a custom (non-`ambientStubsWith`) import set can register those stubs
@@ -251,10 +253,10 @@ object ProcessorTest {
     */
   val compilerInternalPackage: Seq[String] = ModuleName.compilerInternalPackage
 
-  /** The package holding the compiler-coordinated ability the checker resolves by FQN — `Coerce` (check-mode
-    * widening). Re-exported so the `Int` tests can register that stub at the FQN `WellKnownTypes` loads. Deliberately
-    * *not* in the bare ambient prelude: a type-mismatch test resolves `coerceFQN`, which must find no module (clean
-    * mismatch) unless the test opts into the full `Int` environment.
+  /** The package holding the compiler-coordinated ability the checker resolves by FQN — `Coerce` (check-mode widening).
+    * Re-exported so the `Int` tests can register that stub at the FQN `WellKnownTypes` loads. Deliberately *not* in the
+    * bare ambient prelude: a type-mismatch test resolves `coerceFQN`, which must find no module (clean mismatch) unless
+    * the test opts into the full `Int` environment.
     */
   val compilerPackage: Seq[String] = ModuleName.compilerPackage
 
@@ -296,24 +298,25 @@ object ProcessorTest {
     */
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: {Dep[X]} X\n}"
 
-  /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/eliot/effect/` abilities (ambient —
-    * see [[consoleStubContent]]): the bare ability head + operations, no carriers or dischargers. Tests exercising a
+  /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/eliot/effect/` abilities (ambient — see
+    * [[consoleStubContent]]): the bare ability head + operations, no carriers or dischargers. Tests exercising a
     * discharge enrich the module via `ambientStubsWith`.
     */
-  val abortStubContent: String = "ability Abort[F[_]] {\ndef abort[A]: {Abort} A\n}"
-  val throwStubContent: String = "ability Throw[E, F[_]] {\ndef raise[A](err: E): {Throw[E]} A\n}"
-  val stateStubContent: String = "ability State[S, F[_]] {\ndef state: {State[S]} S\ndef putState(s: S): {State[S]} Unit\n}"
-  val infStubContent: String   = "ability Inf[F[_]] {\ndef forever(step: F[Unit]): {Inf} Unit\n}"
+  val abortStubContent: String  = "ability Abort[F[_]] {\ndef abort[A]: {Abort} A\n}"
+  val throwStubContent: String  = "ability Throw[E, F[_]] {\ndef raise[A](err: E): {Throw[E]} A\n}"
+  val stateStubContent: String  =
+    "ability State[S, F[_]] {\ndef state: {State[S]} S\ndef putState(s: S): {State[S]} Unit\n}"
+  val infStubContent: String    = "ability Inf[F[_]] {\ndef forever(step: F[Unit]): {Inf} Unit\n}"
   val writerStubContent: String = "ability Writer[W, F[_]] {\ndef tell(w: W): {Writer[W]} Unit\n}"
 
   /** The *legacy* ambient prelude a self-contained checker/monomorphize unit test relies on: value application
     * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`), and the Phase-6 literal desugar's
     * `Int`/`Runtime`. Production auto-imports the *whole* `eliot.lang` prelude (see `ModuleName.defaultSystemModules`),
     * but these bespoke tests build the rest of their type world (`Bool`/`Option`/`Either`/`Numeric`/`Compare`/…) inline
-    * or via explicit stubs that would otherwise double-import (shadow) against the full prelude. They therefore pin this
-    * smaller set so their hand-built environments stand unchanged. (`IO` is not ambient anywhere anymore — the carrier
-    * is the platform-owned `eliot.jvm.IO`, import-required.) The expanded auto-import is exercised end-to-end by the
-    * examples + the jvm `ExamplesIntegrationTest`s.
+    * or via explicit stubs that would otherwise double-import (shadow) against the full prelude. They therefore pin
+    * this smaller set so their hand-built environments stand unchanged. (`IO` is not ambient anywhere anymore — the
+    * carrier is the platform-owned `eliot.jvm.IO`, import-required.) The expanded auto-import is exercised end-to-end
+    * by the examples + the jvm `ExamplesIntegrationTest`s.
     */
   val coreAmbientModules: Seq[ModuleName] =
     Seq("Function", "Unit", "String", "BigInteger", "Int", "Runtime")

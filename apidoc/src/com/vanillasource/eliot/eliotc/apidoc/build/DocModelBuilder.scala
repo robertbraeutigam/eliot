@@ -10,10 +10,11 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   *
   * This is the apidoc-specific merge of Eliot's layering. Unlike the compiler's unifier — which *picks* one declaration
   * and rejects conflicts — this view keeps them all: declarations of the same name across layers collapse into one item
-  * showing the canonical (abstract) signature, every layer that declares it, and the layers that implement it. The three
-  * shapes are recovered from the qualifier the front end assigned: a `data`/`type` becomes a type-like item (abstract
-  * `type IO[A]` merged with the concrete `data IO[A](..)` of a platform layer), an ability marker plus its methods
-  * becomes an ability item (with its implementations gathered workspace-wide), and a plain `def` becomes a value item.
+  * showing the canonical (abstract) signature, every layer that declares it, and the layers that implement it. The
+  * three shapes are recovered from the qualifier the front end assigned: a `data`/`type` becomes a type-like item
+  * (abstract `type IO[A]` merged with the concrete `data IO[A](..)` of a platform layer), an ability marker plus its
+  * methods becomes an ability item (with its implementations gathered workspace-wide), and a plain `def` becomes a
+  * value item.
   *
   * Documentation is not decided here — it comes from `docFor`, keyed by a name's [[ValueFQN]]. The pipeline supplies a
   * lookup backed by the [[com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc]] fact (so the site and the language
@@ -38,7 +39,9 @@ object DocModelBuilder {
     // collapsed "Implementations" block, so a type reads as more than the sum of its (often abstract) declaration.
     val taggedImplementations: Seq[(String, String, FunctionDefinition)] =
       layerFiles.flatMap { case (_, layer, ast) =>
-        ast.functionDefinitions.filter(isPublic).flatMap(fn => implMarkerAbility(fn).map(ability => (layer, ability, fn)))
+        ast.functionDefinitions
+          .filter(isPublic)
+          .flatMap(fn => implMarkerAbility(fn).map(ability => (layer, ability, fn)))
       }
 
     val implementationsByAbility: Map[String, Seq[(String, String, FunctionDefinition)]] =
@@ -76,7 +79,9 @@ object DocModelBuilder {
       implementationsByType: Map[String, Seq[(String, String, FunctionDefinition)]],
       docFor: ValueFQN => DocText.Selected
   ): (DocModule, Seq[String]) = {
-    val taggedFunctions = files.flatMap { case (layer, ast) => ast.functionDefinitions.filter(isPublic).map(layer -> _) }
+    val taggedFunctions = files.flatMap { case (layer, ast) =>
+      ast.functionDefinitions.filter(isPublic).map(layer -> _)
+    }
     val taggedData      = files.flatMap { case (layer, ast) => ast.typeDefinitions.filter(isPublic).map(layer -> _) }
 
     val values         = taggedFunctions.filter(_._2.name.value.qualifier == Qualifier.Default)
@@ -106,9 +111,11 @@ object DocModelBuilder {
     }
 
     val valueItems =
-      values.map(_._2.name.value.name).distinct.sorted.map(name =>
-        buildValueItem(moduleName, name, values.filter(_._2.name.value.name == name), docFor)
-      )
+      values
+        .map(_._2.name.value.name)
+        .distinct
+        .sorted
+        .map(name => buildValueItem(moduleName, name, values.filter(_._2.name.value.name == name), docFor))
 
     val all = typeItems ++ abilityItems ++ valueItems
     (DocModule(moduleName, None, all.map(_._1)), all.flatMap(_._2))
@@ -124,7 +131,9 @@ object DocModelBuilder {
     val item     = DocItem(
       name = name,
       kind = DocItem.Kind.Value,
-      signature = SignatureRenderer.forName(QualifiedName(name, Qualifier.Default), decls.map(_._2), Seq.empty, 0).getOrElse(name),
+      signature = SignatureRenderer
+        .forName(QualifiedName(name, Qualifier.Default), decls.map(_._2), Seq.empty, 0)
+        .getOrElse(name),
       doc = selected.doc,
       layers = DocText.sortLayers(decls.map(_._1)),
       implementedOn = DocText.sortLayers(decls.filter(_._2.body.isDefined).map(_._1))
@@ -142,7 +151,9 @@ object DocModelBuilder {
   ): (DocItem, Seq[String]) = {
     val concreteTypes    = typeDecls.filter(_._2.body.isDefined)
     val primarySignature =
-      SignatureRenderer.forName(QualifiedName(name, Qualifier.Type), typeDecls.map(_._2), dataDecls.map(_._2), 0).getOrElse(name)
+      SignatureRenderer
+        .forName(QualifiedName(name, Qualifier.Type), typeDecls.map(_._2), dataDecls.map(_._2), 0)
+        .getOrElse(name)
 
     val concreteDefinitions =
       dataDecls.map { case (layer, dd) => SignatureRenderer.data(dd) -> layer } ++
@@ -153,7 +164,9 @@ object DocModelBuilder {
       .groupBy(_._1)
       .toSeq
       .sortBy(_._1)
-      .map { case (signature, group) => DocItem.Member(signature, None, Some(DocText.sortLayers(group.map(_._2)).mkString(", "))) }
+      .map { case (signature, group) =>
+        DocItem.Member(signature, None, Some(DocText.sortLayers(group.map(_._2)).mkString(", ")))
+      }
 
     val selected = docFor(ValueFQN(moduleName, QualifiedName(name, Qualifier.Type)))
 
@@ -187,7 +200,12 @@ object DocModelBuilder {
       .map { case (methodName, group) =>
         // `forName` drops the ability's common generics (prepended to every method) so the method reads as written.
         val signature = SignatureRenderer
-          .forName(QualifiedName(methodName, Qualifier.Ability(name)), group.map(_._2), Seq.empty, commonParameters.length)
+          .forName(
+            QualifiedName(methodName, Qualifier.Ability(name)),
+            group.map(_._2),
+            Seq.empty,
+            commonParameters.length
+          )
           .getOrElse(methodName)
         val selected  = docFor(ValueFQN(moduleName, QualifiedName(methodName, Qualifier.Ability(name))))
         (DocItem.Member(signature, selected.doc), selected.warnings)
@@ -198,7 +216,9 @@ object DocModelBuilder {
     val item = DocItem(
       name = name,
       kind = DocItem.Kind.Ability,
-      signature = SignatureRenderer.forName(QualifiedName(name, Qualifier.Ability(name)), markers.map(_._2), Seq.empty, 0).getOrElse(name),
+      signature = SignatureRenderer
+        .forName(QualifiedName(name, Qualifier.Ability(name)), markers.map(_._2), Seq.empty, 0)
+        .getOrElse(name),
       doc = selected.doc,
       layers = DocText.sortLayers(markers.map(_._1) ++ methods.map(_._1)),
       members = methodMembersWithWarnings.map(_._1),
@@ -236,8 +256,8 @@ object DocModelBuilder {
     case _                                             => None
   }
 
-  /** A declaration appears in the docs only if it is `public`; `private` names are module-local and are omitted, mirroring
-    * the compiler's own rule that private names are neither importable nor resolvable outside their module.
+  /** A declaration appears in the docs only if it is `public`; `private` names are module-local and are omitted,
+    * mirroring the compiler's own rule that private names are neither importable nor resolvable outside their module.
     */
   private def isPublic(fn: FunctionDefinition): Boolean = fn.visibility == Visibility.Public
   private def isPublic(dd: DataDefinition): Boolean     = dd.visibility == Visibility.Public

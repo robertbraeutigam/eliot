@@ -26,16 +26,16 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, WellKnownTypes}
   * takes none, `Throw` takes one, so a two-argument application is a full `AbortCarrier[G, A]` *or* a partial
   * `ThrowCarrier[E, G]`. `GroundValue.valueType` does **not** help — it is `Type` for every structure, including the
   * nullary type constructor `IO`. So the caller states its context: [[render]] for a **type**, [[renderConstructor]]
-  * for a **type constructor** (an ability's `F[_]` argument). Getting this wrong is how
-  * `ThrowCarrier[String, StateCarrier[String, IO]]` once printed as `{Throw | String} {State | String} IO` instead of
-  * `{Throw[String], State[String] | IO}` — a confidently wrong reading of the same characters.
+  * for a **type constructor** (an ability's `F[_]` argument). Getting this wrong is how `ThrowCarrier[String,
+  * StateCarrier[String, IO]]` once printed as `{Throw | String} {State | String} IO` instead of `{Throw[String],
+  * State[String] | IO}` — a confidently wrong reading of the same characters.
   *
   * '''Two deliberate decisions about `Id`''' (docs/effects-as-channel.md §9 — `Id` and carriers are never rendered to
   * users):
   *   - `Id[X]` is **erased** to `X`. It is pure machinery the checker inserts at a pure boundary and the
   *     Id-normalization stage erases downstream; a consumer reading a pre-erasure `MonomorphicValue` would otherwise
-  *     show it. (Erasing here is a rendering fallback — a consumer holding pre-erasure facts should still
-  *     Id-normalize its input, so the machinery *nodes* disappear too, not just their names.)
+  *     show it. (Erasing here is a rendering fallback — a consumer holding pre-erasure facts should still Id-normalize
+  *     its input, so the machinery *nodes* disappear too, not just their names.)
   *   - an `Id` **row base is kept**: `{Throw[E] | Id} A` is exactly the legal surface a user writes for a stack pinned
   *     to the pure base, and it is *not* the same type as the open row `{Throw[E]} A` (whose carrier the caller
   *     chooses). Suppressing the base would render two different types identically.
@@ -47,8 +47,8 @@ object GroundValueRenderer {
     */
   def render(value: GroundValue): String = go(value, appliedToPayload = true)
 
-  /** Render a ground **type constructor** — a value occupying an `F[_]` slot, such as an ability's carrier argument.
-    * A carrier application here is *not* applied to a payload, so `ThrowCarrier[E, G]` reads `{Throw[E] | G}` and its
+  /** Render a ground **type constructor** — a value occupying an `F[_]` slot, such as an ability's carrier argument. A
+    * carrier application here is *not* applied to a payload, so `ThrowCarrier[E, G]` reads `{Throw[E] | G}` and its
     * last argument is correctly read as the base rather than as a payload.
     */
   def renderConstructor(value: GroundValue): String = go(value, appliedToPayload = false)
@@ -86,9 +86,9 @@ object GroundValueRenderer {
       s"${structure.typeName.name.name}[${structure.args.map(render).mkString(", ")}]"
     else s"${structure.typeName.name.name}(${structure.args.map(render).mkString(", ")})"
 
-  /** A canonical-carrier application rendered as the pinned row that spells it, split according to the caller's
-    * context (see the class doc). Ability arguments and the payload are types; the base slot is a type constructor,
-    * so [[peel]] reads nested layers in the payload-unapplied form.
+  /** A canonical-carrier application rendered as the pinned row that spells it, split according to the caller's context
+    * (see the class doc). Ability arguments and the payload are types; the base slot is a type constructor, so [[peel]]
+    * reads nested layers in the payload-unapplied form.
     */
   private def pinnedRow(structure: GroundValue.Structure, appliedToPayload: Boolean): Option[String] =
     EffectRowRendering

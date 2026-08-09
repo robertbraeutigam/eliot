@@ -23,12 +23,11 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * Selection is pure precedence with no conflict resolution: the first native `Some` → else the first user `Some` →
   * else an absent binding (a `NativeBinding` with `semValue = None`; the evaluator stalls at the use site — the
   * companion-clause, use-site error). The output [[NativeBinding]] is *total* — no name declines — so the fact never
-  * leaves a cache-poison edge and readers consume it with [[getFactOrAbort]]. Uniqueness
-  * already holds within each category (native suppliers are disjoint by construction; the user stack is
-  * single-implementation by layering), so each category yields at most one value and there is nothing to order or
-  * reject. A user body coexisting with a native is the normal case (`add` has a compile-time native and a runtime
-  * body), not an override — precedence alone keeps the native for checking; codegen reads the structural body off
-  * `MonomorphicValue.runtime`.
+  * leaves a cache-poison edge and readers consume it with [[getFactOrAbort]]. Uniqueness already holds within each
+  * category (native suppliers are disjoint by construction; the user stack is single-implementation by layering), so
+  * each category yields at most one value and there is nothing to order or reject. A user body coexisting with a native
+  * is the normal case (`add` has a compile-time native and a runtime body), not an override — precedence alone keeps
+  * the native for checking; codegen reads the structural body off `MonomorphicValue.runtime`.
   *
   * **Dependency closure lives here, not in the suppliers.** A supplier contributes only what it knows about the name
   * *itself*: a [[BindingContribution.Leaf]] (a finished native reduction) or a [[BindingContribution.Body]] (its own

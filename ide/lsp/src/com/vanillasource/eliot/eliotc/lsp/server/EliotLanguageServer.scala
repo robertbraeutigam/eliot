@@ -30,10 +30,10 @@ import scala.jdk.CollectionConverters.*
   * with the server.
   */
 final class EliotLanguageServer(service: EliotCompilationService) extends LanguageServer with LanguageClientAware {
-  private val textDocumentService           = new EliotTextDocumentService(service)
-  private val workspaceService              = new EliotWorkspaceService(service)
-  @volatile private var roots: Seq[Path]    = Seq.empty
-  @volatile private var canRegisterWatchers = false
+  private val textDocumentService            = new EliotTextDocumentService(service)
+  private val workspaceService               = new EliotWorkspaceService(service)
+  @volatile private var roots: Seq[Path]     = Seq.empty
+  @volatile private var canRegisterWatchers  = false
   @volatile private var canRefreshCodeLenses = false
 
   override def initialize(params: InitializeParams): CompletableFuture[InitializeResult] = {

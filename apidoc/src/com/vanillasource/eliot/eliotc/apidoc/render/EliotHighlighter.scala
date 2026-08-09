@@ -10,8 +10,26 @@ package com.vanillasource.eliot.eliotc.apidoc.render
   */
 object EliotHighlighter {
   private val keywords = Set(
-    "import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix", "val",
-    "private", "auto", "left", "right", "none", "at", "above", "below"
+    "import",
+    "data",
+    "def",
+    "ability",
+    "implement",
+    "match",
+    "case",
+    "type",
+    "infix",
+    "prefix",
+    "postfix",
+    "val",
+    "private",
+    "auto",
+    "left",
+    "right",
+    "none",
+    "at",
+    "above",
+    "below"
   )
 
   private def isOperatorChar(c: Char): Boolean = "!#$%&*+./<=>?@\\^|-~;:".contains(c)
@@ -36,12 +54,12 @@ object EliotHighlighter {
         val end   = if (close < 0) n else close + 2
         span("cm", code.substring(i, end)); i = end
       } else if (c == '"') {
-        var j = i + 1
+        var j   = i + 1
         while (j < n && code.charAt(j) != '"') j = if (code.charAt(j) == '\\') j + 2 else j + 1
         val end = math.min(j + 1, n)
         span("str", code.substring(i, end)); i = end
       } else if (c.isLetter) {
-        var j = i
+        var j    = i
         while (j < n && code.charAt(j).isLetterOrDigit) j += 1
         val word = code.substring(i, j)
         span(if (keywords(word)) "kw" else if (word.head.isUpper) "ty" else "fn", word); i = j

@@ -5,7 +5,12 @@ import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.{MarkerGuardSignature, Track, TypeStackLoop}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValue, GroundValue, MonomorphicValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{
+  CompilerMonomorphicValue,
+  GroundValue,
+  MonomorphicValue,
+  NativeBinding
+}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -35,9 +40,10 @@ class MonomorphicTypeCheckProcessor()
       // (leftover binders as `GroundValue.Param`s) which `establishSignature` re-inflates to fresh metas. A missing twin
       // means its own mono already reported the signature's errors, so aborting here is the correct decline (no in-place
       // re-check, no double reporting). Acyclic: `CompilerMonomorphicValue` never reads back a runtime `MonomorphicValue`.
-      injectedSignature <- getFactOrAbort(
-                             CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
-                           ).map(cmv => Some(cmv.signature))
+      injectedSignature <-
+        getFactOrAbort(
+          CompilerMonomorphicValue.Key(key.vfqn.copy(name = key.vfqn.name.signatureTwin), key.typeArguments)
+        ).map(cmv => Some(cmv.signature))
       result            <- TypeStackLoop.process(
                              key.typeArguments,
                              value,

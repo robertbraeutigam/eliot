@@ -52,22 +52,22 @@ object MatchDesugarUtils {
       dataTypeName: Option[String] = None
   ): CompilerIO[ValueFQN] =
     for {
-      impls       <- getFactOrAbort(ModuleAbilities.Key(moduleName, platform))
-      candidates   = impls.namedImplementationMethodsOf(abilityName, methodName)
-      selected    <- dataTypeName match {
-                       case None      => candidates.headOption.pure[CompilerIO]
-                       case Some(dtn) =>
-                         candidates.findM(vfqn =>
-                           ImplementationMarkerUtils
-                             .firstPatternTypeConstructorName(moduleName, abilityName, vfqn.name.qualifier, platform)
-                             .map(_.contains(dtn))
-                         )
-                     }
-      result      <- selected match
-                       case Some(vfqn) => vfqn.pure[CompilerIO]
-                       case None       =>
-                         compilerAbort(
-                           errorSource.as(s"No $abilityName.$methodName implementation found in module $moduleName.")
-                         )
+      impls     <- getFactOrAbort(ModuleAbilities.Key(moduleName, platform))
+      candidates = impls.namedImplementationMethodsOf(abilityName, methodName)
+      selected  <- dataTypeName match {
+                     case None      => candidates.headOption.pure[CompilerIO]
+                     case Some(dtn) =>
+                       candidates.findM(vfqn =>
+                         ImplementationMarkerUtils
+                           .firstPatternTypeConstructorName(moduleName, abilityName, vfqn.name.qualifier, platform)
+                           .map(_.contains(dtn))
+                       )
+                   }
+      result    <- selected match
+                     case Some(vfqn) => vfqn.pure[CompilerIO]
+                     case None       =>
+                       compilerAbort(
+                         errorSource.as(s"No $abilityName.$methodName implementation found in module $moduleName.")
+                       )
     } yield result
 }

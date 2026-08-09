@@ -98,11 +98,11 @@ object FunctionDefinition {
       (keyword("infix") *> infixAssociativity).map(a => Fixity.Infix(a): Fixity) or
       keyword("postfix").as(Fixity.Postfix: Fixity)
 
-  /** Parses the modifier prefix shared by `def` and `type` definitions:
-    * `[visibility] [fixity precedence*] <definitionKeyword>`, returning `(visibility, fixity, precedence)`. Atomic, so it
-    * backtracks cleanly when `definitionKeyword` does not follow the modifiers (letting the top-level `xor` dispatch try
-    * the next alternative). Called with `"def"` for value definitions and `"type"` for type aliases — so a type alias can
-    * carry a fixity exactly like a `def`, e.g. `infix right type =>[A, B] = Function[A, B]`.
+  /** Parses the modifier prefix shared by `def` and `type` definitions: `[visibility] [fixity precedence*]
+    * <definitionKeyword>`, returning `(visibility, fixity, precedence)`. Atomic, so it backtracks cleanly when
+    * `definitionKeyword` does not follow the modifiers (letting the top-level `xor` dispatch try the next alternative).
+    * Called with `"def"` for value definitions and `"type"` for type aliases — so a type alias can carry a fixity
+    * exactly like a `def`, e.g. `infix right type =>[A, B] = Function[A, B]`.
     */
   def modifierPrefix(
       definitionKeyword: String

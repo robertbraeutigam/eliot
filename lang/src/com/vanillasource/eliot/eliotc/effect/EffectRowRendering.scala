@@ -11,11 +11,11 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
   * a second copy would be the source that drifts. A caller supplies three things: the head FQN and arguments of a node,
   * a way to `peel` a nested node back into a layer, and a way to `render` a leaf.
   *
-  * '''The convention it inverts''' ([[EffectCarrierNaming]]): a carrier application is
-  * `<Ability>Carrier[abilityArgs…, base]` as a type *constructor*, plus one trailing payload argument once applied to a
-  * result. So the base is always the last argument of the payload-unapplied form, and the ability's own arguments are
-  * everything before it — which is why `appliedToPayload` must be supplied by the caller: it is the only thing that
-  * decides whether the last argument is the payload or the base.
+  * '''The convention it inverts''' ([[EffectCarrierNaming]]): a carrier application is `<Ability>Carrier[abilityArgs…,
+  * base]` as a type *constructor*, plus one trailing payload argument once applied to a result. So the base is always
+  * the last argument of the payload-unapplied form, and the ability's own arguments are everything before it — which is
+  * why `appliedToPayload` must be supplied by the caller: it is the only thing that decides whether the last argument
+  * is the payload or the base.
   *
   * '''Rendering only.''' Layer recognition goes through [[EffectCarrierNaming.abilityNameOfCarrier]], i.e. by *name*.
   * That is sanctioned here and nowhere else: a misrecognition costs a cosmetically wrong type string, whereas the same
@@ -46,8 +46,8 @@ object EffectRowRendering {
     * `|`. A payload-bearing layer renders as `{Throw[E] | IO} String`; a payload-less one (a carrier passed as an
     * `F[_]`) as just `{Throw[E] | IO}`.
     *
-    * `peel` decomposes a *base-slot* node, so it is asked for the payload-unapplied shape; `render` prints a leaf
-    * (an ability argument, the base, the payload).
+    * `peel` decomposes a *base-slot* node, so it is asked for the payload-unapplied shape; `render` prints a leaf (an
+    * ability argument, the base, the payload).
     */
   def row[A](layer: Layer[A], peel: A => Option[Layer[A]], render: A => String): String = {
     val (entries, base) = flatten(layer, peel, render, Seq.empty)

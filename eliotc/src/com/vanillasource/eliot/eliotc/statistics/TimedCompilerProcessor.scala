@@ -19,11 +19,13 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProces
   *
   * A generation that *aborts* — the sanctioned way for a processor to decline, and how an error propagates — would
   * short-circuit past the measurement, so the generation is run through `recoverWithAborted` and the abort re-raised
-  * afterwards. That is exactly what the surrounding [[com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors]]
-  * already does with every processor it invokes, so the semantics are unchanged — and it keeps declines, which are
-  * frequent and not free, from silently accumulating in the report's unaccounted remainder.
+  * afterwards. That is exactly what the surrounding
+  * [[com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors]] already does with every processor
+  * it invokes, so the semantics are unchanged — and it keeps declines, which are frequent and not free, from silently
+  * accumulating in the report's unaccounted remainder.
   */
-final class TimedCompilerProcessor(underlying: CompilerProcessor, counters: ProcessorCounters) extends CompilerProcessor {
+final class TimedCompilerProcessor(underlying: CompilerProcessor, counters: ProcessorCounters)
+    extends CompilerProcessor {
 
   /** Delegated, so that measuring a processor does not make it look like it handles every key. */
   override def handles(factKey: CompilerFactKey[?]): Boolean = underlying.handles(factKey)

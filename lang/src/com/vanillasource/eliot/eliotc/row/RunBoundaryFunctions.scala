@@ -4,8 +4,8 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.plugin.Configuration
 
 /** The platform **run boundaries**: values whose parameter 0 *hosts* a computation on the platform's own concrete
-  * carrier, rather than receiving it as data. The one instance today is the jvm entry point `eliot.jvm::runMain`
-  * (`def runMain[A](io: IO[A]): A`), which the synthesized `main` hands the user program to; the LSP registers its own
+  * carrier, rather than receiving it as data. The one instance today is the jvm entry point `eliot.jvm::runMain` (`def
+  * runMain[A](io: IO[A]): A`), which the synthesized `main` hands the user program to; the LSP registers its own
   * wrapper for the same reason.
   *
   * This is the carrier-recognition tag **source (ii)**, the platform-contributed counterpart of the pinned-row desugar

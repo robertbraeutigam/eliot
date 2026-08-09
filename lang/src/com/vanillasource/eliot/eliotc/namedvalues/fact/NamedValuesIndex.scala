@@ -8,11 +8,11 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
-/** Every top-level value named `name` in a platform pool, as a deterministically ordered list of fully-qualified
-  * names — the reflection index the `namedValues[V](name)` rewrite expands into a builder chain. Keyed on the lexical
-  * `name` (available before the checker) rather than on the claimed type `V`: type equality in Eliot is definitional
-  * (needs the evaluator), so `V` is a *claim* the emitted chain asserts and the ordinary checker enforces downstream,
-  * never a pre-checker filter.
+/** Every top-level value named `name` in a platform pool, as a deterministically ordered list of fully-qualified names
+  * — the reflection index the `namedValues[V](name)` rewrite expands into a builder chain. Keyed on the lexical `name`
+  * (available before the checker) rather than on the claimed type `V`: type equality in Eliot is definitional (needs
+  * the evaluator), so `V` is a *claim* the emitted chain asserts and the ordinary checker enforces downstream, never a
+  * pre-checker filter.
   *
   * `fqns` holds only [[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Default]], public, runtime-role names equal
   * to `name`, sorted by canonical `ValueFQN` string so the result is stable across runs. Layer copies of one module are

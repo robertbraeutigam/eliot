@@ -60,9 +60,14 @@ object MetaWhereDesugarer {
     typeExpr.value match {
       case SourceExpression.FunctionApplication(module, fnName, _, _) =>
         typeExpr.as(
-          SourceExpression.FunctionApplication(module, fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix), None, Seq.empty)
+          SourceExpression.FunctionApplication(
+            module,
+            fnName.map(_ + MetaConstructorDesugarer.metaTypeSuffix),
+            None,
+            Seq.empty
+          )
         )
-      case _                                                         => typeExpr
+      case _                                                          => typeExpr
     }
 
   /** A module-qualified reference to the `Bool` type (`eliot.lang.Bool::Bool`), so the companion's return type resolves

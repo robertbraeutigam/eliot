@@ -51,7 +51,6 @@ object NamedValue {
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
     structuralEquality.eqv(x.signature.value, y.signature.value)
 
-  extension (self: NamedValue)
-    def render: String = s"${self.qualifiedName.value}: ${self.signature.value.render}"
+  extension (self: NamedValue) def render: String = s"${self.qualifiedName.value}: ${self.signature.value.render}"
 
 }

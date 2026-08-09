@@ -22,8 +22,8 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression
   * them — and required.
   *
   * @param lookupTopDef
-  *   Resolve a top-level definition by [[ValueFQN]]. A missing binding becomes a stuck [[SemValue.VNeutral]] rather than
-  *   a silent mis-evaluation.
+  *   Resolve a top-level definition by [[ValueFQN]]. A missing binding becomes a stuck [[SemValue.VNeutral]] rather
+  *   than a silent mis-evaluation.
   */
 class MonomorphicEvaluator(lookupTopDef: ValueFQN => Option[SemValue])
     extends NbeEvaluator[MonomorphicExpression](lookupTopDef) {

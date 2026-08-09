@@ -32,6 +32,8 @@ case class ModuleAbilityOverlapCheck(
 object ModuleAbilityOverlapCheck {
   case class Key(moduleName: ModuleName, abilityName: String, platform: Platform = Platform.Runtime)
       extends CompilerFactKey[ModuleAbilityOverlapCheck] {
-        override def valueCodec: Option[FactCodec[ModuleAbilityOverlapCheck]] = Some(LangFactCodecs.moduleAbilityOverlapCheckCodec)
-      }
+    override def valueCodec: Option[FactCodec[ModuleAbilityOverlapCheck]] = Some(
+      LangFactCodecs.moduleAbilityOverlapCheckCodec
+    )
+  }
 }

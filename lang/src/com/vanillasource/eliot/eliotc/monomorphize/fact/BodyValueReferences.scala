@@ -16,7 +16,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker]]'s `ensureBinding` follows these transitively (the
   * binding cache short-circuits already-seen values, so cycles terminate) so that `renormalize` can re-fire a nested
   * stuck native once its bound metavariables solve — e.g. the `multiply`/`lessThanOrEqual`/`fold` inside a derived
-  * `multiplyMin` used in the `*` result type. Platform-keyed like [[NativeBinding]], so each track walks its own bodies.
+  * `multiplyMin` used in the `*` result type. Platform-keyed like [[NativeBinding]], so each track walks its own
+  * bodies.
   *
   * @param vfqn
   *   the value whose checking body was walked

@@ -14,9 +14,9 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * [[OperatorResolvedValue]] only to break a fact cycle: [[OperatorResolvedValue]] is produced upstream by the
   * `operator` phase, so a phase reading and republishing it cannot reuse the same key.
   *
-  * The name is historical: this fact once carried a *saturated* signature (the retired implicit-generics `auto`
-  * feature rewrote bare omittable type-constructor references into explicit applications over fresh binders). With no
-  * user surface for omittable binders and the effect carrier already written by the row elaborator,
+  * The name is historical: this fact once carried a *saturated* signature (the retired implicit-generics `auto` feature
+  * rewrote bare omittable type-constructor references into explicit applications over fresh binders). With no user
+  * surface for omittable binders and the effect carrier already written by the row elaborator,
   * [[SaturatedValueProcessor]] is a pass-through and this value equals its [[OperatorResolvedValue]] verbatim.
   *
   * @param value
@@ -25,8 +25,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 case class SaturatedValue(value: OperatorResolvedValue) extends CompilerFact {
   override def key(): CompilerFactKey[SaturatedValue] = SaturatedValue.Key(value.vfqn, value.platform)
 
-  /** The codegen-relevance classification of each leading generic binder, computed once on this saturated value —
-    * the monomorphization-keying plan's B1 analysis (grown from the D6 reified-binder flag). Each binder carries its
+  /** The codegen-relevance classification of each leading generic binder, computed once on this saturated value — the
+    * monomorphization-keying plan's B1 analysis (grown from the D6 reified-binder flag). Each binder carries its
     * reified/dispatched/representation roles and a derived [[BinderRoles.Disposition]]. Two consumers use it: the
     * monomorphize binding cache (`BindingClosure.reifyingWrap`, via [[BinderRoles.reifiedPrefixBinders]]) and the
     * codegen-key dedup (`used/CodegenProjection.scala`). Computed on the *saturated* signature so the binder indices

@@ -105,8 +105,8 @@ object PositionIndex {
     a.from > b.from || (a.from === b.from && a.to < b.to)
 
   /** Normalise a URI to a stable key so the editor's `file:///…` URIs match the compiler's `file:/…` URIs (the latter
-    * produced by `java.io.File.toURI`). Since CP1.5 every source URI is a `file:` URI — the base and platform layers are
-    * filesystem roots too, no longer `jar:` classpath resources — so this keys all of them by path; the catch is a
+    * produced by `java.io.File.toURI`). Since CP1.5 every source URI is a `file:` URI — the base and platform layers
+    * are filesystem roots too, no longer `jar:` classpath resources — so this keys all of them by path; the catch is a
     * defensive fallback for any unexpected non-`file:` URI, which then simply never matches a workspace document.
     */
   private def uriKey(uri: URI): String =
