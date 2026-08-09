@@ -149,7 +149,7 @@ case class Unifier(
 
       // VTopDef equality by FQN: same constructor → unify spines pointwise (definitional equality). Constructors
       // applied to differing arguments are genuinely unequal values and are rejected here.
-      case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
+      case (VTopDef(fqn1, _, sp1, _), VTopDef(fqn2, _, sp2, _)) if fqn1 == fqn2 =>
         unifySpines(fl, fr, sp1, sp2, context)
 
       // Stuck native equality by FQN: a native application is *not* injective (`add(1, 3) == add(2, 2)`), so it is
@@ -223,7 +223,7 @@ case class Unifier(
       rhs: SemValue,
       context: Sourced[String]
   ): Option[Unifier] = rhs match {
-    case VTopDef(fqn, None, rhsSpine) =>
+    case VTopDef(fqn, None, rhsSpine, _) =>
       decomposeSpines(id, metaSpine, rhsSpine, prefix => VTopDef(fqn, None, prefix), context)
     case VNeutral(head, rhsSpine)     =>
       decomposeSpines(id, metaSpine, rhsSpine, prefix => VNeutral(head, prefix), context)
@@ -342,7 +342,7 @@ case class Unifier(
   private def occursIn(id: MetaId, value: SemValue): Boolean =
     Evaluator.force(value, metaStore) match {
       case VMeta(other, spine)    => other.value == id.value || spine.toList.exists(occursIn(id, _))
-      case VTopDef(_, _, spine)   => spine.toList.exists(occursIn(id, _))
+      case VTopDef(_, _, spine, _)   => spine.toList.exists(occursIn(id, _))
       case VStuckNative(_, spine) => spine.toList.exists(occursIn(id, _))
       case VNeutral(_, spine)     => spine.toList.exists(occursIn(id, _))
       case VPi(domain, codomain)  =>

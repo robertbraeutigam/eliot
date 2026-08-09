@@ -54,13 +54,13 @@ object Quoter {
       case VNative(_, _) =>
         Left("Cannot quote partially applied native")
 
-      case VTopDef(fqn, None, spine) =>
+      case VTopDef(fqn, None, spine, _) =>
         // An unevaluated constructor-like application (cached body is absent, e.g. for data value constructors).
         for {
           args <- spine.toList.traverse(quote(depth, _, metaStore))
         } yield GroundValue.Structure(fqn, args, GroundValue.Type)
 
-      case VTopDef(fqn, _, _) =>
+      case VTopDef(fqn, _, _, _) =>
         Left(s"Cannot quote unapplied top-level definition ${fqn.show}")
 
       case VStuckNative(fqn, _) =>

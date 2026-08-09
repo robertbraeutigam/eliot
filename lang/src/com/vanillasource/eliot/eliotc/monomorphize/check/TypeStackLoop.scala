@@ -504,7 +504,7 @@ class TypeStackLoop(
                    .lookupByName(name)
                    .map(value => Evaluator.force(value, state.unifier.metaStore))
                    .collect {
-                     case VTopDef(fqn, _, _) => CheckState.CarrierHead.TopDef(fqn)
+                     case VTopDef(fqn, _, _, _) => CheckState.CarrierHead.TopDef(fqn)
                      case VMeta(id, _)       => CheckState.CarrierHead.Meta(id.value)
                    }
                )
@@ -525,8 +525,8 @@ class TypeStackLoop(
       returnSv <- checker.evalExpr(view.returnType.value)
       forced   <- checker.force(returnSv)
       _        <- forced match {
-                    case VTopDef(fqn, cached, Spine.SApp(prefix, _)) =>
-                      isEffectCarrierConstructor(VTopDef(fqn, cached, prefix)).flatMap {
+                    case topDef @ VTopDef(fqn, _, Spine.SApp(prefix, _), _) =>
+                      isEffectCarrierConstructor(topDef.copy(spine = prefix)).flatMap {
                         case true  => modify(_.recordAmbientCarriers(Set(CheckState.CarrierHead.TopDef(fqn))))
                         case false => pure(())
                       }
@@ -600,8 +600,8 @@ class TypeStackLoop(
       returnSv <- checker.evalExpr(view.returnType.value, Some(monoEnv))
       forced   <- checker.force(returnSv)
       result   <- forced match {
-                    case VTopDef(fqn, cached, Spine.SApp(prefix, _)) =>
-                      val carrier = VTopDef(fqn, cached, prefix)
+                    case topDef @ VTopDef(_, _, Spine.SApp(prefix, _), _) =>
+                      val carrier = topDef.copy(spine = prefix)
                       isEffectCarrierConstructor(carrier).map {
                         case true  => quoter.quoteSemOption(carrier).toSet
                         case false => Set.empty[GroundValue]

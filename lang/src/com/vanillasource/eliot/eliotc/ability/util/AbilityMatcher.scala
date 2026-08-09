@@ -228,7 +228,7 @@ object AbilityMatcher {
     */
   private def extractFunctionArgs(sv: SemValue, metaStore: MetaStore): Seq[SemValue] =
     Evaluator.force(sv, metaStore) match {
-      case VTopDef(fqn, _, spine) if fqn == WellKnownTypes.functionDataTypeFQN =>
+      case VTopDef(fqn, _, spine, _) if fqn == WellKnownTypes.functionDataTypeFQN =>
         spine.toList match {
           case paramType :: returnType :: Nil => paramType +: extractFunctionArgs(returnType, metaStore)
           case _                              => Seq.empty
@@ -277,7 +277,7 @@ object AbilityMatcher {
   ): Seq[(MetaId, GroundValue)] = pattern match {
     case VMeta(id, Spine.SNil)  =>
       Seq(id -> query)
-    case VTopDef(fqn, _, spine) =>
+    case VTopDef(fqn, _, spine, _) =>
       query match {
         case GroundValue.Structure(queryFqn, args, _) if queryFqn == fqn =>
           spine.toList.zip(args).flatMap { case (s, g) => tracePatternMetas(s, g) }
@@ -330,7 +330,7 @@ object AbilityMatcher {
         Evaluator.force(sem, metaStore) match {
           case VType                       => GroundValue.Type
           case VConst(g)                   => g
-          case VTopDef(fqn, _, Spine.SNil) =>
+          case VTopDef(fqn, _, Spine.SNil, _) =>
             GroundValue.Structure(fqn, Seq.empty, GroundValue.Type)
           case _                           => GroundValue.Type
         }

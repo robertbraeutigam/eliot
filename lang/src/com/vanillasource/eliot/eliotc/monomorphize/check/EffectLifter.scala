@@ -82,9 +82,9 @@ class EffectLifter(
             if ambient.contains(CheckState.CarrierHead.Meta(id.value)) ||
               state.unifier.isHigherKindedMeta(id.value) =>
           Some((VMeta(id, prefix), payload))
-        case VTopDef(fqn, cached, Spine.SApp(prefix, payload))
+        case topDef @ VTopDef(fqn, _, Spine.SApp(prefix, payload), _)
             if ambient.contains(CheckState.CarrierHead.TopDef(fqn)) =>
-          Some((VTopDef(fqn, cached, prefix), payload))
+          Some((topDef.copy(spine = prefix), payload))
         case _                                                     => None
       }
     }
@@ -97,7 +97,7 @@ class EffectLifter(
     state.ambientCarriers.map {
       case m @ CheckState.CarrierHead.Meta(id) =>
         Evaluator.force(VMeta(MetaId(id), Spine.SNil), state.unifier.metaStore) match {
-          case VTopDef(fqn, _, _) => CheckState.CarrierHead.TopDef(fqn)
+          case VTopDef(fqn, _, _, _) => CheckState.CarrierHead.TopDef(fqn)
           case VMeta(solved, _)   => CheckState.CarrierHead.Meta(solved.value)
           case _                  => m
         }
@@ -173,7 +173,7 @@ class EffectLifter(
     * return-boundary discharge and effectful-signatures kind acceptance are unaffected.
     */
   private def equalArityNonCarrier(rigid: SemValue, arity: Int): Boolean = rigid match {
-    case VTopDef(_, None, spine) => spine.toList.length == arity
+    case VTopDef(_, None, spine, _) => spine.toList.length == arity
     case _                       => false
   }
 
@@ -211,7 +211,7 @@ class EffectLifter(
     */
   private def underApplied(rigid: SemValue, arity: Int, allowType: Boolean): Boolean = rigid match {
     case VType                   => allowType && 0 < arity
-    case VTopDef(_, None, spine) => spine.toList.length < arity
+    case VTopDef(_, None, spine, _) => spine.toList.length < arity
     case VNeutral(_, spine)      => spine.toList.length < arity
     case _                       => false
   }

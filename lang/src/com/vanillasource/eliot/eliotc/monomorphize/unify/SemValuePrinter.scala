@@ -62,7 +62,7 @@ object SemValuePrinter {
       case VNeutral(head, spine) =>
         applied(head.name, spine, metaStore, depth)
 
-      case VTopDef(fqn, _, spine) =>
+      case VTopDef(fqn, _, spine, _) =>
         showHeaded(fqn, spine, metaStore, depth)
 
       case VStuckNative(fqn, spine) =>
@@ -94,9 +94,9 @@ object SemValuePrinter {
 
   private def peel(metaStore: MetaStore, depth: Int)(value: SemValue): Option[EffectRowRendering.Layer[SemValue]] =
     Evaluator.force(value, metaStore) match {
-      case VTopDef(fqn, _, spine)   => EffectRowRendering.layerOf(fqn, spine.toList, appliedToPayload = false)
-      case VStuckNative(fqn, spine) => EffectRowRendering.layerOf(fqn, spine.toList, appliedToPayload = false)
-      case _                        => None
+      case VTopDef(fqn, _, spine, _) => EffectRowRendering.layerOf(fqn, spine.toList, appliedToPayload = false)
+      case VStuckNative(fqn, spine)  => EffectRowRendering.layerOf(fqn, spine.toList, appliedToPayload = false)
+      case _                         => None
     }
 
   private def render(metaStore: MetaStore, depth: Int)(value: SemValue): String =

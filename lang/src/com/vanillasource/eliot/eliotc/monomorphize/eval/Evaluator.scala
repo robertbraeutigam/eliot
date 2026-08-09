@@ -86,7 +86,7 @@ object Evaluator {
 
     case VNeutral(head, spine) => VNeutral(head, spine :+ x)
 
-    case VTopDef(fqn, cached, spine) => VTopDef(fqn, cached, spine :+ x)
+    case topDef: VTopDef => topDef.copy(spine = topDef.spine :+ x)
 
     case VStuckNative(fqn, spine) => VStuckNative(fqn, spine :+ x)
 
@@ -102,11 +102,41 @@ object Evaluator {
     * evaluation time before metas exist.
     */
   private def unfoldTopDef(v: SemValue): SemValue = v match {
-    case VTopDef(_, Some(cached), spine) =>
-      val base   = cached.value
-      val result = spine.toList.foldLeft(base)(applyValue)
-      unfoldTopDef(result)
-    case _                               => v
+    case topDef @ VTopDef(_, Some(cached), _, _) =>
+      unfoldTopDef(applySpine(topDef, cached.value))
+    case _                                       => v
+  }
+
+  /** Apply a bodied [[SemValue.VTopDef]]'s spine to its evaluated body, skipping the written type arguments the body has
+    * no binder for (see [[SemValue.VTopDef.TypeArgFit]]). Those arguments stay in the spine — they are the definition's
+    * type application wherever it does *not* unfold — but beta-applying them here would land a type in the first value
+    * parameter's slot and shift every value argument one to the left.
+    *
+    * A type argument is applied only while the body's head lambda *is* the generic binder it belongs to, matched by
+    * name: a type-level body binds its own parameters, an ordinary `def`'s body binds only what
+    * [[com.vanillasource.eliot.eliotc.monomorphize.processor.BindingClosure]] wrapped it for, and both present as
+    * leading [[SemValue.VLam]]s. `applied` is clamped to the spine's actual length, so a spine some phase peeled an
+    * entry off of (a carrier's payload) can only ever under-skip, never drop a value argument.
+    */
+  private def applySpine(topDef: VTopDef, base: SemValue): SemValue = topDef.typeArgFit match {
+    case None      => topDef.spine.toList.foldLeft(base)(applyValue)
+    case Some(fit) =>
+      val args                  = topDef.spine.toList
+      val (typeArgs, valueArgs) = args.splitAt(fit.applied min args.size)
+      val afterTypeArgs         = typeArgs.zipWithIndex.foldLeft(base) { case (acc, (arg, index)) =>
+        fit.genericNames.lift(index) match {
+          // A declared generic binder: applied only if the body actually binds it.
+          case Some(binder) =>
+            acc match {
+              case VLam(name, _) if name == binder => applyValue(acc, arg)
+              case _                               => acc
+            }
+          // Past the declared generics there is no binder to erase: types are values, so `[]` here is just how an
+          // ordinary argument was written (`fitsIn[lo, hi, min, max]`), and it applies like any other.
+          case None         => applyValue(acc, arg)
+        }
+      }
+      valueArgs.foldLeft(afterTypeArgs)(applyValue)
   }
 
   /** Deeply normalise a semantic value, **re-firing stuck native applications** whose arguments have since become
@@ -161,7 +191,7 @@ object Evaluator {
             // No native reducer found (should not happen for a stuck native) — keep the stuck form, renormalised.
             args.foldLeft(VStuckNative(fqn, Spine.SNil): SemValue)(applyValue)
         }
-      case VTopDef(fqn, None, spine)     =>
+      case VTopDef(fqn, None, spine, _)  =>
         val args = spine.toList.map(renormalize(_, metaStore, lookupNative, deep))
         args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
       case VPi(domain, codomain) if deep =>
@@ -181,10 +211,8 @@ object Evaluator {
           spine.toList.foldLeft(base)(applyValue)
         case None         => v
       }
-    case VTopDef(_, Some(cached), spine) =>
-      val base   = force(cached.value, metaStore)
-      val result = spine.toList.foldLeft(base)(applyValue)
-      force(result, metaStore)
+    case topDef @ VTopDef(_, Some(cached), _, _) =>
+      force(applySpine(topDef, force(cached.value, metaStore)), metaStore)
     case _                               => v
   }
 

@@ -153,7 +153,7 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private def isConcrete(v: SemValue): Boolean = v match {
     case VType                        => true
     case VConst(_)                    => true
-    case VTopDef(_, None, spine)      => spine.toList.forall(isConcrete)
+    case VTopDef(_, None, spine, _)      => spine.toList.forall(isConcrete)
     case _                            => false
   }
 
@@ -163,7 +163,7 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private def structurallyEqual(a: SemValue, b: SemValue): Boolean = (a, b) match {
     case (VType, VType)                                 => true
     case (VConst(g1), VConst(g2))                       => groundEquals(g1, g2)
-    case (VTopDef(f1, None, s1), VTopDef(f2, None, s2)) =>
+    case (VTopDef(f1, None, s1, _), VTopDef(f2, None, s2, _)) =>
       val l1 = s1.toList
       val l2 = s2.toList
       f1 === f2 && l1.length === l2.length && l1.zip(l2).forall { case (x, y) => structurallyEqual(x, y) }

@@ -100,7 +100,7 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
 
   private def dispatchHandleCases(ordered: Seq[ValueFQN], value: SemValue, cases: SemValue): SemValue =
     value match {
-      case VTopDef(ctorFqn, None, spine) if ordered.contains(ctorFqn) =>
+      case VTopDef(ctorFqn, None, spine, _) if ordered.contains(ctorFqn) =>
         val handler = Evaluator.applyValue(cases, churchSelector(ordered.size, ordered.indexOf(ctorFqn)))
         applyHandlerToFields(handler, spine.toList)
       case _                                                          => stuck(value)
@@ -117,9 +117,9 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
 
   private def dispatchTypeMatch(targetName: String, obj: SemValue, matched: SemValue, notMatched: SemValue): SemValue =
     obj match {
-      case VTopDef(headFqn, None, spine) if headFqn.name.name === targetName =>
+      case VTopDef(headFqn, None, spine, _) if headFqn.name.name === targetName =>
         applyHandlerToFields(matched, spine.toList)
-      case VTopDef(_, None, _)                                               =>
+      case VTopDef(_, None, _, _)                                               =>
         Evaluator.applyValue(notMatched, unitValue)
       case _                                                                 => stuck(obj)
     }

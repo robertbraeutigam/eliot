@@ -195,7 +195,7 @@ class CarrierKindChecker(
     Evaluator.force(applied, store) match {
       case VMeta(mid, spine) if mid.value == id.value && spine.toList.nonEmpty =>
         Evaluator.force(other, store) match {
-          case VTopDef(_, None, rhsSpine) => rhsSpine.toList.length < spine.toList.length
+          case VTopDef(_, None, rhsSpine, _) => rhsSpine.toList.length < spine.toList.length
           case VNeutral(_, rhsSpine)      => rhsSpine.toList.length < spine.toList.length
           case _                          => false
         }
@@ -211,7 +211,7 @@ class CarrierKindChecker(
       case VConst(g)                 => pure(Some(Evaluator.groundToSem(g.valueType)))
       case VType                     => pure(Some(VType))
       case _: VPi                    => pure(Some(VType))
-      case VTopDef(fqn, None, spine) =>
+      case VTopDef(fqn, None, spine, _) =>
         kindOfTypeConstructor(fqn).map(_.map(headKind => spine.toList.foldLeft(headKind)(Evaluator.applyValue)))
       case _                         => pure(None)
     }

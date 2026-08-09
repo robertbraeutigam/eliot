@@ -46,24 +46,33 @@ abstract class NbeEvaluator[E](lookupTopDef: ValueFQN => Option[SemValue]) {
       VLam(parameterName, arg => eval(env.bind(parameterName, arg), body))
   }
 
-  /** Apply one written type argument to a value's binding — ordinary application, *except* against a **native leaf**
-    * that does not model the argument.
+  /** Apply one written type argument to a value's binding — ordinary application, *except* against a target that does
+    * not model the argument. Two targets can fail to model one, for the same underlying reason: the binding's leading
+    * lambdas are its *value* parameters, so an argument it cannot bind lands in the first value slot and shifts every
+    * value argument one to the left, silently computing the wrong answer.
     *
-    * A native's binding is the host-runnable function that remains once erased type arguments are gone: `fold`'s takes
-    * its three value arguments and no type argument at all, and an implicit type argument was never threaded into it.
-    * Since the row elaboration now *writes* a call's carrier (`fold[Id](..)`, docs/effects-as-rows.md A.11.4), a native
-    * can meet a type argument it has no parameter for, and applying it would land a type in the native's first value
-    * slot and reduce the wrong thing. A few natives do model leading arguments — `Function[A, B]`'s two types,
-    * `integerLiteral[128]`'s `BigInteger` *value* (types are values, so a literal is an ordinary type argument) — and
-    * those must still receive them.
+    * **A native leaf.** A native's binding is the host-runnable function that remains once erased type arguments are
+    * gone: `fold`'s takes its three value arguments and no type argument at all, and an implicit type argument was never
+    * threaded into it. Since the row elaboration now *writes* a call's carrier (`fold[Id](..)`,
+    * docs/effects-as-rows.md A.11.4), a native can meet a type argument it has no parameter for. A few natives do model
+    * leading arguments — `Function[A, B]`'s two types, `integerLiteral[128]`'s `BigInteger` *value* (types are values,
+    * so a literal is an ordinary type argument) — and those must still receive them. The native's own declared
+    * `paramType` decides.
     *
-    * The native's own declared `paramType` decides, with the unsure direction being *not to apply*: a type parameter
-    * (`VType`) takes any type argument, and a value parameter takes only a ground constant. Dropping an argument a
-    * native did need leaves it an unapplied native that fails loudly at read-back; applying one it did not would
-    * silently compute the wrong answer.
+    * The native's unsure direction is *not to apply*: dropping an argument a native did need leaves it an unapplied
+    * native that fails loudly at read-back; applying one it did not would silently compute the wrong answer.
+    *
+    * **A binding that states its type-argument fit** keeps the argument in its spine — a bodied definition that does not
+    * unfold is *identified* by that spine, which the unifier decomposes and the printer renders — and records that one
+    * more leading entry is a type argument. Whether the body can actually bind it is settled later, where it matters, by
+    * [[SemValue.VTopDef.TypeArgFit]] at unfold time. See there for the miscompile this separates out.
     */
   private def applyTypeArgument(target: SemValue, typeArgument: SemValue): SemValue = target match {
     case VNative(paramType, _) if !modelsTypeArgument(paramType, typeArgument) => target
+    case topDef @ VTopDef(_, _, spine, Some(fit))                              =>
+      // Keep the argument in the spine (it *is* the type application for a definition that does not unfold) and record
+      // that one more leading entry is a type argument, so unfolding can skip the ones the body cannot bind.
+      topDef.copy(spine = spine :+ typeArgument, typeArgFit = Some(fit.copy(applied = fit.applied + 1)))
     case _                                                                     => Evaluator.applyValue(target, typeArgument)
   }
 

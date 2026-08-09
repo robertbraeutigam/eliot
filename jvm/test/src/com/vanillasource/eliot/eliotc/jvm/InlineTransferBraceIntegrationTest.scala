@@ -44,6 +44,41 @@ class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("Cannot prove the precondition of 'Test::useByte'"))
   }
 
+  // A brace is ordinary compiler-track Eliot, so it may call an ordinary generic helper — including one whose body
+  // applies a data constructor to its own parameter (`closed[T](s, e) = Interval(Bounded(s), Bounded(e))`). Such a
+  // helper reifies no binder, so `BindingClosure` wraps its body in no type-argument lambda; the checker's own body
+  // reduction nevertheless writes the solved type argument, and applying it used to land `BigInteger` in `s`'s slot and
+  // shift every value argument one left — reducing a well-typed brace to an ill-typed range with nothing downstream in a
+  // position to notice (`SemValue.VTopDef.typeBinders`). These two pin both directions of the reduced range.
+  private val viaHelper =
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
+      |def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
+      |def useByte(x: Int): Int where withinByte(range(x)) = x
+      |def byteRange[Lo: BigInteger, Hi: BigInteger]: Bound[Interval[BigInteger]] = Bounded(closed(Lo, Hi))
+      |def openRange[Lo: BigInteger]: Bound[Interval[BigInteger]] = Bounded(atLeast(Lo))
+      |""".stripMargin
+
+  // Compile-time only, like the rest of this file: runtime lowering of a brace-narrowed return across a *user* def's
+  // call boundary is the separate, deferred representation matter noted in the class comment.
+  "a transfer brace routed through a user-defined generic constructor helper" should "state the range the helper builds" in {
+    compileForErrors(
+      viaHelper + "def clamped(a: Int): Int {byteRange[0, 127]} = a\ndef main: IO[Unit] = printLine(show(useByte(clamped(100))))"
+    ).asserting(_ should not include "precondition")
+  }
+
+  it should "narrow to the helper's actual endpoints, not merely to something" in {
+    compileForErrors(
+      viaHelper + "def wide(a: Int): Int {byteRange[0, 200]} = a\ndef main: IO[Unit] = printLine(show(useByte(wide(100))))"
+    ).asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
+  }
+
+  it should "keep a half-open endpoint half-open, so the byte precondition is rejected" in {
+    compileForErrors(
+      viaHelper + "def open(a: Int): Int {openRange[0]} = a\ndef main: IO[Unit] = printLine(show(useByte(open(100))))"
+    ).asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
+  }
+
   // `.` is `below apply`, so it shares `apply`'s precedence island and binds tighter than the floating `+`; being
   // subject-last, `a.range` ≡ `range(a)`, so the dotted brace reads exactly as `{range(a) + range(b)}` and narrows
   // identically — where before it aborted at precedence resolution with "no defined relative precedence".
