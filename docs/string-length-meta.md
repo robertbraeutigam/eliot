@@ -3,16 +3,19 @@
 Status: **design proposal**. The load-bearing mechanism was **prototyped end-to-end and reverted** — every claim
 marked *verified* below was run against the real tree; everything else is design.
 
-One of §11's open decisions is now **settled**: the unit is the **code-point count** (§5.1), which adds a
+Two of §11's open decisions are now **settled**. The unit is the **code-point count** (§5.1), which adds a
 prerequisite stage S0 (the index family switches units with `length`) and rules out a byte-size slot (§5.2) and any
-second slot before S5 (§5.3). The rest of §11 is still open.
+second slot before S5 (§5.3). And the **⊤ question is gone** — the range domain grew a top
+(`Bound[Interval[BigInteger]]`, `total-meta-transfers.md` §5), which this domain inherits for free and, per the §7
+correction, does not actually need: a `String` size is bounded by a representation like anything else. The rest of
+§11 is still open.
 
 Prior art, and the two documents this one sits between:
 
 - `docs/total-meta-transfers.md` — meta as a shadow logic (R1–R4, the leaf/derive split). Its §2.3 defers
   *structural* meta types to "the second refinement domain (`List`/`Array` `size`)". This is that second domain,
   in the one shape that needs **no** structural meta.
-- The shipped value-range domain: `type Int {range: Interval[BigInteger]}`,
+- The shipped value-range domain: `type Int {range: Bound[Interval[BigInteger]]}`,
   `monomorphize/channel/RefinementChannelProcessor`, `core/processor/Meta{Constructor,Transfer,Where}Desugarer`.
 
 ---
@@ -20,8 +23,11 @@ Prior art, and the two documents this one sits between:
 ## 1. What is being added, and why this one first
 
 ```eliot
-type String {size: Interval[BigInteger]}
+type String {size: Bound[Interval[BigInteger]]}
 ```
+
+(The `Bound` wrapper is the range domain's stated top, inherited by every domain — see §7. Predicate and stage
+examples further down were written before it landed and spell the bare `Interval`; read them as the wrapped form.)
 
 A `String` gains one meta slot: the interval of its length, in the units `String::length` counts — which §5.1
 decides is the **code-point count**, and which S0 makes true of every target. That single line turns on the whole
@@ -365,13 +371,21 @@ five leaves: `String::length`, `indexOfInternal`, `parseIntInternal`, `Process::
 Declaring `String` meta-carrying makes **every body-less `String`-returning leaf** join that list — the `String.els`
 set above, plus `Path::show`, `File::message`, `Process::standardOutput`/`standardError`, `Environment`'s and the
 jvm layer's private internals. Roughly a dozen more. §5.1 helps here: the `String.els` set is now statable almost
-throughout (§6), so what is left needing the ⊤ escape is the *input* leaves — `readLine`, environment, file and
-process reads — a narrower and more clearly-motivated set than the mixed bag the pragmatic unit would have left.
+throughout (§6).
 
-The sequencing conclusion is one line: **land the `String` domain while R2 is dormant, and treat "arm R2" as
-strictly downstream of the ⊤ decision.** Arming first would force a dozen dishonest braces; arming after, with open
-endpoints decided, forces a dozen honest ones. Nothing here blocks the domain — an unstated leaf is ⊤ today, which
-is exactly what a `String` leaf is right now anyway.
+**Correction, since the ⊤ decision has landed.** This section used to say the *input* leaves — `readLine`,
+environment, file and process reads — would need a ⊤ escape. They do not, and the reason is the same one
+`total-meta-transfers.md` §5 gives for every other leaf: **a representation is a bound.** A JVM `String` holds at
+most `2³¹−1` units, so `readLine` states `Bounded([0, 2³¹−1])` — closed, ordinary, and it keeps the fact that a
+size is non-negative, which is the half worth having. Wide is not the same as unbounded.
+
+The domain top that *did* land (`Bound[Interval[BigInteger]]`) exists for a different and much narrower reason: a
+leaf whose bound is **exponential in its argument's meta**. `parseIntInternal` is the only one, and it is in the
+`Int` domain, not this one. So this domain needs the top for nothing, and inherits it for free.
+
+The sequencing conclusion is unchanged and now unblocked: **land the `String` domain while R2 is dormant, and arm
+R2 afterwards**, so the dozen new leaves are stated once rather than twice. Nothing here blocks the domain — an
+unstated leaf is ⊤ today, which is exactly what a `String` leaf is right now anyway.
 
 ---
 
@@ -460,7 +474,7 @@ Each stage compiles and passes the example sweep on its own.
   feature**: it is a cornerstone fix that stands on its own, it touches no channel code, and it should be reviewed as
   a language change rather than as refinement plumbing. Test: a non-BMP string round-tripping through
   `length`/`substring`/`indexOf`, and `Unicode.els` extended past its ASCII literal.
-- **S1 — the slot.** `type String {size: Interval[BigInteger]}` + the `eliot.compiler.Meta` import in `String.els`,
+- **S1 — the slot.** `type String {size: Bound[Interval[BigInteger]]}` + the `eliot.compiler.Meta` import in `String.els`,
   plus a doc-comment sentence defining the unit as the code-point count (§5.1). Inert: no seed, so every node stays
   ⊤. *Verified.*
 - **S2 — the seed.** `Runtime::stringLiteral`, `WellKnownTypes.stringLiteralFQN`, the channel arm, and the LSP
@@ -490,7 +504,7 @@ without either.
 3. **Backend option (1)** for the result edge (§8) — confirm, since (2) is the tempting cheap answer that guts the
    feature.
 4. **Scope**: S1+S2 alone (a working `where` domain, no stated transfers) is a defensible landing point and needs
-   neither §8 nor the ⊤ question. S3+S4 is where it becomes useful.
+   neither §8 nor the ⊤ question — the latter is now settled anyway (§7).
 5. **Order vs. R2** (§7): confirm the domain lands while accounting stays dormant.
 6. **Is S0 in scope for whoever takes this?** It is a separable language change with its own justification (§5.1).
    Landing it first is the recommendation; landing the domain on the pragmatic unit and switching later is *not* a
