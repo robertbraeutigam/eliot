@@ -1,6 +1,6 @@
 
-def a: Interval[Int] = Interval(0, 1)
-def b: Interval[Int] = Interval(1, 2)
+def a: Interval[Int] = closed(0, 1)
+def b: Interval[Int] = closed(1, 2)
 
 // `Interval` closes under arithmetic endpoint-wise (via the endpoints' own `Numeric`/`Compare`), computed at
 // runtime: [0,1] + [1,2] = [1,3], [0,1] - [1,2] = [-2,0], [0,1] * [1,2] = [0,2] (min/max of the corner products).
@@ -8,11 +8,23 @@ def sum: Interval[Int] = a + b
 def diff: Interval[Int] = a - b
 def prod: Interval[Int] = a * b
 
+// An endpoint is a `Bound[Int]`, so an interval may be open on either side. `atLeast(2)` is [2, ∞): bounded
+// below, with no upper limit — the shape a length or a count has before a platform fixes its width.
+def open: Interval[Int] = atLeast(2)
+
+// Addition stays exact on a half-open interval: [2,∞) + [1,2] = [3,∞). The unbounded end absorbs and lands
+// back at the end, because `add` pairs start with start and end with end.
+def openSum: Interval[Int] = open + b
+
+def showBound(unboundedAs: String, bound: Bound[Int]): String = bound.foldBound(unboundedAs, v -> show(v))
+
+def showInterval(i: Interval[Int]): String =
+  "[" ++ showBound("-inf", i.start) ++ ", " ++ showBound("+inf", i.end) ++ "]"
+
 def main: {Console} Unit = {
-  printLine(show(sum.start))
-  printLine(show(sum.end))
-  printLine(show(diff.start))
-  printLine(show(diff.end))
-  printLine(show(prod.start))
-  printLine(show(prod.end))
+  printLine(showInterval(sum))
+  printLine(showInterval(diff))
+  printLine(showInterval(prod))
+  printLine(showInterval(open))
+  printLine(showInterval(openSum))
 }

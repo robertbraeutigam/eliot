@@ -8,6 +8,22 @@ def foldBound[T, B](ifUnbounded: {Effect} B, ifBounded: T => {Effect} B, b: Boun
    case Bounded(v) -> ifBounded(v)
 }
 
+def minBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
+   case Unbounded -> Unbounded
+   case Bounded(x) -> b match {
+      case Unbounded -> Unbounded
+      case Bounded(y) -> Bounded(min(x, y))
+   }
+}
+
+def maxBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
+   case Unbounded -> Unbounded
+   case Bounded(x) -> b match {
+      case Unbounded -> Unbounded
+      case Bounded(y) -> Bounded(max(x, y))
+   }
+}
+
 /**
  * A `Bound[D]` over a refinement domain `D` is itself a refinement domain — the one that adds "no bound at all"
  * to `D`'s own values, which is what makes the domain's top element a *statable* value rather than an absence.

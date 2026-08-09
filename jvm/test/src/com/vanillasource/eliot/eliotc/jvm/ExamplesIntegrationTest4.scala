@@ -408,43 +408,82 @@ import eliot.effect.Console
 
   // --- Interval: endpoint-wise interval arithmetic over `Int` endpoints (runtime `Numeric[Interval[Int]]`). ---
 
+  // An endpoint is a `Bound[Int]`, so rendering one has to answer the unbounded case. Shared by the tests below.
+  private val showing =
+    """|def showBound(unboundedAs: String, bound: Bound[Int]): String = bound.foldBound(unboundedAs, v -> show(v))
+       |def showInterval(i: Interval[Int]): String =
+       |  "[" ++ showBound("-inf", i.start) ++ ", " ++ showBound("+inf", i.end) ++ "]"
+       |""".stripMargin
+
   // Interval addition is endpoint-wise: `[0, 1] + [1, 2] = [1, 3]`.
   "the Interval type" should "add intervals endpoint-wise" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |
-        |def a: Interval[Int] = Interval(0, 1)
-        |def b: Interval[Int] = Interval(1, 2)
-        |
-        |def sum: Interval[Int] = a + b
-        |
-        |def main: IO[Unit] = {
-        |  printLine(show(sum.start))
-        |  printLine(show(sum.end))
-        |}""".stripMargin
-    ).asserting(_ shouldBe "1\n3")
+      "import eliot.jvm.IO\nimport eliot.effect.Console\n" + showing +
+        """|def a: Interval[Int] = closed(0, 1)
+           |def b: Interval[Int] = closed(1, 2)
+           |
+           |def sum: Interval[Int] = a + b
+           |
+           |def main: IO[Unit] = printLine(showInterval(sum))""".stripMargin
+    ).asserting(_ shouldBe "[1, 3]")
   }
 
   // Subtraction pairs a start with the other interval's end (`[0, 1] - [1, 2] = [-2, 0]`); multiplication selects the
   // min/max of the four corner products at runtime (via the `Compare[Int]` ordering leaf).
   it should "subtract and multiply intervals endpoint-wise" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |
-        |def a: Interval[Int] = Interval(0, 1)
-        |def b: Interval[Int] = Interval(1, 2)
-        |
-        |def diff: Interval[Int] = a - b
-        |def prod: Interval[Int] = a * b
-        |
-        |def main: IO[Unit] = {
-        |  printLine(show(diff.start))
-        |  printLine(show(diff.end))
-        |  printLine(show(prod.start))
-        |  printLine(show(prod.end))
-        |}""".stripMargin
-    ).asserting(_ shouldBe "-2\n0\n0\n2")
+      "import eliot.jvm.IO\nimport eliot.effect.Console\n" + showing +
+        """|def a: Interval[Int] = closed(0, 1)
+           |def b: Interval[Int] = closed(1, 2)
+           |
+           |def diff: Interval[Int] = a - b
+           |def prod: Interval[Int] = a * b
+           |
+           |def main: IO[Unit] = {
+           |  printLine(showInterval(diff))
+           |  printLine(showInterval(prod))
+           |}""".stripMargin
+    ).asserting(_ shouldBe "[-2, 0]\n[0, 2]")
+  }
+
+  // A half-open interval is bounded on one side only. `atLeast(2)` is `[2, ∞)`; `atMost(3)` is `(-∞, 3]`.
+  it should "construct intervals open on one side" in {
+    compileAndRun(
+      "import eliot.jvm.IO\nimport eliot.effect.Console\n" + showing +
+        """|def main: IO[Unit] = {
+           |  printLine(showInterval(atLeast(2)))
+           |  printLine(showInterval(atMost(3)))
+           |  printLine(showInterval(whole))
+           |}""".stripMargin
+    ).asserting(_ shouldBe "[2, +inf]\n[-inf, 3]\n[-inf, +inf]")
+  }
+
+  // Addition and subtraction stay exact on a half-open interval, because each pairs endpoints so an absorbing
+  // `Unbounded` lands in the position meaning the infinity it came from: `[2, ∞) + [1, 2] = [3, ∞)` keeps its
+  // bounded start, and `[2, ∞) - [1, 2] = [0, ∞)` keeps one too (its start is `2 - 2`).
+  it should "keep the bounded endpoint when adding and subtracting a half-open interval" in {
+    compileAndRun(
+      "import eliot.jvm.IO\nimport eliot.effect.Console\n" + showing +
+        """|def open: Interval[Int] = atLeast(2)
+           |def b: Interval[Int] = closed(1, 2)
+           |
+           |def main: IO[Unit] = {
+           |  printLine(showInterval(open + b))
+           |  printLine(showInterval(open - b))
+           |}""".stripMargin
+    ).asserting(_ shouldBe "[3, +inf]\n[0, +inf]")
+  }
+
+  // Multiplication is the one operation that widens: its corner products are compared *after* the multiplication, by
+  // which point a product has lost the position that gave its infinity a direction, so any unbounded endpoint absorbs
+  // the whole result. Sound but not tight — `[2, ∞) * [1, 2]` is really `[2, ∞)`.
+  it should "widen to the whole line when multiplying a half-open interval" in {
+    compileAndRun(
+      "import eliot.jvm.IO\nimport eliot.effect.Console\n" + showing +
+        """|def open: Interval[Int] = atLeast(2)
+           |def b: Interval[Int] = closed(1, 2)
+           |
+           |def main: IO[Unit] = printLine(showInterval(open * b))""".stripMargin
+    ).asserting(_ shouldBe "[-inf, +inf]")
   }
 }

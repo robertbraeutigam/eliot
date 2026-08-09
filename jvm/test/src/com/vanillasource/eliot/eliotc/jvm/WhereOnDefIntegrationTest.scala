@@ -10,9 +10,7 @@ package com.vanillasource.eliot.eliotc.jvm
 class WhereOnDefIntegrationTest extends FullIntegrationTest {
   // `withinByte` is a test-local predicate (it deliberately lives only where a test needs it, not in any layer).
   private val withinByte =
-    """|def byteMin: BigInteger = 0
-       |def byteMax: BigInteger = 127
-       |def withinByte(b: Bound[Interval[BigInteger]]): Bool = b.foldBound(false, i -> lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax))
+    """|def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
        |""".stripMargin
 
   private val useByte =

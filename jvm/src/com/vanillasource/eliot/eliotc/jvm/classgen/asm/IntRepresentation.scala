@@ -68,28 +68,38 @@ object IntRepresentation {
   def representationFor(meta: Option[GroundValue]): ValueFQN =
     meta.flatMap(intervalBounds).map { case (min, max) => widthOf(min, max) }.getOrElse(jvmBigInteger)
 
-  /** Decode `[min, max]` from an `Int$Meta(Bounded(Interval(min, max)))` meta value — the opaque domain [[GroundValue]]
-    * the channel carries (an `Int$Meta` wrapper around a [[Bound]] around the two-endpoint `Interval`, both `Direct` big
-    * integers). The backend owns the `Int` domain, so it unwraps the `$Meta` structure here; the channel and reconcile
-    * pass never inspect it.
+  /** Decode `[min, max]` from an `Int$Meta(Bounded(Interval(Bounded(min), Bounded(max))))` meta value — the opaque
+    * domain [[GroundValue]] the channel carries (an `Int$Meta` wrapper around a [[Bound]] around the two-endpoint
+    * `Interval`, each endpoint itself a [[Bound]] around a `Direct` big integer). The backend owns the `Int` domain, so
+    * it unwraps the `$Meta` structure here; the channel and reconcile pass never inspect it.
     *
-    * [[None]] for any other shape, which the caller treats as ⊤ — in particular for `Int$Meta(Unbounded)`, the *stated*
-    * top of the range domain (a value nothing bounds, e.g. a number parsed from input). A bignum is exactly the right
-    * layout for it, so a stated `Unbounded` and an absent meta agree here; they differ only in what the meta channel
-    * itself may conclude (docs/total-meta-transfers.md §5).
+    * [[None]] for any other shape, which the caller treats as ⊤. That covers three distinct honest answers, all of
+    * which a bignum is the right layout for:
+    *
+    *   - `Int$Meta(Unbounded)` — the *stated* top of the range domain (a value nothing bounds, e.g. a number parsed
+    *     from input);
+    *   - a **half-open** interval, `Interval(Bounded(lo), Unbounded)` or its mirror — a value bounded on one side only,
+    *     which no fixed width contains however tight the bounded side is;
+    *   - a future domain, or a malformed meta.
+    *
+    * A stated top and an absent meta therefore agree here; they differ only in what the meta channel itself may
+    * conclude (docs/total-meta-transfers.md §5).
     */
   def intervalBounds(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
       case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)), _) =>
-        (directBigInt(lo), directBigInt(hi)) match {
+        (boundedBigInt(lo), boundedBigInt(hi)) match {
           case (Some(a), Some(b)) => Some((a, b))
           case _                  => None
         }
       case _                                                                                                           => None
     }
 
-  private def directBigInt(gv: GroundValue): Option[BigInt] = gv match {
-    case GroundValue.Direct(Literal.IntegerValue(value), _) => Some(value)
-    case _                                                  => None
+  /** The big integer inside a `Bounded(Direct(n))` endpoint, or [[None]] for an `Unbounded` one (a nullary structure,
+    * so it never matches the single-argument shape) or any other value.
+    */
+  private def boundedBigInt(gv: GroundValue): Option[BigInt] = gv match {
+    case GroundValue.Structure(_, Seq(GroundValue.Direct(Literal.IntegerValue(value), _)), _) => Some(value)
+    case _                                                                                    => None
   }
 }
