@@ -383,6 +383,14 @@ The domain top that *did* land (`Bound[Interval[BigInteger]]`) exists for a diff
 leaf whose bound is **exponential in its argument's meta**. `parseIntInternal` is the only one, and it is in the
 `Int` domain, not this one. So this domain needs the top for nothing, and inherits it for free.
 
+**Amendment, since half-open intervals landed** (`total-meta-transfers.md` §5). The correction above stays right
+for a *leaf*: a leaf's transfer is platform data contributed beside its native, so the jvm `readLine` states
+`Bounded(closed(0, 2³¹−1))` and should. What it does not license is stating a maximum in the **base** — an abstract
+`def length(s: String): Int` has no platform to read one from. That is now expressible without inventing one:
+`Bounded(atLeast(0))` states the half that is true on every target, and a platform narrows it to a closed range
+where the base signature is redefined. So this domain gains a use for open endpoints that the `Int` domain reached
+by the same route, and the sequencing conclusion below is unaffected.
+
 The sequencing conclusion is unchanged and now unblocked: **land the `String` domain while R2 is dormant, and arm
 R2 afterwards**, so the dozen new leaves are stated once rather than twice. Nothing here blocks the domain — an
 unstated leaf is ⊤ today, which is exactly what a `String` leaf is right now anyway.

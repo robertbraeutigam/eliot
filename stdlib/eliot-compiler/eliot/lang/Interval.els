@@ -1,17 +1,42 @@
 import eliot.compiler.Meta
 
-data Interval[T](start: T, end: T)
+data Interval[T](start: Bound[T], end: Bound[T])
+
+def interval[T](start: Bound[T], end: Bound[T]): Interval[T] = Interval(start, end)
+
+def closed[T](start: T, end: T): Interval[T] = Interval(Bounded(start), Bounded(end))
+
+def atLeast[T](start: T): Interval[T] = Interval(Bounded(start), Unbounded)
+
+def atMost[T](end: T): Interval[T] = Interval(Unbounded, Bounded(end))
+
+def whole[T]: Interval[T] = Interval(Unbounded, Unbounded)
+
+def rangeWithin[Lo: BigInteger, Hi: BigInteger](b: Bound[Interval[BigInteger]]): Bool = b match {
+   case Unbounded -> false
+   case Bounded(i) -> i.start match {
+      case Unbounded -> false
+      case Bounded(s) -> i.end match {
+         case Unbounded -> false
+         case Bounded(e) -> lessThanOrEqual(Lo, s) && lessThanOrEqual(e, Hi)
+      }
+   }
+}
 
 /**
  * An `Interval[T]` (e.g. `Interval[BigInteger]`, an `Int`'s value range) is a refinement **domain** — the value a range
  * is tracked as by the bounds-as-refinements channel (`docs/bounds-as-refinements.md`). Its lattice `join` covers two
- * ranges: the least interval containing both is `[min of the starts, max of the ends]`, delegating to the endpoints' own
- * `Compare`. A compiler-pool-only instance, exercised at `match`/`if` branch merges (the auto-derived `Meta[Int$Meta]`
- * join dispatches to it on the range slot).
+ * ranges: the least interval containing both is `[min of the starts, max of the ends]`, delegating to `minBound`/
+ * `maxBound`. Those absorb on an unbounded endpoint, which is exact here rather than merely safe — the least of "no
+ * lower limit" and any start is again no lower limit, and the mirror holds at the end — so joining a half-open range
+ * with a closed one keeps the half that is still bounded: `join([0, ∞), [2, 5])` is `[0, ∞)`.
+ *
+ * A compiler-pool-only instance, exercised at `match`/`if` branch merges (the auto-derived `Meta[Int$Meta]` join
+ * dispatches to it on the range slot).
  */
 implement[T ~ Compare[T]] Meta[Interval[T]] {
    def join(a: Interval[T], b: Interval[T]): Interval[T] =
-      Interval(min(start(a), start(b)), max(end(a), end(b)))
+      Interval(minBound(start(a), start(b)), maxBound(end(a), end(b)))
 }
 
 /**
@@ -21,11 +46,14 @@ implement[T ~ Compare[T]] Meta[Interval[T]] {
  * dispatch through *this instance* rather than
  * a hand-copied plain function. The channel's post-monomorphize executor links the instance at its own monomorphization
  * (`docs/refinement-channel-follow-ups.md`), so the endpoint-wise delegation bottoms out at the endpoints'
- * `Numeric[BigInteger]` compile-time leaves (and, for multiplication's corner selection, `Compare`):
+ * `Numeric[Bound[BigInteger]]` — and under that the `Numeric[BigInteger]` compile-time leaves (and, for
+ * multiplication's corner selection, `Compare`):
  *
  *   - `[a, b] + [c, d] = [a + c, b + d]`
  *   - `[a, b] - [c, d] = [a - d, b - c]`   (subtraction pairs a start with the other end)
  *   - `[a, b] * [c, d] = [min of the four corner products, max of them]`
+ *
+ * Add and subtract stay exact on a half-open range; multiply widens to `whole` on one. See the base declaration.
  */
 implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
    def add(a: Interval[T], b: Interval[T]): Interval[T] =
@@ -37,6 +65,6 @@ implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
       val c12 = multiply(start(a), end(b))
       val c21 = multiply(end(a), start(b))
       val c22 = multiply(end(a), end(b))
-      Interval(min(min(min(c11, c12), c21), c22), max(max(max(c11, c12), c21), c22))
+      Interval(minBound(minBound(minBound(c11, c12), c21), c22), maxBound(maxBound(maxBound(c11, c12), c21), c22))
    }
 }

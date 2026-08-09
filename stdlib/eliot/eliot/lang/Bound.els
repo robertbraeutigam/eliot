@@ -32,6 +32,29 @@ type Bound[T]
 def foldBound[T, B](ifUnbounded: {Effect} B, ifBounded: T => {Effect} B, b: Bound[T]): {Effect} B
 
 /**
+ * The lesser of two bounds, with `Unbounded` absorbing: `minBound(Unbounded, b)` is `Unbounded`.
+ *
+ * Absorbing is the *correct* answer, not merely a safe one, wherever a bound sits in a position whose
+ * `Unbounded` means "no lower limit": the least of "nothing bounds this below" and any other value is
+ * again "nothing bounds this below". That is exactly an `Interval`'s `start`, which is why the interval
+ * lattice's `join` and its corner-product `multiply` reach for this rather than for `min`.
+ *
+ * It cannot be spelled as `min` over a `Compare[Bound[T]]`, because no single ordering on `Bound` serves
+ * both ends: an `Unbounded` start is a *floor* and an `Unbounded` end is a *ceiling*, so the comparison
+ * that makes `min` absorb makes `max` return the wrong operand. The two are separate functions precisely
+ * so each can absorb.
+ */
+def minBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T]
+
+/**
+ * The greater of two bounds, with `Unbounded` absorbing: `maxBound(Unbounded, b)` is `Unbounded`.
+ *
+ * The mirror of `minBound` — see there for why absorbing is exact at an `Interval`'s `end`, and why this
+ * is not `max` over a `Compare[Bound[T]]`.
+ */
+def maxBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T]
+
+/**
  * `Bound` closes under arithmetic by lifting the operation through `Bounded`, with `Unbounded` absorbing:
  * an operand nothing bounds bounds nothing in the result.
  *

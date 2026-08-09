@@ -1,12 +1,78 @@
 /**
- * A closed interval `[start, end]` of values of a single numeric type `T`: a `start` and an `end`, both `T`.
+ * An interval of values of a single numeric type `T`, with a `start` and an `end` that are each a `Bound[T]`:
+ * either a `Bounded` endpoint or an `Unbounded` one.
+ *
+ * An unbounded endpoint's *direction is its position*: `Unbounded` at the `start` means "no lower limit" and at
+ * the `end` means "no upper limit". So the four shapes are `closed(s, e)` = `[s, e]`, `atLeast(s)` = `[s, ∞)`,
+ * `atMost(e)` = `(-∞, e]`, and `whole` = `(-∞, ∞)`. There is no signed infinity and no `[+∞, -∞]` to spell,
+ * because an endpoint that carried its own sign could contradict its position.
+ *
+ * Half-open intervals are what let an abstract declaration state the part of a bound it honestly knows. A length
+ * is never negative on any target, but its maximum is a property of the platform's representation — so the base
+ * layer states `atLeast(0)` and a platform narrows it to `closed(0, platformMax)`. With closed intervals only,
+ * the base would have to choose between inventing a maximum it cannot know and saying nothing at all.
  */
 type Interval[T]
 
 /**
- * `Interval` closes under arithmetic by lifting the operation onto each endpoint through the endpoints' own `Numeric`.
- * Because both endpoints share one type `T`, every result endpoint is again a `T`, so each method is a plain
- * `Interval[T] -> Interval[T] -> Interval[T]` — no associated result types, no corner-product join formula:
+ * The interval running from `start` to `end`, each already a `Bound[T]` — the general constructor the four
+ * shorthands below are written in terms of. Use it when the endpoints are computed rather than known.
+ */
+def interval[T](start: Bound[T], end: Bound[T]): Interval[T]
+
+/**
+ * The closed interval `[start, end]` — both endpoints bounded.
+ */
+def closed[T](start: T, end: T): Interval[T]
+
+/**
+ * The half-open interval `[start, ∞)` — bounded below, with no upper limit.
+ *
+ * The shape an abstract declaration reaches for when the lower limit is platform-independent and the upper one
+ * is not: `atLeast(0)` for a count, a length, a size.
+ */
+def atLeast[T](start: T): Interval[T]
+
+/**
+ * The half-open interval `(-∞, end]` — bounded above, with no lower limit.
+ */
+def atMost[T](end: T): Interval[T]
+
+/**
+ * The interval `(-∞, ∞)` — neither endpoint bounded, so the least informative interval there is. What a value
+ * nothing constrains from either side is described by.
+ */
+def whole[T]: Interval[T]
+
+/**
+ * `true` when `b` is a range every value of which lies within `[Lo, Hi]`: `b` is `Bounded`, and both endpoints
+ * of the interval inside it are bounded and fall inside the closed range.
+ *
+ * The predicate a `where` refinement precondition over a fixed width is written with — `Bound[Interval[BigInteger]]`
+ * is exactly what an `Int`'s `range` projects to. It answers, rather than falls through, both ways a range can fail
+ * to fit:
+ *
+ *   - an `Unbounded` range — one the compiler could not bound at all — is `false`;
+ *   - a **half-open** interval is `false` too, however tight its bounded side, because no fixed width holds a value
+ *     with no limit on the other side.
+ *
+ * ```eliot
+ * def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
+ *
+ * def asByte(x: Int): Int where withinByte(range(x)) = x
+ * ```
+ *
+ * The bounds are **type** parameters rather than value parameters because a value-position integer literal is an
+ * `Int`, while a range's endpoints are `BigInteger`; in type position a literal is already the `BigInteger` the
+ * comparison needs, so `rangeWithin[0, 127]` says what it means without a conversion.
+ */
+def rangeWithin[Lo: BigInteger, Hi: BigInteger](b: Bound[Interval[BigInteger]]): Bool
+
+/**
+ * `Interval` closes under arithmetic by lifting the operation onto each endpoint through `Numeric[Bound[T]]`,
+ * which absorbs on an unbounded endpoint. Because both endpoints share one type `T`, every result endpoint is
+ * again a `Bound[T]`, so each method is a plain `Interval[T] -> Interval[T] -> Interval[T]` — no associated
+ * result types, no corner-product join formula:
  *
  *   - `[a, b] + [c, d] = [a + c, b + d]`
  *   - `[a, b] - [c, d] = [a - d, b - c]`   (subtraction pairs a start with the other end)
@@ -14,6 +80,17 @@ type Interval[T]
  *
  * On `Interval[BigInteger]` (an `Int` bound) `[0, 1] + [1, 2] : Interval[BigInteger]` computing `[1, 3]`; on
  * `Interval[Int]` the same instance computes the value at runtime.
+ *
+ * **Addition and subtraction stay exact on a half-open interval.** Both pair endpoints so that an absorbing
+ * `Unbounded` lands in the position meaning the infinity it came from — `add` pairs start with start and end
+ * with end, and `subtract`'s start/end pairing turns `-∞ - d` into the result's start. Neither can produce the
+ * indeterminate `∞ - ∞`.
+ *
+ * **Multiplication widens on one.** Its corner products are compared by `minBound`/`maxBound` *after* the
+ * multiplication, by which point a product has lost the position that gave its infinity a direction, so any
+ * unbounded endpoint absorbs the whole result: `[0, ∞) * [2, 3]` yields `whole` rather than `[0, ∞)`. Sound but
+ * not tight — the same trade `Numeric[Bound[T]]` already documents for a zero operand, and recovering it needs
+ * a signed view of an endpoint that exists only inside this one method.
  */
 implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
    def add(a: Interval[T], b: Interval[T]): Interval[T]

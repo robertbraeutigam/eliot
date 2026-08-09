@@ -147,11 +147,38 @@ data Bound[T] = Unbounded | Bounded(value: T)
 type Int {range: Bound[Interval[BigInteger]]}
 ```
 
-`Unbounded` absorbs through `Numeric[Bound[T]]` and `Meta[Bound[T]]`. It is a wrapper at the slot rather
-than an unbounded endpoint per side: endpoint-level infinities carry more precision (a half-open `[0, ∞)`),
-but `Interval` is a runtime user-facing type, and the case that seemed to need them — a size — states
-`[0, platform max]`, which is closed *and* keeps its non-negativity. Only a leaf whose bound is
-**exponential in its argument's meta** genuinely escapes a closed interval, and there is exactly one.
+`Unbounded` absorbs through `Numeric[Bound[T]]` and `Meta[Bound[T]]`.
+
+> **Amended: `Interval` now has unbounded endpoints too.** The paragraph below argued for a wrapper at the
+> slot *instead of* an unbounded endpoint per side, on the grounds that the case that seemed to need them —
+> a size — can state `[0, platform max]`. That ground does not hold, and the objection is the layers
+> cornerstone: **the base layer may not assume a platform maximum.** Non-negativity of a size is
+> platform-independent; its maximum is a property of a representation. With closed-only endpoints an
+> abstract declaration has to choose between inventing a maximum it cannot know and stating `Unbounded`,
+> which throws away the `≥ 0` it *does* know. So `Interval`'s endpoints are each a `Bound[T]`
+> (`data Interval[T](start: Bound[T], end: Bound[T])`), an unbounded endpoint's direction is read from its
+> position, and the base states `atLeast(0)` while a platform narrows it to `closed(0, platformMax)`.
+> This is the change §5's own last paragraph anticipated — a change to `Interval`, not to `Bound` or
+> `Meta` — reached by a different motivation than the §5.2 one it expected.
+>
+> `Bound` is **kept** at the slot. It is still the right top for a domain that is not an interval, and
+> collapsing it would leave two spellings of the range domain's top (`Unbounded` and a fully-open
+> interval), which the per-position verdict comparison in `ReconcileProcessor.metaByPosition` reads as
+> disagreement. Deliberately deferred, not overlooked.
+>
+> Precision, on the arithmetic: `add` and `subtract` stay **exact** on a half-open interval, because each
+> pairs endpoints so an absorbing `Unbounded` lands in the position meaning the infinity it came from, and
+> the start/end pairing rules out the indeterminate `∞ − ∞`. `multiply` **widens** to the whole line, since
+> its corner products are compared after the multiplication, when a product has lost the position that gave
+> its infinity a direction. Sound, not tight — the same trade `Numeric[Bound[T]]` already documents for a
+> zero operand, and recovering it needs a signed endpoint view local to that one method.
+
+The original argument for a slot-level wrapper only, kept because the rest of it still holds: it is a
+wrapper at the slot rather than an unbounded endpoint per side: endpoint-level infinities carry more
+precision (a half-open `[0, ∞)`), but `Interval` is a runtime user-facing type, and the case that seemed to
+need them — a size — states `[0, platform max]`, which is closed *and* keeps its non-negativity. Only a
+leaf whose bound is **exponential in its argument's meta** genuinely escapes a closed interval, and there
+is exactly one.
 
 This is what R4 asks for. Absence stops being overloaded: a stated `Unbounded` says *"nothing bounds this"*,
 and absence goes back to meaning only *"nobody has computed this yet"*. A stated `Unbounded` and an absent
@@ -194,7 +221,9 @@ shape `add` already has. It is a **precision follow-on, not a prerequisite**, an
 domain top to saturate into.
 
 `Interval` may still gain unbounded endpoints if its own semantics want them — that is a change to
-`Interval`, not to `Bound` or `Meta`, and §5.2 is the only thing that would motivate it.
+`Interval`, not to `Bound` or `Meta`, and §5.2 is the only thing that would motivate it. **It has, and
+§5.2 was not what motivated it** — the platform-maximum objection above was. The prediction about the
+*shape* of the change held exactly: `Bound` and `Meta` were untouched.
 
 ### 5.1 Unbounded iteration cannot reach the interpretation
 

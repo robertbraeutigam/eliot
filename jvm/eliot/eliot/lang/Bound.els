@@ -7,6 +7,22 @@ def foldBound[T, B](ifUnbounded: {Effect} B, ifBounded: T => {Effect} B, b: Boun
    case Bounded(v) -> ifBounded(v)
 }
 
+def minBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
+   case Unbounded -> Unbounded
+   case Bounded(x) -> b match {
+      case Unbounded -> Unbounded
+      case Bounded(y) -> Bounded(min(x, y))
+   }
+}
+
+def maxBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
+   case Unbounded -> Unbounded
+   case Bounded(x) -> b match {
+      case Unbounded -> Unbounded
+      case Bounded(y) -> Bounded(max(x, y))
+   }
+}
+
 implement[T ~ Numeric[T]] Numeric[Bound[T]] {
    def add(a: Bound[T], b: Bound[T]): Bound[T] = a match {
       case Unbounded -> Unbounded

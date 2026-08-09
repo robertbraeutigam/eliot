@@ -198,7 +198,14 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
 - `type Int {range: Bound[Interval[BigInteger]]}` — an abstract type; no value constructor, no chosen width. Its
   range is channel meta-information, not a type parameter. The `Bound` wrapper (`data Bound[T] = Unbounded |
   Bounded(value: T)`) is the domain's stated **top**: a value nothing bounds says so, so an absent meta means only
-  "not computed yet" (`docs/total-meta-transfers.md` §5).
+  "not computed yet" (`docs/total-meta-transfers.md` §5). An `Interval`'s **endpoints are each a `Bound[T]`** too
+  (`data Interval[T](start: Bound[T], end: Bound[T])`), so a range may be **half-open** — an unbounded endpoint's
+  direction is read from its *position* (`start` = no lower limit, `end` = no upper), and there is no signed
+  infinity. That is what lets the base state the platform-independent half of a bound (`atLeast(0)` for a size)
+  instead of inventing a platform maximum it may not assume; a platform narrows it to `closed(0, platformMax)`.
+  Constructors `interval`/`closed`/`atLeast`/`atMost`/`whole` and the `where`-facing predicate
+  `rangeWithin[Lo, Hi](b)` are abstract in the base, bodied per platform. `add`/`subtract` stay exact on a
+  half-open interval; `multiply` widens to `whole` (its corner products lose the position that signs an infinity).
 - `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function, signature only.
 - A `type X = ...` alias and a body-less `type X` differ only by having a body; `data X(...)` is the *concrete*
   form that additionally introduces a value constructor.

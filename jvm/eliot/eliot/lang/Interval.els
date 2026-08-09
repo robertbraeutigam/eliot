@@ -1,4 +1,25 @@
-data Interval[T](start: T, end: T)
+data Interval[T](start: Bound[T], end: Bound[T])
+
+def interval[T](start: Bound[T], end: Bound[T]): Interval[T] = Interval(start, end)
+
+def closed[T](start: T, end: T): Interval[T] = Interval(Bounded(start), Bounded(end))
+
+def atLeast[T](start: T): Interval[T] = Interval(Bounded(start), Unbounded)
+
+def atMost[T](end: T): Interval[T] = Interval(Unbounded, Bounded(end))
+
+def whole[T]: Interval[T] = Interval(Unbounded, Unbounded)
+
+def rangeWithin[Lo: BigInteger, Hi: BigInteger](b: Bound[Interval[BigInteger]]): Bool = b match {
+   case Unbounded -> false
+   case Bounded(i) -> i.start match {
+      case Unbounded -> false
+      case Bounded(s) -> i.end match {
+         case Unbounded -> false
+         case Bounded(e) -> lessThanOrEqual(Lo, s) && lessThanOrEqual(e, Hi)
+      }
+   }
+}
 
 implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
    def add(a: Interval[T], b: Interval[T]): Interval[T] =
@@ -10,6 +31,6 @@ implement[T ~ Numeric[T] & Compare[T]] Numeric[Interval[T]] {
       val c12 = multiply(start(a), end(b))
       val c21 = multiply(end(a), start(b))
       val c22 = multiply(end(a), end(b))
-      Interval(min(min(min(c11, c12), c21), c22), max(max(max(c11, c12), c21), c22))
+      Interval(minBound(minBound(minBound(c11, c12), c21), c22), maxBound(maxBound(maxBound(c11, c12), c21), c22))
    }
 }
