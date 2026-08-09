@@ -18,19 +18,41 @@ class IntRepresentationTest extends AnyFlatSpec with Matchers {
       GroundValue.Type
     )
 
-  /** The meta the channel produces for an `Int` node: `Int$Meta(Interval(min, max))` — the `$Meta` wrapper the backend
-    * unwraps. (`intervalBounds`/`representationFor` decode this whole shape, not a bare `Interval`.)
+  /** The meta the channel produces for an `Int` node: `Int$Meta(Bounded(Interval(min, max)))` — the `$Meta` wrapper
+    * around the [[Bound]] the range domain is stated in. (`intervalBounds`/`representationFor` decode this whole shape,
+    * not a bare `Interval`.)
     */
   private def interval(min: BigInt, max: BigInt): GroundValue =
+    intMeta(
+      GroundValue.Structure(
+        ValueFQN(ModuleName(defaultSystemPackage, "Bound"), QualifiedName("Bounded", Qualifier.Default)),
+        Seq(
+          GroundValue.Structure(
+            ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Default)),
+            Seq(GroundValue.Direct(min, bigIntType), GroundValue.Direct(max, bigIntType)),
+            GroundValue.Type
+          )
+        ),
+        GroundValue.Type
+      )
+    )
+
+  /** The range domain's *stated* top: `Int$Meta(Unbounded)`, a value nothing bounds. Distinct from an absent meta as a
+    * channel verdict, but the same layout question — see [[IntRepresentation.intervalBounds]].
+    */
+  private val unbounded: GroundValue =
+    intMeta(
+      GroundValue.Structure(
+        ValueFQN(ModuleName(defaultSystemPackage, "Bound"), QualifiedName("Unbounded", Qualifier.Default)),
+        Seq.empty,
+        GroundValue.Type
+      )
+    )
+
+  private def intMeta(range: GroundValue): GroundValue =
     GroundValue.Structure(
       ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName("Int$Meta", Qualifier.Default)),
-      Seq(
-        GroundValue.Structure(
-          ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Default)),
-          Seq(GroundValue.Direct(min, bigIntType), GroundValue.Direct(max, bigIntType)),
-          GroundValue.Type
-        )
-      ),
+      Seq(range),
       GroundValue.Type
     )
 
@@ -86,11 +108,19 @@ class IntRepresentationTest extends AnyFlatSpec with Matchers {
     IntRepresentation.representationFor(None) shouldBe jvm("JvmBigInteger")
   }
 
+  it should "be JvmBigInteger for a stated Unbounded range" in {
+    IntRepresentation.representationFor(Some(unbounded)) shouldBe jvm("JvmBigInteger")
+  }
+
   "intervalBounds" should "read the endpoints of an Interval meta value" in {
     IntRepresentation.intervalBounds(interval(3, 9)) shouldBe Some((BigInt(3), BigInt(9)))
   }
 
   it should "be None for a non-interval structure" in {
     IntRepresentation.intervalBounds(GroundValue.Type) shouldBe None
+  }
+
+  it should "be None for a stated Unbounded range" in {
+    IntRepresentation.intervalBounds(unbounded) shouldBe None
   }
 }

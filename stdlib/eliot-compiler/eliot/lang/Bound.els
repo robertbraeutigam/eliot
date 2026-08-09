@@ -1,0 +1,58 @@
+import eliot.carrier.Effect
+import eliot.compiler.Meta
+
+data Bound[T] = Unbounded | Bounded(value: T)
+
+def foldBound[T, B](ifUnbounded: {Effect} B, ifBounded: T => {Effect} B, b: Bound[T]): {Effect} B = b match {
+   case Unbounded -> ifUnbounded
+   case Bounded(v) -> ifBounded(v)
+}
+
+/**
+ * A `Bound[D]` over a refinement domain `D` is itself a refinement domain — the one that adds "no bound at all"
+ * to `D`'s own values, which is what makes the domain's top element a *statable* value rather than an absence.
+ * Its `join` covers two bounds: two `Bounded`s join through `D`'s own `join`, and an `Unbounded` on either side
+ * absorbs, since nothing that covers an unbounded value can itself be bounded.
+ *
+ * A compiler-pool-only instance, exercised at `match`/`if` branch merges (the auto-derived `Meta[Int$Meta]` join
+ * dispatches to it on the range slot, which then dispatches to `Meta[Interval[T]]` on the interval inside).
+ */
+implement[T ~ Meta[T]] Meta[Bound[T]] {
+   def join(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(join(x, y))
+      }
+   }
+}
+
+/**
+ * The compiler platform's self-sufficient copy of the runtime `Numeric[Bound[T]]` instance (base signatures + jvm
+ * bodies) — structurally identical, so the refinement channel's `Int` arithmetic transfers dispatch through *this*
+ * instance rather than borrowing a sibling target's. `Unbounded` absorbs; see the base declaration for why the
+ * absorbing `multiply` is deliberately not tightened for a zero operand.
+ */
+implement[T ~ Numeric[T]] Numeric[Bound[T]] {
+   def add(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(add(x, y))
+      }
+   }
+   def subtract(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(subtract(x, y))
+      }
+   }
+   def multiply(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(multiply(x, y))
+      }
+   }
+}

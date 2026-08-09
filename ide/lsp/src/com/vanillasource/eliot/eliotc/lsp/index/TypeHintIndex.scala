@@ -109,14 +109,15 @@ object TypeHintIndex {
       .collect { case (position, entries) if entries.map(_.meta).distinct.sizeIs == 1 => position -> entries.head.meta }
       .flatMap { case (position, meta) => meta.flatMap(boundsOf).map(position -> _) }
 
-  /** Decode `[min, max]` from an `Int$Meta(Interval(min, max))` meta value — the value-range domain's shape. [[None]] for
-    * any other meta (a future domain), which is simply not shown as a range.
+  /** Decode `[min, max]` from an `Int$Meta(Bounded(Interval(min, max)))` meta value — the value-range domain's shape.
+    * [[None]] for any other meta (a future domain, or the domain's stated top `Int$Meta(Unbounded)`), which is simply
+    * not shown as a range.
     */
   private def boundsOf(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
-      case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _) =>
+      case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)), _) =>
         (directBigInt(lo), directBigInt(hi)).tupled
-      case _                                                                          => None
+      case _                                                                                                           => None
     }
 
   private def directBigInt(gv: GroundValue): Option[BigInt] = gv match {

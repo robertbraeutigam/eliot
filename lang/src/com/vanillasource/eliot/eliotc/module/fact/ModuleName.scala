@@ -110,6 +110,7 @@ object ModuleName {
   val defaultSystemModules                 = Seq(
     "BigInteger",
     "Bool",
+    "Bound",
     "Combine",
     "Compare",
     "Either",
