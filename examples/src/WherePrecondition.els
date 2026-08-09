@@ -2,8 +2,12 @@
 def byteMin: BigInteger = 0
 def byteMax: BigInteger = 127
 
-def withinByte(i: Interval[BigInteger]): Bool =
-   lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
+// A range the compiler could not bound fits no fixed width, so `Unbounded` simply fails the precondition — the
+// unbounded case is a value the predicate answers, not a gap it falls through.
+def withinByte(b: Bound[Interval[BigInteger]]): Bool = b match {
+   case Unbounded -> false
+   case Bounded(i) -> lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
+}
 
 /**
  * A `where` refinement precondition (`docs/bounds-as-refinements.md` §4.3). `asByte` demands that its argument's value

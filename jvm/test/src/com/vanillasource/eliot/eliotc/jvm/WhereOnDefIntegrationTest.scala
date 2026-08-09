@@ -12,7 +12,7 @@ class WhereOnDefIntegrationTest extends FullIntegrationTest {
   private val withinByte =
     """|def byteMin: BigInteger = 0
        |def byteMax: BigInteger = 127
-       |def withinByte(i: Interval[BigInteger]): Bool = lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
+       |def withinByte(b: Bound[Interval[BigInteger]]): Bool = b.foldBound(false, i -> lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax))
        |""".stripMargin
 
   private val useByte =

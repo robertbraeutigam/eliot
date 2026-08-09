@@ -3,7 +3,7 @@ import eliot.compiler.Meta
 /**
  * The type of integers, each carrying a compiler-tracked range of the values it may hold.
  */
-type Int {range: Interval[BigInteger]}
+type Int {range: Bound[Interval[BigInteger]]}
 
 implement Numeric[Int] {
    def add(a: Int, b: Int): Int {range(a) + range(b)}

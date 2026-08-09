@@ -1,0 +1,32 @@
+import eliot.carrier.Effect
+
+data Bound[T] = Unbounded | Bounded(value: T)
+
+def foldBound[T, B](ifUnbounded: {Effect} B, ifBounded: T => {Effect} B, b: Bound[T]): {Effect} B = b match {
+   case Unbounded -> ifUnbounded
+   case Bounded(v) -> ifBounded(v)
+}
+
+implement[T ~ Numeric[T]] Numeric[Bound[T]] {
+   def add(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(add(x, y))
+      }
+   }
+   def subtract(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(subtract(x, y))
+      }
+   }
+   def multiply(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(multiply(x, y))
+      }
+   }
+}

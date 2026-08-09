@@ -1,8 +1,12 @@
 # Total Meta Transfers — meta as a shadow logic
 
-Status: **design proposal**, no code. Supersedes the TODO item *"A native that produces a meta-carrying
-type must state its meta-information"* by generalising it: the TODO closes one hole, this closes the class
-of holes it belongs to.
+Status: **design, partly built.** Two pieces have landed: the R2 check itself
+(`monomorphize/channel/MetaTransferAccountingProcessor`, registered but **dormant** — see §9 P1/P2) and the
+range domain's top (`Bound[Interval[BigInteger]]`, §5), which was the last thing standing between the check
+and being armed. Everything from §6 on — the meta interpretation — is still design.
+
+Supersedes the TODO item *"A native that produces a meta-carrying type must state its meta-information"* by
+generalising it: the TODO closes one hole, this closes the class of holes it belongs to.
 
 Prior art: the refinement channel (`Int`'s `range` slot, `^Meta` transfer companions, `^Where`
 preconditions, `Meta[D]` join) — shipped; see `monomorphize/channel/RefinementChannelProcessor` and the
@@ -131,7 +135,30 @@ a monomorphization — the reporting shape `EffectAccountingProcessor` already n
 
 ---
 
-## 5. ⊤: the machinery needs neither a domain `top` nor an `unknown` form
+## 5. ⊤: the machinery needs no `unknown` form — but the *domain* did need a top
+
+**Settled, and shipped.** The architecture call below held: nothing was added to `Meta` or to the transfer
+machinery. The empirical claim attached to it — that no leaf needs a top either — did not, and the leaf that
+broke it is the one §P2 already flagged as doubtful. The resolution is a change to the **domain**, exactly
+where this section predicted one would go if it were needed:
+
+```eliot
+data Bound[T] = Unbounded | Bounded(value: T)
+type Int {range: Bound[Interval[BigInteger]]}
+```
+
+`Unbounded` absorbs through `Numeric[Bound[T]]` and `Meta[Bound[T]]`. It is a wrapper at the slot rather
+than an unbounded endpoint per side: endpoint-level infinities carry more precision (a half-open `[0, ∞)`),
+but `Interval` is a runtime user-facing type, and the case that seemed to need them — a size — states
+`[0, platform max]`, which is closed *and* keeps its non-negativity. Only a leaf whose bound is
+**exponential in its argument's meta** genuinely escapes a closed interval, and there is exactly one.
+
+This is what R4 asks for. Absence stops being overloaded: a stated `Unbounded` says *"nothing bounds this"*,
+and absence goes back to meaning only *"nobody has computed this yet"*. A stated `Unbounded` and an absent
+meta still agree on **layout** (both are a bignum — `IntRepresentation.intervalBounds` decodes `Unbounded` to
+`None`), which is why nothing downstream moved: all 39 example jars are byte-identical across the change.
+
+The original argument, kept because its shape is still right:
 
 I argued earlier that `Meta[D]` needed a `top`, then that a machinery-level `unknown` transfer form was
 needed for `foldLeft`. **Both withdrawn.** Walking the leaves that seemed to need one:
@@ -140,7 +167,7 @@ needed for `foldLeft`. **Both withdrawn.** Walking the leaves that seemed to nee
 |---|---|---|
 | `String::length` | `0 .. platform max` (better: the string's own size meta, once it exists) | nothing |
 | `Process::exitCode` | `0 .. 255` | nothing |
-| `String::parseIntInternal` | the platform int range | nothing |
+| `String::parseIntInternal` | ~~the platform int range~~ — **`Unbounded`** | the domain top (above) |
 | `Id::runId`, `Effect::pure` | identity on the payload's meta | nothing |
 | `Function::apply`, `Effect::flatMap` | the function argument's transfer, applied | **higher-order** |
 | `PatternMatch::handleCases` | join over the cases' transfers | **higher-order** |
@@ -152,8 +179,22 @@ platform leaf that cannot state a true bound is a leaf whose platform has not de
 which is a different bug. So R2 can be enforced with no escape hatch, and the *absence* of an escape hatch
 is what makes it extract the information it exists to extract.
 
+**Where that reasoning fails, and it fails exactly once.** The premise holds for a leaf that *returns* a
+representation. It does not hold for one whose result is a **function of another value's meta**, because the
+composition can outrun any representation the result is stored in. `parseIntInternal` is
+`new BigInteger(String)` — the numeral read at full precision — so its honest bound is `±(10ⁿ − 1)` for an
+argument of `n` code points. Two things go wrong at once: `10ⁿ` is not writable (`Numeric` is
+add/subtract/multiply, no exponentiation), and at the representation limit `n = 2³¹−1` the honest answer is a
+two-billion-digit `BigInteger` — finite, sound, and roughly 890 MB to materialise. A bound that hangs the
+compiler is worse than a wide one, so the leaf states `Unbounded` and the exponent never runs.
+
+Adding a `power` native would make the tight cases (`"42"` ⤳ `[-99, 99]`, a `where`-bounded field) genuinely
+precise, and it is cheap — its own transfer is endpoint-wise `power` through `Numeric[Interval[T]]`, the same
+shape `add` already has. It is a **precision follow-on, not a prerequisite**, and it is only safe *given* a
+domain top to saturate into.
+
 `Interval` may still gain unbounded endpoints if its own semantics want them — that is a change to
-`Interval`, not to `Meta`, and §5.2 is the only thing that would motivate it.
+`Interval`, not to `Bound` or `Meta`, and §5.2 is the only thing that would motivate it.
 
 ### 5.1 Unbounded iteration cannot reach the interpretation
 
@@ -163,9 +204,19 @@ construction — `foreverInternal(thunk: Function[Unit, Unit]): Unit` is a leaf,
 the interpretation never sees the `while(true)` under it. Robert's observation holds and is load-bearing:
 an unbounded loop returns `Unit`, so it can carry no meta.
 
-It holds by construction for `forever` as declared, not as a theorem. Worth making it one: **an `{Inf}`
-leaf may not return a meta-carrying type.** Cheap to check, and it turns "true of today's `forever`" into
-"true of every future unbounded native".
+It holds by construction for `forever` as declared, not as a theorem. I proposed making it one — *an `{Inf}`
+leaf may not return a meta-carrying type* — and that rule is **dropped**. It buys nothing and costs something:
+
+- It buys nothing because the guarantee does not come from the return type. It comes from the first sentence
+  of this section: a leaf is **summarized, never executed**, so its internal loop is invisible to the
+  interpretation whatever it returns. Unboundedness of a loop and the truth of a stated return bound are
+  orthogonal.
+- It costs something because a blocking native is honestly `{Inf}` and honestly bounded. An ADC or UART read
+  that spins until data arrives returns `0 .. 1023`; the rule would forbid stating it, for no gain.
+
+The real guard is the **budget** (§5.2), and it is not redundant with this rule — it is the only thing
+standing where iteration actually enters, which is a transfer that *invites* it by calling `iterate`. That is
+`foldLeft`'s transfer, never `forever`'s.
 
 Unbounded iteration can therefore only enter the interpretation if we *invite* it — which is exactly what
 the fold does.
@@ -362,13 +413,28 @@ and `Process::exitCode`/jvm `outcomeExitCode`; folds, carrier returns, bodied va
 arithmetic leaves all pass. Registered but **undemanded** (dormant) — arming is a one-line `getFactOrAbort`
 precondition in `WovenValueProcessor`.
 
+**P2 prerequisite — the domain top — LANDED.** The range domain is `Bound[Interval[BigInteger]]` (§5), so
+every leaf below now has a transfer it can honestly state. This was P2's one blocker.
+
 **P2 — arm it + the missing statements (remaining).** Wire the precondition, then state the transfers the
-armed check demands — `String::length`, `indexOfInternal`, `parseIntInternal`, `Process::exitCode`, jvm
-`outcomeExitCode`, and the generic leaves of §5. Their bounds are **platform data**, so by the
-platform-independence cornerstone they belong in the platform layer, not the base (the brace desugars to a
-separate `^Meta` companion, so a jvm-layer brace over a base-abstract declaration merges cleanly with no
-`signatureEquality` change). `parseInt`'s honest range is unbounded (JVM `Int` is BigInteger-backed), so it
-needs either open `Interval` endpoints (§5) or a stated ⊤. **This is what closes the original TODO.**
+armed check demands. Their bounds are **platform data**, so by the platform-independence cornerstone they
+belong in the platform layer, not the base (the brace desugars to a separate `^Meta` companion, so a
+jvm-layer brace over a base-abstract declaration merges cleanly with no `signatureEquality` change):
+
+| leaf | stated transfer |
+|---|---|
+| `String::length` | `Bounded([0, 2³¹−1])` — the platform string limit |
+| `String::indexOfInternal` | `Bounded([-1, 2³¹−1])` — `-1` is the not-found answer |
+| `Process::exitCode`, jvm `outcomeExitCode` | `Bounded([0, 255])` |
+| `String::parseIntInternal` | `Unbounded` — full-precision `BigInteger`, and its honest bound is exponential in its argument's size (§5) |
+
+Plus the generic leaves of §5, which are the higher-order rows and wait on P4. **This is what closes the
+original TODO.**
+
+Sequencing note (`docs/string-length-meta.md` §7): declaring `String` meta-carrying pulls every body-less
+`String`-returning leaf into this list — roughly a dozen more, all of them statable as
+`Bounded([0, platform max])`. Landing the `String` domain *before* arming means stating them once instead of
+twice.
 
 **P3 — R3 enforcement.** Error on a brace over a bodied value. Should be a no-op on today's tree
 (`Numeric[Int]`, `fold`, `integerLiteral` are all leaves) — a good sign and a good test.
@@ -395,12 +461,20 @@ Each stage verified by the fast example sweep + byte-identity compare
 ## 11. Decisions needed before code
 
 1. ~~Option B over Option A~~ — **decided: B** (§6.2).
-2. ~~A machinery-level `unknown` form~~ — **dropped** (§5): no leaf appears to need it, and a stalled
-   transfer already yields absence soundly. Revisit only if P2 turns up a real counterexample.
-3. **Budget, not widening** (§5.2) — confirm; it is what lets the machinery stay free of ∞.
-4. **An `{Inf}` leaf may not return a meta-carrying type** (§5.1) — turns a property of today's `forever`
-   into an enforced rule.
+2. ~~A machinery-level `unknown` form~~ — **dropped, and the counterexample arrived** (§5). The machinery
+   still has no `unknown` form and `Meta` is untouched, which is the half that mattered. But `parseIntInternal`
+   *was* the real counterexample this decision reserved the right to be revisited for, so the **domain** grew a
+   top: `Bound[Interval[BigInteger]]`. **Settled and shipped.**
+3. **Budget, not widening** (§5.2) — still the recommendation, but the framing has changed. §5.2's argument was
+   *budget ⇒ no ∞ needed; widening ⇒ ∞ needed*, and ∞ now exists in the domain, so widening is no longer
+   impossible — an ascending chain terminates at `Unbounded`. That is a **removed one-way door**, not a reason
+   to switch: the budget is still simpler and more honest, and Eliot deliberately has no widening machinery.
+4. ~~An `{Inf}` leaf may not return a meta-carrying type~~ — **dropped** (§5.1). It buys nothing (a leaf is
+   summarized, never executed, so its loop never reaches the interpretation whatever it returns) and would
+   forbid a legitimate blocking native that is honestly `{Inf}` and honestly bounded.
 5. **Brace placement**: with the native, excluded from `signatureEquality` (§8.2).
 6. **Scope of v1**: P2 alone, or P2 + P4.
 7. **May an ability declare a transfer its impls must satisfy?** (§2.2) — probably yes eventually, but as a
    contract feature, not part of this.
+8. **A `power` native** (§5) — worth having for precision once `String` size lands, and safe only now that
+   the domain has a top to saturate into. Not a prerequisite for anything.

@@ -1,4 +1,4 @@
 /**
  * Convert a `BigInteger` literal into the platform's concrete integer value.
  */
-def integerLiteral[V: BigInteger]: Int {Interval(V, V)}
+def integerLiteral[V: BigInteger]: Int {Bounded(Interval(V, V))}

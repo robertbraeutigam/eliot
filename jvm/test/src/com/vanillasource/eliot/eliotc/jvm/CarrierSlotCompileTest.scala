@@ -54,7 +54,7 @@ class CarrierSlotCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
       |
       |def byteMin: BigInteger = 0
       |def byteMax: BigInteger = 127
-      |def withinByte(i: Interval[BigInteger]): Bool = lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
+      |def withinByte(b: Bound[Interval[BigInteger]]): Bool = b.foldBound(false, i -> lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax))
       |def useByte(x: Int): Int where withinByte(range(x)) = x
       |
       |def main: IO[Unit] = printLine(show(useByte(1000)))

@@ -68,6 +68,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Either", "type Either[E, A]"),
     SystemImport("Pair", "type Pair[A, B]"),
     SystemImport("Interval", "type Interval[T]"),
+    SystemImport("Bound", "type Bound[T]"),
     SystemImport("Console", ProcessorTest.consoleStubContent, ModuleName.effectPackage),
     SystemImport("Log", ProcessorTest.logStubContent, ModuleName.effectPackage),
     SystemImport("Dep", ProcessorTest.depStubContent, ModuleName.effectPackage),

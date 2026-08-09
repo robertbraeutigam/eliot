@@ -96,8 +96,8 @@ object SignatureRenderer {
     s"${prefix}type ${fn.name.value.name}$params$meta$body"
   }
 
-  /** The compiler-tracked meta-slot brace of a type, e.g. the `{range: Interval[BigInteger]}` of
-    * `type Int {range: Interval[BigInteger]}` — the named refinement channel the type carries (bounds-as-refinements
+  /** The compiler-tracked meta-slot brace of a type, e.g. the `{range: Bound[Interval[BigInteger]]}` of
+    * `type Int {range: Bound[Interval[BigInteger]]}` — the named refinement channel the type carries (bounds-as-refinements
     * §4.2). Each slot is a `name: Domain` binder; empty for a type with no meta slots.
     */
   private def metaSlotList(slots: Seq[ArgumentDefinition]): String =

@@ -30,7 +30,7 @@ class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
       |import eliot.effect.Console
       |def byteMin: BigInteger = 0
       |def byteMax: BigInteger = 127
-      |def withinByte(i: Interval[BigInteger]): Bool = lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax)
+      |def withinByte(b: Bound[Interval[BigInteger]]): Bool = b.foldBound(false, i -> lessThanOrEqual(byteMin, start(i)) && lessThanOrEqual(end(i), byteMax))
       |def useByte(x: Int): Int where withinByte(range(x)) = x
       |def f(a: Int, b: Int): Int {range(a) + range(b)} = a + b
       |""".stripMargin

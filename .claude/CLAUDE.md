@@ -177,7 +177,7 @@ compare), never a parallel bespoke mechanism; and kind/arity metadata stays out 
 Three durable guardrails:
 
 1. **`unify` is pure definitional equality** — never a `refinements` map or an assignability arm. There is **no
-   `Int` widening and no `Coerce`**: `Int` is nullary (`type Int {range: Interval[BigInteger]}`) with bounds held
+   `Int` widening and no `Coerce`**: `Int` is nullary (`type Int {range: Bound[Interval[BigInteger]]}`) with bounds held
    as meta-information in the separate **refinement channel** (`monomorphize/channel/RefinementChannelProcessor`,
    checked post-mono). So `Int == Int` definitionally, and a narrower range flowing where a wider one is expected
    is definitionally equal — bound legality is the channel's job, not a checker-inserted coercion.
@@ -195,8 +195,10 @@ declared **abstractly** — `type`s without a value constructor, body-less `def`
 same on every target (e.g. `fitsIn`, the discharge helpers `catch`/`else`/`runStateToPair`). It must **never**
 contain `data` (a chosen representation), a native leaf, or any representation-dependent body.
 
-- `type Int {range: Interval[BigInteger]}` — an abstract type; no value constructor, no chosen width. Its range
-  is channel meta-information, not a type parameter.
+- `type Int {range: Bound[Interval[BigInteger]]}` — an abstract type; no value constructor, no chosen width. Its
+  range is channel meta-information, not a type parameter. The `Bound` wrapper (`data Bound[T] = Unbounded |
+  Bounded(value: T)`) is the domain's stated **top**: a value nothing bounds says so, so an absent meta means only
+  "not computed yet" (`docs/total-meta-transfers.md` §5).
 - `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function, signature only.
 - A `type X = ...` alias and a body-less `type X` differ only by having a body; `data X(...)` is the *concrete*
   form that additionally introduces a value constructor.

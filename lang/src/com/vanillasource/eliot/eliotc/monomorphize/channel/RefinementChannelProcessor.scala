@@ -108,8 +108,8 @@ class RefinementChannelProcessor
     node.value.expression match {
       case MonomorphicExpression.IntegerLiteral(value)  =>
         // α (the one point a meta *originates*): a literal `n` seeds its singleton range by reducing the literal
-        // protocol's own `^Meta` companion on `n`. The seed's construction (`Int$Meta(Interval[n, n])`) lives in Eliot
-        // — `eliot.lang.Runtime::integerLiteral`'s return brace `{Interval(V, V)}`, which the desugarer turns into
+        // protocol's own `^Meta` companion on `n`. The seed's construction (`Int$Meta(Bounded(Interval[n, n]))`) lives
+        // in Eliot — `eliot.lang.Runtime::integerLiteral`'s return brace `{Bounded(Interval(V, V))}`, which the desugarer turns into
         // `integerLiteral^Meta` — and is reduced here through the *same* uniform `^Meta` path as every transfer/merge
         // (`metaViaCompanion`). The channel builds no domain structure of its own; it only wraps `n` as its
         // `BigInteger` value to reduce the companion at. So even the α origin is domain-agnostic.
