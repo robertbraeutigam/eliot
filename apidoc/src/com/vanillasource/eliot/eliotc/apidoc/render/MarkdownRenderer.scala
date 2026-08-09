@@ -2,9 +2,9 @@ package com.vanillasource.eliot.eliotc.apidoc.render
 
 import scala.util.matching.Regex
 
-/** A small CommonMark-subset renderer for documentation bodies: paragraphs, ATX headings (`#`..`####`), unordered
-  * lists (`-`/`*`), fenced code blocks, and the inline run of inline-code, `**bold**`, `*italic*`, and `[text](url)`
-  * links. It is intentionally not a full CommonMark implementation — just the slice documentation actually uses.
+/** A small CommonMark-subset renderer for documentation bodies: paragraphs, ATX headings (`#`..`####`), unordered lists
+  * (`-`/`*`), fenced code blocks, and the inline run of inline-code, `**bold**`, `*italic*`, and `[text](url)` links.
+  * It is intentionally not a full CommonMark implementation — just the slice documentation actually uses.
   *
   * Fenced code blocks tagged `eliot` (or untagged) are syntax-highlighted with [[EliotHighlighter]]; any other language
   * tag is emitted escaped but unhighlighted. All text is HTML-escaped before inline formatting is applied; inline-code
@@ -62,7 +62,8 @@ object MarkdownRenderer {
   }
 
   private def codeBlock(lang: String, code: String): String = {
-    val rendered = if (lang.isEmpty || lang == "eliot") EliotHighlighter.highlight(code) else EliotHighlighter.escape(code)
+    val rendered =
+      if (lang.isEmpty || lang == "eliot") EliotHighlighter.highlight(code) else EliotHighlighter.escape(code)
     s"""<pre class="code"><code>$rendered</code></pre>\n"""
   }
 

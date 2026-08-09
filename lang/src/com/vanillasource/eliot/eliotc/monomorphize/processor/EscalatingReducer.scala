@@ -8,28 +8,27 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{CompilerMonomorphicValu
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
-/** The compiler platform's post-monomorphize **linker-executor** — the `used`-equivalent the runtime platform already has
-  * (`docs/refinement-channel-follow-ups.md` §1). It evaluates a compiler-track value applied to concrete
-  * argument metas and enforces the invariant that *post-monomorphize evaluation may only ever see monomorphized bodies*:
-  * a raw (operator-resolved) callee body may appear only beneath a native leaf, never spliced into the reduction. The
-  * cheap common case (a transfer bottoming at natives) pays nothing new; when the one-hop raw closure sticks on an
-  * ability reference that a monomorphization would have exchanged for its exact impl, the loop *escalates* — it re-links
-  * each stuck callee's own monomorphized (reduced-at-instantiation) form and re-evaluates.
+/** The compiler platform's post-monomorphize **linker-executor** — the `used`-equivalent the runtime platform already
+  * has (`docs/refinement-channel-follow-ups.md` §1). It evaluates a compiler-track value applied to concrete argument
+  * metas and enforces the invariant that *post-monomorphize evaluation may only ever see monomorphized bodies*: a raw
+  * (operator-resolved) callee body may appear only beneath a native leaf, never spliced into the reduction. The cheap
+  * common case (a transfer bottoming at natives) pays nothing new; when the one-hop raw closure sticks on an ability
+  * reference that a monomorphization would have exchanged for its exact impl, the loop *escalates* — it re-links each
+  * stuck callee's own monomorphized (reduced-at-instantiation) form and re-evaluates.
   *
   * The stuck-driven loop skeleton ([[escalatingLoop]] + [[reducibleStuck]] + [[escalate]]) is the **one** mechanism the
-  * in-checker read-back
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]]) and this channel-facing executor share: each
-  * instantiates it with its own (eval function, escalation fetch), so they are one mechanism, not siblings. Each fetched
-  * reduced form was itself produced by a read-back that ran this same loop, so the recursion lives in the cached,
-  * `activeFactKeys`-guarded fact graph rather than in a closure-composition flag.
+  * in-checker read-back ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]]) and this channel-facing
+  * executor share: each instantiates it with its own (eval function, escalation fetch), so they are one mechanism, not
+  * siblings. Each fetched reduced form was itself produced by a read-back that ran this same loop, so the recursion
+  * lives in the cached, `activeFactKeys`-guarded fact graph rather than in a closure-composition flag.
   *
   * '''Not the only seam for §1's invariant.''' [[CompilerNativesProcessor]] enforces the same "monomorphized bodies
   * only" invariant *eagerly*, at a different seam: it contributes a refinement artifact's reduced
   * [[com.vanillasource.eliot.eliotc.monomorphize.fact.CompilerMonomorphicValue]] as a self-contained
-  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Leaf]] (never the raw body) so a checking-time
-  * evaluation — which is pure and cannot demand facts mid-eval — already closes over the monomorphized form. The two
-  * cannot be merged (that purity boundary is exactly why one is eager and this one lazy); they are the eager and lazy
-  * halves of the one invariant, not redundant.
+  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Leaf]] (never the raw body) so a
+  * checking-time evaluation — which is pure and cannot demand facts mid-eval — already closes over the monomorphized
+  * form. The two cannot be merged (that purity boundary is exactly why one is eager and this one lazy); they are the
+  * eager and lazy halves of the one invariant, not redundant.
   */
 object EscalatingReducer {
 
@@ -37,12 +36,12 @@ object EscalatingReducer {
     * only monomorphized callees.
     *
     *   1. fetch `CompilerMonomorphicValue(vfqn, typeArguments)`'s reduced body;
-    *   1. seed the bindings with the one-hop raw closure ([[ReducedBindingClosure.collectBindings]], `deep = false`) — the
-    *      cheap common case (a transfer bottoming at natives) pays nothing new;
+    *   1. seed the bindings with the one-hop raw closure ([[ReducedBindingClosure.collectBindings]], `deep = false`) —
+    *      the cheap common case (a transfer bottoming at natives) pays nothing new;
     *   1. evaluate the reduced body, apply `argMetas`, and `renormalize` (re-fires natives; empty metastore);
-    *   1. if the result quotes, done; if it is *reducibly* stuck, escalate — re-link each of the body's value references
-    *      **reduced at its own ground type arguments** and re-evaluate; loop until it quotes or no new binding is
-    *      available.
+    *   1. if the result quotes, done; if it is *reducibly* stuck, escalate — re-link each of the body's value
+    *      references **reduced at its own ground type arguments** and re-evaluate; loop until it quotes or no new
+    *      binding is available.
     *
     * [[None]] when the value produced no `CompilerMonomorphicValue`, has no reduced body, or the final result does not
     * reduce to a quotable ground form.
@@ -71,16 +70,16 @@ object EscalatingReducer {
             channelStuck
           ).map(result => Quoter.quote(0, result, MetaStore.empty).toOption.filterNot(isAbstractAbilityStructure))
         }
-      case _                                                        => none[GroundValue].pure[CompilerIO]
+      case _                                                         => none[GroundValue].pure[CompilerIO]
     }
 
   /** The channel instantiation of [[escalatingLoop]]'s stuck predicate: [[reducibleStuck]] *plus* a stuck abstract-
-    * ability application (which quotes to a `GroundValue.Structure` headed by a [[Qualifier.Ability]] method). After the
-    * linker fix this path is unreachable — abilities are resolved before the channel sees them — but were one ever to
-    * survive, treating it as stuck makes the loop escalate rather than accept the bogus structure; if it still does not
-    * resolve, [[reduceApplied]]'s [[isAbstractAbilityStructure]] filter drops it to ⊤ (never a structure). Quotes once,
-    * mirroring [[reducibleStuck]], so the hot common path pays no extra cost (`docs/refinement-channel-follow-ups.md`
-    * §2.5).
+    * ability application (which quotes to a `GroundValue.Structure` headed by a [[Qualifier.Ability]] method). After
+    * the linker fix this path is unreachable — abilities are resolved before the channel sees them — but were one ever
+    * to survive, treating it as stuck makes the loop escalate rather than accept the bogus structure; if it still does
+    * not resolve, [[reduceApplied]]'s [[isAbstractAbilityStructure]] filter drops it to ⊤ (never a structure). Quotes
+    * once, mirroring [[reducibleStuck]], so the hot common path pays no extra cost
+    * (`docs/refinement-channel-follow-ups.md` §2.5).
     */
   private def channelStuck(forced: SemValue, metaStore: MetaStore): Boolean = forced match {
     case SemValue.VLam(_, _)                                    => false
@@ -107,8 +106,8 @@ object EscalatingReducer {
   }
 
   /** The shared stuck-driven escalation loop. Evaluate with the current escalated bindings; if the forced result is not
-    * `stuck` (against `metaStore`) return it — the common case pays nothing. If it is stuck, `fetch` more bindings (keyed
-    * by what has already been escalated) and loop until it is unstuck or no new binding is available.
+    * `stuck` (against `metaStore`) return it — the common case pays nothing. If it is stuck, `fetch` more bindings
+    * (keyed by what has already been escalated) and loop until it is unstuck or no new binding is available.
     *
     * `stuck` defaults to [[reducibleStuck]] — the in-checker read-back keeps that predicate byte-for-byte — while the
     * channel executor passes its hardened variant ([[channelStuck]]) so a bogus abstract-ability structure escalates
@@ -143,11 +142,11 @@ object EscalatingReducer {
     case other                                                  => Quoter.quote(0, other, metaStore).isLeft
   }
 
-  /** Fetch the *reduced-at-instantiation* binding for each `candidate` value reference not yet escalated (`already`) and
-    * not an ancestor on the active fact-request chain (would dead-lock). Each fetched form is post-processed by `wrap`
-    * (the in-checker read-back wraps in ignore-lambdas to absorb the reference's type arguments; the
-    * [[MonomorphicEvaluator]] path drops type arguments already, so it passes the reduced form through unchanged). Keyed
-    * by FQN; one instantiation per FQN.
+  /** Fetch the *reduced-at-instantiation* binding for each `candidate` value reference not yet escalated (`already`)
+    * and not an ancestor on the active fact-request chain (would dead-lock). Each fetched form is post-processed by
+    * `wrap` (the in-checker read-back wraps in ignore-lambdas to absorb the reference's type arguments; the
+    * [[MonomorphicEvaluator]] path drops type arguments already, so it passes the reduced form through unchanged).
+    * Keyed by FQN; one instantiation per FQN.
     *
     * A **monomorphic** callee (empty ground type arguments) is escalated too — `wrap(0, sem) = sem` splices its reduced
     * body directly. The former `groundArgs.nonEmpty` gate was conservatism inherited from the guard tower (whose

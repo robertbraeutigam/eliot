@@ -20,8 +20,8 @@ import scala.reflect.ClassTag
   *     any compiler change, so a name needs to survive only within one compiler build.)
   *   - **Complete, or a hard error at save.** `CompilerFactKey.valueCodec` is compile-time-complete for the value
   *     because every key states it. Decoding cannot be stated that way — the reader has no key yet — so this is a
-  *     runtime map and needs its own guard: a key type absent from it must fail loudly when written, never leave
-  *     bytes nothing can read back.
+  *     runtime map and needs its own guard: a key type absent from it must fail loudly when written, never leave bytes
+  *     nothing can read back.
   */
 object FactKeyCodecs {
 
@@ -39,7 +39,9 @@ object FactKeyCodecs {
   val configKey: Configuration.Key[Registry] = Configuration.opaqueKey("factKeyCodecs")
 
   /** Register one key type under its own class name. */
-  def of[K <: CompilerFactKey[?]](codec: FactCodec[K])(using tag: ClassTag[K]): (String, FactCodec[CompilerFactKey[?]]) =
+  def of[K <: CompilerFactKey[?]](codec: FactCodec[K])(using
+      tag: ClassTag[K]
+  ): (String, FactCodec[CompilerFactKey[?]]) =
     tag.runtimeClass.getName -> codec.asInstanceOf[FactCodec[CompilerFactKey[?]]]
 
   /** The name a key is stored under, and looked back up by. */

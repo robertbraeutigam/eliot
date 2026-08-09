@@ -12,22 +12,22 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Turns a [[SaturatedValue]] into a binding (a `VTopDef` carrying a lazy body thunk) for the NbE evaluator, closing the
-  * body over the [[NativeBinding]]s of its dependencies. The caller decides which body the value contributes, passed as
-  * `selfBody`: the [[BindingMergerProcessor]], for a
+/** Turns a [[SaturatedValue]] into a binding (a `VTopDef` carrying a lazy body thunk) for the NbE evaluator, closing
+  * the body over the [[NativeBinding]]s of its dependencies. The caller decides which body the value contributes,
+  * passed as `selfBody`: the [[BindingMergerProcessor]], for a
   * [[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Body]] contribution, uses
   * [[OperatorResolvedValue.runtime]].
   *
   * Reads the [[SaturatedValue]] (the same fact the monomorphize checker reads), not the raw [[OperatorResolvedValue]],
   * for two reasons: the saturated signature carries the binder roles ([[SaturatedValue.binderRoles]]) the wrap
-  * consumes, and its leading binders line up with the type arguments the checker applies (saturation may prepend binders
-  * for omittable `auto` parameters) — keeping the wrap's binder indices aligned (D6).
+  * consumes, and its leading binders line up with the type arguments the checker applies (saturation may prepend
+  * binders for omittable `auto` parameters) — keeping the wrap's binder indices aligned (D6).
   *
   * The subtle, error-prone parts live here once: the mutual-recursion guard (via the runtime's active fact-request
-  * chain, [[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]] — never per-processor mutable state, so
-  * it stays a pure function of the facts it reads), and the transitive dependency collection. Dependencies are always
-  * resolved via [[NativeBinding]] (the checker's semantics, the bindings the bodies were type-checked against); only the
-  * top-level value's own body selection differs between callers.
+  * chain, [[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]] — never per-processor mutable state,
+  * so it stays a pure function of the facts it reads), and the transitive dependency collection. Dependencies are
+  * always resolved via [[NativeBinding]] (the checker's semantics, the bindings the bodies were type-checked against);
+  * only the top-level value's own body selection differs between callers.
   */
 object BindingClosure {
 
@@ -64,9 +64,8 @@ object BindingClosure {
     )
   }
 
-  /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading generic parameters it reifies —
-    * the ones it references in *value* position — so that applying the value's explicit type arguments substitutes
-    * them.
+  /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading generic parameters it reifies — the ones it
+    * references in *value* position — so that applying the value's explicit type arguments substitutes them.
     *
     * A generic parameter is a binder of the value's '''signature''' (a leading generic `[N]`), but it is '''not''' a
     * lambda of the '''runtime body''': `def bigOf[V] = V` has signature `(V: BigInteger) -> BigInteger` yet runtime

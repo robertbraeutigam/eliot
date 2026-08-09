@@ -36,7 +36,8 @@ class CompilerMonomorphicTypeCheckProcessor()
       SaturatedValue.Key(key.vfqn.copy(name = key.vfqn.name.copy(role = Role.Runtime)), Platform.Compiler)
     ) {
 
-  /** Fetch a name's compile-time reduction from the compiler pool, enforcing the **native-leaf boundary** (CP-C step c).
+  /** Fetch a name's compile-time reduction from the compiler pool, enforcing the **native-leaf boundary** (CP-C step
+    * c).
     *
     * A name with a compiler-platform [[NativeBinding]] reduces normally. A name with *none* is one of two things, and
     * they must be told apart — silently treating both as a stuck [[SemValue.VTopDef]] (the runtime track's correct
@@ -47,15 +48,16 @@ class CompilerMonomorphicTypeCheckProcessor()
     *     leaf) but no compiler-platform definition. This is a *runtime-only value*; reaching it while reducing
     *     compile-time code is a hard error ("there is no backend here"), reported against the value being checked.
     *   - **body-less on both platforms** — an abstract type constructor (`Int`, body-less everywhere), an unresolved
-    *     generic obligation, or an abstract ability method: no runtime binding either. These are legitimate compile-time
-    *     normal forms / use-site-deferred obligations, so `None` is returned and evaluation leaves them stuck.
+    *     generic obligation, or an abstract ability method: no runtime binding either. These are legitimate
+    *     compile-time normal forms / use-site-deferred obligations, so `None` is returned and evaluation leaves them
+    *     stuck.
     *
     * The runtime-concreteness probe reads `NativeBinding(vfqn, Runtime)` — accessing runtime-defined source to *detect*
-    * the leaf, never to *reduce* with it, so the `compiler-mono → runtime-mono` fact edge is not created (this processor
-    * still cannot name `MonomorphicValue.Key`). It is gated on runtime-pool *membership* (a name-set read, like
-    * [[CompilerNativesProcessor.inCompilerPool]]) so a compiler-only name — absent from the runtime pool entirely — is
-    * not probed and does not trigger the runtime pool's "Could not find" abort; such a name is genuinely compiler-side
-    * and stays `None`.
+    * the leaf, never to *reduce* with it, so the `compiler-mono → runtime-mono` fact edge is not created (this
+    * processor still cannot name `MonomorphicValue.Key`). It is gated on runtime-pool *membership* (a name-set read,
+    * like [[CompilerNativesProcessor.inCompilerPool]]) so a compiler-only name — absent from the runtime pool entirely
+    * — is not probed and does not trigger the runtime pool's "Could not find" abort; such a name is genuinely
+    * compiler-side and stays `None`.
     */
   private def fetchBinding(source: Sourced[?])(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
     getFactOrAbort(NativeBinding.Key(vfqn, Platform.Compiler)).flatMap {
@@ -72,7 +74,7 @@ class CompilerMonomorphicTypeCheckProcessor()
               ) >> abort[Option[SemValue]]
             case NativeBinding(_, None, _)    => Option.empty[SemValue].pure[CompilerIO] // abstract on *both* platforms
           },
-          Option.empty[SemValue].pure[CompilerIO]                                        // compiler-only, not a leaf
+          Option.empty[SemValue].pure[CompilerIO] // compiler-only, not a leaf
         )
     }
 
@@ -89,7 +91,7 @@ class CompilerMonomorphicTypeCheckProcessor()
   ): CompilerIO[CompilerMonomorphicValue] = {
     // An ability-implementation marker is monomorphized only to discharge its `where` guard (ability-guards §2.3); its
     // pattern-argument types are not real value parameters, so they are stripped to leave binders + guard return.
-    val value = MarkerGuardSignature.strippedForGuard(saturatedValue.value)
+    val value         = MarkerGuardSignature.strippedForGuard(saturatedValue.value)
     // A `Signature`-role key demands the signature twin's own monomorphization (the signature split): kind-check the
     // signature body against the derived kind and reduce it, with no separate body to check (the `.runtime` slot is an
     // inert placeholder) and a W3 decline. A `Runtime`-role key is the ordinary compiler-track value mono. The role
@@ -124,10 +126,10 @@ class CompilerMonomorphicTypeCheckProcessor()
   }
 
   /** The value's own reduced ground signature, read from `CompilerMonomorphicValue(v@Signature, args)` — the injected
-    * signature the value mono re-inflates (signature-unification C1/C2). `None` only for a signature-twin key itself (it
-    * computes its own signature); otherwise the twin is **mandatory** at every arity (a partial-arity key reads a
-    * *parametric* signature with leftover `GroundValue.Param`s), so a missing twin aborts — its own mono already reported
-    * the signature's errors.
+    * signature the value mono re-inflates (signature-unification C1/C2). `None` only for a signature-twin key itself
+    * (it computes its own signature); otherwise the twin is **mandatory** at every arity (a partial-arity key reads a
+    * *parametric* signature with leftover `GroundValue.Param`s), so a missing twin aborts — its own mono already
+    * reported the signature's errors.
     */
   private def signatureTwinSignature(
       signatureOnly: Boolean,
@@ -140,14 +142,14 @@ class CompilerMonomorphicTypeCheckProcessor()
       ).map(cmv => Some(cmv.signature))
 
   /** §2.2 fail-safe: reject a compiler-track body that references a `where`-bearing callee. The refinement channel
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor]]) demands a `where` precondition
-    * only over *runtime* [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] bodies, never
-    * compiler-track ones, so a `where`-guarded def reached from an `eliot-compiler` overlay (compile-time) body would
-    * have its precondition silently skipped — the same silent-accept class as the higher-order escape
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor]]) demands a `where`
+    * precondition only over *runtime* [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] bodies,
+    * never compiler-track ones, so a `where`-guarded def reached from an `eliot-compiler` overlay (compile-time) body
+    * would have its precondition silently skipped — the same silent-accept class as the higher-order escape
     * (`docs/refinement-channel-follow-ups.md` §2.1/§2.2). Until the channel is extended to walk compiler-track bodies,
     * any such reference is rejected loudly and the value aborts (never a silently-unchecked compile-time precondition).
-    * Membership is a cached [[UnifiedModuleNames]] read for the callee's `^Where` companion, so a `where`-free body pays
-    * one lookup per distinct callee.
+    * Membership is a cached [[UnifiedModuleNames]] read for the callee's `^Where` companion, so a `where`-free body
+    * pays one lookup per distinct callee.
     */
   private def rejectWhereBearingCallees(value: OperatorResolvedValue): CompilerIO[Unit] =
     value.runtime.traverse_ { body =>
@@ -169,8 +171,8 @@ class CompilerMonomorphicTypeCheckProcessor()
       }
     }
 
-  /** Whether `callee` declares a `where` precondition — a cached [[UnifiedModuleNames]] membership test for its `^Where`
-    * companion ([[MetaWhereDesugarer.whereSuffix]] in the [[Qualifier.Meta]] namespace) in the compiler pool.
+  /** Whether `callee` declares a `where` precondition — a cached [[UnifiedModuleNames]] membership test for its
+    * `^Where` companion ([[MetaWhereDesugarer.whereSuffix]] in the [[Qualifier.Meta]] namespace) in the compiler pool.
     */
   private def hasWhereCompanion(callee: ValueFQN): CompilerIO[Boolean] =
     getFactOrAbort(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))

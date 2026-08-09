@@ -48,8 +48,8 @@ object MatchDesugaredExpressionMatchers {
       }
   }
 
-  /** Matches a value-position integer literal after the Phase-6 desugar: `integerLiteral[n]`, i.e. a
-    * `ValueReference` to `integerLiteral` carrying the bare bound literal `n` as its single type argument.
+  /** Matches a value-position integer literal after the Phase-6 desugar: `integerLiteral[n]`, i.e. a `ValueReference`
+    * to `integerLiteral` carrying the bare bound literal `n` as its single type argument.
     */
   object IntValue {
     def unapply(expr: MatchDesugaredExpression): Option[BigInt] =

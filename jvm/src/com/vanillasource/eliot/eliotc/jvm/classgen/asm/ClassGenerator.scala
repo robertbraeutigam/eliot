@@ -125,8 +125,8 @@ class ClassGenerator(val moduleName: ModuleName, val internalName: String, priva
 
   /** Create a public, mutable static field carrying a **raw JVM descriptor**.
     *
-    * As [[createPrivateStaticField]], but readable from another class: the one use is the entry point's argument
-    * stash, which the `eliot.system.Environment` natives read from their own class (see `SystemNatives`).
+    * As [[createPrivateStaticField]], but readable from another class: the one use is the entry point's argument stash,
+    * which the `eliot.system.Environment` natives read from their own class (see `SystemNatives`).
     */
   def createPublicStaticField[F[_]: Sync](name: String, descriptor: String): F[Unit] = Sync[F].delay {
     classWriter

@@ -33,8 +33,8 @@ import scala.util.Random
   * **A value is never written twice.** This is not an optimisation but what makes the append model work at all: on a
   * warm build every entry survives, and re-encoding them would append the entire graph again on every run. A value
   * still in the store is placed from its [[ObjectId]] without being read, and one held in memory is *hashed before it
-  * is encoded* — so a world leaf that recomputed to an equal-but-fresh object resolves to the bytes already on disk.
-  * A warm build therefore appends nothing at all.
+  * is encoded* — so a world leaf that recomputed to an equal-but-fresh object resolves to the bytes already on disk. A
+  * warm build therefore appends nothing at all.
   *
   * Duplicate storage is still *possible* here, unlike in §13's original framing, because the ids carried between runs
   * are the entries' roots rather than every object: a genuinely new value re-appends any sub-object it shares with
@@ -45,21 +45,21 @@ import scala.util.Random
   *
   * **Two compilers may share a target directory, and the cache is what is locked — never the build** (§21). A build
   * system blocks a second build because it owns the output; this owns only a cache, and a cache can always be thrown
-  * away. So a third file, `.eliot-lock-<config>`, is held shared for a load and exclusively for a save, `tryLock`ed
-  * for at most [[ContentAddressedCacheBackend.LOCK_TIMEOUT]] — and failing to get it is not an error: a load answers
-  * `None`, a save does nothing, and the only cost either way is a full compilation. Three things make the locked
-  * window sound rather than merely serialized:
+  * away. So a third file, `.eliot-lock-<config>`, is held shared for a load and exclusively for a save, `tryLock`ed for
+  * at most [[ContentAddressedCacheBackend.LOCK_TIMEOUT]] — and failing to get it is not an error: a load answers
+  * `None`, a save does nothing, and the only cost either way is a full compilation. Three things make the locked window
+  * sound rather than merely serialized:
   *
-  *   - a save is based at the region's **actual** length, read under the lock, rather than the length its own load
-  *     saw, so a compiler that appended in between is extended rather than overwritten;
+  *   - a save is based at the region's **actual** length, read under the lock, rather than the length its own load saw,
+  *     so a compiler that appended in between is extended rather than overwritten;
   *   - the header carries a random **region id**, minted whenever the region is *replaced* and unchanged across every
   *     append, so offsets held in memory can be told to belong to a region that no longer exists;
   *   - the index is published by **atomic rename** after the bodies are appended, so a reader never sees half of one
   *     and an interrupted save leaves the previous cache intact.
   *
-  * Both directions are fail-safe: `load` answers `None` on any problem (missing file, format or fingerprint mismatch,
-  * a body region shorter than the index it was written with), and `save` warns rather than failing the build. The
-  * worst either can do is cost a full compilation.
+  * Both directions are fail-safe: `load` answers `None` on any problem (missing file, format or fingerprint mismatch, a
+  * body region shorter than the index it was written with), and `save` warns rather than failing the build. The worst
+  * either can do is cost a full compilation.
   */
 final class ContentAddressedCacheBackend private (
     objectsFile: Path,
@@ -96,9 +96,9 @@ final class ContentAddressedCacheBackend private (
   /** Run `action` holding the cache lock, or `whenBusy` if it cannot be had within the timeout.
     *
     * Never waits longer than a save takes by an order of magnitude: contention that outlasts that is a hung compiler
-    * rather than a busy one, and waiting on it would be exactly the build-blocking this design refuses. An OS file
-    * lock dies with the process holding it, so there is no stale lock to break. Within one JVM an overlapping request
-    * throws instead of answering empty, which counts as busy for the same reason.
+    * rather than a busy one, and waiting on it would be exactly the build-blocking this design refuses. An OS file lock
+    * dies with the process holding it, so there is no stale lock to break. Within one JVM an overlapping request throws
+    * instead of answering empty, which counts as busy for the same reason.
     */
   private def withLock[A](shared: Boolean)(action: IO[A])(whenBusy: => IO[A]): IO[A] =
     lock(shared).use(_.fold(whenBusy)(_ => action))
@@ -181,16 +181,20 @@ final class ContentAddressedCacheBackend private (
   /** Whether an index describes a store this compiler may reuse.
     *
     * The length test is `<=`, not `==`: the bodies are appended *before* the index that names them is published, so a
-    * region longer than its index claims is what an interrupted save leaves behind, not evidence of a race. The
-    * prefix the index does claim can never have moved — that is what append-only means — and the region id is what
-    * catches a region that was replaced rather than extended.
+    * region longer than its index claims is what an interrupted save leaves behind, not evidence of a race. The prefix
+    * the index does claim can never have moved — that is what append-only means — and the region id is what catches a
+    * region that was replaced rather than extended.
     */
   private def acceptable(header: ContentAddressedCacheBackend.Header, bodyLength: Int): Boolean =
     header.compilerFingerprint == compilerFingerprint &&
       header.configFingerprint == configFingerprint &&
       header.bodyLength <= bodyLength
 
-  private def readEntry(in: DataInputStream, names: Array[FactCodec[CompilerFactKey[?]]], input: ContentAddressedInput): Read = {
+  private def readEntry(
+      in: DataInputStream,
+      names: Array[FactCodec[CompilerFactKey[?]]],
+      input: ContentAddressedInput
+  ): Read = {
     val (key, keyOffset) = readKey(in, names, input)
     val located          = Option.when(in.readBoolean())(readStoredValue(in, input, key))
     val deps             = Seq.fill(FactCodec.readVarInt(in))(readKey(in, names, input)._1).toSet
@@ -275,9 +279,9 @@ final class ContentAddressedCacheBackend private (
     * Three cases, and the middle one is the reason the region id exists:
     *
     *   - **nothing loaded** (a cold start, or a load that was rejected): whatever is on disk is unreachable to this
-    *     run, so the region is *replaced* under a **new** id. Any compiler still holding offsets into the old one
-    *     finds the id changed at its own next save and stands down, rather than appending into a region that no
-    *     longer means what its offsets say.
+    *     run, so the region is *replaced* under a **new** id. Any compiler still holding offsets into the old one finds
+    *     the id changed at its own next save and stands down, rather than appending into a region that no longer means
+    *     what its offsets say.
     *   - **the region we loaded is still there**: extend it — but from its **actual** end, read here under the lock,
     *     not from the length this run loaded. Another compiler may have appended in between, and its bytes are as
     *     immutable as any others; basing at the loaded length would write our objects on top of the offsets we then
@@ -313,7 +317,8 @@ final class ContentAddressedCacheBackend private (
   private def writeIndex(regionId: Long, bodyLength: Int, entries: Seq[ContentAddressedCacheBackend.Encoded]): Unit = {
     val names     = entries.flatMap(entry => entry.keyName +: entry.deps.map(_._1)).distinct
     val index     = names.zipWithIndex.toMap
-    val temporary = indexFile.resolveSibling(s"${indexFile.getFileName}${ContentAddressedCacheBackend.TEMPORARY_SUFFIX}")
+    val temporary =
+      indexFile.resolveSibling(s"${indexFile.getFileName}${ContentAddressedCacheBackend.TEMPORARY_SUFFIX}")
     val out       = new DataOutputStream(Files.newOutputStream(temporary))
 
     try {
@@ -394,8 +399,8 @@ final class ContentAddressedCacheBackend private (
       * A value still in the store is placed from its id alone — materialising it merely to write it back is precisely
       * the cost the lazy read exists to avoid.
       *
-      * One held in memory is **identified before it is placed**, and that order is the point. Encoding descends into
-      * a value's children and appends each as it goes, so by the time the writer can tell that the value as a whole is
+      * One held in memory is **identified before it is placed**, and that order is the point. Encoding descends into a
+      * value's children and appends each as it goes, so by the time the writer can tell that the value as a whole is
       * one it already holds, it has already appended the whole subtree underneath it. Hashing first — which costs no
       * bytes and no buffers — asks the only question that matters: is this exactly what is on disk already? On a warm
       * build the answer is yes for every world leaf, which is otherwise the one thing that grows the store every run.
@@ -429,12 +434,12 @@ object ContentAddressedCacheBackend {
   private val LOCK_FILE: String        = ".eliot-lock"
   private val TEMPORARY_SUFFIX: String = ".tmp"
 
-  /** How long a load or a save will wait for the cache lock before giving up on the cache entirely. A save is
-    * ~100–150 ms, so contention outlasting this is a hung compiler and not a busy one — and waiting on that would be
-    * the build-blocking this design exists to avoid.
+  /** How long a load or a save will wait for the cache lock before giving up on the cache entirely. A save is ~100–150
+    * ms, so contention outlasting this is a hung compiler and not a busy one — and waiting on that would be the
+    * build-blocking this design exists to avoid.
     */
-  private val LOCK_ATTEMPTS: Int          = 20
-  private val LOCK_RETRY: FiniteDuration  = 50.millis
+  private val LOCK_ATTEMPTS: Int                  = 20
+  private val LOCK_RETRY: FiniteDuration          = 50.millis
   private[cache] val LOCK_TIMEOUT: FiniteDuration = LOCK_RETRY * LOCK_ATTEMPTS.toLong
 
   def create(

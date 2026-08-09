@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 import Parser.*
 
 object Primitives {
+
   /** Peek the 1-based source line of the next token without consuming any input, or `None` at end of input. Used by the
     * block parser to keep an atom run on one source line (a line is the maximal atom run whose successor starts on the
     * same line the previous atom ended).
@@ -18,21 +19,21 @@ object Primitives {
     StateT.inspect[ParserResult, InputStream[Sourced[Token]], Option[Int]](_.headOption.map(_.range.from.line))
 
   /** Peek the start [[Position]] of the next token without consuming any input, or `None` at end of input. Used to
-    * detect token *adjacency* (no intervening whitespace): the next token is adjacent to a preceding token iff its start
-    * equals that token's end. This is what lets the return-type parser tell a value application `f(x)` apart from an
-    * infix operator followed by a parenthesized operand `f (x)` (effectful-signatures G2 — see [[Expression]]).
+    * detect token *adjacency* (no intervening whitespace): the next token is adjacent to a preceding token iff its
+    * start equals that token's end. This is what lets the return-type parser tell a value application `f(x)` apart from
+    * an infix operator followed by a parenthesized operand `f (x)` (effectful-signatures G2 — see [[Expression]]).
     */
   val peekTokenStart: Parser[Sourced[Token], Option[Position]] =
     StateT.inspect[ParserResult, InputStream[Sourced[Token]], Option[Position]](_.headOption.map(_.range.from))
 
   /** Parse the maximal run of `atom`s that stay on one source line: the first atom is always parsed, then each
     * subsequent atom is parsed only while it starts on the same line the previous atom ended (so a multi-line atom like
-    * `( … )` keeps the run going up to its closing line — the "force-join"). Stops without consuming as soon as the next
-    * token is on a later line, or is not a valid `atom` start (e.g. the block's closing `}`). This is the only
+    * `( … )` keeps the run going up to its closing line — the "force-join"). Stops without consuming as soon as the
+    * next token is on a later line, or is not a valid `atom` start (e.g. the block's closing `}`). This is the only
     * line-awareness in the block parser; the over-separated lines it yields are re-joined later by fixity.
     */
   def lineBoundedAtoms[A](atom: Parser[Sourced[Token], Sourced[A]]): Parser[Sourced[Token], Seq[Sourced[A]]] = {
-    val empty: Parser[Sourced[Token], Seq[Sourced[A]]] =
+    val empty: Parser[Sourced[Token], Seq[Sourced[A]]]                  =
       StateT.pure[ParserResult, InputStream[Sourced[Token]], Seq[Sourced[A]]](Seq.empty)
     def more(prevEndLine: Int): Parser[Sourced[Token], Seq[Sourced[A]]] =
       peekTokenLine.flatMap {
@@ -69,10 +70,9 @@ object Primitives {
       .optional()
       .map(_.getOrElse(Seq.empty))
 
-  /** Like [[optionalBracketedCommaSeparatedItems]], but tracks whether the brackets were present and permits an
-    * *empty* bracket pair. Returns `None` when no brackets were written, `Some(Seq())` for an empty `[]`, and
-    * `Some(items)` for `[items]`. Used for type arguments, where an explicit empty `[]` carries meaning (it forces the
-    * Type namespace).
+  /** Like [[optionalBracketedCommaSeparatedItems]], but tracks whether the brackets were present and permits an *empty*
+    * bracket pair. Returns `None` when no brackets were written, `Some(Seq())` for an empty `[]`, and `Some(items)` for
+    * `[items]`. Used for type arguments, where an explicit empty `[]` carries meaning (it forces the Type namespace).
     */
   def presenceTrackingBracketedCommaSeparatedItems[A](
       bracketStartSymbol: String,

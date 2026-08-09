@@ -5,7 +5,11 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{ParameterReference, SignatureView, spine}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
+  ParameterReference,
+  SignatureView,
+  spine
+}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomorphicDataFieldsAndCtor, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createInterfaceGenerator
@@ -41,13 +45,14 @@ object DataClassGenerator {
     * per instantiation but is *always a reference type*, so the single shared descriptor must erase it to `Object` —
     * exactly as the JVM erases Java generics. Two shapes qualify:
     *   - a **bare** binder (`first: A`): `Pair[String, Box]` stores `String`/`Box`, `Pair[Box, String]` the reverse;
-    *   - a binder **applied** to arguments (`runAbort: G[Option[A]]`): `AbortCarrier[Id]` stores an `Id`, `AbortCarrier[StateCarrier[S, Id]]`
-    *     a `StateCarrier`. A higher-kinded binder applied to a `Type` argument is always a data-type instance (never a primitive,
-    *     which would need `BigInteger` arguments), so erasing it to `Object` is sound.
+    *   - a binder **applied** to arguments (`runAbort: G[Option[A]]`): `AbortCarrier[Id]` stores an `Id`,
+    *     `AbortCarrier[StateCarrier[S, Id]]` a `StateCarrier`. A higher-kinded binder applied to a `Type` argument is
+    *     always a data-type instance (never a primitive, which would need `BigInteger` arguments), so erasing it to
+    *     `Object` is sound.
     *
-    * Concrete-headed fields (`String`, `Int[..]`, `List[A]`, whose head is a named type whose carrier does not depend on
-    * the type arguments) keep their precise type. Both the definition side and every call site read this same generic
-    * signature, so the descriptors always agree.
+    * Concrete-headed fields (`String`, `Int[..]`, `List[A]`, whose head is a named type whose carrier does not depend
+    * on the type arguments) keep their precise type. Both the definition side and every call site read this same
+    * generic signature, so the descriptors always agree.
     *
     * A field whose carrier still varies after this erasure (e.g. `Int[0, N]` — concrete-headed by `Int` but a
     * representation that depends on the bound `N`) is not representable by a single descriptor; [[JvmClassGenerator]]

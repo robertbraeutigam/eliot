@@ -7,8 +7,7 @@ import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
-/** The constructors a module declares — its `data` value constructors grouped by data type, plus its type
-  * constructors.
+/** The constructors a module declares — its `data` value constructors grouped by data type, plus its type constructors.
   *
   * This is the single owner of "which constructors does this module declare" — the question the syntactic
   * ([[com.vanillasource.eliot.eliotc.matchdesugar.processor.DataMatchDesugarer]]) and native-emitting
@@ -45,6 +44,6 @@ case class ModuleConstructors(
 object ModuleConstructors {
   case class Key(moduleName: ModuleName, platform: Platform = Platform.Runtime)
       extends CompilerFactKey[ModuleConstructors] {
-        override def valueCodec: Option[FactCodec[ModuleConstructors]] = Some(LangFactCodecs.moduleConstructorsCodec)
-      }
+    override def valueCodec: Option[FactCodec[ModuleConstructors]] = Some(LangFactCodecs.moduleConstructorsCodec)
+  }
 }

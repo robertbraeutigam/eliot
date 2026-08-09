@@ -8,9 +8,9 @@ import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The codegen-relevant projection of a monomorphic instance's type arguments — the monomorphization-keying plan's
-  * **B2**. It maps the *full*, type-checking-exact type arguments of a `(vfqn,
-  * typeArguments)` instance down to the subset (and form) that actually distinguishes generated code, using the
-  * per-binder [[BinderRoles.Disposition]] computed by B1 and carried on [[SaturatedValue]].
+  * **B2**. It maps the *full*, type-checking-exact type arguments of a `(vfqn, typeArguments)` instance down to the
+  * subset (and form) that actually distinguishes generated code, using the per-binder [[BinderRoles.Disposition]]
+  * computed by B1 and carried on [[SaturatedValue]].
   *
   * Two instances of the same `vfqn` whose projections are equal are guaranteed to generate identical code, so the
   * `used` codegen driver dedups its [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] demand on
@@ -52,12 +52,12 @@ object CodegenProjection {
           }
       }
 
-  /** A dedup-key element keyed on the nominal head ([[GroundValue.carrierFQN]] — what the backend mangles the method name
-    * with), erased of type arguments. A representation-determining binder no longer carries its machine width in the type
-    * argument (post-flag-day an `Int` is nullary and its width is refinement-channel meta, decoded by the backend, not a
-    * type parameter), so two instances that differ only in that erased detail generate identical code and merge; two
-    * distinct heads sharing a representation stay distinct (they mangle to different method names). Used only as a
-    * `visited`-set identity, never to fetch a fact.
+  /** A dedup-key element keyed on the nominal head ([[GroundValue.carrierFQN]] — what the backend mangles the method
+    * name with), erased of type arguments. A representation-determining binder no longer carries its machine width in
+    * the type argument (post-flag-day an `Int` is nullary and its width is refinement-channel meta, decoded by the
+    * backend, not a type parameter), so two instances that differ only in that erased detail generate identical code
+    * and merge; two distinct heads sharing a representation stay distinct (they mangle to different method names). Used
+    * only as a `visited`-set identity, never to fetch a fact.
     */
   private def erasedCarrier(arg: GroundValue): GroundValue =
     GroundValue.Structure(arg.carrierFQN, Seq.empty, GroundValue.Type)

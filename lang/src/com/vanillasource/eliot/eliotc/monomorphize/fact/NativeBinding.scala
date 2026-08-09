@@ -18,8 +18,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * The fact is *total*: the [[com.vanillasource.eliot.eliotc.monomorphize.processor.BindingMergerProcessor]] answers
   * `semValue = None` for a name no supplier binds rather than declining, so readers request it with `getFactOrAbort`
   * and inspect the payload — a `None` payload is a domain answer ("no binding; evaluation leaves it stuck at the use
-  * site"), never a missing fact. Keeping the fact total also removes the cache-poison edge a decline leaves behind
-  * (see `docs/retire-optional-fact-reads.md`).
+  * site"), never a missing fact. Keeping the fact total also removes the cache-poison edge a decline leaves behind (see
+  * `docs/retire-optional-fact-reads.md`).
   *
   * @param vfqn
   *   The fully qualified name of the value
@@ -39,6 +39,7 @@ case class NativeBinding(
 
 object NativeBinding {
   case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[NativeBinding] {
+
     /** Declined: its contribution carries a `SemValue` closure — serializable, never equal (§3.1, §4). */
     override def valueCodec: Option[FactCodec[NativeBinding]] = None
   }

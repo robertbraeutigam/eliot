@@ -15,13 +15,13 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * empty, `present = false` fact for a module that resolves in no mount of the pool rather than declining, so readers
   * request it with `getFactOrAbort` and inspect the payload. A membership probe reads `names.contains(...)`, which is
   * correctly `false` for an absent module; the two readers that must tell an *absent* module apart from a *present but
-  * empty* one (import resolution, the jvm entry-point pre-flight) inspect [[present]]. Keeping the fact total removes the
-  * cache-poison edge a decline would leave behind (an absent module recomputes to the same equality-stable empty value,
-  * so its readers stop regenerating every warm build — see `docs/retire-optional-fact-reads.md`).
+  * empty* one (import resolution, the jvm entry-point pre-flight) inspect [[present]]. Keeping the fact total removes
+  * the cache-poison edge a decline would leave behind (an absent module recomputes to the same equality-stable empty
+  * value, so its readers stop regenerating every warm build — see `docs/retire-optional-fact-reads.md`).
   *
   * @param present
-  *   `true` when the module resolves in at least one mount of [[platform]]'s pool; `false` for the totalized absent case
-  *   (which always carries an empty [[names]]).
+  *   `true` when the module resolves in at least one mount of [[platform]]'s pool; `false` for the totalized absent
+  *   case (which always carries an empty [[names]]).
   */
 case class UnifiedModuleNames(
     moduleName: ModuleName,
@@ -35,6 +35,6 @@ case class UnifiedModuleNames(
 object UnifiedModuleNames {
   case class Key(moduleName: ModuleName, platform: Platform = Platform.Runtime)
       extends CompilerFactKey[UnifiedModuleNames] {
-        override def valueCodec: Option[FactCodec[UnifiedModuleNames]] = Some(LangFactCodecs.unifiedModuleNamesCodec)
-      }
+    override def valueCodec: Option[FactCodec[UnifiedModuleNames]] = Some(LangFactCodecs.unifiedModuleNamesCodec)
+  }
 }

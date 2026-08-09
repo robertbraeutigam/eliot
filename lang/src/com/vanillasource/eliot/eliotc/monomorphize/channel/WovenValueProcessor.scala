@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 /** The post-monomorphization **Id-normalization** stage (docs/effects-as-channel.md §6/§10, U1) — the one step that
-  * occupies the `WovenValue` codegen seam between checking and codegen (`used`/`uncurry`/jvm read [[WovenValue]]).
-  * On by default: today's checker already inserts `runId`/`Id` (`tryIdDefault`, discharge-to-pure) and would otherwise
+  * occupies the `WovenValue` codegen seam between checking and codegen (`used`/`uncurry`/jvm read [[WovenValue]]). On
+  * by default: today's checker already inserts `runId`/`Id` (`tryIdDefault`, discharge-to-pure) and would otherwise
   * ship the identity carrier `Id` to bytecode as a real data type with real allocations. This stage erases that pure
   * overhead totally so pure code recovers its efficient shape and no effect machinery ships for pure code:
   *
@@ -49,13 +49,13 @@ class WovenValueProcessor()
     } yield WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized)
   }
 
-  /** Assert no `Id` residue remains after normalization + erasure (the effects-as-channel §6 fail-safe, a **hard error**
-    * from U4-e — `Id` exists only between elaboration and normalization, nowhere downstream, §9). A surviving
+  /** Assert no `Id` residue remains after normalization + erasure (the effects-as-channel §6 fail-safe, a **hard
+    * error** from U4-e — `Id` exists only between elaboration and normalization, nowhere downstream, §9). A surviving
     * `Id`-machinery *reference* (a first-class combinator the U1a rewrites did not reach) or a surviving `Id[X]` *type*
     * (a top-level carrier U1b erasure missed) is a normalizer-invariant violation and fails the build at the offending
     * value. The jvm newtype representation of `Id` (`Id[A] ≡ A`) still keeps any such residue a codegen no-op, so this
-    * is a correctness *tripwire*, not a soundness gate; from U4-e the invariant is that it never fires. It was a warning
-    * during U1 bring-up (docs/effects-as-channel.md §6/§9/§10).
+    * is a correctness *tripwire*, not a soundness gate; from U4-e the invariant is that it never fires. It was a
+    * warning during U1 bring-up (docs/effects-as-channel.md §6/§9/§10).
     */
   private def assertNoIdResidue(
       mv: MonomorphicValue,
@@ -66,7 +66,9 @@ class WovenValueProcessor()
     val typeResidue = IdNormalizer.hasResidualIdType(signature, body)
     compilerAbort[Unit](
       mv.name.as(
-        s"effects-as-channel: Id residue survived normalization in ${mv.vfqn.show}: ${references.map(_.show).mkString(", ")}${if (typeResidue) " [Id-headed type]" else ""}"
+        s"effects-as-channel: Id residue survived normalization in ${mv.vfqn.show}: ${references
+            .map(_.show)
+            .mkString(", ")}${if (typeResidue) " [Id-headed type]" else ""}"
       )
     ).whenA(references.nonEmpty || typeResidue)
   }

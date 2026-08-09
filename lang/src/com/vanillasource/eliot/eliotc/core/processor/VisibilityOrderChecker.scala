@@ -35,10 +35,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 object VisibilityOrderChecker {
   private given Ordering[Position] = Order[Position].toOrdering
 
-  /** One sourced error per offending public declaration — those positioned after the file's first `private` — in
-    * source order; empty when the file is ordered, has no private declarations, or is entirely private. The source
-    * position points at the offending *public* declaration, which is the one that has to move; the private block it
-    * follows is innocent, and is named by line so the target of the move is unambiguous.
+  /** One sourced error per offending public declaration — those positioned after the file's first `private` — in source
+    * order; empty when the file is ordered, has no private declarations, or is entirely private. The source position
+    * points at the offending *public* declaration, which is the one that has to move; the private block it follows is
+    * innocent, and is named by line so the target of the move is unambiguous.
     */
   def check(namedValues: Seq[NamedValue]): Seq[Sourced[String]] =
     namedValues

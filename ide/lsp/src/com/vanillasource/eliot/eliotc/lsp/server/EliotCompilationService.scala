@@ -78,10 +78,11 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
 
   /** Enable pushing `workspace/codeLens/refresh` after every finished compile. Code lenses are *pulled* by the client
     * (`textDocument/codeLens`), but the [[MainIndex]] backing them is only ready once the asynchronous, coalescing
-    * recompile finishes — after the client already answered its post-edit pull from the previous (stale) index. Without a
-    * refresh nudge the "Run main" lens stays whatever the racing pull saw: fixing an error and reverting it leaves the
-    * lens gone until the file is reopened. This tells the client to re-pull once the fresh index is in place. Gated on the
-    * client's `workspace.codeLens.refreshSupport` capability (a no-op otherwise), mirroring [[registerFileWatchers]].
+    * recompile finishes — after the client already answered its post-edit pull from the previous (stale) index. Without
+    * a refresh nudge the "Run main" lens stays whatever the racing pull saw: fixing an error and reverting it leaves
+    * the lens gone until the file is reopened. This tells the client to re-pull once the fresh index is in place. Gated
+    * on the client's `workspace.codeLens.refreshSupport` capability (a no-op otherwise), mirroring
+    * [[registerFileWatchers]].
     */
   def enableCodeLensRefresh(): Unit = codeLensPush.set(true)
 
@@ -110,8 +111,8 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   def docIndex: DocIndex = docRef.get
 
   /** The workspace source root that contains the given document, if any — the longest matching root prefix. This is the
-    * root a `main`'s [[ModuleName]] was derived against, so it is the `<path>` the backend must be given (alongside
-    * `-m <module>`) to locate and build that module the same way the resident compile did.
+    * root a `main`'s [[ModuleName]] was derived against, so it is the `<path>` the backend must be given (alongside `-m
+    * <module>`) to locate and build that module the same way the resident compile did.
     */
   def sourceRootFor(uri: URI): Option[Path] =
     try {
@@ -134,9 +135,10 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     * system exists. Until then the roots are found in one of two ways. If a workspace root holds an `eliot.paths` file
     * ([[WorkspacePaths]]), that file is *authoritative*: it lists every runtime root (the project's own sources — no
     * assumed `src/` — plus the layer `eliot/` roots) and, separately, every explicit compile-time overlay root, so a
-    * project can sit directly under `src/` with no `eliot-compiler/` sibling to derive. Otherwise [[SourceRootDiscovery]]
-    * recovers the roots by convention from the folder the editor handed over (the `eliot/` layer roots and `.els`-bearing
-    * application roots beneath it) — the case that keeps opening the compiler repo itself working.
+    * project can sit directly under `src/` with no `eliot-compiler/` sibling to derive. Otherwise
+    * [[SourceRootDiscovery]] recovers the roots by convention from the folder the editor handed over (the `eliot/`
+    * layer roots and `.els`-bearing application roots beneath it) — the case that keeps opening the compiler repo
+    * itself working.
     *
     * The runtime roots feed the runtime pool via `LangPlugin.pathKey` (each also contributing its derived
     * `eliot-compiler/` sibling to the compile-time pool); any explicit overlay roots feed it via
@@ -185,9 +187,9 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     * same [[ResolvedValue]]s (signatures), the [[TypeHintIndex]] from [[MonomorphicValue]]s (per-node concrete types),
     * and the [[MainIndex]] from those same [[ResolvedValue]]s (documents declaring a runnable `main`). The
     * whole-workspace driver ([[LspPlugin]]) demands every name — so every workspace value's resolved form and module
-    * dictionary are present — and additionally monomorphizes each file's own `main`, so the reachable monomorphic values
-    * exist for hover type hints, and demands a [[ValueDoc]] per documentable name across every layer so the [[DocIndex]]
-    * can show the same documentation the apidoc site would.
+    * dictionary are present — and additionally monomorphizes each file's own `main`, so the reachable monomorphic
+    * values exist for hover type hints, and demands a [[ValueDoc]] per documentable name across every layer so the
+    * [[DocIndex]] can show the same documentation the apidoc site would.
     */
   private def rebuildIndices(result: CompilationResult): IO[Unit] =
     result.generator.currentFacts().flatMap { facts =>

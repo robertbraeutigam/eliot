@@ -16,10 +16,9 @@ import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The higher-kinded-carrier *kind system* (D8): the effects-era "is this `[F[_]]` carrier solved to something of the
-  * right kind" checks, factored out of the
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker]] into one cohesive module — the same move D4 made for
-  * the refinement lattice. None of this is definitional equality: it reconstructs a *kind* from a binder's signature
-  * and verifies a carrier meta's solution against it, post-drain.
+  * right kind" checks, factored out of the [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker]] into one
+  * cohesive module — the same move D4 made for the refinement lattice. None of this is definitional equality: it
+  * reconstructs a *kind* from a binder's signature and verifies a carrier meta's solution against it, post-drain.
   *
   * Two entry points, mirroring the two phases:
   *   - [[recordCarrierMetas]] — at *instantiation* time (called from `Checker.instantiatePolymorphic`), tag each
@@ -30,9 +29,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   * The recorded kind itself lives in the [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier]]'s
   * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.higherKindedMetas]] map — this module only *seeds* and
-  * *reads* it.
-  * Operates over [[CheckIO]], reading and writing the shared [[CheckState]] through `get`/`modify`/`inspect`. It
-  * depends on exactly three checker primitives, passed at construction — that narrow surface is the module boundary.
+  * *reads* it. Operates over [[CheckIO]], reading and writing the shared [[CheckState]] through
+  * `get`/`modify`/`inspect`. It depends on exactly three checker primitives, passed at construction — that narrow
+  * surface is the module boundary.
   *
   * @param force
   *   Force a SemValue through the current meta store — the checker's `force`.
@@ -76,8 +75,8 @@ class CarrierKindChecker(
                        // metas), so a carrier binder's ability constraint (`F ~ Throw[E]`, whose `E`/`F` are the
                        // callee's *own* binder names) evaluates to the metas this call actually instantiated.
                        val substEnv   = allBinders.zip(explicitArgs ++ implicitMetas).foldLeft(Env.empty) {
-                                          case (env, (b, v)) => env.bind(b.name.value, v)
-                                        }
+                         case (env, (b, v)) => env.bind(b.name.value, v)
+                       }
                        implicitMetas.zip(binders).traverse_ {
                          case (VMeta(id, _), binder) =>
                            recordIfHigherKinded(id, binder, fqn) >>
@@ -105,7 +104,9 @@ class CarrierKindChecker(
   ): CheckIO[Unit] =
     if (!EffectCarriers.isHktBinder(binder)) pure(())
     else
-      paramConstraints.getOrElse(binder.name.value, Seq.empty).toList
+      paramConstraints
+        .getOrElse(binder.name.value, Seq.empty)
+        .toList
         .traverse { c =>
           c.typeArgs.toList.traverse(a => evalExpr(a, Some(substEnv))).map(CheckState.MetaConstraint(c.abilityFQN, _))
         }
@@ -141,11 +142,11 @@ class CarrierKindChecker(
     *     where a `Type -> Type` constructor is required — is reported as a mismatch. The unifier's direct empty-spine
     *     solve does not see the binder's declared kind, so it would otherwise be silently accepted.
     *   - **Unsolved** but with a postponed application `?F[a..] ~ H r..` against a *rigid* head `H` (a type constructor
-    *     or bound variable) of a *different* arity is unsatisfiable: no injective type constructor `F` makes
-    *     `F[a..] = H r..` (only a non-injective constant/projection lambda would, which a carrier never is). It is
-    *     reported here rather than being silently dropped from the postponement queue. A carrier postponed against a
-    *     *non-rigid* `VPi` (`?F[A, B] ~ Function[A, B]`) is left alone — that is legitimately higher-order unification
-    *     the pattern unifier cannot solve, backstopped when the callee is monomorphized at the defaulted carrier.
+    *     or bound variable) of a *different* arity is unsatisfiable: no injective type constructor `F` makes `F[a..] =
+    *     H r..` (only a non-injective constant/projection lambda would, which a carrier never is). It is reported here
+    *     rather than being silently dropped from the postponement queue. A carrier postponed against a *non-rigid*
+    *     `VPi` (`?F[A, B] ~ Function[A, B]`) is left alone — that is legitimately higher-order unification the pattern
+    *     unifier cannot solve, backstopped when the callee is monomorphized at the defaulted carrier.
     */
   def verifyCarrierKinds: CheckIO[Unit] =
     for {
@@ -171,20 +172,21 @@ class CarrierKindChecker(
     */
   private def checkUnsolvedCarrier(id: SemValue.MetaId, context: Sourced[String]): CheckIO[Unit] =
     for {
-      s     <- get
-      store  = s.unifier.metaStore
-      unsat  = s.unifier.postponed.exists { case (l, r, _) =>
-                 unsatisfiableApplication(id, l, r, store) || unsatisfiableApplication(id, r, l, store)
-               }
-      _     <- if (unsat) modify(st => st.withUnifier(st.unifier.addError(context))) else pure(())
+      s    <- get
+      store = s.unifier.metaStore
+      unsat = s.unifier.postponed.exists { case (l, r, _) =>
+                unsatisfiableApplication(id, l, r, store) || unsatisfiableApplication(id, r, l, store)
+              }
+      _    <- if (unsat) modify(st => st.withUnifier(st.unifier.addError(context))) else pure(())
     } yield ()
 
   /** True when `applied` forces to this carrier meta applied to a non-empty spine, and `other` forces to a rigid head
-    * (a body-less [[VTopDef]] type constructor or a [[VNeutral]] bound variable) that is *under-applied* relative to the
-    * meta — the unsatisfiable shape `?F[a..] ~ H r..` with `arity(H) < arity(F's spine)`: no injective `F` makes `F`
-    * applied to *more* args equal `H` applied to *fewer*. (`arity(H) >= arity(F)` is satisfiable by partial-application
-    * injectivity — `?F := H` applied to the leading prefix — and is solved in [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.decomposeSpines]],
-    * so it never reaches here as a postponed constraint.)
+    * (a body-less [[VTopDef]] type constructor or a [[VNeutral]] bound variable) that is *under-applied* relative to
+    * the meta — the unsatisfiable shape `?F[a..] ~ H r..` with `arity(H) < arity(F's spine)`: no injective `F` makes
+    * `F` applied to *more* args equal `H` applied to *fewer*. (`arity(H) >= arity(F)` is satisfiable by
+    * partial-application injectivity — `?F := H` applied to the leading prefix — and is solved in
+    * [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.decomposeSpines]], so it never reaches here as a
+    * postponed constraint.)
     */
   private def unsatisfiableApplication(
       id: SemValue.MetaId,
@@ -196,8 +198,8 @@ class CarrierKindChecker(
       case VMeta(mid, spine) if mid.value == id.value && spine.toList.nonEmpty =>
         Evaluator.force(other, store) match {
           case VTopDef(_, None, rhsSpine, _) => rhsSpine.toList.length < spine.toList.length
-          case VNeutral(_, rhsSpine)      => rhsSpine.toList.length < spine.toList.length
-          case _                          => false
+          case VNeutral(_, rhsSpine)         => rhsSpine.toList.length < spine.toList.length
+          case _                             => false
         }
       case _                                                                   => false
     }
@@ -208,17 +210,17 @@ class CarrierKindChecker(
     */
   private def kindOfSolution(sv: SemValue): CheckIO[Option[SemValue]] =
     force(sv).flatMap {
-      case VConst(g)                 => pure(Some(Evaluator.groundToSem(g.valueType)))
-      case VType                     => pure(Some(VType))
-      case _: VPi                    => pure(Some(VType))
+      case VConst(g)                    => pure(Some(Evaluator.groundToSem(g.valueType)))
+      case VType                        => pure(Some(VType))
+      case _: VPi                       => pure(Some(VType))
       case VTopDef(fqn, None, spine, _) =>
         kindOfTypeConstructor(fqn).map(_.map(headKind => spine.toList.foldLeft(headKind)(Evaluator.applyValue)))
-      case _                         => pure(None)
+      case _                            => pure(None)
     }
 
-  /** The kind of a type constructor, read off its signature (which, for a type constructor, *is* its kind chain —
-    * e.g. `data Box[A]` ⟹ `Function[Type, Type]`). [[None]] when the value has no fetchable signature (a native or
-    * primitive head), in which case the carrier check is skipped for that solution.
+  /** The kind of a type constructor, read off its signature (which, for a type constructor, *is* its kind chain — e.g.
+    * `data Box[A]` ⟹ `Function[Type, Type]`). [[None]] when the value has no fetchable signature (a native or primitive
+    * head), in which case the carrier check is skipped for that solution.
     */
   private def kindOfTypeConstructor(fqn: ValueFQN): CheckIO[Option[SemValue]] =
     liftF(getFactIfProduced(SaturatedValue.Key(fqn, platform))).flatMap {

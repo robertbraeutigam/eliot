@@ -5,8 +5,8 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN}
 /** Recognition of the internal effect machinery. The user never imports or names it: the `Effect`/`Suspend` abilities
   * are inserted by the compiler (their `flatMap`/`pure`/`map` references are spliced by fully-qualified name — see
   * [[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.effectFlatMapFQN]] — by the checker's
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]]) and monomorphization pins the carrier and
-  * erases the whole tower. [[isMachineryAbility]] tells the monomorphize-phase effect accounting
+  * [[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter]]) and monomorphization pins the carrier and erases
+  * the whole tower. [[isMachineryAbility]] tells the monomorphize-phase effect accounting
   * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]) that an `Effect`/`Suspend` call
   * is compiler machinery, so it never counts as a user-facing effect. The construction half (the former
   * `pureWrap`/`sequence` ORE builders) moved into the lifter with the auto-lift itself.
@@ -21,23 +21,24 @@ object EffectMachinery {
   val suspendAbilityName: String = "Suspend"
 
   /** The machinery ability that says "this carrier can lift a pure value and sequence" — the constraint a carrier
-    * binder needs to host a computation at all. Read by [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]]
-    * to decide whether a signature already binds its own effect carrier, so a `{…}` row in it *reuses* that binder
-    * instead of minting a second one (docs/effects-as-rows.md §1 rule 2).
+    * binder needs to host a computation at all. Read by
+    * [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]] to decide whether a signature already binds
+    * its own effect carrier, so a `{…}` row in it *reuses* that binder instead of minting a second one
+    * (docs/effects-as-rows.md §1 rule 2).
     */
   val effectAbilityName: String = "Effect"
 
   /** The abilities the compiler inserts and recognises but the user never names. */
   private val machineryAbilities: Set[String] = Set(effectAbilityName, suspendAbilityName)
 
-  /** The internal effect machinery, never a user-facing effect: a `flatMap`/`pure`/`map`/`suspend` call (hand-written or
-    * inserted by this phase) must not be counted as "using an effect" by the declared-effect check.
+  /** The internal effect machinery, never a user-facing effect: a `flatMap`/`pure`/`map`/`suspend` call (hand-written
+    * or inserted by this phase) must not be counted as "using an effect" by the declared-effect check.
     */
   def isMachineryAbility(abilityName: String): Boolean = machineryAbilities.contains(abilityName)
 
-  /** The ability a value reference belongs to, if it is an ability method (`printLine` → `Console`, `flatMap` → `Effect`);
-    * `None` for an ordinary (non-ability) value. Lets callers ask "which ability does this call name?" without
-    * re-matching on [[Qualifier]].
+  /** The ability a value reference belongs to, if it is an ability method (`printLine` → `Console`, `flatMap` →
+    * `Effect`); `None` for an ordinary (non-ability) value. Lets callers ask "which ability does this call name?"
+    * without re-matching on [[Qualifier]].
     */
   def abilityNameOf(fqn: ValueFQN): Option[String] =
     fqn.name.qualifier match {

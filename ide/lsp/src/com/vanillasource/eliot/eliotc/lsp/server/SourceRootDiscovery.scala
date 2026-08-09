@@ -10,17 +10,18 @@ import scala.util.Using
   *
   * The server bundles no layers: the base, the standard library, the platform layers and the user's own code all reach
   * the compiler on the path. But an editor hands the language server the *project folder*, not the individual source
-  * roots, and neither LSP4IJ nor a Mill/BSP import marks Eliot's nested `eliot/` roots. So we recover the roots from each
-  * workspace folder by convention:
+  * roots, and neither LSP4IJ nor a Mill/BSP import marks Eliot's nested `eliot/` roots. So we recover the roots from
+  * each workspace folder by convention:
   *
-  *   - a directory named `eliot` with `.els` files beneath it is a *library/layer* root — module `eliot.lang.X` lives at
-  *     `<root>/eliot/lang/X.els`; its `eliot-compiler/` sibling (compile-time overlay) is added by `LangPlugin`;
-  *   - any other directory that *directly* contains `.els` files is an *application* root — module `X` at `<root>/X.els`.
+  *   - a directory named `eliot` with `.els` files beneath it is a *library/layer* root — module `eliot.lang.X` lives
+  *     at `<root>/eliot/lang/X.els`; its `eliot-compiler/` sibling (compile-time overlay) is added by `LangPlugin`;
+  *   - any other directory that *directly* contains `.els` files is an *application* root — module `X` at
+  *     `<root>/X.els`.
   *
-  * A discovered root is not descended into (so the `eliot` package dir *inside* a layer root is not mistaken for a second
-  * root), and build/hidden/`eliot-compiler` directories are skipped. The workspace folder itself is never taken as a
-  * layer root even when it is (like the compiler repo) a directory literally named `eliot` — it is the project, so it is
-  * descended into unless it *directly* holds `.els`.
+  * A discovered root is not descended into (so the `eliot` package dir *inside* a layer root is not mistaken for a
+  * second root), and build/hidden/`eliot-compiler` directories are skipped. The workspace folder itself is never taken
+  * as a layer root even when it is (like the compiler repo) a directory literally named `eliot` — it is the project, so
+  * it is descended into unless it *directly* holds `.els`.
   *
   * This is a deliberately simple stopgap until a build system resolves dependencies onto the path explicitly.
   */
@@ -40,7 +41,7 @@ object SourceRootDiscovery {
   }
 
   private def rootsUnder(workspaceRoot: Path): Seq[Path] = {
-    val roots = ListBuffer.empty[Path]
+    val roots                        = ListBuffer.empty[Path]
     def visit(directory: Path): Unit =
       if (isIgnored(directory)) ()
       else if (directory.getFileName.toString == layerRootName) {

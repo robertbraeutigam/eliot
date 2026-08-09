@@ -12,8 +12,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 /** An [[OperatorResolvedValue]] whose runtime body has been **row-elaborated**: the direct-style body rewritten into
   * fully explicit monadic core (effects-as-rows v3, `docs/effects-as-rows.md` §3 — the elaboration *desugar*).
   *
-  * It sits at the tail of the front-end value chain, between the recursion gate and saturation
-  * (`OperatorResolvedValue` → `NamedValuesRewrittenValue` → `RecursionCheckedValue` → `RowElaboratedValue` →
+  * It sits at the tail of the front-end value chain, between the recursion gate and saturation (`OperatorResolvedValue`
+  * → `NamedValuesRewrittenValue` → `RecursionCheckedValue` → `RowElaboratedValue` →
   * [[com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue]]), so everything from the monomorphizing checker
   * onwards consumes bodies where every `flatMap`/`pure`/`runId` is already written down.
   *

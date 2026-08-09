@@ -3,9 +3,9 @@ package com.vanillasource.eliot.eliotc.lsp.virtual
 import java.io.File
 import java.net.URI
 
-/** The `vfs:` URI namespace: the identity a workspace file compiles under while an unsaved editor buffer overrides
-  * it. A `vfs:` URI carries the same path as the file's `file:` URI, only the scheme differs, so translating between
-  * the compiler's source identity and the editor's document identity is a scheme swap.
+/** The `vfs:` URI namespace: the identity a workspace file compiles under while an unsaved editor buffer overrides it.
+  * A `vfs:` URI carries the same path as the file's `file:` URI, only the scheme differs, so translating between the
+  * compiler's source identity and the editor's document identity is a scheme swap.
   */
 object VfsUris {
   val scheme: String = "vfs"

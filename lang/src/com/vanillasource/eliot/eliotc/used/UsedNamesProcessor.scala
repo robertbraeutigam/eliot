@@ -20,21 +20,20 @@ import scala.annotation.tailrec
   *   - Type parameters each value is used with
   *   - Statistics about how many arguments are applied directly to each value
   *
-  * It is also the home of the **non-convergence backstop** (Deliverable A of the monomorphization-keying plan):
-  * because `used` is the codegen driver that walks the *breadth* of the monomorphic fact graph, a divergent type-level
+  * It is also the home of the **non-convergence backstop** (Deliverable A of the monomorphization-keying plan): because
+  * `used` is the codegen driver that walks the *breadth* of the monomorphic fact graph, a divergent type-level
   * computation could make this DFS materialise specializations without bound — a hang/OOM. The breadth lives in this
   * processor's own `processValue` descent (not in the global `activeFactKeys` chain, which only reflects *depth* across
   * fact generations and stays flat here, since every [[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue]]
-  * is requested as a sibling of `used`), so the
-  * backstop tracks the chain of enclosing `processValue` frames (`ancestors`) and, when more than [[maxNestedRepeats]]
-  * of them share the same `vfqn` with differing type arguments, converts the runaway into a specific diagnostic
-  * instead of diverging.
+  * is requested as a sibling of `used`), so the backstop tracks the chain of enclosing `processValue` frames
+  * (`ancestors`) and, when more than [[maxNestedRepeats]] of them share the same `vfqn` with differing type arguments,
+  * converts the runaway into a specific diagnostic instead of diverging.
   *
   * It is purely a fail-safe. Eliot user code cannot express recursion (see the "Total by Default" cornerstone in
-  * `.claude/CLAUDE.md`), so the
-  * reachable instantiation graph is finite and program-shaped, and the codegen projection only ever folds identical
-  * code together — neither can drive an unbounded chain. The backstop therefore only fires on a genuinely divergent
-  * *type-level* computation (the residual `Type:Type`/Girard case) or a compiler bug, never on a legitimate program.
+  * `.claude/CLAUDE.md`), so the reachable instantiation graph is finite and program-shaped, and the codegen projection
+  * only ever folds identical code together — neither can drive an unbounded chain. The backstop therefore only fires on
+  * a genuinely divergent *type-level* computation (the residual `Type:Type`/Girard case) or a compiler bug, never on a
+  * legitimate program.
   *
   * @param maxNestedRepeats
   *   How many nested `processValue` frames for one `vfqn` are tolerated before the specialization is declared
@@ -56,15 +55,15 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
   /** Walk one monomorphic instance, deduping on its **codegen projection** (Deliverable B2/B3): the traversal — the
     * `visited` set and the [[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue]] demand — is keyed on
     * [[CodegenProjection.codegenProject]] of the type arguments, so two instances that generate identical code (e.g.
-    * `id[Int[0, 100]]` and `id[Int[0, 50]]`, both a byte) type-check and materialise only one representative woven value
-    * instead of one per exact bound. The exact `typeArgs` are still used to fetch that representative (the checker's keys
-    * stay full and exact) and are recorded verbatim by [[recordUsage]] (so the backend, which already collapses these
-    * cases via its method-signature dedup, sees the full picture).
+    * `id[Int[0, 100]]` and `id[Int[0, 50]]`, both a byte) type-check and materialise only one representative woven
+    * value instead of one per exact bound. The exact `typeArgs` are still used to fetch that representative (the
+    * checker's keys stay full and exact) and are recorded verbatim by [[recordUsage]] (so the backend, which already
+    * collapses these cases via its method-signature dedup, sees the full picture).
     *
     * The demand is the woven value rather than the raw `MonomorphicValue` because `used` is the codegen driver: it must
-    * walk the *woven* body so effect-operation references resolved by the weaver (and its inserted `flatMap`/`pure` calls)
-    * are the ones whose callees get materialised. For pure code the `Id`-normalization the woven stage applies erases all
-    * effect machinery, so the walk sees plain calls.
+    * walk the *woven* body so effect-operation references resolved by the weaver (and its inserted `flatMap`/`pure`
+    * calls) are the ones whose callees get materialised. For pure code the `Id`-normalization the woven stage applies
+    * erases all effect machinery, so the walk sees plain calls.
     *
     * @param typeArgs
     *   The full, type-checking-exact type arguments — used to fetch the representative woven value.
@@ -83,13 +82,13 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
     isVisited(vfqn, projected).ifM(
       Monad[CompilerIO].unit.liftToUsedNames,
       for {
-        _                <- markVisited(vfqn, projected)
-        wovenMaybe       <- getFactIfProduced(WovenValue.Key(vfqn, typeArgs)).liftToUsedNames
-        _                <- wovenMaybe.fold(markFailed()) { mv =>
-                              recordNaturalArity(vfqn, mv.naturalArity) >>
-                                checkConvergence(vfqn, mv.name, ancestors) >>
-                                processMonomorphicValue(mv, vfqn :: ancestors)
-                            }
+        _          <- markVisited(vfqn, projected)
+        wovenMaybe <- getFactIfProduced(WovenValue.Key(vfqn, typeArgs)).liftToUsedNames
+        _          <- wovenMaybe.fold(markFailed()) { mv =>
+                        recordNaturalArity(vfqn, mv.naturalArity) >>
+                          checkConvergence(vfqn, mv.name, ancestors) >>
+                          processMonomorphicValue(mv, vfqn :: ancestors)
+                      }
       } yield ()
     )
 

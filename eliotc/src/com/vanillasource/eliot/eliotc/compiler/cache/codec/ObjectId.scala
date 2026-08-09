@@ -7,10 +7,10 @@ import java.security.MessageDigest
   *
   * Nothing position-dependent enters it, which is what the store turns on:
   *
-  *   - **equal ids mean equal values**, so an object is stored at most once — within a run and, because the id does
-  *     not depend on anything run-specific, across runs too;
-  *   - a recomputed value can be compared to a stored one by **16 bytes**, without reading the stored side at all —
-  *     the equality cutoff that a warm build spends most of its validation in;
+  *   - **equal ids mean equal values**, so an object is stored at most once — within a run and, because the id does not
+  *     depend on anything run-specific, across runs too;
+  *   - a recomputed value can be compared to a stored one by **16 bytes**, without reading the stored side at all — the
+  *     equality cutoff that a warm build spends most of its validation in;
   *   - a **collision is a correctness fault**, not a slow path: two different values sharing an id would serve one in
   *     place of the other. That is why the digest is not truncated below 128 bits.
   */

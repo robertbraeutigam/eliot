@@ -9,7 +9,13 @@ import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression, PrecedenceDeclaration, QualifiedName, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  AbilityFQN,
+  Expression,
+  PrecedenceDeclaration,
+  QualifiedName,
+  ResolvedValue
+}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A resolved value with every `{ … }` [[Expression.BlockExpression]] in its runtime body lowered to a tower of

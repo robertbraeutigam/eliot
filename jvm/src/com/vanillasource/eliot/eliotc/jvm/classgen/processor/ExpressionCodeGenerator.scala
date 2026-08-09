@@ -47,7 +47,10 @@ object ExpressionCodeGenerator {
         // at the edge, derived from the ranges.
         methodGenerator
           .runNative[CompilationTypesIO](
-            pushIntegerConstant(integerLiteral.value, repInternalNameOf(uncurriedExpression.expressionType, uncurriedExpression.meta))
+            pushIntegerConstant(
+              integerLiteral.value,
+              repInternalNameOf(uncurriedExpression.expressionType, uncurriedExpression.meta)
+            )
           )
           .as(Seq.empty)
       case StringLiteral(stringLiteral)                     =>
@@ -91,9 +94,9 @@ object ExpressionCodeGenerator {
       expectedResultMeta: Option[GroundValue]
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
-      case IntegerLiteral(integerLiteral)                         => ???
-      case StringLiteral(stringLiteral)                           => ???
-      case ParameterReference(parameterName)                      =>
+      case IntegerLiteral(integerLiteral)                                                                            => ???
+      case StringLiteral(stringLiteral)                                                                              => ???
+      case ParameterReference(parameterName)                                                                         =>
         // Function application on a parameter reference, so this needs to be a Function
         for {
           parameterIndex <- getParameterIndex(parameterName.value)
@@ -121,7 +124,7 @@ object ExpressionCodeGenerator {
           expectedResultType,
           expectedResultMeta
         )
-      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) =>
+      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs)                                                    =>
         val calledVfqn = sourcedCalledVfqn.value
         if (WellKnownTypes.isPatternMatchHandleCases(calledVfqn))
           generatePatternMatchCall(
@@ -156,7 +159,7 @@ object ExpressionCodeGenerator {
             arguments,
             expectedResultType
           )
-      case FunctionLiteral(parameters, body)                      =>
+      case FunctionLiteral(parameters, body)                                                                         =>
         // An immediately-applied lambda `(x -> body)(arg)` — a `let`, the shape a non-effectful block `val`/statement
         // lowers to. Generate the lambda as an ordinary closure value, then apply the argument(s) to it exactly as a
         // function-valued parameter is applied. (An effectful block binding is rewritten to `flatMap`/`map` earlier and
@@ -178,7 +181,7 @@ object ExpressionCodeGenerator {
                              expectedResultType
                            )
         } yield lambdaClasses ++ argClasses
-      case FunctionApplication(_, _)                              =>
+      case FunctionApplication(_, _)                                                                                 =>
         // Applying the result of another application: the inner application leaves a function value on the stack
         // (its own final cast is to its Function-carrier expression type), the arguments are then applied to it.
         for {
@@ -319,7 +322,13 @@ object ExpressionCodeGenerator {
                      // is unboxed to `long` and rendered via `Long.toString`. Since the bounds-as-refinements flip
                      // (uniform bignum) most integers arrive as `BigInteger`, so this branch is the common path.
                      if (operandRep === bigIntegerInternalName)
-                       mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, bigIntegerInternalName, "toString", "()Ljava/lang/String;", false)
+                       mv.visitMethodInsn(
+                         Opcodes.INVOKEVIRTUAL,
+                         bigIntegerInternalName,
+                         "toString",
+                         "()Ljava/lang/String;",
+                         false
+                       )
                      else {
                        unboxToLong(operandRep)(mv)
                        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "toString", "(J)Ljava/lang/String;", false)
@@ -375,9 +384,9 @@ object ExpressionCodeGenerator {
                     }
       } yield classes1 ++ classes2
     } else {
-      val resultRep = repInternalNameOf(expectedResultType, expectedResultMeta)
-      val leftRep   = repInternalNameOf(arguments(0).expressionType, arguments(0).meta)
-      val rightRep  = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)
+      val resultRep     = repInternalNameOf(expectedResultType, expectedResultMeta)
+      val leftRep       = repInternalNameOf(arguments(0).expressionType, arguments(0).meta)
+      val rightRep      = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)
       // `Long`-range operands and results compute in primitive `long`; anything that touches `BigInteger` (a
       // `BigInteger` operand, or a result that overflowed `Long` — e.g. a `Long`×`Long` product) computes in
       // `BigInteger` so no value is truncated through a `long` round-trip.
@@ -498,7 +507,8 @@ object ExpressionCodeGenerator {
     mv.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", if (value) "TRUE" else "FALSE", "Ljava/lang/Boolean;")
 
   /** The primitive `long` opcode for an arithmetic leaf FQN — the `Numeric[Int]` method name (`add`/`subtract`/
-    * `multiply`). */
+    * `multiply`).
+    */
   private def longOpcode(leafVfqn: ValueFQN): Int =
     leafVfqn.name.name match {
       case "add"      => Opcodes.LADD
@@ -543,16 +553,17 @@ object ExpressionCodeGenerator {
   /** The machine-representation internal name of a *reconciled node* — the width the JVM backend lays the value out at.
     * For an integer-typed node (the tracked `Int`, or a lowered `Jvm*`) the width is decoded from the node's refinement
     * channel meta ([[IntRepresentation]]); for any other type it is the ordinary lowered representation. This is the
-    * successor to reading a lowered `Jvm*` type off `expressionType`: the interval→width policy now lives in the backend
-    * (`docs/generic-refinement-merges.md` Step 6), not in an Eliot `Represent` instance.
+    * successor to reading a lowered `Jvm*` type off `expressionType`: the interval→width policy now lives in the
+    * backend (`docs/generic-refinement-merges.md` Step 6), not in an Eliot `Represent` instance.
     */
   private def repInternalNameOf(exprType: GroundValue, meta: Option[GroundValue]): String =
-    if (IntRepresentation.isIntegerType(exprType)) NativeType.javaInternalName(IntRepresentation.representationFor(meta))
+    if (IntRepresentation.isIntegerType(exprType))
+      NativeType.javaInternalName(IntRepresentation.representationFor(meta))
     else NativeType.javaInternalName(valueType(exprType))
 
-  /** As [[repInternalNameOf]] but the representation *type* FQN — for a `CHECKCAST` of an integer result to the width its
-    * channel meta decodes to (a bare `Int` type would otherwise cast to the ⊤/bignum descriptor and fail on a narrow
-    * value).
+  /** As [[repInternalNameOf]] but the representation *type* FQN — for a `CHECKCAST` of an integer result to the width
+    * its channel meta decodes to (a bare `Int` type would otherwise cast to the ⊤/bignum descriptor and fail on a
+    * narrow value).
     */
   private def castTargetFqn(exprType: GroundValue, meta: Option[GroundValue]): ValueFQN =
     if (IntRepresentation.isIntegerType(exprType)) IntRepresentation.representationFor(meta)
@@ -563,17 +574,17 @@ object ExpressionCodeGenerator {
     * `BigInteger`, otherwise through primitive `long`.
     */
   private def convertRepresentation(sourceRep: String, targetRep: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
-    if (sourceRep === targetRep) ()                              // same representation: the value already has the right form
+    if (sourceRep === targetRep) () // same representation: the value already has the right form
     else if (targetRep === bigIntegerInternalName) pushAsBigInteger(sourceRep)(mv)
     else {
       unboxToLong(sourceRep)(mv)
       boxFromLong(targetRep)(mv)
     }
 
-  /** The five machine representations an `Int` node can carry — the boxed integer wrappers, narrowest to widest. A value
-    * whose lowered type is one of these is *reconcilable* across a boundary by [[convertRepresentation]] (it preserves the
-    * logical integer); a value of any other type (a `String`, a `data` value, an erased `Object` field) is not an integer
-    * and must never be routed through the numeric converter.
+  /** The five machine representations an `Int` node can carry — the boxed integer wrappers, narrowest to widest. A
+    * value whose lowered type is one of these is *reconcilable* across a boundary by [[convertRepresentation]] (it
+    * preserves the logical integer); a value of any other type (a `String`, a `data` value, an erased `Object` field)
+    * is not an integer and must never be routed through the numeric converter.
     */
   private val integerRepInternalNames: Set[String] =
     Set("java/lang/Byte", "java/lang/Short", "java/lang/Integer", "java/lang/Long", bigIntegerInternalName)
@@ -647,84 +658,86 @@ object ExpressionCodeGenerator {
       // accessor): the direct call absorbs `naturalArity` arguments, and the excess is applied one at a time to the
       // function value it returns. Body-less natives have no natural arity and keep the full spine. Read off the woven
       // value (the effects-as-channel codegen source; off the flag it is the identity image of the `MonomorphicValue`).
-      wovenMaybe                <- getFactIfProduced(WovenValue.Key(calledVfqn, typeArgs)).liftToTypes
-      directCallArity            = wovenMaybe.flatMap(_.naturalArity).fold(arguments.length)(_ min arguments.length)
-      (directArgs, overApplied)  = arguments.splitAt(directCallArity)
-      uncurriedMaybe            <- getFactIfProduced(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, directArgs.length)).liftToTypes
-      resultClasses             <- uncurriedMaybe match
-                          case Some(uncurriedValue) =>
-                            // A generic native (e.g. `eliot.collection.List::append`) is emitted once, erased. The
-                            // front-end monomorphizes generics per element type, so a call site would otherwise link to a
-                            // per-instantiation mangled method (`append$Int`) that is never emitted; instead every
-                            // instantiation resolves to that one method by its plain name + erased signature (the
-                            // erased `Object` return is downcast to the concrete type below, as for any generic return).
-                            val genericNativeSig = NativeImplementation.genericNativeSignatures.get(calledVfqn)
-                            val returnType       =
-                              genericNativeSig.map(_.returnType).getOrElse(valueType(uncurriedValue.returnType))
-                            val methodName       =
-                              if (
-                                genericNativeSig.isDefined ||
-                                DataClassGenerator.isConstructor(calledVfqn) ||
-                                DataClassGenerator.isTypeConstructor(calledVfqn)
-                              )
-                                calledVfqn.name.name
-                              else
-                                mangledMethodName(calledVfqn, typeArgs)
-                            for {
-                              // A value constructor is emitted once and shared by every instantiation, so its bare
-                              // type-parameter fields erase to `Object` here exactly as on the definition side — the call
-                              // descriptor must match the single shared factory (DataClassGenerator.erasePolymorphicFields).
-                              parameters    <-
-                                if (DataClassGenerator.isConstructor(calledVfqn))
-                                  getFactOrAbort(OperatorResolvedValue.Key(calledVfqn)).liftToTypes
-                                    .map(DataClassGenerator.erasePolymorphicFields(_, uncurriedValue.parameters))
-                                else uncurriedValue.parameters.pure[CompilationTypesIO]
-                              parameterTypes = genericNativeSig
-                                                 .map(_.parameterTypes)
-                                                 .getOrElse(parameters.map(p => valueType(p.parameterType)))
-                              // Each direct argument crosses a parameter boundary, which the refinement channel treats as
-                              // ⊤ — a bignum (`docs/bounds-as-refinements.md` §7 Q4, "⊤ at parameter/return boundaries").
-                              // So a channel-narrowed integer argument is widened back to a bignum before the call.
-                              // Widening to the ⊤/bignum boundary (rather than the callee's declared parameter descriptor)
-                              // is what a generic slot needs: a type-parameter-typed parameter erases to `Object`, but the
-                              // value is read at a concrete `Int` (bignum), so it must be a bignum on the heap — a narrow
-                              // box would fail the reader's `CHECKCAST`. Derived from the argument's own rep here (no
-                              // reconcile node).
-                              classes       <-
-                                directArgs.flatTraverse { expression =>
-                                  generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
-                                }
-                              _             <- methodGenerator.addCallTo[CompilationTypesIO](
-                                                 calledVfqn,
-                                                 parameterTypes,
-                                                 returnType,
-                                                 Some(methodName)
-                                               )
-                              overClasses   <-
-                                if (overApplied.isEmpty)
-                                  methodGenerator
-                                    .addCastTo[CompilationTypesIO](valueType(expectedResultType))
-                                    .whenA(valueType(expectedResultType) =!= returnType)
-                                    .as(Seq.empty[ClassFile])
-                                else
-                                  methodGenerator
-                                    .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
-                                    .whenA(returnType =!= NativeType.systemFunctionValue) >>
-                                    applyArgumentsToFunctionValue(
-                                      moduleName,
-                                      outerClassGenerator,
-                                      methodGenerator,
-                                      overApplied,
-                                      expectedResultType
-                                    )
-                            } yield classes ++ overClasses
-                          case None                 =>
-                            compilerError(
-                              sourcedCalledVfqn.as("Could not find uncurried function."),
-                              Seq(
-                                s"Looking for function: ${calledVfqn.show} with type args (${typeArgs.size} args)"
-                              )
-                            ).liftToTypes.as(Seq.empty)
+      wovenMaybe               <- getFactIfProduced(WovenValue.Key(calledVfqn, typeArgs)).liftToTypes
+      directCallArity           = wovenMaybe.flatMap(_.naturalArity).fold(arguments.length)(_ min arguments.length)
+      (directArgs, overApplied) = arguments.splitAt(directCallArity)
+      uncurriedMaybe           <- getFactIfProduced(
+                                    UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, directArgs.length)
+                                  ).liftToTypes
+      resultClasses            <- uncurriedMaybe match
+                                    case Some(uncurriedValue) =>
+                                      // A generic native (e.g. `eliot.collection.List::append`) is emitted once, erased. The
+                                      // front-end monomorphizes generics per element type, so a call site would otherwise link to a
+                                      // per-instantiation mangled method (`append$Int`) that is never emitted; instead every
+                                      // instantiation resolves to that one method by its plain name + erased signature (the
+                                      // erased `Object` return is downcast to the concrete type below, as for any generic return).
+                                      val genericNativeSig = NativeImplementation.genericNativeSignatures.get(calledVfqn)
+                                      val returnType       =
+                                        genericNativeSig.map(_.returnType).getOrElse(valueType(uncurriedValue.returnType))
+                                      val methodName       =
+                                        if (
+                                          genericNativeSig.isDefined ||
+                                          DataClassGenerator.isConstructor(calledVfqn) ||
+                                          DataClassGenerator.isTypeConstructor(calledVfqn)
+                                        )
+                                          calledVfqn.name.name
+                                        else
+                                          mangledMethodName(calledVfqn, typeArgs)
+                                      for {
+                                        // A value constructor is emitted once and shared by every instantiation, so its bare
+                                        // type-parameter fields erase to `Object` here exactly as on the definition side — the call
+                                        // descriptor must match the single shared factory (DataClassGenerator.erasePolymorphicFields).
+                                        parameters    <-
+                                          if (DataClassGenerator.isConstructor(calledVfqn))
+                                            getFactOrAbort(OperatorResolvedValue.Key(calledVfqn)).liftToTypes
+                                              .map(DataClassGenerator.erasePolymorphicFields(_, uncurriedValue.parameters))
+                                          else uncurriedValue.parameters.pure[CompilationTypesIO]
+                                        parameterTypes = genericNativeSig
+                                                           .map(_.parameterTypes)
+                                                           .getOrElse(parameters.map(p => valueType(p.parameterType)))
+                                        // Each direct argument crosses a parameter boundary, which the refinement channel treats as
+                                        // ⊤ — a bignum (`docs/bounds-as-refinements.md` §7 Q4, "⊤ at parameter/return boundaries").
+                                        // So a channel-narrowed integer argument is widened back to a bignum before the call.
+                                        // Widening to the ⊤/bignum boundary (rather than the callee's declared parameter descriptor)
+                                        // is what a generic slot needs: a type-parameter-typed parameter erases to `Object`, but the
+                                        // value is read at a concrete `Int` (bignum), so it must be a bignum on the heap — a narrow
+                                        // box would fail the reader's `CHECKCAST`. Derived from the argument's own rep here (no
+                                        // reconcile node).
+                                        classes       <-
+                                          directArgs.flatTraverse { expression =>
+                                            generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
+                                          }
+                                        _             <- methodGenerator.addCallTo[CompilationTypesIO](
+                                                           calledVfqn,
+                                                           parameterTypes,
+                                                           returnType,
+                                                           Some(methodName)
+                                                         )
+                                        overClasses   <-
+                                          if (overApplied.isEmpty)
+                                            methodGenerator
+                                              .addCastTo[CompilationTypesIO](valueType(expectedResultType))
+                                              .whenA(valueType(expectedResultType) =!= returnType)
+                                              .as(Seq.empty[ClassFile])
+                                          else
+                                            methodGenerator
+                                              .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
+                                              .whenA(returnType =!= NativeType.systemFunctionValue) >>
+                                              applyArgumentsToFunctionValue(
+                                                moduleName,
+                                                outerClassGenerator,
+                                                methodGenerator,
+                                                overApplied,
+                                                expectedResultType
+                                              )
+                                      } yield classes ++ overClasses
+                                    case None                 =>
+                                      compilerError(
+                                        sourcedCalledVfqn.as("Could not find uncurried function."),
+                                        Seq(
+                                          s"Looking for function: ${calledVfqn.show} with type args (${typeArgs.size} args)"
+                                        )
+                                      ).liftToTypes.as(Seq.empty)
     } yield resultClasses
 
   private def generateTypeMatchCall(
@@ -744,7 +757,9 @@ object ExpressionCodeGenerator {
       _               <- compilerAbort(
                            sourcedCalledVfqn.as("Could not determine type constructor name for typeMatch.")
                          ).liftToTypes.whenA(constructorName.isEmpty)
-      uncurriedMaybe  <- getFactIfProduced(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
+      uncurriedMaybe  <- getFactIfProduced(
+                           UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)
+                         ).liftToTypes
       classes         <- uncurriedMaybe match {
                            case Some(uncurriedValue) =>
                              val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
@@ -752,7 +767,12 @@ object ExpressionCodeGenerator {
                              for {
                                // Each integer argument crosses a ⊤/bignum parameter boundary, so it is widened to bignum.
                                classes <- arguments.flatTraverse { expression =>
-                                            generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
+                                            generateArgumentToBignum(
+                                              moduleName,
+                                              outerClassGenerator,
+                                              methodGenerator,
+                                              expression
+                                            )
                                           }
                                _       <- methodGenerator.addCallTo[CompilationTypesIO](
                                             calledVfqn,

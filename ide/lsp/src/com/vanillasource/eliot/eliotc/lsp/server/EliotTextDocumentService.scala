@@ -94,13 +94,13 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
   /** A hover renders, as Markdown, the apidoc tile of the identifier under the cursor: its *definition* in a fenced
     * `eliot` block, then the *concrete type it was checked at here*, then its documentation.
     *
-    * When the referenced name has a documentation tile
-    * ([[com.vanillasource.eliot.eliotc.lsp.index.DocIndex]], built from the same apidoc facts the site uses), the header
-    * is its rendered definition (`def printLine(s: String): IO[Unit]`, `type IO[A]`, `ability Show[A]`) — exactly what
-    * the doc page shows — and, when the expression was monomorphized, the concrete type at this use site (the type-hint
-    * index — `String -> IO[Unit]`, an instantiation `Int[0, 255] -> Int[0, 255]`, one line per instantiation) is shown
-    * below it, then the documentation. With no tile it falls back to the concrete type alone, or the referenced value's
-    * declared signature when the node was never monomorphized.
+    * When the referenced name has a documentation tile ([[com.vanillasource.eliot.eliotc.lsp.index.DocIndex]], built
+    * from the same apidoc facts the site uses), the header is its rendered definition (`def printLine(s: String):
+    * IO[Unit]`, `type IO[A]`, `ability Show[A]`) — exactly what the doc page shows — and, when the expression was
+    * monomorphized, the concrete type at this use site (the type-hint index — `String -> IO[Unit]`, an instantiation
+    * `Int[0, 255] -> Int[0, 255]`, one line per instantiation) is shown below it, then the documentation. With no tile
+    * it falls back to the concrete type alone, or the referenced value's declared signature when the node was never
+    * monomorphized.
     */
   override def hover(params: HoverParams): CompletableFuture[Hover] = {
     val uri       = URI.create(params.getTextDocument.getUri)
@@ -115,14 +115,19 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
           .orElse(service.positionIndex.definitionOf(occurrence.value).map(EliotTextDocumentService.signatureOf))
           .getOrElse(occurrence.value.name.name)
         val concreteTypes = typeHint.fold(Seq.empty[String])(_._2.map(GroundValueRenderer.render))
-        Some(EliotTextDocumentService.renderHover(occurrence.range, Some(definition), concreteTypes, interval, entry.doc))
+        Some(
+          EliotTextDocumentService.renderHover(occurrence.range, Some(definition), concreteTypes, interval, entry.doc)
+        )
       case None                      =>
         typeHint match {
           case Some((range, types)) =>
-            Some(EliotTextDocumentService.renderHover(range, None, types.map(GroundValueRenderer.render), interval, None))
+            Some(
+              EliotTextDocumentService.renderHover(range, None, types.map(GroundValueRenderer.render), interval, None)
+            )
           case None                 =>
             service.positionIndex.hoverAt(uri, position).map { (occurrence, value) =>
-              EliotTextDocumentService.renderHover(occurrence.range, Some(EliotTextDocumentService.signatureOf(value)), Seq.empty, None, None)
+              EliotTextDocumentService
+                .renderHover(occurrence.range, Some(EliotTextDocumentService.signatureOf(value)), Seq.empty, None, None)
             }
         }
     }
@@ -155,11 +160,11 @@ object EliotTextDocumentService {
 
   /** Render a hover as Markdown from up to four parts, omitting any that is absent (never an empty block).
     *
-    * With a `definition`, it leads the fenced `eliot` block; the `concreteTypes` (the type(s) the expression was checked
-    * at here) then follow as a labelled inline line, then — when the refinement channel pinned one — the value's range
-    * `[min, max]` at this node, and the `doc` below. Without a definition — the fallback path — the concrete type(s)
-    * become the primary fenced block instead. Rendered as [[MarkupKind.MARKDOWN]] so signatures are syntax-highlighted
-    * and the doc's own formatting shows, matching the apidoc site.
+    * With a `definition`, it leads the fenced `eliot` block; the `concreteTypes` (the type(s) the expression was
+    * checked at here) then follow as a labelled inline line, then — when the refinement channel pinned one — the
+    * value's range `[min, max]` at this node, and the `doc` below. Without a definition — the fallback path — the
+    * concrete type(s) become the primary fenced block instead. Rendered as [[MarkupKind.MARKDOWN]] so signatures are
+    * syntax-highlighted and the doc's own formatting shows, matching the apidoc site.
     */
   private def renderHover(
       range: PositionRange,

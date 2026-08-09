@@ -56,8 +56,8 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
   )
 
   /** Route source roots through the buffer overlay: every filesystem mount the scan builds becomes a
-    * [[VfsRoutedMount]]. All `configure()`s run before any `initialize`, so [[LangPlugin]] sees the substituted
-    * factory when it builds the `PathScanner`. Also mounts the synthesized per-module monomorphization roots
+    * [[VfsRoutedMount]]. All `configure()`s run before any `initialize`, so [[LangPlugin]] sees the substituted factory
+    * when it builds the `PathScanner`. Also mounts the synthesized per-module monomorphization roots
     * ([[LspMainRootMount]]) the type-hint driver roots at.
     */
   override def configure(): StateT[IO, Configuration, Unit] =
@@ -96,18 +96,18 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
       _       <- documentAllLayers(configuration, compilation)
     } yield true // a whole-workspace check has no artefact to produce; its outcome is its diagnostics
 
-  /** Demand the documentation ([[ValueDoc]]) of every declared name across *all* layer roots — the base and
-    * platform layers (on the path as dependencies) as well as the user's workspace — so the hover index can document
-    * any name the editor resolves,
-    * stdlib functions included (not just the user's own modules, which is all `checkModule` reaches). Docs come from the
-    * parsed AST only, so this forces at most a parse of each layer file (cached across recompiles); it never resolves or
-    * type-checks the bundled dependencies.
+  /** Demand the documentation ([[ValueDoc]]) of every declared name across *all* layer roots — the base and platform
+    * layers (on the path as dependencies) as well as the user's workspace — so the hover index can document any name
+    * the editor resolves, stdlib functions included (not just the user's own modules, which is all `checkModule`
+    * reaches). Docs come from the parsed AST only, so this forces at most a parse of each layer file (cached across
+    * recompiles); it never resolves or type-checks the bundled dependencies.
     */
   private def documentAllLayers(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
     layerSourceFiles(configuration).flatMap(_.traverse_ { case (base, file) => demandDocs(compilation, base, file) })
 
-  /** Every `.els` under every (distinct) layer root, paired with the base directory its module name is relative to. Both
-    * the runtime roots and their compile-time `eliot-compiler/` overlays are documented, so hover reaches every name.
+  /** Every `.els` under every (distinct) layer root, paired with the base directory its module name is relative to.
+    * Both the runtime roots and their compile-time `eliot-compiler/` overlays are documented, so hover reaches every
+    * name.
     */
   private def layerSourceFiles(configuration: Configuration): IO[Seq[(Path, Path)]] = {
     val runtimeRoots = LangPlugin.allRoots(configuration).map(_.toAbsolutePath.normalize).distinct
@@ -157,14 +157,13 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
     * The root is not the module's `main` itself — the idiomatic `main` declares an effect set and is therefore
     * carrier-generic — but the module's synthesized `lspmain.*` wrapper ([[LspMainRootSourceProcessor]]), which binds
     * the carrier to `eliot.jvm.IO` exactly as the jvm target's entry point does. [[UsedNames]] walks the reachable
-    * monomorphic graph from that root, forcing a
-    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] (carrying per-node ground types) for every
-    * reachable instantiation — exactly the facts the type-hint index reads. The trigger is **per file**: each
-    * `examples/` source is its own module with its own `main`, so every such file becomes an independent
-    * monomorphization root. Modules without a `main` (libraries) are left to use-site verification, as a batch build
-    * would. A wrapper that fails to monomorphize (a broken `main`, or a workspace without the jvm layer on its path)
-    * simply yields no [[UsedNames]] fact; whatever did monomorphize is still cached, so hints degrade rather than
-    * disappear.
+    * monomorphic graph from that root, forcing a [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]]
+    * (carrying per-node ground types) for every reachable instantiation — exactly the facts the type-hint index reads.
+    * The trigger is **per file**: each `examples/` source is its own module with its own `main`, so every such file
+    * becomes an independent monomorphization root. Modules without a `main` (libraries) are left to use-site
+    * verification, as a batch build would. A wrapper that fails to monomorphize (a broken `main`, or a workspace
+    * without the jvm layer on its path) simply yields no [[UsedNames]] fact; whatever did monomorphize is still cached,
+    * so hints degrade rather than disappear.
     */
   private def monomorphizeMain(
       compilation: CompilationProcess,
@@ -181,9 +180,9 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
   /** After the reachable monomorphic graph is forced, additionally demand each instance's
     * [[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable]] — the refinement channel's per-node value
     * ranges — so hover can show the computed range of an `Int`-typed node. The tables are keyed identically to the
-    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]]s (`(vfqn, typeArguments)`), and [[UsedNames]]
-    * already records exactly those instantiations. A table that fails to produce simply yields no fact, so a hint
-    * degrades to no range rather than a wrong one.
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]]s (`(vfqn, typeArguments)`), and
+    * [[UsedNames]] already records exactly those instantiations. A table that fails to produce simply yields no fact,
+    * so a hint degrades to no range rather than a wrong one.
     */
   private def demandRefinementTables(compilation: CompilationProcess, used: UsedNames): IO[Unit] =
     used.usedNames.toList.traverse_ { case (vfqn, stats) =>
@@ -218,18 +217,18 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
     }
   }
 
-  /** Whether a path-derived module belongs to the Eliot library namespace — the standard library and platform
-    * layers under `eliot.lang` / `eliot.effect` / `eliot.compiler` ([[LspPlugin.bundledLibraryPackages]]). These arrive
-    * on the path as dependencies (never bundled with the server), so the whole-workspace driver must not diagnose them:
-    * they are dependencies, not the user's own modules.
+  /** Whether a path-derived module belongs to the Eliot library namespace — the standard library and platform layers
+    * under `eliot.lang` / `eliot.effect` / `eliot.compiler` ([[LspPlugin.bundledLibraryPackages]]). These arrive on the
+    * path as dependencies (never bundled with the server), so the whole-workspace driver must not diagnose them: they
+    * are dependencies, not the user's own modules.
     *
     * The reserved package sequence is matched as a contiguous sub-path of the module's segments (rather than a prefix)
-    * because a workspace folder is rarely exactly a source root. Opening the compiler repo yields the source root inside
-    * the folder, so the same `String.els` derives to `stdlib.eliot.eliot.lang.String` here — mis-rooted, but still
-    * recognisable as the `eliot.lang` library because the `eliot/lang` package directories survive in its path. Matching
-    * a sub-path catches it regardless of how many source-root segments precede the package. Leaving these in would let a
-    * mis-rooted stdlib file auto-import (and so shadow) its own name — the spurious "Imported names shadow local names"
-    * diagnostic this guard exists to prevent.
+    * because a workspace folder is rarely exactly a source root. Opening the compiler repo yields the source root
+    * inside the folder, so the same `String.els` derives to `stdlib.eliot.eliot.lang.String` here — mis-rooted, but
+    * still recognisable as the `eliot.lang` library because the `eliot/lang` package directories survive in its path.
+    * Matching a sub-path catches it regardless of how many source-root segments precede the package. Leaving these in
+    * would let a mis-rooted stdlib file auto-import (and so shadow) its own name — the spurious "Imported names shadow
+    * local names" diagnostic this guard exists to prevent.
     */
   private def isLibraryModule(moduleName: ModuleName): Boolean = {
     val segments = moduleName.packages :+ moduleName.name
@@ -253,12 +252,17 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 object LspPlugin {
   private val eliotExtension = ".els"
 
-  /** The reserved Eliot library packages (`eliot.lang`, `eliot.effect`, `eliot.carrier`, `eliot.compiler`), each as
-    * its directory sequence. The whole-workspace driver treats any file whose path contains one of these as a library
+  /** The reserved Eliot library packages (`eliot.lang`, `eliot.effect`, `eliot.carrier`, `eliot.compiler`), each as its
+    * directory sequence. The whole-workspace driver treats any file whose path contains one of these as a library
     * dependency rather than a user module (see [[LspPlugin.isLibraryModule]]). Derived from [[ModuleName]] so a new
     * reserved package is picked up here without a second list to keep in sync. `eliot.compiler.internal` needs no
     * separate entry — `eliot.compiler` already matches it as a sub-path.
     */
   private val libraryPackages: Seq[Seq[String]] =
-    Seq(ModuleName.defaultSystemPackage, ModuleName.effectPackage, ModuleName.carrierPackage, ModuleName.compilerPackage)
+    Seq(
+      ModuleName.defaultSystemPackage,
+      ModuleName.effectPackage,
+      ModuleName.carrierPackage,
+      ModuleName.compilerPackage
+    )
 }

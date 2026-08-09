@@ -8,10 +8,11 @@ import scala.jdk.CollectionConverters.*
   *
   * The server bundles no layers and knows no build system; the compiler itself is `javac`-like, fully parameterised by
   * `--path`. When there is no real build tool yet, a per-project `eliot.paths` file is the stopgap that tells the *LSP*
-  * (only) where every source root is — the project's own code and the base/stdlib/platform layers it depends on — so the
-  * server can hand them to the compiler as ordinary path parameters. Unlike [[SourceRootDiscovery]], nothing is guessed:
-  * every root, including the project's own (there is no assumed `src/`), is listed. This keeps the file layout-agnostic —
-  * a project may sit directly under `src/` with no `eliot/` qualifier and no `eliot-compiler/` sibling.
+  * (only) where every source root is — the project's own code and the base/stdlib/platform layers it depends on — so
+  * the server can hand them to the compiler as ordinary path parameters. Unlike [[SourceRootDiscovery]], nothing is
+  * guessed: every root, including the project's own (there is no assumed `src/`), is listed. This keeps the file
+  * layout-agnostic — a project may sit directly under `src/` with no `eliot/` qualifier and no `eliot-compiler/`
+  * sibling.
   *
   * The file lives in a workspace root and has one directive per line:
   * {{{
@@ -27,8 +28,10 @@ import scala.jdk.CollectionConverters.*
   * keyword, trimmed; a relative path resolves against the file's own directory (so `src` means `<project>/src`), an
   * absolute path is taken as-is. Both lists are normalised to absolute paths.
   *
-  * @param runtimeRoots  the runtime pool roots (`LangPlugin.pathKey`) — project + layer `eliot/` roots.
-  * @param compilerRoots the explicit compile-time overlay roots (`LangPlugin.compilerPathKey`).
+  * @param runtimeRoots
+  *   the runtime pool roots (`LangPlugin.pathKey`) — project + layer `eliot/` roots.
+  * @param compilerRoots
+  *   the explicit compile-time overlay roots (`LangPlugin.compilerPathKey`).
   */
 final case class WorkspacePaths(runtimeRoots: Seq[Path], compilerRoots: Seq[Path])
 

@@ -60,16 +60,16 @@ class PathScanner(compilerMounts: Seq[SourceMount], runtimeMounts: Seq[SourceMou
 
   /** How an empty scan (no mount has the path in this platform's pool) is reported, which depends on the marker:
     *
-    *   - [[Platform.Runtime]] is the build itself — the program plus the stdlib/target it needs. A module that should be
-    *     there but is absent from the explicit pool is a real misconfiguration, so it hard-errors (no silent fallback,
-    *     CP1.5).
-    *   - [[Platform.Compiler]] is an *overlay* of compile-time reductions over the base, queried for *every* name by the
-    *     compiler-native contributor ([[com.vanillasource.eliot.eliotc.monomorphize.processor.CompilerNativesProcessor]]).
-    *     Most names — all user code, every runtime-only/jvm-only name — name a module that is simply not in the compiler
-    *     pool, which is normal, not an error. So a compiler-pool miss aborts (declines) **silently**: the contributor
-    *     reads it back as "no compile-time override" and answers `None`. A genuinely missing compiler-platform layer
-    *     surfaces instead as a use-site reduction failure, and a missing base still hard-errors on the runtime pool
-    *     (base is in both).
+    *   - [[Platform.Runtime]] is the build itself — the program plus the stdlib/target it needs. A module that should
+    *     be there but is absent from the explicit pool is a real misconfiguration, so it hard-errors (no silent
+    *     fallback, CP1.5).
+    *   - [[Platform.Compiler]] is an *overlay* of compile-time reductions over the base, queried for *every* name by
+    *     the compiler-native contributor
+    *     ([[com.vanillasource.eliot.eliotc.monomorphize.processor.CompilerNativesProcessor]]). Most names — all user
+    *     code, every runtime-only/jvm-only name — name a module that is simply not in the compiler pool, which is
+    *     normal, not an error. So a compiler-pool miss aborts (declines) **silently**: the contributor reads it back as
+    *     "no compile-time override" and answers `None`. A genuinely missing compiler-platform layer surfaces instead as
+    *     a use-site reduction failure, and a missing base still hard-errors on the runtime pool (base is in both).
     */
   private def abortOnMissing(key: PathScan.Key): CompilerIO[Unit] =
     key.platform match {
@@ -91,8 +91,8 @@ object PathScanner {
   val mountFactoryKey: Configuration.Key[Path => SourceMount] = opaqueKey[Path => SourceMount]("sourceMountFactory")
 
   /** Additional runtime-pool mounts contributed by plugins (e.g. the jvm target's synthesized `main.els` module).
-    * Opaque to the cache identity: injected mounts are a deterministic function of the selected `main` and source roots,
-    * which already contribute, and a `SourceMount` has no stable `toString`.
+    * Opaque to the cache identity: injected mounts are a deterministic function of the selected `main` and source
+    * roots, which already contribute, and a `SourceMount` has no stable `toString`.
     */
   val extraRuntimeMountsKey: Configuration.Key[Seq[SourceMount]] = opaqueKey[Seq[SourceMount]]("extraRuntimeMounts")
 }

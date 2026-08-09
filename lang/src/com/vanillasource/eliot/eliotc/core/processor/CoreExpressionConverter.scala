@@ -27,8 +27,8 @@ object CoreExpressionConverter {
     * type, a generic-parameter kind). Signatures are always evaluated on the compiler track, so an integer literal in
     * one is a *compile-time* integer — a bare `BigInteger` — never the runtime `integerLiteral[n] : Int` value-literal
     * protocol. It is threaded (invariantly) through the descent so a literal keeps its compile-time reading even inside
-    * a `()` value-argument application that a signature may contain (e.g. an inline guard `if(MIN > 0, T) else …`, whose
-    * `0` must unify with `MIN : BigInteger` — not default to `Int` as a body literal would). It is orthogonal to
+    * a `()` value-argument application that a signature may contain (e.g. an inline guard `if(MIN > 0, T) else …`,
+    * whose `0` must unify with `MIN : BigInteger` — not default to `Int` as a body literal would). It is orthogonal to
     * `typeContext`, which still governs the Type/Default namespace of bare names within that application.
     */
   def convertExpression(
@@ -46,7 +46,11 @@ object CoreExpressionConverter {
         // constructor.
         if (isUpper && args.isEmpty && (typeContext || genericArgs.isDefined)) {
           val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
-          curryApplicationWith(base, genericArgs.getOrElse(Seq.empty), convertExpression(_, typeContext = true, signatureContext))
+          curryApplicationWith(
+            base,
+            genericArgs.getOrElse(Seq.empty),
+            convertExpression(_, typeContext = true, signatureContext)
+          )
         } else {
           curryApplicationWith(
             expr.as(
@@ -126,24 +130,25 @@ object CoreExpressionConverter {
   ): Sourced[Expression] = {
     // The whole signature is a compile-time type expression: `signatureContext = true` keeps every integer literal a
     // bare `BigInteger`, even inside a `()` value-argument application the return type may contain (an inline guard).
-    val withArgs = args.foldRight[Sourced[Expression]](convertExpression(returnType, typeContext = true, signatureContext = true)) {
-      (arg, acc) =>
-        val argType     = convertExpression(arg.typeExpression, typeContext = true, signatureContext = true)
-        val functionRef =
-          arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Qualifier.Type))))
-        val withArgType = arg.name.as(
-          FunctionApplication(
-            functionRef,
-            argType
+    val withArgs =
+      args.foldRight[Sourced[Expression]](convertExpression(returnType, typeContext = true, signatureContext = true)) {
+        (arg, acc) =>
+          val argType     = convertExpression(arg.typeExpression, typeContext = true, signatureContext = true)
+          val functionRef =
+            arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Qualifier.Type))))
+          val withArgType = arg.name.as(
+            FunctionApplication(
+              functionRef,
+              argType
+            )
           )
-        )
-        arg.name.as(
-          FunctionApplication(
-            withArgType,
-            acc
+          arg.name.as(
+            FunctionApplication(
+              withArgType,
+              acc
+            )
           )
-        )
-    }
+      }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
       val kindType = convertExpression(param.typeRestriction, typeContext = true, signatureContext = true)
       param.name.as(FunctionLiteral(param.name, Some(kindType), acc))
@@ -152,11 +157,11 @@ object CoreExpressionConverter {
 
   /** Converts the body into core expression and embeds it as a lambda with the "function" parameters.
     *
-    * The parameters are left *unannotated*: a value's signature is the single source of truth for its
-    * parameter types, and the body is always *checked* against that signature, so each parameter takes its type from
-    * the signature's corresponding `Function` domain (see the `check(FunctionLiteral, VPi)` case in the monomorphize
-    * `Checker`). Re-stating the type on the body lambda would only duplicate it — and would force later passes that
-    * refine the signature (e.g. `auto`-parameter saturation) to keep a redundant body copy in sync.
+    * The parameters are left *unannotated*: a value's signature is the single source of truth for its parameter types,
+    * and the body is always *checked* against that signature, so each parameter takes its type from the signature's
+    * corresponding `Function` domain (see the `check(FunctionLiteral, VPi)` case in the monomorphize `Checker`).
+    * Re-stating the type on the body lambda would only duplicate it — and would force later passes that refine the
+    * signature (e.g. `auto`-parameter saturation) to keep a redundant body copy in sync.
     */
   def buildCurriedBody(
       args: Seq[SourceArgument],
@@ -207,9 +212,9 @@ object CoreExpressionConverter {
     * argument is converted (body context for () args, type context for [] args).
     *
     * Each intermediate application node is sourced over the *combined* span of its target and argument (never just the
-    * argument's), so a whole construction `Database("…")` attributes an error to `Database("…")` rather than to only its
-    * constructor parameter `"…"`. `target` already carries the full application span (`expr.as(...)` at the call site),
-    * so the outline reaches the closing `)`.
+    * argument's), so a whole construction `Database("…")` attributes an error to `Database("…")` rather than to only
+    * its constructor parameter `"…"`. `target` already carries the full application span (`expr.as(...)` at the call
+    * site), so the outline reaches the closing `)`.
     */
   private def curryApplicationWith(
       target: Sourced[Expression],

@@ -1,7 +1,11 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomorphicDataFieldsAndCtor, mangledMethodName, valueType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{
+  addMonomorphicDataFieldsAndCtor,
+  mangledMethodName,
+  valueType
+}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
@@ -16,9 +20,9 @@ import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
 /** The **partial-arity variants of a body-less native**.
   *
   * A native is emitted once, at its declared arity: `substring(BigInteger, BigInteger, String)`. A call site, however,
-  * emits its call at whatever arity the application spine has — `directCallArity` in [[ExpressionCodeGenerator]] is
-  * the spine length for a native, which has no natural arity to bound it. An Eliot-bodied definition survives that
-  * because `JvmClassGenerator.createModuleMethodBody` generates one method per arity the program uses it at, so
+  * emits its call at whatever arity the application spine has — `directCallArity` in [[ExpressionCodeGenerator]] is the
+  * spine length for a native, which has no natural arity to bound it. An Eliot-bodied definition survives that because
+  * `JvmClassGenerator.createModuleMethodBody` generates one method per arity the program uses it at, so
   * `take(BigInteger)` and `take(BigInteger, String)` both exist. A native had only the one, and an under-applied call
   * linked to a method that was never emitted: a clean compile and `NoSuchMethodError: 'Function
   * eliot.lang.String.substring(BigInteger, BigInteger)'` at runtime.
@@ -37,9 +41,9 @@ import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
   * }
   * }}}
   *
-  * **Levels chain rather than jump.** Each level's `apply` calls the *next* level, which is the real native only at
-  * the last one. So a native demanded at arity `k` needs every level in `[k, arity - 1]`, not just `k` — one closure
-  * per missing argument, which is also what makes the shape uniform: every frame is a one-argument
+  * **Levels chain rather than jump.** Each level's `apply` calls the *next* level, which is the real native only at the
+  * last one. So a native demanded at arity `k` needs every level in `[k, arity - 1]`, not just `k` — one closure per
+  * missing argument, which is also what makes the shape uniform: every frame is a one-argument
   * `java.util.function.Function`, exactly as [[LambdaGenerator]] builds an Eliot lambda, and no N-ary functional
   * interface is invented.
   *
@@ -60,26 +64,26 @@ object NativePartialApplication {
       stats: UsageStats
   ): CompilerIO[Seq[ClassFile]] =
     for {
-      resolved   <- getFactOrAbort(OperatorResolvedValue.Key(vfqn))
-      fullArity   = SignatureView.of(resolved.signature).parameters.length
+      resolved      <- getFactOrAbort(OperatorResolvedValue.Key(vfqn))
+      fullArity      = SignatureView.of(resolved.signature).parameters.length
       partialArities = stats.directCallApplications.keys.filter(_ < fullArity).toSeq
-      files      <- partialArities.minOption match {
-                      case None           => Seq.empty[ClassFile].pure[CompilerIO]
-                      case Some(lowest)   =>
-                        if (NativeImplementation.genericNativeSignatures.contains(vfqn))
-                          compilerAbort[Seq[ClassFile]](
-                            resolved.name.as(
-                              s"This generic native is used with $lowest of its $fullArity arguments; a generic " +
-                                "native is emitted once erased and can only be called fully applied. Apply all its " +
-                                "arguments at the call site, or wrap it in an ordinary definition."
-                            )
-                          )
-                        else generateLevels(mainClassGenerator, vfqn, stats, lowest, fullArity)
-                    }
+      files         <- partialArities.minOption match {
+                         case None         => Seq.empty[ClassFile].pure[CompilerIO]
+                         case Some(lowest) =>
+                           if (NativeImplementation.genericNativeSignatures.contains(vfqn))
+                             compilerAbort[Seq[ClassFile]](
+                               resolved.name.as(
+                                 s"This generic native is used with $lowest of its $fullArity arguments; a generic " +
+                                   "native is emitted once erased and can only be called fully applied. Apply all its " +
+                                   "arguments at the call site, or wrap it in an ordinary definition."
+                               )
+                             )
+                           else generateLevels(mainClassGenerator, vfqn, stats, lowest, fullArity)
+                       }
     } yield files
 
-  /** One level per missing argument, for each instantiation the native is used at. Deduplicated by emitted method
-    * name: two instantiations whose representations coincide give the same method, exactly as
+  /** One level per missing argument, for each instantiation the native is used at. Deduplicated by emitted method name:
+    * two instantiations whose representations coincide give the same method, exactly as
     * `JvmClassGenerator.createModuleMethodBody` deduplicates its own.
     */
   private def generateLevels(
@@ -117,31 +121,31 @@ object NativePartialApplication {
       level: Int
   ): CompilerIO[ClassFile] =
     for {
-      atLevel  <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, level))
-      atNext   <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, level + 1))
-      captured  = atLevel.parameters
-      nextParam = atNext.parameters.last
-      calleeFqn = ValueFQN(vfqn.moduleName, QualifiedName(mangledMethodName(vfqn, typeArgs), Qualifier.Default))
+      atLevel   <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, level))
+      atNext    <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, level + 1))
+      captured   = atLevel.parameters
+      nextParam  = atNext.parameters.last
+      calleeFqn  = ValueFQN(vfqn.moduleName, QualifiedName(mangledMethodName(vfqn, typeArgs), Qualifier.Default))
       closureFqn = ValueFQN(vfqn.moduleName, QualifiedName(levelName(vfqn, typeArgs, level), Qualifier.Default))
-      _        <- mainClassGenerator
-                    .createMethod[CompilerIO](
-                      JvmIdentifier.encode(mangledMethodName(vfqn, typeArgs)),
-                      captured.map(p => valueType(p.parameterType)),
-                      valueType(atLevel.returnType)
-                    )
-                    .use { methodGenerator =>
-                      for {
-                        _ <- methodGenerator.addNew[CompilerIO](closureFqn)
-                        _ <- captured.zipWithIndex.traverse_ { case (parameter, index) =>
-                               methodGenerator.addLoadVar[CompilerIO](valueType(parameter.parameterType), index)
-                             }
-                        _ <- methodGenerator.addCallToCtor[CompilerIO](
-                               closureFqn,
-                               captured.map(p => valueType(p.parameterType))
-                             )
-                      } yield ()
-                    }
-      closure  <- generateClosure(mainClassGenerator, closureFqn, calleeFqn, captured, nextParam, atNext.returnType)
+      _         <- mainClassGenerator
+                     .createMethod[CompilerIO](
+                       JvmIdentifier.encode(mangledMethodName(vfqn, typeArgs)),
+                       captured.map(p => valueType(p.parameterType)),
+                       valueType(atLevel.returnType)
+                     )
+                     .use { methodGenerator =>
+                       for {
+                         _ <- methodGenerator.addNew[CompilerIO](closureFqn)
+                         _ <- captured.zipWithIndex.traverse_ { case (parameter, index) =>
+                                methodGenerator.addLoadVar[CompilerIO](valueType(parameter.parameterType), index)
+                              }
+                         _ <- methodGenerator.addCallToCtor[CompilerIO](
+                                closureFqn,
+                                captured.map(p => valueType(p.parameterType))
+                              )
+                       } yield ()
+                     }
+      closure   <- generateClosure(mainClassGenerator, closureFqn, calleeFqn, captured, nextParam, atNext.returnType)
     } yield closure
 
   private def generateClosure(

@@ -14,12 +14,12 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import org.objectweb.asm.Opcodes.*
 import org.objectweb.asm.{Label, MethodVisitor}
 
-/** The JVM leaf natives behind `eliot.file` — the pure `Path` algebra and the impure `FileSystem` operations, all backed
-  * by `java.nio.file`.
+/** The JVM leaf natives behind `eliot.file` — the pure `Path` algebra and the impure `FileSystem` operations, all
+  * backed by `java.nio.file`.
   *
   * The guiding constraint: a native never constructs an Eliot `data` value in bytecode. So the `Path` inspectors return
-  * a nullable and the Eliot wrappers build the `Option` (via [[isNull]]); the impure operations catch their exception and
-  * return a two-slot `Object[]` result holder (error message at index 0, value at index 1 — see [[NativeType]]'s
+  * a nullable and the Eliot wrappers build the `Option` (via [[isNull]]); the impure operations catch their exception
+  * and return a two-slot `Object[]` result holder (error message at index 0, value at index 1 — see [[NativeType]]'s
   * `IoResult` mapping) which the Eliot instance reflects into `Throw[IoError]`. The one call *into* Eliot code is the
   * fold step, applied exactly as `List.foldLeftInternal` applies its combine.
   */
@@ -104,7 +104,8 @@ object FileNatives {
   )
 
   /** The runtime ability-impl natives, folded into [[NativeImplementation.abilityImplementations]]: `Eq[Path]::equals`
-    * and `Show[Path]::show`, realised as `java.nio.file.Path.equals`/`.toString` — the `Eq[String]`/`Show[String]` model.
+    * and `Show[Path]::show`, realised as `java.nio.file.Path.equals`/`.toString` — the `Eq[String]`/`Show[String]`
+    * model.
     */
   val abilityImplementations: Seq[(String, String, String, JvmIdentifier => NativeImplementation)] = Seq(
     ("Eq", "equals", "Path", pathEquals),
@@ -121,7 +122,7 @@ object FileNatives {
   ): (ValueFQN, NativeImplementation) = {
     val isImpure = impure
     fqn -> new NativeImplementation {
-      override val impure: Boolean                                     = isImpure
+      override val impure: Boolean                                      = isImpure
       override def generateMethod(cg: ClassGenerator): CompilerIO[Unit] =
         cg.createMethod[CompilerIO](JvmIdentifier(fqn.name.name), params, ret).use(_.runNative(body))
     }
@@ -134,7 +135,7 @@ object FileNatives {
     val isImpure = impure
     val sig      = genericNativeSignatures(fqn)
     fqn -> new NativeImplementation {
-      override val impure: Boolean                                     = isImpure
+      override val impure: Boolean                                      = isImpure
       override def generateMethod(cg: ClassGenerator): CompilerIO[Unit] =
         cg.createMethod[CompilerIO](JvmIdentifier(fqn.name.name), sig.parameterTypes, sig.returnType)
           .use(_.runNative(body))
@@ -224,24 +225,24 @@ object FileNatives {
     // `nullL` with a Path still on the stack, but the numeric guards below reach it empty — an inconsistent stackmap).
     mv.visitVarInsn(ALOAD, 0)
     mv.visitMethodInsn(INVOKEINTERFACE, JPath, "getFileName", s"()L$JPath;", true)
-    mv.visitVarInsn(ASTORE, 3)                                   // fileName Path (or null)
+    mv.visitVarInsn(ASTORE, 3)         // fileName Path (or null)
     mv.visitVarInsn(ALOAD, 3)
     mv.visitJumpInsn(IFNULL, nullL)
     mv.visitVarInsn(ALOAD, 3)
     mv.visitMethodInsn(INVOKEVIRTUAL, JObject, "toString", s"()L$JString;", false)
-    mv.visitVarInsn(ASTORE, 1)                                   // name
+    mv.visitVarInsn(ASTORE, 1)         // name
     mv.visitVarInsn(ALOAD, 1)
-    mv.visitIntInsn(BIPUSH, 46)                                  // '.'
+    mv.visitIntInsn(BIPUSH, 46)        // '.'
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "lastIndexOf", "(I)I", false)
-    mv.visitVarInsn(ISTORE, 2)                                   // idx
+    mv.visitVarInsn(ISTORE, 2)         // idx
     mv.visitVarInsn(ILOAD, 2)
-    mv.visitJumpInsn(IFLE, nullL)                                // idx <= 0  -> no extension / dotfile
+    mv.visitJumpInsn(IFLE, nullL)      // idx <= 0  -> no extension / dotfile
     mv.visitVarInsn(ILOAD, 2)
     mv.visitVarInsn(ALOAD, 1)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "length", "()I", false)
     mv.visitInsn(ICONST_1)
     mv.visitInsn(ISUB)
-    mv.visitJumpInsn(IF_ICMPGE, nullL)                           // idx >= len-1 -> trailing dot
+    mv.visitJumpInsn(IF_ICMPGE, nullL) // idx >= len-1 -> trailing dot
     mv.visitVarInsn(ALOAD, 1)
     mv.visitVarInsn(ILOAD, 2)
     mv.visitInsn(ICONST_1)
@@ -274,20 +275,24 @@ object FileNatives {
   }
 
   private def writeFile(mv: MethodVisitor, free: Int): Unit = {
-    mv.visitVarInsn(ALOAD, 1)                                    // path
-    mv.visitVarInsn(ALOAD, 0)                                    // content
+    mv.visitVarInsn(ALOAD, 1)               // path
+    mv.visitVarInsn(ALOAD, 0)               // content
     mv.visitInsn(ICONST_0)
-    mv.visitTypeInsn(ANEWARRAY, OpenOption)                      // no options: create/truncate
+    mv.visitTypeInsn(ANEWARRAY, OpenOption) // no options: create/truncate
     mv.visitMethodInsn(
-      INVOKESTATIC, Files, "writeString", s"(L$JPath;Ljava/lang/CharSequence;[L$OpenOption;)L$JPath;", false
+      INVOKESTATIC,
+      Files,
+      "writeString",
+      s"(L$JPath;Ljava/lang/CharSequence;[L$OpenOption;)L$JPath;",
+      false
     )
     mv.visitInsn(POP)
     mv.visitInsn(ACONST_NULL)
   }
 
   private def appendFile(mv: MethodVisitor, free: Int): Unit = {
-    mv.visitVarInsn(ALOAD, 1)                                    // path
-    mv.visitVarInsn(ALOAD, 0)                                    // content
+    mv.visitVarInsn(ALOAD, 1) // path
+    mv.visitVarInsn(ALOAD, 0) // content
     mv.visitInsn(ICONST_2)
     mv.visitTypeInsn(ANEWARRAY, OpenOption)
     mv.visitInsn(DUP)
@@ -299,7 +304,11 @@ object FileNatives {
     mv.visitFieldInsn(GETSTATIC, StdOpenOpt, "APPEND", s"L$StdOpenOpt;")
     mv.visitInsn(AASTORE)
     mv.visitMethodInsn(
-      INVOKESTATIC, Files, "writeString", s"(L$JPath;Ljava/lang/CharSequence;[L$OpenOption;)L$JPath;", false
+      INVOKESTATIC,
+      Files,
+      "writeString",
+      s"(L$JPath;Ljava/lang/CharSequence;[L$OpenOption;)L$JPath;",
+      false
     )
     mv.visitInsn(POP)
     mv.visitInsn(ACONST_NULL)
@@ -388,9 +397,9 @@ object FileNatives {
     val line   = free + 2
     val loop   = new Label()
     val done   = new Label()
-    mv.visitVarInsn(ALOAD, 0)                                    // initial
+    mv.visitVarInsn(ALOAD, 0) // initial
     mv.visitVarInsn(ASTORE, acc)
-    mv.visitVarInsn(ALOAD, 2)                                    // path
+    mv.visitVarInsn(ALOAD, 2) // path
     mv.visitMethodInsn(INVOKESTATIC, Files, "newBufferedReader", s"(L$JPath;)L$JBufReader;", false)
     mv.visitVarInsn(ASTORE, reader)
     mv.visitLabel(loop)
@@ -399,7 +408,7 @@ object FileNatives {
     mv.visitInsn(DUP)
     mv.visitVarInsn(ASTORE, line)
     mv.visitJumpInsn(IFNULL, done)
-    mv.visitVarInsn(ALOAD, 1)                                    // step
+    mv.visitVarInsn(ALOAD, 1) // step
     mv.visitVarInsn(ALOAD, acc)
     mv.visitMethodInsn(INVOKEINTERFACE, JFunction, "apply", s"(L$JObject;)L$JObject;", true)
     mv.visitTypeInsn(CHECKCAST, JFunction)
@@ -420,9 +429,9 @@ object FileNatives {
     val cp      = free + 3
     val loop    = new Label()
     val done    = new Label()
-    mv.visitVarInsn(ALOAD, 0)                                    // initial
+    mv.visitVarInsn(ALOAD, 0) // initial
     mv.visitVarInsn(ASTORE, acc)
-    mv.visitVarInsn(ALOAD, 2)                                    // path
+    mv.visitVarInsn(ALOAD, 2) // path
     mv.visitMethodInsn(INVOKESTATIC, Files, "readString", s"(L$JPath;)L$JString;", false)
     mv.visitVarInsn(ASTORE, content)
     mv.visitInsn(ICONST_0)
@@ -436,7 +445,7 @@ object FileNatives {
     mv.visitVarInsn(ILOAD, i)
     mv.visitMethodInsn(INVOKEVIRTUAL, JString, "codePointAt", "(I)I", false)
     mv.visitVarInsn(ISTORE, cp)
-    mv.visitVarInsn(ALOAD, 1)                                    // step
+    mv.visitVarInsn(ALOAD, 1) // step
     mv.visitVarInsn(ALOAD, acc)
     mv.visitMethodInsn(INVOKEINTERFACE, JFunction, "apply", s"(L$JObject;)L$JObject;", true)
     mv.visitTypeInsn(CHECKCAST, JFunction)

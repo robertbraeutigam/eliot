@@ -10,9 +10,9 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
   * `directDependencies` as one of `key`'s direct dependencies.
   *
   * Recording happens **eagerly, on each read** — before the generated fact's [[cats.effect.Deferred]] is completed (a
-  * processor reads its inputs before registering its output). This matters for correctness: a fact's dependency set must
-  * be fully recorded by the time the fact becomes observable, otherwise a concurrent consumer (or the end-of-run cache
-  * build) could see an incomplete set. A fresh wrapper is used per generation, so recording is per-fiber.
+  * processor reads its inputs before registering its output). This matters for correctness: a fact's dependency set
+  * must be fully recorded by the time the fact becomes observable, otherwise a concurrent consumer (or the end-of-run
+  * cache build) could see an incomplete set. A fresh wrapper is used per generation, so recording is per-fiber.
   *
   * This wrapper is also the explicit home of the **active fact-request chain**: built once per generation with `key`
   * and the `ancestors` it was requested under, it precomputes `chain = key :: ancestors` (innermost first). It serves
@@ -43,7 +43,8 @@ final class DependencyTrackingProcess(
     ancestors: List[CompilerFactKey[?]]
 ) extends CompilationProcess {
 
-  /** The active fact-request chain for the generation this wrapper tracks: `key` plus its ancestors, innermost first. */
+  /** The active fact-request chain for the generation this wrapper tracks: `key` plus its ancestors, innermost first.
+    */
   private val chain: List[CompilerFactKey[?]] = key :: ancestors
 
   /** Reads forward `chain` as their `ancestors`. The incoming `ancestors` argument is ignored: a processor reading a

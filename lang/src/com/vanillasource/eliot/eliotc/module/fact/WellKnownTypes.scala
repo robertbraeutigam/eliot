@@ -10,10 +10,10 @@ object WellKnownTypes {
   val functionDataTypeFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
-  /** The runtime *carrier* a function value erases to: the same `eliot.lang.Function` module as
-    * [[functionDataTypeFQN]] but with [[Qualifier.Default]] (the value namespace) instead of the type-constructor
-    * qualifier. [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.carrierFQN]] collapses every function
-    * type to this FQN; a backend maps it to its closure representation (the JVM maps it to `java.util.function.Function`).
+  /** The runtime *carrier* a function value erases to: the same `eliot.lang.Function` module as [[functionDataTypeFQN]]
+    * but with [[Qualifier.Default]] (the value namespace) instead of the type-constructor qualifier.
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.carrierFQN]] collapses every function type to this
+    * FQN; a backend maps it to its closure representation (the JVM maps it to `java.util.function.Function`).
     */
   val functionCarrierFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Default))
@@ -36,7 +36,8 @@ object WellKnownTypes {
 
   /** The opaque top carrier that erased or `Type`-typed values collapse to under
     * [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.carrierFQN]]. It is deliberately not a declared
-    * stdlib type — it is the erased-representation sentinel every backend needs (the JVM maps it to `java.lang.Object`).
+    * stdlib type — it is the erased-representation sentinel every backend needs (the JVM maps it to
+    * `java.lang.Object`).
     */
   val anyFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Any"), QualifiedName("Any", Qualifier.Default))
@@ -56,8 +57,9 @@ object WellKnownTypes {
   val boolFalseFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("false", Qualifier.Default))
 
   /** `fold[A](condition: Bool, whenTrue: A, whenFalse: A): A` — the two-armed `Bool` eliminator, and the one *lazy*
-    * value-level primitive: only the selected arm is ever run. The effects-as-channel weaver recognises it (and [[boolIfFQN]])
-    * by FQN so it does **not** eagerly sequence both arms the way it sequences a strict function's effectful arguments.
+    * value-level primitive: only the selected arm is ever run. The effects-as-channel weaver recognises it (and
+    * [[boolIfFQN]]) by FQN so it does **not** eagerly sequence both arms the way it sequences a strict function's
+    * effectful arguments.
     */
   val boolFoldFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
 
@@ -68,12 +70,12 @@ object WellKnownTypes {
 
   private val idModule: ModuleName = ModuleName(defaultSystemPackage, "Id")
 
-  /** The identity carrier `Id[A]` — the carrier that realizes the *empty* effect row. Abstract in the lang layer's
-    * own `eliot/` root (`type Id[A]` — beside `Bool`/`Option`, since the compiler references it by fixed FQN),
-    * concrete per platform (`data Id[A](runId: A)` in the jvm layer and lang's `eliot-compiler/` overlay). The
-    * checker's pure-boundary defaulting ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.tryIdDefault]])
-    * solves a fully-discharged body's still-flex residual carrier to this type, so `if..else` and the other dischargers
-    * work in a pure function. Deliberately has NO `Suspend` instance: a genuinely side-effecting native can never
+  /** The identity carrier `Id[A]` — the carrier that realizes the *empty* effect row. Abstract in the lang layer's own
+    * `eliot/` root (`type Id[A]` — beside `Bool`/`Option`, since the compiler references it by fixed FQN), concrete per
+    * platform (`data Id[A](runId: A)` in the jvm layer and lang's `eliot-compiler/` overlay). The checker's
+    * pure-boundary defaulting ([[com.vanillasource.eliot.eliotc.monomorphize.check.EffectLifter.tryIdDefault]]) solves
+    * a fully-discharged body's still-flex residual carrier to this type, so `if..else` and the other dischargers work
+    * in a pure function. Deliberately has NO `Suspend` instance: a genuinely side-effecting native can never
     * instantiate at `Id`, so only pure control effects (`Abort`/`Throw`/`State`) ever run on it.
     */
   val idFQN: ValueFQN = ValueFQN(idModule, QualifiedName("Id", Qualifier.Type))
@@ -103,13 +105,14 @@ object WellKnownTypes {
   /** The `Either[E, A]` type constructor — the discharge carrier of the `Throw[E]` effect (`runThrow` reflects a
     * `{Throw[E]}` computation into an `Either[E, A]`). Abstract in the base layer (`type Either[E, A]`), redefined
     * concretely per platform (the `jvm` layer for the runtime phase, the compiler platform for the compile-time phase).
-    * The effectful-signatures discharge (W2) reads back a `{Throw[String]} Type`
-    * signature as a ground `Either[String, Type]` and inspects its head by [[leftFQN]]/[[rightFQN]].
+    * The effectful-signatures discharge (W2) reads back a `{Throw[String]} Type` signature as a ground `Either[String,
+    * Type]` and inspects its head by [[leftFQN]]/[[rightFQN]].
     */
   val eitherFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Either", Qualifier.Type))
 
-  /** The `Left` constructor of [[eitherFQN]] (the error case, by convention). A value constructor, so [[Qualifier.Default]]
-    * (the value namespace). The discharge step recognises `Left(msg)` as a guard rejection — `compilerAbort` with `msg`.
+  /** The `Left` constructor of [[eitherFQN]] (the error case, by convention). A value constructor, so
+    * [[Qualifier.Default]] (the value namespace). The discharge step recognises `Left(msg)` as a guard rejection —
+    * `compilerAbort` with `msg`.
     */
   val leftFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Left", Qualifier.Default))
 

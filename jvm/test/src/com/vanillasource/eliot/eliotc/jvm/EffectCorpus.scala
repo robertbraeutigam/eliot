@@ -11,9 +11,9 @@ package com.vanillasource.eliot.eliotc.jvm
   */
 object EffectCorpus {
 
-  /** One combined program covering the design's worked shapes: direct-style Console blocks, discharge-to-pure (`catch` +
-    * `runStateToPair` under pure returns), an effectful catch handler, a carrier-polymorphic Abort program under a local
-    * pure Id carrier (with a hand-written `Effect` instance), the State effect at a concrete IO carrier, and a
+  /** One combined program covering the design's worked shapes: direct-style Console blocks, discharge-to-pure (`catch`
+    * + `runStateToPair` under pure returns), an effectful catch handler, a carrier-polymorphic Abort program under a
+    * local pure Id carrier (with a hand-written `Effect` instance), the State effect at a concrete IO carrier, and a
     * run-carrier-headed `main` sequencing them all (so demand-driven compilation reaches every definition).
     */
   val combinedProgram: String =
@@ -106,10 +106,10 @@ object EffectCorpus {
   /** An **explicit lambda whose body performs**, at a slot declared `A => {Effect} B`.
     *
     * The sibling of [[argumentConstructionProgram]] and the half a placement-only fix leaves: here the argument is
-    * already a lambda, so nothing is hoisted and nothing is eta-lifted — what has to be right is the *verdict*, the
-    * row the call instantiates `applyTo`'s row variable at. The lambda is a payload by kind, because `take` returns a
-    * plain `String`, so reading the kind called the row empty and wrote the call at `Id`; the body's `{Abort}` was
-    * then demanded of `Id` and reported inside `stdlib`'s `Bool.els`, a file the user never wrote.
+    * already a lambda, so nothing is hoisted and nothing is eta-lifted — what has to be right is the *verdict*, the row
+    * the call instantiates `applyTo`'s row variable at. The lambda is a payload by kind, because `take` returns a plain
+    * `String`, so reading the kind called the row empty and wrote the call at `Id`; the body's `{Abort}` was then
+    * demanded of `Id` and reported inside `stdlib`'s `Bool.els`, a file the user never wrote.
     *
     * `applyTo` is spelled out rather than reached through `.` on purpose: the shape has nothing to do with the dot
     * operator, which is only the most common way to meet it.

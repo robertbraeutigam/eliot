@@ -7,11 +7,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** Strict-positivity check — termination precondition #2 (the negative-recursive-datatype route to `Y`).
   *
   * A recursion-free typed core is strongly normalizing, but a *nominally* introduced negative recursive datatype lets
-  * the user manufacture recursion that bypasses platform loop natives entirely. The classic example is
-  * `data Loop(f: Function[Loop, A])`: with the defined type appearing left of an arrow, `Loop` is equivalent to
-  * `Loop -> A`, which is exactly the typing the Y-combinator's self-application `x x` needs (Pierce, *TAPL*: recursive
-  * types derive `fix`). The occurs-check in the unifier blocks the *inferred* infinite type `x x`; this blocks the
-  * *declared* one.
+  * the user manufacture recursion that bypasses platform loop natives entirely. The classic example is `data Loop(f:
+  * Function[Loop, A])`: with the defined type appearing left of an arrow, `Loop` is equivalent to `Loop -> A`, which is
+  * exactly the typing the Y-combinator's self-application `x x` needs (Pierce, *TAPL*: recursive types derive `fix`).
+  * The occurs-check in the unifier blocks the *inferred* infinite type `x x`; this blocks the *declared* one.
   *
   * The rule (Coquand–Paulin strict positivity, the same obligation Coq/Agda enforce): the data type's own type
   * constructor may not occur in a **contravariant** position — to the left of an odd number of function arrows — of any
@@ -40,9 +39,9 @@ object StrictPositivityChecker {
       .flatMap(field => negativeOccurrences(dataName, field.typeExpression, positive = true))
   }
 
-  /** Collect occurrences of `dataName` (an unqualified self-reference) in a contravariant position of `expr`. `positive`
-    * tracks the current polarity; it flips on each `Function` domain. Recursion always descends into sub-expressions so
-    * a nested arrow (`List[Function[Loop, A]]`) is reached.
+  /** Collect occurrences of `dataName` (an unqualified self-reference) in a contravariant position of `expr`.
+    * `positive` tracks the current polarity; it flips on each `Function` domain. Recursion always descends into
+    * sub-expressions so a nested arrow (`List[Function[Loop, A]]`) is reached.
     */
   private def negativeOccurrences(
       dataName: String,
@@ -50,11 +49,11 @@ object StrictPositivityChecker {
       positive: Boolean
   ): Seq[Sourced[String]] = expr.value match {
     case Expression.FunctionApplication(module, name, genericArguments, arguments) =>
-      val selfHit =
+      val selfHit   =
         if (!positive && module.isEmpty && name.value == dataName)
           Seq(expr.as(s"Recursive type '$dataName' may not appear in a contravariant position (left of '->')."))
         else Seq.empty
-      val args    = genericArguments.getOrElse(Seq.empty) ++ arguments
+      val args      = genericArguments.getOrElse(Seq.empty) ++ arguments
       val childHits =
         if (module.isEmpty && name.value == "Function" && args.nonEmpty)
           // `Function[Dom…, Cod]`: every argument but the last is a domain (contravariant — flip polarity); the final
@@ -66,17 +65,17 @@ object StrictPositivityChecker {
           args.flatMap(negativeOccurrences(dataName, _, positive))
       selfHit ++ childHits
 
-    case Expression.FunctionLiteral(_, body)        => negativeOccurrences(dataName, body, positive)
-    case Expression.FlatExpression(parts)           => parts.flatMap(negativeOccurrences(dataName, _, positive))
-    case Expression.MatchExpression(scrutinee, cs)  =>
+    case Expression.FunctionLiteral(_, body)             => negativeOccurrences(dataName, body, positive)
+    case Expression.FlatExpression(parts)                => parts.flatMap(negativeOccurrences(dataName, _, positive))
+    case Expression.MatchExpression(scrutinee, cs)       =>
       negativeOccurrences(dataName, scrutinee, positive) ++
         cs.flatMap(c => negativeOccurrences(dataName, c.body, positive))
     case Expression.EffectfulType(effects, result, tail) =>
       effects.flatMap(_.typeParameters.flatMap(negativeOccurrences(dataName, _, positive))) ++
         negativeOccurrences(dataName, result, positive) ++
         tail.toSeq.flatMap(negativeOccurrences(dataName, _, positive))
-    case Expression.IntegerLiteral(_)               => Seq.empty
-    case Expression.StringLiteral(_)                => Seq.empty
-    case Expression.BlockExpression(_)              => Seq.empty // blocks are runtime values, never type expressions
+    case Expression.IntegerLiteral(_)                    => Seq.empty
+    case Expression.StringLiteral(_)                     => Seq.empty
+    case Expression.BlockExpression(_)                   => Seq.empty // blocks are runtime values, never type expressions
   }
 }

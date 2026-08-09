@@ -7,14 +7,14 @@ import scala.collection.mutable
   * (`docs/incremental-compilation.md` §17).
   *
   * Reading is **demand-driven all the way down**. Nothing is decoded because it is present, only because something
-  * asked for it: a value is read from its own offset, and each child is read only when its codec reaches the
-  * reference. That is what makes the load side cheap on a warm build, where validation mostly compares ids and never
-  * materialises the values behind them.
+  * asked for it: a value is read from its own offset, and each child is read only when its codec reaches the reference.
+  * That is what makes the load side cheap on a warm build, where validation mostly compares ids and never materialises
+  * the values behind them.
   *
   * A decoded object is memoized, so a subtree referred to from a thousand places is decoded once and shared in memory
-  * as it was on disk. The memo is keyed by offset **and reader**, because an offset does not determine a type:
-  * two types whose encodings coincide legitimately share one stored object, and `Sourced[String]` / `Sourced[Token]`
-  * are enough to make that routine rather than exotic.
+  * as it was on disk. The memo is keyed by offset **and reader**, because an offset does not determine a type: two
+  * types whose encodings coincide legitimately share one stored object, and `Sourced[String]` / `Sourced[Token]` are
+  * enough to make that routine rather than exotic.
   *
   * @param bodies
   *   the whole body region; offsets index into it directly
@@ -32,8 +32,8 @@ final class ContentAddressedInput(bodies: Array[Byte]) extends FactCodec.Input {
     decoded.getOrElse(key, remember(key, at(offset)(body))).asInstanceOf[A]
   }
 
-  /** Decode the object stored at `offset` — the store's entry point, as opposed to [[FactCodec.Input.shared]], which
-    * is what codecs call on their way down.
+  /** Decode the object stored at `offset` — the store's entry point, as opposed to [[FactCodec.Input.shared]], which is
+    * what codecs call on their way down.
     */
   def read[A](offset: Int)(using codec: FactCodec[A]): A = at(offset)(codec.read(this))
 

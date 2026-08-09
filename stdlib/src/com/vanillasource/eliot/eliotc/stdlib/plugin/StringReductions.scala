@@ -19,8 +19,8 @@ import java.util.Locale
   *
   * Each native reduces only when every argument is a concrete literal and otherwise stays stuck (a
   * [[SemValue.VStuckNative]]) on the FQN the residual call must name, so `Evaluator.renormalize` re-fires it once the
-  * arguments concretise and the backend emits the leaf when they never do. A string that comes from `readLine` therefore
-  * never "reduces" to anything here — it stays a call, exactly as intended.
+  * arguments concretise and the backend emits the leaf when they never do. A string that comes from `readLine`
+  * therefore never "reduces" to anything here — it stays a call, exactly as intended.
   *
   * '''The two sides must agree, value for value.''' A divergence would mean a program computes one string while being
   * checked and another while running, which no later phase can catch. Two rules keep them equal and are the reason the
@@ -65,7 +65,12 @@ object StringReductions {
     */
   val abilityImplNatives: Seq[(String, String, String, ValueFQN => SemValue)] = Seq(
     ("Eq", "equals", "String", implFqn => binaryString(implFqn)((a, b) => boolValue(a === b))),
-    ("Compare", "lessThanOrEqual", "String", implFqn => binaryString(implFqn)((a, b) => boolValue(a.compareTo(b) <= 0))),
+    (
+      "Compare",
+      "lessThanOrEqual",
+      "String",
+      implFqn => binaryString(implFqn)((a, b) => boolValue(a.compareTo(b) <= 0))
+    ),
     ("Combine", "combine", "String", implFqn => binaryString(implFqn)((a, b) => stringValue(a + b)))
   )
 
@@ -178,7 +183,8 @@ object StringReductions {
   }
 
   /** A two-argument `String -> String -> A` reduction stuck on `residualFqn` — its own FQN for a plain leaf, the
-    * implementation-method FQN for an ability leaf (whose FQN carries a resolution index and cannot be keyed statically).
+    * implementation-method FQN for an ability leaf (whose FQN carries a resolution index and cannot be keyed
+    * statically).
     */
   private def binaryString(residualFqn: ValueFQN)(op: (String, String) => SemValue): SemValue =
     VNative(
@@ -203,14 +209,14 @@ object StringReductions {
   private object ConcreteString {
     def unapply(v: SemValue): Option[String] = v match {
       case VConst(GroundValue.Direct(Literal.StringValue(s), _)) => Some(s)
-      case _                                        => None
+      case _                                                     => None
     }
   }
 
   private object ConcreteInt {
     def unapply(v: SemValue): Option[BigInt] = v match {
       case VConst(GroundValue.Direct(Literal.IntegerValue(i), _)) => Some(i)
-      case _                                        => None
+      case _                                                      => None
     }
   }
 

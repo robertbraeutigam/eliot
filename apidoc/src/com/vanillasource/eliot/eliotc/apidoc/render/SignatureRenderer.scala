@@ -20,9 +20,10 @@ object SignatureRenderer {
   }
 
   /** The single canonical signature for a qualified name — the exact line an item's tile shows — given the declarations
-    * that carry that name across layers. Both the site ([[com.vanillasource.eliot.eliotc.apidoc.build.DocModelBuilder]])
-    * and the language server's hover fact
-    * ([[com.vanillasource.eliot.eliotc.apidoc.processor.ValueDocProcessor]]) render through here, so they never diverge.
+    * that carry that name across layers. Both the site
+    * ([[com.vanillasource.eliot.eliotc.apidoc.build.DocModelBuilder]]) and the language server's hover fact
+    * ([[com.vanillasource.eliot.eliotc.apidoc.processor.ValueDocProcessor]]) render through here, so they never
+    * diverge.
     *
     * Which declaration and which form is chosen mirrors how a name is introduced (the abstract declaration is preferred
     * so the signature is the contract, not a platform body):
@@ -70,10 +71,10 @@ object SignatureRenderer {
     val prefix = visibilityPrefix(dd.visibility)
     val head   = s"${prefix}data ${dd.name.value}${genericList(dd.genericParameters)}"
     dd.constructors match {
-      case None                                                                       => head
+      case None                                                                               => head
       case Some(Seq(single)) if single.name.value === dd.name.value && single.fields.nonEmpty =>
         s"$head${valueArgs(single.fields)}"
-      case Some(constructors)                                                          =>
+      case Some(constructors)                                                                 =>
         s"$head = ${constructors.map(constructor).mkString(" | ")}"
     }
   }
@@ -96,8 +97,8 @@ object SignatureRenderer {
     s"${prefix}type ${fn.name.value.name}$params$meta$body"
   }
 
-  /** The compiler-tracked meta-slot brace of a type, e.g. the `{range: Bound[Interval[BigInteger]]}` of
-    * `type Int {range: Bound[Interval[BigInteger]]}` — the named refinement channel the type carries (bounds-as-refinements
+  /** The compiler-tracked meta-slot brace of a type, e.g. the `{range: Bound[Interval[BigInteger]]}` of `type Int
+    * {range: Bound[Interval[BigInteger]]}` — the named refinement channel the type carries (bounds-as-refinements
     * §4.2). Each slot is a `name: Domain` binder; empty for a type with no meta slots.
     */
   private def metaSlotList(slots: Seq[ArgumentDefinition]): String =
@@ -112,12 +113,12 @@ object SignatureRenderer {
 
   private def fixityPrefix(fixity: Fixity, precedence: Seq[PrecedenceDeclaration]): String = {
     val fixityWord = fixity match {
-      case Fixity.Application                          => ""
-      case Fixity.Prefix                              => "prefix "
-      case Fixity.Postfix                             => "postfix "
-      case Fixity.Infix(Fixity.Associativity.Left)    => "infix left "
-      case Fixity.Infix(Fixity.Associativity.Right)   => "infix right "
-      case Fixity.Infix(Fixity.Associativity.None)    => "infix none "
+      case Fixity.Application                       => ""
+      case Fixity.Prefix                            => "prefix "
+      case Fixity.Postfix                           => "postfix "
+      case Fixity.Infix(Fixity.Associativity.Left)  => "infix left "
+      case Fixity.Infix(Fixity.Associativity.Right) => "infix right "
+      case Fixity.Infix(Fixity.Associativity.None)  => "infix none "
     }
     fixityWord + precedence.map(precedenceDeclaration).mkString
   }
@@ -128,7 +129,7 @@ object SignatureRenderer {
       case PrecedenceDeclaration.Relation.Below => "below"
       case PrecedenceDeclaration.Relation.At    => "at"
     }
-    val targets = p.targets.map(_.value) match {
+    val targets  = p.targets.map(_.value) match {
       case Seq(single) => single
       case many        => many.mkString("(", ", ", ")")
     }
@@ -140,7 +141,8 @@ object SignatureRenderer {
 
   private def genericParameter(gp: GenericParameter): String = {
     val constraints =
-      if (gp.abilityConstraints.isEmpty) "" else " ~ " + gp.abilityConstraints.map(constraint(gp.name.value)).mkString(" & ")
+      if (gp.abilityConstraints.isEmpty) ""
+      else " ~ " + gp.abilityConstraints.map(constraint(gp.name.value)).mkString(" & ")
     s"${gp.name.value}${kindOrRestriction(gp.typeRestriction.value)}$constraints"
   }
 

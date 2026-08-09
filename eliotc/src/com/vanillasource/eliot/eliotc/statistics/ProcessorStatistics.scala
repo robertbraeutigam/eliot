@@ -41,7 +41,9 @@ final class ProcessorStatistics private (counters: ConcurrentHashMap[String, Pro
     * the last generations in flight are missing from it.
     */
   def snapshot: IO[Seq[ProcessorStatistic]] = IO.delay(
-    counters.asScala.toSeq.map((name, processorCounters) => processorCounters.snapshot(name)).sortBy(-_.selfTime.toNanos)
+    counters.asScala.toSeq
+      .map((name, processorCounters) => processorCounters.snapshot(name))
+      .sortBy(-_.selfTime.toNanos)
   )
 
   /** Render the report, with the given total run time to account against. The optional coarse cache-phase timings
@@ -69,8 +71,9 @@ final class ProcessorStatistics private (counters: ConcurrentHashMap[String, Pro
     val treeMillis         = tree.map(_.selfTime.toMillis).sum
     val dispatchMillis     = math.max(0L, treeMillis - processorMillis)
     // Present phases in a fixed order, with any unrecognised id appended so a future phase is never silently dropped.
-    val phaseMillis        = (ProcessorStatistics.phaseOrder ++ phases.keySet.toSeq.sorted.filterNot(ProcessorStatistics.phaseOrder.contains))
-      .flatMap(id => phases.get(id).map(id -> _.toMillis))
+    val phaseMillis        =
+      (ProcessorStatistics.phaseOrder ++ phases.keySet.toSeq.sorted.filterNot(ProcessorStatistics.phaseOrder.contains))
+        .flatMap(id => phases.get(id).map(id -> _.toMillis))
     val phaseSum           = phaseMillis.map(_._2).sum
     val engineMillis       = math.max(0L, totalMillis - processorMillis - dispatchMillis - phaseSum)
 

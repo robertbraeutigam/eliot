@@ -60,8 +60,9 @@ class PostDrainQuoter(
 
   /** Deep-renormalise `v` (descending under [[SemValue.VPi]] binders, re-firing post-drain-solved natives stuck in a
     * `VPi` codomain like `Int[add(L,R), …]`) then quote it. The shared core of the four deep-quote entry points
-    * ([[quoteSem]]/[[quoteSemOption]] over a [[SemValue]], [[reduceSignatureToGround]]/[[reduceSignatureToGroundOption]]
-    * over a reduced signature), which differ only in how they treat a `Left`: [[orAbort]] vs. `.toOption`.
+    * ([[quoteSem]]/[[quoteSemOption]] over a [[SemValue]],
+    * [[reduceSignatureToGround]]/[[reduceSignatureToGroundOption]] over a reduced signature), which differ only in how
+    * they treat a `Left`: [[orAbort]] vs. `.toOption`.
     */
   private def quoteDeep(v: SemValue): Either[String, GroundValue] =
     Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore)
@@ -75,11 +76,11 @@ class PostDrainQuoter(
 
   /** Quote a [[SemValue]] to a [[GroundValue]]. Raises a sourced compiler error on failure.
     *
-    * Deeply renormalises first (descending under [[SemValue.VPi]] binders), so stuck native applications surviving in an
-    * intermediate function type — e.g. the codomain `Int[add(L,R), …]` of a curried head reference, never re-fired at
-    * its application site — reduce before read-back. This is safe here (and only here): post-drain every meta is solved,
-    * so the deep descent collapses no still-open obligation. Any stuck native that genuinely cannot reduce then surfaces
-    * as a loud `Cannot resolve type.` instead of a silent nonsense ground `Structure` (D3 / F1).
+    * Deeply renormalises first (descending under [[SemValue.VPi]] binders), so stuck native applications surviving in
+    * an intermediate function type — e.g. the codomain `Int[add(L,R), …]` of a curried head reference, never re-fired
+    * at its application site — reduce before read-back. This is safe here (and only here): post-drain every meta is
+    * solved, so the deep descent collapses no still-open obligation. Any stuck native that genuinely cannot reduce then
+    * surfaces as a loud `Cannot resolve type.` instead of a silent nonsense ground `Structure` (D3 / F1).
     */
   def quoteSem(v: SemValue, at: Sourced[?]): CompilerIO[GroundValue] =
     orAbort(quoteDeep(v), at)
@@ -97,8 +98,8 @@ class PostDrainQuoter(
     * [[reduceSourced]]'s body reduction. Runs the stuck-driven [[reduceWithEscalation]] loop on the checked expression
     * (with drain-resolved ability impl bodies inlined), which reduces the `match` (inside `foldOption`/`foldEither`)
     * that a shallow signature walk leaves stuck. So an inline `if(cond) T else raise(msg)` guard reduces to its
-    * `Right(t)` / `Left(msg)` verdict. [[None]] when it does not fully reduce (the caller then falls back to the shallow
-    * quote's fail-safe error).
+    * `Right(t)` / `Left(msg)` verdict. [[None]] when it does not fully reduce (the caller then falls back to the
+    * shallow quote's fail-safe error).
     */
   def reduceSemExprToGround(expr: SemExpression): CompilerIO[Option[GroundValue]] =
     reduceWithEscalation(monoEnv, expr).map(reduced => Quoter.quote(0, reduced, metaStore).toOption)
@@ -126,16 +127,16 @@ class PostDrainQuoter(
 
   /** Produce the **fully reduced** body of a compiler-platform value (CP-C step b — the compiler backend). A
     * compiler-track value is wholly compile-time, so — unlike the runtime track, whose body must stay structural for
-    * codegen — its body is normalised as far as it goes: an ability call resolved during the drain
-    * (`raise("boom")` ⤳ the concrete `Either::raise("boom")`) has its concrete-impl *body* folded in by ordinary NbE
-    * evaluation (`Either::raise`'s `err -> Left(err)`), so `raise("boom")` reduces to `Left("boom")`, `pure(x)` to
-    * `Right(x)`. This is the reduced value the runtime track's type-level evaluation will plug in as a native.
+    * codegen — its body is normalised as far as it goes: an ability call resolved during the drain (`raise("boom")` ⤳
+    * the concrete `Either::raise("boom")`) has its concrete-impl *body* folded in by ordinary NbE evaluation
+    * (`Either::raise`'s `err -> Left(err)`), so `raise("boom")` reduces to `Left("boom")`, `pure(x)` to `Right(x)`.
+    * This is the reduced value the runtime track's type-level evaluation will plug in as a native.
     *
-    *   - rewrite every drain-resolved ability reference to its concrete-impl reference (the [[SemExpression]] analogue of
-    *     [[resolveIfAbility]]), so the impl body is reachable to the evaluator (its binding is supplied through
+    *   - rewrite every drain-resolved ability reference to its concrete-impl reference (the [[SemExpression]] analogue
+    *     of [[resolveIfAbility]]), so the impl body is reachable to the evaluator (its binding is supplied through
     *     `lookupTopDef`, which the caller augments with the resolved impls);
-    *   - evaluate the rewritten body and read it back. A body that reduces to a ground constructor value materialises to
-    *     a literal/constructor tree (the reduced native);
+    *   - evaluate the rewritten body and read it back. A body that reduces to a ground constructor value materialises
+    *     to a literal/constructor tree (the reduced native);
     *   - a body that does *not* fully reduce — a compiler-platform *function* with runtime value parameters (e.g.
     *     `foldEither`), whose parameters stay neutral — falls back to the ordinary structural quote, identical to the
     *     runtime track's read-back (with `resolveIfAbility` doing the ability→impl rewrite there).
@@ -146,13 +147,14 @@ class PostDrainQuoter(
         case Left(_)       => quoteSourced(expr)
         case Right(ground) =>
           materialise(ground, expr).flatMap {
-            case Some(mono)                                            => expr.as(mono).pure[CompilerIO]
+            case Some(mono)                                    => expr.as(mono).pure[CompilerIO]
             // A level-≥1 (type-level) value's body reduces to a *type*, which `materialise` declines (it handles runtime
             // value constants). A type is a legitimate compile-time constant here — the "types are values" cornerstone —
             // so read it back structurally instead of falling to the runtime staging gate, whose fail-safe would abort on
             // an erased type parameter the body references in value position (`Function[X, X]` with `X := A`).
-            case None if ground.valueType === GroundValue.Type => expr.as(groundTypeToMono(ground, expr)).pure[CompilerIO]
-            case None                                                 => quoteSourced(expr)
+            case None if ground.valueType === GroundValue.Type =>
+              expr.as(groundTypeToMono(ground, expr)).pure[CompilerIO]
+            case None                                          => quoteSourced(expr)
           }
       }
     }
@@ -173,7 +175,7 @@ class PostDrainQuoter(
     * ([[EscalatingReducer.reduceApplied]]) so the two are one mechanism, not siblings.
     */
   private def reduceWithEscalation(env: Env, expr: SemExpression): CompilerIO[SemValue] = {
-    val resolved                                   = resolveAbilityRefs(expr)
+    val resolved                                           = resolveAbilityRefs(expr)
     // Evaluate, then **renormalise** (re-firing a stuck native `add(2,1)` ⤳ `3`, descending under `VPi` binders) before
     // deciding the result is stuck — exactly what `quoteSem` does. Without this a native left stuck at evaluation time
     // (its arguments not yet concrete when the reference was inlined) would wrongly trigger escalation, monomorphizing
@@ -189,11 +191,11 @@ class PostDrainQuoter(
     EscalatingReducer.escalatingLoop(metaStore, evalWith, escalationBindings(resolved, _))
   }
 
-  /** The in-checker instantiation of [[EscalatingReducer.escalate]]'s escalation fetch: escalate each value reference in
-    * `resolved` whose type arguments quote to a fully-ground form (the [[SemExpression]] carries [[SemValue]] type args,
-    * unlike the already-ground [[MonomorphicExpression]] path). Each reduced body has its generic type parameters baked
-    * in, so [[absorbTypeArgs]] wraps it in one ignore-lambda per ground type argument — applying the reference's type
-    * arguments is then absorbed and the already-instantiated body is reached unchanged.
+  /** The in-checker instantiation of [[EscalatingReducer.escalate]]'s escalation fetch: escalate each value reference
+    * in `resolved` whose type arguments quote to a fully-ground form (the [[SemExpression]] carries [[SemValue]] type
+    * args, unlike the already-ground [[MonomorphicExpression]] path). Each reduced body has its generic type parameters
+    * baked in, so [[absorbTypeArgs]] wraps it in one ignore-lambda per ground type argument — applying the reference's
+    * type arguments is then absorbed and the already-instantiated body is reached unchanged.
     */
   private def escalationBindings(
       resolved: SemExpression,
@@ -227,12 +229,13 @@ class PostDrainQuoter(
 
   /** Rewrite each drain-resolved ability [[SemExpression.ValueReference]] to its concrete-impl reference, so the
     * evaluator resolves the impl *body* rather than stalling on the abstract ability method (which has no binding). The
-    * [[SemExpression]]-level twin of [[resolveIfAbility]]: same [[abilityResolutions]] lookup, but producing a rewritten
-    * [[SemExpression]] the evaluator can reduce, not a finished [[MonomorphicExpression]]. Non-ability references and
-    * unresolved ability references (constraint-covered, resolved at the caller's level) are left untouched.
+    * [[SemExpression]]-level twin of [[resolveIfAbility]]: same [[abilityResolutions]] lookup, but producing a
+    * rewritten [[SemExpression]] the evaluator can reduce, not a finished [[MonomorphicExpression]]. Non-ability
+    * references and unresolved ability references (constraint-covered, resolved at the caller's level) are left
+    * untouched.
     */
   private def resolveAbilityRefs(se: SemExpression): SemExpression = se.expression match {
-    case SemExpression.ValueReference(vfqn, typeArgs)        =>
+    case SemExpression.ValueReference(vfqn, typeArgs)              =>
       lookupResolution(vfqn, abilityArgsOf(vfqn.value, typeArgs)) match {
         case Some((implFqn, implTypeArgs)) =>
           SemExpression(
@@ -241,7 +244,7 @@ class PostDrainQuoter(
           )
         case None                          => se
       }
-    case SemExpression.FunctionApplication(target, argument) =>
+    case SemExpression.FunctionApplication(target, argument)       =>
       SemExpression(
         se.expressionType,
         SemExpression.FunctionApplication(target.map(resolveAbilityRefs), argument.map(resolveAbilityRefs))
@@ -251,7 +254,7 @@ class PostDrainQuoter(
         se.expressionType,
         SemExpression.FunctionLiteral(paramName, paramType, body.map(resolveAbilityRefs))
       )
-    case _                                                   => se
+    case _                                                         => se
   }
 
   private def quoteSourcedIn(
@@ -332,7 +335,7 @@ class PostDrainQuoter(
       typeArgs.traverse(a => quoteSem(a, vfqn)).flatMap {
         case Seq(GroundValue.Direct(Literal.IntegerValue(v), _)) =>
           (MonomorphicExpression.IntegerLiteral(vfqn.as(v)): MonomorphicExpression.Expression).pure[CompilerIO]
-        case _                                     =>
+        case _                                                   =>
           compilerAbort(vfqn.as("integerLiteral must have a single integer value argument."))
       }
 
@@ -357,14 +360,15 @@ class PostDrainQuoter(
     }
   }
 
-  /** The [[SemExpression]]-level twin of the channel's [[com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer]]
-    * (docs/effects-as-channel.md §6/§10, close-out slice 2): strip the checker-inserted `Id` machinery out of a
-    * value-position sub-term **before** the reification staging gate ([[tryMaterialise]]) evaluates it. Under uniform
-    * carriers a pure erased-determined body (`name(A)` on an erased `A: Person`) is wrapped in inserted machinery
-    * (`pure@Effect[Id](runId(…))`); the gate's bare [[SemExpressionEvaluator.eval]] has no binding for those references
-    * and stalls, degrading the fold to an un-reduced structural projection. Stripping the machinery first — `Id` carries
-    * no representation, so its combinators are the identity — restores the fold (the quoter then materialises the
-    * constant). Rewrites, each strictly decreasing the `Id`-node count so the pass is confluent and terminating:
+  /** The [[SemExpression]]-level twin of the channel's
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer]] (docs/effects-as-channel.md §6/§10, close-out
+    * slice 2): strip the checker-inserted `Id` machinery out of a value-position sub-term **before** the reification
+    * staging gate ([[tryMaterialise]]) evaluates it. Under uniform carriers a pure erased-determined body (`name(A)` on
+    * an erased `A: Person`) is wrapped in inserted machinery (`pure@Effect[Id](runId(…))`); the gate's bare
+    * [[SemExpressionEvaluator.eval]] has no binding for those references and stalls, degrading the fold to an
+    * un-reduced structural projection. Stripping the machinery first — `Id` carries no representation, so its
+    * combinators are the identity — restores the fold (the quoter then materialises the constant). Rewrites, each
+    * strictly decreasing the `Id`-node count so the pass is confluent and terminating:
     *   - `runId(e) ⤳ e`, `Id(e) ⤳ e` — the pure projection / value constructor of the identity carrier (always `Id`);
     *   - `pure@Effect[C](e) ⤳ e` and `flatMap`/`map@Effect[C](f, m) ⤳ f(m)` — **iff `C` forces to `Id`**: a non-`Id`
     *     carrier is a genuine effect that must stay observation-ordered and never fold (§9's carrier-based fold
@@ -388,7 +392,7 @@ class PostDrainQuoter(
             se.expressionType,
             SemExpression.FunctionApplication(f.map(stripIdMachinery), argument.map(stripIdMachinery))
           )
-        case _                                                                                        =>
+        case _                                                                                         =>
           SemExpression(
             se.expressionType,
             SemExpression.FunctionApplication(target.map(stripIdMachinery), argument.map(stripIdMachinery))
@@ -405,17 +409,17 @@ class PostDrainQuoter(
   private def isDropWrapperHead(head: SemExpression): Boolean = head.expression match {
     case SemExpression.ValueReference(vfqn, typeArgs) =>
       vfqn.value === WellKnownTypes.runIdFQN || vfqn.value === WellKnownTypes.idConstructorFQN ||
-        (vfqn.value === WellKnownTypes.effectPureFQN && leadingCarrierIsId(typeArgs))
+      (vfqn.value === WellKnownTypes.effectPureFQN && leadingCarrierIsId(typeArgs))
     case _                                            => false
   }
 
-  /** A two-argument `Effect[C]` combinator whose application collapses to plain application
-    * (`flatMap@Effect[C](f, m)`/`map@Effect[C](f, m) ⤳ f(m)`) — with the leading carrier arg `C` forcing to `Id`.
+  /** A two-argument `Effect[C]` combinator whose application collapses to plain application (`flatMap@Effect[C](f,
+    * m)`/`map@Effect[C](f, m) ⤳ f(m)`) — with the leading carrier arg `C` forcing to `Id`.
     */
   private def isApplyCombinatorHead(head: SemExpression): Boolean = head.expression match {
     case SemExpression.ValueReference(vfqn, typeArgs) =>
       (vfqn.value === WellKnownTypes.effectFlatMapFQN || vfqn.value === WellKnownTypes.effectMapFQN) &&
-        leadingCarrierIsId(typeArgs)
+      leadingCarrierIsId(typeArgs)
     case _                                            => false
   }
 
@@ -428,7 +432,7 @@ class PostDrainQuoter(
     typeArgs.headOption.exists(carrier =>
       Evaluator.force(carrier, metaStore) match {
         case SemValue.VTopDef(fqn, _, _, _) => fqn === WellKnownTypes.idFQN
-        case _                           => false
+        case _                              => false
       }
     )
 
@@ -445,7 +449,7 @@ class PostDrainQuoter(
     */
   private def materialise(ground: GroundValue, at: Sourced[?]): CompilerIO[Option[MonomorphicExpression]] =
     ground match {
-      case GroundValue.Direct(Literal.IntegerValue(v), vt)  =>
+      case GroundValue.Direct(Literal.IntegerValue(v), vt) =>
         Some(MonomorphicExpression(vt, MonomorphicExpression.IntegerLiteral(at.as(v)))).pure[CompilerIO]
       case GroundValue.Direct(Literal.StringValue(v), vt)  =>
         Some(MonomorphicExpression(vt, MonomorphicExpression.StringLiteral(at.as(v)))).pure[CompilerIO]
@@ -453,13 +457,13 @@ class PostDrainQuoter(
         val ctor = if (v) WellKnownTypes.boolTrueFQN else WellKnownTypes.boolFalseFQN
         Some(MonomorphicExpression(vt, MonomorphicExpression.MonomorphicValueReference(at.as(ctor), Seq.empty)))
           .pure[CompilerIO]
-      case GroundValue.Direct(_, _)           =>
+      case GroundValue.Direct(_, _)                        =>
         Option.empty[MonomorphicExpression].pure[CompilerIO]
-      case s: GroundValue.Structure           =>
+      case s: GroundValue.Structure                        =>
         materialiseStructure(s, at)
-      case GroundValue.Type                   =>
+      case GroundValue.Type                                =>
         Option.empty[MonomorphicExpression].pure[CompilerIO]
-      case _: GroundValue.Param               =>
+      case _: GroundValue.Param                            =>
         // A `Param` is a signature-twin artefact (C2) and is re-inflated to a metavariable long before any body reaches
         // read-back; one reaching materialisation would be a leak, so decline (never emit a parametric runtime value).
         Option.empty[MonomorphicExpression].pure[CompilerIO]
@@ -475,10 +479,16 @@ class PostDrainQuoter(
     case GroundValue.Structure(name, args, _) =>
       args.foldLeft(MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(name), Seq.empty))) {
         (acc, arg) =>
-          MonomorphicExpression(g, MonomorphicExpression.FunctionApplication(at.as(acc), at.as(groundTypeToMono(arg, at))))
+          MonomorphicExpression(
+            g,
+            MonomorphicExpression.FunctionApplication(at.as(acc), at.as(groundTypeToMono(arg, at)))
+          )
       }
     case GroundValue.Type                     =>
-      MonomorphicExpression(GroundValue.Type, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.typeFQN), Seq.empty))
+      MonomorphicExpression(
+        GroundValue.Type,
+        MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.typeFQN), Seq.empty)
+      )
     case GroundValue.Direct(_, _)             =>
       MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.anyFQN), Seq.empty))
     case _: GroundValue.Param                 =>
@@ -564,9 +574,9 @@ class PostDrainQuoter(
   }
 
   /** Whether `name` denotes a runtime value parameter in this eval env (ρ) — i.e. it is bound to a neutral, the fresh
-    * rigid variable a runtime `FunctionLiteral` introduces during read-back. Erased type parameters are bound to
-    * values (`monoEnv` seeds them) and instantiation metas to `VMeta`, so only runtime lambda binders read back as
-    * neutrals. Reading this off ρ replaces a separately-threaded `runtimeParams` set.
+    * rigid variable a runtime `FunctionLiteral` introduces during read-back. Erased type parameters are bound to values
+    * (`monoEnv` seeds them) and instantiation metas to `VMeta`, so only runtime lambda binders read back as neutrals.
+    * Reading this off ρ replaces a separately-threaded `runtimeParams` set.
     */
   private def isRuntimeParam(name: String, evalEnv: Env): Boolean =
     evalEnv.lookupByName(name).exists {

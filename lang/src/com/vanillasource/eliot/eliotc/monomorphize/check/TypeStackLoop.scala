@@ -31,8 +31,8 @@ class TypeStackLoop(
     // Reduce a callee at concrete type arguments on the compiler track, returning its self-contained reduced binding
     // (deep — dependencies closed over their own reduced-at-instantiation forms; see `ReducedBindingClosure`). Feeds the
     // stuck-driven escalation fetch of the post-drain read-back.
-    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
-      (_, _) => none[SemValue].pure[CompilerIO],
+    reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) =>
+      none[SemValue].pure[CompilerIO],
     // The signature-split `Signature`-twin mode ([[processSignatureTwin]]): the value's body IS its sibling's signature
     // expression (a binder-stripped arrow chain), monomorphized as an ordinary body mono — per-binder kind checks, one
     // `check(chain, VType)`, ordinary read-back. Every twin produces (a plain type, a guard verdict, a W3 hole, or — at a
@@ -103,8 +103,8 @@ class TypeStackLoop(
       //     carrier-headed return (a guard the twin published undischarged) is deferred to the body — all recognised on
       //     the ground shape, no `sawGuard` flag;
       //   - on the **compiler** track (the guard's *producer*) the carrier signature is left undischarged for a consumer.
-      settled                 <- settleAtRead(instantiated, bodyToCheck.isDefined, resolvedValue)
-      (checkSig, returnMeta)   = settled
+      settled               <- settleAtRead(instantiated, bodyToCheck.isDefined, resolvedValue)
+      (checkSig, returnMeta) = settled
 
       // Capture ρ now, before `check` binds the runtime value parameters as `FunctionLiteral` binders — so ρ holds only
       // the erased type-stack parameters (each already in its evaluable `groundToSem` form) and the leftover-binder
@@ -113,13 +113,13 @@ class TypeStackLoop(
 
       // Check runtime body if present — produces SemExpression with SemValue slots. A body-less value (an abstract
       // declaration) has nothing to check or emit here.
-      runtime      <- bodyToCheck.traverse { body =>
-                        checker.check(body, checkSig).map(expr => body.as(expr))
-                      }
+      runtime    <- bodyToCheck.traverse { body =>
+                      checker.check(body, checkSig).map(expr => body.as(expr))
+                    }
 
       // Collect all ability-qualified value references from the checked body. These drive the saturation tier of the
       // post-drain pipeline below. (The signature's own ability refs were resolved by the twin's mono, not re-walked here.)
-      abilityRefs   = runtime.toSeq.flatMap(checker.abilityResolver.collectAbilityRefs)
+      abilityRefs = runtime.toSeq.flatMap(checker.abilityResolver.collectAbilityRefs)
 
       // Post-drain resolution + quoter assembly (shared with the signature twin): drain-and-resolve every metavariable,
       // abort on any unification error, then build the `PostDrainQuoter` over the drain-resolved impl bindings.
@@ -142,38 +142,38 @@ class TypeStackLoop(
     * binder-stripped arrow chain *is* the body. Kind-check each declared binder against `VType` and bind its ground
     * argument in ρ/Γ, then check the arrow chain (`parameters → returnType`) against `VType` through the shared
     * resolution ladder — whose acceptance arms (ordinary type / guard carrier / W3 under-applied hole) cover every
-    * return shape — run the ordinary post-drain resolution, and reduce the checked chain to its ground signature via the
-    * same escalation read-back every compiler body takes. No `walkTypeStack`, no `settleReturnPosition`, no `sawGuard`
-    * gate, no W3 decline: every signature twin produces — a plain type, a `Right(t)`/`Left(msg)` guard verdict, or an
-    * under-applied W3 hole (§3.5). The published body is `None` (the signature is the whole product).
+    * return shape — run the ordinary post-drain resolution, and reduce the checked chain to its ground signature via
+    * the same escalation read-back every compiler body takes. No `walkTypeStack`, no `settleReturnPosition`, no
+    * `sawGuard` gate, no W3 decline: every signature twin produces — a plain type, a `Right(t)`/`Left(msg)` guard
+    * verdict, or an under-applied W3 hole (§3.5). The published body is `None` (the signature is the whole product).
     */
   private def processSignatureTwin(
       typeArguments: Seq[GroundValue],
       resolvedValue: OperatorResolvedValue
   ): CheckIO[TypeStackLoop.Result] = {
-    val view     = SignatureView.of(resolvedValue.signature)
+    val view               = SignatureView.of(resolvedValue.signature)
     // The arrow chain with the generic binders stripped (they are bound in ρ/Γ by `bindTwinBinders`): `params → return`.
-    val bodyExpr = resolvedValue.signature.as(view.copy(binders = Seq.empty).toExpression)
+    val bodyExpr           = resolvedValue.signature.as(view.copy(binders = Seq.empty).toExpression)
     // Carrier binders (the M1 `{E...}` effect carriers) a *leftover* binder must stay a metavariable for, so
     // `pinCarriers` can fix it to the compile-time `Either[String]` (signature-unification C2 fence): a generic leftover
     // binder becomes a `SignatureBinder` (→ `GroundValue.Param`), but a carrier leftover is pinned, not parameterised.
     val carrierBinderNames = EffectCarriers.carrierBinders(view).filter(resolvedValue.paramConstraints.contains)
     for {
-      _                    <- bindTwinBinders(view.binders, typeArguments, carrierBinderNames)
+      _          <- bindTwinBinders(view.binders, typeArguments, carrierBinderNames)
       // Capture ρ now — holding only the erased type-stack binders (their ground values / carrier metas), *before* the
       // check binds any value / pattern binder of the arrow chain. This is the same clean env the value mono captures
       // before its body check; the read-back reduces the checked chain under it, so a signature-position `match`'s
       // pattern binder (`case Box[a] -> a`) is extracted by the match reduction rather than shadowed by a stale
       // post-check neutral. (Carrier metas the pin below solves live in the metastore, not ρ, so this stays authoritative.)
-      monoEnv              <- inspect(_.rho)
-      _                    <- recordAmbientCarriers(resolvedValue)
-      checked              <- checker.check(bodyExpr, VType)
+      monoEnv    <- inspect(_.rho)
+      _          <- recordAmbientCarriers(resolvedValue)
+      checked    <- checker.check(bodyExpr, VType)
       // Compile-time carrier pinning runs *after* the arrow-chain check (as the value mono pins after its signature
       // walk): a declared `{Throw[String]}` carrier binder's meta is bound above and an *inline* guard's inferred
       // carrier meta is created by the check, so both are present to pin to the compile-time `Either[String]` now.
-      _                    <- track.pinCarriers(checker, resolvedValue)
-      abilityRefs           = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
-      quoter               <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
+      _          <- track.pinCarriers(checker, resolvedValue)
+      abilityRefs = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
+      quoter     <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
       // The signature's ground read-back. Reduce the **raw** evaluated arrow chain first (renormalising natives as it
       // quotes): this settles an ordinary type, a bare `{Throw[String]}` carrier return, a type-level `match` (whose
       // pattern binder the match reduction binds — the check would freeze it to a neutral), a W3 under-applied hole,
@@ -182,15 +182,15 @@ class TypeStackLoop(
       // **effectful** inline guard (`if..else..raise`), whose `else`/`runAbort` need the checker's effect-lift `pure`
       // absent from the raw signature — so fall back there to the **checked** arrow chain via the escalation loop, which
       // reduces it to its `Right(t)` / `Left(msg)` verdict. No `sawGuard`: the shape falls out of which reduction settles.
-      raw                  <- checker.evalExpr(bodyExpr.value)
-      groundSig            <- quoter.quoteSemOption(raw) match {
-                                case Some(ground) => liftF(ground.pure[CompilerIO])
-                                case None         =>
-                                  liftF(quoter.reduceSignatureToGroundOption(checked)).flatMap {
-                                    case Some(ground) => liftF(ground.pure[CompilerIO])
-                                    case None         => publishStuckGuardCarrier(view, checked, quoter, resolvedValue)
-                                  }
-                              }
+      raw        <- checker.evalExpr(bodyExpr.value)
+      groundSig  <- quoter.quoteSemOption(raw) match {
+                      case Some(ground) => liftF(ground.pure[CompilerIO])
+                      case None         =>
+                        liftF(quoter.reduceSignatureToGroundOption(checked)).flatMap {
+                          case Some(ground) => liftF(ground.pure[CompilerIO])
+                          case None         => publishStuckGuardCarrier(view, checked, quoter, resolvedValue)
+                        }
+                    }
     } yield TypeStackLoop.Result(groundSig, None)
   }
 
@@ -240,9 +240,9 @@ class TypeStackLoop(
         //   - any other leftover (a generic type parameter) ⟹ a `SignatureBinder` neutral, so the arrow chain reads back
         //     **under its binder** as a `GroundValue.Param` (a parametric signature) instead of defaulting to `Type`.
         value   <- typeArguments.lift(i) match {
-                     case Some(arg)                                       => pure(Evaluator.groundToSem(arg))
+                     case Some(arg)                                              => pure(Evaluator.groundToSem(arg))
                      case None if carrierBinderNames.contains(binder.name.value) => checker.freshMeta.widen[SemValue]
-                     case None                                           =>
+                     case None                                                   =>
                        pure(VNeutral(NeutralHead.SignatureBinder(i, binder.name.value), Spine.SNil): SemValue)
                    }
         _       <- modify(_.bindTypeStackParam(binder.name.value, kindSem, value))
@@ -254,20 +254,23 @@ class TypeStackLoop(
     * drain-and-resolve loop that meta should have been solved to the body's inferred type. If it is still a bare
     * metavariable the body left it unconstrained, and if it forced to a stuck neutral the result depends on a variable
     * the inputs do not determine. Either way report a specific error — naming the producer and, for a neutral, the
-    * stuck head — rather than letting [[defaultUnsolvedMetas]] silently make the return `Type`. (A return solved to some
-    * *other* non-quotable form — an unforced top-level definition, a residual native/lambda — is caught instead by the
-    * strict post-drain quoter, which knows precisely which of those are irreducible, so those are left to it.)
+    * stuck head — rather than letting [[defaultUnsolvedMetas]] silently make the return `Type`. (A return solved to
+    * some *other* non-quotable form — an unforced top-level definition, a residual native/lambda — is caught instead by
+    * the strict post-drain quoter, which knows precisely which of those are irreducible, so those are left to it.)
     */
   private def failOnUndeterminedDeferredReturn(
       returnMeta: SemValue.VMeta,
       resolvedValue: OperatorResolvedValue
   ): CheckIO[Unit] =
     checker.force(returnMeta).flatMap {
-      case _: SemValue.VMeta                                     =>
+      case _: SemValue.VMeta          =>
         reportUndeterminedReturn(resolvedValue, "the body leaves it unconstrained")
       case SemValue.VNeutral(head, _) =>
-        reportUndeterminedReturn(resolvedValue, s"the result depends on '${head.name}', which the inputs do not determine")
-      case _                                                     => pure(())
+        reportUndeterminedReturn(
+          resolvedValue,
+          s"the result depends on '${head.name}', which the inputs do not determine"
+        )
+      case _                          => pure(())
     }
 
   private def reportUndeterminedReturn(resolvedValue: OperatorResolvedValue, reason: String): CheckIO[Unit] =
@@ -279,8 +282,8 @@ class TypeStackLoop(
     )
 
   /** Finalize every still-unsolved meta to [[VType]]. Runs after the drain-and-resolve loop has reached its fixed
-    * point, so any meta unification could have determined is already solved; what remains is an unconstrained
-    * (phantom) instantiation, whose canonical value is `Type`.
+    * point, so any meta unification could have determined is already solved; what remains is an unconstrained (phantom)
+    * instantiation, whose canonical value is `Type`.
     */
   private def defaultUnsolvedMetas: CheckIO[Unit] =
     modify { s =>
@@ -294,12 +297,13 @@ class TypeStackLoop(
 
   /** The shared post-drain tail of both monos (the value mono and the signature twin): run the drain-and-resolve
     * pipeline ([[runPostDrainResolution]]), report and abort on any unification error, then assemble the
-    * [[PostDrainQuoter]] over the drain-resolved impl bindings. `track.implBindings` does not mutate the check state, so
-    * the one post-drain `state` seeds both the error check and the quoter.
+    * [[PostDrainQuoter]] over the drain-resolved impl bindings. `track.implBindings` does not mutate the check state,
+    * so the one post-drain `state` seeds both the error check and the quoter.
     *
     * `abilityMethodBindings` maps each drain-resolved ability *method* FQN to its impl body — the SemValue analogue of
     * [[PostDrainQuoter.resolveAbilityRefs]] — so an ability call surviving in a type-position SemValue reduces during
-    * read-back (a guard naming an ability method directly, `where equals(E1, E2)`); one instance per method, no conflation.
+    * read-back (a guard naming an ability method directly, `where equals(E1, E2)`); one instance per method, no
+    * conflation.
     */
   private def drainAndBuildQuoter(
       resolvedValue: OperatorResolvedValue,
@@ -308,11 +312,11 @@ class TypeStackLoop(
       monoEnv: Env
   ): CheckIO[PostDrainQuoter] =
     for {
-      _            <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
-      state        <- get
-      _            <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
-      _            <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
-      implBindings <- track.implBindings(fetchBinding)
+      _                    <- runPostDrainResolution(resolvedValue, abilityRefs, returnMeta)
+      state                <- get
+      _                    <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
+      _                    <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
+      implBindings         <- track.implBindings(fetchBinding)
       abilityMethodBindings = state.abilityResolutions.toSeq.flatMap { case ((ref, _), (implFqn, _)) =>
                                 implBindings.get(implFqn).map(ref.value -> _)
                               }.toMap
@@ -321,7 +325,8 @@ class TypeStackLoop(
       state.abilityResolutions,
       state.abilityArities,
       monoEnv,
-      fqn => implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(state.bindingCache.getOrElse(fqn, None)),
+      fqn =>
+        implBindings.get(fqn).orElse(abilityMethodBindings.get(fqn)).orElse(state.bindingCache.getOrElse(fqn, None)),
       track.platform,
       reduceInstance
     )
@@ -359,9 +364,8 @@ class TypeStackLoop(
     *
     * This used to interleave the A.8.7 **mode resolution** and, on a decided hoist, splice a body rewrite and restart
     * the whole mono. Since §1 rule 4 the row elaborator classifies every position from its declaration and writes both
-    * the placement and the carrier, so the runtime track produces no deferral to resolve: the obligations, the
-    * resolver and the splice-restart are gone (docs/effects-as-rows.md A.11.8 step 1) and this is a plain fixpoint
-    * again.
+    * the placement and the carrier, so the runtime track produces no deferral to resolve: the obligations, the resolver
+    * and the splice-restart are gone (docs/effects-as-rows.md A.11.8 step 1) and this is a plain fixpoint again.
     */
   private def resolveAbilitiesToFixedPoint(
       abilityRefs: Seq[AbilityRef],
@@ -369,9 +373,9 @@ class TypeStackLoop(
   ): CheckIO[Unit] = {
     def loop: CheckIO[Unit] =
       for {
-        _         <- modify(s => s.withUnifier(s.unifier.drain()))
-        progress  <- checker.abilityResolver.resolveAbilities(abilityRefs, paramConstraints)
-        _         <- if (progress) loop else pure(())
+        _        <- modify(s => s.withUnifier(s.unifier.drain()))
+        progress <- checker.abilityResolver.resolveAbilities(abilityRefs, paramConstraints)
+        _        <- if (progress) loop else pure(())
       } yield ()
 
     loop
@@ -380,9 +384,8 @@ class TypeStackLoop(
   /** Postcondition of the post-drain pipeline (D1): every metavariable is solved. The finalizer
     * ([[defaultUnsolvedMetas]]) makes this hold by construction, so it never fires in normal operation; it is the
     * *compiler-bug* backstop — were a future resolution path to bypass the finalizer and leave a meta unsolved, this
-    * assertion catches it. It
-    * [[compilerAbort]]s rather than reporting a user diagnostic because a surviving unsolved meta is an internal
-    * invariant violation, not a type error of the user's making.
+    * assertion catches it. It [[compilerAbort]]s rather than reporting a user diagnostic because a surviving unsolved
+    * meta is an internal invariant violation, not a type error of the user's making.
     */
   private def assertEveryMetaResolved(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
     inspect { s =>
@@ -404,8 +407,8 @@ class TypeStackLoop(
     * binder the key carries an argument for to that ground value, a *leftover* binder (a partial-arity key, §4.7) to a
     * fresh metavariable — the same metavariable the twin's leftover `GroundValue.Param` re-inflates to
     * ([[Evaluator.groundToSemPiParam]]), so the parametric signature and ρ agree on it. The leftover metas keep a
-    * partial-arity mono's constraint-covered ability refs deferrable; a full-arity key has no leftover and re-inflates to
-    * a fully-ground `VPi`.
+    * partial-arity mono's constraint-covered ability refs deferrable; a full-arity key has no leftover and re-inflates
+    * to a fully-ground `VPi`.
     */
   private def establishSignature(
       resolvedValue: OperatorResolvedValue,
@@ -413,15 +416,15 @@ class TypeStackLoop(
   ): CheckIO[SemValue] = {
     val binders = SignatureView.of(resolvedValue.signature).binders
     injectedSignature match {
-      case None                                            =>
+      case None                                           =>
         // The twin read is mandatory (the processor uses `getFactOrAbort`); a missing signature is an internal invariant
         // violation, not a user error.
         liftF(compilerAbort[SemValue](resolvedValue.name.as("Internal: value mono ran without its signature twin.")))
-      case Some(_) if typeArguments.sizeIs > binders.size  =>
+      case Some(_) if typeArguments.sizeIs > binders.size =>
         // More type arguments than the value has binders — a user error (formerly caught by `applyTypeArgs` stopping on
         // the first non-`VLam` head). Report once and abort rather than silently ignoring the excess.
         liftF(compilerError(resolvedValue.name.as("Too many type arguments.")) >> abort[SemValue])
-      case Some(groundSig)                                 =>
+      case Some(groundSig)                                =>
         for {
           // One fresh metavariable per *leftover* binder index, memoised so the ρ binding and the `GroundValue.Param`
           // re-inflation below share the same meta.
@@ -468,9 +471,9 @@ class TypeStackLoop(
         pure((instantiated, Option.empty[SemValue.VMeta]))
     }
 
-  /** Record the value-under-check's own *ambient* effect-carrier heads into [[CheckState.ambientCarriers]], from its two
-    * possible spellings of a carrier — an *open* effect row (a carrier binder) and a *pinned* one (a concrete carrier
-    * stack in the return type). Read by the checker-side effect lift ([[EffectLifter.effectCarrierSplit]]).
+  /** Record the value-under-check's own *ambient* effect-carrier heads into [[CheckState.ambientCarriers]], from its
+    * two possible spellings of a carrier — an *open* effect row (a carrier binder) and a *pinned* one (a concrete
+    * carrier stack in the return type). Read by the checker-side effect lift ([[EffectLifter.effectCarrierSplit]]).
     *
     *   - **Open-row carriers** ([[recordBinderCarriers]]): the signature's higher-kinded, ability-constrained binders
     *     (the M1 `{E...}` carrier — the same `carrierBinders ∩ paramConstraints` filter the residual check's ambient
@@ -505,20 +508,20 @@ class TypeStackLoop(
                    .map(value => Evaluator.force(value, state.unifier.metaStore))
                    .collect {
                      case VTopDef(fqn, _, _, _) => CheckState.CarrierHead.TopDef(fqn)
-                     case VMeta(id, _)       => CheckState.CarrierHead.Meta(id.value)
+                     case VMeta(id, _)          => CheckState.CarrierHead.Meta(id.value)
                    }
                )
       _     <- modify(_.recordAmbientCarriers(heads))
     } yield ()
 
   /** Record the pinned-row / concrete-carrier ambient: evaluate the value's return type in the current ρ, and if it
-    * forces to a **carrier-headed** concrete application `C[a.., R]` — the carrier `C[a..]` having an `Effect` instance,
-    * the one authority on "is this constructor a carrier" — record `C`'s head. A plain container return (`List[X]`,
-    * `Pair[A, B]`) has no `Effect[List]`/`Effect[Pair[A]]` instance and records nothing, so block sequencing is enabled
-    * for pinned effect rows without misclassifying data. Open-row returns force to a carrier *meta* (not a `VTopDef`)
-    * and are handled by [[recordBinderCarriers]], so they fall through here. A non-ground carrier (unsolved metas /
-    * leftover binders at a partial-arity mono) cannot be resolved and is skipped — the fail-safe default of not
-    * recording, never a wrong classification.
+    * forces to a **carrier-headed** concrete application `C[a.., R]` — the carrier `C[a..]` having an `Effect`
+    * instance, the one authority on "is this constructor a carrier" — record `C`'s head. A plain container return
+    * (`List[X]`, `Pair[A, B]`) has no `Effect[List]`/`Effect[Pair[A]]` instance and records nothing, so block
+    * sequencing is enabled for pinned effect rows without misclassifying data. Open-row returns force to a carrier
+    * *meta* (not a `VTopDef`) and are handled by [[recordBinderCarriers]], so they fall through here. A non-ground
+    * carrier (unsolved metas / leftover binders at a partial-arity mono) cannot be resolved and is skipped — the
+    * fail-safe default of not recording, never a wrong classification.
     */
   private def recordConcreteReturnCarrier(view: SignatureView): CheckIO[Unit] =
     for {
@@ -530,7 +533,7 @@ class TypeStackLoop(
                         case true  => modify(_.recordAmbientCarriers(Set(CheckState.CarrierHead.TopDef(fqn))))
                         case false => pure(())
                       }
-                    case _                                           => pure(())
+                    case _                                                  => pure(())
                   }
     } yield ()
 
@@ -551,11 +554,11 @@ class TypeStackLoop(
   /** The value-under-check's own *ambient* effect carriers as **full ground values** (`IO`, `StateCarrier[S, IO]` —
     * never just heads), the U4-c-0a forwarded input for effect accounting (docs/effects-as-channel.md §5). Computed
     * post-drain (every carrier meta solved) from the same two carrier spellings [[recordAmbientCarriers]] reads for the
-    * checker-side heads — an *open* effect row's carrier binders or a *pinned* / concrete-carrier return — but quoted to
-    * ground rather than reduced to a head, so a transformer stack keeps its full shape (which is what separates nested
-    * same-transformer stacks at the ride test). Empty for a pure value and the synthetic entry (neither carrier binder
-    * nor concrete-carrier return). A carrier that cannot be quoted to ground (residual metas at a partial-arity mono) is
-    * skipped — the fail-safe default of not recording, never a wrong classification.
+    * checker-side heads — an *open* effect row's carrier binders or a *pinned* / concrete-carrier return — but quoted
+    * to ground rather than reduced to a head, so a transformer stack keeps its full shape (which is what separates
+    * nested same-transformer stacks at the ride test). Empty for a pure value and the synthetic entry (neither carrier
+    * binder nor concrete-carrier return). A carrier that cannot be quoted to ground (residual metas at a partial-arity
+    * mono) is skipped — the fail-safe default of not recording, never a wrong classification.
     */
   private def groundAmbientCarriers(
       resolvedValue: OperatorResolvedValue,
@@ -569,8 +572,8 @@ class TypeStackLoop(
   }
 
   /** The open-row ambient carriers as full ground values: each carrier binder looked up in ρ (the clean pre-check env),
-    * forced through the post-drain metastore — so a binder solved to `IO` reads as `IO`, not its stale meta — and quoted
-    * to ground. A binder not in ρ or not ground-quotable is skipped.
+    * forced through the post-drain metastore — so a binder solved to `IO` reads as `IO`, not its stale meta — and
+    * quoted to ground. A binder not in ρ or not ground-quotable is skipped.
     */
   private def groundBinderCarriers(
       carrierNames: Set[String],
@@ -586,8 +589,8 @@ class TypeStackLoop(
       )
       .map(_.flatten.toSet)
 
-  /** The pinned-row / concrete-carrier ambient as a full ground value: evaluate the return type in the clean env, and if
-    * it forces to a carrier-headed application `C[a.., R]` whose carrier `C[a..]` has an `Effect` instance (the one
+  /** The pinned-row / concrete-carrier ambient as a full ground value: evaluate the return type in the clean env, and
+    * if it forces to a carrier-headed application `C[a.., R]` whose carrier `C[a..]` has an `Effect` instance (the one
     * authority on "is this constructor a carrier"), quote that carrier prefix (dropping the payload `R`). A plain
     * container return (`List[X]`, `Pair[A, B]`) or an open-row carrier *meta* records nothing.
     */
@@ -606,7 +609,7 @@ class TypeStackLoop(
                         case true  => quoter.quoteSemOption(carrier).toSet
                         case false => Set.empty[GroundValue]
                       }
-                    case _                                           => pure(Set.empty[GroundValue])
+                    case _                                                => pure(Set.empty[GroundValue])
                   }
     } yield result
 
@@ -651,8 +654,8 @@ object TypeStackLoop {
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
       track: Track,
-      reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] =
-      (_, _) => none[SemValue].pure[CompilerIO],
+      reduceInstance: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[SemValue]] = (_, _) =>
+        none[SemValue].pure[CompilerIO],
       signatureOnly: Boolean = false,
       injectedSignature: Option[GroundValue] = None
   ): CompilerIO[Result] =

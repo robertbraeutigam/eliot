@@ -3,8 +3,8 @@ package com.vanillasource.eliot.eliotc.statistics
 import cats.effect.{IO, Ref}
 import scala.concurrent.duration.FiniteDuration
 
-/** Coarse, once-per-run wall-clock timings for the compilation phases that sit *outside* the per-processor accounting
-  * — loading and saving the incremental cache, building its next-run graph, and computing the cache fingerprints.
+/** Coarse, once-per-run wall-clock timings for the compilation phases that sit *outside* the per-processor accounting —
+  * loading and saving the incremental cache, building its next-run graph, and computing the cache fingerprints.
   *
   * Unlike [[ProcessorStatistics]], which observes *every* processor invocation and so is created only when
   * `--statistics` is asked for, these are a handful of measurements per run and are therefore taken **always**: the
@@ -17,13 +17,14 @@ import scala.concurrent.duration.FiniteDuration
   * them here, and subtracting them in [[ProcessorStatistics.report]], is what lets the report account for the full
   * session lifecycle rather than the compile alone.
   *
-  * Latest value wins per phase id, so a resident session ([[com.vanillasource.eliot.eliotc.compiler.CompilationSession]]
-  * driving many compiles) keeps only the most recent measurement of each phase rather than one entry per compile.
+  * Latest value wins per phase id, so a resident session
+  * ([[com.vanillasource.eliot.eliotc.compiler.CompilationSession]] driving many compiles) keeps only the most recent
+  * measurement of each phase rather than one entry per compile.
   */
 final class PhaseTimings private (timings: Ref[IO, Map[String, FiniteDuration]]) {
 
-  /** Measure the wall time of `action` and record it under `phaseId`, replacing any previous measurement. The timing
-    * is recorded only when `action` succeeds — a failed load/save leaves no misleading duration behind.
+  /** Measure the wall time of `action` and record it under `phaseId`, replacing any previous measurement. The timing is
+    * recorded only when `action` succeeds — a failed load/save leaves no misleading duration behind.
     */
   def time[A](phaseId: String)(action: IO[A]): IO[A] =
     for {

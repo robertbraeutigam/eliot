@@ -73,8 +73,8 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     extra native processor onto this list passes that processor's label here so the [[BindingMergerProcessor]]
   *     consults it. The base labels ([[ContributedBinding.langNativeLabels]]) are always included — the contributors
   *     that own them are always in this list.
-  *   - `runBoundaryFunctions` — the platform **run-boundary** value FQNs (the jvm plugin's `eliot.jvm::runMain`)
-  *     whose parameter 0 hosts a computation, so the row elaborator treats it as a capture
+  *   - `runBoundaryFunctions` — the platform **run-boundary** value FQNs (the jvm plugin's `eliot.jvm::runMain`) whose
+  *     parameter 0 hosts a computation, so the row elaborator treats it as a capture
   *     ([[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]], carrier-recognition source (ii)). `LangPlugin`
   *     passes the set the platform plugins registered through
   *     [[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions.configKey]]; empty in a lang-only build (and in

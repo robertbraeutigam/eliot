@@ -11,15 +11,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *
   * A marker is a synthetic value whose local name equals the ability's name and whose curried argument types encode the
   * implementation's head pattern; its return-type slot carries the `where` guard (ability-guards §2.3). The pattern
-  * arguments are what `AbilityMatcher` unifies at a call site — they are *not* ordinary value parameters and need not be
-  * of kind `Type` (a higher-kinded ability argument like `Throw[E2, ThrowCarrier[E1, G]]` puts a `Type -> Type` carrier
-  * in an argument position). Monomorphizing the marker to read its guard would run the full kind checker over those
-  * argument types and reject the higher-kinded ones.
+  * arguments are what `AbilityMatcher` unifies at a call site — they are *not* ordinary value parameters and need not
+  * be of kind `Type` (a higher-kinded ability argument like `Throw[E2, ThrowCarrier[E1, G]]` puts a `Type -> Type`
+  * carrier in an argument position). Monomorphizing the marker to read its guard would run the full kind checker over
+  * those argument types and reject the higher-kinded ones.
   *
   * Since the guard verdict depends only on the marker's leading type-parameter *binders* (the pattern arguments are
-  * irrelevant to it), the guard discharge monomorphizes a **parameter-stripped** view: the binders and the guard return,
-  * with the pattern-argument arrows dropped. That view is well-kinded (binders + a `Bool`-valued return) and reduces the
-  * guard exactly, without ever kind-checking the pattern.
+  * irrelevant to it), the guard discharge monomorphizes a **parameter-stripped** view: the binders and the guard
+  * return, with the pattern-argument arrows dropped. That view is well-kinded (binders + a `Bool`-valued return) and
+  * reduces the guard exactly, without ever kind-checking the pattern.
   */
 object MarkerGuardSignature {
 
@@ -31,10 +31,10 @@ object MarkerGuardSignature {
     else resolvedValue
 
   /** A marker's local name equals its ability's name (methods carry the method name); its qualifier is an
-    * [[Qualifier.AbilityImplementation]]. Public because the runtime [[Track]] also consults it: a marker's guard
-    * must survive to the published signature *undischarged* (the ability processor interprets the verdict per
-    * candidate), so markers skip the W2b effectful-signatures discharge that would otherwise hard-error a `Left(msg)`
-    * rejection at the marker itself.
+    * [[Qualifier.AbilityImplementation]]. Public because the runtime [[Track]] also consults it: a marker's guard must
+    * survive to the published signature *undischarged* (the ability processor interprets the verdict per candidate), so
+    * markers skip the W2b effectful-signatures discharge that would otherwise hard-error a `Left(msg)` rejection at the
+    * marker itself.
     */
   def isMarker(resolvedValue: OperatorResolvedValue): Boolean =
     resolvedValue.name.value.qualifier match {

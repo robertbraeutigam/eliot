@@ -20,11 +20,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     final type argument: `Suspend` becomes `Suspend[F]`, `State[Account]` becomes `State[Account, F]`),
   *   - rewrite every positive `{…} A` occurrence to `F[A]`.
   *
-  * So `def readLine: {Suspend} String` becomes `def readLine[auto F[_] ~ Suspend]: F[String]`, identical (signature-wise) to
-  * the hand-written form. No effect-specific classification or wrapping survives: after desugaring everything
-  * downstream sees plain HKT-constrained generics. There is no body lifting here (that is the later `effect` phase) —
-  * bodies must already be in monadic form; the rewrite still descends into the body so no [[Expression.EffectfulType]]
-  * survives.
+  * So `def readLine: {Suspend} String` becomes `def readLine[auto F[_] ~ Suspend]: F[String]`, identical
+  * (signature-wise) to the hand-written form. No effect-specific classification or wrapping survives: after desugaring
+  * everything downstream sees plain HKT-constrained generics. There is no body lifting here (that is the later `effect`
+  * phase) — bodies must already be in monadic form; the rewrite still descends into the body so no
+  * [[Expression.EffectfulType]] survives.
   *
   * **Pinned rows** (`{E1, E2 | T} A`, docs/effect-row-tails.md) are not constraints at all but *concrete types*: the
   * canonical carrier stack realizing exactly those effects over the base `T`. The rewrite is pure type application —
@@ -48,8 +48,8 @@ object EffectSugarDesugarer {
     * [[DataDefinitionDesugarer]] has split the data into functions — see below. An *open* positive row in a field is a
     * user error (reported via [[rowErrors]]); as error recovery it still lowers by the pre-pinned-rows rule — one
     * shared inferable carrier `F[_]` **lifted onto the data type's own generic parameters**, every open field `{…} A`
-    * rewritten to `F[A]` — so downstream phases see a well-formed value. Returns the definition unchanged when no
-    * field carries an *open* row.
+    * rewritten to `F[A]` — so downstream phases see a well-formed value. Returns the definition unchanged when no field
+    * carries an *open* row.
     *
     * The recovery lift must run *before* [[DataDefinitionDesugarer]] splits the data: the split functions all thread
     * `genericParameters` through uniformly, so a recovery-lifted carrier has a home on the *type*. Desugaring the split
@@ -58,11 +58,11 @@ object EffectSugarDesugarer {
     *
     * A **pinned** row needs the opposite order, which is why the two are separated here. It introduces no generic
     * parameter, so it has nothing to place on the type — but it *is* a carrier-stack capture position, and the tag
-    * recording that ([[EffectRow.pinnedParameterEffects]] on the value constructor,
-    * [[EffectRow.returnPinnedEffects]] on the field accessor) is computed per *function*, by [[declaredEffectRow]],
-    * from a signature position that is still spelled as an [[EffectfulType]]. Collapsing the field to its carrier
-    * stack here erased that spelling before any function existed, so the constructor silently lost its pinned tag and
-    * the row elaborator hoisted a stored computation instead of capturing it (docs/effects-as-rows.md §9 item 4).
+    * recording that ([[EffectRow.pinnedParameterEffects]] on the value constructor, [[EffectRow.returnPinnedEffects]]
+    * on the field accessor) is computed per *function*, by [[declaredEffectRow]], from a signature position that is
+    * still spelled as an [[EffectfulType]]. Collapsing the field to its carrier stack here erased that spelling before
+    * any function existed, so the constructor silently lost its pinned tag and the row elaborator hoisted a stored
+    * computation instead of capturing it (docs/effects-as-rows.md §9 item 4).
     */
   def desugar(data: DataDefinition): DataDefinition = {
     val fieldExprs = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression))
@@ -95,21 +95,22 @@ object EffectSugarDesugarer {
     }
   }
 
-  /** Rewrite a single function definition: collapse its open `{…}` rows onto one inferable higher-kinded carrier generic
-    * `F[_]`, adding one `F ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`. Returns the
-    * function unchanged when it carries no effect rows. Synthetic functions (e.g. data-desugared ones) never carry
-    * `{…}`, so applying this uniformly to every function is a no-op for them.
+  /** Rewrite a single function definition: collapse its open `{…}` rows onto one inferable higher-kinded carrier
+    * generic `F[_]`, adding one `F ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`.
+    * Returns the function unchanged when it carries no effect rows. Synthetic functions (e.g. data-desugared ones)
+    * never carry `{…}`, so applying this uniformly to every function is a no-op for them.
     *
-    * **The carrier is the signature's, not the row's** (decided 2026-07-28, docs/effects-as-rows.md §1 rule 2): when the
-    * signature *already binds* exactly one effect carrier of its own (`G[_] ~ Effect`, as every discharger does), the
-    * rows reuse **that** binder rather than minting a second one, and their entries join its constraints. `{Effect}`
-    * then reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a slot that is
-    * `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {Effect} A): G[A]` — the
-    * same type it always had, now saying "a value or a computation" rather than "a computation". Without it the
-    * fallback could only be spelled `G[A]`, which under §1 rule 2 no longer accepts a pure actual, and `host else
-    * "localhost"` would have to be written `host else pure("localhost")` — pushing carrier machinery into user code.
-    * The reuse is decidable from the declaration alone and applies to no signature written before it (nothing in the
-    * tree mixed the two spellings); two or more `Effect`-constrained carriers decline it and mint as before.
+    * **The carrier is the signature's, not the row's** (decided 2026-07-28, docs/effects-as-rows.md §1 rule 2): when
+    * the signature *already binds* exactly one effect carrier of its own (`G[_] ~ Effect`, as every discharger does),
+    * the rows reuse **that** binder rather than minting a second one, and their entries join its constraints.
+    * `{Effect}` then reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a
+    * slot that is `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {Effect}
+    * A): G[A]` — the same type it always had, now saying "a value or a computation" rather than "a computation".
+    * Without it the fallback could only be spelled `G[A]`, which under §1 rule 2 no longer accepts a pure actual, and
+    * `host else "localhost"` would have to be written `host else pure("localhost")` — pushing carrier machinery into
+    * user code. The reuse is decidable from the declaration alone and applies to no signature written before it
+    * (nothing in the tree mixed the two spellings); two or more `Effect`-constrained carriers decline it and mint as
+    * before.
     */
   def desugar(function: FunctionDefinition): FunctionDefinition = {
     val signatureExprs =
@@ -122,21 +123,21 @@ object EffectSugarDesugarer {
 
     if (rows.isEmpty) function
     else {
-      val anchor          = function.name
-      val reusedCarrier   = ownEffectCarrier(function)
-      val carrierNameOpt  = Option.when(positives.nonEmpty)(
+      val anchor         = function.name
+      val reusedCarrier  = ownEffectCarrier(function)
+      val carrierNameOpt = Option.when(positives.nonEmpty)(
         reusedCarrier.getOrElse(freshName("F", function.genericParameters.map(_.name.value).toSet))
       )
-      val rowConstraints  = carrierNameOpt.toSeq.flatMap { carrierName =>
+      val rowConstraints = carrierNameOpt.toSeq.flatMap { carrierName =>
         val carrierRef = anchor.as(typeExpr(anchor.as(carrierName)))
         positives.map(e => GenericParameter.AbilityConstraint(e.abilityName, e.typeParameters :+ carrierRef))
       }
       // Minted only when nothing was reused: a reused binder keeps its declared position (and so its index, which
       // decides whether the elaborator can write it — A.11.4b's first-binder limit).
-      val carrierParam    = carrierNameOpt.filterNot(reusedCarrier.contains).map { carrierName =>
+      val carrierParam   = carrierNameOpt.filterNot(reusedCarrier.contains).map { carrierName =>
         GenericParameter(anchor.as(carrierName), anchor.as(functionKind(anchor)), rowConstraints, inferable = true)
       }
-      val rewriteExpr     = rewrite(carrierNameOpt)
+      val rewriteExpr    = rewrite(carrierNameOpt)
 
       function.copy(
         genericParameters = carrierParam.toSeq ++ function.genericParameters.map { gp =>
@@ -156,8 +157,8 @@ object EffectSugarDesugarer {
     }
   }
 
-  /** The one effect carrier a signature binds itself, if there is exactly one: a higher-kinded binder constrained by the
-    * machinery ability `Effect` (`G[_] ~ Effect`), or — for an ability method — the ability's own binder
+  /** The one effect carrier a signature binds itself, if there is exactly one: a higher-kinded binder constrained by
+    * the machinery ability `Effect` (`G[_] ~ Effect`), or — for an ability method — the ability's own binder
     * ([[abilityMethodCarrier]]). `None` when there is none, or more than one — the rule reuses only what is
     * unambiguous, and minting stays the fallback.
     */
@@ -176,8 +177,8 @@ object EffectSugarDesugarer {
     * This is the same reuse rule as an `Effect`-constrained binder above, reading a different declaration: there the
     * signature says "this is my carrier" with a constraint, here the enclosing `ability` block says it by binding it.
     * Ambiguity declines (the method binds a higher-kinded generic of its own, so which one is the ability's is no
-    * longer a declaration but a guess) and minting stays the fallback — the fail-safe direction, since a minted
-    * carrier is merely a second binder the checker must solve, never a wrong one written into the signature.
+    * longer a declaration but a guess) and minting stays the fallback — the fail-safe direction, since a minted carrier
+    * is merely a second binder the checker must solve, never a wrong one written into the signature.
     */
   private def abilityMethodCarrier(function: FunctionDefinition): Option[String] =
     function.name.value.qualifier match {
@@ -209,9 +210,9 @@ object EffectSugarDesugarer {
     *   - *Pinned* rows populate `returnPinnedEffects` / `pinnedParameterEffects`: a signature position whose top-level
     *     type is a pinned row (`{Throw[E] | G} A`, which [[rewrite]] collapses to the canonical `<Ability>Carrier`
     *     stack) is a discharger/handler capture domain — recorded here *with its entries in declared (= discharge)
-    *     order* (effects-as-rows R2, docs/effects-as-rows.md Appendix A.6), at the one point that knows it is a
-    *     carrier stack, so no downstream phase re-derives carrier-ness — or the discharged entries — from shape or
-    *     name. Entries are deliberately not deduplicated: a pinned row is a stack, and multiplicity/order matter.
+    *     order* (effects-as-rows R2, docs/effects-as-rows.md Appendix A.6), at the one point that knows it is a carrier
+    *     stack, so no downstream phase re-derives carrier-ness — or the discharged entries — from shape or name.
+    *     Entries are deliberately not deduplicated: a pinned row is a stack, and multiplicity/order matter.
     *
     * Body rows and generic-parameter-bound rows are deliberately excluded — the declared row is the value's public
     * signature only.
@@ -233,8 +234,8 @@ object EffectSugarDesugarer {
 
   /** Whether a definition is **type-level**: its declared type is the kind `Type` itself, which is exactly what
     * [[com.vanillasource.eliot.eliotc.ast.fact.TypeAliasDefinition]] writes for a `type X = …`. For such a definition
-    * the *body* is the declared type, so it is the body — not the return position, which only ever says `Type` — that
-    * a pinned row can stand in. This is the one place a body row is read, and only for this shape.
+    * the *body* is the declared type, so it is the body — not the return position, which only ever says `Type` — that a
+    * pinned row can stand in. This is the one place a body row is read, and only for this shape.
     */
   private def isTypeLevel(function: FunctionDefinition): Boolean = function.typeDefinition.value match {
     case FunctionApplication(None, name, None, Seq()) => name.value == "Type"
@@ -247,9 +248,9 @@ object EffectSugarDesugarer {
 
   /** The entries of a signature-position type expression that is *itself* — at top level — a **pinned** effect row
     * (`{Throw[E] | G} A`, i.e. an [[EffectfulType]] with a non-empty effect set and a base tail), in declared order.
-    * Such a position collapses to a canonical carrier stack and is a discharger/handler capture domain (finding 14).
-    * A *nested* pinned row (e.g. the codomain of a callback `A => {Throw[E] | G} B`) does not make the position itself
-    * a carrier stack, so only the top-level shape counts. Empty for any non-pinned position.
+    * Such a position collapses to a canonical carrier stack and is a discharger/handler capture domain (finding 14). A
+    * *nested* pinned row (e.g. the codomain of a callback `A => {Throw[E] | G} B`) does not make the position itself a
+    * carrier stack, so only the top-level shape counts. Empty for any non-pinned position.
     */
   private def pinnedRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
     expr.value match {
@@ -266,8 +267,8 @@ object EffectSugarDesugarer {
     *
     * @param rewritePinned
     *   `false` keeps each pinned node standing (still descending into its parts, so no *open* row survives) — the one
-    *   caller that needs this is the `data`-level pass, which must leave a stored pinned row spelled as a row until
-    *   the split functions exist to record its capture tag. Every other caller collapses both forms.
+    *   caller that needs this is the `data`-level pass, which must leave a stored pinned row spelled as a row until the
+    *   split functions exist to record its capture tag. Every other caller collapses both forms.
     */
   private def rewrite(carrierName: Option[String], rewritePinned: Boolean = true)(
       expr: Sourced[Expression]
@@ -282,7 +283,7 @@ object EffectSugarDesugarer {
             Some(recurse(tail))
           )
         )
-      case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty =>
+      case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty                   =>
         val rewrittenTail = recurse(tail)
         val innerStack    = effects.drop(1).foldRight(rewrittenTail) { (e, acc) =>
           e.abilityName.as(
@@ -303,31 +304,31 @@ object EffectSugarDesugarer {
             Seq.empty
           )
         )
-      case EffectfulType(effects, resultType, None) if effects.nonEmpty       =>
+      case EffectfulType(effects, resultType, None) if effects.nonEmpty                         =>
         val name = carrierName.getOrElse(
           throw IllegalStateException(s"An effect set introduced no carrier: ${expr.value.render}")
         )
         expr.as(FunctionApplication(None, expr.as(name), Some(Seq(recurse(resultType))), Seq.empty))
-      case EffectfulType(_, resultType, _)                                    =>
+      case EffectfulType(_, resultType, _)                                                      =>
         recurse(resultType)
-      case FunctionApplication(moduleName, name, genericArgs, args)           =>
+      case FunctionApplication(moduleName, name, genericArgs, args)                             =>
         expr.as(FunctionApplication(moduleName, name, genericArgs.map(_.map(recurse)), args.map(recurse)))
-      case FunctionLiteral(parameters, body)                                  =>
+      case FunctionLiteral(parameters, body)                                                    =>
         expr.as(
           FunctionLiteral(parameters.map(p => p.copy(typeExpression = p.typeExpression.map(recurse))), recurse(body))
         )
-      case FlatExpression(parts)                                              =>
+      case FlatExpression(parts)                                                                =>
         expr.as(FlatExpression(parts.map(recurse)))
-      case MatchExpression(scrutinee, cases)                                  =>
+      case MatchExpression(scrutinee, cases)                                                    =>
         expr.as(MatchExpression(recurse(scrutinee), cases.map(c => c.copy(body = recurse(c.body)))))
-      case BlockExpression(lines)                                             =>
+      case BlockExpression(lines)                                                               =>
         expr.as(BlockExpression(lines.map { line =>
           line.copy(
             binder = line.binder.map(b => b.copy(typeExpression = b.typeExpression.map(recurse))),
             expression = recurse(line.expression)
           )
         }))
-      case _: IntegerLiteral | _: StringLiteral                              => expr
+      case _: IntegerLiteral | _: StringLiteral                                                 => expr
     }
   }
 
@@ -347,16 +348,16 @@ object EffectSugarDesugarer {
     case et @ EffectfulType(effects, resultType, tail) =>
       (expr.as(et) +: effects.flatMap(_.typeParameters.flatMap(collectRows))) ++
         collectRows(resultType) ++ tail.toSeq.flatMap(collectRows)
-    case FunctionApplication(_, _, genericArgs, args)             =>
+    case FunctionApplication(_, _, genericArgs, args)  =>
       genericArgs.getOrElse(Seq.empty).flatMap(collectRows) ++ args.flatMap(collectRows)
-    case FunctionLiteral(parameters, body)                        =>
+    case FunctionLiteral(parameters, body)             =>
       parameters.flatMap(_.typeExpression.toSeq.flatMap(collectRows)) ++ collectRows(body)
-    case FlatExpression(parts)                                    => parts.flatMap(collectRows)
-    case MatchExpression(scrutinee, cases)                        =>
+    case FlatExpression(parts)                         => parts.flatMap(collectRows)
+    case MatchExpression(scrutinee, cases)             =>
       collectRows(scrutinee) ++ cases.flatMap(c => collectRows(c.body))
-    case BlockExpression(lines)                                   =>
+    case BlockExpression(lines)                        =>
       lines.flatMap(l => l.binder.flatMap(_.typeExpression).toSeq.flatMap(collectRows) ++ collectRows(l.expression))
-    case _: IntegerLiteral | _: StringLiteral                     => Seq.empty
+    case _: IntegerLiteral | _: StringLiteral          => Seq.empty
   }
 
   private def constraintKey(ac: GenericParameter.AbilityConstraint): String =

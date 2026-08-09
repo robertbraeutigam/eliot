@@ -28,7 +28,14 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       allConstructors              <- findAllConstructors(constructorModule, dataType)
       _                            <- checkExhaustiveness(cases, allConstructors)
       handleCasesFqn               <-
-        findAbilityMethodImpl(scrutinee, constructorModule, "PatternMatch", "handleCases", platform, Some(dataType.name))
+        findAbilityMethodImpl(
+          scrutinee,
+          constructorModule,
+          "PatternMatch",
+          "handleCases",
+          platform,
+          Some(dataType.name)
+        )
       orderedHandlers              <- buildOrderedHandlers(scrutinee, cases, allConstructors)
     } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
 
@@ -185,7 +192,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
             scrutinee.as(Expression.ParameterReference(freshName))
           )
           wrapExpr(scrutinee, app)
-        case _ => innerBody
+        case _                                                                    => innerBody
       }
     }
 

@@ -1,11 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{
-  systemAnyValue,
-  systemCollectionType,
-  systemLangType
-}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValue, systemCollectionType, systemLangType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.GenericNativeSignature
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
@@ -33,7 +29,7 @@ object SystemNatives {
 
   private def environmentFqn(name: String): ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "system"), "Environment"), QualifiedName(name, Qualifier.Default))
-  private def processFqn(name: String): ValueFQN =
+  private def processFqn(name: String): ValueFQN     =
     ValueFQN(ModuleName(Seq("eliot", "system"), "Process"), QualifiedName(name, Qualifier.Default))
 
   private val pathType: ValueFQN    = NativeType.systemFileType("Path", "Path")
@@ -81,7 +77,9 @@ object SystemNatives {
   val implementations: Seq[(ValueFQN, NativeImplementation)] = Seq(
     // --- eliot.system.Environment ---
     entry(environmentFqn("argumentsInternal"), Seq.empty, listType, impure = true)(arguments),
-    entry(environmentFqn("environmentVariableInternal"), Seq(stringType), stringType, impure = true)(environmentVariable),
+    entry(environmentFqn("environmentVariableInternal"), Seq(stringType), stringType, impure = true)(
+      environmentVariable
+    ),
     entry(environmentFqn("workingDirectoryInternal"), Seq.empty, pathType, impure = true)(workingDirectory),
     genericEntry(environmentFqn("isNull"))(isNull),
     // --- eliot.system.Process ---
@@ -103,7 +101,7 @@ object SystemNatives {
   ): (ValueFQN, NativeImplementation) = {
     val isImpure = impure
     fqn -> new NativeImplementation {
-      override val impure: Boolean                                     = isImpure
+      override val impure: Boolean                                      = isImpure
       override def generateMethod(cg: ClassGenerator): CompilerIO[Unit] =
         cg.createMethod[CompilerIO](JvmIdentifier(fqn.name.name), params, ret).use(_.runNative(body))
     }
@@ -115,7 +113,7 @@ object SystemNatives {
     val isImpure = impure
     val sig      = genericNativeSignatures(fqn)
     fqn -> new NativeImplementation {
-      override val impure: Boolean                                     = isImpure
+      override val impure: Boolean                                      = isImpure
       override def generateMethod(cg: ClassGenerator): CompilerIO[Unit] =
         cg.createMethod[CompilerIO](JvmIdentifier(fqn.name.name), sig.parameterTypes, sig.returnType)
           .use(_.runNative(body))
@@ -182,8 +180,8 @@ object SystemNatives {
   /** Build a `ProcessBuilder` over the command list and working directory, run it to completion, and leave the
     * four-slot outcome holder on the stack.
     *
-    * Locals: 0 command list, 1 working directory, 2 the holder, 3 the `Process`, 4 scratch. Everything from creating the
-    * builder to reading the exit code is inside one try/catch: a missing executable throws `IOException` and an
+    * Locals: 0 command list, 1 working directory, 2 the holder, 3 the `Process`, 4 scratch. Everything from creating
+    * the builder to reading the exit code is inside one try/catch: a missing executable throws `IOException` and an
     * interrupted wait throws `InterruptedException`, and both mean the same thing to a caller — the program did not run
     * — so both land in the error slot with their message.
     */

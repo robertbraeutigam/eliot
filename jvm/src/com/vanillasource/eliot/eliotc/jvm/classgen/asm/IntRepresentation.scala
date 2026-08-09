@@ -10,9 +10,9 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
   * smallest signed wrapper whose width contains the interval, falling back to a bignum.
   *
   * The `interval → width` decision is JVM-specific codegen knowledge (an ATtiny backend would map the same interval to
-  * different widths), so it belongs in the backend, not in an Eliot ability the checker evaluates. The thresholds are the
-  * standard signed machine-integer bounds (byte/short/32-bit/64-bit, else bignum). See `docs/generic-refinement-merges.md`
-  * (Step 6) and `docs/bounds-as-refinements.md`.
+  * different widths), so it belongs in the backend, not in an Eliot ability the checker evaluates. The thresholds are
+  * the standard signed machine-integer bounds (byte/short/32-bit/64-bit, else bignum). See
+  * `docs/generic-refinement-merges.md` (Step 6) and `docs/bounds-as-refinements.md`.
   *
   * The output is a `Jvm*` representation-type [[ValueFQN]] the rest of the backend already understands
   * ([[NativeType.jvmRepresentationType]] → [[NativeType.types]]); the `Jvm*` names stay an internal backend vocabulary.
@@ -49,10 +49,11 @@ object IntRepresentation {
   private val integerTypeNames: Set[String] =
     Set("Int", "JvmByte", "JvmShort", "JvmInt", "JvmLong", "JvmBigInteger")
 
-  /** Whether `gv` is an integer-carrying type — the tracked `Int` (post-flag-day, its width comes from the channel meta)
-    * or one of the lowered `Jvm*` representation types (pre-un-lowering). Both live in the `eliot.lang.Int` module; the
-    * qualifier is ignored (a type head may carry `Type` or the stripped `Default`). A node of such a type has its machine
-    * width decided by its refinement meta ([[representationFor]]); any other type is laid out by [[NativeType]] as usual.
+  /** Whether `gv` is an integer-carrying type — the tracked `Int` (post-flag-day, its width comes from the channel
+    * meta) or one of the lowered `Jvm*` representation types (pre-un-lowering). Both live in the `eliot.lang.Int`
+    * module; the qualifier is ignored (a type head may carry `Type` or the stripped `Default`). A node of such a type
+    * has its machine width decided by its refinement meta ([[representationFor]]); any other type is laid out by
+    * [[NativeType]] as usual.
     */
   def isIntegerType(gv: GroundValue): Boolean = gv match {
     case GroundValue.Structure(fqn, _, _) =>
@@ -60,10 +61,10 @@ object IntRepresentation {
     case _                                => false
   }
 
-  /** The representation for a channel meta: decode its interval when present, else the ⊤/unknown layout (`JvmBigInteger`)
-    * — a value the channel could not pin is soundly a bignum. Anything not of the value-range domain's
-    * `Int$Meta(Bounded(Interval[min, max]))` shape (a future domain, a malformed meta) also yields the ⊤ layout here:
-    * this backend only knows how to lay out the value-range domain.
+  /** The representation for a channel meta: decode its interval when present, else the ⊤/unknown layout
+    * (`JvmBigInteger`) — a value the channel could not pin is soundly a bignum. Anything not of the value-range
+    * domain's `Int$Meta(Bounded(Interval[min, max]))` shape (a future domain, a malformed meta) also yields the ⊤
+    * layout here: this backend only knows how to lay out the value-range domain.
     */
   def representationFor(meta: Option[GroundValue]): ValueFQN =
     meta.flatMap(intervalBounds).map { case (min, max) => widthOf(min, max) }.getOrElse(jvmBigInteger)
@@ -87,12 +88,16 @@ object IntRepresentation {
     */
   def intervalBounds(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
-      case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)), _) =>
+      case GroundValue.Structure(
+            _,
+            Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)),
+            _
+          ) =>
         (boundedBigInt(lo), boundedBigInt(hi)) match {
           case (Some(a), Some(b)) => Some((a, b))
           case _                  => None
         }
-      case _                                                                                                           => None
+      case _ => None
     }
 
   /** The big integer inside a `Bounded(Direct(n))` endpoint, or [[None]] for an `Unbounded` one (a nullary structure,

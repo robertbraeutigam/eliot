@@ -53,7 +53,8 @@ object UsedNamesState {
   def getUsedNames(rootFQN: ValueFQN, state: UsedNamesState): UsedNames =
     UsedNames(
       rootFQN,
-      usedNames = state.usedNames.map((vfqn, builder) => vfqn -> builder.cappedAt(state.naturalArities.get(vfqn)).toUsageStats)
+      usedNames =
+        state.usedNames.map((vfqn, builder) => vfqn -> builder.cappedAt(state.naturalArities.get(vfqn)).toUsageStats)
     )
 
   def isVisited(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): UsedNamesIO[Boolean] =
@@ -71,9 +72,10 @@ object UsedNamesState {
       state.copy(usedNames = state.usedNames.updated(vfqn, updated))
     }
 
-  /** Remember the natural arity of a walked value ([[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.naturalArity]]),
-    * so the final statistics can cap the recorded direct-call arities. Recorded per `vfqn` (the granularity of the
-    * usage statistics), taking the minimum across walked instances; a body-less value contributes nothing (no cap).
+  /** Remember the natural arity of a walked value
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.naturalArity]]), so the final statistics can
+    * cap the recorded direct-call arities. Recorded per `vfqn` (the granularity of the usage statistics), taking the
+    * minimum across walked instances; a body-less value contributes nothing (no cap).
     */
   def recordNaturalArity(vfqn: ValueFQN, naturalArity: Option[Int]): UsedNamesIO[Unit] =
     StateT.modify[CompilerIO, UsedNamesState] { state =>

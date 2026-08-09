@@ -39,10 +39,9 @@ object ImplementationMarkerUtils {
       platform: Platform = Platform.Runtime
   ): CompilerIO[Boolean] =
     methodVfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(name, _)
-          if name === abilityName && methodVfqn.name.name === methodName =>
+      case Qualifier.AbilityImplementation(name, _) if name === abilityName && methodVfqn.name.name === methodName =>
         firstPatternTypeConstructorName(methodVfqn, abilityName, platform).map(_.contains(targetTypeConstructor))
-      case _ =>
+      case _                                                                                                       =>
         false.pure[CompilerIO]
     }
 
@@ -57,7 +56,7 @@ object ImplementationMarkerUtils {
     methodVfqn.name.qualifier match {
       case Qualifier.AbilityImplementation(_, pattern) =>
         firstPatternTypeConstructorName(methodVfqn.moduleName, abilityName, pattern, platform)
-      case _                                         =>
+      case _                                           =>
         None.pure[CompilerIO]
     }
 
@@ -86,7 +85,7 @@ object ImplementationMarkerUtils {
     implQualifier match {
       case Qualifier.AbilityImplementation(_, pattern) =>
         firstPatternTypeConstructorName(moduleName, abilityName, pattern, platform)
-      case _                                         =>
+      case _                                           =>
         None.pure[CompilerIO]
     }
 

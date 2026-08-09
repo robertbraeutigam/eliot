@@ -16,9 +16,9 @@ import java.nio.file.Paths
   * Unlike [[PositionIndex]] (which renders a referenced value's *declared* signature), this index reports the actual
   * *monomorphic* type each expression node was checked at — the per-node `expressionType` produced by the NbE checker.
   * That information only exists after monomorphization, which is driven from a `main`: the
-  * [[com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin]] demands
-  * [[com.vanillasource.eliot.eliotc.used.UsedNames]] for every file that declares its own `main`, forcing a
-  * [[MonomorphicValue]] for every reachable instantiation. This index is rebuilt from those facts after each compile.
+  * [[com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin]] demands [[com.vanillasource.eliot.eliotc.used.UsedNames]]
+  * for every file that declares its own `main`, forcing a [[MonomorphicValue]] for every reachable instantiation. This
+  * index is rebuilt from those facts after each compile.
   *
   * Because a generic value reachable at several instantiations yields several [[MonomorphicValue]]s sharing source
   * ranges, a single node range can carry more than one type; a lookup returns the distinct set at the most specific
@@ -29,8 +29,8 @@ final class TypeHintIndex private (hintsByUri: Map[String, Seq[TypeHintIndex.Hin
   import TypeHintIndex.*
 
   /** The distinct monomorphic type(s) at the most specific expression node containing `position`, paired with that
-    * node's range, or `None` if no typed node covers the position. More than one type means the enclosing definition was
-    * monomorphized at several instantiations.
+    * node's range, or `None` if no typed node covers the position. More than one type means the enclosing definition
+    * was monomorphized at several instantiations.
     */
   def typeHintsAt(uri: URI, position: Position): Option[(PositionRange, Seq[GroundValue])] = {
     val containing = hintsByUri.getOrElse(uriKey(uri), Seq.empty).filter(hint => contains(hint.range, position))
@@ -39,11 +39,12 @@ final class TypeHintIndex private (hintsByUri: Map[String, Seq[TypeHintIndex.Hin
       .map(innermost => innermost.range -> containing.filter(_.range == innermost.range).map(_.tpe).distinct)
   }
 
-  /** The refinement channel's value range for the node at exactly `range` in `uri`, or `None` when the channel could not
-    * pin one (a ⊤/bignum node — a parameter, a call result, anything outside a literal/arithmetic-transfer/`if`-join
-    * spine). When the enclosing definition was monomorphized at several instantiations that pinned *different* ranges at
-    * this node, their **union** `[min of mins, max of maxes]` is returned — the sound over-approximation to display.
-    * Callers pass the `range` [[typeHintsAt]] returned for the same position, so no new position math is needed.
+  /** The refinement channel's value range for the node at exactly `range` in `uri`, or `None` when the channel could
+    * not pin one (a ⊤/bignum node — a parameter, a call result, anything outside a
+    * literal/arithmetic-transfer/`if`-join spine). When the enclosing definition was monomorphized at several
+    * instantiations that pinned *different* ranges at this node, their **union** `[min of mins, max of maxes]` is
+    * returned — the sound over-approximation to display. Callers pass the `range` [[typeHintsAt]] returned for the same
+    * position, so no new position math is needed.
     */
   def intervalAt(uri: URI, range: PositionRange): Option[(BigInt, BigInt)] = {
     val intervals =
@@ -85,8 +86,8 @@ object TypeHintIndex {
     * pre-seam fact owes this normalization (docs/effects-as-channel.md §11 — the recurring per-consumer tax); the
     * downstream no-residue assertion cannot catch a missing one, since it runs *after* the seam.
     *
-    * Erasure only *drops* wrapper nodes, so every surviving node keeps its own source range and its
-    * [[RefinementTable]] interval (keyed by range) still joins. Rendering carries its own `Id` fallback
+    * Erasure only *drops* wrapper nodes, so every surviving node keeps its own source range and its [[RefinementTable]]
+    * interval (keyed by range) still joins. Rendering carries its own `Id` fallback
     * ([[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValueRenderer]]); this removes the machinery itself.
     */
   private def idNormalized(value: MonomorphicValue): MonomorphicValue =
@@ -97,9 +98,9 @@ object TypeHintIndex {
       )
     )
 
-  /** Collapse a table's per-node verdicts to a position-keyed `[min, max]` map, keeping a position only when every entry
-    * at it agrees on one verdict: a position carrying two or more distinct metas — or a meta and a ⊤, which is what a
-    * desugar-synthesized node sharing a real node's source range produces — is dropped rather than displayed
+  /** Collapse a table's per-node verdicts to a position-keyed `[min, max]` map, keeping a position only when every
+    * entry at it agrees on one verdict: a position carrying two or more distinct metas — or a meta and a ⊤, which is
+    * what a desugar-synthesized node sharing a real node's source range produces — is dropped rather than displayed
     * ambiguously. The channel carries an opaque domain meta; the hover (which shows `Int` value ranges) decodes the
     * `Int$Meta(Interval[min, max])` shape with [[boundsOf]], exactly as the JVM backend does for width selection.
     */
@@ -115,9 +116,13 @@ object TypeHintIndex {
     */
   private def boundsOf(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
-      case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)), _) =>
+      case GroundValue.Structure(
+            _,
+            Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)),
+            _
+          ) =>
         (boundedBigInt(lo), boundedBigInt(hi)).tupled
-      case _                                                                                                           => None
+      case _ => None
     }
 
   /** The big integer inside a `Bounded(Direct(n))` endpoint, or [[None]] for an `Unbounded` one (a nullary structure,
@@ -132,18 +137,22 @@ object TypeHintIndex {
     * described by their child nodes, which carry their own precise types and ranges; annotating the whole-body range
     * with the signature would only collide with those children (the outermost node's range coincides with a child's).
     * Only a *leaf* body — a bare value reference, literal, or parameter — has no child node to carry its type, so for
-    * those the body range is annotated with the value's signature (e.g. `main = greeting` ⇒ `greeting` reads `IO[Unit]`).
+    * those the body range is annotated with the value's signature (e.g. `main = greeting` ⇒ `greeting` reads
+    * `IO[Unit]`).
     */
   private def hintsOf(value: MonomorphicValue, intervals: Map[PositionRange, (BigInt, BigInt)]): Seq[Hint] =
     value.runtime.toSeq.flatMap { body =>
       val topHint = body.value match {
         case _: MonomorphicExpression.FunctionApplication | _: MonomorphicExpression.FunctionLiteral => Seq.empty
-        case _ => Seq(Hint(body.uri, body.range, value.signature, intervals.get(body.range)))
+        case _                                                                                       => Seq(Hint(body.uri, body.range, value.signature, intervals.get(body.range)))
       }
       topHint ++ fromExpression(body.value, intervals)
     }
 
-  private def fromNode(node: Sourced[MonomorphicExpression], intervals: Map[PositionRange, (BigInt, BigInt)]): Seq[Hint] =
+  private def fromNode(
+      node: Sourced[MonomorphicExpression],
+      intervals: Map[PositionRange, (BigInt, BigInt)]
+  ): Seq[Hint] =
     Hint(node.uri, node.range, node.value.expressionType, intervals.get(node.range)) +:
       fromExpression(node.value.expression, intervals)
 

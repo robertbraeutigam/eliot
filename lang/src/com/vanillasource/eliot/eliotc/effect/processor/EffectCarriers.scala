@@ -42,8 +42,8 @@ object EffectCarriers {
     *
     * Where [[carrierBinders]] answers "which binder *could* a computation ride" — the shape question, used where the
     * carrier is known from context — this answers "which binder *does* this signature declare as a carrier", which is
-    * what a phase reading only declarations (the effects-as-rows elaboration) must ask before deciding that a call is
-    * a computation. A binder qualifies when:
+    * what a phase reading only declarations (the effects-as-rows elaboration) must ask before deciding that a call is a
+    * computation. A binder qualifies when:
     *
     *   - it is **ability-constrained** (`[G[_] ~ Effect]`, and every binder the `{E}` effect-row sugar mints — an
     *     ability method's own binder included, since its rows desugar onto exactly that binder);
@@ -56,13 +56,13 @@ object EffectCarriers {
     *     user-facing effect), so `{Effect}` on `pure` would say nothing. They are recognised by name, which is where
     *     [[EffectMachinery.isMachineryAbility]] is already the sanctioned recogniser.
     *
-    * **A user ability method has no rule of its own.** It used to: every higher-kinded binder of an ability method counted
-    * as a carrier, on the reasoning that `Console[F[_]]` and a constructor-class `Container[F[_]]` are the same shape
-    * and the *use site* separates them. It does not — the use site is never consulted by the row derivation, so a
+    * **A user ability method has no rule of its own.** It used to: every higher-kinded binder of an ability method
+    * counted as a carrier, on the reasoning that `Console[F[_]]` and a constructor-class `Container[F[_]]` are the same
+    * shape and the *use site* separates them. It does not — the use site is never consulted by the row derivation, so a
     * constructor class was read as an effect and `def unboxed(b: Box[String]): String = unwrap(b)` was rejected as
-    * "performs the effect 'Container'". An ability method now declares its effects the way every other definition
-    * does, with a row (`def printLine(s: String): {Console} Unit`), and the general constraint rule above answers for
-    * it. A method that declares no row performs nothing, which is exactly what a constructor class is.
+    * "performs the effect 'Container'". An ability method now declares its effects the way every other definition does,
+    * with a row (`def printLine(s: String): {Console} Unit`), and the general constraint rule above answers for it. A
+    * method that declares no row performs nothing, which is exactly what a constructor class is.
     */
   def declaredCarrierBinders(value: OperatorResolvedValue): Set[String] = {
     val view       = SignatureView.of(value.signature)
@@ -88,17 +88,17 @@ object EffectCarriers {
 
   /** Whether a binder name occurs anywhere in a type expression. */
   private def occurs(binder: String, tpe: OperatorResolvedExpression): Boolean = tpe match {
-    case ParameterReference(name)          => name.value == binder
-    case FunctionApplication(target, arg)  => occurs(binder, target.value) || occurs(binder, arg.value)
+    case ParameterReference(name)            => name.value == binder
+    case FunctionApplication(target, arg)    => occurs(binder, target.value) || occurs(binder, arg.value)
     case FunctionLiteral(_, paramType, body) =>
       paramType.exists(pt => occurs(binder, pt.value)) || occurs(binder, body.value)
-    case ValueReference(_, typeArgs)       => typeArgs.exists(ta => occurs(binder, ta.value))
-    case _                                 => false
+    case ValueReference(_, typeArgs)         => typeArgs.exists(ta => occurs(binder, ta.value))
+    case _                                   => false
   }
 
   /** The user-facing effects a value *declares*: the ability FQNs constrained on its `carriers`, with the internal
-    * machinery abilities (`Effect`/`Suspend`) removed — those are inserted by the compiler, never declared as
-    * effects. This is both a callee's propagated effect set and the declared set the subset check honours.
+    * machinery abilities (`Effect`/`Suspend`) removed — those are inserted by the compiler, never declared as effects.
+    * This is both a callee's propagated effect set and the declared set the subset check honours.
     */
   def declaredEffects(
       carriers: Set[String],

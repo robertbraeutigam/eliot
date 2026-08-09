@@ -16,8 +16,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
   *
   * where a *pinned* (capture) slot subtracts the entries its declared stack discharges (a platform *run boundary* —
   * `runMain`'s `IO[A]`, tag source (ii) — captures the whole row), and every non-pinned slot — strict or
-  * declared-suspended — contributes identically: suspension changes only *when* an effect runs (elaboration's
-  * business, R4), never whether the caller must declare it (Appendix A.2).
+  * declared-suspended — contributes identically: suspension changes only *when* an effect runs (elaboration's business,
+  * R4), never whether the caller must declare it (Appendix A.2).
   *
   * Everything read is *declared*: callee rows (open-row entries + carrier-binder constraints), pinned entries
   * (`EffectRow.pinnedParameterEffects`, recorded at the desugar — R2), suspended-parameter rows
@@ -44,11 +44,11 @@ object RowChecker {
   /** The declared world the checker reads: the operator-resolved values by name, plus the platform-registered run
     * boundaries (values whose first parameter captures the whole row — jvm's `runMain`).
     *
-    * A batch consumer (a sweep, a test) holds every value up front. A *demand-driven* consumer (the pipeline
-    * processor) cannot: it must know which names the derivation actually consults before it can fetch them. That is
-    * what `onMiss` is for — every consultation of a name the map does not hold reports it, so the processor can fetch
-    * the reported names and re-run until nothing is missing. Without it a demand-driven consumer would have to guess
-    * the consulted set and would silently fall back to the "unknown callee" approximations on a wrong guess.
+    * A batch consumer (a sweep, a test) holds every value up front. A *demand-driven* consumer (the pipeline processor)
+    * cannot: it must know which names the derivation actually consults before it can fetch them. That is what `onMiss`
+    * is for — every consultation of a name the map does not hold reports it, so the processor can fetch the reported
+    * names and re-run until nothing is missing. Without it a demand-driven consumer would have to guess the consulted
+    * set and would silently fall back to the "unknown callee" approximations on a wrong guess.
     */
   case class Universe(
       values: Map[ValueFQN, OperatorResolvedValue],
@@ -91,14 +91,14 @@ object RowChecker {
 
     /** Whether a [[leak]] here is decidable from declarations alone, and so may be *reported* at this definition.
       *
-      * A definition that declares an ambient always is: its body's contributions ride that ambient by construction.
-      * One that declares none is decidable only when its declared return **cannot itself be the carrier** — a
-      * nullary concrete type (`String`, `Unit`). An *applied* return (`Box[String]`, `IO[Unit]`, `Either[E, A]`) or
-      * a generic-headed one may be exactly what hosts the effect: whether `def f: Box[String] = wrap(s)` is a
+      * A definition that declares an ambient always is: its body's contributions ride that ambient by construction. One
+      * that declares none is decidable only when its declared return **cannot itself be the carrier** — a nullary
+      * concrete type (`String`, `Unit`). An *applied* return (`Box[String]`, `IO[Unit]`, `Either[E, A]`) or a
+      * generic-headed one may be exactly what hosts the effect: whether `def f: Box[String] = wrap(s)` is a
       * constructor-class use or an effect leak is decided by the instantiation (`F := Box` never rides), which no
       * pre-mono derivation can see. Those stay with the post-mono
-      * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]] and the checker's own
-      * carrier resolution.
+      * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]] and the checker's own carrier
+      * resolution.
       */
     def decidable: Boolean = declared.nonEmpty || !returnMayCarry
   }
@@ -151,8 +151,8 @@ object RowChecker {
 
   /** The platform run-carrier type heads, read off each registered run boundary's *own* declared first parameter
     * (`runMain(io: IO[A])` ⇒ `IO`) — declared information, never a name/shape guess. A definition returning such a
-    * carrier (`def main: IO[Unit]`) is the nominal-run spelling of a boundary and captures its whole row. Also
-    * exposed for the [[RowElaborator]]: a nominal-run body is a carrier region.
+    * carrier (`def main: IO[Unit]`) is the nominal-run spelling of a boundary and captures its whole row. Also exposed
+    * for the [[RowElaborator]]: a nominal-run body is a carrier region.
     */
   def runCarrierHeads(universe: Universe): Set[ValueFQN] =
     universe.runBoundaries.flatMap { boundary =>
@@ -194,11 +194,11 @@ object RowChecker {
   private def pinnedReturnEntries(orv: OperatorResolvedValue): Row =
     orv.effectRow.returnPinnedEffects.map(_.abilityFQN).toSet
 
-  /** The row a single expression derives on the enclosing definition's *ambient* carrier — the [[RowElaborator]]'s
-    * test for whether an argument must *run* at its call site. An expression *performs* iff its row is non-empty; a
-    * carrier-typed **value** — a reified computation such as `pure(x)`, or a parameter holding one — derives the
-    * empty row and is data to pass on, not work to sequence. So does a call whose effects [[capturedByStack]] routes
-    * onto a discharge stack: it runs on a carrier of its own, not on this one.
+  /** The row a single expression derives on the enclosing definition's *ambient* carrier — the [[RowElaborator]]'s test
+    * for whether an argument must *run* at its call site. An expression *performs* iff its row is non-empty; a
+    * carrier-typed **value** — a reified computation such as `pure(x)`, or a parameter holding one — derives the empty
+    * row and is data to pass on, not work to sequence. So does a call whose effects [[capturedByStack]] routes onto a
+    * discharge stack: it runs on a carrier of its own, not on this one.
     */
   def expressionRow(
       expr: OperatorResolvedExpression,
@@ -227,28 +227,31 @@ object RowChecker {
   ): Row =
     argumentContribution(expr, env, ambient, universe).row
 
-  /** The effects some signature in this universe **pins** — the ones a discharger in scope can consume, and so the
-    * only ones a call can be routed onto a carrier stack of its own for (A.11.4-R's corpus-forced filter). A
-    * `Suspend`-riding effect (`Console`, `Log`, `Inf`) has no `<Ability>Carrier` at all and is always provided by
-    * the base carrier, so it never appears here — which is what keeps [[capturedByStack]] from "discharging" an
-    * effect onto a layer that does not and cannot exist.
+  /** The effects some signature in this universe **pins** — the ones a discharger in scope can consume, and so the only
+    * ones a call can be routed onto a carrier stack of its own for (A.11.4-R's corpus-forced filter). A
+    * `Suspend`-riding effect (`Console`, `Log`, `Inf`) has no `<Ability>Carrier` at all and is always provided by the
+    * base carrier, so it never appears here — which is what keeps [[capturedByStack]] from "discharging" an effect onto
+    * a layer that does not and cannot exist.
     */
   def dischargeableAbilities(universe: Universe): Set[AbilityFQN] =
-    universe.values.values.flatMap { orv =>
-      orv.effectRow.returnPinnedEffects ++ orv.effectRow.pinnedParameterEffects.flatMap(_.effects)
-    }.map(_.abilityFQN).toSet
+    universe.values.values
+      .flatMap { orv =>
+        orv.effectRow.returnPinnedEffects ++ orv.effectRow.pinnedParameterEffects.flatMap(_.effects)
+      }
+      .map(_.abilityFQN)
+      .toSet
 
   /** The entries of a callee's declared row that do **not** ride the calling definition's ambient carrier: those the
-    * ambient does not declare and a discharger in scope can consume. This is the derivation half of
-    * [[RowElaborator]]'s `carrierAt` (A.11.4-R, Robert's decision) and must stay its mirror — the elaborator gives
-    * such a call a carrier stack of its own (`rename("after")` ⤳ `StateCarrier[String, F]` under a `{Console}`
-    * ambient), so its effects land in that stack for a consumer to discharge rather than on this definition's row.
-    * A verifier that counted them anyway would report a leak for every dot-chained discharge the elaborator had just
-    * routed correctly, and the two would disagree about the same call.
+    * ambient does not declare and a discharger in scope can consume. This is the derivation half of [[RowElaborator]]'s
+    * `carrierAt` (A.11.4-R, Robert's decision) and must stay its mirror — the elaborator gives such a call a carrier
+    * stack of its own (`rename("after")` ⤳ `StateCarrier[String, F]` under a `{Console}` ambient), so its effects land
+    * in that stack for a consumer to discharge rather than on this definition's row. A verifier that counted them
+    * anyway would report a leak for every dot-chained discharge the elaborator had just routed correctly, and the two
+    * would disagree about the same call.
     *
-    * A capture nothing discharges is not thereby accepted: the stack it carries meets the declared return type and
-    * the checker rejects it, and the post-mono accounting — whose *ride test* against the ground ambient carrier
-    * this rule mirrors — remains the unconditional verifier.
+    * A capture nothing discharges is not thereby accepted: the stack it carries meets the declared return type and the
+    * checker rejects it, and the post-mono accounting — whose *ride test* against the ground ambient carrier this rule
+    * mirrors — remains the unconditional verifier.
     */
   def capturedByStack(calleeRow: Row, ambient: Row, universe: Universe): Row = {
     val escaping = calleeRow -- ambient
@@ -262,8 +265,7 @@ object RowChecker {
     parameterEnvironment(orv, SignatureView.of(orv.signature), paramNames)
 
   /** What a saturated reference to `fqn` alone performs (its declared row / its ability) — the callee half of the
-    * derivation rule, exposed for the [[RowElaborator]] (its carrier-valued fallback for callees outside the
-    * universe).
+    * derivation rule, exposed for the [[RowElaborator]] (its carrier-valued fallback for callees outside the universe).
     */
   def calleeRow(fqn: ValueFQN, universe: Universe): Row =
     calleeContribution(fqn, universe).row
@@ -302,9 +304,9 @@ object RowChecker {
     * perform it. That is `map`, `filter`, `groupBy` — every combinator taking a user function.
     *
     * The entry never reaches the user: rows are also the verification vocabulary, and [[checkValue]] drops machinery
-    * from the derived row exactly as [[declaredRow]] drops it from the declared one, so `derived ⊆ declared` is
-    * decided in user abilities on both sides. Keeping the entry *inside* the derivation is what lets one row answer
-    * both questions instead of a second, parallel predicate.
+    * from the derived row exactly as [[declaredRow]] drops it from the declared one, so `derived ⊆ declared` is decided
+    * in user abilities on both sides. Keeping the entry *inside* the derivation is what lets one row answer both
+    * questions instead of a second, parallel predicate.
     */
   private def parameterEnvironment(
       orv: OperatorResolvedValue,
@@ -405,10 +407,10 @@ object RowChecker {
     *
     * An ability method is not a special case, and used to be: it contributed its owning ability whenever its signature
     * had any higher-kinded binder. That is a read of *shape*, and it is wrong in both directions — it made a
-    * constructor-class method (`Container`'s `wrap`/`unwrap`) perform an effect it does not have, and it overrode a
-    * row the method did declare (a method of `Beep` declaring `{Console}` was still charged `{Beep}`). Effect-ness is
-    * not a property an ability *has*; it is a property of what a method *does*, and a method says what it does the
-    * same way every other definition does — with a row on its return, which [[declaredRow]] already reads.
+    * constructor-class method (`Container`'s `wrap`/`unwrap`) perform an effect it does not have, and it overrode a row
+    * the method did declare (a method of `Beep` declaring `{Console}` was still charged `{Beep}`). Effect-ness is not a
+    * property an ability *has*; it is a property of what a method *does*, and a method says what it does the same way
+    * every other definition does — with a row on its return, which [[declaredRow]] already reads.
     */
   private def calleeContribution(fqn: ValueFQN, universe: Universe): Derivation =
     universe.lookup(fqn) match {

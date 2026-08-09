@@ -13,6 +13,7 @@ import scala.reflect.ClassTag
   *   The type of key this processor handles
   */
 abstract class SingleKeyTypeProcessor[K <: CompilerFactKey[?]](using ct: ClassTag[K]) extends CompilerProcessor {
+
   /** Exactly the test [[generate]] makes below, only without invoking anything: this processor handles precisely the
     * keys its type pattern matches.
     */

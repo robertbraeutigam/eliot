@@ -9,16 +9,16 @@ import java.net.URI
   *
   * Eliot's lexer (see [[TokenParser]]) treats every block comment as whitespace and discards it, so documentation
   * comments never reach the token stream. This scanner recovers them directly from the source text by walking it left
-  * to right, skipping string literals (the only place where a block-comment opener does not start a comment) and
-  * line comments.
+  * to right, skipping string literals (the only place where a block-comment opener does not start a comment) and line
+  * comments.
   *
   * Each returned [[Sourced]] holds the comment's *inner* text — what is written between the doubled-star opener and the
   * closer, delimiters excluded — focused on the comment's full range in the file (`from` at the leading slash, `to`
   * right after the closing slash). The standard empty block comment (open immediately followed by close) is
   * deliberately not treated as a documentation comment, matching the Scala/Java convention.
   *
-  * It is only ever run on content the lexer has already accepted, so every comment and string is guaranteed
-  * well-formed (terminated); it therefore never re-reports lexical errors.
+  * It is only ever run on content the lexer has already accepted, so every comment and string is guaranteed well-formed
+  * (terminated); it therefore never re-reports lexical errors.
   */
 object DocCommentScanner {
   def scan(uri: URI, content: String): Seq[Sourced[String]] = {
@@ -50,8 +50,8 @@ object DocCommentScanner {
       } else if (at("/*")) {
         val from  = Position(line, col)
         val isDoc = at("/**") && !at("/**/")
-        advance(); advance()        // consume `/*`
-        if (isDoc) advance()        // consume the third `*` so the captured text begins right after `/**`
+        advance(); advance() // consume `/*`
+        if (isDoc) advance() // consume the third `*` so the captured text begins right after `/**`
         val inner  = new StringBuilder
         var closed = false
         while (i < length && !closed) {

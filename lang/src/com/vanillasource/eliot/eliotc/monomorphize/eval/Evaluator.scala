@@ -57,9 +57,9 @@ object Evaluator {
     * The head cases (`VLam`/`VPi` β-reduce, `VNative` fires, `VNeutral`/`VTopDef`/`VStuckNative`/`VMeta` grow their
     * spine) are exhaustive for every applicable head. The remaining heads — `VConst` and `VType` — are *not*
     * applicable: applying an argument to a literal, a concrete type value, or `Type` can only arise in an **ill-typed**
-    * program (one the checker has already, or is about to, reject with a "Not a function." / "Type mismatch."). The pure
-    * evaluator keeps running through that error-recovery window (errors abort only post-drain, after the body walk), so
-    * this case must neither crash nor silently succeed.
+    * program (one the checker has already, or is about to, reject with a "Not a function." / "Type mismatch."). The
+    * pure evaluator keeps running through that error-recovery window (errors abort only post-drain, after the body
+    * walk), so this case must neither crash nor silently succeed.
     *
     * It therefore returns a **loud stuck form** — a [[SemValue.VNeutral]] on the reserved [[badApplyHead]] carrying the
     * argument in its spine — rather than the old identity-ish fallback that returned the argument `x` unchanged (which
@@ -107,10 +107,10 @@ object Evaluator {
     case _                                       => v
   }
 
-  /** Apply a bodied [[SemValue.VTopDef]]'s spine to its evaluated body, skipping the written type arguments the body has
-    * no binder for (see [[SemValue.VTopDef.TypeArgFit]]). Those arguments stay in the spine — they are the definition's
-    * type application wherever it does *not* unfold — but beta-applying them here would land a type in the first value
-    * parameter's slot and shift every value argument one to the left.
+  /** Apply a bodied [[SemValue.VTopDef]]'s spine to its evaluated body, skipping the written type arguments the body
+    * has no binder for (see [[SemValue.VTopDef.TypeArgFit]]). Those arguments stay in the spine — they are the
+    * definition's type application wherever it does *not* unfold — but beta-applying them here would land a type in the
+    * first value parameter's slot and shift every value argument one to the left.
     *
     * A type argument is applied only while the body's head lambda *is* the generic binder it belongs to, matched by
     * name: a type-level body binds its own parameters, an ordinary `def`'s body binds only what
@@ -204,7 +204,7 @@ object Evaluator {
 
   /** Force a semantic value by walking solved metas and unfolding VTopDef. */
   def force(v: SemValue, metaStore: MetaStore): SemValue = v match {
-    case VMeta(id, spine)                =>
+    case VMeta(id, spine)                        =>
       metaStore.lookup(id) match {
         case Some(solved) =>
           val base = force(solved, metaStore)
@@ -213,7 +213,7 @@ object Evaluator {
       }
     case topDef @ VTopDef(_, Some(cached), _, _) =>
       force(applySpine(topDef, force(cached.value, metaStore)), metaStore)
-    case _                               => v
+    case _                                       => v
   }
 
   import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
@@ -235,16 +235,18 @@ object Evaluator {
       // [[groundToSemParam]]). Reaching the plain conversion means a `Param` leaked outside a signature-twin fact; produce
       // a non-quotable *runtime-parameter* neutral (distinct head, negative level) so it fails **loudly** at read-back
       // ("Cannot quote neutral value") rather than silently carrying a parametric form into a ground signature.
-      args.map(groundToSem).foldLeft(
-        VNeutral(NeutralHead.Param(-1 - index, s"$$sig-param-leak:$index"), Spine.SNil): SemValue
-      )(applyValue)
+      args
+        .map(groundToSem)
+        .foldLeft(
+          VNeutral(NeutralHead.Param(-1 - index, s"$$sig-param-leak:$index"), Spine.SNil): SemValue
+        )(applyValue)
     case _                                   => VConst(g)
   }
 
   /** [[groundToSem]] with a `Param → SemValue` substitution — the value mono's re-inflation of a *parametric* signature
-    * twin (signature-unification C2). Each [[GroundValue.Param]] is replaced by `param(index)` (a fresh metavariable the
-    * caller allocates once per index), preserving the constraint-covered deferral a leftover generic binder needs; its
-    * applied spine is re-inflated positionally. Non-`Param` ground values convert exactly as [[groundToSem]].
+    * twin (signature-unification C2). Each [[GroundValue.Param]] is replaced by `param(index)` (a fresh metavariable
+    * the caller allocates once per index), preserving the constraint-covered deferral a leftover generic binder needs;
+    * its applied spine is re-inflated positionally. Non-`Param` ground values convert exactly as [[groundToSem]].
     */
   def groundToSemParam(g: GroundValue, param: Int => SemValue): SemValue = g match {
     case GroundValue.Type                    => VType
@@ -266,10 +268,11 @@ object Evaluator {
 
   /** Convert a ground *signature* to a [[SemValue]], re-inflating [[VPi]] for function types. [[groundToSem]] alone
     * leaves a quoted `Function[A, B]` as a stuck `Function` [[VTopDef]] — the Π structure is lost at quote time and
-    * [[renormalize]] does not re-fire a body-less top-def — which the body check (matching a `FunctionLiteral` against a
-    * `VPi`) cannot use. This rebuilds `VPi(domain, _ => codomain)` recursively, with a **constant** codomain: a ground
-    * signature is fully applied, so its codomain carries no residual dependency on the domain value. The signature-twin
-    * flip (signature split, Step 6) uses this to turn the twin's reduced ground signature back into a checkable type.
+    * [[renormalize]] does not re-fire a body-less top-def — which the body check (matching a `FunctionLiteral` against
+    * a `VPi`) cannot use. This rebuilds `VPi(domain, _ => codomain)` recursively, with a **constant** codomain: a
+    * ground signature is fully applied, so its codomain carries no residual dependency on the domain value. The
+    * signature-twin flip (signature split, Step 6) uses this to turn the twin's reduced ground signature back into a
+    * checkable type.
     */
   def groundToSemPi(g: GroundValue): SemValue =
     g.asFunctionType match {

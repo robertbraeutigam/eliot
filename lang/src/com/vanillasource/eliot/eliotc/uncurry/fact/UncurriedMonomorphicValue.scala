@@ -46,6 +46,8 @@ case class UncurriedMonomorphicValue(
 object UncurriedMonomorphicValue {
   case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue], arity: Int)
       extends CompilerFactKey[UncurriedMonomorphicValue] {
-        override def valueCodec: Option[FactCodec[UncurriedMonomorphicValue]] = Some(LangFactCodecs.uncurriedMonomorphicValueCodec)
-      }
+    override def valueCodec: Option[FactCodec[UncurriedMonomorphicValue]] = Some(
+      LangFactCodecs.uncurriedMonomorphicValueCodec
+    )
+  }
 }
