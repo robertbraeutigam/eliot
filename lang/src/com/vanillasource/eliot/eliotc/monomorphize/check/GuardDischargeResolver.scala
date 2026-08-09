@@ -53,7 +53,7 @@ class GuardDischargeResolver(
     */
   def isGuardCarrier(inferred: SemValue): CheckIO[Boolean] =
     force(inferred).flatMap {
-      case VTopDef(fqn, _, _) => pure(fqn === WellKnownTypes.eitherFQN || fqn === WellKnownTypes.boolFQN)
+      case VTopDef(fqn, _, _, _) => pure(fqn === WellKnownTypes.eitherFQN || fqn === WellKnownTypes.boolFQN)
       // An *inline* guard (`if..else..raise`) whose carrier is still an unsolved **higher-kinded** meta at kind-check
       // time (`?G[?A]`, the `else` carrier not yet pinned): its concrete carrier `Either[String]` is only fixed later by
       // `Track.Compiler.pinCarriers`, but the return already *is* a `{Throw[String]}`/`{Abort}` guard. Recognising the
@@ -79,9 +79,9 @@ class GuardDischargeResolver(
     */
   def dischargeGuardedReturn(retType: SemValue, at: Sourced[?]): CheckIO[Option[SemValue]] =
     force(retType).flatMap {
-      case VTopDef(fqn, _, spine) if fqn === WellKnownTypes.rightFQN =>
+      case VTopDef(fqn, _, spine, _) if fqn === WellKnownTypes.rightFQN =>
         pure(GuardChannel.payload(spine.toList))
-      case VTopDef(fqn, _, spine) if fqn === WellKnownTypes.leftFQN  =>
+      case VTopDef(fqn, _, spine, _) if fqn === WellKnownTypes.leftFQN  =>
         GuardChannel.payload(spine.toList) match {
           case Some(msgSem) =>
             extractGuardMessage(msgSem).flatMap(msg => liftF(compilerError(at.as(msg)) >> abort[Option[SemValue]]))

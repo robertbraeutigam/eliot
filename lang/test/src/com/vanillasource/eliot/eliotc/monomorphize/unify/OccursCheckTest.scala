@@ -59,6 +59,6 @@ class OccursCheckTest extends AnyFlatSpec with Matchers {
   it should "solve the meta to that function type" in {
     val (id, u) = withMeta()
     u.unify(VMeta(id, Spine.SNil), arrow(VTopDef(intFqn, None, Spine.SNil), VType), ctx).metaStore
-      .lookup(id) should matchPattern { case Some(VPi(VTopDef(`intFqn`, None, Spine.SNil), _)) => }
+      .lookup(id) should matchPattern { case Some(VPi(VTopDef(`intFqn`, None, Spine.SNil, _), _)) => }
   }
 }

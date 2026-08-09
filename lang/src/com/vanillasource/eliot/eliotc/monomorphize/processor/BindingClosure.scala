@@ -56,7 +56,11 @@ object BindingClosure {
           evaluator.eval(Env.empty, reifyingWrap(b.value, saturated))
         }
       },
-      Spine.SNil
+      Spine.SNil,
+      // The binding states the wrap it just performed, so unfolding can tell a written type argument this body can bind
+      // from one it cannot (see `SemValue.VTopDef.TypeArgFit`). A body-less value binds nothing and needs no statement —
+      // its spine *is* its argument list.
+      Option.when(body.isDefined)(VTopDef.TypeArgFit(saturated.binderRoles.roles.map(_.name.value), 0))
     )
   }
 

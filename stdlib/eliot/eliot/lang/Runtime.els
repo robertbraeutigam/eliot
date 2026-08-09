@@ -1,7 +1,4 @@
 /**
  * Convert a `BigInteger` literal into the platform's concrete integer value.
  */
-// The brace builds the seed range with plain constructors rather than the `closed(V, V)` shorthand: the meta
-// companion is reduced by the refinement channel's linker-executor, which links a bounded closure of callees, and
-// an Eliot-bodied helper in the seed leaves the reduction stuck (the range then never reaches a `where`).
-def integerLiteral[V: BigInteger]: Int {Bounded(Interval(Bounded(V), Bounded(V)))}
+def integerLiteral[V: BigInteger]: Int {Bounded(closed(V, V))}

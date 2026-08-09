@@ -29,7 +29,50 @@ object SemValue {
 
   case class VNative(paramType: SemValue, fire: SemValue => SemValue) extends SemValue
 
-  case class VTopDef(fqn: ValueFQN, cached: Option[Lazy[SemValue]], spine: Spine) extends SemValue
+  /** A lazy top-level definition with a spine.
+    *
+    * @param typeArgFit
+    *   How this binding's *body* lines up with the written **type arguments** in its spine, when known. See
+    *   [[VTopDef.TypeArgFit]]; [[None]] means "unstated", and the body consumes its whole spine as before.
+    */
+  case class VTopDef(
+      fqn: ValueFQN,
+      cached: Option[Lazy[SemValue]],
+      spine: Spine,
+      typeArgFit: Option[VTopDef.TypeArgFit] = None
+  ) extends SemValue
+
+  object VTopDef {
+
+    /** The mismatch between the type arguments a reference *writes* and the ones a body-ful binding can *bind*.
+      *
+      * A value's generic binders are binders of its **signature**, not lambdas of its runtime body, so
+      * [[com.vanillasource.eliot.eliotc.monomorphize.processor.BindingClosure]] wraps the body in lambdas only for the
+      * generics it *reifies* (references in value position). `closed[T](start, end) = Interval(Bounded(start), Bounded(end))`
+      * reifies nothing: its body is two value lambdas and binds no type argument at all. Checker output nevertheless
+      * carries every solved type argument, so the written `[BigInteger]` used to be β-applied to `start` — shifting each
+      * value argument one to the left and reducing a well-typed definition to an ill-typed value
+      * (`Interval(Bounded(BigInteger), Bounded(n), n)`), which no phase downstream is in a position to notice.
+      *
+      * The written arguments must still *stay in the spine*: for a bodied definition that does not unfold, the spine is
+      * the type application the unifier decomposes and the printer renders. So the arguments are kept, and the ones the
+      * body cannot bind are skipped only where they would do harm — when the body is unfolded
+      * ([[com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator]] applies its `applySpine` rather than the raw
+      * spine).
+      *
+      * Whether a body binds its generics cannot be counted from the wrap alone: a `def`'s body does not (the wrap is
+      * what gives it one), while a *type-level* body binds its own parameters and needs no wrap. Both end up as leading
+      * [[VLam]]s, so the two are told apart by **name** — a type argument is β-applied only while the body's head lambda
+      * is the generic binder it belongs to. `closed`'s head lambda is `start`, not `T`, which is exactly the mismatch.
+      *
+      * @param genericNames
+      *   The value's leading generic binder names, in declaration order.
+      * @param applied
+      *   Leading spine entries that are written type arguments. Type arguments are always applied before value
+      *   arguments, so these are exactly the first `applied` entries.
+      */
+    case class TypeArgFit(genericNames: Seq[String], applied: Int)
+  }
 
   /** A stuck primitive (native) application — a built-in operation (`add`, `min`, `&&`, `fold`, …) applied to
     * arguments that are not yet concrete, so it cannot reduce. Carries the native's own FQN and the (renormalised)

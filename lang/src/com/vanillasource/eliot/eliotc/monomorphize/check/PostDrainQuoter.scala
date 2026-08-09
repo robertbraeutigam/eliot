@@ -427,7 +427,7 @@ class PostDrainQuoter(
   private def leadingCarrierIsId(typeArgs: Seq[SemValue]): Boolean =
     typeArgs.headOption.exists(carrier =>
       Evaluator.force(carrier, metaStore) match {
-        case SemValue.VTopDef(fqn, _, _) => fqn === WellKnownTypes.idFQN
+        case SemValue.VTopDef(fqn, _, _, _) => fqn === WellKnownTypes.idFQN
         case _                           => false
       }
     )
@@ -492,6 +492,14 @@ class PostDrainQuoter(
     * also uses (only `fieldCount`, never `typeParamCount`). The quoted structure's leading args are the constructor's
     * type arguments (kept as `MonomorphicValueReference` type args) and the trailing `fieldCount` args are the field
     * values (materialised recursively and applied). A head that is not a concrete value constructor yields [[None]].
+    *
+    * A constructor holding **fewer** arguments than it has fields cannot be read back at all — it is an *under*-applied
+    * constructor in a position that quoted as a finished value, i.e. a reduction that lost an argument. Declining
+    * quietly would hand the caller a structural fallback built on the wrong arity, which is how a misaligned reduction
+    * travels downstream disguised as a well-formed value; fail loudly instead. Note this catches only the *short*
+    * misalignment: a spine that is too long still splits plausibly into "more type arguments", and telling those apart
+    * would need the constructor's type-parameter arity ([[RoleHint.TypeConstructor.typeParamCount]]), which no semantic
+    * phase may read.
     */
   private def materialiseStructure(
       s: GroundValue.Structure,
@@ -502,7 +510,13 @@ class PostDrainQuoter(
         Option.empty[MonomorphicExpression].pure[CompilerIO]
       case Some(RoleHint.ValueConstructor(dataType, fieldCount)) =>
         val splitIndex = s.args.size - fieldCount
-        if (splitIndex < 0) Option.empty[MonomorphicExpression].pure[CompilerIO]
+        if (splitIndex < 0)
+          compilerAbort[Option[MonomorphicExpression]](
+            at.as(
+              s"Internal error: constructor '${s.typeName.name.name}' reduced to ${s.args.size} argument(s) but declares $fieldCount field(s)."
+            ),
+            Seq("This is a compiler defect — a reduction lost an argument; please report it.")
+          )
         else {
           val (typeArgs, valueArgs)       = s.args.splitAt(splitIndex)
           // The value's type is the data type constructor (same module as the constructor) applied to the type args.

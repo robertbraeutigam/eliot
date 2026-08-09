@@ -49,9 +49,9 @@ class CompilerNativesProcessorTest extends ProcessorTest(LangProcessors(systemMo
     * reference that stays an FQN-preserving stuck `VTopDef`.
     */
   private def reducesTo(sem: SemValue): Option[String] = sem match {
-    case VTopDef(_, Some(cached), _) =>
+    case VTopDef(_, Some(cached), _, _) =>
       cached.value match {
-        case VTopDef(target, _, _) => Some(target.name.name)
+        case VTopDef(target, _, _, _) => Some(target.name.name)
         case _                     => None
       }
     case _                           => None
