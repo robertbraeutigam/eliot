@@ -74,6 +74,71 @@ class StringOperationsIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "abc|...")
   }
 
+  /** Eliot counts and indexes a string in '''code points''', which is a property of the text rather than of a
+    * platform's storage, so the same program answers the same numbers everywhere. This platform is the one that has to
+    * translate: a `java.lang.String` measures in UTF-16 units, and the emoji below occupies two of them — so every
+    * number here would be one larger, and `substring(1, 2)` would answer half a character, without the translation.
+    *
+    * The string is *built* at runtime (a literal would be folded by the compile-time twin instead) so the assertions
+    * land on the emitted `java.lang.String` calls.
+    */
+  "the index operations" should "count a runtime string in code points, not in storage units" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = line ++ "😀b"
+          |   printLine(show(s.length) ++ "|" ++ show(indexOf("b", s) else (0 - 1)) ++ "|" ++
+          |             yn(s.substring(1, 2) == "😀") ++ yn(s.take(2) == "a😀") ++ yn(s.drop(1) == "😀b"))
+          |}""".stripMargin,
+      stdin = "a\n"
+    ).asserting(_ shouldBe "3|2|yyy")
+  }
+
+  /** The other half of the same rule: the compile-time twin must measure exactly as the runtime leaf does, or a
+    * program would slice one way while being checked and another while running.
+    *
+    * Every clause discriminates the two units on `"a😀b"` — `substring(2, length)` is `"b"` at three code points and
+    * half an emoji plus `"b"` at four UTF-16 units — and `before` reaches `indexOfInternal`, whose answer has to be a
+    * valid `substring` start in the same unit. The indices come from paramless defs because a literal in a `where`
+    * guard is type-level (a `BigInteger`), not an `Int`; the checker reduces those defs just as it reduces the guard.
+    */
+  they should "count a compile-time string in code points, exactly as at runtime" in {
+    compileAndRun(
+      prelude +
+        """
+          |def one: Int = 1
+          |def two: Int = 2
+          |
+          |ability Counted[S: String] {
+          |   def verdict: String
+          |}
+          |
+          |implement[S: String] Counted[S] where
+          |   substring(one, two, S) == "😀" && substring(two, length(S), S) == "b" &&
+          |   drop(one, S) == "😀b" && before("b", S) == "a😀" {
+          |   def verdict: String = "counted"
+          |}
+          |
+          |def main: {Console} Unit = printLine(verdict["a😀b"])""".stripMargin
+    ).asserting(_ shouldBe "counted")
+  }
+
+  /** `replace` with an empty `target` fills every gap between characters, and a surrogate pair is one character, so it
+    * is one gap. The host's own `replace` would find two.
+    */
+  "replace" should "treat a surrogate pair as one gap when the target is empty" in {
+    compileAndRun(
+      prelude +
+        """
+          |def main: {Console} Unit = {
+          |   val s = line ++ "😀b"
+          |   printLine(yn(replace("", "-", s) == "-a-😀-b-") ++ yn(replace("😀", "x", s) == "axb"))
+          |}""".stripMargin,
+      stdin = "a\n"
+    ).asserting(_ shouldBe "yy")
+  }
+
   "indexOf" should "yield the position of a match and abort when there is none" in {
     compileAndRun(
       prelude +

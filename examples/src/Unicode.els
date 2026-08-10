@@ -1,4 +1,21 @@
-def main: {Console} Unit = printLine(<===>)
+/**
+ * Unicode in three places at once: in an identifier, in a literal, and in the unit a string is measured in.
+ *
+ * `<===>` is an ordinary name — an identifier may be built from symbols, and from any letter, not only the
+ * ASCII ones. The greeting it answers carries a character outside the Basic Multilingual Plane, which is
+ * where the *measure* becomes visible: `length` counts code points, so the globe counts as one however many
+ * storage units a platform holds it in (the JVM holds it in two), and a slice can never cut it in half.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m Unicode
+ * java -jar target/Unicode.jar
+ * ```
+ */
+def main: {Console} Unit = {
+   val greeting = <===>
+   printLine(greeting)
+   printLine(show(greeting.length)) // 13, not the 14 UTF-16 units the JVM stores it in
+   printLine(greeting.take(7))      // "Hello 🌍" — the globe is one character, so it is taken whole
+}
 
-def <===>: String = "Hello World!"
-
+def <===>: String = "Hello 🌍 World"

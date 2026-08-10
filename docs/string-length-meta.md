@@ -1,6 +1,7 @@
 # A length meta for `String` — the refinement channel's second domain
 
-Status: **design proposal**. The load-bearing mechanism was **prototyped end-to-end and reverted** — every claim
+Status: **design proposal, with its prerequisite built.** S0 (code-point indices, §5.1/§10) has **landed**; everything
+from the slot on is still design. The load-bearing mechanism was **prototyped end-to-end and reverted** — every claim
 marked *verified* below was run against the real tree; everything else is design.
 
 Two of §11's open decisions are now **settled**. The unit is the **code-point count** (§5.1), which adds a
@@ -264,10 +265,12 @@ unit cannot be changed in `length` alone; it changes in every index-taking leaf,
 
 That is ~5 leaves plus their compile-time twins, and it costs O(n) index translation on the JVM.
 
-**Land it as its own change, ahead of the meta work, and justify it without the meta work.** Today `length("日本語𝕏")`
-returns a different number per target, so any string-slicing user program is already non-portable — the meta domain
-does not create that defect, it only makes it visible. "Eliot string indices are code points" stands on its own as a
-cornerstone fix; smuggling it in as a refinement-channel prerequisite makes both changes harder to review.
+**Land it as its own change, ahead of the meta work, and justify it without the meta work.** — **done, as S0**; the
+table above is now history rather than a plan, and `split`/`replace` on their empty argument moved with it (§10).
+Before that change `length("日本語𝕏")`
+returned a different number per target, so any string-slicing user program was already non-portable — the meta domain
+did not create that defect, it only made it visible. "Eliot string indices are code points" stands on its own as a
+cornerstone fix; smuggling it in as a refinement-channel prerequisite would have made both changes harder to review.
 
 Then say it in `String.els`'s doc comment: **the meta counts the same units `length` returns, and that unit is the
 code point.** The meta must never be able to disagree with the function.
@@ -477,11 +480,22 @@ transfer, and until P4 exists it derives nothing. Correct and useless — exactl
 
 Each stage compiles and passes the example sweep on its own.
 
-- **S0 — code-point indices** (§5.1). `length` and the whole index family (`substring`, `indexOfInternal`, and their
-  `StringReductions` twins) switch to code-point units; `take`/`drop` inherit it. A **prerequisite, not part of this
-  feature**: it is a cornerstone fix that stands on its own, it touches no channel code, and it should be reviewed as
-  a language change rather than as refinement plumbing. Test: a non-BMP string round-tripping through
-  `length`/`substring`/`indexOf`, and `Unicode.els` extended past its ASCII literal.
+- **S0 — code-point indices** (§5.1) — **LANDED**. `length` and the whole index family (`substring`,
+  `indexOfInternal`, and their `StringReductions` twins) switched to code-point units; `take`/`drop` inherited it. A
+  **prerequisite, not part of this feature**: it is a cornerstone fix that stands on its own, it touches no channel
+  code, and it was reviewed as a language change rather than as refinement plumbing. Test: a non-BMP string round-trips
+  through `length`/`substring`/`indexOf`/`take`/`drop` on both tracks (`StringOperationsIntegrationTest`), and
+  `Unicode.els` now carries a supplementary character.
+
+  Two leaves outside the index family had to move with it, because they are documented in the *unit*: `split("", s)`
+  is "the characters of `s`", and `replace("", r, s)` inserts "between every pair of characters". Java cuts both at
+  UTF-16 boundaries, which would have split a surrogate pair now that a character is a code point, so the empty
+  separator cuts at `(?s)(?<=.)` and the empty target fills `(?s)(?<=.)|^` instead. Behaviour on BMP text is
+  unchanged, character for character.
+
+  The **unit is now stated once**, on `type String` in `lang` (the layer that owns the name), and `length`,
+  `substring`, `take`, `drop`, `indexOf` and `split` refer to it rather than restating it. `String.els`'s old sentence
+  — "the platform's storage units" — is what S1's doc-comment change was going to have to contradict; it is gone.
 - **S1 — the slot.** `type String {size: Bound[Interval[BigInteger]]}` + the `eliot.compiler.Meta` import in `String.els`,
   plus a doc-comment sentence defining the unit as the code-point count (§5.1). Inert: no seed, so every node stays
   ⊤. *Verified.*
@@ -514,9 +528,10 @@ without either.
 4. **Scope**: S1+S2 alone (a working `where` domain, no stated transfers) is a defensible landing point and needs
    neither §8 nor the ⊤ question — the latter is now settled anyway (§7).
 5. **Order vs. R2** (§7): confirm the domain lands while accounting stays dormant.
-6. **Is S0 in scope for whoever takes this?** It is a separable language change with its own justification (§5.1).
-   Landing it first is the recommendation; landing the domain on the pragmatic unit and switching later is *not* a
-   safe fallback, because every `where` written in the meantime silently changes meaning.
+6. ~~**Is S0 in scope for whoever takes this?**~~ — **settled by landing it first** (§10). It went in as its own
+   change, ahead of the slot and with no channel code touched, exactly as §5.1 recommended: landing the domain on the
+   pragmatic unit and switching later was never a safe fallback, because every `where` written in the meantime would
+   silently change meaning. The next stage is S1.
 
 ---
 
