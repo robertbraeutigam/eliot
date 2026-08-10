@@ -7,25 +7,6 @@ def foldBound[T, B](ifUnbounded: {Effect} B, ifBounded: T => {Effect} B, b: Boun
    case Bounded(v) -> ifBounded(v)
 }
 
-/**
- * The bounded endpoint at the constant `V` — `Bounded(V)`, with `V` supplied in **type** position.
- *
- * This exists because a transfer brace cannot otherwise name a number at all. An interval endpoint is a
- * `BigInteger` (a limit has no width of its own), while a value-position integer literal is an `Int`, and there
- * is no widening between the two by design — so `Bounded(0)` in a brace is a `Bound[Int]` and a type error. A
- * **type**-position literal is already the `BigInteger` the endpoint wants, which is the same reason
- * `rangeWithin[0, 127]` and `integerLiteral[V]` take theirs there.
- *
- * Compile-time only, and deliberately not declared in the base: nothing at runtime needs a constant endpoint
- * spelled this way, and a name the runtime layers do not carry is a name no platform has to implement.
- *
- * ```eliot
- * // A leaf whose result is a slice of its argument: never longer than what it came from, never negative.
- * def substring(startIndex: Int, endIndex: Int, s: String): String {interval(boundedAt[0], end(size(s)))}
- * ```
- */
-def boundedAt[V: BigInteger]: Bound[BigInteger] = Bounded(V)
-
 def minBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
    case Unbounded -> Unbounded
    case Bounded(x) -> b match {

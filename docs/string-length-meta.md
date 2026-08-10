@@ -374,7 +374,7 @@ below the table.
 |---|---|---|
 | `combine` (`++`) | `{size(a) + size(b)}` | **as written** — exact; `Interval` addition, as `Int`'s `add` |
 | `length` | `{size(s)}` | **as written** (S3) — cross-domain, exact |
-| `substring(startIndex, endIndex, s)` | `{Interval(0, min(end(range(endIndex)) - start(range(startIndex)), end(n)))}` | **`{interval(boundedAt[0], end(n))}`** — the length ceiling only; see *the ceiling that could not be spelled* below |
+| `substring(startIndex, endIndex, s)` | `{Interval(0, min(end(range(endIndex)) - start(range(startIndex)), end(n)))}` | **`{interval(Bounded(0), end(n))}`** — the length ceiling only; see *the ceiling that could not be spelled* below |
 | `take` / `drop` | derived from `substring` — **if** derivation existed (§9) | not stated: bodied ⇒ ⊤, and by R3 they may not |
 | `trim` | `{Interval(0, end(n))}` | **as written** |
 | `toUpperCase` / `toLowerCase` | `{Interval(start(n), end(n) * 3)}` | **as written** — **not** length-preserving: `ß` ⤳ `SS`, `ﬃ` ⤳ `FFI`. The discipline catches a bug an eyeball would not. The `* 3` factor is a code-point fact, so §5.1 makes this row portable rather than JVM-flavoured |
@@ -404,20 +404,21 @@ than part of this stage. The `pow` leaf S4 was originally scoped to carry is the
 
 **What S4 needed that did not exist: a way to write a number.** An interval endpoint is a `BigInteger` — a limit has no
 width of its own — while a value-position integer literal is an `Int`, and by the *Types Are Values* cornerstone there
-is no widening between them. So `Bounded(0)` inside a brace is a `Bound[Int]` and a type error, and every row above
-whose floor is `0` was unwritable. The fix is the same one `rangeWithin[0, 127]` and `integerLiteral[V]` already use —
-put the literal in **type** position, where it is already a `BigInteger` — packaged as one compile-time-only helper,
-`boundedAt[V: BigInteger]: Bound[BigInteger] = Bounded(V)`, in `stdlib/eliot-compiler/eliot/lang/Bound.els`. It is a
-checking-only addition, so it is deliberately absent from the base: no platform has to implement a name nothing at
-runtime asks for. Two smaller facts fell out of it, both worth knowing before writing the next brace:
+is no widening between them. So `Bounded(0)` inside a brace was a `Bound[Int]` and a type error, and every row above
+whose floor is `0` was unwritable. S4 worked around it with the same idiom `rangeWithin[0, 127]` and `integerLiteral[V]`
+use — put the literal in **type** position, where it is already a `BigInteger` — packaged as one compile-time-only
+helper, `boundedAt[V: BigInteger]: Bound[BigInteger] = Bounded(V)`.
 
-- **A type-position literal may not be negative.** `boundedAt[-1]` fails to evaluate ("Cannot quote lambda — expected a
-  fully evaluated type"), so `indexOfInternal`'s sentinel is spelled `boundedAt[0] - boundedAt[1]` — one below the
-  first index, which is what the sentinel *is*. This is another face of the TODO's "unify `Int` literal handling across
-  the two tracks".
-- **A brace's argument order decides its type.** Inference runs left to right, so `interval(Bounded(0), …)` fixes
-  `T := Int` from the first argument and then rejects everything after it; an explicit `interval[BigInteger](…)` does
-  not rescue it, because the literal is still typed bottom-up. Only moving the literal into type position works.
+**That workaround has since been removed, by fixing the premise instead.** A brace is *compiler-track code*: its `^Meta`
+transfer companion (and a `where` clause's `^Where` companion) is compiler-pool-only, dead in the runtime pool. So a
+literal in one is read exactly as a literal in a signature already was — a bare `BigInteger`, never the runtime
+`integerLiteral[n] : Int` protocol — which is a one-line rule in `CoreProcessor`/`CoreExpressionConverter` rather than a
+helper. `Bounded(0)` now means what it says, `boundedAt` is deleted, and the two edges the workaround had are gone with
+it: nothing is in type position, so nothing forbids a negative (`Bounded(0 - 1)` is the sentinel, the subtraction
+reduced by the compile-time `Numeric[BigInteger]`), and argument order no longer decides a call's type parameters,
+because there is no `Int` for a first argument to fix `T` to. What remains of the underlying friction is narrower: an
+*ordinary def body* is still runtime-track, so a helper called from a brace cannot name a `BigInteger` constant in
+value position — which is why `rangeWithin[Lo, Hi]` keeps its type parameters.
 
 **§5.1 retires the two hardest rows** *in principle* — both were unbounded *because* the unit was a storage count,
 and neither is stated in the tree for the separate reasons the table gives (an exponent that cannot be run, a
@@ -649,7 +650,9 @@ Each stage compiles and passes the example sweep on its own.
     later analysis in the document that owns R2 won.
   - **A brace could not name a number**, which is what actually gated the stage — see §6's *"what S4 needed that did
     not exist"*. One compile-time-only helper (`boundedAt[V]`) closed it, in `stdlib/eliot-compiler/`, which is also
-    the first time this domain needed anything in the compiler overlay at all.
+    the first time this domain needed anything in the compiler overlay at all. **Superseded**: the premise was wrong
+    rather than the spelling — a brace is compiler-track, so its literals are `BigInteger`s like a signature's. The
+    helper is deleted and the braces read `Bounded(0)` / `Bounded(0 - 1)`; §6 records what that removed.
   - **`substring`'s parameters were renamed** to `startIndex`/`endIndex`. A brace resolves `end` to the *parameter*
     before the `Interval` accessor, so the old names made the accessor unreachable from the very signature that needed
     it. The rename is behaviour-preserving (natives bind by name and arity, not by parameter name) and the prose reads
