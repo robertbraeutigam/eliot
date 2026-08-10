@@ -2,10 +2,10 @@
 
 Status: **design, partly built.** Two pieces have landed: the R2 check itself
 (`monomorphize/channel/MetaTransferAccountingProcessor`, registered but **dormant** — see §9 P1/P2) and the
-range domain's top (`Bound[Interval[BigInteger]]`, §5), which was the last thing standing between the check
+range domain's top (`whole`, §5), which was the last thing standing between the check
 and being armed. Everything from §6 on — the meta interpretation — is still design.
 
-A **second domain has since landed** — `type String {size: Bound[Interval[BigInteger]]}` with its literal seed
+A **second domain has since landed** — `type String {size: Interval[BigInteger]}` with its literal seed
 (`docs/string-length-meta.md`, S1+S2) — which changes nothing here structurally (a nullary type's meta is a plain
 one-slot structure; §2.3's *structural* map is still owed by `List`) but does enlarge what arming R2 costs: every
 body-less `String`-returning leaf now produces a meta-carrying type and so joins §P2's list. That is the sequencing
@@ -150,10 +150,13 @@ where this section predicted one would go if it were needed:
 
 ```eliot
 data Bound[T] = Unbounded | Bounded(value: T)
-type Int {range: Bound[Interval[BigInteger]]}
+data Interval[T](start: Bound[T], end: Bound[T])
+type Int {range: Interval[BigInteger]}
 ```
 
-`Unbounded` absorbs through `Numeric[Bound[T]]` and `Meta[Bound[T]]`.
+An `Unbounded` endpoint absorbs through `Numeric[Bound[T]]`, and the domain's top is `whole` — the interval
+open at both ends. (This shipped in two steps: the top was first a *second* `Bound` wrapped around the slot,
+and collapsed into the endpoints once those could express an open end. See the second amendment below.)
 
 > **Amended: `Interval` now has unbounded endpoints too.** The paragraph below argued for a wrapper at the
 > slot *instead of* an unbounded endpoint per side, on the grounds that the case that seemed to need them —
@@ -167,10 +170,7 @@ type Int {range: Bound[Interval[BigInteger]]}
 > This is the change §5's own last paragraph anticipated — a change to `Interval`, not to `Bound` or
 > `Meta` — reached by a different motivation than the §5.2 one it expected.
 >
-> `Bound` is **kept** at the slot. It is still the right top for a domain that is not an interval, and
-> collapsing it would leave two spellings of the range domain's top (`Unbounded` and a fully-open
-> interval), which the per-position verdict comparison in `ReconcileProcessor.metaByPosition` reads as
-> disagreement. Deliberately deferred, not overlooked.
+> `Bound` is **kept** at the slot ~~for now~~ — **superseded, see the second amendment below.**
 >
 > Precision, on the arithmetic: `add` and `subtract` stay **exact** on a half-open interval, because each
 > pairs endpoints so an absorbing `Unbounded` lands in the position meaning the infinity it came from, and
@@ -179,6 +179,23 @@ type Int {range: Bound[Interval[BigInteger]]}
 > its infinity a direction. Sound, not tight — the same trade `Numeric[Bound[T]]` already documents for a
 > zero operand, and recovering it needs a signed endpoint view local to that one method.
 
+> **Amended again: the slot-level `Bound` is gone.** With `whole` available, the wrapper added no
+> expressiveness — `Bounded(whole)` and `Unbounded` denoted the same thing — so the range domain is now
+> `Interval[BigInteger]`, and so is the size domain, each topped by `whole`. The amendment above deferred
+> this on two grounds; both are answered rather than waived:
+>
+> - **Two spellings of the top.** This was the real blocker, and collapsing is what *fixes* it. There is now
+>   exactly one structure meaning "nothing bounds this", so a leaf that states the top and a `multiply` that
+>   widened into it agree under `ReconcileProcessor.metaByPosition`'s structural comparison instead of
+>   cancelling each other to ⊤. Keeping the wrapper was what created the second spelling.
+> - **A domain that is not an interval.** Still true, and still served: `Bound[D]` and its `Meta[Bound[D]]`
+>   join stay in the tree as the generic top for such a domain. What changed is that no *shipped* domain is
+>   of that kind — both are intervals — so neither pays for a wrapper it does not need.
+>
+> Verified by the byte-identity oracle: all 40 compiling examples produce class content identical to the
+> pre-change build, since a stated top and a half-open range already decoded to the same ⊤ layout
+> (`IntRepresentation.intervalBounds`). The two decoders lost one nesting level; nothing else downstream moved.
+
 The original argument for a slot-level wrapper only, kept because the rest of it still holds: it is a
 wrapper at the slot rather than an unbounded endpoint per side: endpoint-level infinities carry more
 precision (a half-open `[0, ∞)`), but `Interval` is a runtime user-facing type, and the case that seemed to
@@ -186,10 +203,11 @@ need them — a size — states `[0, platform max]`, which is closed *and* keeps
 leaf whose bound is **exponential in its argument's meta** genuinely escapes a closed interval, and there
 is exactly one.
 
-This is what R4 asks for. Absence stops being overloaded: a stated `Unbounded` says *"nothing bounds this"*,
-and absence goes back to meaning only *"nobody has computed this yet"*. A stated `Unbounded` and an absent
-meta still agree on **layout** (both are a bignum — `IntRepresentation.intervalBounds` decodes `Unbounded` to
-`None`), which is why nothing downstream moved: all 39 example jars are byte-identical across the change.
+This is what R4 asks for. Absence stops being overloaded: a stated top says *"nothing bounds this"*, and
+absence goes back to meaning only *"nobody has computed this yet"*. A stated top and an absent meta still
+agree on **layout** (both are a bignum — `IntRepresentation.intervalBounds` decodes an open endpoint to
+`None`), which is why nothing downstream moved: all 39 example jars were byte-identical across the change,
+and all 40 again across the collapse.
 
 The original argument, kept because its shape is still right:
 
@@ -448,7 +466,7 @@ and `Process::exitCode`/jvm `outcomeExitCode`; folds, carrier returns, bodied va
 arithmetic leaves all pass. Registered but **undemanded** (dormant) — arming is a one-line `getFactOrAbort`
 precondition in `WovenValueProcessor`.
 
-**P2 prerequisite — the domain top — LANDED.** The range domain is `Bound[Interval[BigInteger]]` (§5), so
+**P2 prerequisite — the domain top — LANDED.** The range domain is `Interval[BigInteger]`, topped by `whole` (§5), so
 every leaf below now has a transfer it can honestly state. This was P2's one blocker.
 
 **P2 — arm it + the missing statements (remaining).** Wire the precondition, then state the transfers the
@@ -499,10 +517,11 @@ Each stage verified by the fast example sweep + byte-identity compare
 2. ~~A machinery-level `unknown` form~~ — **dropped, and the counterexample arrived** (§5). The machinery
    still has no `unknown` form and `Meta` is untouched, which is the half that mattered. But `parseIntInternal`
    *was* the real counterexample this decision reserved the right to be revisited for, so the **domain** grew a
-   top: `Bound[Interval[BigInteger]]`. **Settled and shipped.**
+   top. It first grew one as a slot-level `Bound` wrapper and now spells it `whole`, the both-ends-open interval
+   (§5). **Settled and shipped.**
 3. **Budget, not widening** (§5.2) — still the recommendation, but the framing has changed. §5.2's argument was
    *budget ⇒ no ∞ needed; widening ⇒ ∞ needed*, and ∞ now exists in the domain, so widening is no longer
-   impossible — an ascending chain terminates at `Unbounded`. That is a **removed one-way door**, not a reason
+   impossible — an ascending chain terminates at `whole`. That is a **removed one-way door**, not a reason
    to switch: the budget is still simpler and more honest, and Eliot deliberately has no widening machinery.
 4. ~~An `{Inf}` leaf may not return a meta-carrying type~~ — **dropped** (§5.1). It buys nothing (a leaf is
    summarized, never executed, so its loop never reaches the interpretation whatever it returns) and would

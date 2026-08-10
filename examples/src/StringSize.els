@@ -1,7 +1,7 @@
 // A display that is 16 code points wide, expressed as a predicate over a string's tracked size. `size` is
-// `String`'s meta slot exactly as `range` is `Int`'s — a `Bound[Interval[BigInteger]]` in the compiler's
-// refinement channel, counting the same code points `length` counts at runtime.
-def fitsDisplay(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 16](b)
+// `String`'s meta slot exactly as `range` is `Int`'s — an `Interval[BigInteger]` in the compiler's refinement
+// channel, counting the same code points `length` counts at runtime.
+def fitsDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 16](i)
 
 /**
  * A `where` precondition over a **string's size** — the refinement channel's second domain, on the same machinery the

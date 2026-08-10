@@ -12,14 +12,11 @@ def atMost[T](end: T): Interval[T] = Interval(Unbounded, Bounded(end))
 
 def whole[T]: Interval[T] = Interval(Unbounded, Unbounded)
 
-def rangeWithin[Lo: BigInteger, Hi: BigInteger](b: Bound[Interval[BigInteger]]): Bool = b match {
+def rangeWithin[Lo: BigInteger, Hi: BigInteger](i: Interval[BigInteger]): Bool = i.start match {
    case Unbounded -> false
-   case Bounded(i) -> i.start match {
+   case Bounded(s) -> i.end match {
       case Unbounded -> false
-      case Bounded(s) -> i.end match {
-         case Unbounded -> false
-         case Bounded(e) -> lessThanOrEqual(Lo, s) && lessThanOrEqual(e, Hi)
-      }
+      case Bounded(e) -> lessThanOrEqual(Lo, s) && lessThanOrEqual(e, Hi)
    }
 }
 

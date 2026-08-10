@@ -52,7 +52,7 @@ class CarrierSlotCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     """import eliot.jvm.IO
       |import eliot.effect.Console
       |
-      |def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
+      |def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
       |def useByte(x: Int): Int where withinByte(range(x)) = x
       |
       |def main: IO[Unit] = printLine(show(useByte(1000)))

@@ -28,7 +28,7 @@ class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
   private val prelude =
     """import eliot.jvm.IO
       |import eliot.effect.Console
-      |def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
+      |def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
       |def useByte(x: Int): Int where withinByte(range(x)) = x
       |def f(a: Int, b: Int): Int {range(a) + range(b)} = a + b
       |""".stripMargin
@@ -53,10 +53,10 @@ class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
   private val viaHelper =
     """import eliot.jvm.IO
       |import eliot.effect.Console
-      |def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
+      |def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
       |def useByte(x: Int): Int where withinByte(range(x)) = x
-      |def byteRange[Lo: BigInteger, Hi: BigInteger]: Bound[Interval[BigInteger]] = Bounded(closed(Lo, Hi))
-      |def openRange[Lo: BigInteger]: Bound[Interval[BigInteger]] = Bounded(atLeast(Lo))
+      |def byteRange[Lo: BigInteger, Hi: BigInteger]: Interval[BigInteger] = closed(Lo, Hi)
+      |def openRange[Lo: BigInteger]: Interval[BigInteger] = atLeast(Lo)
       |""".stripMargin
 
   // Compile-time only, like the rest of this file: runtime lowering of a brace-narrowed return across a *user* def's

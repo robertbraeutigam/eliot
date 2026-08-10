@@ -1,12 +1,12 @@
 
-// Two ways a range fails to fit a byte, and `Bound`/`Interval` keep them distinct — `rangeWithin` answers both
-// with `false` rather than falling through. A range the compiler could not bound at all is `Unbounded`. A range
-// bounded on one side only — `[0, ∞)`, say — is a `Bounded` interval with an open endpoint, and no fixed width
-// holds a value with no upper limit however tight the lower one is.
+// A range fails to fit a byte whenever an endpoint is open, and `rangeWithin` answers that with `false` rather
+// than falling through. A range bounded on one side only — `[0, ∞)`, say — is an interval with one `Unbounded`
+// endpoint, and no fixed width holds a value with no upper limit however tight the lower one is. A range the
+// compiler could not bound at all is `whole`, the same case on both sides.
 //
 // The bounds are type arguments because a value-position literal is an `Int`, while a range's endpoints are
 // `BigInteger`; in type position `0` and `127` already are the `BigInteger`s the comparison needs.
-def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
+def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
 
 /**
  * A `where` refinement precondition (`docs/bounds-as-refinements.md` §4.3). `asByte` demands that its argument's value

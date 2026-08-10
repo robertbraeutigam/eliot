@@ -3,28 +3,31 @@ import eliot.carrier.Effect
 /**
  * A `T` that may not exist because nothing bounds it: either `Bounded(value)`, or `Unbounded`.
  *
- * `Bound` is how the compiler says *"there is no bound here"* inside a refinement domain rather than by
- * saying nothing at all. An `Int`'s tracked range is a `Bound[Interval[BigInteger]]`: `Bounded([0, 255])`
- * for a value the compiler pinned, `Unbounded` for one it genuinely cannot bound — a number parsed from
- * input, say, which no representation limits.
+ * `Bound` is how a limit says *"there is nothing here"* rather than by being absent. Its use is an
+ * `Interval`'s two endpoints, each a `Bound[T]`, which is what lets a range be half-open: `[0, ∞)` is
+ * `Bounded(0)` at the start and `Unbounded` at the end.
  *
- * The distinction matters because the two used to be confused. A range the compiler *failed* to compute
- * and a range that is *honestly infinite* both used to surface as an absent range, so a native that never
+ * The distinction matters because the two used to be confused. A limit the compiler *failed* to compute
+ * and one that is *honestly infinite* both used to surface as an absent range, so a native that never
  * stated its meta-information looked exactly like one that stated "unbounded". `Unbounded` is a value a
  * declaration can state, so absence goes back to meaning only what it should: nobody has computed this
- * yet.
+ * yet. A whole domain says that with `whole`, the interval whose endpoints are both `Unbounded`.
+ *
+ * `Bound[D]` also stands ready as the generic **top** of a refinement domain `D` that has no interval
+ * structure of its own to reach a top through — it has a `Meta[Bound[D]]` join for exactly that. No domain
+ * needs it today: both shipped ones are intervals, and an interval already spells its top as `whole`.
  */
 type Bound[T]
 
 /**
  * Eliminate a `Bound`: return `ifUnbounded` when there is no bound, or `ifBounded(value)` when there is.
  *
- * This is how a `where` precondition handles the unbounded case, which it must — an unbounded value fits
- * no fixed width, so the honest answer is almost always a refusal:
+ * This is how a `where` precondition handles an unbounded endpoint, which it must — a value with no limit
+ * on one side fits no fixed width, so the honest answer is almost always a refusal:
  *
  * ```eliot
- * def withinByte(b: Bound[Interval[BigInteger]]): Bool =
- *    b.foldBound(false, i -> lessThanOrEqual(0, start(i)) && lessThanOrEqual(end(i), 127))
+ * def startsAtLeastZero(i: Interval[BigInteger]): Bool =
+ *    i.start.foldBound(false, s -> lessThanOrEqual(0, s))
  * ```
  *
  * `b` is the last parameter, so this dot-chains as `b.foldBound(...)`.

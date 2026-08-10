@@ -47,7 +47,7 @@ class TypeHintRangeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
   }
 
   // A string literal seeds the *size* domain (`docs/string-length-meta.md`), whose meta has exactly the same
-  // `X$Meta(Bounded(Interval(..)))` shape as an `Int`'s range — so a shape-only decode would report `"hello"` as having
+  // `X$Meta(Interval(..))` shape as an `Int`'s range — so a shape-only decode would report `"hello"` as having
   // the value range `5..5`. A hover renders one domain and must name it; the size is simply not shown (until it has a
   // rendering of its own).
   "a hover value range" should "not report a string's size as if it were a value range" in {

@@ -63,22 +63,22 @@ object IntRepresentation {
 
   /** The representation for a channel meta: decode its interval when present, else the ⊤/unknown layout
     * (`JvmBigInteger`) — a value the channel could not pin is soundly a bignum. Anything not of the value-range
-    * domain's `Int$Meta(Bounded(Interval[min, max]))` shape (a future domain, a malformed meta) also yields the ⊤
-    * layout here: this backend only knows how to lay out the value-range domain.
+    * domain's `Int$Meta(Interval[min, max])` shape (a future domain, a malformed meta) also yields the ⊤ layout
+    * here: this backend only knows how to lay out the value-range domain.
     */
   def representationFor(meta: Option[GroundValue]): ValueFQN =
     meta.flatMap(intervalBounds).map { case (min, max) => widthOf(min, max) }.getOrElse(jvmBigInteger)
 
-  /** Decode `[min, max]` from an `Int$Meta(Bounded(Interval(Bounded(min), Bounded(max))))` meta value — the opaque
-    * domain [[GroundValue]] the channel carries (an `Int$Meta` wrapper around a [[Bound]] around the two-endpoint
-    * `Interval`, each endpoint itself a [[Bound]] around a `Direct` big integer). The backend owns the `Int` domain, so
-    * it unwraps the `$Meta` structure here; the channel and reconcile pass never inspect it.
+  /** Decode `[min, max]` from an `Int$Meta(Interval(Bounded(min), Bounded(max)))` meta value — the opaque domain
+    * [[GroundValue]] the channel carries (an `Int$Meta` wrapper around the two-endpoint `Interval`, each endpoint
+    * itself a `Bound` around a `Direct` big integer). The backend owns the `Int` domain, so it unwraps the `$Meta`
+    * structure here; the channel and reconcile pass never inspect it.
     *
     * [[None]] for any other shape, which the caller treats as ⊤. That covers three distinct honest answers, all of
     * which a bignum is the right layout for:
     *
-    *   - `Int$Meta(Unbounded)` — the *stated* top of the range domain (a value nothing bounds, e.g. a number parsed
-    *     from input);
+    *   - `Int$Meta(whole)` — the *stated* top of the range domain (a value nothing bounds, e.g. a number parsed from
+    *     input), which is just the both-endpoints-unbounded case of the next one;
     *   - a **half-open** interval, `Interval(Bounded(lo), Unbounded)` or its mirror — a value bounded on one side only,
     *     which no fixed width contains however tight the bounded side is;
     *   - a future domain, or a malformed meta.
@@ -88,11 +88,7 @@ object IntRepresentation {
     */
   def intervalBounds(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
-      case GroundValue.Structure(
-            _,
-            Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)),
-            _
-          ) =>
+      case GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _) =>
         (boundedBigInt(lo), boundedBigInt(hi)) match {
           case (Some(a), Some(b)) => Some((a, b))
           case _                  => None

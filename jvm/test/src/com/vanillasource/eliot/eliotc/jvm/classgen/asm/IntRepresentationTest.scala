@@ -27,18 +27,16 @@ class IntRepresentationTest extends AnyFlatSpec with Matchers {
   private val unboundedEndpoint: GroundValue =
     GroundValue.Structure(boundFQN("Unbounded"), Seq.empty, GroundValue.Type)
 
-  /** The meta the channel produces for an `Int` node: `Int$Meta(Bounded(Interval(start, end)))` — the `$Meta` wrapper
-    * around the [[Bound]] the range domain is stated in, whose `Interval`'s two endpoints are each themselves a
-    * [[Bound]]. (`intervalBounds`/`representationFor` decode this whole shape, not a bare `Interval`.)
+  /** The meta the channel produces for an `Int` node: `Int$Meta(Interval(start, end))` — the `$Meta` wrapper around the
+    * `Interval` the range domain is stated in, whose two endpoints are each a [[Bound]].
+    * (`intervalBounds`/`representationFor` decode this whole shape, not a bare `Interval`.)
     */
   private def intervalOf(start: GroundValue, end: GroundValue): GroundValue =
     intMeta(
-      bounded(
-        GroundValue.Structure(
-          ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Default)),
-          Seq(start, end),
-          GroundValue.Type
-        )
+      GroundValue.Structure(
+        ValueFQN(ModuleName(defaultSystemPackage, "Interval"), QualifiedName("Interval", Qualifier.Default)),
+        Seq(start, end),
+        GroundValue.Type
       )
     )
 
@@ -54,17 +52,11 @@ class IntRepresentationTest extends AnyFlatSpec with Matchers {
   private def atMost(max: BigInt): GroundValue =
     intervalOf(unboundedEndpoint, bounded(GroundValue.Direct(max, bigIntType)))
 
-  /** The range domain's *stated* top: `Int$Meta(Unbounded)`, a value nothing bounds. Distinct from an absent meta as a
-    * channel verdict, but the same layout question — see [[IntRepresentation.intervalBounds]].
+  /** The range domain's *stated* top: `Int$Meta(whole)`, a value nothing bounds — an interval open at both ends, so it
+    * is the half-open case twice over rather than a shape of its own. Distinct from an absent meta as a channel
+    * verdict, but the same layout question — see [[IntRepresentation.intervalBounds]].
     */
-  private val unbounded: GroundValue =
-    intMeta(
-      GroundValue.Structure(
-        ValueFQN(ModuleName(defaultSystemPackage, "Bound"), QualifiedName("Unbounded", Qualifier.Default)),
-        Seq.empty,
-        GroundValue.Type
-      )
-    )
+  private val whole: GroundValue = intervalOf(unboundedEndpoint, unboundedEndpoint)
 
   private def intMeta(range: GroundValue): GroundValue =
     GroundValue.Structure(
@@ -125,8 +117,8 @@ class IntRepresentationTest extends AnyFlatSpec with Matchers {
     IntRepresentation.representationFor(None) shouldBe jvm("JvmBigInteger")
   }
 
-  it should "be JvmBigInteger for a stated Unbounded range" in {
-    IntRepresentation.representationFor(Some(unbounded)) shouldBe jvm("JvmBigInteger")
+  it should "be JvmBigInteger for a stated whole range" in {
+    IntRepresentation.representationFor(Some(whole)) shouldBe jvm("JvmBigInteger")
   }
 
   "intervalBounds" should "read the endpoints of an Interval meta value" in {
@@ -137,12 +129,12 @@ class IntRepresentationTest extends AnyFlatSpec with Matchers {
     IntRepresentation.intervalBounds(GroundValue.Type) shouldBe None
   }
 
-  it should "be None for a stated Unbounded range" in {
-    IntRepresentation.intervalBounds(unbounded) shouldBe None
+  it should "be None for a stated whole range" in {
+    IntRepresentation.intervalBounds(whole) shouldBe None
   }
 
   // A half-open interval is bounded on one side only, so no fixed width contains it however tight that side is —
-  // the same ⊤ answer as a stated `Unbounded`, reached from a *different* shape.
+  // the same ⊤ answer as the stated top `whole`, of which it is the one-sided case.
   it should "be None for a range open above" in {
     IntRepresentation.intervalBounds(atLeast(0)) shouldBe None
   }

@@ -41,23 +41,27 @@ def atMost[T](end: T): Interval[T]
 /**
  * The interval `(-∞, ∞)` — neither endpoint bounded, so the least informative interval there is. What a value
  * nothing constrains from either side is described by.
+ *
+ * This is the **top** of every refinement domain built on an interval — an `Int`'s `range`, a `String`'s `size`.
+ * A leaf that cannot honestly bound its result states `whole`, and that is a different claim from stating no
+ * meta at all: `whole` says *"nothing bounds this"*, absence says *"nobody has computed this yet"*. Because it
+ * is the one spelling of the top, two producers that reach it — a stated `whole` and a `multiply` that widened
+ * to it — agree structurally, which is what the per-position verdict comparison needs.
  */
 def whole[T]: Interval[T]
 
 /**
- * `true` when `b` is a range every value of which lies within `[Lo, Hi]`: `b` is `Bounded`, and both endpoints
- * of the interval inside it are bounded and fall inside the closed range.
+ * `true` when `i` is a range every value of which lies within `[Lo, Hi]`: both endpoints of `i` are bounded and
+ * fall inside the closed range.
  *
- * The predicate a `where` refinement precondition over a fixed width is written with — `Bound[Interval[BigInteger]]`
- * is exactly what an `Int`'s `range` projects to. It answers, rather than falls through, both ways a range can fail
- * to fit:
- *
- *   - an `Unbounded` range — one the compiler could not bound at all — is `false`;
- *   - a **half-open** interval is `false` too, however tight its bounded side, because no fixed width holds a value
- *     with no limit on the other side.
+ * The predicate a `where` refinement precondition over a fixed width is written with — `Interval[BigInteger]` is
+ * exactly what an `Int`'s `range` projects to. It answers, rather than falls through, every way a range can fail
+ * to fit: an endpoint that is `Unbounded` makes it `false`, however tight the other side, because no fixed width
+ * holds a value with no limit on one side. `whole` — a range the compiler could not bound at all, the domain's
+ * top — is that case twice over.
  *
  * ```eliot
- * def withinByte(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 127](b)
+ * def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
  *
  * def asByte(x: Int): Int where withinByte(range(x)) = x
  * ```
@@ -66,7 +70,7 @@ def whole[T]: Interval[T]
  * `Int`, while a range's endpoints are `BigInteger`; in type position a literal is already the `BigInteger` the
  * comparison needs, so `rangeWithin[0, 127]` says what it means without a conversion.
  */
-def rangeWithin[Lo: BigInteger, Hi: BigInteger](b: Bound[Interval[BigInteger]]): Bool
+def rangeWithin[Lo: BigInteger, Hi: BigInteger](i: Interval[BigInteger]): Bool
 
 /**
  * `Interval` closes under arithmetic by lifting the operation onto each endpoint through `Numeric[Bound[T]]`,

@@ -47,7 +47,7 @@ case class RefinementTable(
 object RefinementTable {
 
   /** The channel's **verdict** for one walked body node, at the node's source position: [[Some]] meta value — an opaque
-    * domain [[GroundValue]] (the type's `$Meta` structure, e.g. `Int$Meta(Bounded(Interval(lo, hi)))`) — or [[None]]
+    * domain [[GroundValue]] (the type's `$Meta` structure, e.g. `Int$Meta(Interval(lo, hi))`) — or [[None]]
     * for a ⊤ boundary. The channel neither builds nor inspects a meta's shape except to seed a literal; the consumers
     * that own the domain (the JVM backend's width decode, the LSP hover) unwrap it. A serializable first-order value
     * ([[GroundValue]] is used in fact keys), so the table participates in the incremental cache.
