@@ -1,9 +1,10 @@
 # A length meta for `String` — the refinement channel's second domain
 
-Status: **shipped through S2 — the domain is live.** S0 (code-point indices), **S1** (the `size` slot) and **S2**
-(the literal seed, plus the LSP gate) have all landed; a `where` precondition over a string's size is checked at every
-use site today. What remains is design: S3 (the backend result-edge re-encode), S4 (the `String.els` transfers) and S5
-(⊤ / arming R2) — see §10.
+Status: **shipped through S3 — the domain crosses call boundaries.** S0 (code-point indices), **S1** (the `size` slot),
+**S2** (the literal seed, plus the LSP gate) and **S3** (the backend result-edge re-encode, landed with `length`'s
+`{size(s)}` — the first *stated* transfer in the tree) have all landed; a `where` precondition over a string's size is
+checked at every use site today, and a literal's size now reaches the `Int` domain through `length`. What remains is
+design: S4 (the rest of the `String.els` transfers) and S5 (arming R2) — see §10.
 
 The domain cost **one** compiler arm (§3.1) and one Eliot declaration beside it. Everything else — the meta structure,
 the derived `Meta` lattice, the `^Where` demand, the transfer name transform — was the shipped machinery, reached by
@@ -83,7 +84,7 @@ channel's "the `^Meta` companion is the one recognition point" discipline.
 | branch merges | `fold^Meta` reduces at `A := String$Meta`; `if`/`match` over strings joins for free | **does not fire — and does not fire for `Int` either**, see below |
 | `where` | `MetaWhereDesugarer` already retypes *every* parameter `T` ⤳ `T$Meta`; a `where` over a `String` parameter needs no change (its own doc comment names this as the second-domain work) | *verified* (§4.3) |
 | transfers | a return brace on a `String`-returning def desugars as usual; a **cross-domain** brace (`String$Meta` in, `Int$Meta` out) is just the ordinary per-position name transform | *verified* (§4.2) |
-| backend | `IntRepresentation.isIntegerType` gates every width decision, so a `String$Meta` stamped on a node is ignored by the JVM backend | *verified* (§4.1) — but see §8 |
+| backend | `IntRepresentation.isIntegerType` gates every width decision, so a `String$Meta` stamped on a node is ignored by the JVM backend | *verified* (§4.1) — the one thing it did **not** already give is §8's result edge, closed in S3 |
 
 Every row held on landing except the branch merge, and that one failed **in both domains**, so it is not a property
 of this domain. `banner(fold(true, "ab", "abcd"))` reports *"an argument's meta-information is not known here"* rather
@@ -253,7 +254,9 @@ def main: {Console} Unit = printLine(show(small(length("hello"))))        // acc
 `"hello"` ⤳ `String$Meta(Interval(5,5))` ⤳ `length^Meta` ⤳ `Int$Meta(Interval(5,5))` ⤳ the `Int` `where`. The two
 domains compose through the ordinary machinery.
 
-### 4.5 …and that exact program then fails to *run* — see §8
+### 4.5 …and that exact program then failed to *run* — see §8
+
+It runs now: it is `StatedTransferResultEdgeIntegrationTest`'s first case, and S3 is what made it one.
 
 ---
 
@@ -361,12 +364,13 @@ the lattice is generic rather than `Interval`-shaped. Two things it would need b
 ## 6. The transfers the `String` leaves would state
 
 Not needed for v1 (an unstated leaf is ⊤ — sound, just wide), but this is the list R2 will demand (§7), and working
-it out is what shows where the domain is genuinely hard. `n` abbreviates `size(s)`.
+it out is what shows where the domain is genuinely hard. `n` abbreviates `size(s)`. **`length`'s row has since landed**
+(S3, §10); the rest are S4.
 
 | leaf | honest transfer | note |
 |---|---|---|
 | `combine` (`++`) | `{size(a) + size(b)}` | exact; `Interval` addition, as `Int`'s `add` |
-| `length` | `{size(s)}` | cross-domain, exact |
+| `length` | `{size(s)}` | cross-domain, exact — **stated** (S3) |
 | `substring(start, end, s)` | `{Interval(0, min(end(range(end)) - start(range(start)), end(n)))}` | clamping makes the lower bound `0` |
 | `take` / `drop` | derived from `substring` — **if** derivation existed (§9) | today: bodied ⇒ ⊤ |
 | `trim` | `{Interval(0, end(n))}` | |
@@ -435,9 +439,9 @@ unstated leaf is ⊤ today, which is exactly what a `String` leaf is right now a
 
 ---
 
-## 8. The backend gap the prototype found
+## 8. The backend gap the prototype found — **closed (S3)**
 
-The §4.4 program compiles and then dies at class-verification time:
+The §4.4 program compiled and then died at class-verification time:
 
 ```
 java.lang.VerifyError: Bad type on operand stack
@@ -469,6 +473,32 @@ Three ways to close it, in order of preference:
 Take (1), and land it **with** the first stated `String` transfer, not after. Until a transfer is stated the gap
 cannot fire (§4.1 verified a clean sweep), so it does not block the slot — but it does block `length`'s brace, which
 is the first thing anyone will write.
+
+**Landed as (1), and one line wider than "after invoking a generated native static method".** The conversion is
+`ExpressionCodeGenerator.convertResultFromBoundary`, applied to *every* application except an intrinsic:
+
+- **Why every application, not just a static-method call.** The property that matters is not "who is the callee" but
+  "what width is on the stack". Every call boundary hands an integer back at the ⊤ bignum — a generated native's
+  declared return descriptor, an ordinary Eliot method's return (widened there by `convertBodyToReturnBoundary`), or
+  the `Function.apply` bridge's erased `Object` read at a concrete `Int`. So the re-encode is derived from the node's
+  own meta against that one boundary width, exactly as `generateArgumentToBignum` derives the widening from the
+  argument's own rep. Restricting it to static-method calls would leave the over-applied spine, the apply-bridge and
+  the two `match` calls as latent repeats of the same `VerifyError`, each waiting for its own first stated transfer.
+- **Why an intrinsic is excluded, and why that is not a special case.** `generateIntrinsic` already *emits* at the
+  node's stamped width (`resultRep`) — it owns the machine operation, so there is no boundary between it and the node.
+  Converting again would convert from a width the value does not have. This is the only exclusion, and it is the same
+  distinction §8's diagnosis already drew: "`Numeric[Int]`'s `add` is invisible to this: it is an inline intrinsic."
+- **It is inert without a transfer.** With the node meta ⊤ — every call in the tree before `length`'s brace — the
+  boundary width and the node width coincide and nothing is emitted. Verified: with the backend change alone and no
+  brace, all 40 compiling examples are byte-identical to the pre-change build, logs included.
+- **The narrowing is what the transfer asserts.** `BigInteger` ⤳ `long` ⤳ `i2b` ⤳ `Byte` truncates if the stated bound
+  is a lie. That is the R2 contract (`docs/total-meta-transfers.md` §3), the same trust an arithmetic leaf's computed
+  range already gets — not a soundness hole this stage opens.
+
+Verified end to end by `StatedTransferResultEdgeIntegrationTest`: the §4.4 program runs and prints `5`; the emitted
+instruction window right after `String.length` is exactly the narrowing; an eleven-code-point literal is *rejected* by
+the `Int` precondition (so the size is carried precisely, not merely widened into the domain); and a call with no
+stated transfer emits no conversion at all.
 
 ---
 
@@ -541,9 +571,17 @@ Each stage compiles and passes the example sweep on its own.
   parametered def, and the two code-point cases), `TypeHintRangeCompileTest` for the hover gate, and `StringSize.els`
   as a worked example. All 39 pre-existing example jars are byte-identical to master, so the domain is additive to
   codegen as §4.1 claimed.
-- **S3 — the backend result-edge re-encode** (§8), landing together with the first stated transfer, `length`'s
-  `{size(s)}`. Test: the §4.4 program compiles **and runs**, plus a `javap` check that the narrow conversion is
-  emitted.
+- **S3 — the backend result-edge re-encode** (§8) — **LANDED**, together with the first stated transfer, `length`'s
+  `{size(s)}`, exactly as this stage required. The brace sits on the **base** declaration rather than a platform one,
+  which §P2 of `total-meta-transfers.md` would otherwise place with the native: `length` returns the string's own
+  `size`, and since S0 fixed the unit that identity is true on every target, so there is nothing platform-dependent to
+  state. (It is also the only place available — the jvm layer ships no `String.els`; its leaves are Scala natives.) The
+  remaining leaves of §6 *are* platform data and wait for S4. Tests:
+  `StatedTransferResultEdgeIntegrationTest` (run + emitted-instruction + reject + ⊤ cases); `StringSize.els` grew the
+  cross-domain half of §4.4 as a worked example. The sweep: 39 of the 40 compiling examples are byte-identical, the
+  fortieth being `StringSize` itself, whose source this changed — so the first stated transfer in the tree narrows
+  nothing that was not asked to narrow. (`Unicode.els` calls `length` and is unmoved: its subject arrives through a
+  `val`, which §9 explains is ⊤.)
 - **S4 — the remaining `String.els` transfers** (§6), each with its bound argued in the doc comment. Stop at the
   leaves that have an honest bound; leave the input leaves unstated and ⊤. Includes the compile-time `pow` leaf that
   `parseIntInternal`'s bound needs.
@@ -565,9 +603,9 @@ All settled; kept as the record of what was chosen and why.
 2. ~~**Unit**~~ — **decided: the code-point count** (§5.1), with the index family switching units alongside `length`
    in a prerequisite change (S0). Two consequences settled with it: **byte size is not a slot** (§5.2, a backend
    derivation on the `Int`-range/width precedent), and **no second slot before S5** (§5.3).
-3. **Backend option (1)** for the result edge (§8) — still owed, and still the recommendation, but it is now S3's
-   decision rather than a precondition of the domain: with no transfer stated, the gap cannot fire (§4.1, re-verified
-   by the byte-identical jar sweep). (2) remains the tempting cheap answer that guts the feature.
+3. ~~**Backend option (1)** for the result edge (§8)~~ — **decided and landed: (1)**, and taken at every non-intrinsic
+   application rather than only at a generated native's call, since the width on the stack — not the identity of the
+   callee — is what the conversion is a function of (§8). (2) remains the tempting cheap answer that guts the feature.
 4. ~~**Scope**~~ — **decided: S1+S2**, the working `where` domain with no stated transfers, which is what landed.
 5. ~~**Order vs. R2**~~ — **decided: the domain landed first, R2 stays dormant** (§7). The dozen-odd `String`-returning
    leaves that R2 will demand a transfer from are now on its list; they get stated once, in S4, rather than twice.
@@ -576,9 +614,10 @@ All settled; kept as the record of what was chosen and why.
    pragmatic unit and switching later was never a safe fallback, because every `where` written in the meantime would
    silently change meaning.
 
-**The next stage is S3**, and it is now the gate on everything the domain is *for*: until the backend re-encodes on a
-call's result edge, `length` cannot state `{size(s)}`, and without that first transfer a string's size never reaches
-the `Int` domain (§4.4) and never crosses a call boundary at all.
+**The next stage is S4** — the remaining `String.els` transfers of §6, each with its bound argued in its doc comment,
+plus the compile-time `pow` leaf `parseIntInternal`'s bound needs. S3 removed the gate that stood in front of it: a
+stated transfer now survives the trip through the backend, so the rest of the table is ordinary work rather than work
+blocked on a `VerifyError`. S5 (arming R2) still comes last, so those leaves are stated once.
 
 ---
 

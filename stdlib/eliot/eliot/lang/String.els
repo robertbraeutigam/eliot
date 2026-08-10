@@ -11,8 +11,13 @@ type String {size: Interval[BigInteger]}
  * target stores it in. It is not a count of user-perceived characters: a combining sequence counts as its
  * parts. Use it for slicing with `substring`/`take`/`drop`, which index in the same unit, rather than as a
  * measure of visible text width.
+ *
+ * The number it returns is the string's own tracked `size`, so a compile-time bound on a string is a
+ * compile-time bound on its length: `length("hello")` is known to be `5`, and a `where` over an `Int` range
+ * can be discharged by the string it was measured from. Stating that is exact rather than approximate, and
+ * it holds on every target for the same reason the unit does — `size` counts precisely what this returns.
  */
-def length(s: String): Int
+def length(s: String): Int {size(s)}
 
 /**
  * `true` when `s` has no characters at all.
