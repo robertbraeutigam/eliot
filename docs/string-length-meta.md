@@ -1,10 +1,12 @@
 # A length meta for `String` — the refinement channel's second domain
 
-Status: **shipped through S3 — the domain crosses call boundaries.** S0 (code-point indices), **S1** (the `size` slot),
-**S2** (the literal seed, plus the LSP gate) and **S3** (the backend result-edge re-encode, landed with `length`'s
-`{size(s)}` — the first *stated* transfer in the tree) have all landed; a `where` precondition over a string's size is
-checked at every use site today, and a literal's size now reaches the `Int` domain through `length`. What remains is
-design: S4 (the rest of the `String.els` transfers) and S5 (arming R2) — see §10.
+Status: **shipped through S4 — every `String` leaf with an honest bound now states one.** S0 (code-point indices),
+**S1** (the `size` slot), **S2** (the literal seed, plus the LSP gate), **S3** (the backend result-edge re-encode,
+landed with `length`'s `{size(s)}` — the first *stated* transfer in the tree) and **S4** (the rest of `String.els`)
+have all landed; a `where` precondition over a string's size is checked at every use site today, a literal's size
+reaches the `Int` domain through `length`, and a size now survives concatenation, slicing, trimming, case
+conversion, repetition and replacement rather than stopping at the first call. What remains is **S5** — deciding what
+an unstatable leaf says and arming R2 — see §10.
 
 The domain cost **one** compiler arm (§3.1) and one Eliot declaration beside it. Everything else — the meta structure,
 the derived `Meta` lattice, the `^Where` demand, the transfer name transform — was the shipped machinery, reached by
@@ -363,25 +365,63 @@ the lattice is generic rather than `Interval`-shaped. Two things it would need b
 
 ## 6. The transfers the `String` leaves would state
 
-Not needed for v1 (an unstated leaf is ⊤ — sound, just wide), but this is the list R2 will demand (§7), and working
-it out is what shows where the domain is genuinely hard. `n` abbreviates `size(s)`. **`length`'s row has since landed**
-(S3, §10); the rest are S4.
+This was the list R2 will demand (§7), and working it out is what showed where the domain is genuinely hard. `n`
+abbreviates `size(s)`. **Every row marked *stated* has landed** — `length`'s in S3, the rest in S4 (§10) — and the
+"stated as" column is what is in the tree, which differs from the honest transfer in exactly two places, each argued
+below the table.
 
-| leaf | honest transfer | note |
+| leaf | honest transfer | stated as |
 |---|---|---|
-| `combine` (`++`) | `{size(a) + size(b)}` | exact; `Interval` addition, as `Int`'s `add` |
-| `length` | `{size(s)}` | cross-domain, exact — **stated** (S3) |
-| `substring(start, end, s)` | `{Interval(0, min(end(range(end)) - start(range(start)), end(n)))}` | clamping makes the lower bound `0` |
-| `take` / `drop` | derived from `substring` — **if** derivation existed (§9) | today: bodied ⇒ ⊤ |
-| `trim` | `{Interval(0, end(n))}` | |
-| `toUpperCase` / `toLowerCase` | `{Interval(start(n), end(n) * 3)}` | **not** length-preserving: `ß` ⤳ `SS`, `ﬃ` ⤳ `FFI`. The discipline catches a bug an eyeball would not. The `* 3` factor is a code-point fact, so §5.1 makes this row portable rather than JVM-flavoured |
-| `repeat(count, s)` | `{Interval(0, end(range(count)) * end(n))}` | the other cross-direction: an `Int` meta drives a `String` meta |
-| `replace(target, replacement, s)` | `{Interval(0, end(n) + (end(n) + 1) * end(size(replacement)))}` | an empty `target` inserts between every pair, so the occurrence count is `n+1` |
-| `Show[Int]::show` | a digit count of `range(value)`, plus one for the sign | statable — see below |
-| `parseIntInternal` | `{Interval(-(10ⁿ - 1), 10ⁿ - 1)}` | statable — see below |
-| `readLine`, environment/file/process reads | platform max | **no honest bound on the JVM** |
+| `combine` (`++`) | `{size(a) + size(b)}` | **as written** — exact; `Interval` addition, as `Int`'s `add` |
+| `length` | `{size(s)}` | **as written** (S3) — cross-domain, exact |
+| `substring(startIndex, endIndex, s)` | `{Interval(0, min(end(range(endIndex)) - start(range(startIndex)), end(n)))}` | **`{interval(boundedAt[0], end(n))}`** — the length ceiling only; see *the ceiling that could not be spelled* below |
+| `take` / `drop` | derived from `substring` — **if** derivation existed (§9) | not stated: bodied ⇒ ⊤, and by R3 they may not |
+| `trim` | `{Interval(0, end(n))}` | **as written** |
+| `toUpperCase` / `toLowerCase` | `{Interval(start(n), end(n) * 3)}` | **as written** — **not** length-preserving: `ß` ⤳ `SS`, `ﬃ` ⤳ `FFI`. The discipline catches a bug an eyeball would not. The `* 3` factor is a code-point fact, so §5.1 makes this row portable rather than JVM-flavoured |
+| `repeat(count, s)` | `{Interval(0, end(range(count)) * end(n))}` | **as written, plus a floor**: the product is raised to `0`, since a provably negative `count` would otherwise give a negative ceiling for a result that is simply `""`. The other cross-direction: an `Int` meta drives a `String` meta |
+| `replace(target, replacement, s)` | `{Interval(0, end(n) + (end(n) + 1) * end(size(replacement)))}` | **as written** — an empty `target` inserts between every pair, so the occurrence count is `n+1` |
+| `indexOfInternal(part, s)` | `{Interval(-1, end(n))}` | **as written** — a match starts inside `s`, and the sentinel is one below the first index |
+| `Show[Int]::show` | a digit count of `range(value)`, plus one for the sign | **not stated** — the digit count needs a base-10 logarithm no arithmetic leaf offers, and it is an `Int.els` leaf rather than a `String.els` one. Left to S5 |
+| `parseIntInternal` | `{Interval(-(10ⁿ - 1), 10ⁿ - 1)}` | **`{whole}`** — the domain's top; see below |
+| `readLine`, environment/file/process reads | platform max | **not stated** — S4 stops at the leaves with an honest bound (§10) |
 
-**§5.1 retires the two hardest rows.** Both were unbounded *because* the unit was a storage count:
+**The ceiling that could not be spelled.** `substring` states the bound its *argument* implies (a slice is never longer
+than what it was cut from) and not the one its *indices* imply, because taking the tighter of two ceilings is not
+something the endpoint vocabulary can express. `minBound` absorbs on an unbounded endpoint, which is exactly right at an
+interval's `start` — the least of "no lower limit" and anything is no lower limit — and exactly wrong at its `end`,
+where absorbing throws the other, bounded ceiling away. Spelling it correctly needs a `foldBound` on each side, which is
+a three-line `match` in a signature, so the honest read is that the domain is missing an **intersection**: the least
+interval contained in both. That is a small addition to `Interval` whenever a second caller wants it, and it is what the
+index ceiling waits for. The length ceiling is the half that holds unconditionally, so nothing here is unsound — just
+wider than the table's row, and only for a slice narrower than its subject.
+
+**`parseIntInternal` states the top on purpose**, and `total-meta-transfers.md` §5 is where that was settled: its honest
+bound is exponential in its argument's size, so at the upper end of a platform's own string size it is a
+two-billion-digit `BigInteger` — finite, sound, and roughly 890 MB to materialise. A bound that hangs the compiler is
+worse than a wide one. `whole` is a *stated* top rather than an omission, which is the distinction R4 exists for, and
+the exponentiation the tight case needs stays a **precision follow-on** (`total-meta-transfers.md` decision 8) rather
+than part of this stage. The `pow` leaf S4 was originally scoped to carry is therefore **not** in it.
+
+**What S4 needed that did not exist: a way to write a number.** An interval endpoint is a `BigInteger` — a limit has no
+width of its own — while a value-position integer literal is an `Int`, and by the *Types Are Values* cornerstone there
+is no widening between them. So `Bounded(0)` inside a brace is a `Bound[Int]` and a type error, and every row above
+whose floor is `0` was unwritable. The fix is the same one `rangeWithin[0, 127]` and `integerLiteral[V]` already use —
+put the literal in **type** position, where it is already a `BigInteger` — packaged as one compile-time-only helper,
+`boundedAt[V: BigInteger]: Bound[BigInteger] = Bounded(V)`, in `stdlib/eliot-compiler/eliot/lang/Bound.els`. It is a
+checking-only addition, so it is deliberately absent from the base: no platform has to implement a name nothing at
+runtime asks for. Two smaller facts fell out of it, both worth knowing before writing the next brace:
+
+- **A type-position literal may not be negative.** `boundedAt[-1]` fails to evaluate ("Cannot quote lambda — expected a
+  fully evaluated type"), so `indexOfInternal`'s sentinel is spelled `boundedAt[0] - boundedAt[1]` — one below the
+  first index, which is what the sentinel *is*. This is another face of the TODO's "unify `Int` literal handling across
+  the two tracks".
+- **A brace's argument order decides its type.** Inference runs left to right, so `interval(Bounded(0), …)` fixes
+  `T := Int` from the first argument and then rejects everything after it; an explicit `interval[BigInteger](…)` does
+  not rescue it, because the literal is still typed bottom-up. Only moving the literal into type position works.
+
+**§5.1 retires the two hardest rows** *in principle* — both were unbounded *because* the unit was a storage count,
+and neither is stated in the tree for the separate reasons the table gives (an exponent that cannot be run, a
+logarithm that cannot be written):
 
 - `parseIntInternal`: `n` code points admit at most `n` decimal digits (`isInteger` allows an optional sign, which
   only reduces the count), so `|value| ≤ 10ⁿ - 1`. Honest, and exactly the bound that motivates the domain — a
@@ -393,7 +433,9 @@ it out is what shows where the domain is genuinely hard. `n` abbreviates `size(s
 One prerequisite `parseIntInternal` exposes: the brace needs **exponentiation over `BigInteger` at compile time**,
 and `StdlibNativesProcessor` offers only `add`/`subtract`/`multiply`. It cannot be written in Eliot either — a
 recursion-free core has no loop (the *Total by Default* cornerstone) — so this is one new native leaf, in the same
-place the arithmetic leaves already live.
+place the arithmetic leaves already live. **S4 did not add it**, and the reason is not the cost of the leaf but what
+running the exponent would mean at a platform's own size ceiling — see the table's note and
+`total-meta-transfers.md` §5. The leaf states `whole` instead, and the tight case stays a precision follow-on.
 
 That leaves one genuinely unbounded row instead of three. `total-meta-transfers.md` §5 argues that no leaf needs a
 ⊤ form, because "on a real target every meta-carrying type has a representation, hence a bound"; an unbounded
@@ -413,6 +455,13 @@ Declaring `String` meta-carrying makes **every body-less `String`-returning leaf
 set above, plus `Path::show`, `File::message`, `Process::standardOutput`/`standardError`, `Environment`'s and the
 jvm layer's private internals. Roughly a dozen more. §5.1 helps here: the `String.els` set is now statable almost
 throughout (§6).
+
+**S4 has since cleared the `String.els` half of that list**, so what R2 would demand today is the *rest*: the input
+leaves (`readLine`, environment/file/process reads), whose bounds are platform data and belong beside their natives,
+and two leaves whose bound is real but inexpressible — `Show[Int]::show` (a digit count wants a logarithm) and
+`parseIntInternal` (an exponent that must not be run, already stating `whole`). That is the shape S5 inherits: not
+"can a bound be found" but "what does a leaf say when the honest bound cannot be written down", and `whole` is
+already the answer for one of them.
 
 **Correction, since the ⊤ decision has landed.** This section used to say the *input* leaves — `readLine`,
 environment, file and process reads — would need a ⊤ escape. They do not, and the reason is the same one
@@ -528,6 +577,12 @@ the first is still open, the second is fixed):
   `where` demands still fire there (they are checks made during the walk, not records), so this is precision only. It
   dissolves under P4, whose §7 separates "what the meta is" from "what may be stamped" — which is exactly this
   conflation.
+- **A dot call is ⊤, where the same call spelled directly is not.** `length("hello")` narrows and `"hello".length`
+  does not; `substring(0, 3, s)` narrows and `s.substring(0, 3)` does not. The dot's subject reaches the callee
+  through the `Function.apply` bridge, which is one of the aliased positions the channel drops (the bullet below).
+  This is **not** new in S4 — the shipped `length` transfer has behaved this way since S3 — but it is the first
+  limitation a reader will hit, because the dot form is the idiomatic one everywhere else in the language. It
+  dissolves under P4 with the rest of §9.
 - **A meta may not be recorded without also recording the ⊤s around it.** The table is matched to the backend's tree
   by *source position*, and desugaring makes positions non-unique: a pure `val` block lowers to `(x -> rest)(e)` with
   the synthesized lambda and application both anchored on the bound expression's range. Recording only pinned nodes
@@ -582,9 +637,35 @@ Each stage compiles and passes the example sweep on its own.
   fortieth being `StringSize` itself, whose source this changed — so the first stated transfer in the tree narrows
   nothing that was not asked to narrow. (`Unicode.els` calls `length` and is unmoved: its subject arrives through a
   `val`, which §9 explains is ⊤.)
-- **S4 — the remaining `String.els` transfers** (§6), each with its bound argued in the doc comment. Stop at the
-  leaves that have an honest bound; leave the input leaves unstated and ⊤. Includes the compile-time `pow` leaf that
-  `parseIntInternal`'s bound needs.
+- **S4 — the remaining `String.els` transfers** (§6) — **LANDED**. `combine`, `substring`, `trim`,
+  `toUpperCase`/`toLowerCase`, `repeat`, `replace` and `indexOfInternal` state their size, each with its bound argued
+  in its doc comment, and `parseIntInternal` states the domain's top. The input leaves stay unstated and ⊤ as this
+  stage said. Three things about it are worth carrying forward:
+
+  - **The compile-time `pow` leaf is *not* in it.** This stage was scoped to include it, and
+    `total-meta-transfers.md` §5 had meanwhile settled the opposite: `parseIntInternal`'s honest bound is exponential
+    in its argument's size, so at a platform's size ceiling computing it is an 890 MB numeral. It states `whole`, the
+    exponent never runs, and `pow` stays decision 8's precision follow-on. Where the two documents disagreed, the
+    later analysis in the document that owns R2 won.
+  - **A brace could not name a number**, which is what actually gated the stage — see §6's *"what S4 needed that did
+    not exist"*. One compile-time-only helper (`boundedAt[V]`) closed it, in `stdlib/eliot-compiler/`, which is also
+    the first time this domain needed anything in the compiler overlay at all.
+  - **`substring`'s parameters were renamed** to `startIndex`/`endIndex`. A brace resolves `end` to the *parameter*
+    before the `Interval` accessor, so the old names made the accessor unreachable from the very signature that needed
+    it. The rename is behaviour-preserving (natives bind by name and arity, not by parameter name) and the prose reads
+    better for it.
+
+  Tests: `StringTransfersIntegrationTest` — an accept/reject pair per stated leaf against one eight-wide display, so
+  neither a widened-to-⊤ transfer nor an absent one can pass; the `ß` ⤳ `SS` case, which fails against a one-wide
+  display precisely because the bound refuses to promise that one code point stays one; and the two `whole` cases,
+  where the program runs but a `where` over the parsed number is *unprovable* rather than satisfied — the R4
+  distinction, observable as two different diagnostics. `StringSize.els` grew a two-transfer composition
+  (`toUpperCase(combine(...))`) as a worked example. The sweep: all 40 compiling examples build and 39 are
+  byte-identical to the pre-change build, the fortieth being `StringSize` itself, whose source this changed.
+
+  One thing the sweep caught that is worth repeating: **clear `target/` between the two halves of a byte-identity
+  compare.** The accumulating fact cache is keyed by content but had kept a stale `^Meta` companion across the change,
+  which hid a brace that did not evaluate at all until the cache was dropped.
 - **S5 — decide ⊤** (open `Interval` endpoints or a stated platform max), then arm R2 (§7). This is where the
   original TODO — *"a native that produces a meta-carrying type must state its meta-information"* — actually closes,
   for both domains at once. It is also the gate on **any second slot** in any domain (§5.3).
@@ -613,11 +694,17 @@ All settled; kept as the record of what was chosen and why.
    change, ahead of the slot and with no channel code touched, exactly as §5.1 recommended: landing the domain on the
    pragmatic unit and switching later was never a safe fallback, because every `where` written in the meantime would
    silently change meaning.
+7. ~~**Does S4 carry the compile-time `pow` leaf?**~~ — **decided: no** (§10). `parseIntInternal` states `whole`,
+   which `total-meta-transfers.md` §5 had already settled while this document still listed `pow` as part of the
+   stage; an exponent that is 890 MB at a platform's size ceiling is a bound that hangs the compiler, and a wide
+   stated top is strictly better. `pow` remains worth having for the tight cases (`"42"` ⤳ `[-99, 99]`), as decision
+   8 there says, and is a prerequisite for nothing.
 
-**The next stage is S4** — the remaining `String.els` transfers of §6, each with its bound argued in its doc comment,
-plus the compile-time `pow` leaf `parseIntInternal`'s bound needs. S3 removed the gate that stood in front of it: a
-stated transfer now survives the trip through the backend, so the rest of the table is ordinary work rather than work
-blocked on a `VerifyError`. S5 (arming R2) still comes last, so those leaves are stated once.
+**The next stage is S5** — decide what a leaf says when its honest bound cannot be written down, then arm R2 (§7).
+S4 has narrowed that question considerably: it is no longer "will the leaves have bounds" but a short, well-understood
+residue — the platform input leaves (whose bounds are ordinary platform data, contributed beside their natives), and
+the two leaves whose bound exists but is inexpressible (`Show[Int]::show`'s digit count, `parseIntInternal`'s
+exponent). One of those already answers with `whole`, which is the shape of the answer for the others.
 
 ---
 

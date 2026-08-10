@@ -68,14 +68,27 @@ def endsWith(end: String, s: String): Bool
 def contains(part: String, s: String): Bool
 
 /**
- * The code points of `s` from `start` (inclusive) to `end` (exclusive).
+ * The code points of `s` from `startIndex` (inclusive) to `endIndex` (exclusive).
  *
- * Total: both indices are clamped into `0`..`s.length` and `end` is raised to `start` when it would precede
- * it, so any pair of indices yields a string and none ever fails. That makes slicing safe without a prior
- * length check — an over-long `end` simply runs to the end of `s`, and an inverted range yields `""`.
+ * Total: both indices are clamped into `0`..`s.length` and `endIndex` is raised to `startIndex` when it would
+ * precede it, so any pair of indices yields a string and none ever fails. That makes slicing safe without a
+ * prior length check — an over-long `endIndex` simply runs to the end of `s`, and an inverted range yields
+ * `""`.
  *
  * Indices count code points, the same unit `length` returns, so a slice can never cut a character in half
  * whatever the platform stores underneath.
+ *
+ * A slice is never longer than what it is cut from and never shorter than nothing, so the stated size is
+ * `[0, end(size(s))]`: the string's own upper limit is kept and its lower one given up. Both ends are
+ * reachable — `substring(0, 0, s)` is empty whatever `s` holds, and `substring(0, length(s), s)` is all of
+ * it — so this is the tightest bound that ignores the indices, and it is honest for every pair of them
+ * because clamping can only shorten.
+ *
+ * The indices imply a second ceiling — no more than `endIndex - startIndex` code points survive — and it is
+ * deliberately **not** stated, because taking the tighter of two ceilings is not something the endpoint
+ * vocabulary can say: `minBound` absorbs on an unbounded endpoint, which is exactly right at an interval's
+ * `start` and exactly wrong at its `end`. The length ceiling is the half that holds unconditionally; the
+ * index ceiling waits for an intersection the domain does not have yet.
  *
  * ```eliot
  * // The label of a "key=value" setting: everything before the first '='.
@@ -86,7 +99,7 @@ def contains(part: String, s: String): Bool
  * def label(setting: String): String = labelOf(setting) else setting
  * ```
  */
-def substring(start: Int, end: Int, s: String): String
+def substring(startIndex: Int, endIndex: Int, s: String): String {interval(boundedAt[0], end(size(s)))}
 
 /**
  * The first `count` code points of `s`, or all of `s` when it is shorter.
@@ -166,8 +179,11 @@ def parseInt(s: String): {Abort} Int = if(s.isInteger, parseIntInternal(s))
  *
  * Whitespace is decided by the Unicode character properties, so it covers non-breaking and ideographic
  * spaces as well as the ASCII blanks; interior whitespace is untouched.
+ *
+ * Trimming only ever removes code points, and it may remove all of them, so the stated size is
+ * `[0, end(size(s))]` — the argument's upper limit kept, its lower one given up to the all-blank string.
  */
-def trim(s: String): String
+def trim(s: String): String {interval(boundedAt[0], end(size(s)))}
 
 /**
  * `s` with every character replaced by its upper-case form.
@@ -176,13 +192,25 @@ def trim(s: String): String
  * value converted while compiling and one converted while running always agree. That deliberately rules out
  * the locale-sensitive rules of a few languages (Turkish dotless *i*, for one), which belong in a
  * locale-aware text library rather than in the language core.
+ *
+ * Case conversion is **not** length-preserving, which is the bound's whole point: `ß` upper-cases to `SS`
+ * and `ﬃ` to `FFI`, so a code point can become as many as three. No mapping ever yields fewer, so the
+ * stated size is `[start(size(s)), end(size(s)) * 3]` — the lower limit carries over untouched and the upper
+ * one triples. The factor is a fact about Unicode's case mappings rather than about a platform's storage, so
+ * it means the same thing on every target for the same reason the unit does.
+ *
+ * Spelled as `size(s)` added to itself three times rather than multiplied by `3`, because a brace cannot name
+ * a number: an interval endpoint is a `BigInteger` and a value-position literal is an `Int`. Where a constant
+ * is unavoidable it comes from `boundedAt`, whose own documentation explains the detour.
  */
-def toUpperCase(s: String): String
+def toUpperCase(s: String): String {interval(start(size(s)), end(size(s) + size(s) + size(s)))}
 
 /**
  * `s` with every character replaced by its lower-case form.
  *
- * Locale-independent, exactly as `toUpperCase` — see there for what that rules out.
+ * Locale-independent, exactly as `toUpperCase` — see there for what that rules out, and for why the stated
+ * size grows rather than stays put: lower-casing expands too (`İ` becomes an `i` followed by a combining
+ * dot), so it carries the same `[start(size(s)), end(size(s)) * 3]` bound.
  *
  * ```eliot
  * // Bring typed input into a canonical form for comparison, so "Quit", "QUIT"
@@ -192,7 +220,7 @@ def toUpperCase(s: String): String
  * def isCommand(name: String, input: String): Bool = normalized(input) == name
  * ```
  */
-def toLowerCase(s: String): String
+def toLowerCase(s: String): String {interval(start(size(s)), end(size(s) + size(s) + size(s)))}
 
 /**
  * `s` with every occurrence of `target` replaced by `replacement`.
@@ -201,17 +229,32 @@ def toLowerCase(s: String): String
  * pattern — and the scan continues *after* each replacement, so a `replacement` that itself contains
  * `target` is not re-examined. An empty `target` inserts `replacement` between every pair of characters.
  *
+ * The stated size counts the worst case: the original code points may all survive, and `target` can occur at
+ * most `size(s) + 1` times — that many is what the empty target reaches, inserting between every pair of
+ * characters and at both ends — so the result holds no more than
+ * `end(size(s)) + (end(size(s)) + 1) * end(size(replacement))` code points, which the brace spells as one
+ * interval expression — `n + n * r + r`, the same quantity multiplied out — so that no literal `1` is
+ * needed. Nothing bounds it from below beyond zero, since a `target` covering all of `s` with an empty
+ * `replacement` leaves nothing.
+ *
  * ```eliot
  * // Fill the single placeholder of a message template.
  * def greeting(name: String): String = "Hello, {}!".replace("{}", name)
  * ```
  */
 def replace(target: String, replacement: String, s: String): String
+   {interval(boundedAt[0], end(size(s) + size(s) * size(replacement) + size(replacement)))}
 
 /**
  * `s` written `count` times in a row.
  *
  * Total: a `count` of zero or less yields `""`.
+ *
+ * The other direction of cross-domain flow: an `Int`'s range drives a `String`'s size, where `length` carries
+ * a size into a range. The result holds `count * size(s)` code points, so the stated size is
+ * `[0, end(range(count)) * end(size(s))]` — raised to `0` at the top as well as the bottom, because a `count`
+ * the compiler knows to be negative would otherwise multiply out to a negative ceiling for a result that is
+ * simply `""`.
  *
  * ```eliot
  * // Indent a line by two spaces per nesting level.
@@ -219,6 +262,7 @@ def replace(target: String, replacement: String, s: String): String
  * ```
  */
 def repeat(count: Int, s: String): String
+   {interval(boundedAt[0], maxBound(end(range(count) * size(s)), boundedAt[0]))}
 
 /**
  * Two strings are equal when they hold the same characters in the same order.
@@ -237,8 +281,17 @@ implement Compare[String] {
    def lessThanOrEqual(a: String, b: String): Bool
 }
 
+/**
+ * Two strings combine by concatenation, with the empty string as the identity.
+ *
+ * Concatenation is the one `String` leaf whose size is stated **exactly**: the result holds every code point
+ * of `a` followed by every code point of `b` and nothing else, so its size is `size(a) + size(b)` —
+ * `Interval` addition, precisely as `Int`'s `add` states its own range. Addition stays exact on a half-open
+ * interval too, so combining a string of known size with one bounded only from below still says what it can:
+ * `[2, 2] + [0, ∞)` is `[2, ∞)`.
+ */
 implement Combine[String] {
-   def combine(a: String, b: String): String
+   def combine(a: String, b: String): String {size(a) + size(b)}
    def empty: String = ""
 }
 
@@ -254,8 +307,17 @@ implement Show[String] {
  * The index of the first occurrence of `part` in `s`, or a negative index when there is none — the raw leaf
  * behind `indexOf`, which turns the negative case into an `Abort`. `private` so the sentinel can never
  * escape into user code. Implemented by the backend.
+ *
+ * A found index is a position inside `s`, and the sentinel is one below the first of them, so the stated
+ * range is `[-1, end(size(s))]` — the string's own size bounds where a match can start. It is stated on the
+ * leaf rather than on `indexOf` because `indexOf` has a body, and a bodied value derives its meta rather than
+ * stating one; the derivation that would carry this through the `if` is the meta interpretation, which does
+ * not exist yet.
+ *
+ * The sentinel is written as one below zero rather than as `-1`, because the type-position literal a brace
+ * gets its constants from (see `boundedAt`) may not be negative.
  */
-private def indexOfInternal(part: String, s: String): Int
+private def indexOfInternal(part: String, s: String): Int {interval(boundedAt[0] - boundedAt[1], end(size(s)))}
 
 /**
  * The number `s` spells, or `0` when it spells none — the raw leaf behind `parseInt`, which turns that case into an
@@ -263,5 +325,13 @@ private def indexOfInternal(part: String, s: String): Int
  *
  * Total on purpose: an `if` *builds* both of its arms even though it runs only one, so a leaf that failed on a
  * malformed numeral would fail before `parseInt`'s guard could choose. Implemented by the backend.
+ *
+ * Its range is `whole` — the interval open at both ends, which says *"nothing bounds this"* rather than
+ * *"nobody has worked it out"*. A numeral of `n` code points does have an honest bound, `[-(10ⁿ - 1),
+ * 10ⁿ - 1]`, and it is the one bound in this file deliberately left unstated: an `Int` has no width, so at the
+ * upper end of a platform's own string size that bound is a numeral with billions of digits, and a bound that
+ * hangs the compiler computing it is worse than one that is merely wide. Stating the top keeps the leaf
+ * honest at no cost; recovering the tight case needs an exponentiation the arithmetic leaves do not have, and
+ * is a precision follow-on rather than something this owes.
  */
-private def parseIntInternal(s: String): Int
+private def parseIntInternal(s: String): Int {whole}

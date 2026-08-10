@@ -12,6 +12,14 @@ The gate that stood in front of arming — the backend's missing result-edge re-
 transfer in the tree is stated: `def length(s: String): Int {size(s)}`. What is left before arming is stating the
 rest (§P2), not building anything.
 
+**S4 has since stated the whole of `String.els`** (`docs/string-length-meta.md` §10): `combine`, `substring`, `trim`,
+`toUpperCase`/`toLowerCase`, `repeat`, `replace` and `indexOfInternal` all carry a brace, and `parseIntInternal`
+carries the domain's top. So the transfer count in the tree went from one to nine, and §P2's arming list shrank to a
+residue that is *not* about finding bounds: the platform input leaves, whose bounds are ordinary platform data, and
+the leaves whose bound exists but cannot be written down. Two facts S4 established are load-bearing for whoever arms
+R2 and are recorded in §P2 below — a brace could not name a number until S4 added `boundedAt[V]`, and a leaf whose
+honest bound is exponential states the top rather than running the exponent.
+
 A **second domain has since landed** — `type String {size: Interval[BigInteger]}` with its literal seed
 (`docs/string-length-meta.md`, S1+S2) — which changes nothing here structurally (a nullary type's meta is a plain
 one-slot structure; §2.3's *structural* map is still owed by `List`) but does enlarge what arming R2 costs: every
@@ -270,7 +278,7 @@ needed for `foldLeft`. **Both withdrawn.** Walking the leaves that seemed to nee
 |---|---|---|
 | `String::length` | ~~`0 .. platform max`~~ — the parenthesised "better" answer is the one that shipped: **`{size(s)}`**, the string's own size meta, which now exists | nothing |
 | `Process::exitCode` | `0 .. 255` | nothing |
-| `String::parseIntInternal` | ~~the platform int range~~ — **`Unbounded`** | the domain top (above) |
+| `String::parseIntInternal` | ~~the platform int range~~ — **`Unbounded`**, spelled `whole` and **stated** (S4) | the domain top (above) |
 | `Id::runId`, `Effect::pure` | identity on the payload's meta | nothing |
 | `Function::apply`, `Effect::flatMap` | the function argument's transfer, applied | **higher-order** |
 | `PatternMatch::handleCases` | join over the cases' transfers | **higher-order** |
@@ -551,9 +559,9 @@ jvm-layer brace over a base-abstract declaration merges cleanly with no `signatu
 | leaf | stated transfer |
 |---|---|
 | ~~`String::length`~~ | **stated (S3)**: `{size(s)}` — the string's own size, exact, and better than the `[0, 2³¹−1]` this table first proposed. It is also the one row that belongs in the **base** rather than a platform layer, because since the unit is the code point the identity holds on every target — there is no platform datum in it |
-| `String::indexOfInternal` | `Bounded([-1, 2³¹−1])` — `-1` is the not-found answer |
-| `Process::exitCode`, jvm `outcomeExitCode` | `Bounded([0, 255])` |
-| `String::parseIntInternal` | `Unbounded` — full-precision `BigInteger`, and its honest bound is exponential in its argument's size (§5) |
+| ~~`String::indexOfInternal`~~ | **stated (S4)**: `{interval(boundedAt[0] - boundedAt[1], end(size(s)))}` — ~~`Bounded([-1, 2³¹−1])`~~. The same correction `length` got: the ceiling is the argument's own size rather than a platform maximum, so this too belongs in the base. `-1` is still the not-found answer, spelled as one below the first index because a type-position literal may not be negative |
+| `Process::exitCode`, jvm `outcomeExitCode` | `Bounded([0, 255])` — genuinely platform data, and still owed |
+| ~~`String::parseIntInternal`~~ | **stated (S4)**: `{whole}` — full-precision `BigInteger`, whose honest bound is exponential in its argument's size (§5), so the top is what it states and the exponent never runs |
 
 Plus the generic leaves of §5, which are the higher-order rows and wait on P4. **This is what closes the
 original TODO.**
@@ -561,7 +569,28 @@ original TODO.**
 Sequencing note (`docs/string-length-meta.md` §7): declaring `String` meta-carrying pulls every body-less
 `String`-returning leaf into this list — roughly a dozen more, all of them statable as
 `Bounded([0, platform max])`. Landing the `String` domain *before* arming means stating them once instead of
-twice.
+twice. **Done, through S4**: the `String.els` set is stated, and what is left of that dozen is the input leaves
+(`readLine`, environment/file/process reads) plus `Show[Int]::show`.
+
+**Two things S4 established that arming depends on.**
+
+- **A brace could not name a number.** An interval endpoint is a `BigInteger` and a value-position integer literal is
+  an `Int`, with no widening between them by cornerstone — so `Bounded(0)` in a brace is a type error, and every
+  transfer with a floor of `0` was unwritable. The fix is the existing type-position-literal idiom
+  (`rangeWithin[0, 127]`, `integerLiteral[V]`) packaged as `boundedAt[V: BigInteger]: Bound[BigInteger]`, a
+  **compile-time-only** helper in `stdlib/eliot-compiler/eliot/lang/Bound.els` — checking-only, so no platform has to
+  implement it. Anyone stating the remaining leaves will need it, and will also hit its two edges: a type-position
+  literal may not be **negative** (spell `-1` as `boundedAt[0] - boundedAt[1]`), and argument order decides a call's
+  type parameters, so a literal in the *first* argument position fixes `T := Int` and poisons everything after it.
+- **A leaf whose bound is exponential states the top rather than the bound.** §5 predicted exactly one such leaf and
+  it stayed one; `whole` is a *stated* top, which is what keeps R4 intact, and the `power` native of decision 8 is
+  still a precision follow-on rather than a prerequisite. The lesson generalises to arming: R2 demands a *statement*,
+  never a *tight* statement, and a leaf that cannot afford its honest bound has a legal thing to say.
+
+**What is left before arming**, and it is a shorter list than "state the transfers": the platform input leaves, whose
+bounds are ordinary platform data contributed beside their natives; `Process::exitCode` and its jvm twin; and
+`Show[Int]::show`, whose bound is a digit count of its argument's range — real, but needing a base-10 logarithm no
+arithmetic leaf offers, so it is the second candidate for a stated top.
 
 **P3 — R3 enforcement.** Error on a brace over a bodied value. Should be a no-op on today's tree
 (`Numeric[Int]`, `fold`, `integerLiteral` are all leaves) — a good sign and a good test.
@@ -606,4 +635,7 @@ Each stage verified by the fast example sweep + byte-identity compare
 7. **May an ability declare a transfer its impls must satisfy?** (§2.2) — probably yes eventually, but as a
    contract feature, not part of this.
 8. **A `power` native** (§5) — worth having for precision once `String` size lands, and safe only now that
-   the domain has a top to saturate into. Not a prerequisite for anything.
+   the domain has a top to saturate into. Not a prerequisite for anything. **Reaffirmed by S4**, which was
+   originally scoped to include it (`docs/string-length-meta.md` §10) and did not: `parseIntInternal` states
+   `whole` and the exponent never runs, so the tight cases (`"42"` ⤳ `[-99, 99]`, a `where`-bounded input field)
+   remain the only thing `power` would buy.
