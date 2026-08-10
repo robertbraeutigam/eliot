@@ -20,8 +20,10 @@ notes.
 - **Flow grades: quantitative computation tracking (cycles/WCET, stack, peak memory) on the
   effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion. The dependency
   ladder is ranges → sizes → grades (fold cost needs sizes, frame sizes need ranges): the
-  refinement channel's **ranges** domain has shipped, so what this still waits on is its **second
-  domain, `List`/`Array` `size`**. Core idea: the effect row generalizes from "set of abilities" to
+  refinement channel's **ranges** domain has shipped, and so has a `String` `size` domain
+  (`docs/string-length-meta.md`) — but a fold's cost is a function of a *collection's* size, so what
+  this still waits on is **`List`/`Array` `size`**, the one that needs structural meta
+  (`docs/total-meta-transfers.md` §2.3). Core idea: the effect row generalizes from "set of abilities" to
   "abilities + **named grades**" —
   `def onTick(s: State): {Timer, cycles: ≤800} Unit` — where a grade is *not* an ability
   (nothing is performed, nothing resolved or discharged) but a quantity with an algebra,

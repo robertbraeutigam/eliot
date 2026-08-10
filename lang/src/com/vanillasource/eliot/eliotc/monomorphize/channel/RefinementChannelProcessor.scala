@@ -24,7 +24,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * A post-pass over each [[MonomorphicValue]] (runtime track): it walks the fully-ground body bottom-up and, for every
   * node whose value range it can pin, records that interval. The propagation rules (the value channel of §4):
   *
-  *   - **α (literal seeding):** an integer literal `n` seeds the singleton `[n, n]`.
+  *   - **α (literal seeding):** a literal seeds the singleton range it knows about itself — an integer literal `n` its
+  *     value `[n, n]`, a string literal the size `[k, k]` of its `k` code points. Both go through the *same* path (the
+  *     literal protocol's own `^Meta` companion in `eliot.lang.Runtime`), so the second domain needed no second
+  *     mechanism — only its own seed declaration.
   *   - **Transfers (Step-4c form):** at an `Int` `+`/`-`/`*` leaf the result interval is the leaf's `^Meta` transfer
   *     companion (`add^Meta`/… — the `Numeric[Int]` instance methods' companions, whose braces spell the transfer as
   *     `add`/`subtract`/`multiply` over the operand ranges, dispatched through the `Numeric[Interval[BigInteger]]`
@@ -86,7 +89,7 @@ class RefinementChannelProcessor
     // so under the uniform-carrier path its body still carries the pervasive `Id` machinery (`pure@Effect[Id]`/`runId`
     // wrappers, `Id[X]` node/signature types) that the codegen seam erases but this channel would otherwise trip over: a
     // literal's `[n,n]` range hides inside `pure@Effect[Id]( n )` and a merge's `A := Id[Int]` finds no `Id$Meta`, so a
-    // provable range reads as ⊤ ("value range is not known"). Normalize `Id` away up front, exactly as
+    // provable range reads as ⊤ ("meta-information is not known"). Normalize `Id` away up front, exactly as
     // `WovenValueProcessor` does (a no-op on the legacy path, which inserts no `eliot.lang.Id`), so the flow sees the bare
     // literal and `Id`-erased types.
     val erasedSig      = IdNormalizer.eraseIdTypes(mv.signature)
@@ -116,6 +119,20 @@ class RefinementChannelProcessor
         metaViaCompanion(
           WellKnownTypes.integerLiteralFQN,
           Seq(GroundValue.Direct(value.value, bigIntType)),
+          Seq.empty
+        ).map(meta => Flow(meta, recordAt(node, meta)))
+
+      case MonomorphicExpression.StringLiteral(value)   =>
+        // α for the `String` domain (`docs/string-length-meta.md` §3.1): a literal seeds the singleton size range of
+        // its own length, through the same uniform `^Meta` path as the integer seed — `eliot.lang.Runtime::stringLiteral`'s
+        // return brace `{Bounded(closed(N, N))}` builds the `String$Meta` in Eliot; the channel supplies only the raw
+        // count. That count is the literal's **code points**, which is what `String::length` counts on every platform
+        // (`type String`'s documented unit), so the measure is platform-independent rather than a host-representation
+        // guess: the seed can never disagree with the function whose unit it reports.
+        val text = value.value
+        metaViaCompanion(
+          WellKnownTypes.stringLiteralFQN,
+          Seq(GroundValue.Direct(BigInt(text.codePointCount(0, text.length)), bigIntType)),
           Seq.empty
         ).map(meta => Flow(meta, recordAt(node, meta)))
 
@@ -170,7 +187,7 @@ class RefinementChannelProcessor
         rejectWhereAsValueIfBearing(node, vfqn.value).as(Flow(None, recordAt(node, None)))
 
       case _ =>
-        // A parameter reference or a string literal: ⊤ (no known integer range at this node).
+        // A parameter reference: ⊤ (nothing is known about this node's value here).
         Flow(None, recordAt(node, None)).pure[CompilerIO]
     }
 
@@ -311,6 +328,10 @@ class RefinementChannelProcessor
     * a pass. Every argument's meta must be known (⊤ cannot discharge a demand — the fail-safe of §4.3); the predicate
     * then reduces (through the one NbE evaluator, over the arguments' meta values) to a `Bool`: `true` passes, `false` is
     * a violation, and a non-`Bool` result (an unsupported predicate shape) fails loudly rather than silently accepting.
+    *
+    * The diagnostics speak of *meta-information* rather than of a value range: the channel is domain-agnostic, and since
+    * `String` gained its `size` slot a `where` is as likely to be about a string's length as about an integer's range.
+    * Naming the `Int` domain here would misdescribe half the failures (`docs/string-length-meta.md`).
     */
   private def demandPrecondition(
       callNode: Sourced[MonomorphicExpression],
@@ -320,8 +341,12 @@ class RefinementChannelProcessor
     argMetas.sequence match {
       case None        =>
         Sourced.compilerError(
-          callNode.as(s"Cannot prove the precondition of '${callee.show}': an argument's value range is not known here."),
-          Seq("A `where` precondition demands a provable range — pass a value whose range the compiler can determine.")
+          callNode.as(
+            s"Cannot prove the precondition of '${callee.show}': an argument's meta-information is not known here."
+          ),
+          Seq(
+            "A `where` precondition demands provable meta-information — pass a value the compiler can pin, such as a literal."
+          )
         )
       case Some(metas) =>
         // Reduce the `^Where` companion over the argument metas through the escalating linker-executor (same executor as
@@ -331,7 +356,7 @@ class RefinementChannelProcessor
           case Some(gv) if isBoolTrue(gv)  => ().pure[CompilerIO]
           case Some(gv) if isBoolFalse(gv) =>
             Sourced.compilerError(
-              callNode.as(s"The precondition of '${callee.show}' is not satisfied by the argument's value range.")
+              callNode.as(s"The precondition of '${callee.show}' is not satisfied by the argument's meta-information.")
             )
           case _                           =>
             Sourced.compilerError(callNode.as(s"Cannot evaluate the `where` precondition of '${callee.show}'."))

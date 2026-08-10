@@ -206,6 +206,12 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   Constructors `interval`/`closed`/`atLeast`/`atMost`/`whole` and the `where`-facing predicate
   `rangeWithin[Lo, Hi](b)` are abstract in the base, bodied per platform. `add`/`subtract` stay exact on a
   half-open interval; `multiply` widens to `whole` (its corner products lose the position that signs an infinity).
+- `type String {size: Bound[Interval[BigInteger]]}` — the channel's **second domain** (`docs/string-length-meta.md`),
+  the same one-slot shape and the same machinery, which is what proves the channel is not `Int`-shaped. The unit is the
+  **code point** — what `String::length` counts on every target — so a `where` over a size means the same thing
+  everywhere; the slot is `size` because `length` is taken by the runtime function in that module. A literal seeds it
+  (`Runtime::stringLiteral`'s brace, the string twin of `integerLiteral`'s); nothing else originates one yet, since no
+  `String` leaf states a transfer (that needs the backend's result-edge re-encode, stage S3).
 - `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function, signature only.
 - A `type X = ...` alias and a body-less `type X` differ only by having a body; `data X(...)` is the *concrete*
   form that additionally introduces a value constructor.

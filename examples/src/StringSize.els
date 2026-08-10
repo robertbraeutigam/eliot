@@ -1,0 +1,20 @@
+// A display that is 16 code points wide, expressed as a predicate over a string's tracked size. `size` is
+// `String`'s meta slot exactly as `range` is `Int`'s — a `Bound[Interval[BigInteger]]` in the compiler's
+// refinement channel, counting the same code points `length` counts at runtime.
+def fitsDisplay(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 16](b)
+
+/**
+ * A `where` precondition over a **string's size** — the refinement channel's second domain, on the same machinery the
+ * `Int` value-range domain uses (`docs/string-length-meta.md`). `banner` demands that its argument provably fit the
+ * display, and the compiler checks that at every call site before generating any code.
+ *
+ * A string literal seeds a singleton size, so `banner("Eliot")` is accepted (five code points fit sixteen) and the
+ * program prints `Eliot`. A literal too long for the display, or a string whose size the compiler cannot pin — a
+ * parameter, a line read from input — is a compile error rather than a truncated line at runtime.
+ *
+ * Because a size counts code points rather than storage units, the same precondition means the same thing on every
+ * target: `"Eliot"` is five on a UTF-16 platform and five on a UTF-8 one.
+ */
+def banner(text: String): String where fitsDisplay(size(text)) = text
+
+def main: {Console} Unit = printLine(banner("Eliot"))

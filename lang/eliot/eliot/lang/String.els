@@ -10,5 +10,9 @@
  * What a code point is *not* is a user-perceived character: a combining sequence (`e` followed by an acute
  * accent) is more than one, and so is an emoji built from several. Use `length` as a measure of content,
  * not of the width something occupies on a display.
+ *
+ * A string also carries a compile-time **size**: the range of lengths the compiler knows it may have,
+ * counted in exactly the unit `length` returns. Because that unit is the code point, a size means the same
+ * thing on every target, so a `where` precondition written over it holds wherever the program is compiled.
  */
 type String

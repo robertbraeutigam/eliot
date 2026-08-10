@@ -1,15 +1,21 @@
 # A length meta for `String` — the refinement channel's second domain
 
-Status: **design proposal, with its prerequisite built.** S0 (code-point indices, §5.1/§10) has **landed**; everything
-from the slot on is still design. The load-bearing mechanism was **prototyped end-to-end and reverted** — every claim
-marked *verified* below was run against the real tree; everything else is design.
+Status: **shipped through S2 — the domain is live.** S0 (code-point indices), **S1** (the `size` slot) and **S2**
+(the literal seed, plus the LSP gate) have all landed; a `where` precondition over a string's size is checked at every
+use site today. What remains is design: S3 (the backend result-edge re-encode), S4 (the `String.els` transfers) and S5
+(⊤ / arming R2) — see §10.
 
-Two of §11's open decisions are now **settled**. The unit is the **code-point count** (§5.1), which adds a
-prerequisite stage S0 (the index family switches units with `length`) and rules out a byte-size slot (§5.2) and any
-second slot before S5 (§5.3). And the **⊤ question is gone** — the range domain grew a top
-(`Bound[Interval[BigInteger]]`, `total-meta-transfers.md` §5), which this domain inherits for free and, per the §7
-correction, does not actually need: a `String` size is bounded by a representation like anything else. The rest of
-§11 is still open.
+The domain cost **one** compiler arm (§3.1) and one Eliot declaration beside it. Everything else — the meta structure,
+the derived `Meta` lattice, the `^Where` demand, the transfer name transform — was the shipped machinery, reached by
+declaring a slot on a second type. That is the claim §1 made for going second with `String` rather than `List`, and it
+held.
+
+All of §11's decisions are now **settled**. The unit is the **code-point count** (§5.1), which added a prerequisite
+stage S0 (the index family switched units with `length`) and rules out a byte-size slot (§5.2) and any second slot
+before S5 (§5.3). The **⊤ question is gone** — the range domain grew a top (`Bound[Interval[BigInteger]]`,
+`total-meta-transfers.md` §5), which this domain inherits for free and, per the §7 correction, does not actually need:
+a `String` size is bounded by a representation like anything else. The slot is named **`size`** (§3.2), the scope
+landed was **S1+S2** (§11.4), and R2 stayed **dormant** across it (§11.5).
 
 Prior art, and the two documents this one sits between:
 
@@ -73,28 +79,40 @@ channel's "the `^Meta` companion is the one recognition point" discipline.
 |---|---|---|
 | meta structure | `MetaConstructorDesugarer` emits `data String$Meta(size: Interval[BigInteger])` + accessor | *verified* |
 | lattice | the auto-derived `Meta[String$Meta]` joins the slot through `Meta[Interval[T]]` | *verified* (compiles) |
-| `metaTypeOf` | `String` ⤳ `String$Meta` by the same membership test, no new case | — |
-| branch merges | `fold^Meta` reduces at `A := String$Meta`; `if`/`match` over strings joins for free | — |
+| `metaTypeOf` | `String` ⤳ `String$Meta` by the same membership test, no new case | *shipped* |
+| branch merges | `fold^Meta` reduces at `A := String$Meta`; `if`/`match` over strings joins for free | **does not fire — and does not fire for `Int` either**, see below |
 | `where` | `MetaWhereDesugarer` already retypes *every* parameter `T` ⤳ `T$Meta`; a `where` over a `String` parameter needs no change (its own doc comment names this as the second-domain work) | *verified* (§4.3) |
 | transfers | a return brace on a `String`-returning def desugars as usual; a **cross-domain** brace (`String$Meta` in, `Int$Meta` out) is just the ordinary per-position name transform | *verified* (§4.2) |
 | backend | `IntRepresentation.isIntegerType` gates every width decision, so a `String$Meta` stamped on a node is ignored by the JVM backend | *verified* (§4.1) — but see §8 |
+
+Every row held on landing except the branch merge, and that one failed **in both domains**, so it is not a property
+of this domain. `banner(fold(true, "ab", "abcd"))` reports *"an argument's meta-information is not known here"* rather
+than joining `[2,2]` and `[4,4]`; so does `asByte(fold(true, 1, 1000))` with the shipped `Int` range. Whatever reaches
+`fold`'s arms at the demand is ⊤ for a string exactly as it is for an integer — a plausible culprit is that
+`fold[A](condition: Bool, whenTrue: {Effect} A, …)` now takes its arms as *rows*, so a pinned arm meta no longer
+survives to the call node, but that was not chased down here. It is an `Int`-domain regression to find and fix on its
+own evidence; the `String` domain neither caused it nor is blocked by it, and no test in the tree asserted a branch
+merge narrows, which is how it went unnoticed. Both jar sweeps are byte-identical across this change, so nothing
+about layout moved either way.
 
 ---
 
 ## 3. The three compiler changes
 
+**All three have landed.** The sections below are kept as written, with what shipped noted against each.
+
 ### 3.1 The α seed for string literals (the only real one)
 
-Today a string literal is ⊤: `RefinementChannelProcessor.walkFlow` falls through to `case _`. Nothing else can
-originate a `String` meta, so without a seed the whole domain is inert — which is precisely what makes the
+Before this, a string literal was ⊤: `RefinementChannelProcessor.walkFlow` fell through to `case _`. Nothing else can
+originate a `String` meta, so without a seed the whole domain is inert — which is precisely what made the
 declaration safe to land alone (§4.1).
 
-Mirror the integer seed. `eliot.lang.Runtime` already carries `def integerLiteral[V: BigInteger]: Int {Interval(V,
-V)}`; add its string twin and one arm in the channel:
+Mirror the integer seed. `eliot.lang.Runtime` already carries `def integerLiteral[V: BigInteger]: Int {Bounded(closed(V,
+V))}`; add its string twin and one arm in the channel:
 
 ```eliot
 // stdlib/eliot/eliot/lang/Runtime.els
-def stringLiteral[N: BigInteger]: String {Interval(N, N)}
+def stringLiteral[N: BigInteger]: String {Bounded(closed(N, N))}
 ```
 
 ```scala
@@ -103,14 +121,19 @@ case MonomorphicExpression.StringLiteral(value) =>
   val text = value.value
   metaViaCompanion(
     WellKnownTypes.stringLiteralFQN,
-    Seq(GroundValue.Direct(Literal.IntegerValue(BigInt(text.codePointCount(0, text.length))), bigIntType)),
+    Seq(GroundValue.Direct(BigInt(text.codePointCount(0, text.length)), bigIntType)),
     Seq.empty
   ).map(meta => Flow(meta, recordAt(node, meta)))
 ```
 
-Nineteen lines including the `WellKnownTypes` entry and the slot itself — *verified*, end to end (§4). The
-prototype counted `text.length`; with §5.1 resolved to code points that is the wrong measure (it counts UTF-16 units)
-and `codePointCount` replaces it. Nothing else in the arm changes.
+**Landed as written**, `Bound`-wrapped for the domain top the range domain grew meanwhile. The prototype counted
+`text.length`; with §5.1 resolved to code points that is the wrong measure (it counts UTF-16 units) and
+`codePointCount` replaced it — which is what `StringSizeIntegrationTest` pins with a supplementary-character literal
+that fits a four-wide bound and would not if storage units were counted.
+
+`stringLiteral` is a declaration no program ever calls (a literal's characters are already the value, so unlike
+`integerLiteral` nothing desugars into it). That is deliberate: it is the vessel that keeps the seed's *construction*
+in Eliot, so the channel supplies a number and the language builds the meta.
 
 Note what the channel does and does not decide. It supplies a raw `BigInteger` — the literal's measured length —
 exactly as the integer seed supplies the literal's value; the *interval*, the singleton, and the `String$Meta`
@@ -149,6 +172,9 @@ Two ways out:
 
 Take `size` now; log the namespace fix as the follow-on that lets a later domain use whatever name it wants.
 
+**Landed as `size`.** The namespace fix stays a follow-on, and it is `List`'s problem first: `List`'s natural slot name
+is also `size`, and unlike `String::length` the collision there is with the function users reach for most.
+
 ### 3.3 The LSP hover would mislabel a string's size as a value range
 
 `TypeHintIndex.boundsOf` decodes *any* `X$Meta(Interval(lo, hi))` shape and the hover renders it as the node's value
@@ -159,6 +185,14 @@ report a value range of `5..5`.
 Fix with the same gate the backend uses: decode only when the node's type is the tracked `Int` (or only when the
 meta's own FQN is `Int$Meta`). Cosmetic, one line, but it lands the moment the seed does — and §7's guidance is that
 a wrong *rendering* is the only place recognising a domain by name is sanctioned, so this is where to do it.
+
+**Landed**, taking the second option (the meta's own FQN), since the LSP module has no dependency on the backend's
+`isIntegerType` and the node's type is not in hand at the decode. `TypeHintRangeCompileTest` covers it by hovering a
+string literal and asserting *no* range — a test that fails without the gate, which was checked by removing it.
+
+The same reasoning caught one more user-facing text: the channel's own `where` diagnostics said *"the argument's value
+range"*, which is the `Int` domain's vocabulary in a processor that has none. They now say *"meta-information"* — the
+language's own word for exactly this (`ability Meta`), true of every domain.
 
 ---
 
@@ -496,12 +530,16 @@ Each stage compiles and passes the example sweep on its own.
   The **unit is now stated once**, on `type String` in `lang` (the layer that owns the name), and `length`,
   `substring`, `take`, `drop`, `indexOf` and `split` refer to it rather than restating it. `String.els`'s old sentence
   — "the platform's storage units" — is what S1's doc-comment change was going to have to contradict; it is gone.
-- **S1 — the slot.** `type String {size: Bound[Interval[BigInteger]]}` + the `eliot.compiler.Meta` import in `String.els`,
-  plus a doc-comment sentence defining the unit as the code-point count (§5.1). Inert: no seed, so every node stays
-  ⊤. *Verified.*
-- **S2 — the seed.** `Runtime::stringLiteral`, `WellKnownTypes.stringLiteralFQN`, the channel arm, and the LSP
-  `boundsOf` gate (§3.3). Test: the §4.3 `where` example, positive and negative, as a new `examples/src` entry plus
-  a channel test. *Verified except the LSP gate.*
+- **S1 — the slot** — **LANDED**. `type String {size: Bound[Interval[BigInteger]]}` + the `eliot.compiler.Meta` import,
+  on the **stdlib** declaration of `String` (the layer that owns the refinement domain — `Bound`/`Interval` live there,
+  and `Int`'s slot sets the precedent). The unit sentence went on the **lang** declaration instead, where `String`'s doc
+  comment already lives and S0 already stated the unit: a name declared in two layers may carry a doc comment on only
+  one of them. Inert on its own, exactly as predicted: no seed, so every node stayed ⊤ and the example sweep was clean.
+- **S2 — the seed** — **LANDED**. `Runtime::stringLiteral`, `WellKnownTypes.stringLiteralFQN`, the channel arm, and the
+  LSP `boundsOf` gate (§3.3). Tests: `StringSizeIntegrationTest` (accept/reject, the ⊤ fail-safe, a demand inside a
+  parametered def, and the two code-point cases), `TypeHintRangeCompileTest` for the hover gate, and `StringSize.els`
+  as a worked example. All 39 pre-existing example jars are byte-identical to master, so the domain is additive to
+  codegen as §4.1 claimed.
 - **S3 — the backend result-edge re-encode** (§8), landing together with the first stated transfer, `length`'s
   `{size(s)}`. Test: the §4.4 program compiles **and runs**, plus a `javap` check that the narrow conversion is
   emitted.
@@ -519,19 +557,27 @@ without either.
 
 ## 11. Decisions needed before code
 
-1. **Slot name `size`** (§3.2) — or do the `Qualifier.Meta` accessor-namespace fix first and call it `length`.
+All settled; kept as the record of what was chosen and why.
+
+1. ~~**Slot name `size`**~~ — **decided: `size`** (§3.2). The `Qualifier.Meta` accessor-namespace fix stays a follow-on,
+   owed to `List` rather than to `String`.
 2. ~~**Unit**~~ — **decided: the code-point count** (§5.1), with the index family switching units alongside `length`
    in a prerequisite change (S0). Two consequences settled with it: **byte size is not a slot** (§5.2, a backend
    derivation on the `Int`-range/width precedent), and **no second slot before S5** (§5.3).
-3. **Backend option (1)** for the result edge (§8) — confirm, since (2) is the tempting cheap answer that guts the
-   feature.
-4. **Scope**: S1+S2 alone (a working `where` domain, no stated transfers) is a defensible landing point and needs
-   neither §8 nor the ⊤ question — the latter is now settled anyway (§7).
-5. **Order vs. R2** (§7): confirm the domain lands while accounting stays dormant.
+3. **Backend option (1)** for the result edge (§8) — still owed, and still the recommendation, but it is now S3's
+   decision rather than a precondition of the domain: with no transfer stated, the gap cannot fire (§4.1, re-verified
+   by the byte-identical jar sweep). (2) remains the tempting cheap answer that guts the feature.
+4. ~~**Scope**~~ — **decided: S1+S2**, the working `where` domain with no stated transfers, which is what landed.
+5. ~~**Order vs. R2**~~ — **decided: the domain landed first, R2 stays dormant** (§7). The dozen-odd `String`-returning
+   leaves that R2 will demand a transfer from are now on its list; they get stated once, in S4, rather than twice.
 6. ~~**Is S0 in scope for whoever takes this?**~~ — **settled by landing it first** (§10). It went in as its own
    change, ahead of the slot and with no channel code touched, exactly as §5.1 recommended: landing the domain on the
    pragmatic unit and switching later was never a safe fallback, because every `where` written in the meantime would
-   silently change meaning. The next stage is S1.
+   silently change meaning.
+
+**The next stage is S3**, and it is now the gate on everything the domain is *for*: until the backend re-encodes on a
+call's result edge, `length` cannot state `{size(s)}`, and without that first transfer a string's size never reaches
+the `Int` domain (§4.4) and never crosses a call boundary at all.
 
 ---
 
