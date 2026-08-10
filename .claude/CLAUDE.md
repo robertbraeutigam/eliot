@@ -217,8 +217,12 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   the same one-slot shape and the same machinery, which is what proves the channel is not `Int`-shaped. The unit is the
   **code point** — what `String::length` counts on every target — so a `where` over a size means the same thing
   everywhere; the slot is `size` because `length` is taken by the runtime function in that module. A literal seeds it
-  (`Runtime::stringLiteral`'s brace, the string twin of `integerLiteral`'s); nothing else originates one yet, since no
-  `String` leaf states a transfer (that needs the backend's result-edge re-encode, stage S3).
+  (`Runtime::stringLiteral`'s brace, the string twin of `integerLiteral`'s), and `length` is the first leaf to **state**
+  a transfer (`{size(s)}`), carrying a size into the `Int` domain. Stating one needed the backend's **result-edge
+  re-encode** (S3, landed): a call boundary hands an integer back at the ⊤ bignum, so a node the transfer narrows is
+  converted right after the call — `ExpressionCodeGenerator.convertResultFromBoundary`, the mirror of
+  `generateArgumentToBignum` on the way in, applied to every non-intrinsic application (an intrinsic already emits at
+  the node's own width). The remaining `String` leaves state theirs in S4.
 - `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function, signature only.
 - A `type X = ...` alias and a body-less `type X` differ only by having a body; `data X(...)` is the *concrete*
   form that additionally introduces a value constructor.

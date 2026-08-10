@@ -1,13 +1,16 @@
 # Total Meta Transfers — meta as a shadow logic
 
-Status: **design, partly built.** Three pieces have landed: the R2 check itself
+Status: **design, partly built.** Four pieces have landed: the R2 check itself
 (`monomorphize/channel/MetaTransferAccountingProcessor`, registered but **dormant** — see §9 P1/P2), the
-range domain's top (`whole`, §5), and the removal of the last *global* top (the generic `Meta[Bound[D]]`,
+range domain's top (`whole`, §5), the removal of the last *global* top (the generic `Meta[Bound[D]]`,
 §5's third amendment) — so every top is a domain top and the only ⊤ left is the machinery's own untotality,
-which arming R2 is what removes. Everything from §6 on — the meta interpretation — is still design.
+which arming R2 is what removes — and the backend's result-edge re-encode with the **first stated transfer in the
+tree** (below). Everything from §6 on — the meta interpretation — is still design.
 
-The remaining gate on arming is **not** in this document: it is the backend's missing result-edge re-encode
-(`docs/string-length-meta.md` §8, S3), which the first stated transfer trips. See §9 P2.
+The gate that stood in front of arming — the backend's missing result-edge re-encode
+(`docs/string-length-meta.md` §8, S3), which the first stated transfer tripped — is **closed**, and with it the first
+transfer in the tree is stated: `def length(s: String): Int {size(s)}`. What is left before arming is stating the
+rest (§P2), not building anything.
 
 A **second domain has since landed** — `type String {size: Interval[BigInteger]}` with its literal seed
 (`docs/string-length-meta.md`, S1+S2) — which changes nothing here structurally (a nullary type's meta is a plain
@@ -71,10 +74,25 @@ already guards.
 
 Two consequences worth naming:
 
-- **A leaf's transfer is platform data**, contributed by the layer that owns the native, next to its native
-  binding. `String::length` is `0 .. 2³¹-1` on the JVM and something else on an ATtiny. That is not a wart;
-  it is the same shape as `add` having a per-platform realisation, and it means a platform leaf almost
-  always has a *true, useful* bound to state rather than "don't know" (§5).
+- **A leaf's transfer is *usually* platform data**, contributed by the layer that owns the native, next to its
+  native binding — the same shape as `add` having a per-platform realisation, and the reason a platform leaf
+  almost always has a *true, useful* bound to state rather than "don't know" (§5).
+
+  > **Amended by S3: not always, and the example this bullet used is the exception.** It read
+  > "`String::length` is `0 .. 2³¹-1` on the JVM and something else on an ATtiny". That was true of the bound
+  > this document expected `length` to state, and false of the bound it actually states: `{size(s)}` — the
+  > string's own tracked size. The difference is that a *representation* bound is platform data, while a leaf
+  > whose result is an exact function of its argument's meta states that function, and a function can be
+  > platform-independent. `length`'s is, because S0 made the unit the code point, so the identity holds on
+  > every target and the brace belongs in the **base** declaration.
+  >
+  > The rule to carry forward is therefore sharper than "transfers are platform data": **a transfer lives in
+  > the layer that owns the *fact it states*.** Ask what the bound is a property of — a representation
+  > (platform: `Process::exitCode`'s `[0, 255]`, `readLine`'s `[0, 2³¹−1]`) or the argument's own meta (base:
+  > `length`, and by the same reasoning `combine`'s `size(a) + size(b)`, §6 of `docs/string-length-meta.md`).
+  > §8.2's constraint is unaffected and is what makes this safe: a brace is a *concrete* value, so exactly one
+  > layer may carry it — and the second kind of transfer is precisely the kind no platform would want to
+  > restate.
 - **Derivation may pass through a jvm body but must stop at the native under it.** The compiler pool can
   *read* that body; it cannot *run* the bytecode leaf at the bottom (it stalls loudly). So the leaf under
   the jvm body is the one that must state — which is the same rule, applied at the real bottom.
@@ -250,7 +268,7 @@ needed for `foldLeft`. **Both withdrawn.** Walking the leaves that seemed to nee
 
 | leaf | honest transfer | needs |
 |---|---|---|
-| `String::length` | `0 .. platform max` (better: the string's own size meta, once it exists) | nothing |
+| `String::length` | ~~`0 .. platform max`~~ — the parenthesised "better" answer is the one that shipped: **`{size(s)}`**, the string's own size meta, which now exists | nothing |
 | `Process::exitCode` | `0 .. 255` | nothing |
 | `String::parseIntInternal` | ~~the platform int range~~ — **`Unbounded`** | the domain top (above) |
 | `Id::runId`, `Effect::pure` | identity on the payload's meta | nothing |
@@ -495,10 +513,11 @@ detection §2/§3 sketch). The R2 check rides each `MonomorphicValue` as
 body-less value whose **declared** return head is a concrete meta-carrying type and which declares no `^Meta`
 companion is reported at the value. A **type-parameter return head** (`foldLeftInternal : F[B]`, `runId : A`)
 is exempt — the meta is forwarded, not originated, so it is the §6 higher-order case, not this one. Proven
-against the real stdlib: armed, it fires on exactly `String::length`, `indexOfInternal`, `parseIntInternal`,
+against the real stdlib: armed, it fired on exactly `String::length`, `indexOfInternal`, `parseIntInternal`,
 and `Process::exitCode`/jvm `outcomeExitCode`; folds, carrier returns, bodied values, and the brace-carrying
 arithmetic leaves all pass. Registered but **undemanded** (dormant) — arming is a one-line `getFactOrAbort`
-precondition in `WovenValueProcessor`.
+precondition in `WovenValueProcessor`. `String::length` has since stated its transfer (S3), so it would no
+longer fire there — the first item to leave that list by being answered rather than exempted.
 
 **P2 prerequisite — the domain top — LANDED.** The range domain is `Interval[BigInteger]`, topped by `whole` (§5), so
 every leaf below now has a transfer it can honestly state. This was P2's one blocker.
@@ -507,13 +526,22 @@ every leaf below now has a transfer it can honestly state. This was P2's one blo
 tops are domain-owned, the machinery has none, and the only ⊤ left is the channel's own untotality — which is
 what arming removes rather than something to state around.
 
-**P2 prerequisite — the result-edge re-encode (S3) — REMAINING, and it is the real gate.**
-`docs/string-length-meta.md` §8: stating a transfer on a leaf emitted as a *generated native static method* pins a
-narrow meta on the call node while the method's return descriptor stays the ⊤ bignum, and the class verifier
-rejects it (`VerifyError: 'java/math/BigInteger' is not assignable to 'java/lang/Byte'`). It has never fired
-because no leaf states one yet; `String::length` — the first entry in the table below — fires it immediately. So
-S3 (re-encode a call's result edge, the mirror of `generateArgumentToBignum`) lands *with* the first stated
-transfer, not after it. The arithmetic leaves are invisible to this: they are inline intrinsics.
+**P2 prerequisite — the result-edge re-encode (S3) — LANDED, and it was the real gate.**
+`docs/string-length-meta.md` §8: stating a transfer on a leaf emitted as a *generated native static method* pinned a
+narrow meta on the call node while the method's return descriptor stayed the ⊤ bignum, and the class verifier
+rejected it (`VerifyError: 'java/math/BigInteger' is not assignable to 'java/lang/Byte'`). It had never fired
+because no leaf stated one; `String::length` — the first entry in the table below — fired it immediately. So S3
+(`ExpressionCodeGenerator.convertResultFromBoundary`, the mirror of `generateArgumentToBignum`) landed *with* that
+first stated transfer, as this entry required, and `String::length` is off the list below. The arithmetic leaves were
+invisible to it and remain so: they are inline intrinsics, which already emit at the node's own width — the one shape
+the re-encode skips.
+
+**What that settles beyond one leaf.** The re-encode is a function of the node's meta against the one ⊤ boundary
+width, not of which callee is being invoked, so it applies to every non-intrinsic application at once — the
+over-applied spine, the `Function.apply` bridge and the two `match` calls included. Every leaf P2 still owes a
+transfer therefore inherits a backend that already carries it, and this class of `VerifyError` cannot recur per-leaf.
+Verified inert where nothing is stated: with the backend change and no brace, all 40 compiling examples were
+byte-identical to the pre-change build.
 
 **P2 — arm it + the missing statements (remaining).** Wire the precondition, then state the transfers the
 armed check demands. Their bounds are **platform data**, so by the platform-independence cornerstone they
@@ -522,7 +550,7 @@ jvm-layer brace over a base-abstract declaration merges cleanly with no `signatu
 
 | leaf | stated transfer |
 |---|---|
-| `String::length` | `Bounded([0, 2³¹−1])` — the platform string limit |
+| ~~`String::length`~~ | **stated (S3)**: `{size(s)}` — the string's own size, exact, and better than the `[0, 2³¹−1]` this table first proposed. It is also the one row that belongs in the **base** rather than a platform layer, because since the unit is the code point the identity holds on every target — there is no platform datum in it |
 | `String::indexOfInternal` | `Bounded([-1, 2³¹−1])` — `-1` is the not-found answer |
 | `Process::exitCode`, jvm `outcomeExitCode` | `Bounded([0, 255])` |
 | `String::parseIntInternal` | `Unbounded` — full-precision `BigInteger`, and its honest bound is exponential in its argument's size (§5) |

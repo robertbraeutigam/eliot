@@ -94,9 +94,50 @@ object ExpressionCodeGenerator {
       expectedResultMeta: Option[GroundValue]
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
-      case IntegerLiteral(integerLiteral)                                                                            => ???
-      case StringLiteral(stringLiteral)                                                                              => ???
-      case ParameterReference(parameterName)                                                                         =>
+      // A backend intrinsic is emitted inline *at this node's own stamped width*, so it has no boundary to re-encode.
+      // It is the one such shape, and the only reason the two are told apart here rather than inside the emission.
+      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) if Intrinsics.isIntrinsic(sourcedCalledVfqn.value) =>
+        generateIntrinsic(
+          moduleName,
+          outerClassGenerator,
+          methodGenerator,
+          sourcedCalledVfqn,
+          typeArgs,
+          arguments,
+          expectedResultType,
+          expectedResultMeta
+        )
+      case _                                                                                                         =>
+        // Every other application ends at a *call boundary*, which leaves the ⊤ width on the stack.
+        for {
+          classes <- generateBoundaryApplication(
+                       moduleName,
+                       outerClassGenerator,
+                       methodGenerator,
+                       typedTarget,
+                       arguments,
+                       expectedResultType
+                     )
+          _       <- convertResultFromBoundary(methodGenerator, expectedResultType, expectedResultMeta)
+        } yield classes
+    }
+
+  /** Emit an application whose result arrives at a call boundary — a direct call, a `Function.apply` bridge, a `match`
+    * dispatch — as opposed to an inline intrinsic. The node's meta is deliberately absent from this signature: what a
+    * boundary leaves on the stack is the ⊤ width whatever the channel pinned, and re-encoding it is the caller's job.
+    */
+  private def generateBoundaryApplication(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      typedTarget: ReconciledMonomorphicExpression,
+      arguments: Seq[ReconciledMonomorphicExpression],
+      expectedResultType: GroundValue
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    typedTarget.expression match {
+      case IntegerLiteral(integerLiteral)                         => ???
+      case StringLiteral(stringLiteral)                           => ???
+      case ParameterReference(parameterName)                      =>
         // Function application on a parameter reference, so this needs to be a Function
         for {
           parameterIndex <- getParameterIndex(parameterName.value)
@@ -113,18 +154,7 @@ object ExpressionCodeGenerator {
                               expectedResultType
                             )
         } yield classes
-      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) if Intrinsics.isIntrinsic(sourcedCalledVfqn.value) =>
-        generateIntrinsic(
-          moduleName,
-          outerClassGenerator,
-          methodGenerator,
-          sourcedCalledVfqn,
-          typeArgs,
-          arguments,
-          expectedResultType,
-          expectedResultMeta
-        )
-      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs)                                                    =>
+      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) =>
         val calledVfqn = sourcedCalledVfqn.value
         if (WellKnownTypes.isPatternMatchHandleCases(calledVfqn))
           generatePatternMatchCall(
@@ -159,7 +189,7 @@ object ExpressionCodeGenerator {
             arguments,
             expectedResultType
           )
-      case FunctionLiteral(parameters, body)                                                                         =>
+      case FunctionLiteral(parameters, body)                      =>
         // An immediately-applied lambda `(x -> body)(arg)` — a `let`, the shape a non-effectful block `val`/statement
         // lowers to. Generate the lambda as an ordinary closure value, then apply the argument(s) to it exactly as a
         // function-valued parameter is applied. (An effectful block binding is rewritten to `flatMap`/`map` earlier and
@@ -181,7 +211,7 @@ object ExpressionCodeGenerator {
                              expectedResultType
                            )
         } yield lambdaClasses ++ argClasses
-      case FunctionApplication(_, _)                                                                                 =>
+      case FunctionApplication(_, _)                              =>
         // Applying the result of another application: the inner application leaves a function value on the stack
         // (its own final cast is to its Function-carrier expression type), the arguments are then applied to it.
         for {
@@ -216,6 +246,35 @@ object ExpressionCodeGenerator {
               if (isIntegerRep(argRep)) convertRepresentation(argRep, bigIntegerInternalName)(mv)
             }
     } yield cs
+  }
+
+  /** Re-encode a call's *result* edge: convert the value a call boundary leaves on the stack to the width the channel
+    * stamped on the call node. The mirror of [[generateArgumentToBignum]] on the way in, and the result-side twin of
+    * [[convertBodyToReturnBoundary]] on the callee's side.
+    *
+    * Every call boundary hands back an integer at the ⊤/bignum layout — a generated native's declared return
+    * descriptor, an Eliot method's return (widened there by [[convertBodyToReturnBoundary]]), or the `Function.apply`
+    * bridge's erased `Object` read at a concrete `Int`. When a *stated meta transfer* pins a narrower range on the call
+    * node (`def length(s: String): Int {size(s)}` ⤳ `[5,5]` at `length("hello")`), the node's consumers — an argument
+    * widening, a branch merge, a `CHECKCAST` — read that narrow width off the node, so without this conversion the
+    * bignum on the stack meets a `java.lang.Byte` operand and the class verifier rejects the method
+    * (`docs/string-length-meta.md` §8). A no-op for a non-integer result, and for the ⊤ node meta that every call
+    * without a stated transfer carries.
+    *
+    * Narrowing is what the transfer *asserts*: the leaf that states the bound is the one answering for it, exactly as
+    * an arithmetic leaf answers for the range it computes. An untruthful transfer truncates here rather than being
+    * caught, which is the R2 contract (`docs/total-meta-transfers.md` §3).
+    */
+  private def convertResultFromBoundary(
+      methodGenerator: MethodGenerator,
+      expectedResultType: GroundValue,
+      expectedResultMeta: Option[GroundValue]
+  ): CompilationTypesIO[Unit] = {
+    val boundaryRep = repInternalNameOf(expectedResultType, None)
+    val nodeRep     = repInternalNameOf(expectedResultType, expectedResultMeta)
+    methodGenerator.runNative[CompilationTypesIO] { mv =>
+      if (isIntegerRep(boundaryRep) && isIntegerRep(nodeRep)) convertRepresentation(boundaryRep, nodeRep)(mv)
+    }
   }
 
   /** Apply arguments one at a time to the function *value* on top of the stack (a `java.util.function.Function`), then
