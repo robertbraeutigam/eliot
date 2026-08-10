@@ -56,7 +56,11 @@ implement Eq[Path] {
 
 /**
  * Render `p` in the platform's path syntax — the inverse of `path`.
+ *
+ * The stated size is `atLeast(0)`: a path renders as some number of code points and the empty path renders as `""`,
+ * but its ceiling is a property of the platform's own path limits, which the base may not name. The bound a platform
+ * would narrow this to lives with that platform's `Path` representation, not here.
  */
 implement Show[Path] {
-   def show(value: Path): String
+   def show(value: Path): String {atLeast(0)}
 }

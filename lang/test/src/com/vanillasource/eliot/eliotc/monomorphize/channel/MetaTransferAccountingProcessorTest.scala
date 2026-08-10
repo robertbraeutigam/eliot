@@ -11,7 +11,8 @@ import com.vanillasource.eliot.eliotc.plugin.LangProcessors
   *
   * A meta-carrying type here is one declaring `$Meta` slots (`type Gauge {level: Interval[BigInteger]}`, mirroring
   * production's `type Int {range: Interval[BigInteger]}`); the check is demanded directly at each value's
-  * [[MetaTransferAccounting]] key, since the processor is not yet armed as a codegen precondition.
+  * [[MetaTransferAccounting]] key, which is also how codegen demands it since S5 armed the processor as a
+  * [[WovenValueProcessor]] precondition.
   */
 class MetaTransferAccountingProcessorTest extends ProcessorTest(LangProcessors()*) {
 
@@ -23,6 +24,9 @@ class MetaTransferAccountingProcessorTest extends ProcessorTest(LangProcessors()
   // call and never equals the produced fact key.
   private def accountingKey(name: String, typeArgs: Seq[GroundValue] = Seq.empty): MetaTransferAccounting.Key =
     MetaTransferAccounting.Key(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Default)), typeArgs)
+
+  private def wovenKey(name: String): WovenValue.Key =
+    WovenValue.Key(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Default)), Seq.empty)
 
   private val gauge: GroundValue =
     GroundValue.Structure(ValueFQN(testModuleName, QualifiedName("Gauge", Qualifier.Type)), Seq.empty, GroundValue.Type)
@@ -56,6 +60,18 @@ class MetaTransferAccountingProcessorTest extends ProcessorTest(LangProcessors()
       case (errors, facts) =>
         errors.map(_.message).mkString("\n") should not include missingTransfer
         facts.keySet should contain(accountingKey("readName"))
+    }
+  }
+
+  "the codegen precondition" should "block a violating leaf's WovenValue (S5 arming)" in {
+    runGenerator(prelude + "def readGauge: Gauge", wovenKey("readGauge"), ambientStubsWith()).map { case (_, facts) =>
+      facts.keySet should not contain wovenKey("readGauge")
+    }
+  }
+
+  it should "let a stating leaf's WovenValue through" in {
+    runGenerator(prelude + "def readGauge: Gauge {level(readGauge)}", wovenKey("readGauge"), ambientStubsWith()).map {
+      case (_, facts) => facts.keySet should contain(wovenKey("readGauge"))
     }
   }
 

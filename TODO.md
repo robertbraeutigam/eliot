@@ -18,10 +18,6 @@ notes.
   written `Bounded(0)` / `Bounded(0 - 1)`. What remains is the general case: an *ordinary def body* is
   runtime-track, so a helper called from a brace still cannot name a `BigInteger` constant in value position —
   which is why `rangeWithin[Lo, Hi]` takes its bounds as type parameters.
-- **A native that produces a meta-carrying type must state its meta-information.** Any type with
-  non-`Unit` meta-information that comes out of a native function *and* has no meta-information
-  definition at that native should be a compile error — the native has to say what it does to the
-  meta-information every time, rather than silently defaulting.
 - **Flow grades: quantitative computation tracking (cycles/WCET, stack, peak memory) on the
   effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion. The dependency
   ladder is ranges → sizes → grades (fold cost needs sizes, frame sizes need ranges): the

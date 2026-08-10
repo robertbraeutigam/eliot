@@ -35,8 +35,14 @@ private def printLineInternal(s: String): Unit
  * The single impure operation behind `readLine`: reads a line from standard input, or `null` at end of input (never
  * seen outside this module — `lineOrNone` turns it into a `None` immediately). `private` for the same reason as
  * `printLineInternal`. Implemented by the backend.
+ *
+ * The stated size is the JVM's own string ceiling: a `java.lang.String` holds at most `2147483647` UTF-16 units, so it
+ * holds at most that many code points. This is what a platform-representation transfer looks like — the fact stated is
+ * a property of the JVM's `String`, so it lives in this layer rather than in the base, and an MCU target with a smaller
+ * line buffer states its own. A line read at end of input is `null`, which has no size at all; the bound describes the
+ * strings this can actually yield.
  */
-private def readLineInternal: String
+private def readLineInternal: String {closed(0, 2147483647)}
 
 /**
  * `true` when `x` is the null reference — lets `lineOrNone` branch on what the reader returned in ordinary Eliot. The

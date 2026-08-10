@@ -198,8 +198,11 @@ private def resultAsList[E](r: IoResult): List[E]
 
 /**
  * The error-message slot of a result holder (`null` when it holds a value). Implemented by the backend.
+ *
+ * The stated size is the JVM's `String` ceiling (see `readLineInternal` in `eliot.effect.Console`): the message comes
+ * from an arbitrary `java.io` exception, so nothing narrower is true of it.
  */
-private def resultErrorMessage(r: IoResult): String
+private def resultErrorMessage(r: IoResult): String {closed(0, 2147483647)}
 
 /**
  * `true` when `x` is the null reference — lets `reflect` branch on the holder's slots in ordinary Eliot. Implemented by

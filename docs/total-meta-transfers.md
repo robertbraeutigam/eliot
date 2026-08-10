@@ -1,34 +1,35 @@
 # Total Meta Transfers — meta as a shadow logic
 
-Status: **design, partly built.** Four pieces have landed: the R2 check itself
-(`monomorphize/channel/MetaTransferAccountingProcessor`, registered but **dormant** — see §9 P1/P2), the
-range domain's top (`whole`, §5), the removal of the last *global* top (the generic `Meta[Bound[D]]`,
-§5's third amendment) — so every top is a domain top and the only ⊤ left is the machinery's own untotality,
-which arming R2 is what removes — and the backend's result-edge re-encode with the **first stated transfer in the
-tree** (below). Everything from §6 on — the meta interpretation — is still design.
+Status: **R2 is armed; the interpretation is still design.** **P1 and P2 are done** (S5): every native leaf in the
+tree that produces a meta-carrying type states its transfer, and
+`monomorphize/channel/MetaTransferAccountingProcessor` is a **codegen precondition** in `WovenValueProcessor` —
+a leaf that states nothing no longer compiles. With it the channel's own untotality is gone: a meta that is absent
+now means "nobody has computed this yet" for a *bodied* value only (the meta interpretation, §6/P4, is what
+answers those), never "a native quietly defaulted to ⊤". The pieces that had to land first all did: the range
+domain's top (`whole`, §5), the removal of the last *global* top (the generic `Meta[Bound[D]]`, §5's third
+amendment) — so every top is a domain top and the machinery keeps none — and the backend's result-edge re-encode
+(`docs/string-length-meta.md` §8, S3), which the first stated transfer tripped. Everything from §6 on — the meta
+interpretation — is still design.
 
-The gate that stood in front of arming — the backend's missing result-edge re-encode
-(`docs/string-length-meta.md` §8, S3), which the first stated transfer tripped — is **closed**, and with it the first
-transfer in the tree is stated: `def length(s: String): Int {size(s)}`. What is left before arming is stating the
-rest (§P2), not building anything.
+**S4 stated the whole of `String.els`** (`docs/string-length-meta.md` §10): `length`, `combine`, `substring`,
+`trim`, `toUpperCase`/`toLowerCase`, `repeat`, `replace` and `indexOfInternal` all carry a brace, and
+`parseIntInternal` carries the domain's top. **S5 stated the residue and armed** — eleven more leaves, listed in
+§P2, split exactly along §2.1's rule: two in the **base**, whose bound is a property of what the operation *is*
+(`Show[Int]::show`, `Show[Path]::show`), and nine in the **jvm layer**, whose bound is a property of the JVM's own
+representation (the input and holder natives). Three facts those two stages established are load-bearing and are
+recorded in §P2 below — a brace could not name a number until S4 worked around it, since fixed at the root (a
+brace's literals are compiler-track `BigInteger`s); a leaf whose honest bound is exponential states the top rather
+than running the exponent; and a brace could not be stated at all on a def with an *untracked parameter* until S5
+fixed the companion desugarer (§8.7).
 
-**S4 has since stated the whole of `String.els`** (`docs/string-length-meta.md` §10): `combine`, `substring`, `trim`,
-`toUpperCase`/`toLowerCase`, `repeat`, `replace` and `indexOfInternal` all carry a brace, and `parseIntInternal`
-carries the domain's top. So the transfer count in the tree went from one to nine, and §P2's arming list shrank to a
-residue that is *not* about finding bounds: the platform input leaves, whose bounds are ordinary platform data, and
-the leaves whose bound exists but cannot be written down. Two facts S4 established are load-bearing for whoever arms
-R2 and are recorded in §P2 below — a brace could not name a number until S4 worked around it, since fixed at the root
-(a brace's literals are compiler-track `BigInteger`s), and a leaf whose honest bound is exponential states the top
-rather than running the exponent.
+A **second domain landed** before arming — `type String {size: Interval[BigInteger]}` with its literal seed
+(`docs/string-length-meta.md`, S1+S2) — which changed nothing here structurally (a nullary type's meta is a plain
+one-slot structure; §2.3's *structural* map is still owed by `List`) but enlarged what arming R2 cost: every
+body-less `String`-returning leaf produces a meta-carrying type and so joined §P2's list. That is the sequencing
+that document argued for and this one accepted: state those transfers once, in S4/S5, and arm after.
 
-A **second domain has since landed** — `type String {size: Interval[BigInteger]}` with its literal seed
-(`docs/string-length-meta.md`, S1+S2) — which changes nothing here structurally (a nullary type's meta is a plain
-one-slot structure; §2.3's *structural* map is still owed by `List`) but does enlarge what arming R2 costs: every
-body-less `String`-returning leaf now produces a meta-carrying type and so joins §P2's list. That is the sequencing
-that document argues for and this one accepts: state those transfers once, in its S4, and arm R2 after.
-
-Supersedes the TODO item *"A native that produces a meta-carrying type must state its meta-information"* by
-generalising it: the TODO closes one hole, this closes the class of holes it belongs to.
+**Closes** the TODO item *"A native that produces a meta-carrying type must state its meta-information"* by
+generalising it: the TODO closed one hole, this closed the class of holes it belonged to.
 
 Prior art: the refinement channel (`Int`'s `range` slot, `^Meta` transfer companions, `^Where`
 preconditions, `Meta[D]` join) — shipped; see `monomorphize/channel/RefinementChannelProcessor` and the
@@ -507,6 +508,18 @@ are **unification metavariables**, nothing to do with refinement meta. New code 
 read ambiguously. "Meta" is the user-facing word for the refinement side (`ability Meta[D]`), so the
 metavariable side is the better rename target — worth doing before this lands more of the other.
 
+**8.7 A brace could not be stated on a def with an untracked parameter — LANDED (S5).** The `^Meta` companion types
+its parameters by the pure name transform `T` ⤳ `T$Meta`, and `T$Meta` is generated only for a **slotted** type — a
+slotless type's meta is the trivial `Unit`, which the channel supplies rather than a structure. So the transform was
+total only by accident: every brace in the tree until S5 had exclusively `Int`/`String` parameters. The first leaf
+whose brace stood over an untracked parameter — `outcomeExitCode(outcome: ProcessOutcome)`, and with it every
+`Path`/`IoResult`/`ProcessOutcome` accessor in §P2's list — failed with "Name not defined." at its own parameter
+type. The fix is the rule the *generic* branch of the same desugarer already relied on, made explicit and applied
+per-parameter: a parameter the brace never mentions is dead in the companion, so it keeps its own type
+(`core/processor/MetaCompanionReferences`). A parameter the brace *does* mention is retyped as before, so projecting
+an untracked parameter still fails loudly. `MetaWhereDesugarer` had the identical defect for `where` predicates — a
+`where` over an `Int` parameter failed if any *other* parameter of the def was untracked — and takes the same rule.
+
 ---
 
 ## 9. Staging
@@ -515,7 +528,7 @@ metavariable side is the better rename target — worth doing before this lands 
 after the layer merge, excluding ability method declarations (§2.2). Nothing consumes it yet; publish the
 list and eyeball it.
 
-**P1/P2 mechanism — LANDED (not yet armed).** The leaf predicate turned out to be exactly the body test the
+**P1/P2 mechanism — LANDED, and ARMED (S5).** The leaf predicate turned out to be exactly the body test the
 mono fact already carries — `MonomorphicValue.runtime.isEmpty` (no need for the two-track/`NativeBinding`
 detection §2/§3 sketch). The R2 check rides each `MonomorphicValue` as
 `monomorphize/channel/MetaTransferAccountingProcessor` (on the `EffectAccountingProcessor` template): a
@@ -524,9 +537,10 @@ companion is reported at the value. A **type-parameter return head** (`foldLeftI
 is exempt — the meta is forwarded, not originated, so it is the §6 higher-order case, not this one. Proven
 against the real stdlib: armed, it fired on exactly `String::length`, `indexOfInternal`, `parseIntInternal`,
 and `Process::exitCode`/jvm `outcomeExitCode`; folds, carrier returns, bodied values, and the brace-carrying
-arithmetic leaves all pass. Registered but **undemanded** (dormant) — arming is a one-line `getFactOrAbort`
-precondition in `WovenValueProcessor`. `String::length` has since stated its transfer (S3), so it would no
-longer fire there — the first item to leave that list by being answered rather than exempted.
+arithmetic leaves all pass. It is now **demanded**: a `getFactOrAbort(MetaTransferAccounting.Key(…))` beside the
+effect-accounting precondition in `WovenValueProcessor`, so a leaf that states nothing blocks its own `WovenValue`
+and with it codegen — the same shape, and the same reasoning, as an undeclared effect. `String::length` left that
+firing list by being *answered* (S3) rather than exempted, and S5 answered the rest.
 
 **P2 prerequisite — the domain top — LANDED.** The range domain is `Interval[BigInteger]`, topped by `whole` (§5), so
 every leaf below now has a transfer it can honestly state. This was P2's one blocker.
@@ -552,28 +566,39 @@ transfer therefore inherits a backend that already carries it, and this class of
 Verified inert where nothing is stated: with the backend change and no brace, all 40 compiling examples were
 byte-identical to the pre-change build.
 
-**P2 — arm it + the missing statements (remaining).** Wire the precondition, then state the transfers the
-armed check demands. Their bounds are **platform data**, so by the platform-independence cornerstone they
-belong in the platform layer, not the base (the brace desugars to a separate `^Meta` companion, so a
-jvm-layer brace over a base-abstract declaration merges cleanly with no `signatureEquality` change):
+**P2 — arm it + the missing statements — DONE (S5).** The precondition is wired and every leaf the armed check
+demanded now states. §2.1's rule decided each one's layer — a bound that is a property of the *operation* lives in
+the base, a bound that is a property of the *representation* lives in the platform layer (the brace desugars to a
+separate `^Meta` companion, so a jvm-layer brace over a base-abstract declaration merges cleanly with no
+`signatureEquality` change):
 
 | leaf | stated transfer |
 |---|---|
 | ~~`String::length`~~ | **stated (S3)**: `{size(s)}` — the string's own size, exact, and better than the `[0, 2³¹−1]` this table first proposed. It is also the one row that belongs in the **base** rather than a platform layer, because since the unit is the code point the identity holds on every target — there is no platform datum in it |
 | ~~`String::indexOfInternal`~~ | **stated (S4)**: `{interval(Bounded(0 - 1), end(size(s)))}` — ~~`Bounded([-1, 2³¹−1])`~~. The same correction `length` got: the ceiling is the argument's own size rather than a platform maximum, so this too belongs in the base. `-1` is still the not-found answer, spelled as a subtraction because the language has no negative-literal syntax at all |
-| `Process::exitCode`, jvm `outcomeExitCode` | `Bounded([0, 255])` — genuinely platform data, and still owed |
 | ~~`String::parseIntInternal`~~ | **stated (S4)**: `{whole}` — full-precision `BigInteger`, whose honest bound is exponential in its argument's size (§5), so the top is what it states and the exponent never runs |
+| ~~`Show[Int]::show`~~ (base) | **stated (S5)**: `{atLeast(1)}` — every integer renders as at least one code point (`0` is `"0"`), which holds on every target, so the brace belongs in the base. The *ceiling* is the digit count of the argument's range and stays unwritten: it needs a base-10 logarithm no arithmetic leaf offers (decision 8). The half-open interval is what lets this state the half it knows — the third leaf to answer with a partial bound rather than the top |
+| ~~`Show[Path]::show`~~ (base) | **stated (S5)**: `{atLeast(0)}` — a path renders as some number of code points, floor `0`; the ceiling is the platform's own path limit, which the base may not name |
+| ~~jvm `readLineInternal`, `environmentVariableInternal`, `fileNameInternal`, `extensionInternal`, `resultErrorMessage`, `outcomeErrorMessage`, `outcomeStandardOutput`, `outcomeStandardError`~~ | **stated (S5)**: `{closed(0, 2147483647)}` — the JVM's own `String` ceiling (a `java.lang.String` holds at most that many UTF-16 units, so at most that many code points). This is what a representation transfer looks like, and it is exactly the row §2.1 predicted would be platform data: an MCU target with a smaller line buffer states its own |
+| ~~jvm `outcomeExitCode`~~ | **stated (S5)**: `{closed(0 - 2147483648, 2147483647)}` — **not** the `Bounded([0, 255])` this table proposed. POSIX truncates a status to a byte; Windows hands back an arbitrary `int` (`0xC0000005`), and `java.lang.Process.exitValue()` returns that `int` unchanged. A leaf's statement is *axiomatic* — nothing rechecks it — so a bound that is merely usually right silently poisons every `where` downstream of it. The wide statement is the honest one, and it still bounds the width, which is what a fixed-width `where` needs |
+| `Process::exitCode`, `Process::standardOutput`/`standardError`, `File::message` | **not leaves** — the jvm layer's `data ProcessResult(exitCode: Int, …)` / `data IoError(message: String)` make these generated field accessors, i.e. *bodied*, so they derive rather than state. The earlier proof run listed `Process::exitCode` because it predated those concrete `data` declarations |
 
-Plus the generic leaves of §5, which are the higher-order rows and wait on P4. **This is what closes the
+Plus the generic leaves of §5, which are the higher-order rows and wait on P4. **This is what closed the
 original TODO.**
 
-Sequencing note (`docs/string-length-meta.md` §7): declaring `String` meta-carrying pulls every body-less
-`String`-returning leaf into this list — roughly a dozen more, all of them statable as
-`Bounded([0, platform max])`. Landing the `String` domain *before* arming means stating them once instead of
-twice. **Done, through S4**: the `String.els` set is stated, and what is left of that dozen is the input leaves
-(`readLine`, environment/file/process reads) plus `Show[Int]::show`.
+Sequencing note (`docs/string-length-meta.md` §7): declaring `String` meta-carrying pulled every body-less
+`String`-returning leaf into this list — roughly a dozen more. Landing the `String` domain *before* arming meant
+stating them once instead of twice. **Done, through S4+S5**: nine in `String.els`, then the two base `show`s and
+the nine jvm natives above.
 
-**Two things S4 established that arming depends on.**
+**What the armed check actually costs a reader, measured.** R2 is a *use-site* check riding each
+`MonomorphicValue`, so it only fires on leaves the program instantiates. Across all 43 examples it fires nowhere,
+and a probe program exercising the file/process/environment/console/`show` surface fires nowhere either. That is
+also its one sharp edge: arming with only the leaves today's examples reach would have left the rest to break for
+the first user who opened a file, which is why S5 stated every leaf in the tree rather than every leaf that
+happened to fire.
+
+**Three things S4 and S5 established that arming depended on.**
 
 - **A brace can name a number, once the brace is read as what it is.** An interval endpoint is a `BigInteger` and a
   value-position integer literal is an `Int`, with no widening between them by cornerstone — so `Bounded(0)` in a
@@ -590,13 +615,22 @@ twice. **Done, through S4**: the `String.els` set is stated, and what is left of
   still a precision follow-on rather than a prerequisite. The lesson generalises to arming: R2 demands a *statement*,
   never a *tight* statement, and a leaf that cannot afford its honest bound has a legal thing to say.
 
-**What is left before arming**, and it is a shorter list than "state the transfers": the platform input leaves, whose
-bounds are ordinary platform data contributed beside their natives; `Process::exitCode` and its jvm twin; and
-`Show[Int]::show`, whose bound is a digit count of its argument's range — real, but needing a base-10 logarithm no
-arithmetic leaf offers, so it is the second candidate for a stated top.
+- **A brace could not be stated at all on a def with an untracked parameter** (§8.7) — the one piece of *machinery*
+  arming needed, and the only surprise of S5. Every brace in the tree until then had exclusively `Int`/`String`
+  parameters, which hid that the companion desugarer retypes *every* parameter to a `T$Meta` that exists only for a
+  slotted type. The nine holder/input natives all have an untracked parameter (`ProcessOutcome`, `IoResult`,
+  `Path`), so eight of the eleven S5 statements were unwritable until it was fixed. The general lesson is the one
+  §2.1 keeps restating from a different angle: a rule that has only ever been exercised on the *tracked* types is
+  not yet known to be total.
 
-**P3 — R3 enforcement.** Error on a brace over a bodied value. Should be a no-op on today's tree
-(`Numeric[Int]`, `fold`, `integerLiteral` are all leaves) — a good sign and a good test.
+**What arming settled.** The channel no longer has a ⊤ that means two things. Before S5, an absent meta could be
+either "this value is bodied and the interpretation that would derive it does not exist yet" (P4's job) or "a native
+silently defaulted"; only the first survives, and it is now the *only* thing P4 has to answer. That is the property
+this document set out to buy, and it is bought at the price §P2 anticipated: eleven statements and one desugarer fix.
+
+**P3 — R3 enforcement (next).** Error on a brace over a bodied value. Should be a no-op on today's tree
+(`Numeric[Int]`, `fold`, `integerLiteral` and every S4/S5 statement are leaves) — a good sign and a good test. With
+R2 armed this is the cheap half of the pair: R2 says a leaf must state, R3 says nothing else may.
 
 **P4 — the interpretation (§6.2).** The naming fix of 8.1 first, then the walk, then the separation of §7.
 
@@ -633,8 +667,13 @@ Each stage verified by the fast example sweep + byte-identity compare
 4. ~~An `{Inf}` leaf may not return a meta-carrying type~~ — **dropped** (§5.1). It buys nothing (a leaf is
    summarized, never executed, so its loop never reaches the interpretation whatever it returns) and would
    forbid a legitimate blocking native that is honestly `{Inf}` and honestly bounded.
-5. **Brace placement**: with the native, excluded from `signatureEquality` (§8.2).
-6. **Scope of v1**: P2 alone, or P2 + P4.
+5. ~~**Brace placement**~~ — **decided and exercised (S5)**: with the layer that owns the *fact* (§2.1), which for
+   nine of the eleven S5 leaves is the layer that owns the native, and never in two layers at once (§8.2). No
+   `signatureEquality` change was needed, as §8.2 predicted: every S5 brace sits on a declaration only one layer
+   makes.
+6. ~~**Scope of v1**: P2 alone, or P2 + P4~~ — **decided by landing it: P2 alone** (S5). P4 is a separate
+   change with its own prerequisite (the 8.1 naming fix), and P2 is useful without it: totality at the leaves is
+   what makes an absent meta mean one thing instead of two.
 7. **May an ability declare a transfer its impls must satisfy?** (§2.2) — probably yes eventually, but as a
    contract feature, not part of this.
 8. **A `power` native** (§5) — worth having for precision once `String` size lands, and safe only now that

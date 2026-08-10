@@ -536,6 +536,22 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  it should "keep a parameter the brace never mentions at its own type (a slotless type has no T$Meta)" in {
+    namedValue("type Foo {bar: D}\ndef f(h: Handle): Foo {g(0)}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+      nv.signature.value.structure shouldBe App(App(Ref("Function", T), Ref("Handle", T)), Ref("Foo$Meta", T))
+    }
+  }
+
+  it should "still retype a parameter the brace does mention" in {
+    namedValue("type Foo {bar: D}\ndef f(h: Handle, a: Foo): Foo {a.bar}", QualifiedName("f", Qualifier.Meta))
+      .asserting { nv =>
+        nv.signature.value.structure shouldBe App(
+          App(Ref("Function", T), Ref("Handle", T)),
+          App(App(Ref("Function", T), Ref("Foo$Meta", T)), Ref("Foo$Meta", T))
+        )
+      }
+  }
+
   it should "keep an integer literal in the brace a compile-time BigInteger" in {
     namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {g(0)}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
       nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("Foo$Meta"), App(Ref("g"), IntLit("0")))))
@@ -545,6 +561,15 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   "where clause (bounds Step 4c)" should "keep an integer literal in the predicate a compile-time BigInteger" in {
     namedValue("def f(a: Foo): Foo where g(0)", QualifiedName("f$Where", Qualifier.Meta)).asserting { nv =>
       nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("g"), IntLit("0"))))
+    }
+  }
+
+  it should "keep a parameter the predicate never mentions at its own type" in {
+    namedValue("def f(h: Handle, a: Foo): Foo where g(a)", QualifiedName("f$Where", Qualifier.Meta)).asserting { nv =>
+      nv.signature.value.structure shouldBe App(
+        App(Ref("Function", T), Ref("Handle", T)),
+        App(App(Ref("Function", T), Ref("Foo$Meta", T)), QualRef("Bool", "eliot.lang.Bool"))
+      )
     }
   }
 
