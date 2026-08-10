@@ -32,4 +32,11 @@ def column(position: Int): Int where fitsDisplay(range(position)) = position
 def main: {Console} Unit = {
    printLine(banner("Eliot"))
    printLine(show(column(length("Eliot"))))
+   // A size carried through two stated transfers rather than one. `combine` states its result exactly — five
+   // code points in, five out — and `toUpperCase` states that case conversion may *triple* a code point count,
+   // because it genuinely can (`ß` upper-cases to `SS`). So the compiler knows this banner is at most fifteen
+   // wide and lets it through, and would refuse the same expression over a six-letter word: eighteen does not
+   // fit the display, even though the string that actually arrives at runtime is six characters long. That is
+   // the bound being honest rather than optimistic.
+   printLine(banner(toUpperCase(combine("eli", "ot"))))
 }

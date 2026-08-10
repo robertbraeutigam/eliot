@@ -222,7 +222,13 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   re-encode** (S3, landed): a call boundary hands an integer back at the ⊤ bignum, so a node the transfer narrows is
   converted right after the call — `ExpressionCodeGenerator.convertResultFromBoundary`, the mirror of
   `generateArgumentToBignum` on the way in, applied to every non-intrinsic application (an intrinsic already emits at
-  the node's own width). The remaining `String` leaves state theirs in S4.
+  the node's own width). **S4 stated the rest of `String.els`** — `combine` exactly, `substring`/`trim` bounded by their
+  subject, case conversion **tripling** its upper bound (`ß` ⤳ `SS`), `repeat`/`replace`/`indexOfInternal`, and
+  `parseIntInternal` at the domain top `whole` since its honest bound is exponential in its argument's size. A brace
+  **cannot spell a number** — an endpoint is a `BigInteger`, a value-position literal is an `Int`, and there is no
+  widening — so a constant goes through the compile-time-only `boundedAt[V: BigInteger]`
+  (`stdlib/eliot-compiler/…/Bound.els`), a type-position literal, which may **not** be negative (`-1` is
+  `boundedAt[0] - boundedAt[1]`). Left for S5: the platform input leaves, and arming R2.
 - `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function, signature only.
 - A `type X = ...` alias and a body-less `type X` differ only by having a body; `data X(...)` is the *concrete*
   form that additionally introduces a value constructor.
