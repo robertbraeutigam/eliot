@@ -388,6 +388,10 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting_Key
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting.Key] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.MetaTransferAccounting] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting_Key
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.MetaTransferAccounting.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable_NodeMeta
@@ -485,6 +489,9 @@ object LangFactCodecs {
     codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleValue
   val effectAccountingCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting]           =
     codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting
+  val metaTransferAccountingCodec
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.MetaTransferAccounting] =
+    codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting
   val refinementTableCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable]             =
     codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable
   val wovenValueCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.WovenValue]                       =
@@ -567,6 +574,7 @@ object LangFactCodecs {
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesIndex_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesRewrittenValue_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_WovenValue_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_fact_BodyValueReferences_Key),
