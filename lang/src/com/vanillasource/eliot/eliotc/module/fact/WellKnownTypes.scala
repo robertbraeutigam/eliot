@@ -134,6 +134,17 @@ object WellKnownTypes {
   val integerLiteralFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Runtime"), QualifiedName("integerLiteral", Qualifier.Default))
 
+  /** `stringLiteral[N]: String` — the string literal's *size* protocol, the [[integerLiteralFQN]] twin for the `String`
+    * refinement domain. A string literal needs no conversion (its characters are already the value), so unlike
+    * `integerLiteral` this declaration is never referenced by a program and no desugaring rewrites into it: it exists
+    * solely so the refinement channel can reduce its `stringLiteral^Meta` companion (from the `{Bounded(closed(N, N))}`
+    * return brace) at the literal's measured length, *seeding* the string's size meta. Keeping the seed's construction
+    * in Eliot is the same discipline the integer seed follows — the channel supplies only the raw count
+    * (`docs/string-length-meta.md` §3.1).
+    */
+  val stringLiteralFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Runtime"), QualifiedName("stringLiteral", Qualifier.Default))
+
   /** The `PatternMatch` ability (`eliot.lang.PatternMatch`) drives surface `match`: `matchdesugar` lowers a `match`
     * into a call to the ability's `handleCases` eliminator, and a backend recognises each implementation by this name
     * to emit the constructor's pattern-match dispatch. An implementation method carries

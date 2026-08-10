@@ -46,7 +46,7 @@ class CarrierSlotCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
 
   // Effects-as-channel §6/§10 (U4-e prerequisite): a post-mono MonomorphicValue consumer must see through the uniform
   // path's pervasive `Id`. `useByte(1000)`'s argument range `[1000,1000]` sits inside `pure@Effect[Id]( 1000 )`; before
-  // the refinement channel normalized `Id` away it read "value range is not known here" (a wrong diagnostic) instead of
+  // the refinement channel normalized `Id` away it read "meta-information is not known here" (a wrong diagnostic) instead of
   // the bound violation. This pins that the range survives the `Id` wrapper under the uniform-carrier checker.
   private val refinementSource =
     """import eliot.jvm.IO

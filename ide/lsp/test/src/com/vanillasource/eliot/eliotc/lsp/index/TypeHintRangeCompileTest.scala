@@ -34,6 +34,10 @@ class TypeHintRangeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
   private val literalPosition  = Position(2, line2.indexOf("42") + 1)   // inside the `42` literal
   private val functionPosition = Position(2, line2.indexOf("show") + 2) // inside the `show` reference
 
+  private val stringLine         = """def main: {Console} Unit = printLine("hello")"""
+  private val stringSource       = s"$line1\n$stringLine"
+  private val stringLiteralPosition = Position(2, stringLine.indexOf("\"hello\"") + 2)
+
   "a hover value range" should "report the singleton interval the channel pins for an integer literal" in {
     rangeAt(literalPosition).asserting(_ shouldBe Some((BigInt(42), BigInt(42))))
   }
@@ -42,15 +46,23 @@ class TypeHintRangeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
     rangeAt(functionPosition).asserting(_ shouldBe None)
   }
 
-  private def rangeAt(position: Position): IO[Option[(BigInt, BigInt)]] =
-    withCompiledWorkspace { (uri, index) =>
+  // A string literal seeds the *size* domain (`docs/string-length-meta.md`), whose meta has exactly the same
+  // `X$Meta(Bounded(Interval(..)))` shape as an `Int`'s range — so a shape-only decode would report `"hello"` as having
+  // the value range `5..5`. A hover renders one domain and must name it; the size is simply not shown (until it has a
+  // rendering of its own).
+  "a hover value range" should "not report a string's size as if it were a value range" in {
+    rangeAt(stringLiteralPosition, of = stringSource).asserting(_ shouldBe None)
+  }
+
+  private def rangeAt(position: Position, of: String = source): IO[Option[(BigInt, BigInt)]] =
+    withCompiledWorkspace(of) { (uri, index) =>
       index.typeHintsAt(uri, position).flatMap { case (range, _) => index.intervalAt(uri, range) }
     }
 
   /** Compile a one-file workspace, build the type-hint index from the materialised `MonomorphicValue` + `RefinementTable`
     * facts exactly as the service does, and hand the test the file's URI alongside the index.
     */
-  private def withCompiledWorkspace[A](body: (URI, TypeHintIndex) => A): IO[A] =
+  private def withCompiledWorkspace[A](source: String)(body: (URI, TypeHintIndex) => A): IO[A] =
     tempDirectory.use { sourceDir =>
       val file          = sourceDir.resolve("Test.els")
       val lspPlugin     = LspPlugin(new VirtualFileSystem)

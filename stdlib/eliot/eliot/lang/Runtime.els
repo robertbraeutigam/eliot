@@ -2,3 +2,17 @@
  * Convert a `BigInteger` literal into the platform's concrete integer value.
  */
 def integerLiteral[V: BigInteger]: Int {Bounded(closed(V, V))}
+
+/**
+ * A string literal of `N` code points, as the compiler sees it: a `String` whose tracked size is exactly `N`.
+ *
+ * This is where a string's size *originates*. `N` is the literal's length — the same number `length` returns
+ * for it, since both count code points — so the brace states the one thing a literal always knows about
+ * itself: its size is a singleton range. Everything else a program learns about a string's size is derived
+ * from this by the ordinary transfer machinery.
+ *
+ * Unlike `integerLiteral` there is nothing to *convert*: a literal's characters are already the value, so no
+ * program ever calls this. It exists to hold the seed's construction in Eliot rather than in the compiler,
+ * exactly as `integerLiteral`'s brace does for a number's range.
+ */
+def stringLiteral[N: BigInteger]: String {Bounded(closed(N, N))}

@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.eliotc.lsp.index
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.processor.MetaConstructorDesugarer
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.channel.{IdNormalizer, RefinementTable}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
@@ -111,19 +113,36 @@ object TypeHintIndex {
       .flatMap { case (position, meta) => meta.flatMap(boundsOf).map(position -> _) }
 
   /** Decode `[min, max]` from an `Int$Meta(Bounded(Interval(Bounded(min), Bounded(max))))` meta value — the value-range
-    * domain's shape. [[None]] for any other meta (a future domain, the domain's stated top `Int$Meta(Unbounded)`, or a
-    * half-open interval bounded on one side only), which is simply not shown as a range.
+    * domain's shape. [[None]] for any other meta (the domain's stated top `Int$Meta(Unbounded)`, or a half-open
+    * interval bounded on one side only), which is simply not shown as a range.
+    *
+    * The [[isIntMeta]] gate is what keeps that promise for a *second* domain, and it is not optional: a `String`'s size
+    * meta (`String$Meta(Bounded(Interval(Bounded(5), Bounded(5))))` for `"hello"`) has exactly the same shape, so
+    * without the gate the hover would report a five-character string as having the *value range* `5..5`. Every domain
+    * this hover can render is one it must name; the JVM backend gates the identical decode by the node's type instead
+    * (`IntRepresentation.isIntegerType`). Recognising a domain by name is sanctioned in a *renderer* precisely because
+    * a mistake here is cosmetic (`docs/string-length-meta.md` §3.3).
     */
   private def boundsOf(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
       case GroundValue.Structure(
-            _,
+            fqn,
             Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)),
             _
-          ) =>
+          ) if isIntMeta(fqn) =>
         (boundedBigInt(lo), boundedBigInt(hi)).tupled
       case _ => None
     }
+
+  /** The meta structure of the tracked `Int` — `Int$Meta` in `eliot.lang.Int`, the only domain this hover renders. The
+    * qualifier is ignored (a constructed structure's head may carry either the type or the value namespace).
+    */
+  private def isIntMeta(fqn: ValueFQN): Boolean =
+    fqn.moduleName == intModuleName && fqn.name.name == intMetaTypeName
+
+  private val intModuleName: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Int")
+
+  private val intMetaTypeName: String = "Int" + MetaConstructorDesugarer.metaTypeSuffix
 
   /** The big integer inside a `Bounded(Direct(n))` endpoint, or [[None]] for an `Unbounded` one (a nullary structure,
     * so it never matches the single-argument shape) or any other value.

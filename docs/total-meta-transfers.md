@@ -5,6 +5,12 @@ Status: **design, partly built.** Two pieces have landed: the R2 check itself
 range domain's top (`Bound[Interval[BigInteger]]`, §5), which was the last thing standing between the check
 and being armed. Everything from §6 on — the meta interpretation — is still design.
 
+A **second domain has since landed** — `type String {size: Bound[Interval[BigInteger]]}` with its literal seed
+(`docs/string-length-meta.md`, S1+S2) — which changes nothing here structurally (a nullary type's meta is a plain
+one-slot structure; §2.3's *structural* map is still owed by `List`) but does enlarge what arming R2 costs: every
+body-less `String`-returning leaf now produces a meta-carrying type and so joins §P2's list. That is the sequencing
+that document argues for and this one accepts: state those transfers once, in its S4, and arm R2 after.
+
 Supersedes the TODO item *"A native that produces a meta-carrying type must state its meta-information"* by
 generalising it: the TODO closes one hole, this closes the class of holes it belongs to.
 

@@ -1,6 +1,7 @@
 import eliot.effect.Abort
+import eliot.compiler.Meta
 
-type String
+type String {size: Bound[Interval[BigInteger]]}
 
 /**
  * The number of code points in `s`.
