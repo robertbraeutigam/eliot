@@ -536,6 +536,18 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  it should "keep an integer literal in the brace a compile-time BigInteger" in {
+    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {g(0)}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("Foo$Meta"), App(Ref("g"), IntLit("0")))))
+    }
+  }
+
+  "where clause (bounds Step 4c)" should "keep an integer literal in the predicate a compile-time BigInteger" in {
+    namedValue("def f(a: Foo): Foo where g(0)", QualifiedName("f$Where", Qualifier.Meta)).asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("g"), IntLit("0"))))
+    }
+  }
+
   "bracket-aware qualifiers" should "make uppercase-only-brackets a type application" in {
     namedValue("data Box[A]\ndef f: R = Box[A]").asserting { nv =>
       nv.runtimeStructure shouldBe Some(App(Ref("Box", T), Ref("A", T)))

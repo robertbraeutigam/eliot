@@ -66,9 +66,11 @@ def whole[T]: Interval[T]
  * def asByte(x: Int): Int where withinByte(range(x)) = x
  * ```
  *
- * The bounds are **type** parameters rather than value parameters because a value-position integer literal is an
- * `Int`, while a range's endpoints are `BigInteger`; in type position a literal is already the `BigInteger` the
- * comparison needs, so `rangeWithin[0, 127]` says what it means without a conversion.
+ * The bounds are **type** parameters rather than value parameters because a predicate like `withinByte` above is an
+ * ordinary def, and a value-position integer literal in an ordinary body is an `Int`, while a range's endpoints are
+ * `BigInteger`. In type position a literal is already the `BigInteger` the comparison needs, so `rangeWithin[0, 127]`
+ * says what it means without a conversion. (A *transfer brace* needs no such detour — it is compiler-track code, so
+ * its literals are `BigInteger`s already.)
  */
 def rangeWithin[Lo: BigInteger, Hi: BigInteger](i: Interval[BigInteger]): Bool
 

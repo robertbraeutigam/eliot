@@ -12,11 +12,12 @@ notes.
   between the compiler track and the runtime track is a constant source of friction. It cannot be
   solved by simply aliasing `type Int = BigInteger` on the compiler track, because `Int` carries
   meta-information that is itself expressed in terms of `BigInteger` (`type Int {range:
-  Interval[BigInteger]}`). One unified handling of numeric literals for both tracks is wanted. Concrete
-  evidence, from stating the `String` transfers: a **transfer brace cannot spell a number at all** — a
-  value-position literal is an `Int` and an interval endpoint is a `BigInteger` — so constants have to detour
-  through a type-position literal (`boundedAt[V]`), which in turn cannot be negative, so `-1` is written
-  `boundedAt[0] - boundedAt[1]`.
+  Interval[BigInteger]}`). One unified handling of numeric literals for both tracks is wanted. The sharpest
+  instance — a **transfer brace could not spell a number at all** — is fixed: a brace (and a `where`
+  predicate) is compiler-track code, so its integer literals are bare `BigInteger`s, and an endpoint is
+  written `Bounded(0)` / `Bounded(0 - 1)`. What remains is the general case: an *ordinary def body* is
+  runtime-track, so a helper called from a brace still cannot name a `BigInteger` constant in value position —
+  which is why `rangeWithin[Lo, Hi]` takes its bounds as type parameters.
 - **A native that produces a meta-carrying type must state its meta-information.** Any type with
   non-`Unit` meta-information that comes out of a native function *and* has no meta-information
   definition at that native should be a compile error — the native has to say what it does to the

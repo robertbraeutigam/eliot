@@ -225,10 +225,14 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   the node's own width). **S4 stated the rest of `String.els`** — `combine` exactly, `substring`/`trim` bounded by their
   subject, case conversion **tripling** its upper bound (`ß` ⤳ `SS`), `repeat`/`replace`/`indexOfInternal`, and
   `parseIntInternal` at the domain top `whole` since its honest bound is exponential in its argument's size. A brace
-  **cannot spell a number** — an endpoint is a `BigInteger`, a value-position literal is an `Int`, and there is no
-  widening — so a constant goes through the compile-time-only `boundedAt[V: BigInteger]`
-  (`stdlib/eliot-compiler/…/Bound.els`), a type-position literal, which may **not** be negative (`-1` is
-  `boundedAt[0] - boundedAt[1]`). Left for S5: the platform input leaves, and arming R2.
+  **spells a number the compiler's way**: an endpoint is a `BigInteger`, a value-position literal is an `Int`, and
+  there is no widening — so a brace's own literals are read as compile-time `BigInteger`s, because a brace's `^Meta`
+  companion (and a `where`'s `^Where`) is compiler-pool-only code, exactly like a signature (`CoreProcessor`'s
+  `isMetaBody` ⤳ `CoreExpressionConverter`'s `compilerTrackContext`). So an endpoint is written `Bounded(0)`, and a
+  negative one is an ordinary subtraction the compile-time `Numeric[BigInteger]` reduces (`Bounded(0 - 1)`); S4's
+  type-position workaround `boundedAt[V]` is deleted. An *ordinary def body* is still runtime-track, so a helper
+  called from a brace cannot name a `BigInteger` constant in value position — which is why `rangeWithin[Lo, Hi]`
+  takes its bounds as type parameters. Left for S5: the platform input leaves, and arming R2.
 - `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function, signature only.
 - A `type X = ...` alias and a body-less `type X` differ only by having a body; `data X(...)` is the *concrete*
   form that additionally introduces a value constructor.

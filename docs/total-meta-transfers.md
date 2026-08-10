@@ -17,8 +17,9 @@ rest (§P2), not building anything.
 carries the domain's top. So the transfer count in the tree went from one to nine, and §P2's arming list shrank to a
 residue that is *not* about finding bounds: the platform input leaves, whose bounds are ordinary platform data, and
 the leaves whose bound exists but cannot be written down. Two facts S4 established are load-bearing for whoever arms
-R2 and are recorded in §P2 below — a brace could not name a number until S4 added `boundedAt[V]`, and a leaf whose
-honest bound is exponential states the top rather than running the exponent.
+R2 and are recorded in §P2 below — a brace could not name a number until S4 worked around it, since fixed at the root
+(a brace's literals are compiler-track `BigInteger`s), and a leaf whose honest bound is exponential states the top
+rather than running the exponent.
 
 A **second domain has since landed** — `type String {size: Interval[BigInteger]}` with its literal seed
 (`docs/string-length-meta.md`, S1+S2) — which changes nothing here structurally (a nullary type's meta is a plain
@@ -559,7 +560,7 @@ jvm-layer brace over a base-abstract declaration merges cleanly with no `signatu
 | leaf | stated transfer |
 |---|---|
 | ~~`String::length`~~ | **stated (S3)**: `{size(s)}` — the string's own size, exact, and better than the `[0, 2³¹−1]` this table first proposed. It is also the one row that belongs in the **base** rather than a platform layer, because since the unit is the code point the identity holds on every target — there is no platform datum in it |
-| ~~`String::indexOfInternal`~~ | **stated (S4)**: `{interval(boundedAt[0] - boundedAt[1], end(size(s)))}` — ~~`Bounded([-1, 2³¹−1])`~~. The same correction `length` got: the ceiling is the argument's own size rather than a platform maximum, so this too belongs in the base. `-1` is still the not-found answer, spelled as one below the first index because a type-position literal may not be negative |
+| ~~`String::indexOfInternal`~~ | **stated (S4)**: `{interval(Bounded(0 - 1), end(size(s)))}` — ~~`Bounded([-1, 2³¹−1])`~~. The same correction `length` got: the ceiling is the argument's own size rather than a platform maximum, so this too belongs in the base. `-1` is still the not-found answer, spelled as a subtraction because the language has no negative-literal syntax at all |
 | `Process::exitCode`, jvm `outcomeExitCode` | `Bounded([0, 255])` — genuinely platform data, and still owed |
 | ~~`String::parseIntInternal`~~ | **stated (S4)**: `{whole}` — full-precision `BigInteger`, whose honest bound is exponential in its argument's size (§5), so the top is what it states and the exponent never runs |
 
@@ -574,14 +575,16 @@ twice. **Done, through S4**: the `String.els` set is stated, and what is left of
 
 **Two things S4 established that arming depends on.**
 
-- **A brace could not name a number.** An interval endpoint is a `BigInteger` and a value-position integer literal is
-  an `Int`, with no widening between them by cornerstone — so `Bounded(0)` in a brace is a type error, and every
-  transfer with a floor of `0` was unwritable. The fix is the existing type-position-literal idiom
-  (`rangeWithin[0, 127]`, `integerLiteral[V]`) packaged as `boundedAt[V: BigInteger]: Bound[BigInteger]`, a
-  **compile-time-only** helper in `stdlib/eliot-compiler/eliot/lang/Bound.els` — checking-only, so no platform has to
-  implement it. Anyone stating the remaining leaves will need it, and will also hit its two edges: a type-position
-  literal may not be **negative** (spell `-1` as `boundedAt[0] - boundedAt[1]`), and argument order decides a call's
-  type parameters, so a literal in the *first* argument position fixes `T := Int` and poisons everything after it.
+- **A brace can name a number, once the brace is read as what it is.** An interval endpoint is a `BigInteger` and a
+  value-position integer literal is an `Int`, with no widening between them by cornerstone — so `Bounded(0)` in a
+  brace *was* a type error, and every transfer with a floor of `0` was unwritable. S4 detoured through a
+  type-position-literal helper (`boundedAt[V]`); that helper has since been **deleted** in favour of fixing the
+  premise. A brace's `^Meta` companion — and a `where`'s `^Where` companion — is compiler-pool-only code, so its
+  literals are compile-time `BigInteger`s exactly as a signature's already were. Anyone stating the remaining leaves
+  writes `Bounded(0)`, and the workaround's two edges are gone with it: a negative endpoint is an ordinary
+  subtraction (`Bounded(0 - 1)`), and argument order no longer decides a call's type parameters. The residual
+  friction is narrower and still open in the TODO: an *ordinary def body* remains runtime-track, so a helper called
+  from a brace cannot name a `BigInteger` constant in value position (hence `rangeWithin[Lo, Hi]`'s type params).
 - **A leaf whose bound is exponential states the top rather than the bound.** §5 predicted exactly one such leaf and
   it stayed one; `whole` is a *stated* top, which is what keeps R4 intact, and the `power` native of decision 8 is
   still a precision follow-on rather than a prerequisite. The lesson generalises to arming: R2 demands a *statement*,

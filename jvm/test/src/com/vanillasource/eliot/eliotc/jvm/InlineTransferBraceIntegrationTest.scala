@@ -79,6 +79,43 @@ class InlineTransferBraceIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
   }
 
+  // A brace is compiler-track code, so an integer literal in it is a bare `BigInteger` — exactly what an interval
+  // endpoint is — rather than the runtime `integerLiteral[n] : Int` protocol a *body*'s literal desugars to. That is
+  // what lets a brace name a number at all: `Bounded(0)` is a `Bound[BigInteger]`, where under the value-literal
+  // reading it would be a `Bound[Int]` and a type error (there is no widening between the two by cornerstone). These
+  // three pin both directions of the reduced endpoints, so a literal that silently reverted to `Int` — or one whose
+  // value was lost — would fail here rather than merely somewhere.
+  private val literalBrace =
+    """import eliot.jvm.IO
+      |import eliot.effect.Console
+      |def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
+      |def useByte(x: Int): Int where withinByte(range(x)) = x
+      |""".stripMargin
+
+  "an integer literal in a transfer brace" should "be the BigInteger endpoint it is written as" in {
+    compileForErrors(
+      literalBrace + "def clamped(a: Int): Int {interval(Bounded(0), Bounded(127))} = a\n" +
+        "def main: IO[Unit] = printLine(show(useByte(clamped(100))))"
+    ).asserting(_ should not include "precondition")
+  }
+
+  it should "carry its actual value, not merely some endpoint" in {
+    compileForErrors(
+      literalBrace + "def wide(a: Int): Int {interval(Bounded(0), Bounded(200))} = a\n" +
+        "def main: IO[Unit] = printLine(show(useByte(wide(100))))"
+    ).asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
+  }
+
+  // A negative endpoint has no literal syntax (`-` is always an operator), so it is written as a subtraction — which
+  // the compile-time `Numeric[BigInteger]` reduces. `[-1, 127]` is exactly the sentinel shape `String::indexOfInternal`
+  // states, and it must not fit a byte.
+  it should "reduce a subtraction into a negative endpoint" in {
+    compileForErrors(
+      literalBrace + "def sentinel(a: Int): Int {interval(Bounded(0 - 1), Bounded(127))} = a\n" +
+        "def main: IO[Unit] = printLine(show(useByte(sentinel(100))))"
+    ).asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
+  }
+
   // `.` is `below apply`, so it shares `apply`'s precedence island and binds tighter than the floating `+`; being
   // subject-last, `a.range` ≡ `range(a)`, so the dotted brace reads exactly as `{range(a) + range(b)}` and narrows
   // identically — where before it aborted at precedence resolution with "no defined relative precedence".

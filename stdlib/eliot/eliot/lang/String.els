@@ -99,7 +99,7 @@ def contains(part: String, s: String): Bool
  * def label(setting: String): String = labelOf(setting) else setting
  * ```
  */
-def substring(startIndex: Int, endIndex: Int, s: String): String {interval(boundedAt[0], end(size(s)))}
+def substring(startIndex: Int, endIndex: Int, s: String): String {interval(Bounded(0), end(size(s)))}
 
 /**
  * The first `count` code points of `s`, or all of `s` when it is shorter.
@@ -183,7 +183,7 @@ def parseInt(s: String): {Abort} Int = if(s.isInteger, parseIntInternal(s))
  * Trimming only ever removes code points, and it may remove all of them, so the stated size is
  * `[0, end(size(s))]` — the argument's upper limit kept, its lower one given up to the all-blank string.
  */
-def trim(s: String): String {interval(boundedAt[0], end(size(s)))}
+def trim(s: String): String {interval(Bounded(0), end(size(s)))}
 
 /**
  * `s` with every character replaced by its upper-case form.
@@ -199,9 +199,10 @@ def trim(s: String): String {interval(boundedAt[0], end(size(s)))}
  * one triples. The factor is a fact about Unicode's case mappings rather than about a platform's storage, so
  * it means the same thing on every target for the same reason the unit does.
  *
- * Spelled as `size(s)` added to itself three times rather than multiplied by `3`, because a brace cannot name
- * a number: an interval endpoint is a `BigInteger` and a value-position literal is an `Int`. Where a constant
- * is unavoidable it comes from `boundedAt`, whose own documentation explains the detour.
+ * Spelled as `size(s)` added to itself three times rather than multiplied by an interval holding `3`, because
+ * addition stays exact on a half-open interval where multiplication does not: `[a, ∞) + [a, ∞) + [a, ∞)` is
+ * `[3a, ∞)`, while any multiplication with an unbounded endpoint widens to `whole` (see `Numeric[Interval[T]]`).
+ * Tripling by repeated addition is therefore the tighter statement, not merely the spellable one.
  */
 def toUpperCase(s: String): String {interval(start(size(s)), end(size(s) + size(s) + size(s)))}
 
@@ -233,9 +234,9 @@ def toLowerCase(s: String): String {interval(start(size(s)), end(size(s) + size(
  * most `size(s) + 1` times — that many is what the empty target reaches, inserting between every pair of
  * characters and at both ends — so the result holds no more than
  * `end(size(s)) + (end(size(s)) + 1) * end(size(replacement))` code points, which the brace spells as one
- * interval expression — `n + n * r + r`, the same quantity multiplied out — so that no literal `1` is
- * needed. Nothing bounds it from below beyond zero, since a `target` covering all of `s` with an empty
- * `replacement` leaves nothing.
+ * interval expression — `n + n * r + r`, the same quantity multiplied out, keeping every operand an interval
+ * the arithmetic already relates. Nothing bounds it from below beyond zero, since a `target` covering all of
+ * `s` with an empty `replacement` leaves nothing.
  *
  * ```eliot
  * // Fill the single placeholder of a message template.
@@ -243,7 +244,7 @@ def toLowerCase(s: String): String {interval(start(size(s)), end(size(s) + size(
  * ```
  */
 def replace(target: String, replacement: String, s: String): String
-   {interval(boundedAt[0], end(size(s) + size(s) * size(replacement) + size(replacement)))}
+   {interval(Bounded(0), end(size(s) + size(s) * size(replacement) + size(replacement)))}
 
 /**
  * `s` written `count` times in a row.
@@ -262,7 +263,7 @@ def replace(target: String, replacement: String, s: String): String
  * ```
  */
 def repeat(count: Int, s: String): String
-   {interval(boundedAt[0], maxBound(end(range(count) * size(s)), boundedAt[0]))}
+   {interval(Bounded(0), maxBound(end(range(count) * size(s)), Bounded(0)))}
 
 /**
  * Two strings are equal when they hold the same characters in the same order.
@@ -314,10 +315,11 @@ implement Show[String] {
  * stating one; the derivation that would carry this through the `if` is the meta interpretation, which does
  * not exist yet.
  *
- * The sentinel is written as one below zero rather than as `-1`, because the type-position literal a brace
- * gets its constants from (see `boundedAt`) may not be negative.
+ * The sentinel is written as one below zero rather than as `-1`, because there is no negative-literal syntax
+ * in the language at all: a `-` is always an operator, so a negative value is produced by a subtraction. The
+ * compiler evaluates that subtraction while checking, exactly as it evaluates the rest of the brace.
  */
-private def indexOfInternal(part: String, s: String): Int {interval(boundedAt[0] - boundedAt[1], end(size(s)))}
+private def indexOfInternal(part: String, s: String): Int {interval(Bounded(0 - 1), end(size(s)))}
 
 /**
  * The number `s` spells, or `0` when it spells none — the raw leaf behind `parseInt`, which turns that case into an
