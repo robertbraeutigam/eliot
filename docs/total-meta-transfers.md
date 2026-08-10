@@ -1,9 +1,13 @@
 # Total Meta Transfers — meta as a shadow logic
 
-Status: **design, partly built.** Two pieces have landed: the R2 check itself
-(`monomorphize/channel/MetaTransferAccountingProcessor`, registered but **dormant** — see §9 P1/P2) and the
-range domain's top (`whole`, §5), which was the last thing standing between the check
-and being armed. Everything from §6 on — the meta interpretation — is still design.
+Status: **design, partly built.** Three pieces have landed: the R2 check itself
+(`monomorphize/channel/MetaTransferAccountingProcessor`, registered but **dormant** — see §9 P1/P2), the
+range domain's top (`whole`, §5), and the removal of the last *global* top (the generic `Meta[Bound[D]]`,
+§5's third amendment) — so every top is a domain top and the only ⊤ left is the machinery's own untotality,
+which arming R2 is what removes. Everything from §6 on — the meta interpretation — is still design.
+
+The remaining gate on arming is **not** in this document: it is the backend's missing result-edge re-encode
+(`docs/string-length-meta.md` §8, S3), which the first stated transfer trips. See §9 P2.
 
 A **second domain has since landed** — `type String {size: Interval[BigInteger]}` with its literal seed
 (`docs/string-length-meta.md`, S1+S2) — which changes nothing here structurally (a nullary type's meta is a plain
@@ -188,9 +192,39 @@ and collapsed into the endpoints once those could express an open end. See the s
 >   exactly one structure meaning "nothing bounds this", so a leaf that states the top and a `multiply` that
 >   widened into it agree under `ReconcileProcessor.metaByPosition`'s structural comparison instead of
 >   cancelling each other to ⊤. Keeping the wrapper was what created the second spelling.
-> - **A domain that is not an interval.** Still true, and still served: `Bound[D]` and its `Meta[Bound[D]]`
->   join stay in the tree as the generic top for such a domain. What changed is that no *shipped* domain is
->   of that kind — both are intervals — so neither pays for a wrapper it does not need.
+> - **A domain that is not an interval.** Still true, and ~~still served: `Bound[D]` and its `Meta[Bound[D]]`
+>   join stay in the tree as the generic top for such a domain~~ — **superseded, see the third amendment.**
+>   What changed is that no *shipped* domain is of that kind — both are intervals — so neither pays for a
+>   wrapper it does not need.
+
+> **Amended a third time: the generic top is gone, and there is now no global top at all.** The
+> `implement[T ~ Meta[T]] Meta[Bound[T]]` instance kept above — `Bound[D]` as the ready-made top of any
+> domain `D` — has been deleted (`stdlib/eliot-compiler/eliot/lang/Bound.els`). It was dead code, but it was
+> not *only* dead code: it was the last place the machinery offered a top of its own, and keeping it around
+> contradicted the thing this document is for.
+>
+> The principle, stated positively: **every top is a domain top.** A domain says what "nothing bounds this"
+> means in its own vocabulary — an interval says `whole` — and the machinery has no opinion, no `top` member
+> on `Meta`, and no wrapper that manufactures one. A domain with no interval structure will get a top the
+> same way `Interval` did: by growing one, in itself. That is a strictly better position than a generic
+> wrapper, for the reason the second amendment already found the hard way — a wrapper is a *second spelling*
+> of a top, and `ReconcileProcessor.metaByPosition` compares verdicts structurally, so two spellings of the
+> same top read as disagreement and cancel to ⊤. A generic top does not just fail to help a future domain; it
+> would hand that domain the bug the range domain had to be rescued from.
+>
+> `Bound` itself stays, unchanged and load-bearing: it is `Interval`'s endpoint, the thing that makes a range
+> half-open. Only its second, aspirational job is gone — the base declaration now says so.
+>
+> **What this does *not* remove**, and the distinction is the whole of §3's R4: the channel still yields ⊤ at
+> a boundary it cannot see through (a companion-free callee, a parameter, a lambda interior —
+> `RefinementChannelProcessor`, spelled `None`). That is not a top the *domain* supports; it is the
+> machinery's untotality, and it is removed by making the machinery total — R2 armed for leaves (§P2), R3,
+> then the interpretation for non-leaves (§P4) — not by deleting a value. Deleting the generic top narrows
+> "the meta machinery has a top" to exactly that one honest residue, which is what makes §P2's next step
+> legible.
+>
+> Verified by the byte-identity oracle: all 40 compiling examples produce class content identical to the
+> pre-change build, as an unexercised instance must.
 >
 > Verified by the byte-identity oracle: all 40 compiling examples produce class content identical to the
 > pre-change build, since a stated top and a half-open range already decoded to the same ⊤ layout
@@ -469,6 +503,18 @@ precondition in `WovenValueProcessor`.
 **P2 prerequisite — the domain top — LANDED.** The range domain is `Interval[BigInteger]`, topped by `whole` (§5), so
 every leaf below now has a transfer it can honestly state. This was P2's one blocker.
 
+**P2 prerequisite — no global top — LANDED.** The generic `Meta[Bound[D]]` top is deleted (§5, third amendment):
+tops are domain-owned, the machinery has none, and the only ⊤ left is the channel's own untotality — which is
+what arming removes rather than something to state around.
+
+**P2 prerequisite — the result-edge re-encode (S3) — REMAINING, and it is the real gate.**
+`docs/string-length-meta.md` §8: stating a transfer on a leaf emitted as a *generated native static method* pins a
+narrow meta on the call node while the method's return descriptor stays the ⊤ bignum, and the class verifier
+rejects it (`VerifyError: 'java/math/BigInteger' is not assignable to 'java/lang/Byte'`). It has never fired
+because no leaf states one yet; `String::length` — the first entry in the table below — fires it immediately. So
+S3 (re-encode a call's result edge, the mirror of `generateArgumentToBignum`) lands *with* the first stated
+transfer, not after it. The arithmetic leaves are invisible to this: they are inline intrinsics.
+
 **P2 — arm it + the missing statements (remaining).** Wire the precondition, then state the transfers the
 armed check demands. Their bounds are **platform data**, so by the platform-independence cornerstone they
 belong in the platform layer, not the base (the brace desugars to a separate `^Meta` companion, so a
@@ -518,7 +564,8 @@ Each stage verified by the fast example sweep + byte-identity compare
    still has no `unknown` form and `Meta` is untouched, which is the half that mattered. But `parseIntInternal`
    *was* the real counterexample this decision reserved the right to be revisited for, so the **domain** grew a
    top. It first grew one as a slot-level `Bound` wrapper and now spells it `whole`, the both-ends-open interval
-   (§5). **Settled and shipped.**
+   (§5). **Settled and shipped** — and finished off by the third amendment: the generic `Meta[Bound[D]]` top is
+   deleted, so *every* top is now a domain top and the machinery has none.
 3. **Budget, not widening** (§5.2) — still the recommendation, but the framing has changed. §5.2's argument was
    *budget ⇒ no ∞ needed; widening ⇒ ∞ needed*, and ∞ now exists in the domain, so widening is no longer
    impossible — an ascending chain terminates at `whole`. That is a **removed one-way door**, not a reason

@@ -13,9 +13,10 @@ import eliot.carrier.Effect
  * declaration can state, so absence goes back to meaning only what it should: nobody has computed this
  * yet. A whole domain says that with `whole`, the interval whose endpoints are both `Unbounded`.
  *
- * `Bound[D]` also stands ready as the generic **top** of a refinement domain `D` that has no interval
- * structure of its own to reach a top through — it has a `Meta[Bound[D]]` join for exactly that. No domain
- * needs it today: both shipped ones are intervals, and an interval already spells its top as `whole`.
+ * `Bound` is an endpoint, and nothing else. It is deliberately *not* a generic way to top a refinement
+ * domain: a domain states its own top in its own vocabulary — an interval's is `whole` — and wrapping an
+ * arbitrary domain in a `Bound` would give the meta machinery a top of its own, which is exactly what
+ * being total means it must not have.
  */
 type Bound[T]
 

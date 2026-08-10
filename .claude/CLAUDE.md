@@ -205,8 +205,11 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   says *"nothing bounds this"*, so an absent meta means only "not computed yet" (`docs/total-meta-transfers.md` §5).
   The slot carried a **second, outer `Bound`** for that top until the endpoints could express it; collapsing it was
   the point of keeping one spelling, since `ReconcileProcessor.metaByPosition` compares verdicts *structurally* and
-  two spellings of the same top read as disagreement. `Bound[D]` remains the generic top for a **future** domain with
-  no interval structure — it keeps its `Meta[Bound[D]]` join — but no shipped domain wraps its slot.
+  two spellings of the same top read as disagreement. There is deliberately **no global top**: the generic
+  `Meta[Bound[D]]` join is deleted, `Bound` is an interval endpoint and nothing else, and a future domain with no
+  interval structure grows its own top rather than borrowing a wrapper (a wrapper is a second spelling, which is the
+  bug above). The only ⊤ left is the channel's untotality (`None` at a companion-free callee, a parameter, a lambda
+  interior), removed by arming R2 and by the §P4 interpretation — not by a value.
   Constructors `interval`/`closed`/`atLeast`/`atMost`/`whole` and the `where`-facing predicate
   `rangeWithin[Lo, Hi](i)` are abstract in the base, bodied per platform. `add`/`subtract` stay exact on a
   half-open interval; `multiply` widens to `whole` (its corner products lose the position that signs an infinity).

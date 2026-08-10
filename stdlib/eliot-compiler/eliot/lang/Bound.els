@@ -1,5 +1,4 @@
 import eliot.carrier.Effect
-import eliot.compiler.Meta
 
 data Bound[T] = Unbounded | Bounded(value: T)
 
@@ -21,28 +20,6 @@ def maxBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
    case Bounded(x) -> b match {
       case Unbounded -> Unbounded
       case Bounded(y) -> Bounded(max(x, y))
-   }
-}
-
-/**
- * A `Bound[D]` over a refinement domain `D` is itself a refinement domain — the one that adds "no bound at all"
- * to `D`'s own values, which is what makes the domain's top element a *statable* value rather than an absence.
- * Its `join` covers two bounds: two `Bounded`s join through `D`'s own `join`, and an `Unbounded` on either side
- * absorbs, since nothing that covers an unbounded value can itself be bounded.
- *
- * A compiler-pool-only instance, and currently an unexercised one: both shipped domains are intervals, whose top
- * is `whole`, so the auto-derived `Meta[Int$Meta]`/`Meta[String$Meta]` joins dispatch straight to
- * `Meta[Interval[T]]`. It is kept for a future domain with no interval structure to reach a top through — the
- * range domain used to wrap its slot in a `Bound` for exactly this reason, and stopped once `Interval`'s own
- * endpoints could express an open end.
- */
-implement[T ~ Meta[T]] Meta[Bound[T]] {
-   def join(a: Bound[T], b: Bound[T]): Bound[T] = a match {
-      case Unbounded -> Unbounded
-      case Bounded(x) -> b match {
-         case Unbounded -> Unbounded
-         case Bounded(y) -> Bounded(join(x, y))
-      }
    }
 }
 
