@@ -104,7 +104,7 @@ object TypeHintIndex {
     * entry at it agrees on one verdict: a position carrying two or more distinct metas — or a meta and a ⊤, which is
     * what a desugar-synthesized node sharing a real node's source range produces — is dropped rather than displayed
     * ambiguously. The channel carries an opaque domain meta; the hover (which shows `Int` value ranges) decodes the
-    * `Int$Meta(Interval[min, max])` shape with [[boundsOf]], exactly as the JVM backend does for width selection.
+    * `Int$Meta(Interval(min, max))` shape with [[boundsOf]], exactly as the JVM backend does for width selection.
     */
   private def unambiguousIntervals(table: RefinementTable): Map[PositionRange, (BigInt, BigInt)] =
     table.metas
@@ -112,24 +112,20 @@ object TypeHintIndex {
       .collect { case (position, entries) if entries.map(_.meta).distinct.sizeIs == 1 => position -> entries.head.meta }
       .flatMap { case (position, meta) => meta.flatMap(boundsOf).map(position -> _) }
 
-  /** Decode `[min, max]` from an `Int$Meta(Bounded(Interval(Bounded(min), Bounded(max))))` meta value — the value-range
-    * domain's shape. [[None]] for any other meta (the domain's stated top `Int$Meta(Unbounded)`, or a half-open
-    * interval bounded on one side only), which is simply not shown as a range.
+  /** Decode `[min, max]` from an `Int$Meta(Interval(Bounded(min), Bounded(max)))` meta value — the value-range
+    * domain's shape. [[None]] for any other meta (a half-open interval bounded on one side only, of which the
+    * domain's stated top `Int$Meta(whole)` is the twice-over case), which is simply not shown as a range.
     *
     * The [[isIntMeta]] gate is what keeps that promise for a *second* domain, and it is not optional: a `String`'s size
-    * meta (`String$Meta(Bounded(Interval(Bounded(5), Bounded(5))))` for `"hello"`) has exactly the same shape, so
-    * without the gate the hover would report a five-character string as having the *value range* `5..5`. Every domain
-    * this hover can render is one it must name; the JVM backend gates the identical decode by the node's type instead
+    * meta (`String$Meta(Interval(Bounded(5), Bounded(5)))` for `"hello"`) has exactly the same shape, so without the
+    * gate the hover would report a five-character string as having the *value range* `5..5`. Every domain this hover
+    * can render is one it must name; the JVM backend gates the identical decode by the node's type instead
     * (`IntRepresentation.isIntegerType`). Recognising a domain by name is sanctioned in a *renderer* precisely because
     * a mistake here is cosmetic (`docs/string-length-meta.md` §3.3).
     */
   private def boundsOf(meta: GroundValue): Option[(BigInt, BigInt)] =
     meta match {
-      case GroundValue.Structure(
-            fqn,
-            Seq(GroundValue.Structure(_, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _)),
-            _
-          ) if isIntMeta(fqn) =>
+      case GroundValue.Structure(fqn, Seq(GroundValue.Structure(_, Seq(lo, hi), _)), _) if isIntMeta(fqn) =>
         (boundedBigInt(lo), boundedBigInt(hi)).tupled
       case _ => None
     }

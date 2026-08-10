@@ -1,9 +1,9 @@
 package com.vanillasource.eliot.eliotc.jvm
 
 /** End-to-end proof of the refinement channel's **second domain**: a `String`'s tracked `size`
-  * (`docs/string-length-meta.md`). `type String {size: Bound[Interval[BigInteger]]}` declares the slot; a string
+  * (`docs/string-length-meta.md`). `type String {size: Interval[BigInteger]}` declares the slot; a string
   * literal *seeds* the singleton size of its own length through the same literal-protocol `^Meta` path the integer
-  * seed uses (`eliot.lang.Runtime::stringLiteral`'s `{Bounded(closed(N, N))}` brace).
+  * seed uses (`eliot.lang.Runtime::stringLiteral`'s `{closed(N, N)}` brace).
   *
   * The point of the suite is that nothing between the seed and the diagnostic is `Int`-shaped: the meta structure, the
   * derived lattice and the `where` demand are all the shipped machinery, reached by declaring one slot on a second
@@ -16,11 +16,11 @@ package com.vanillasource.eliot.eliotc.jvm
   */
 class StringSizeIntegrationTest extends FullIntegrationTest {
   // A display four code points wide. `size` is `String`'s meta slot exactly as `range` is `Int`'s, so the predicate is
-  // the ordinary `rangeWithin` over a `Bound[Interval[BigInteger]]` — no string-specific machinery.
+  // the ordinary `rangeWithin` over an `Interval[BigInteger]` — no string-specific machinery.
   private val banner =
     """|import eliot.jvm.IO
        |import eliot.effect.Console
-       |def fitsDisplay(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 4](b)
+       |def fitsDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 4](i)
        |def banner(text: String): String where fitsDisplay(size(text)) = text
        |""".stripMargin
 
@@ -75,7 +75,7 @@ class StringSizeIntegrationTest extends FullIntegrationTest {
     compileAndRun(
       """|import eliot.jvm.IO
          |import eliot.effect.Console
-         |def fitsDisplay(b: Bound[Interval[BigInteger]]): Bool = rangeWithin[0, 4](b)
+         |def fitsDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 4](i)
          |def banner(text: String): String where fitsDisplay(size(text)) = text
          |def asDigit(x: Int): Int where fitsDisplay(range(x)) = x
          |def main: IO[Unit] = printLine(banner("ab") ++ show(asDigit(3)))""".stripMargin

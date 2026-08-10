@@ -12,7 +12,7 @@ held.
 
 All of §11's decisions are now **settled**. The unit is the **code-point count** (§5.1), which added a prerequisite
 stage S0 (the index family switched units with `length`) and rules out a byte-size slot (§5.2) and any second slot
-before S5 (§5.3). The **⊤ question is gone** — the range domain grew a top (`Bound[Interval[BigInteger]]`,
+before S5 (§5.3). The **⊤ question is gone** — the range domain grew a top (`whole`,
 `total-meta-transfers.md` §5), which this domain inherits for free and, per the §7 correction, does not actually need:
 a `String` size is bounded by a representation like anything else. The slot is named **`size`** (§3.2), the scope
 landed was **S1+S2** (§11.4), and R2 stayed **dormant** across it (§11.5).
@@ -22,7 +22,7 @@ Prior art, and the two documents this one sits between:
 - `docs/total-meta-transfers.md` — meta as a shadow logic (R1–R4, the leaf/derive split). Its §2.3 defers
   *structural* meta types to "the second refinement domain (`List`/`Array` `size`)". This is that second domain,
   in the one shape that needs **no** structural meta.
-- The shipped value-range domain: `type Int {range: Bound[Interval[BigInteger]]}`,
+- The shipped value-range domain: `type Int {range: Interval[BigInteger]}`,
   `monomorphize/channel/RefinementChannelProcessor`, `core/processor/Meta{Constructor,Transfer,Where}Desugarer`.
 
 ---
@@ -30,7 +30,7 @@ Prior art, and the two documents this one sits between:
 ## 1. What is being added, and why this one first
 
 ```eliot
-type String {size: Bound[Interval[BigInteger]]}
+type String {size: Interval[BigInteger]}
 ```
 
 (The `Bound` wrapper is the range domain's stated top, inherited by every domain — see §7. Predicate and stage
@@ -107,12 +107,12 @@ Before this, a string literal was ⊤: `RefinementChannelProcessor.walkFlow` fel
 originate a `String` meta, so without a seed the whole domain is inert — which is precisely what made the
 declaration safe to land alone (§4.1).
 
-Mirror the integer seed. `eliot.lang.Runtime` already carries `def integerLiteral[V: BigInteger]: Int {Bounded(closed(V,
+Mirror the integer seed. `eliot.lang.Runtime` already carries `def integerLiteral[V: BigInteger]: Int {closed(V,
 V))}`; add its string twin and one arm in the channel:
 
 ```eliot
 // stdlib/eliot/eliot/lang/Runtime.els
-def stringLiteral[N: BigInteger]: String {Bounded(closed(N, N))}
+def stringLiteral[N: BigInteger]: String {closed(N, N)}
 ```
 
 ```scala
@@ -416,15 +416,16 @@ environment, file and process reads — would need a ⊤ escape. They do not, an
 most `2³¹−1` units, so `readLine` states `Bounded([0, 2³¹−1])` — closed, ordinary, and it keeps the fact that a
 size is non-negative, which is the half worth having. Wide is not the same as unbounded.
 
-The domain top that *did* land (`Bound[Interval[BigInteger]]`) exists for a different and much narrower reason: a
+The domain top that *did* land (a slot-level `Bound`, since collapsed into `whole` — `total-meta-transfers.md` §5)
+existed for a different and much narrower reason: a
 leaf whose bound is **exponential in its argument's meta**. `parseIntInternal` is the only one, and it is in the
 `Int` domain, not this one. So this domain needs the top for nothing, and inherits it for free.
 
 **Amendment, since half-open intervals landed** (`total-meta-transfers.md` §5). The correction above stays right
 for a *leaf*: a leaf's transfer is platform data contributed beside its native, so the jvm `readLine` states
-`Bounded(closed(0, 2³¹−1))` and should. What it does not license is stating a maximum in the **base** — an abstract
+`closed(0, 2³¹−1)` and should. What it does not license is stating a maximum in the **base** — an abstract
 `def length(s: String): Int` has no platform to read one from. That is now expressible without inventing one:
-`Bounded(atLeast(0))` states the half that is true on every target, and a platform narrows it to a closed range
+`atLeast(0)` states the half that is true on every target, and a platform narrows it to a closed range
 where the base signature is redefined. So this domain gains a use for open endpoints that the `Int` domain reached
 by the same route, and the sequencing conclusion below is unaffected.
 
@@ -530,7 +531,7 @@ Each stage compiles and passes the example sweep on its own.
   The **unit is now stated once**, on `type String` in `lang` (the layer that owns the name), and `length`,
   `substring`, `take`, `drop`, `indexOf` and `split` refer to it rather than restating it. `String.els`'s old sentence
   — "the platform's storage units" — is what S1's doc-comment change was going to have to contradict; it is gone.
-- **S1 — the slot** — **LANDED**. `type String {size: Bound[Interval[BigInteger]]}` + the `eliot.compiler.Meta` import,
+- **S1 — the slot** — **LANDED**. `type String {size: Interval[BigInteger]}` + the `eliot.compiler.Meta` import,
   on the **stdlib** declaration of `String` (the layer that owns the refinement domain — `Bound`/`Interval` live there,
   and `Int`'s slot sets the precedent). The unit sentence went on the **lang** declaration instead, where `String`'s doc
   comment already lives and S0 already stated the unit: a name declared in two layers may carry a doc comment on only

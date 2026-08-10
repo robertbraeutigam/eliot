@@ -1,7 +1,7 @@
 /**
  * Convert a `BigInteger` literal into the platform's concrete integer value.
  */
-def integerLiteral[V: BigInteger]: Int {Bounded(closed(V, V))}
+def integerLiteral[V: BigInteger]: Int {closed(V, V)}
 
 /**
  * A string literal of `N` code points, as the compiler sees it: a `String` whose tracked size is exactly `N`.
@@ -15,4 +15,4 @@ def integerLiteral[V: BigInteger]: Int {Bounded(closed(V, V))}
  * program ever calls this. It exists to hold the seed's construction in Eliot rather than in the compiler,
  * exactly as `integerLiteral`'s brace does for a number's range.
  */
-def stringLiteral[N: BigInteger]: String {Bounded(closed(N, N))}
+def stringLiteral[N: BigInteger]: String {closed(N, N)}

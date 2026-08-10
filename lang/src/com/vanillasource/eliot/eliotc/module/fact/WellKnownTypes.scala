@@ -128,7 +128,7 @@ object WellKnownTypes {
     * `PostDrainQuoter` recognizes this FQN at the `SemExpression → MonomorphicExpression` readback and rewrites the
     * reference into a plain `IntegerLiteral(V)` node (which every backend emits via its ordinary integer-literal path —
     * so no backend needs an `integerLiteral` intrinsic); and the refinement channel reduces the def's own
-    * `integerLiteral^Meta` companion (from its `{Interval(V, V)}` return brace) at `V` to *seed* the literal's value
+    * `integerLiteral^Meta` companion (from its `{closed(V, V)}` return brace) at `V` to *seed* the literal's value
     * range — the one place a meta originates, kept in Eliot on this protocol (`docs/generic-refinement-merges.md`).
     */
   val integerLiteralFQN: ValueFQN =
@@ -137,7 +137,7 @@ object WellKnownTypes {
   /** `stringLiteral[N]: String` — the string literal's *size* protocol, the [[integerLiteralFQN]] twin for the `String`
     * refinement domain. A string literal needs no conversion (its characters are already the value), so unlike
     * `integerLiteral` this declaration is never referenced by a program and no desugaring rewrites into it: it exists
-    * solely so the refinement channel can reduce its `stringLiteral^Meta` companion (from the `{Bounded(closed(N, N))}`
+    * solely so the refinement channel can reduce its `stringLiteral^Meta` companion (from the `{closed(N, N)}`
     * return brace) at the literal's measured length, *seeding* the string's size meta. Keeping the seed's construction
     * in Eliot is the same discipline the integer seed follows — the channel supplies only the raw count
     * (`docs/string-length-meta.md` §3.1).

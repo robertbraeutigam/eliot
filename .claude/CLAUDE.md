@@ -177,7 +177,7 @@ compare), never a parallel bespoke mechanism; and kind/arity metadata stays out 
 Three durable guardrails:
 
 1. **`unify` is pure definitional equality** — never a `refinements` map or an assignability arm. There is **no
-   `Int` widening and no `Coerce`**: `Int` is nullary (`type Int {range: Bound[Interval[BigInteger]]}`) with bounds held
+   `Int` widening and no `Coerce`**: `Int` is nullary (`type Int {range: Interval[BigInteger]}`) with bounds held
    as meta-information in the separate **refinement channel** (`monomorphize/channel/RefinementChannelProcessor`,
    checked post-mono). So `Int == Int` definitionally, and a narrower range flowing where a wider one is expected
    is definitionally equal — bound legality is the channel's job, not a checker-inserted coercion.
@@ -195,18 +195,22 @@ declared **abstractly** — `type`s without a value constructor, body-less `def`
 same on every target (e.g. `fitsIn`, the discharge helpers `catch`/`else`/`runStateToPair`). It must **never**
 contain `data` (a chosen representation), a native leaf, or any representation-dependent body.
 
-- `type Int {range: Bound[Interval[BigInteger]]}` — an abstract type; no value constructor, no chosen width. Its
-  range is channel meta-information, not a type parameter. The `Bound` wrapper (`data Bound[T] = Unbounded |
-  Bounded(value: T)`) is the domain's stated **top**: a value nothing bounds says so, so an absent meta means only
-  "not computed yet" (`docs/total-meta-transfers.md` §5). An `Interval`'s **endpoints are each a `Bound[T]`** too
-  (`data Interval[T](start: Bound[T], end: Bound[T])`), so a range may be **half-open** — an unbounded endpoint's
-  direction is read from its *position* (`start` = no lower limit, `end` = no upper), and there is no signed
-  infinity. That is what lets the base state the platform-independent half of a bound (`atLeast(0)` for a size)
-  instead of inventing a platform maximum it may not assume; a platform narrows it to `closed(0, platformMax)`.
+- `type Int {range: Interval[BigInteger]}` — an abstract type; no value constructor, no chosen width. Its range is
+  channel meta-information, not a type parameter. An `Interval`'s **endpoints are each a `Bound[T]`**
+  (`data Bound[T] = Unbounded | Bounded(value: T)`, `data Interval[T](start: Bound[T], end: Bound[T])`), so a range
+  may be **half-open** — an unbounded endpoint's direction is read from its *position* (`start` = no lower limit,
+  `end` = no upper), and there is no signed infinity. That is what lets the base state the platform-independent half
+  of a bound (`atLeast(0)` for a size) instead of inventing a platform maximum it may not assume; a platform narrows
+  it to `closed(0, platformMax)`. It is also what supplies the domain's stated **top**: `whole` — open at both ends —
+  says *"nothing bounds this"*, so an absent meta means only "not computed yet" (`docs/total-meta-transfers.md` §5).
+  The slot carried a **second, outer `Bound`** for that top until the endpoints could express it; collapsing it was
+  the point of keeping one spelling, since `ReconcileProcessor.metaByPosition` compares verdicts *structurally* and
+  two spellings of the same top read as disagreement. `Bound[D]` remains the generic top for a **future** domain with
+  no interval structure — it keeps its `Meta[Bound[D]]` join — but no shipped domain wraps its slot.
   Constructors `interval`/`closed`/`atLeast`/`atMost`/`whole` and the `where`-facing predicate
-  `rangeWithin[Lo, Hi](b)` are abstract in the base, bodied per platform. `add`/`subtract` stay exact on a
+  `rangeWithin[Lo, Hi](i)` are abstract in the base, bodied per platform. `add`/`subtract` stay exact on a
   half-open interval; `multiply` widens to `whole` (its corner products lose the position that signs an infinity).
-- `type String {size: Bound[Interval[BigInteger]]}` — the channel's **second domain** (`docs/string-length-meta.md`),
+- `type String {size: Interval[BigInteger]}` — the channel's **second domain** (`docs/string-length-meta.md`),
   the same one-slot shape and the same machinery, which is what proves the channel is not `Int`-shaped. The unit is the
   **code point** — what `String::length` counts on every target — so a `where` over a size means the same thing
   everywhere; the slot is `size` because `length` is taken by the runtime function in that module. A literal seeds it
