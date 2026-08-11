@@ -18,12 +18,19 @@ object Qualifier {
     */
   case object Type extends Qualifier
 
-  /** Denotes a name in the meta-information channel (bounds-as-refinements §4): the `^Meta` companion of a value (its
-    * transfer function) or the meta constructor / slot accessor of a type declared with a `{slots}` brace. A parallel
-    * namespace to [[Type]]/[[Default]], carried by the same [[QualifiedName]]; erased before codegen (compiler-pool
-    * only).
+  /** Denotes a name in the meta-information channel (bounds-as-refinements §4): the `^Meta` transfer companion or
+    * `^Where` precondition companion of a value. Erased before codegen (compiler-pool only).
+    *
+    * It is the meta namespace **of another namespace**, not a flat one: a companion shadows exactly one value, and a
+    * value's identity is its name *and* its qualifier, so the companion's is `(name, Meta(qualifier))`. Nesting is what
+    * keeps `Numeric[Int]::add`'s transfer apart from a plain `add` declared in the same module — a collision the flat
+    * spelling had, since it dropped the `(ability, pattern)` key on the way in (`docs/total-meta-transfers.md` §8.1).
+    * The alternative that section first proposed — the companion in the callee's *own* qualifier, distinguished by a
+    * name suffix — puts an extra member into an implementation's namespace, which
+    * [[com.vanillasource.eliot.eliotc.ability.processor.AbilityImplementationCheckProcessor]] rejects as a method the
+    * ability does not declare. Nesting keeps the ability machinery's view of an implementation exactly as it was.
     */
-  case object Meta extends Qualifier
+  case class Meta(of: Qualifier) extends Qualifier
 
   /** Functions belonging to a given ability.
     */
@@ -45,13 +52,16 @@ object Qualifier {
   case class AbilityImplementation(name: String, pattern: String) extends Qualifier
 
   /** Renders a qualifier for user-facing messages. An [[AbilityImplementation]] shows its ability name and pattern key
-    * (e.g. `PatternMatch#Person` or `Arithmetic#Int[L1, H1], Int[L2, H2]`).
+    * (e.g. `PatternMatch#Person` or `Arithmetic#Int[L1, H1], Int[L2, H2]`); a [[Meta]] over the plain [[Default]]
+    * namespace shows as bare `Meta` (`add^Meta`), and over any other one names the namespace it shadows
+    * (`add^Meta(Arithmetic#Int[L1, H1], Int[L2, H2])`).
     */
   given Show[Qualifier] with {
     override def show(qualifier: Qualifier): String = qualifier match {
       case Default                              => "Default"
       case Type                                 => "Type"
-      case Meta                                 => "Meta"
+      case Meta(Default)                        => "Meta"
+      case Meta(of)                             => s"Meta(${show(of)})"
       case Ability(name)                        => name
       case AbilityImplementation(name, pattern) => s"$name#$pattern"
     }

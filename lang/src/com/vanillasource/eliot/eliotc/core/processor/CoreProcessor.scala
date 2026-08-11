@@ -105,7 +105,10 @@ class CoreProcessor
     // so an integer literal in it is a bare `BigInteger` — the same reading a signature's literal gets — rather than
     // the runtime `integerLiteral[n] : Int` protocol. That is what lets a brace name a number at all: an interval
     // endpoint is a `BigInteger`, and there is no widening from `Int` to one.
-    val isMetaBody   = function.name.value.qualifier === Qualifier.Meta
+    val isMetaBody   = function.name.value.qualifier match {
+      case _: Qualifier.Meta => true
+      case _                 => false
+    }
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body, isTypeBody, isMetaBody))
     val constraints  = function.genericParameters
       .map(gp =>

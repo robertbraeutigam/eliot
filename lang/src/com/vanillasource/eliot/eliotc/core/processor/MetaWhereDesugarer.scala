@@ -38,6 +38,14 @@ object MetaWhereDesugarer {
     */
   val whereSuffix: String = "$Where"
 
+  /** The name of the `^Where` companion of the value named `of`: its name plus [[whereSuffix]], in the meta namespace
+    * *of its own qualifier*, exactly as [[MetaTransferDesugarer.companionName]] names the transfer companion — so a
+    * `where` on an ability-implementation method is that implementation's precondition and no other's. The single
+    * source of truth every reader of a `where` companion names it through.
+    */
+  def companionName(of: QualifiedName): QualifiedName =
+    QualifiedName(of.name + whereSuffix, Qualifier.Meta(of.qualifier))
+
   /** The `^Where` companion generated from `definition`'s `where` clause, or empty when it has none (every ordinary
     * def).
     */
@@ -46,7 +54,7 @@ object MetaWhereDesugarer {
 
   private def whereCompanion(f: FunctionDefinition, predicate: Sourced[SourceExpression]): FunctionDefinition =
     FunctionDefinition(
-      f.name.map(qn => QualifiedName(qn.name + whereSuffix, Qualifier.Meta)),
+      f.name.map(companionName),
       Seq.empty,
       retypedArgs(f, predicate),
       boolTypeRef(f.name),

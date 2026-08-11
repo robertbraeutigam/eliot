@@ -117,8 +117,8 @@ object RowChecker {
     orv.runtime.isDefined &&
       orv.vfqn.name.role == com.vanillasource.eliot.eliotc.module.fact.Role.Runtime &&
       (orv.vfqn.name.qualifier match {
-        case Qualifier.Type | Qualifier.Meta => false
-        case _                               => true
+        case Qualifier.Type | _: Qualifier.Meta => false
+        case _                                  => true
       })
 
   /** Check one definition against the universe. [[None]] if the value is unknown; a body-less definition derives the

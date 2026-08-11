@@ -14,9 +14,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     ⟶  add^Meta(a: Int$Meta, b: Int$Meta): Int$Meta = Int$Meta(a.range + b.range)
   * }}}
   *
-  * The companion lives in the [[Qualifier.Meta]] namespace (so it never collides with `add`). How its parameter and
-  * return types name their meta types is a pure **name transform** with **no cross-definition lookup**, split by
-  * whether the def is generic:
+  * The companion lives in the [[Qualifier.Meta]] namespace of the def's own qualifier ([[companionName]]), so it never
+  * collides with `add` — nor, when the def is an ability-implementation method, with the transfer of any other `add` in
+  * the same module. How its parameter and return types name their meta types is a pure **name transform** with **no
+  * cross-definition lookup**, split by whether the def is generic:
   *   - a **monomorphic** vessel (`rangeAdd(a: Int, b: Int): Int {…}`) suffixes each concrete type to its meta structure
   *     `T$Meta` (the suffix [[MetaConstructorDesugarer.metaTypeSuffix]]) — `Int` ⤳ `Int$Meta`, which resolves because
   *     `Int` is slotted — and the channel reduces it at no type args.
@@ -32,6 +33,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * the arm meta type). Companions are compiler-pool-only (the channel evaluates them), dead in the runtime pool.
   */
 object MetaTransferDesugarer {
+
+  /** The name of the `^Meta` transfer companion of the value named `of` — its own name, in the meta namespace *of its
+    * own qualifier* ([[Qualifier.Meta]]). The nesting is what keeps an ability-implementation leaf's transfer
+    * (`Numeric[Int]::add` ⤳ `add^Meta(Numeric#Int…)`) apart from that of a plain `add` declared in the same module;
+    * dropping the qualifier — as this companion's name once did — merged the two (`docs/total-meta-transfers.md` §8.1).
+    *
+    * The single source of truth for the name: every reader that asks "does this value state a transfer?" or reduces one
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor]],
+    * [[com.vanillasource.eliot.eliotc.monomorphize.channel.MetaTransferAccountingProcessor]]) names it through here, so
+    * emitter and readers cannot drift apart.
+    */
+  def companionName(of: QualifiedName): QualifiedName = QualifiedName(of.name, Qualifier.Meta(of.qualifier))
 
   /** The `^Meta` transfer companion generated from `definition`'s return brace, or empty when it has none (every
     * ordinary def) or its signature shape is unsupported.
@@ -57,7 +70,7 @@ object MetaTransferDesugarer {
       metaReturn <- metaReturnRef(f.typeDefinition, generics)
       body       <- metaBody(f.typeDefinition, f.returnMeta, generics)
     } yield FunctionDefinition(
-      f.name.map(qn => QualifiedName(qn.name, Qualifier.Meta)),
+      f.name.map(companionName),
       f.genericParameters,
       metaArgs,
       metaReturn,
