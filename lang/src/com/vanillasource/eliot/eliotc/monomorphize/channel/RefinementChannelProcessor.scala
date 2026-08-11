@@ -1,10 +1,9 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.processor.{MetaConstructorDesugarer, MetaTransferDesugarer, MetaWhereDesugarer}
+import com.vanillasource.eliot.eliotc.core.processor.{MetaTransferDesugarer, MetaWhereDesugarer}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN, WellKnownTypes}
-import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal
@@ -28,23 +27,23 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     value `[n, n]`, a string literal the size `[k, k]` of its `k` code points. Both go through the *same* path (the
   *     literal protocol's own `^Meta` companion in `eliot.lang.Runtime`), so the second domain needed no second
   *     mechanism — only its own seed declaration.
-  *   - **Transfers (Step-4c form):** at an `Int` `+`/`-`/`*` leaf the result interval is the leaf's `^Meta` transfer
-  *     companion (`add^Meta`/… — the `Numeric[Int]` instance methods' companions, whose braces spell the transfer as
-  *     `add`/`subtract`/`multiply` over the operand ranges, dispatched through the `Numeric[Interval[BigInteger]]`
-  *     instance and bottoming at `Numeric[BigInteger]` natives) evaluated through the one NbE evaluator on the two
-  *     operand intervals. Unknown if either operand is unknown.
-  *   - **Merges (Step 3):** at *any ordinary call* whose callee declares a `^Meta` **merge** companion — e.g. `fold`,
-  *     whose `fold^Meta` spells `join(whenTrue, whenFalse)` over the domain's `Meta.join` — the result interval is that
-  *     companion reduced on the argument metas (`mergeViaCompanion`), *mechanically identical* to a transfer: no branch
-  *     construct is ever named. So `fold` narrows through the same generic path as any range-moving native, and any
-  *     future selector merges for free. The arms keep their own (narrower) intervals; the reconcile pass re-encodes
-  *     each to the merged representation at the branch (`docs/generic-refinement-merges.md` §1).
+  *   - **Calls:** a call's result is the callee's meta, asked for by [[MetaInterpreter.metaOfCall]] — **stated** by a
+  *     leaf (an `Int` `+`/`-`/`*`'s `add^Meta`/…; `fold`'s merge companion `join(whenTrue, whenFalse)`, mechanically
+  *     identical to a transfer, so no branch construct is ever named) or **derived** by interpreting a bodied callee's
+  *     own body under these argument metas. Which of the two applies is the callee's business, not this walk's — that
+  *     is the state-or-derive closure of `docs/total-meta-transfers.md` §2, and this walk names neither a native leaf
+  *     nor a branch construct to tell them apart.
   *
-  * Everything else is ⊤ (unknown, laid out as a bignum) — a parameter, a value reference, a `match` (`handleCases`)
-  * result, the body of a lambda, an ordinary call with no `^Meta` companion. These are the boundaries of §4/§7 Q4: the
-  * flow analysis is intra-procedural, so a value crossing a call/return/field/lambda boundary is ⊤ there (sound: "I know
-  * nothing" is always true, just imprecise). A ⊤ node is still *recorded*, as a `None` verdict — see [[recordAt]] for
-  * why omitting it is unsound at an aliased position.
+  * Everything else is ⊤ (unknown, laid out as a bignum) — a parameter, the body of a lambda, a `match` (`handleCases`)
+  * result, a call whose callee neither states nor can be interpreted (a higher-order one, §5's table). A ⊤ node is
+  * still *recorded*, as a `None` verdict — see [[recordAt]] for why omitting it is unsound at an aliased position.
+  *
+  * **What this walk decides, and what it does not.** It decides *what may be stamped*: a record is keyed by source
+  * position **in the value being walked**, so it is representation policy for this body and this body only
+  * (`docs/total-meta-transfers.md` §7). *What the meta is* belongs to [[MetaInterpreter]], which computes metas
+  * through call boundaries but records nothing and reports nothing. A derived meta is therefore consumed at the **call
+  * node in the caller**; the callee's own layout stays joined and conservative, computed from its own table at ⊤
+  * parameters.
   *
   * The walk **descends everywhere**: into the arguments of ordinary calls (so a literal/arithmetic argument narrows and
   * is reconciled to the callee's parameter representation at the call), into a lambda's body, and into the head of an
@@ -58,12 +57,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * entirely over the checker's output with zero risk to the checker's invariants. See the design doc §3.
   *
   * A transfer and a merge are recognised the *same* way: solely by the callee declaring a `^Meta` companion
-  * (`metaCompanionFqn`), never by naming a native leaf or a branch construct (`docs/generic-refinement-merges.md`).
+  * ([[metaCompanionFqn]]), never by naming a native leaf or a branch construct (`docs/generic-refinement-merges.md`).
   * The companion's body may itself route through ability instances (a transfer's `Numeric[Interval]`, a merge's
-  * `Meta.join`); the post-monomorphize linker-executor ([[EscalatingReducer]]) resolves those through each instance's
-  * own monomorphization, so the former "a transfer must bottom out at natives" restriction is repealed
-  * (`docs/refinement-channel-follow-ups.md`). A callee with no `^Meta` companion simply gets no narrowing
-  * there — a bignum layout, sound but wide, never wrong.
+  * `Meta.join`); the post-monomorphize linker-executor
+  * ([[com.vanillasource.eliot.eliotc.monomorphize.processor.EscalatingReducer]]) resolves those through each
+  * instance's own monomorphization, so the former "a transfer must bottom out at natives" restriction is repealed
+  * (`docs/refinement-channel-follow-ups.md`).
   */
 class RefinementChannelProcessor
     extends TransformationProcessor[MonomorphicValue.Key, RefinementTable.Key](key =>
@@ -110,49 +109,42 @@ class RefinementChannelProcessor
   private def walkFlow(node: Sourced[MonomorphicExpression]): CompilerIO[Flow] =
     node.value.expression match {
       case MonomorphicExpression.IntegerLiteral(value)  =>
-        // α (the one point a meta *originates*): a literal `n` seeds its singleton range by reducing the literal
-        // protocol's own `^Meta` companion on `n`. The seed's construction (`Int$Meta(Interval[n, n])`) lives
-        // in Eliot — `eliot.lang.Runtime::integerLiteral`'s return brace `{closed(V, V)}`, which the desugarer turns into
-        // `integerLiteral^Meta` — and is reduced here through the *same* uniform `^Meta` path as every transfer/merge
-        // (`metaViaCompanion`). The channel builds no domain structure of its own; it only wraps `n` as its
-        // `BigInteger` value to reduce the companion at. So even the α origin is domain-agnostic.
-        metaViaCompanion(
-          WellKnownTypes.integerLiteralFQN,
-          Seq(GroundValue.Direct(value.value, bigIntType)),
-          Seq.empty
-        ).map(meta => Flow(meta, recordAt(node, meta)))
+        // α (the one point a meta *originates*): a literal `n` seeds its singleton range. The seed's construction
+        // (`Int$Meta(Interval[n, n])`) lives in Eliot — `eliot.lang.Runtime::integerLiteral`'s return brace
+        // `{closed(V, V)}` — and is reduced through the *same* stated-transfer path as every leaf
+        // ([[MetaInterpreter.integerSeed]]). The channel builds no domain structure of its own, so even the α origin
+        // is domain-agnostic.
+        MetaInterpreter.integerSeed(value.value).map(meta => Flow(meta, recordAt(node, meta)))
 
       case MonomorphicExpression.StringLiteral(value)   =>
         // α for the `String` domain (`docs/string-length-meta.md` §3.1): a literal seeds the singleton size range of
-        // its own length, through the same uniform `^Meta` path as the integer seed — `eliot.lang.Runtime::stringLiteral`'s
-        // return brace `{closed(N, N)}` builds the `String$Meta` in Eliot; the channel supplies only the raw
-        // count. That count is the literal's **code points**, which is what `String::length` counts on every platform
-        // (`type String`'s documented unit), so the measure is platform-independent rather than a host-representation
-        // guess: the seed can never disagree with the function whose unit it reports.
-        val text = value.value
-        metaViaCompanion(
-          WellKnownTypes.stringLiteralFQN,
-          Seq(GroundValue.Direct(BigInt(text.codePointCount(0, text.length)), bigIntType)),
-          Seq.empty
-        ).map(meta => Flow(meta, recordAt(node, meta)))
+        // its own length, through the same path as the integer seed. That count is the literal's **code points**,
+        // which is what `String::length` counts on every platform (`type String`'s documented unit), so the measure is
+        // platform-independent rather than a host-representation guess: the seed can never disagree with the function
+        // whose unit it reports.
+        MetaInterpreter.stringSeed(value.value).map(meta => Flow(meta, recordAt(node, meta)))
 
       case _: MonomorphicExpression.FunctionApplication =>
-        val (head, args) = flatten(node)
+        val (head, args) = MetaInterpreter.flatten(node)
         head.value.expression match {
           case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
             // An ordinary call (or constructor). Descend into the arguments (so a literal/arithmetic argument narrows,
-            // and a `where` precondition is demanded over their ranges, bounds-as-refinements §4.3). The result is a ⊤
-            // boundary **unless** the callee declares a `^Meta` companion — a **transfer** (`Numeric[Int]::add`, whose
-            // result range is `Numeric[Interval]::add` of the operand ranges) or a **merge** (`fold`, whose result range is
-            // `Meta.join` of its arms). Both are computed by the *same* uniform path: reduce `<callee>^Meta` on the argument metas
-            // (`metaViaCompanion`). The channel names no leaf and no branch construct — the `^Meta` companion is the one
-            // recognition point (`docs/generic-refinement-merges.md`). A lambda argument's body is skipped by the
-            // `FunctionLiteral` case below.
+            // and a `where` precondition is demanded over their ranges, bounds-as-refinements §4.3). The call's own
+            // result is whatever the callee's meta is — **stated** by a leaf (`Numeric[Int]::add`'s transfer, `fold`'s
+            // merge) or **derived** from a bodied callee's own body under these argument metas
+            // ([[MetaInterpreter.metaOfCall]], `docs/total-meta-transfers.md` §6.2). The channel names no leaf and no
+            // branch construct: which of the two applies is the callee's business, not this walk's. A lambda
+            // argument's body is skipped by the `FunctionLiteral` case below.
             for {
               argResults <- args.traverse(walkFlow)
               _          <- checkWhere(node, vfqn.value, typeArgs, args.size, argResults.map(_.own))
-              merge      <- metaViaCompanion(vfqn.value, typeArgs, argResults.map(_.own))
-            } yield Flow(merge, argResults.flatMap(_.records) ++ recordAt(node, merge))
+              meta       <- MetaInterpreter.metaOfCall(
+                              vfqn.value,
+                              typeArgs,
+                              node.value.expressionType,
+                              argResults.map(_.own)
+                            )
+            } yield Flow(meta, argResults.flatMap(_.records) ++ recordAt(node, meta))
           case _ =>
             // Any other application (a `match`, a `typeMatch`, an applied lambda): the result is a ⊤ boundary; descend
             // into the arguments as above — **and into the head**. The head is where a pure `val` block keeps its
@@ -177,83 +169,25 @@ class RefinementChannelProcessor
         // effects during the walk remain.
         walkFlow(body).as(Flow(None, recordAt(node, None)))
 
-      case MonomorphicExpression.MonomorphicValueReference(vfqn, _) =>
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
         // A **bare** reference to a def — *not* the head of a full application (that path is the `FunctionApplication`
         // arm's `checkWhere`). If the def carries a `where` precondition, passing it as a value silently bypasses that
         // precondition: its eventual call rides a function value whose head the channel never sees as a
         // `MonomorphicValueReference`, so the demand is made nowhere (`docs/refinement-channel-follow-ups.md` §2.1).
-        // Reject it loudly — the Use-Site Verification cornerstone requires every manifest use to be checked. ⊤ for the
-        // node itself (a function value carries no integer range).
-        rejectWhereAsValueIfBearing(node, vfqn.value).as(Flow(None, recordAt(node, None)))
+        // Reject it loudly — the Use-Site Verification cornerstone requires every manifest use to be checked.
+        //
+        // Its meta is asked for on the same terms as a call's, because for a **nullary** def that is exactly what this
+        // is: a saturated call, spelled without parentheses. A reference that is *not* saturated is a function value,
+        // whose type carries no meta, so the same question answers ⊤ there without a special case.
+        for {
+          _    <- rejectWhereAsValueIfBearing(node, vfqn.value)
+          meta <- MetaInterpreter.metaOfCall(vfqn.value, typeArgs, node.value.expressionType, Seq.empty)
+        } yield Flow(meta, recordAt(node, meta))
 
       case _ =>
         // A parameter reference: ⊤ (nothing is known about this node's value here).
         Flow(None, recordAt(node, None)).pure[CompilerIO]
     }
-
-  /** The refinement result of a call, when its callee declares a `^Meta` companion — a **transfer** (`add^Meta`,
-    * whose result range is `Numeric[Interval]::add` of the operand ranges) or a **merge** (`fold^Meta`, whose result
-    * range is `Meta.join` of its arms). Both are computed uniformly: reduce `<callee>^Meta` on the arguments' metas and
-    * read its result `Int$Meta`'s `range` slot back. `None` (⊤) when the callee has no companion, or an input's range is
-    * unknown.
-    *
-    * The companion is reduced at the **meta** type arguments — the call's base type args mapped through [[metaTypeOf]].
-    * A *monomorphic* companion (`add`, no type args) reduces at `[]` and its `Int$Meta` params take the operand
-    * metas directly. A *generic* companion (`fold[A]`) reduces at `A := metaTypeOf(Int) = Int$Meta`, so the bare `A`
-    * params bind to the meta type; its `join` then dispatches via the compiler-derived `Meta[Int$Meta]` to
-    * `Int$Meta(join(range(whenTrue), range(whenFalse)))` — the inner `join` dispatched through the `Meta[Interval]`
-    * instance by the channel's post-monomorphize executor. An unknown/non-`Int` argument (⊤ — e.g. `fold`'s
-    * `condition`) is a `VType` placeholder the reduction ignores unless it feeds a slot projection, in which case the
-    * projection stalls and the result is ⊤ (sound). A merge over untracked arms reduces at `A := Unit` (an untracked
-    * type's [[metaTypeOf]] is `Unit`) through the trivial `Meta[Unit]` and reads back no interval (⊤). The membership
-    * test (a cached [[UnifiedModuleNames]] lookup for the companion name) keeps a companion-free call to one cheap lookup.
-    */
-  private def metaViaCompanion(
-      callee: ValueFQN,
-      calleeTypeArgs: Seq[GroundValue],
-      argMetas: Seq[Option[GroundValue]]
-  ): CompilerIO[Option[GroundValue]] =
-    getFactOrAbort(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { names =>
-      if (!names.names.contains(metaCompanionName(callee)))
-        none[GroundValue].pure[CompilerIO]
-      else
-        for {
-          metaTypeArgs <- calleeTypeArgs.traverse(metaTypeOf)
-          // Reduce `<callee>^Meta` at the meta type args, applied to the argument metas, through the compiler platform's
-          // escalating linker-executor (`docs/refinement-channel-follow-ups.md` §1): it links only monomorphized
-          // callees, so a transfer/merge whose body routes through an ability instance resolves through that instance's
-          // own monomorphization rather than sticking on the abstract ability method. An unknown/untracked argument (⊤)
-          // is a `VType` placeholder the reduction ignores unless it feeds a slot projection (then the projection stalls
-          // and the result is ⊤, sound). The result meta is an opaque domain structure (the type's `$Meta`), stored
-          // verbatim; a stuck/⊤ result does not quote to a structure and is dropped.
-          result       <- EscalatingReducer.reduceApplied(
-                            metaCompanionFqn(callee),
-                            metaTypeArgs,
-                            argMetas.map {
-                              case Some(gv) => Evaluator.groundToSem(gv) // the argument's own meta value, passed opaquely
-                              case None     => SemValue.VType            // ⊤ placeholder: an unknown/untracked argument
-                            }
-                          )
-        } yield result.collect { case s: GroundValue.Structure => s }
-    }
-
-  /** The **meta type** of a base type — its `$Meta` meta structure if the type declares one (a slotted type like `Int`
-    * ⤳ `Int$Meta`), else the trivial [[unitType]] (any untracked type carries no refinement, so its meta is `Unit`).
-    * This is the total-meta rule the deleted `metaOf` intrinsic used to approximate: a generic `^Meta` companion is
-    * reduced at these, binding a bare type-parameter param straight to the meta type, and it *always* lands on a real
-    * `Meta` instance (`Meta[Int$Meta]` or `Meta[Unit]`) — never a stuck non-existent `T$Meta`. The membership test is a
-    * cached [[UnifiedModuleNames]] lookup in the base type's own module. A non-structure type argument is left unchanged.
-    */
-  private def metaTypeOf(baseType: GroundValue): CompilerIO[GroundValue] = baseType match {
-    case GroundValue.Structure(fqn, _, _) =>
-      val metaName = QualifiedName(fqn.name.name + MetaConstructorDesugarer.metaTypeSuffix, Qualifier.Type)
-      getFactOrAbort(UnifiedModuleNames.Key(fqn.moduleName, Platform.Compiler)).map { names =>
-        if (names.names.contains(metaName))
-          GroundValue.Structure(ValueFQN(fqn.moduleName, metaName), Seq.empty, GroundValue.Type)
-        else unitType
-      }
-    case other                            => other.pure[CompilerIO]
-  }
 
   /** Record this node's verdict — its pinned meta, or ⊤. Every *walked* node records, ⊤ included: a consumer can only
     * match this table against its own tree by source position, and desugaring makes positions non-unique (a pure `val`
@@ -373,28 +307,9 @@ class RefinementChannelProcessor
     case _                            => false
   }
 
-  /** Flatten a curried application into its ultimate head and its arguments in source order. */
-  private def flatten(
-      node: Sourced[MonomorphicExpression]
-  ): (Sourced[MonomorphicExpression], Seq[Sourced[MonomorphicExpression]]) =
-    node.value.expression match {
-      case MonomorphicExpression.FunctionApplication(target, argument) =>
-        val (head, args) = flatten(target)
-        (head, args :+ argument)
-      case _                                                           => (node, Seq.empty)
-    }
-
 }
 
 object RefinementChannelProcessor {
-
-  /** The `BigInteger` type an integer literal's value carries — the only literal-domain constant the channel needs, to
-    * wrap a literal `n` as a [[GroundValue.Direct]] when reducing `integerLiteral^Meta` at it (the seed's *construction*
-    * lives in Eliot; the channel only supplies the raw value). At the literal-protocol level, not the tracking domain —
-    * and the canonical [[WellKnownTypes.bigIntFQN]], not a re-spelled FQN.
-    */
-  private val bigIntType: GroundValue =
-    GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
   /** A callee's `^Meta` companion name: its own name in the meta namespace of its own qualifier, named by the
     * desugarer that emits it ([[MetaTransferDesugarer.companionName]]). `fold` ⤳ `fold^Meta` (merge), the
@@ -408,14 +323,6 @@ object RefinementChannelProcessor {
 
   private[channel] def metaCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, metaCompanionName(callee))
-
-  private val unitModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Unit")
-
-  /** `Unit` — the meta type of every untracked (slotless) type. Its trivial `Meta[Unit]` instance (declared with `Unit`)
-    * is the do-nothing join, so a merge over untracked arms reduces cleanly to no refinement (⊤).
-    */
-  private[channel] val unitType: GroundValue =
-    GroundValue.Structure(ValueFQN(unitModule, QualifiedName("Unit", Qualifier.Type)), Seq.empty, GroundValue.Type)
 
   /** The name / FQN of a def's `^Where` companion (bounds-as-refinements §4.3), in the def's own module — named by the
     * desugarer that emits it ([[MetaWhereDesugarer.companionName]]), so the channel finds the precondition companion

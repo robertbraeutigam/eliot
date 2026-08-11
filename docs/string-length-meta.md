@@ -6,8 +6,9 @@ Status: **shipped, S0 through S5 — the domain is complete and R2 is armed.** S
 platform leaves, and arming R2) have all landed; a `where` precondition over a string's size is checked at every use
 site today, a literal's size reaches the `Int` domain through `length`, a size survives concatenation, slicing,
 trimming, case conversion, repetition and replacement rather than stopping at the first call, and a native that
-produces a `String` or an `Int` and says nothing about its meta no longer compiles. What is left is out of this
-document's scope by design: `List`/`Array` size and the meta interpretation (§12).
+produces a `String` or an `Int` and says nothing about its meta no longer compiles. What was left is out of this
+document's scope by design: `List`/`Array` size and the meta interpretation (§12) — the latter has since landed its
+walk, which retires part of §9's precision reality check.
 
 The domain cost **one** compiler arm (§3.1) and one Eliot declaration beside it. Everything else — the meta structure,
 the derived `Meta` lattice, the `^Where` demand, the transfer name transform — was the shipped machinery, reached by
@@ -559,15 +560,21 @@ The channel is intra-procedural (`RefinementChannelProcessor`: a parameter, a va
 ⊤). So what actually narrows is: string literals, and directly-called leaves with stated transfers, within one body.
 
 ```eliot
-def greet(name: String): String = "Hello, " ++ name      // ⊤: `name` is a parameter
+def greet(name: String): String = "Hello, " ++ name      // ⊤ *inside* greet: `name` is a parameter
 def banner: String = "-" ++ "-"                          // [2,2] — literal ++ literal, via combine^Meta
-def label(s: String): String = s                         // bodied: derives nothing today, so ⊤ at the call
+def label(s: String): String = s                         // at `label("abcd")`: [4,4] — derived (S8)
 ```
 
 That is the same shape of limitation `Int`'s range already has, and the same fix retires both: the **meta
 interpretation** of `total-meta-transfers.md` §6.2/P4, which interprets a callee's body under the caller's argument
-metas. `String` size is not a reason to build it, and it is not blocked by its absence — but the first user report
-will be "why is my string's size unknown", and the answer should already be written down.
+metas.
+
+> **Amended: P4's walk landed (S8), and it retired the third line but not the first.** A *call* to a bodied def now
+> carries the size its body derives from the caller's arguments — `label("abcd")` is `[4, 4]`, and so is
+> `greet("bob")`'s combined size at its call site. What is unchanged is the view from *inside* a parametered body: a
+> parameter is still ⊤ there, because the derivation's output is consumed at the **call node in the caller** and the
+> callee is laid out once, conservatively (`total-meta-transfers.md` §7). The two bullets below are the same story
+> from two other angles, and S8 moved neither of them.
 
 Two facts about *today's* channel sharpen this, both worth knowing before S2/S3 (found while auditing this section;
 the first is still open, the second is fixed):
@@ -578,13 +585,19 @@ the first is still open, the second is fixed):
   because they are paramless; move the identical expression into `def banner(unused: Bool): String` and it is ⊤ again.
   `where` demands still fire there (they are checks made during the walk, not records), so this is precision only. It
   dissolves under P4, whose §7 separates "what the meta is" from "what may be stamped" — which is exactly this
-  conflation.
+  conflation. **Still open after S8**: the walk that landed is the *derivation*, and it made that separation only in
+  the direction it needed (the interpretation records nothing). Dropping a lambda subtree's records is the other
+  direction, and it is a representation decision — what a narrowed value may be stamped as behind an `apply` bridge —
+  so it did not come along.
 - **A dot call is ⊤, where the same call spelled directly is not.** `length("hello")` narrows and `"hello".length`
   does not; `substring(0, 3, s)` narrows and `s.substring(0, 3)` does not. The dot's subject reaches the callee
   through the `Function.apply` bridge, which is one of the aliased positions the channel drops (the bullet below).
   This is **not** new in S4 — the shipped `length` transfer has behaved this way since S3 — but it is the first
-  limitation a reader will hit, because the dot form is the idiomatic one everywhere else in the language. It
-  dissolves under P4 with the rest of §9.
+  limitation a reader will hit, because the dot form is the idiomatic one everywhere else in the language. **Sharpened
+  by S8**: it is *not* the record-policy limitation it is filed next to, and P4's walk did not retire it — a probe
+  confirms `small("hello".length)` still reports "meta-information is not known". The subject arrives applied through
+  `Function::apply`, so the interpretation meets a function *value*, which carries no meta of its own. It therefore
+  dissolves with the **higher-order** half of P4 (§5's table), not with the walk.
 - **A meta may not be recorded without also recording the ⊤s around it.** The table is matched to the backend's tree
   by *source position*, and desugaring makes positions non-unique: a pure `val` block lowers to `(x -> rest)(e)` with
   the synthesized lambda and application both anchored on the bound expression's range. Recording only pinned nodes
@@ -592,9 +605,11 @@ the first is still open, the second is fixed):
   result to `Byte` — §8's hazard, reached with no stated transfer at all. The channel now records ⊤ verdicts too, so
   an aliased position is ambiguous and drops to ⊤. Any new recording site inherits this obligation.
 
-`String::show` being the identity is a good miniature of this: it is *bodied*, so under R3 it may not state a
-transfer, and until P4 exists it derives nothing. Correct and useless — exactly the pattern §8.3 of
-`total-meta-transfers.md` predicted for `foldLeft`.
+`String::show` being the identity was a good miniature of this: it is *bodied*, so under R3 it may not state a
+transfer, and until P4 existed it derived nothing — correct and useless. **S8 answered it**: its body is interpreted at
+the call, so `show` now carries its argument's size through. `foldLeft` is the pattern that remains (§8.3 of
+`total-meta-transfers.md`), and it waits on two things rather than one — a higher-order interpretation, and a `List`
+size for it to iterate over.
 
 ---
 
@@ -731,7 +746,9 @@ meta) and the meta interpretation, both in §12.
 ## 12. Non-goals
 
 - Structural/functorial meta types — still the `List`/`Array` domain's project.
-- The meta interpretation (P4): bodied values keep deriving nothing.
+- The meta interpretation (P4). **No longer true as written**: its walk landed after this document did
+  (`total-meta-transfers.md` §P4/S8), so a bodied value's size *is* derived at the call site — `String::show` and
+  `label` included. It was out of scope here, not out of reach.
 - Any narrowing of `String` *representation* on the JVM (there is none to pick); the layout payoff is an MCU
   backend's, not this change's.
 - A **byte-size slot** (§5.2). Byte count is a backend derivation from `size` plus the target's encoding, exactly as
