@@ -1,6 +1,9 @@
 # Total Meta Transfers — meta as a shadow logic
 
-Status: **R2 and R3 are armed; the interpretation is still design.** **P1, P2 and P3 are done** (S5, S6): every
+Status: **R2 and R3 are armed, P4's prerequisite is in, and the interpretation itself is still design.** **P1, P2 and
+P3 are done** (S5, S6), and **§8.1's naming fix — P4's stated first step — is done** (S7): a transfer companion keeps
+its callee's qualifier, so an ability implementation's brace is that implementation's and not a same-named sibling's,
+repairing the channel's lookup and R3's in one move. Every
 native leaf in the tree that produces a meta-carrying type states its transfer, **nothing else states one**, and
 `monomorphize/channel/MetaTransferAccountingProcessor` is a **codegen precondition** in `WovenValueProcessor` —
 a leaf that states nothing no longer compiles, and neither does a bodied value that states one. With it the
@@ -477,12 +480,39 @@ inside the callee, layout stays joined/conservative. Get that wrong and it arriv
 
 ## 8. Remaining difficulties
 
-**8.1 Ability-impl transfers collide.** `metaCompanionFqn` keeps only `callee.name.name`, which *strips*
-the `AbilityImplementation` qualifier — so `Numeric[Int]::add`'s transfer is a plain `add^Meta` in
-`eliot.lang.Int`. Safe today only because no other `add` is declared there; under totality it collides.
-Fix before anything else: name a transfer in the **callee's own qualifier namespace** (mirroring `$Where`),
-which preserves impl identity and lets `Qualifier.Meta` retire. Dispatch itself is already solved — the
-channel sees the resolved *instance* FQN post-mono.
+**8.1 Ability-impl transfers collide — LANDED (S7), and it was P4's first step.** `metaCompanionFqn` kept only
+`callee.name.name`, which *stripped* the `AbilityImplementation` qualifier — so `Numeric[Int]::add`'s transfer was a
+plain `add^Meta` in `eliot.lang.Int`. Safe only because no other `add` is declared there; under totality it collides,
+and it collided in **two readers at once**: the channel would apply an instance's transfer to a same-named sibling's
+call sites (silently wrong metas), and R3 would report that sibling for a brace it does not carry (a spurious error).
+A companion now keeps its callee's qualifier, so its identity is the callee's identity —
+`add^Meta(Numeric#Int[L1, H1], Int[L2, H2])`. Dispatch itself was already solved — the channel sees the resolved
+*instance* FQN post-mono.
+
+**Amended in the doing: the qualifier is *nested*, not reused.** This section proposed naming the transfer in the
+callee's **own** qualifier namespace (`add$Meta` beside `add`, mirroring `$Where`), which would also have retired
+`Qualifier.Meta`. The tree refuses that, from two phases away: an implementation's namespace is not free real estate —
+`AbilityImplementationCheckProcessor.checkNoExtras` reports every member of it the ability does not declare, so
+`Numeric[Int]`'s brace would compile to "Method not defined in ability." The qualifier is therefore **wrapped** rather
+than replaced: `Qualifier.Meta` becomes `Meta(of: Qualifier)`, the meta namespace *of* a namespace. That says the same
+thing about identity — a companion shadows exactly one value, and a value is `(name, qualifier)` — while leaving the
+ability machinery's view of an implementation exactly as it was, and it is total by construction: no future qualifier
+kind can collide, whereas a name suffix has to argue about `$` each time.
+
+`Qualifier.Meta` consequently **stays**, and that is the better outcome for the readers that ask *"is this a
+compiler-pool-only channel artifact?"* — `CompilerNativesProcessor.isRefinementArtifact`, `RowChecker.checkable`, and
+`CoreProcessor`'s compiler-track literal reading. They keep asking a namespace rather than sniffing a name suffix,
+which for the transfer companion would have been the very `$Meta` marker a *type*'s meta structure already carries.
+
+The emitter now owns the name — `MetaTransferDesugarer.companionName` / `MetaWhereDesugarer.companionName` — and every
+reader (`RefinementChannelProcessor`, `MetaTransferAccountingProcessor`, `CompilerMonomorphicTypeCheckProcessor`) names
+it through them, so the four hand-spelled copies that had to agree can no longer drift.
+
+Verified by the byte-identity oracle: all 40 compiling examples produce class content identical to the pre-change
+build, as a pure renaming of compiler-pool-only values must — the tree has no collision to repair, which is why this
+had to land *before* the interpretation multiplies the companions that would collide. The regression it does fix is
+pinned by test rather than by the tree: a module declaring both `implement Sum[Gauge] { def combine(…) {…} }` and a
+bodied `def combine` is now accepted, and was reported for a brace it does not carry before.
 
 **8.2 Braces do not merge.** A brace desugars to a companion *with a body*, i.e. a concrete value; if two
 layers carried the brace, the merge rejects it with "Has multiple implementations". So R2 must say where
@@ -663,15 +693,14 @@ a known-broken, layer-unreachable capability into a compile error with a fix nam
 remaining stages: **"no-op on the tree" must be checked against the tests as well as the layers**, since a test
 suite is exactly where a shape no shipped artefact uses will still be alive.
 
-**One hazard R3 inherits, unchanged and still §8.1's.** `declaresTransfer` finds a companion by the callee's
-stripped `name.name` in the `Qualifier.Meta` namespace of its module — the same lookup
-`RefinementChannelProcessor.metaViaCompanion` uses, so R3 flags exactly the situation in which the channel would
-read a companion for a bodied value. Where that lookup is wrong (an ability-impl leaf's brace colliding with a
-bodied sibling of the same bare name in the same module) R3 is wrong the same way, and reports it with a message
-about a brace the value does not carry. No such collision exists in the tree, and §8.1's naming fix — a transfer
-named in the callee's own qualifier namespace — repairs both readers at once. It stays P4's first step.
+**One hazard R3 inherited, and it is now repaired (S7).** `declaresTransfer` finds a companion by the same lookup
+`RefinementChannelProcessor.metaViaCompanion` uses, so R3 flags exactly the situation in which the channel would read
+a companion for a bodied value — and where that lookup was wrong (an ability-impl leaf's brace colliding with a bodied
+sibling of the same bare name in the same module) R3 was wrong the same way, reporting a brace the value does not
+carry. §8.1's naming fix repaired both readers at once, as predicted, because there is one name and both ask for it.
+Both readers now name it through the desugarer that emits it, so a future divergence would have to be written twice.
 
-**P4 — the interpretation (§6.2).** The naming fix of 8.1 first, then the walk, then the separation of §7.
+**P4 — the interpretation (§6.2).** The naming fix of 8.1 — **done (S7)**; then the walk, then the separation of §7.
 
 **P5 — precision follow-ons.** Structural meta types (§2.3); `where` demanded with known argument metas at
 nested calls, which P4 makes possible for the first time.

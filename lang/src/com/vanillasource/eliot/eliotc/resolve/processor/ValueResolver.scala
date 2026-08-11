@@ -84,7 +84,10 @@ class ValueResolver
     qualifier match {
       case CoreQualifier.Default                               => (Qualifier.Default: Qualifier).pure[ScopedIO]
       case CoreQualifier.Type                                  => (Qualifier.Type: Qualifier).pure[ScopedIO]
-      case CoreQualifier.Meta                                  => (Qualifier.Meta: Qualifier).pure[ScopedIO]
+      // The meta namespace shadows another one, so it converts by converting what it shadows — a meta companion of an
+      // ability-implementation method resolves that implementation's ability name exactly as the method itself does
+      // (the companion is generated in the same file, hence the same import scope).
+      case CoreQualifier.Meta(of)                              => convertQualifier(of, at).map(Qualifier.Meta(_))
       case CoreQualifier.Ability(n)                            => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
       case CoreQualifier.AbilityImplementation(name, pattern) =>
         // The module qualifier carries the ability name as a bare string (identity is position-independent); borrow the

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.processor.{MetaConstructorDesugarer, MetaWhereDesugarer}
+import com.vanillasource.eliot.eliotc.core.processor.{MetaConstructorDesugarer, MetaTransferDesugarer, MetaWhereDesugarer}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
@@ -214,7 +214,7 @@ class RefinementChannelProcessor
       argMetas: Seq[Option[GroundValue]]
   ): CompilerIO[Option[GroundValue]] =
     getFactOrAbort(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler)).flatMap { names =>
-      if (!names.names.contains(QualifiedName(callee.name.name, Qualifier.Meta)))
+      if (!names.names.contains(metaCompanionName(callee)))
         none[GroundValue].pure[CompilerIO]
       else
         for {
@@ -396,14 +396,18 @@ object RefinementChannelProcessor {
   private val bigIntType: GroundValue =
     GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
-  /** A callee's `^Meta` companion FQN: its own name in the [[Qualifier.Meta]] namespace, same module — what
-    * [[MetaTransferDesugarer]] emits from a return brace. `fold` ⤳ `fold^Meta` (merge), the `Numeric[Int]` `add` ⤳
-    * `add^Meta` (transfer). Keeping only `callee.name.name` also *strips* an ability-impl callee's `(ability, pattern)`
-    * qualifier down to plain `Meta`, so the arithmetic instance method's companion resolves. The channel recognises a
-    * refinement operation *only* by the presence of this companion — no leaf or branch construct is named.
+  /** A callee's `^Meta` companion name: its own name in the meta namespace of its own qualifier, named by the
+    * desugarer that emits it ([[MetaTransferDesugarer.companionName]]). `fold` ⤳ `fold^Meta` (merge), the
+    * `Numeric[Int]` `add` ⤳ `add^Meta(Numeric#Int…)` (transfer) — the ability-implementation callee keeps its
+    * `(ability, pattern)` key, so its transfer is that instance's and not a same-named sibling's
+    * (`docs/total-meta-transfers.md` §8.1). The channel recognises a refinement operation *only* by the presence of
+    * this companion — no leaf or branch construct is named.
     */
+  private[channel] def metaCompanionName(callee: ValueFQN): QualifiedName =
+    MetaTransferDesugarer.companionName(callee.name)
+
   private[channel] def metaCompanionFqn(callee: ValueFQN): ValueFQN =
-    ValueFQN(callee.moduleName, QualifiedName(callee.name.name, Qualifier.Meta))
+    ValueFQN(callee.moduleName, metaCompanionName(callee))
 
   private val unitModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "Unit")
 
@@ -413,12 +417,12 @@ object RefinementChannelProcessor {
   private[channel] val unitType: GroundValue =
     GroundValue.Structure(ValueFQN(unitModule, QualifiedName("Unit", Qualifier.Type)), Seq.empty, GroundValue.Type)
 
-  /** The name / FQN of a def's `^Where` companion (bounds-as-refinements §4.3): the def's own name suffixed with
-    * [[MetaWhereDesugarer.whereSuffix]], in the [[Qualifier.Meta]] namespace and the def's own module — exactly what
-    * [[MetaWhereDesugarer]] emits, so the channel finds the precondition companion `MetaWhereDesugarer` generated.
+  /** The name / FQN of a def's `^Where` companion (bounds-as-refinements §4.3), in the def's own module — named by the
+    * desugarer that emits it ([[MetaWhereDesugarer.companionName]]), so the channel finds the precondition companion
+    * `MetaWhereDesugarer` generated.
     */
   private[channel] def whereCompanionName(callee: ValueFQN): QualifiedName =
-    QualifiedName(callee.name.name + MetaWhereDesugarer.whereSuffix, Qualifier.Meta)
+    MetaWhereDesugarer.companionName(callee.name)
 
   private[channel] def whereCompanionFqn(callee: ValueFQN): ValueFQN =
     ValueFQN(callee.moduleName, whereCompanionName(callee))

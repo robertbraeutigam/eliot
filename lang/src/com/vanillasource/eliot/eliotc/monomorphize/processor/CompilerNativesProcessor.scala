@@ -147,7 +147,7 @@ class CompilerNativesProcessor extends BodyContributorProcessor(ContributedBindi
     * calls must be resolved through the compiler backend, not their raw bodies.
     */
   private def isRefinementArtifact(vfqn: ValueFQN): Boolean = vfqn.name.qualifier match {
-    case Qualifier.Meta                              => true
+    case _: Qualifier.Meta                           => true
     case Qualifier.AbilityImplementation(_, pattern) => pattern.contains(MetaConstructorDesugarer.metaTypeSuffix)
     case _                                           => false
   }

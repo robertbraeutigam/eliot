@@ -13,6 +13,9 @@ import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {
   private val T = Qualifier.Type
+  // The meta namespace of the plain (Default) namespace — where a plain def's `^Meta`/`^Where` companion
+  // lives. A companion keeps its callee's qualifier, so an ability implementation's is a different one.
+  private val M = Qualifier.Meta(Qualifier.Default)
 
   "core processor" should "transform a simple constant reference" in {
     namedValue("def a: A = b", QualifiedName("a", Qualifier.Default)).asserting { nv =>
@@ -505,12 +508,12 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   "transfer brace (bounds Step 4b)" should "generate a ^Meta transfer companion in the Meta namespace" in {
     namedValues("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}").asserting { nvs =>
-      nvs.map(_.qualifiedName.value) should contain(QualifiedName("f", Qualifier.Meta))
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("f", M))
     }
   }
 
   it should "type the transfer companion over the meta types (T$Meta suffix), with no lookup" in {
-    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a.bar}", QualifiedName("f", M)).asserting { nv =>
       nv.signature.value.structure shouldBe App(
         App(Ref("Function", T), Ref("Foo$Meta", T)),
         Ref("Foo$Meta", T)
@@ -519,31 +522,40 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "build the result via the meta value constructor" in {
-    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {a}", QualifiedName("f", M)).asserting { nv =>
       nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("Foo$Meta"), Ref("a"))))
     }
   }
 
   it should "not generate a transfer companion for a def without a brace" in {
     namedValues("def f(a: Foo): Foo").asserting { nvs =>
-      nvs.map(_.qualifiedName.value) should not contain QualifiedName("f", Qualifier.Meta)
+      nvs.map(_.qualifiedName.value) should not contain QualifiedName("f", M)
     }
   }
 
-  it should "generate a transfer companion for a brace on an implement method" in {
+  it should "generate an implement method's transfer companion in that implementation's own namespace" in {
+    val companion =
+      QualifiedName("add", Qualifier.Meta(Qualifier.AbilityImplementation("Num", "Foo")))
     namedValues("implement Num[Foo] { def add(a: Foo, b: Foo): Foo {a} }").asserting { nvs =>
-      nvs.map(_.qualifiedName.value) should contain(QualifiedName("add", Qualifier.Meta))
+      nvs.map(_.qualifiedName.value) should contain(companion)
     }
+  }
+
+  it should "keep an implementation's transfer companion apart from a same-named plain def's" in {
+    namedValues("implement Num[Foo] { def add(a: Foo, b: Foo): Foo {a} }\ndef add(a: Foo, b: Foo): Foo = a")
+      .asserting { nvs =>
+        nvs.map(_.qualifiedName.value) should not contain QualifiedName("add", M)
+      }
   }
 
   it should "keep a parameter the brace never mentions at its own type (a slotless type has no T$Meta)" in {
-    namedValue("type Foo {bar: D}\ndef f(h: Handle): Foo {g(0)}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+    namedValue("type Foo {bar: D}\ndef f(h: Handle): Foo {g(0)}", QualifiedName("f", M)).asserting { nv =>
       nv.signature.value.structure shouldBe App(App(Ref("Function", T), Ref("Handle", T)), Ref("Foo$Meta", T))
     }
   }
 
   it should "still retype a parameter the brace does mention" in {
-    namedValue("type Foo {bar: D}\ndef f(h: Handle, a: Foo): Foo {a.bar}", QualifiedName("f", Qualifier.Meta))
+    namedValue("type Foo {bar: D}\ndef f(h: Handle, a: Foo): Foo {a.bar}", QualifiedName("f", M))
       .asserting { nv =>
         nv.signature.value.structure shouldBe App(
           App(Ref("Function", T), Ref("Handle", T)),
@@ -553,19 +565,19 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "keep an integer literal in the brace a compile-time BigInteger" in {
-    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {g(0)}", QualifiedName("f", Qualifier.Meta)).asserting { nv =>
+    namedValue("type Foo {bar: D}\ndef f(a: Foo): Foo {g(0)}", QualifiedName("f", M)).asserting { nv =>
       nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("Foo$Meta"), App(Ref("g"), IntLit("0")))))
     }
   }
 
   "where clause (bounds Step 4c)" should "keep an integer literal in the predicate a compile-time BigInteger" in {
-    namedValue("def f(a: Foo): Foo where g(0)", QualifiedName("f$Where", Qualifier.Meta)).asserting { nv =>
+    namedValue("def f(a: Foo): Foo where g(0)", QualifiedName("f$Where", M)).asserting { nv =>
       nv.runtimeStructure shouldBe Some(Lambda("a", Empty, App(Ref("g"), IntLit("0"))))
     }
   }
 
   it should "keep a parameter the predicate never mentions at its own type" in {
-    namedValue("def f(h: Handle, a: Foo): Foo where g(a)", QualifiedName("f$Where", Qualifier.Meta)).asserting { nv =>
+    namedValue("def f(h: Handle, a: Foo): Foo where g(a)", QualifiedName("f$Where", M)).asserting { nv =>
       nv.signature.value.structure shouldBe App(
         App(Ref("Function", T), Ref("Handle", T)),
         App(App(Ref("Function", T), Ref("Foo$Meta", T)), QualRef("Bool", "eliot.lang.Bool"))

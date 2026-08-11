@@ -104,6 +104,22 @@ class MetaTransferAccountingProcessorTest extends ProcessorTest(LangProcessors()
     }
   }
 
+  "a bodied value" should "not be answered for by an ability implementation's brace on the same bare name" in {
+    // §8.1: a companion keeps its callee's qualifier, so the `Sum[Gauge]` implementation's brace is that
+    // implementation's transfer and not the plain `combine`'s — which derives, states nothing, and is accepted.
+    runGenerator(
+      prelude +
+        "ability Sum[T] { def combine(a: T, b: T): T }\n" +
+        "implement Sum[Gauge] { def combine(a: Gauge, b: Gauge): Gauge {level(a)} }\n" +
+        "def combine(a: Gauge, b: Gauge): Gauge = a",
+      accountingKey("combine"),
+      ambientStubsWith()
+    ).map { case (errors, facts) =>
+      errors.map(_.message).mkString("\n") should not include statedTransfer
+      facts.keySet should contain(accountingKey("combine"))
+    }
+  }
+
   "a body-less leaf whose return is a type parameter" should "be exempt even at a meta-carrying instantiation" in {
     runGenerator(prelude + "def forward[A](a: A): A", accountingKey("forward", Seq(gauge)), ambientStubsWith()).map {
       case (errors, facts) =>

@@ -70,13 +70,15 @@ class MetaTransferAccountingProcessor
       case Some(orv)                       => verifyStated(mv, orv)
     }
 
-  /** R3: a bodied value derives its transfer from its body and may not also state one. A value in the
+  /** R3: a bodied value derives its transfer from its body and may not also state one. A value in a
     * [[Qualifier.Meta]] namespace is itself a companion — a `^Meta` transfer or a `^Where` predicate — so it is not a
-    * value *carrying* a transfer and is exempt (its own name lookup would trivially find itself).
+    * value *carrying* a transfer and is exempt.
     */
   private def verifyNotStated(mv: MonomorphicValue): CompilerIO[Unit] =
-    if (mv.vfqn.name.qualifier === Qualifier.Meta) ().pure[CompilerIO]
-    else declaresTransfer(mv.vfqn).flatMap(states => reportStated(mv).whenA(states))
+    mv.vfqn.name.qualifier match {
+      case _: Qualifier.Meta => ().pure[CompilerIO]
+      case _                 => declaresTransfer(mv.vfqn).flatMap(states => reportStated(mv).whenA(states))
+    }
 
   /** R2: a body-less leaf whose declared return head is a concrete meta-carrying type must state its transfer, else it
     * is reported at the value. A type-parameter return head (a forwarded, non-originated meta) is exempt.
@@ -113,23 +115,21 @@ class MetaTransferAccountingProcessor
       )
     )
 
-  /** Whether this value declares a `^Meta` transfer — its own name in the [[Qualifier.Meta]] namespace of its module
-    * (the compiler pool), exactly what [[com.vanillasource.eliot.eliotc.core.processor.MetaTransferDesugarer]] emits
-    * from a `{ ... }` return brace (and what [[RefinementChannelProcessor.metaCompanionFqn]] reads). Keeping only
-    * `name.name` also matches an ability-impl leaf's stripped companion (`Numeric[Int]::add` ⤳ `add^Meta`).
+  /** Whether this value declares a `^Meta` transfer — its [[RefinementChannelProcessor.metaCompanionName]] in its
+    * module's compiler pool, exactly what
+    * [[com.vanillasource.eliot.eliotc.core.processor.MetaTransferDesugarer]] emits from a `{ ... }` return brace.
     *
     * The name is the transfer's *exactly*, so a `where` predicate's companion (`name$Where`, the same namespace) never
     * answers here — `where` is a stated contract, never derived, and R3 leaves it alone.
     *
-    * Reading the same (qualifier-stripped) name the channel reads is deliberate: R3 then flags exactly the situation in
-    * which the channel would prefer a companion to a bodied value's own code. It inherits that lookup's one flaw
-    * (docs/total-meta-transfers.md §8.1) — a bodied value colliding with an ability-impl leaf's stripped companion in
-    * the same module would be reported for a brace it does not carry. No such collision exists in the tree, and §8.1's
-    * naming fix repairs both readers at once.
+    * Reading the same name the channel reads is deliberate: R3 then flags exactly the situation in which the channel
+    * would prefer a companion to a bodied value's own code. Since the name keeps the value's own qualifier
+    * (docs/total-meta-transfers.md §8.1), a bodied `add` is no longer answered for by an ability-implementation
+    * sibling's brace in the same module — the one shape in which R3 reported a brace the value does not carry.
     */
   private def declaresTransfer(vfqn: ValueFQN): CompilerIO[Boolean] =
     getFactOrAbort(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(
-      _.names.contains(QualifiedName(vfqn.name.name, Qualifier.Meta))
+      _.names.contains(RefinementChannelProcessor.metaCompanionName(vfqn))
     )
 
   private def reportMissing(mv: MonomorphicValue, typeName: ValueFQN): CompilerIO[Unit] =

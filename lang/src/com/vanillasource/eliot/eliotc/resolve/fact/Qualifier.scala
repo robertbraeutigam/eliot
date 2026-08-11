@@ -6,9 +6,13 @@ import cats.kernel.Eq
 sealed trait Qualifier
 
 object Qualifier {
-  case object Default                                            extends Qualifier
-  case object Type                                               extends Qualifier
-  case object Meta                                               extends Qualifier
+  case object Default                                                 extends Qualifier
+  case object Type                                                    extends Qualifier
+
+  /** The meta namespace of another namespace — see [[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Meta]], of
+    * which this is the resolved twin.
+    */
+  case class Meta(of: Qualifier)                                      extends Qualifier
   case class Ability(name: String)                                    extends Qualifier
   case class AbilityImplementation(name: AbilityFQN, pattern: String) extends Qualifier
 
@@ -17,11 +21,12 @@ object Qualifier {
     */
   given Show[Qualifier] with {
     override def show(qualifier: Qualifier): String = qualifier match {
-      case Default                                => "Default"
-      case Type                                   => "Type"
-      case Meta                                   => "Meta"
-      case Ability(name)                          => name
-      case AbilityImplementation(name, pattern)   => s"${name.abilityName}#$pattern"
+      case Default                              => "Default"
+      case Type                                 => "Type"
+      case Meta(Default)                        => "Meta"
+      case Meta(of)                             => s"Meta(${show(of)})"
+      case Ability(name)                        => name
+      case AbilityImplementation(name, pattern) => s"${name.abilityName}#$pattern"
     }
   }
 

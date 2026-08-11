@@ -172,11 +172,11 @@ class CompilerMonomorphicTypeCheckProcessor()
     }
 
   /** Whether `callee` declares a `where` precondition — a cached [[UnifiedModuleNames]] membership test for its
-    * `^Where` companion ([[MetaWhereDesugarer.whereSuffix]] in the [[Qualifier.Meta]] namespace) in the compiler pool.
+    * `^Where` companion ([[MetaWhereDesugarer.companionName]]) in the compiler pool.
     */
   private def hasWhereCompanion(callee: ValueFQN): CompilerIO[Boolean] =
     getFactOrAbort(UnifiedModuleNames.Key(callee.moduleName, Platform.Compiler))
-      .map(_.names.contains(QualifiedName(callee.name.name + MetaWhereDesugarer.whereSuffix, Qualifier.Meta)))
+      .map(_.names.contains(MetaWhereDesugarer.companionName(callee.name)))
 
   /** Resolve an ability in the **compiler** pool: a compiler-track value is entirely compile-time, so all of its
     * ability references belong to the compiler platform.
