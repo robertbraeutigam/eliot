@@ -133,8 +133,10 @@ subset of its data.
       `check/CarrierKindChecker`, `check/GuardDischargeResolver` (W2b effectful-signature guard discharge —
       formerly `CalculatedReturnResolver`, whose calculated-return half was removed with the `auto`/implicit-generics
       feature), `check/AbilityResolver`.
-    - riders on `MonomorphicValue`: `channel/RefinementChannelProcessor` (Int ranges) and
-      `channel/EffectAccountingProcessor` (effects), both post-mono channels.
+    - riders on `MonomorphicValue`: `channel/RefinementChannelProcessor` (Int ranges),
+      `channel/EffectAccountingProcessor` (effects) — both post-mono channels — and
+      `channel/MetaTransferAccountingProcessor` (meta transfers: R2 a leaf must state, R3 nothing else may). The
+      last two are `WovenValue` codegen preconditions.
 14. **used** — collects used value names starting from a `main`
 15. **uncurry** — uncurries calls for the backend
 
@@ -236,7 +238,11 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   more leaves state — `Show[Int]::show` at `atLeast(1)` (the ceiling is a digit count, needing a logarithm no leaf
   offers), `Show[Path]::show` at `atLeast(0)`, and the nine jvm input/holder natives at the JVM's `String`/`int`
   representation limits — and `MetaTransferAccountingProcessor` is now a **codegen precondition** in
-  `WovenValueProcessor`, so a native producing a meta-carrying type and stating nothing no longer compiles. Two rules
+  `WovenValueProcessor`, so a native producing a meta-carrying type and stating nothing no longer compiles. **S6 armed
+  R3** (§P3), the same processor's other arm split on `MonomorphicValue.runtime`: a **bodied** value derives its meta
+  from its body and so may not also state one — read post-merge, so a brace in one layer over a body in another is the
+  same check. A brace therefore lives only on a native leaf, which means **a user module cannot author one at all**
+  (it declares no natives); a `where` is untouched, being a stated contract by design. Two rules
   it settled: a transfer lives in the layer that owns the **fact it states** (an operation's own bound in the base, a
   representation's in the platform layer), and a leaf's statement is **axiomatic** — nothing rechecks it — so a bound
   that is merely usually true (POSIX's `[0, 255]` for an exit code, which Windows breaks) is a bug, and the honest

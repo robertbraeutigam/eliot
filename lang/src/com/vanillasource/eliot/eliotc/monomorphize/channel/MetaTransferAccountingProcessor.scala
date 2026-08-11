@@ -11,16 +11,26 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-/** **R2 enforcement** (docs/total-meta-transfers.md §2/§3/§P2): every **body-less** value — a native leaf — that
-  * produces a meta-carrying type must **state** its meta transfer; a bodied value **derives** its transfer and states
-  * nothing (R3's "may not state" is a later slice). This closes the TODO *"A native that produces a meta-carrying type
-  * must state its meta-information"*: without it, a native returning e.g. `Int` (whose value range is meta-information)
-  * and carrying no `{ ... }` transfer brace silently defaults its meta to ⊤ rather than being forced to say what it does.
+/** **R2 + R3 enforcement** (docs/total-meta-transfers.md §2/§3/§P2/§P3) — the two halves of *"every named value has a
+  * meta transfer, and exactly one way of having it"*:
   *
-  * A rider on [[MonomorphicValue]] (runtime track), on the [[EffectAccountingProcessor]] template. The leaf test is
-  * exactly the body test the fact already carries — `mv.runtime.isEmpty` (no Eliot body on this track); a bodied value
-  * passes untouched. The return-meta test uses the value's **declared** (pre-monomorphization) return type
-  * ([[OperatorResolvedValue]]), so the origination is distinguished from the pass-through:
+  *   - **R2 — a leaf must state.** Every **body-less** value — a native leaf — that produces a meta-carrying type must
+  *     **state** its meta transfer. Without it, a native returning e.g. `Int` (whose value range is meta-information)
+  *     and carrying no `{ ... }` transfer brace silently defaults its meta to ⊤ rather than being forced to say what it
+  *     does. This closed the TODO *"A native that produces a meta-carrying type must state its meta-information"*.
+  *   - **R3 — nothing else may state.** A **bodied** value **derives** its transfer from that body, so a brace on it is
+  *     an error. Deriving is the meta-interpretation slice (§6.2/§P4) and does not exist yet, but the prohibition does
+  *     not wait for it: a brace on a bodied value is read by `RefinementChannelProcessor.metaViaCompanion` *instead of*
+  *     the body, so it is a stated summary silently overriding what the code actually does — the one shape in which the
+  *     channel can be wrong rather than merely imprecise.
+  *
+  * A rider on [[MonomorphicValue]] (runtime track), on the [[EffectAccountingProcessor]] template. The leaf test both
+  * rules split on is exactly the body test the fact already carries — `mv.runtime.isEmpty` (no Eliot body on this
+  * track), read *after* the layer merge, so §8.2's cross-layer case (the brace in one layer, the body in another) is
+  * the same check and needs no separate mechanism.
+  *
+  * R2's return-meta test uses the value's **declared** (pre-monomorphization) return type ([[OperatorResolvedValue]]),
+  * so the origination is distinguished from the pass-through:
   *
   *   - a **concrete return head** (`String::length : Int`) originates the meta — the leaf must state a `^Meta` transfer
   *     for it, or it is a compile error at the leaf;
@@ -28,11 +38,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   *     meta — it forwards whatever its argument/instantiation carries — so it is **exempt**. Deriving such a
   *     (higher-order) transfer is the meta-interpretation slice (§6.2/§P4), not this one.
   *
+  * R3 needs no such test: a brace is illegal on a bodied value whatever it returns.
+  *
   * The check is normatively **use-site, post-mono** (§4): whether a return's meta is `Unit` is a per-instantiation fact,
-  * so it rides each `MonomorphicValue`. The fact is produced only when the check passes; a violation aborts. Wiring that
-  * abort as a [[WovenValue]] `getFactOrAbort` precondition — so it blocks codegen, a silently-defaulted meta never
-  * reaching bytecode — is the arming step, deferred until the meta-carrying stdlib leaves state their transfers
-  * (docs/total-meta-transfers.md §P2). Until then the processor is registered but undemanded (dormant).
+  * so it rides each `MonomorphicValue`. The fact is produced only when both checks pass; a violation aborts, and that
+  * abort is a [[WovenValue]] `getFactOrAbort` precondition (S5's arming step), so a violating value blocks its own
+  * codegen — a silently-defaulted or silently-overridden meta never reaches bytecode.
   */
 class MetaTransferAccountingProcessor
     extends TransformationProcessor[MonomorphicValue.Key, MetaTransferAccounting.Key](key =>
@@ -44,32 +55,46 @@ class MetaTransferAccountingProcessor
       key: MetaTransferAccounting.Key,
       mv: MonomorphicValue
   ): CompilerIO[MetaTransferAccounting] =
-    verifyStated(mv).as(MetaTransferAccounting(key.vfqn, key.typeArguments))
+    verifyTransfer(mv).as(MetaTransferAccounting(key.vfqn, key.typeArguments))
 
-  /** R2 for one instance: a **bodied** value derives (nothing to state); a **body-less** leaf whose declared return head
-    * is a concrete meta-carrying type must declare a `^Meta` transfer, else it is reported at the value. A
-    * type-parameter return head (a forwarded, non-originated meta) is exempt.
+  /** The R2/R3 pair for one instance. Both rules judge a **declaration**, so both are keyed off the value's
+    * pre-monomorphization [[OperatorResolvedValue]]: an instance with none — a fact injected by a test harness, a value
+    * synthesized past the front end — declares nothing and so has nothing to state or over-state. Given one, the single
+    * test that separates the rules is the body: a **bodied** value derives, so it may not state (R3); a **body-less**
+    * leaf must state when its declared return head is a concrete meta-carrying type (R2).
     */
-  private def verifyStated(mv: MonomorphicValue): CompilerIO[Unit] =
-    if (mv.runtime.isDefined) ().pure[CompilerIO]
-    else
-      getFactIfProduced(OperatorResolvedValue.Key(mv.vfqn, Platform.Runtime)).flatMap {
-        case None      => ().pure[CompilerIO]
-        case Some(orv) =>
-          returnHead(OperatorResolvedExpression.SignatureView.of(orv.signature).returnType.value) match {
-            case OperatorResolvedExpression.ValueReference(typeName, _) =>
-              for {
-                metaCarrying   <- declaresMetaStructure(typeName.value)
-                statesTransfer <- declaresTransfer(mv.vfqn)
-                _              <- if (metaCarrying && !statesTransfer) reportMissing(mv, typeName.value)
-                                  else ().pure[CompilerIO]
-              } yield ()
-            case _                                                     =>
-              // A type-parameter (or literal) return head: the meta is forwarded from an argument/instantiation, not
-              // originated here — exempt, its (higher-order) transfer is the meta-interpretation slice (§P4).
-              ().pure[CompilerIO]
-          }
-      }
+  private def verifyTransfer(mv: MonomorphicValue): CompilerIO[Unit] =
+    getFactIfProduced(OperatorResolvedValue.Key(mv.vfqn, Platform.Runtime)).flatMap {
+      case None                            => ().pure[CompilerIO]
+      case Some(_) if mv.runtime.isDefined => verifyNotStated(mv)
+      case Some(orv)                       => verifyStated(mv, orv)
+    }
+
+  /** R3: a bodied value derives its transfer from its body and may not also state one. A value in the
+    * [[Qualifier.Meta]] namespace is itself a companion — a `^Meta` transfer or a `^Where` predicate — so it is not a
+    * value *carrying* a transfer and is exempt (its own name lookup would trivially find itself).
+    */
+  private def verifyNotStated(mv: MonomorphicValue): CompilerIO[Unit] =
+    if (mv.vfqn.name.qualifier === Qualifier.Meta) ().pure[CompilerIO]
+    else declaresTransfer(mv.vfqn).flatMap(states => reportStated(mv).whenA(states))
+
+  /** R2: a body-less leaf whose declared return head is a concrete meta-carrying type must state its transfer, else it
+    * is reported at the value. A type-parameter return head (a forwarded, non-originated meta) is exempt.
+    */
+  private def verifyStated(mv: MonomorphicValue, orv: OperatorResolvedValue): CompilerIO[Unit] =
+    returnHead(OperatorResolvedExpression.SignatureView.of(orv.signature).returnType.value) match {
+      case OperatorResolvedExpression.ValueReference(typeName, _) =>
+        for {
+          metaCarrying   <- declaresMetaStructure(typeName.value)
+          statesTransfer <- declaresTransfer(mv.vfqn)
+          _              <- if (metaCarrying && !statesTransfer) reportMissing(mv, typeName.value)
+                            else ().pure[CompilerIO]
+        } yield ()
+      case _                                                      =>
+        // A type-parameter (or literal) return head: the meta is forwarded from an argument/instantiation, not
+        // originated here — exempt, its (higher-order) transfer is the meta-interpretation slice (§P4).
+        ().pure[CompilerIO]
+    }
 
   /** The ultimate application head of a (return) type expression — `F[B]` ⤳ `F`, `Int` ⤳ `Int`. */
   private def returnHead(expr: OperatorResolvedExpression): OperatorResolvedExpression = expr match {
@@ -92,6 +117,15 @@ class MetaTransferAccountingProcessor
     * (the compiler pool), exactly what [[com.vanillasource.eliot.eliotc.core.processor.MetaTransferDesugarer]] emits
     * from a `{ ... }` return brace (and what [[RefinementChannelProcessor.metaCompanionFqn]] reads). Keeping only
     * `name.name` also matches an ability-impl leaf's stripped companion (`Numeric[Int]::add` ⤳ `add^Meta`).
+    *
+    * The name is the transfer's *exactly*, so a `where` predicate's companion (`name$Where`, the same namespace) never
+    * answers here — `where` is a stated contract, never derived, and R3 leaves it alone.
+    *
+    * Reading the same (qualifier-stripped) name the channel reads is deliberate: R3 then flags exactly the situation in
+    * which the channel would prefer a companion to a bodied value's own code. It inherits that lookup's one flaw
+    * (docs/total-meta-transfers.md §8.1) — a bodied value colliding with an ability-impl leaf's stripped companion in
+    * the same module would be reported for a brace it does not carry. No such collision exists in the tree, and §8.1's
+    * naming fix repairs both readers at once.
     */
   private def declaresTransfer(vfqn: ValueFQN): CompilerIO[Boolean] =
     getFactOrAbort(UnifiedModuleNames.Key(vfqn.moduleName, Platform.Compiler)).map(
@@ -103,6 +137,14 @@ class MetaTransferAccountingProcessor
       mv.name.as(
         s"This native value produces '${typeName.name.name}', which carries meta-information, but states no meta " +
           s"transfer; add a { ... } return brace saying what it does to the meta-information."
+      )
+    )
+
+  private def reportStated(mv: MonomorphicValue): CompilerIO[Unit] =
+    compilerAbort[Unit](
+      mv.name.as(
+        "This value has a body, so its meta-information is derived from that body, but it also states a meta " +
+          "transfer; remove the { ... } return brace, which only a native value may carry."
       )
     )
 }
