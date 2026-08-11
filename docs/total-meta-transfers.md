@@ -1,11 +1,12 @@
 # Total Meta Transfers — meta as a shadow logic
 
 Status: **R2 and R3 are armed and the interpretation's walk has landed.** **P1, P2, P3 are done** (S5, S6), **§8.1's
-naming fix is done** (S7), and **P4's walk is done** (S8, §P4 below): a value with a body no longer stops the channel —
-its meta is obtained by *interpreting that body* under the caller's argument metas, so the closure invariant of §2 is
-executed rather than merely enforced. What is left of P4 is §7's separation (the walk still drops every record inside a
-lambda, which is what makes a *parametered* def's own table empty) and the higher-order rows of §5, which additionally
-wait on the `List` size domain. Every
+naming fix is done** (S7), **P4's walk is done** (S8, §P4 below) and its one debt — the round-trip conversions the
+derived metas made common — **is repaid** (S9, the backend peephole in the same section). A value with a body no longer
+stops the channel: its meta is obtained by *interpreting that body* under the caller's argument metas, so the closure
+invariant of §2 is executed rather than merely enforced. What is left of P4 is §7's separation (the walk still drops
+every record inside a lambda, which is what makes a *parametered* def's own table empty) and the higher-order rows of
+§5, which additionally wait on the `List` size domain. Every
 native leaf in the tree that produces a meta-carrying type states its transfer, **nothing else states one**, and
 `monomorphize/channel/MetaTransferAccountingProcessor` is a **codegen precondition** in `WovenValueProcessor` —
 a leaf that states nothing no longer compiles, and neither does a bodied value that states one. With it the
@@ -628,7 +629,7 @@ what arming removes rather than something to state around.
 narrow meta on the call node while the method's return descriptor stayed the ⊤ bignum, and the class verifier
 rejected it (`VerifyError: 'java/math/BigInteger' is not assignable to 'java/lang/Byte'`). It had never fired
 because no leaf stated one; `String::length` — the first entry in the table below — fired it immediately. So S3
-(`ExpressionCodeGenerator.convertResultFromBoundary`, the mirror of `generateArgumentToBignum`) landed *with* that
+(`ExpressionCodeGenerator.convertResultFromBoundary`, the mirror of the argument edge's widening) landed *with* that
 first stated transfer, as this entry required, and `String::length` is off the list below. The arithmetic leaves were
 invisible to it and remain so: they are inline intrinsics, which already emit at the node's own width — the one shape
 the re-encode skips.
@@ -782,6 +783,56 @@ new in kind (a literal argument has round-tripped through its own stamped width 
 the first change to make it common. The fix is a backend peephole — a narrowing whose only consumer immediately widens
 need not be emitted — which is worth doing *before* the derived metas start being spent on anything, and which would
 shrink today's literal path too.
+
+**P4 follow-on — the round-trip peephole — DONE (S9), and it repaid more than S8 borrowed.** The paragraph above named
+the fix and this landed it, in the one place it belongs: the backend. The rule is a sentence — **a value is emitted at
+the width its consumer will read, and a consumer that adapts to any width reads it as it arrives** — and it replaces
+the assumption underneath the growth, which was that a width the channel *stamps* on a node is a width the backend must
+*materialise* there. It is not. The stamp is information; where it costs an instruction to realise and nothing to skip,
+it is skipped.
+
+Three edges, which are all of them:
+
+- **A boundary result meeting a ⊤ consumer** — a call argument, a constructor argument, an `apply` bridge argument, a
+  method return. A call boundary already hands its value back at the ⊤ width, so the re-encode down and the widening
+  back are one round trip; both halves go (`ExpressionCodeGenerator.createExpressionCodeAtBoundaryWidth`, threaded as
+  the consumer's demand rather than as a property of the expression). This is `Ranges`'s three trips.
+- **An intrinsic's operand** — `show`, the two comparisons, the arithmetic leaves. These *adapt*: `unboxToLong` and
+  `pushAsBigInteger` each take any integer width, so an operand arriving from a boundary is read as it arrives
+  (`createExpressionCodeUnconverted`, and `unconvertedRepOf` names what that leaves). The `fold` merge takes the same
+  rule for its arms.
+- **A constant**, which is materialised at whatever width is asked for, so it is pushed at the consumer's width
+  directly. This is the *oldest* of the three and predates the interpretation entirely — an argument literal has been
+  boxed narrow and widened again since the channel shipped.
+
+**The one thing that must not move with it**, and the trap this stage had to see: a compute-domain decision reads the
+**node** meta, never the arriving width. `viaBigInteger` asks whether an operand's *range* fits a primitive `long`;
+letting it read the arriving width instead would flip every boundary operand to `BigInteger` arithmetic, and the
+peephole would pessimize exactly what it set out to shrink. So the two questions that shared one variable are now
+`nodeRepOf` (what the channel knows) and `unconvertedRepOf` (how the value arrives), and only the second decides an
+unbox.
+
+**Measured, against S8 *and* against the build before it.** All 40 compiling examples print identical output and the
+whole suite is green. 27 of the 40 are byte-identical to S8's build; the 13 that moved *all* emit **fewer
+instructions** — 5919 against 6091 across them. Comparing to the pre-S8 build settles the debt rather than merely
+reducing it: each of S8's five is now *below* where it started, `Ranges` at 146 against 185 after S8 and 150 before it,
+`ArithmeticAbility` at 172 against 208 and 185. The other eight moved for the constant edge alone, which S8 never
+touched.
+
+Four classes grew a handful of *constant-pool* bytes while their code shrank, which is the honest reading of the one
+runtime change here: `pushIntegerConstant` now goes through `BigInteger.valueOf` for a constant that fits a `long`
+instead of parsing a decimal string, so a `long` pool entry replaces a `String` one. That path was not exotic — it is
+what every literal inside a *parametered* def took, since §7's record policy makes its meta ⊤ there.
+
+**What it leaves.** `convertResultFromBoundary` stays, and is now the *fallback* rather than the common path — with a
+probe in it, across the example corpus it never fires. It stays because `createExpressionCode`'s contract is still
+"at the node's stamped width" and its remaining callers (a lambda body, a `Bool` operand) are only non-integer by
+today's typing, not by construction. The narrow width is still genuinely materialised in two places — an intrinsic's
+own result (`boxFromLong(resultRep)`) and a `fold` merge — and those are unchanged. One consequence worth stating
+plainly, since S3's entry claims the opposite in passing: an *untruthful* stated transfer no longer truncates at the
+call boundary, because nothing narrows there; it truncates wherever the narrow width is next materialised, or not at
+all. That does not weaken R2, which was always axiomatic — nothing rechecks a leaf's statement — but it does mean the
+backend is no longer an accidental second opinion on one.
 
 **P5 — precision follow-ons.** Structural meta types (§2.3); `where` demanded with known argument metas at
 nested calls, which P4 makes possible for the first time.

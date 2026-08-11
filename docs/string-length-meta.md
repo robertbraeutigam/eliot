@@ -503,9 +503,10 @@ java.lang.VerifyError: Bad type on operand stack
 Diagnosis. Stating `{size(s)}` on `length` makes the channel pin `[5,5]` on the **call node**, so the backend picks
 that node's representation as `Byte` (`repInternalNameOf` reads the stamped meta). But `String::length` is emitted
 as a *generated native static method* whose return descriptor is the ⊤ `BigInteger`. The backend widens **arguments**
-to bignum at every ordinary call boundary (`generateArgumentToBignum`) but has no symmetric re-encode on a call's
-**result** edge — because until now no ordinary call node ever carried a narrow meta. `Numeric[Int]`'s `add` is
-invisible to this: it is an *inline intrinsic*, so the backend already controls the width it leaves on the stack.
+to bignum at every ordinary call boundary (`generateArgumentToBignum`, since S9
+`createExpressionCodeAtBoundaryWidth`) but has no symmetric re-encode on a call's **result** edge — because until now
+no ordinary call node ever carried a narrow meta. `Numeric[Int]`'s `add` is invisible to this: it is an *inline
+intrinsic*, so the backend already controls the width it leaves on the stack.
 
 This is precisely the hazard `total-meta-transfers.md` §7 warns about — "get that wrong and it arrives as a
 `ClassCastException`, not a type error" — reached from the other side: not a callee's interior, but a leaf whose
@@ -514,7 +515,7 @@ stated transfer outruns its emitted descriptor.
 Three ways to close it, in order of preference:
 
 1. **Re-encode on the result edge.** After invoking a generated native static method, convert from the method's
-   declared return representation to the node's stamped one — the mirror of `generateArgumentToBignum`, using the
+   declared return representation to the node's stamped one — the mirror of the argument edge's widening, using the
    conversion the backend already has. Small, local, and it makes *every* future stated transfer on a static-method
    leaf work.
 2. **Stamp nothing at a static-method call node** (only intrinsics, literals and merges narrow). Sound and trivial,
@@ -531,11 +532,13 @@ is the first thing anyone will write.
 
 - **Why every application, not just a static-method call.** The property that matters is not "who is the callee" but
   "what width is on the stack". Every call boundary hands an integer back at the ⊤ bignum — a generated native's
-  declared return descriptor, an ordinary Eliot method's return (widened there by `convertBodyToReturnBoundary`), or
+  declared return descriptor, an ordinary Eliot method's return (emitted at that width by the same function), or
   the `Function.apply` bridge's erased `Object` read at a concrete `Int`. So the re-encode is derived from the node's
-  own meta against that one boundary width, exactly as `generateArgumentToBignum` derives the widening from the
-  argument's own rep. Restricting it to static-method calls would leave the over-applied spine, the apply-bridge and
-  the two `match` calls as latent repeats of the same `VerifyError`, each waiting for its own first stated transfer.
+  own meta against that one boundary width, exactly as the argument edge derives its widening from the argument's own
+  rep (that edge was `generateArgumentToBignum`; since S9 it is `createExpressionCodeAtBoundaryWidth`, which emits at
+  the boundary width rather than converting to it). Restricting it to static-method calls would leave the over-applied
+  spine, the apply-bridge and the two `match` calls as latent repeats of the same `VerifyError`, each waiting for its
+  own first stated transfer.
 - **Why an intrinsic is excluded, and why that is not a special case.** `generateIntrinsic` already *emits* at the
   node's stamped width (`resultRep`) — it owns the machine operation, so there is no boundary between it and the node.
   Converting again would convert from a width the value does not have. This is the only exclusion, and it is the same
@@ -551,6 +554,20 @@ Verified end to end by `StatedTransferResultEdgeIntegrationTest`: the §4.4 prog
 instruction window right after `String.length` is exactly the narrowing; an eleven-code-point literal is *rejected* by
 the `Int` precondition (so the size is carried precisely, not merely widened into the domain); and a call with no
 stated transfer emits no conversion at all.
+
+> **Amended by the round-trip peephole (`total-meta-transfers.md` §P4, S9): the re-encode is now the fallback, not the
+> common path.** Nothing above is wrong — the gap is real and the conversion is still what closes it — but the second
+> bullet's framing ("the only exclusion") turned out to be one case of a rule rather than the rule. The property that
+> matters is not "who is the callee" and not even "what width is on the stack", but **what width the consumer reads**.
+> An intrinsic was excluded because it emits at the node's own width; a consumer that reads the ⊤ width (an argument
+> slot, a method return) is excluded for the mirror-image reason — converting down for it means converting straight
+> back — and an intrinsic's *operand* is excluded for a third, since an intrinsic adapts to any width it is handed.
+> With all three named, the re-encode fires only where a consumer genuinely demands the node's width, which no
+> consumer in today's tree does. So the `StatedTransferResultEdgeIntegrationTest` window right after `String.length`
+> is now empty by design (its case asserts the *absence*, with the rejecting case carrying the proof that the transfer
+> reached the channel), and the last bullet's "the narrowing is what the transfer asserts" is no longer literally
+> true at a call boundary: a lying transfer truncates wherever the narrow width is next materialised, or nowhere.
+> R2 is unaffected — a leaf's statement was always axiomatic — but the backend is no longer an accidental check on it.
 
 ---
 
