@@ -222,9 +222,14 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   (`Runtime::stringLiteral`'s brace, the string twin of `integerLiteral`'s), and `length` is the first leaf to **state**
   a transfer (`{size(s)}`), carrying a size into the `Int` domain. Stating one needed the backend's **result-edge
   re-encode** (S3, landed): a call boundary hands an integer back at the ⊤ bignum, so a node the transfer narrows is
-  converted right after the call — `ExpressionCodeGenerator.convertResultFromBoundary`, the mirror of
-  `generateArgumentToBignum` on the way in, applied to every non-intrinsic application (an intrinsic already emits at
-  the node's own width). **S4 stated the rest of `String.els`** — `combine` exactly, `substring`/`trim` bounded by their
+  converted right after the call — `ExpressionCodeGenerator.convertResultFromBoundary`. Since the **round-trip
+  peephole** (S9) that conversion is the *fallback*, not the common path: the backend's rule is **a value is emitted at
+  the width its consumer will read, and a consumer that adapts to any width reads it as it arrives**, so a boundary
+  result meeting a ⊤ slot (an argument, a method return — `createExpressionCodeAtBoundaryWidth`), an intrinsic's
+  operand (`createExpressionCodeUnconverted`, which an intrinsic then unboxes from `unconvertedRepOf`) and a constant
+  are all emitted with no conversion at all. The trap it had to see: a compute-domain decision (`viaBigInteger`) reads
+  the **node** meta (`nodeRepOf`), never the arriving width, or every boundary operand would flip to `BigInteger`
+  arithmetic. **S4 stated the rest of `String.els`** — `combine` exactly, `substring`/`trim` bounded by their
   subject, case conversion **tripling** its upper bound (`ß` ⤳ `SS`), `repeat`/`replace`/`indexOfInternal`, and
   `parseIntInternal` at the domain top `whole` since its honest bound is exponential in its argument's size. A brace
   **spells a number the compiler's way**: an endpoint is a `BigInteger`, a value-position literal is an `Int`, and

@@ -24,11 +24,62 @@ import org.objectweb.asm.{Label, MethodVisitor, Opcodes}
 
 object ExpressionCodeGenerator {
 
+  /** Emit an expression, leaving its value on the stack at the width the channel stamped on the node itself. */
   def createExpressionCode(
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       uncurriedExpression: ReconciledMonomorphicExpression
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    createExpressionCodeAt(
+      moduleName,
+      outerClassGenerator,
+      methodGenerator,
+      uncurriedExpression,
+      atBoundaryWidth = false
+    )
+
+  /** Emit an expression for a consumer that reads it at the **⊤/bignum boundary width** rather than at the node's
+    * own — a call argument, an `apply` bridge argument, a method return. The value is guaranteed to be left at that
+    * width.
+    *
+    * Every ordinary call / constructor / apply-bridge parameter and every method return is a bignum — a concrete
+    * `Int` descriptor, or a generic slot erased to `Object` but read back at a concrete `Int` — so a narrow integer
+    * must be a bignum on the heap or the reader's `CHECKCAST` fails. The backend derives this from the expression's
+    * own rep; there is no explicit reconcile node. An intrinsic's *operand* never comes here — an intrinsic adapts to
+    * whatever width its operand arrives at ([[createExpressionCodeUnconverted]]).
+    *
+    * This exists so a narrowing whose only consumer immediately widens is never emitted. A call boundary already hands
+    * its result back at the boundary width, and [[convertResultFromBoundary]] narrows it to the node's stamped meta;
+    * where the consumer is one of these, that narrowing and the widening behind it are a round trip computing the same
+    * number (`Ranges`'s `count() + count() + count()` was three `BigInteger` ⤳ `Byte` ⤳ `BigInteger` trips), so
+    * both halves are skipped. The one shape that still pays is an inline intrinsic, which genuinely emits at the
+    * node's own width — it is widened here, exactly as before.
+    */
+  def createExpressionCodeAtBoundaryWidth(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      uncurriedExpression: ReconciledMonomorphicExpression
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    createExpressionCodeAt(
+      moduleName,
+      outerClassGenerator,
+      methodGenerator,
+      uncurriedExpression,
+      atBoundaryWidth = true
+    )
+
+  /** The common emission. `atBoundaryWidth` is the *consumer's* demand, not a property of the expression: each arm
+    * either already leaves the boundary width on the stack (a call boundary, a parameter — whose meta is ⊤ — a
+    * non-integer) or converts to it here.
+    */
+  private def createExpressionCodeAt(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      uncurriedExpression: ReconciledMonomorphicExpression,
+      atBoundaryWidth: Boolean
   ): CompilationTypesIO[Seq[ClassFile]] =
     uncurriedExpression.expression match {
       case FunctionApplication(target, arguments)           =>
@@ -39,17 +90,23 @@ object ExpressionCodeGenerator {
           target.value,
           arguments.map(_.value),
           uncurriedExpression.expressionType,
-          uncurriedExpression.meta
+          uncurriedExpression.meta,
+          atBoundaryWidth
         )
       case IntegerLiteral(integerLiteral)                   =>
-        // The push width comes from the node's channel *meta*, not its `expressionType`: a literal is emitted at its own
-        // pinned range; the backend re-encodes it to the consumer's width (a ⊤ argument/return boundary, a branch merge)
-        // at the edge, derived from the ranges.
+        // A constant is materialised at whatever width is asked for, so it is pushed at the consumer's width directly:
+        // at the node's own pinned range in general, and at the ⊤/bignum boundary where that is what will be read.
+        // Pushing it narrow only to widen it back was the oldest round trip in the channel (`ldc 21L; l2i; i2b;
+        // Byte.valueOf; Byte.longValue; BigInteger.valueOf` for a literal argument), and it is a re-encode of a number
+        // the compiler is writing itself.
         methodGenerator
           .runNative[CompilationTypesIO](
             pushIntegerConstant(
               integerLiteral.value,
-              repInternalNameOf(uncurriedExpression.expressionType, uncurriedExpression.meta)
+              repInternalNameOf(
+                uncurriedExpression.expressionType,
+                if (atBoundaryWidth) None else uncurriedExpression.meta
+              )
             )
           )
           .as(Seq.empty)
@@ -71,7 +128,8 @@ object ExpressionCodeGenerator {
           uncurriedExpression,
           Seq.empty,
           uncurriedExpression.expressionType,
-          uncurriedExpression.meta
+          uncurriedExpression.meta,
+          atBoundaryWidth
         )
       case FunctionLiteral(parameters, body)                =>
         LambdaGenerator.generateLambda(
@@ -91,24 +149,33 @@ object ExpressionCodeGenerator {
       typedTarget: ReconciledMonomorphicExpression,
       arguments: Seq[ReconciledMonomorphicExpression],
       expectedResultType: GroundValue,
-      expectedResultMeta: Option[GroundValue]
+      expectedResultMeta: Option[GroundValue],
+      atBoundaryWidth: Boolean
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
       // A backend intrinsic is emitted inline *at this node's own stamped width*, so it has no boundary to re-encode.
       // It is the one such shape, and the only reason the two are told apart here rather than inside the emission.
       case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) if Intrinsics.isIntrinsic(sourcedCalledVfqn.value) =>
-        generateIntrinsic(
-          moduleName,
-          outerClassGenerator,
-          methodGenerator,
-          sourcedCalledVfqn,
-          typeArgs,
-          arguments,
-          expectedResultType,
-          expectedResultMeta
-        )
+        for {
+          classes <- generateIntrinsic(
+                       moduleName,
+                       outerClassGenerator,
+                       methodGenerator,
+                       sourcedCalledVfqn,
+                       typeArgs,
+                       arguments,
+                       expectedResultType,
+                       expectedResultMeta
+                     )
+          // Emitted at the node's own width, so a boundary-width consumer widens it — the one shape that still pays a
+          // conversion, since here the narrow value is what the intrinsic actually computes rather than a re-encode.
+          _       <- convertNodeToBoundary(methodGenerator, expectedResultType, expectedResultMeta)
+                       .whenA(atBoundaryWidth)
+        } yield classes
       case _                                                                                                         =>
-        // Every other application ends at a *call boundary*, which leaves the ⊤ width on the stack.
+        // Every other application ends at a *call boundary*, which leaves the ⊤ width on the stack. Re-encoding it to
+        // the node's stamped width is skipped outright when the consumer reads the boundary width anyway: the
+        // conversion pair would compute the same number (see [[createExpressionCodeAtBoundaryWidth]]).
         for {
           classes <- generateBoundaryApplication(
                        moduleName,
@@ -119,6 +186,7 @@ object ExpressionCodeGenerator {
                        expectedResultType
                      )
           _       <- convertResultFromBoundary(methodGenerator, expectedResultType, expectedResultMeta)
+                       .unlessA(atBoundaryWidth)
         } yield classes
     }
 
@@ -226,35 +294,78 @@ object ExpressionCodeGenerator {
         } yield targetClasses ++ argClasses
     }
 
-  /** Emit `arg` and, if it is a channel-narrowed integer, widen it to the ⊤/bignum parameter boundary. Every ordinary
-    * call / constructor / apply-bridge parameter is a bignum — a concrete `Int` descriptor, or a generic slot erased to
-    * `Object` but read back at a concrete `Int` — so a narrow integer argument must be a bignum on the heap or the
-    * reader's `CHECKCAST` fails. The backend derives this from the argument's own rep; there is no explicit reconcile
-    * node. A no-op for a non-integer argument or one already at bignum (an intrinsic's operand never comes here — it is
-    * consumed at its own width by `generateIntrinsic`).
+  /** Emit an expression for a consumer that reads it at **whatever width it comes out at** — an intrinsic's operand,
+    * a branch arm. Those consumers adapt to the value ([[unboxToLong]], [[pushAsBigInteger]] and
+    * [[convertRepresentation]] all take any integer width), so the value need not adapt to them: a result coming from a
+    * call boundary is left at the ⊤ width rather than re-encoded to the node's narrower one first, which would be a
+    * round trip the consumer immediately undoes. [[unconvertedRepOf]] names the width this leaves.
     */
-  private def generateArgumentToBignum(
+  private def createExpressionCodeUnconverted(
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      arg: ReconciledMonomorphicExpression
-  ): CompilationTypesIO[Seq[ClassFile]] = {
-    val argRep = repInternalNameOf(arg.expressionType, arg.meta)
-    for {
-      cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arg)
-      _  <- methodGenerator.runNative[CompilationTypesIO] { mv =>
-              if (isIntegerRep(argRep)) convertRepresentation(argRep, bigIntegerInternalName)(mv)
-            }
-    } yield cs
+      uncurriedExpression: ReconciledMonomorphicExpression
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    createExpressionCodeAt(
+      moduleName,
+      outerClassGenerator,
+      methodGenerator,
+      uncurriedExpression,
+      atBoundaryWidth = isCallBoundary(uncurriedExpression)
+    )
+
+  /** The representation [[createExpressionCodeUnconverted]] leaves on the stack for `expression`. */
+  private def unconvertedRepOf(expression: ReconciledMonomorphicExpression): String =
+    repInternalNameOf(expression.expressionType, if (isCallBoundary(expression)) None else expression.meta)
+
+  /** The representation the *channel* stamped on a node — what it knows about the value's range, as opposed to
+    * [[unconvertedRepOf]]'s "how it happens to arrive". This is what a compute-domain decision reads: whether an
+    * operand fits a primitive `long` is a property of its range, not of the box it came in.
+    */
+  private def nodeRepOf(expression: ReconciledMonomorphicExpression): String =
+    repInternalNameOf(expression.expressionType, expression.meta)
+
+  /** Does this expression's value arrive from a **call boundary** — a direct call, an `apply` bridge, a `match` or
+    * `typeMatch` dispatch — rather than being materialised inline? Such a value is handed back at the ⊤/bignum
+    * width whatever the channel stamped on the node (see [[convertResultFromBoundary]]). Everything else — a literal,
+    * an inline intrinsic — is materialised at the node's own width. Mirrors the dispatch of
+    * [[generateFunctionApplication]], which is the one place that decides which of the two an application is.
+    */
+  private def isCallBoundary(expression: ReconciledMonomorphicExpression): Boolean =
+    expression.expression match {
+      case FunctionApplication(target, _)  => !isIntrinsicApplication(target.value)
+      case MonomorphicValueReference(_, _) => !isIntrinsicApplication(expression)
+      case _                               => false
+    }
+
+  private def isIntrinsicApplication(target: ReconciledMonomorphicExpression): Boolean =
+    target.expression match {
+      case MonomorphicValueReference(vfqn, _) => Intrinsics.isIntrinsic(vfqn.value)
+      case _                                  => false
+    }
+
+  /** Widen a value emitted at its node's stamped width to the ⊤/bignum boundary width — the inverse of
+    * [[convertResultFromBoundary]]. A no-op for a non-integer value, and for a node already at the boundary width.
+    */
+  private def convertNodeToBoundary(
+      methodGenerator: MethodGenerator,
+      nodeType: GroundValue,
+      nodeMeta: Option[GroundValue]
+  ): CompilationTypesIO[Unit] = {
+    val nodeRep     = repInternalNameOf(nodeType, nodeMeta)
+    val boundaryRep = repInternalNameOf(nodeType, None)
+    methodGenerator.runNative[CompilationTypesIO] { mv =>
+      if (isIntegerRep(nodeRep) && isIntegerRep(boundaryRep)) convertRepresentation(nodeRep, boundaryRep)(mv)
+    }
   }
 
   /** Re-encode a call's *result* edge: convert the value a call boundary leaves on the stack to the width the channel
-    * stamped on the call node. The mirror of [[generateArgumentToBignum]] on the way in, and the result-side twin of
-    * [[convertBodyToReturnBoundary]] on the callee's side.
+    * stamped on the call node. The mirror of [[convertNodeToBoundary]], which is what an argument or a method
+    * return — the callee's own side of the same edge — converts with.
     *
     * Every call boundary hands back an integer at the ⊤/bignum layout — a generated native's declared return
-    * descriptor, an Eliot method's return (widened there by [[convertBodyToReturnBoundary]]), or the `Function.apply`
-    * bridge's erased `Object` read at a concrete `Int`. When a *stated meta transfer* pins a narrower range on the call
+    * descriptor, an Eliot method's return (emitted at that width by [[createExpressionCodeAtBoundaryWidth]]), or the
+    * `Function.apply` bridge's erased `Object` read at a concrete `Int`. When a *stated meta transfer* pins a narrower range on the call
     * node (`def length(s: String): Int {size(s)}` ⤳ `[5,5]` at `length("hello")`), the node's consumers — an argument
     * widening, a branch merge, a `CHECKCAST` — read that narrow width off the node, so without this conversion the
     * bignum on the stack meets a `java.lang.Byte` operand and the class verifier rejects the method
@@ -293,7 +404,12 @@ object ExpressionCodeGenerator {
                    for {
                      // The `apply` bridge takes `Object`, but the value is read back at a concrete `Int`, so a narrow
                      // integer argument is widened to bignum here.
-                     cs <- generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
+                     cs <- createExpressionCodeAtBoundaryWidth(
+                             moduleName,
+                             outerClassGenerator,
+                             methodGenerator,
+                             expression
+                           )
                      _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
                      _  <- methodGenerator
                              .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
@@ -328,7 +444,7 @@ object ExpressionCodeGenerator {
                                 "L" + singletonInternalName + ";"
                               )
       classes              <- arguments.flatTraverse(expression =>
-                                generateArgumentToBignum(
+                                createExpressionCodeAtBoundaryWidth(
                                   moduleName,
                                   outerClassGenerator,
                                   methodGenerator,
@@ -373,9 +489,9 @@ object ExpressionCodeGenerator {
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val calledVfqn = sourcedCalledVfqn.value
     if (Intrinsics.showIntShow(calledVfqn)) {
-      val operandRep = repInternalNameOf(arguments.head.expressionType, arguments.head.meta)
+      val operandRep = unconvertedRepOf(arguments.head)
       for {
-        classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)
+        classes <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments.head)
         _       <- methodGenerator.runNative[CompilationTypesIO] { mv =>
                      // A `BigInteger` operand renders at full precision via `BigInteger.toString`; any narrower wrapper
                      // is unboxed to `long` and rendered via `Long.toString`. Since the bounds-as-refinements flip
@@ -409,18 +525,19 @@ object ExpressionCodeGenerator {
       // (`LCMP`) when both operands fit it, else via `BigInteger.compareTo`; either way branch the comparison outcome
       // into a boxed `Boolean`. Both leaves reduce to the same three-way comparison and differ only in which outcomes
       // count as `true` — `<= 0` for the ordering, `== 0` for the equality — so they share one emission.
-      val leftRep       = repInternalNameOf(arguments(0).expressionType, arguments(0).meta)
-      val rightRep      = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)
-      val viaBigInteger = leftRep === bigIntegerInternalName || rightRep === bigIntegerInternalName
+      val leftRep       = unconvertedRepOf(arguments(0))
+      val rightRep      = unconvertedRepOf(arguments(1))
+      val viaBigInteger =
+        nodeRepOf(arguments(0)) === bigIntegerInternalName || nodeRepOf(arguments(1)) === bigIntegerInternalName
       val trueJump      = if (Intrinsics.eqIntEquality(calledVfqn)) Opcodes.IFEQ else Opcodes.IFLE
       val trueLabel     = new Label()
       val endLabel      = new Label()
       for {
-        classes1 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
+        classes1 <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(0))
         _        <- methodGenerator.runNative[CompilationTypesIO](
                       if (viaBigInteger) pushAsBigInteger(leftRep) else unboxToLong(leftRep)
                     )
-        classes2 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
+        classes2 <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(1))
         _        <- methodGenerator.runNative[CompilationTypesIO](
                       if (viaBigInteger) pushAsBigInteger(rightRep) else unboxToLong(rightRep)
                     )
@@ -444,19 +561,21 @@ object ExpressionCodeGenerator {
       } yield classes1 ++ classes2
     } else {
       val resultRep     = repInternalNameOf(expectedResultType, expectedResultMeta)
-      val leftRep       = repInternalNameOf(arguments(0).expressionType, arguments(0).meta)
-      val rightRep      = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)
+      val leftRep       = unconvertedRepOf(arguments(0))
+      val rightRep      = unconvertedRepOf(arguments(1))
       // `Long`-range operands and results compute in primitive `long`; anything that touches `BigInteger` (a
       // `BigInteger` operand, or a result that overflowed `Long` — e.g. a `Long`×`Long` product) computes in
-      // `BigInteger` so no value is truncated through a `long` round-trip.
-      val viaBigInteger =
-        resultRep === bigIntegerInternalName || leftRep === bigIntegerInternalName || rightRep === bigIntegerInternalName
+      // `BigInteger` so no value is truncated through a `long` round-trip. Decided on the *node* reps, never on how an
+      // operand arrives: a call boundary hands back a bignum whatever the range it carries, and unboxing that to `long`
+      // is exact precisely when the range says it fits.
+      val viaBigInteger = resultRep === bigIntegerInternalName ||
+        nodeRepOf(arguments(0)) === bigIntegerInternalName || nodeRepOf(arguments(1)) === bigIntegerInternalName
       for {
-        classes1 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
+        classes1 <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(0))
         _        <- methodGenerator.runNative[CompilationTypesIO](
                       if (viaBigInteger) pushAsBigInteger(leftRep) else unboxToLong(leftRep)
                     )
-        classes2 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
+        classes2 <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(1))
         _        <- methodGenerator.runNative[CompilationTypesIO](
                       if (viaBigInteger) pushAsBigInteger(rightRep) else unboxToLong(rightRep)
                     )
@@ -526,21 +645,21 @@ object ExpressionCodeGenerator {
       // from the arm's own rep and the merge rep — a non-op for a non-integer arm (both leave their shared type). The
       // channel provides no explicit arm edges; the backend owns the merge because it already emits `fold` inline.
       val mergeRep  = repInternalNameOf(expectedResultType, expectedResultMeta)
-      val trueRep   = repInternalNameOf(arguments(1).expressionType, arguments(1).meta)
-      val falseRep  = repInternalNameOf(arguments(2).expressionType, arguments(2).meta)
+      val trueRep   = unconvertedRepOf(arguments(1))
+      val falseRep  = unconvertedRepOf(arguments(2))
       for {
         condClasses  <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
                           unboxBool(mv)
                           mv.visitJumpInsn(Opcodes.IFEQ, elseLabel)
                         }
-        trueClasses  <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
+        trueClasses  <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(1))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
                           if (isIntegerRep(trueRep) && isIntegerRep(mergeRep)) convertRepresentation(trueRep, mergeRep)(mv)
                           mv.visitJumpInsn(Opcodes.GOTO, endLabel)
                           mv.visitLabel(elseLabel)
                         }
-        falseClasses <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(2))
+        falseClasses <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(2))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
                           if (isIntegerRep(falseRep) && isIntegerRep(mergeRep)) convertRepresentation(falseRep, mergeRep)(mv)
                           mv.visitLabel(endLabel)
@@ -591,23 +710,6 @@ object ExpressionCodeGenerator {
   }
 
   private val bigIntegerInternalName = "java/math/BigInteger"
-
-  /** Widen the just-emitted method body value on the stack to the method's return boundary — the ⊤/bignum descriptor
-    * for an integer return — when the channel narrowed the body below it. Called after emitting the body, before the
-    * method's `ARETURN`. Derived from the body's own rep and the declared return type; there is no reconcile node. A
-    * no-op for a non-integer (e.g. lambda-valued or `String`) body, or one already at the boundary width.
-    */
-  def convertBodyToReturnBoundary(
-      methodGenerator: MethodGenerator,
-      body: ReconciledMonomorphicExpression,
-      returnType: GroundValue
-  ): CompilationTypesIO[Unit] = {
-    val bodyRep   = repInternalNameOf(body.expressionType, body.meta)
-    val returnRep = repInternalNameOf(returnType, None)
-    methodGenerator.runNative[CompilationTypesIO] { mv =>
-      if (isIntegerRep(bodyRep) && isIntegerRep(returnRep)) convertRepresentation(bodyRep, returnRep)(mv)
-    }
-  }
 
   /** The machine-representation internal name of a *reconciled node* — the width the JVM backend lays the value out at.
     * For an integer-typed node (the tracked `Int`, or a lowered `Jvm*`) the width is decoded from the node's refinement
@@ -665,12 +767,14 @@ object ExpressionCodeGenerator {
   private def unboxToLong(repInternalName: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
     mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, repInternalName, "longValue", "()J", false)
 
-  /** Push an integer constant boxed at the given machine representation. A `BigInteger` representation is built at full
-    * precision via `new BigInteger(decimalString)`, so a materialised constant whose value exceeds `Long` range is not
-    * truncated; every narrower wrapper goes through a `long` constant and [[boxFromLong]].
+  /** Push an integer constant boxed at the given machine representation. A `BigInteger` representation goes through
+    * [[boxFromLong]]'s `BigInteger.valueOf` where the constant fits a `long` — which is every constant a program
+    * actually writes — and is built at full precision via `new BigInteger(decimalString)` only where it does not,
+    * so a materialised constant beyond `Long` range is never truncated. Every narrower wrapper goes through a `long`
+    * constant and [[boxFromLong]].
     */
   private def pushIntegerConstant(value: BigInt, repInternalName: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
-    if (repInternalName === bigIntegerInternalName) {
+    if (repInternalName === bigIntegerInternalName && !value.isValidLong) {
       mv.visitTypeInsn(Opcodes.NEW, bigIntegerInternalName)
       mv.visitInsn(Opcodes.DUP)
       mv.visitLdcInsn(value.toString)
@@ -764,7 +868,12 @@ object ExpressionCodeGenerator {
                                         // reconcile node).
                                         classes       <-
                                           directArgs.flatTraverse { expression =>
-                                            generateArgumentToBignum(moduleName, outerClassGenerator, methodGenerator, expression)
+                                            createExpressionCodeAtBoundaryWidth(
+                                              moduleName,
+                                              outerClassGenerator,
+                                              methodGenerator,
+                                              expression
+                                            )
                                           }
                                         _             <- methodGenerator.addCallTo[CompilationTypesIO](
                                                            calledVfqn,
@@ -826,7 +935,7 @@ object ExpressionCodeGenerator {
                              for {
                                // Each integer argument crosses a ⊤/bignum parameter boundary, so it is widened to bignum.
                                classes <- arguments.flatTraverse { expression =>
-                                            generateArgumentToBignum(
+                                            createExpressionCodeAtBoundaryWidth(
                                               moduleName,
                                               outerClassGenerator,
                                               methodGenerator,

@@ -16,7 +16,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemAnyValue, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.DataClassGenerator.isConstructor
-import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGenerator.{convertBodyToReturnBoundary, createExpressionCode, patternMatchSingletonName}
+import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGenerator.{createExpressionCodeAtBoundaryWidth, patternMatchSingletonName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
@@ -380,16 +380,16 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
               val bodyExpression = body.value
               val program        = for {
               _       <- uncurriedValue.parameters.traverse_(addParameterDefinition)
+              // The method's return descriptor is the ⊤/bignum boundary, so the body is emitted at that width rather
+              // than at whatever the channel narrowed it to — derived from the ranges, replacing the reconcile pass's
+              // explicit return re-encode node.
               classes <-
-                createExpressionCode(
+                createExpressionCodeAtBoundaryWidth(
                   uncurriedValue.vfqn.moduleName,
                   classGenerator,
                   methodGenerator,
                   bodyExpression
                 )
-              // The body value on the stack is widened to the method's ⊤/bignum return boundary if the channel narrowed
-              // it below — derived from the ranges, replacing the reconcile pass's explicit return re-encode node.
-              _       <- convertBodyToReturnBoundary(methodGenerator, bodyExpression, uncurriedValue.returnType)
               _       <-
                 debug[CompilationTypesIO](
                   s"From function ${uncurriedValue.vfqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
