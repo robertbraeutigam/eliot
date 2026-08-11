@@ -44,13 +44,20 @@ private def parentInternal(p: Path): Path
 
 /**
  * `p.getFileName().toString()`, `null` if absent. Implemented by the backend.
+ *
+ * The stated size is the JVM's `String` ceiling (see `readLineInternal` in `eliot.effect.Console`). A file name is far
+ * shorter than that in practice, but the shorter bound is the *filesystem's*, not the JVM's, and `java.nio.file` does
+ * not expose it — so the honest platform statement is the representation's.
  */
-private def fileNameInternal(p: Path): String
+private def fileNameInternal(p: Path): String {closed(0, 2147483647)}
 
 /**
  * The extension of `p`'s file name (after the last `.`, without the dot), `null` if none. Implemented by the backend.
+ *
+ * The stated size is the JVM's `String` ceiling, for the same reason as `fileNameInternal` above: an extension is
+ * bounded by the file name it is taken from, but that name's own bound is the filesystem's rather than the platform's.
  */
-private def extensionInternal(p: Path): String
+private def extensionInternal(p: Path): String {closed(0, 2147483647)}
 
 /**
  * `p.isAbsolute()`. Implemented by the backend.

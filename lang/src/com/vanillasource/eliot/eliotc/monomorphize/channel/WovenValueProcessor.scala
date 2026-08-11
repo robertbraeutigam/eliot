@@ -45,6 +45,12 @@ class WovenValueProcessor()
       // reaches bytecode. Accounting verifies unconditionally (U4-c-2); for a valid program it always resolves and the
       // woven output is byte-identical.
       _ <- getFactOrAbort(EffectAccounting.Key(mv.vfqn, mv.typeArguments))
+      // Meta-transfer accounting (R2) as the same kind of codegen precondition (docs/total-meta-transfers.md §P2): a
+      // native leaf producing a meta-carrying type without stating what it does to the meta-information fails
+      // accounting, whose abort here blocks its `WovenValue` and so its codegen. Without it such a leaf silently
+      // defaults its meta to ⊤, which is indistinguishable downstream from "nobody has computed this yet" — the
+      // channel's one remaining source of untotality.
+      _ <- getFactOrAbort(MetaTransferAccounting.Key(mv.vfqn, mv.typeArguments))
       _ <- assertNoIdResidue(mv, erasedSig, normalized)
     } yield WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized)
   }

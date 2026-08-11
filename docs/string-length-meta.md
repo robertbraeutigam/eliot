@@ -1,12 +1,13 @@
 # A length meta for `String` — the refinement channel's second domain
 
-Status: **shipped through S4 — every `String` leaf with an honest bound now states one.** S0 (code-point indices),
-**S1** (the `size` slot), **S2** (the literal seed, plus the LSP gate), **S3** (the backend result-edge re-encode,
-landed with `length`'s `{size(s)}` — the first *stated* transfer in the tree) and **S4** (the rest of `String.els`)
-have all landed; a `where` precondition over a string's size is checked at every use site today, a literal's size
-reaches the `Int` domain through `length`, and a size now survives concatenation, slicing, trimming, case
-conversion, repetition and replacement rather than stopping at the first call. What remains is **S5** — deciding what
-an unstatable leaf says and arming R2 — see §10.
+Status: **shipped, S0 through S5 — the domain is complete and R2 is armed.** S0 (code-point indices), **S1** (the
+`size` slot), **S2** (the literal seed, plus the LSP gate), **S3** (the backend result-edge re-encode, landed with
+`length`'s `{size(s)}` — the first *stated* transfer in the tree), **S4** (the rest of `String.els`) and **S5** (the
+platform leaves, and arming R2) have all landed; a `where` precondition over a string's size is checked at every use
+site today, a literal's size reaches the `Int` domain through `length`, a size survives concatenation, slicing,
+trimming, case conversion, repetition and replacement rather than stopping at the first call, and a native that
+produces a `String` or an `Int` and says nothing about its meta no longer compiles. What is left is out of this
+document's scope by design: `List`/`Array` size and the meta interpretation (§12).
 
 The domain cost **one** compiler arm (§3.1) and one Eliot declaration beside it. Everything else — the meta structure,
 the derived `Meta` lattice, the `^Where` demand, the transfer name transform — was the shipped machinery, reached by
@@ -14,11 +15,11 @@ declaring a slot on a second type. That is the claim §1 made for going second w
 held.
 
 All of §11's decisions are now **settled**. The unit is the **code-point count** (§5.1), which added a prerequisite
-stage S0 (the index family switched units with `length`) and rules out a byte-size slot (§5.2) and any second slot
-before S5 (§5.3). The **⊤ question is gone** — the range domain grew a top (`whole`,
+stage S0 (the index family switched units with `length`) and rules out a byte-size slot (§5.2) and deferred any second slot
+until S5 (§5.3, now landed). The **⊤ question is gone** — the range domain grew a top (`whole`,
 `total-meta-transfers.md` §5), which this domain inherits for free and, per the §7 correction, does not actually need:
 a `String` size is bounded by a representation like anything else. The slot is named **`size`** (§3.2), the scope
-landed was **S1+S2** (§11.4), and R2 stayed **dormant** across it (§11.5).
+landed first was **S1+S2** (§11.4), and R2 stayed **dormant** across it (§11.5) until S5 armed it.
 
 Prior art, and the two documents this one sits between:
 
@@ -669,9 +670,22 @@ Each stage compiles and passes the example sweep on its own.
   One thing the sweep caught that is worth repeating: **clear `target/` between the two halves of a byte-identity
   compare.** The accumulating fact cache is keyed by content but had kept a stale `^Meta` companion across the change,
   which hid a brace that did not evaluate at all until the cache was dropped.
-- **S5 — decide ⊤** (open `Interval` endpoints or a stated platform max), then arm R2 (§7). This is where the
-  original TODO — *"a native that produces a meta-carrying type must state its meta-information"* — actually closes,
-  for both domains at once. It is also the gate on **any second slot** in any domain (§5.3).
+- **S5 — ⊤ decided, R2 armed — LANDED.** The answer to "what does a leaf say when its honest bound cannot be
+  written down" turned out to need *both* shapes the stage offered, chosen per leaf rather than once: an **open
+  endpoint** where one side is honest and the other is not (`Show[Int]::show`'s `atLeast(1)` — every integer renders
+  as at least one code point, and the ceiling needs a logarithm), and a **stated platform max** where the bound is a
+  representation fact (`closed(0, 2147483647)` on the JVM's eight input/holder natives). Eleven leaves stated in
+  all; the full list and each one's reasoning is `docs/total-meta-transfers.md` §P2. R2 is now a codegen
+  precondition in `WovenValueProcessor`, so this is where the original TODO — *"a native that produces a
+  meta-carrying type must state its meta-information"* — actually closed, for both domains at once. It is also what
+  un-gates **any second slot** in any domain (§5.3).
+
+  One piece of machinery had to be fixed to get there, and it is worth knowing before writing the next brace: a
+  brace could not be stated on a def with an **untracked parameter** at all. The `^Meta` companion retypes each
+  parameter `T` to `T$Meta`, which exists only for a slotted type, and every brace written until S5 happened to
+  have only `Int`/`String` parameters — so `outcomeExitCode(outcome: ProcessOutcome)` failed with "Name not
+  defined." at its own parameter. A parameter the brace never mentions now keeps its own type
+  (`core/processor/MetaCompanionReferences`); `where` predicates had the identical defect and take the same rule.
 
 `List`/`Array` size (structural meta) and the meta interpretation (P4) stay out; S1–S4 is a complete, useful feature
 without either.
@@ -703,11 +717,14 @@ All settled; kept as the record of what was chosen and why.
    stated top is strictly better. `pow` remains worth having for the tight cases (`"42"` ⤳ `[-99, 99]`), as decision
    8 there says, and is a prerequisite for nothing.
 
-**The next stage is S5** — decide what a leaf says when its honest bound cannot be written down, then arm R2 (§7).
-S4 has narrowed that question considerably: it is no longer "will the leaves have bounds" but a short, well-understood
-residue — the platform input leaves (whose bounds are ordinary platform data, contributed beside their natives), and
-the two leaves whose bound exists but is inexpressible (`Show[Int]::show`'s digit count, `parseIntInternal`'s
-exponent). One of those already answers with `whole`, which is the shape of the answer for the others.
+8. ~~**What does a leaf say when its honest bound cannot be written down?**~~ — **decided per leaf, and shipped
+   (S5)**: an open endpoint when one side is honest (`atLeast(1)`), the domain top when neither is
+   (`parseIntInternal`'s `whole`), and the platform's representation limit when the bound is a representation fact.
+   The question S4 left was never "will the leaves have bounds" but what shape the answer takes, and the answer is
+   that the domain already had all three shapes — no new machinery, only the desugarer fix above.
+
+**S1–S5 are done.** What this document leaves open is what it always meant to: `List`/`Array` size (structural
+meta) and the meta interpretation, both in §12.
 
 ---
 
@@ -720,6 +737,7 @@ exponent). One of those already answers with `whole`, which is the shape of the 
 - A **byte-size slot** (§5.2). Byte count is a backend derivation from `size` plus the target's encoding, exactly as
   an `Int`'s machine width is derived from its `range` rather than carried beside it. The base layer names neither.
 - An **encoding-claim slot** (`ascii ⊑ latin1 ⊑ unicode`, §5.3) — the second slot most likely to earn itself, and the
-  first non-`Interval` domain, but gated on S5 like any second slot.
+  first non-`Interval` domain. It was gated on S5 like any second slot; with S5 landed that gate is open, and it is
+  now an ordinary next candidate rather than a blocked one.
 - Changing what `length` counts is **no longer a non-goal**: §5.1 decides it, and S0 makes it a prerequisite of this
   feature rather than something it must work around.

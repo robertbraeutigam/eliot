@@ -68,23 +68,36 @@ private def runInheritingIoInternal(command: List[String], workingDirectory: Pat
 
 /**
  * The error-message slot of an outcome holder (`null` when the process ran). Implemented by the backend.
+ *
+ * The stated size is the JVM's `String` ceiling (see `readLineInternal` in `eliot.effect.Console`).
  */
-private def outcomeErrorMessage(outcome: ProcessOutcome): String
+private def outcomeErrorMessage(outcome: ProcessOutcome): String {closed(0, 2147483647)}
 
 /**
  * The exit-code slot of an outcome holder. Implemented by the backend.
+ *
+ * The stated range is the full 32-bit signed range, because that is what `java.lang.Process.exitValue()` returns and
+ * nothing narrower is true of it on every JVM: the POSIX `0 .. 255` holds where the operating system truncates the
+ * status to a byte, and Windows hands back an arbitrary `int` (`0xC0000005` for an access violation). A leaf's stated
+ * transfer is axiomatic — nothing rechecks it — so a bound that is merely usually right would silently poison every
+ * `where` downstream of an exit code. The wide statement is the honest one.
  */
-private def outcomeExitCode(outcome: ProcessOutcome): Int
+private def outcomeExitCode(outcome: ProcessOutcome): Int {closed(0 - 2147483648, 2147483647)}
 
 /**
  * The captured standard output of an outcome holder. Implemented by the backend.
+ *
+ * The stated size is the JVM's `String` ceiling (see `readLineInternal` in `eliot.effect.Console`): a child process
+ * writes as much as it likes, so the representation's limit is the only true bound.
  */
-private def outcomeStandardOutput(outcome: ProcessOutcome): String
+private def outcomeStandardOutput(outcome: ProcessOutcome): String {closed(0, 2147483647)}
 
 /**
  * The captured standard error of an outcome holder. Implemented by the backend.
+ *
+ * The stated size is the JVM's `String` ceiling, as `outcomeStandardOutput` above.
  */
-private def outcomeStandardError(outcome: ProcessOutcome): String
+private def outcomeStandardError(outcome: ProcessOutcome): String {closed(0, 2147483647)}
 
 /**
  * `true` when `x` is the null reference — lets `raiseError` branch on the holder's slots in ordinary Eliot. Implemented

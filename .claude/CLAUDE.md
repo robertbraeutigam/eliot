@@ -232,7 +232,17 @@ contain `data` (a chosen representation), a native leaf, or any representation-d
   negative one is an ordinary subtraction the compile-time `Numeric[BigInteger]` reduces (`Bounded(0 - 1)`); S4's
   type-position workaround `boundedAt[V]` is deleted. An *ordinary def body* is still runtime-track, so a helper
   called from a brace cannot name a `BigInteger` constant in value position — which is why `rangeWithin[Lo, Hi]`
-  takes its bounds as type parameters. Left for S5: the platform input leaves, and arming R2.
+  takes its bounds as type parameters. **S5 finished it and armed R2** (`docs/total-meta-transfers.md` §P2): eleven
+  more leaves state — `Show[Int]::show` at `atLeast(1)` (the ceiling is a digit count, needing a logarithm no leaf
+  offers), `Show[Path]::show` at `atLeast(0)`, and the nine jvm input/holder natives at the JVM's `String`/`int`
+  representation limits — and `MetaTransferAccountingProcessor` is now a **codegen precondition** in
+  `WovenValueProcessor`, so a native producing a meta-carrying type and stating nothing no longer compiles. Two rules
+  it settled: a transfer lives in the layer that owns the **fact it states** (an operation's own bound in the base, a
+  representation's in the platform layer), and a leaf's statement is **axiomatic** — nothing rechecks it — so a bound
+  that is merely usually true (POSIX's `[0, 255]` for an exit code, which Windows breaks) is a bug, and the honest
+  wide statement wins. A brace also could not be written on a def with an **untracked parameter** until S5 fixed the
+  companion desugarer: the `^Meta`/`^Where` name transform `T` ⤳ `T$Meta` only exists for slotted types, so a
+  parameter the brace never mentions now keeps its own type (`core/processor/MetaCompanionReferences`).
 - `def foldLeft[A, B](initial: B, combine: ..., list: List[A]): B` — an abstract function, signature only.
 - A `type X = ...` alias and a body-less `type X` differ only by having a body; `data X(...)` is the *concrete*
   form that additionally introduces a value constructor.

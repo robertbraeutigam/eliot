@@ -41,12 +41,19 @@ object MetaTransferDesugarer {
     else transferCompanion(definition).map(_ -> RoleHint.NoHint).toSeq
 
   private def transferCompanion(f: FunctionDefinition): Option[FunctionDefinition] = {
-    val generics = f.genericParameters.map(_.name.value).toSet
+    val generics   = f.genericParameters.map(_.name.value).toSet
+    val referenced = MetaCompanionReferences.namesIn(f.returnMeta)
     // A generic companion keeps its original signature (its type params are reduced at their meta types by the channel,
-    // its concrete params are unprojected pass-throughs); a monomorphic vessel suffixes each concrete type to `T$Meta`.
+    // its concrete params are unprojected pass-throughs); a monomorphic vessel suffixes each concrete type the brace
+    // actually mentions to `T$Meta`, keeping the rest verbatim (a slotless type has no `T$Meta` to name).
     for {
       metaArgs   <- if (generics.nonEmpty) f.args.some
-                    else f.args.traverse(arg => metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t)))
+                    else
+                      f.args.traverse(arg =>
+                        if (referenced.contains(arg.name.value))
+                          metaTypeRef(arg.typeExpression).map(t => arg.copy(typeExpression = t))
+                        else arg.some
+                      )
       metaReturn <- metaReturnRef(f.typeDefinition, generics)
       body       <- metaBody(f.typeDefinition, f.returnMeta, generics)
     } yield FunctionDefinition(
@@ -60,8 +67,10 @@ object MetaTransferDesugarer {
   }
 
   /** The meta structure of a **concrete** value type expression: its application head `T` suffixed to `T$Meta` (the
-    * suffix [[MetaConstructorDesugarer.metaTypeSuffix]]). Used only on a monomorphic vessel's signature, so the head is
-    * always a slotted concrete type whose `T$Meta` resolves. `None` for a non-application head (unsupported).
+    * suffix [[MetaConstructorDesugarer.metaTypeSuffix]]). Used only on a monomorphic vessel's signature and only for a
+    * parameter the brace mentions ([[MetaCompanionReferences]]), so the head is a slotted concrete type whose `T$Meta`
+    * resolves — a brace projecting an untracked parameter still fails loudly here. `None` for a non-application head
+    * (unsupported).
     */
   private def metaTypeRef(typeExpr: Sourced[SourceExpression]): Option[Sourced[SourceExpression]] =
     typeExpr.value match {

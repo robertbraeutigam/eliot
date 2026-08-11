@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{FunctionDefinition, Expression as SourceExpression}
+import com.vanillasource.eliot.eliotc.ast.fact.{ArgumentDefinition, FunctionDefinition, Expression as SourceExpression}
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -22,11 +22,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * unwrapped (a `Bool`), and the declared return type is `Bool` written module-qualified so it resolves without the def
   * importing `Bool` (mirroring [[SourceExpression.trueReference]]).
   *
-  * A parameter whose type has no meta structure (an untracked type, or a bare generic) has no `T$Meta`, so its retyped
-  * reference does not resolve and the companion fails to compile — a loud error at the precondition rather than a
-  * silently-unenforced `where` (per the gaps-must-be-fail-safe rule). For now the tracked type is `Int`, so a `where`
-  * ranges over `Int` parameters; broadening to more domains is the second-domain work (§7). Companions are
-  * compiler-pool-only (the channel evaluates them), dead in the runtime pool, never code-generated.
+  * A **mentioned** parameter whose type has no meta structure (an untracked type, or a bare generic) has no `T$Meta`,
+  * so its retyped reference does not resolve and the companion fails to compile — a loud error at the precondition
+  * rather than a silently-unenforced `where` (per the gaps-must-be-fail-safe rule). A parameter the predicate never
+  * mentions is dead in the companion and keeps its own type ([[MetaCompanionReferences]]), so an untracked parameter
+  * standing beside a tracked one does not fail a `where` that does not read it. The tracked types today are `Int` and
+  * `String`; broadening to more domains is the second-domain work (§7). Companions are compiler-pool-only (the channel
+  * evaluates them), dead in the runtime pool, never code-generated.
   */
 object MetaWhereDesugarer {
 
@@ -46,11 +48,23 @@ object MetaWhereDesugarer {
     FunctionDefinition(
       f.name.map(qn => QualifiedName(qn.name + whereSuffix, Qualifier.Meta)),
       Seq.empty,
-      f.args.map(arg => arg.copy(typeExpression = metaTypeRef(arg.typeExpression))),
+      retypedArgs(f, predicate),
       boolTypeRef(f.name),
       Some(predicate),
       visibility = f.visibility
     )
+
+  /** The companion's parameters: those the predicate mentions retyped to their meta structures (so `range(x)` projects
+    * a tracked range), the rest kept verbatim ([[MetaCompanionReferences]]) — a parameter the predicate never reads is
+    * dead in the companion, and a slotless type has no `T$Meta` to name it by, so retyping it would fail a `where` for
+    * a parameter it does not even look at.
+    */
+  private def retypedArgs(f: FunctionDefinition, predicate: Sourced[SourceExpression]): Seq[ArgumentDefinition] = {
+    val referenced = MetaCompanionReferences.namesIn(Seq(predicate))
+    f.args.map(arg =>
+      if (referenced.contains(arg.name.value)) arg.copy(typeExpression = metaTypeRef(arg.typeExpression)) else arg
+    )
+  }
 
   /** The meta *type* reference for a value type expression: the head type's name suffixed `$Meta`, bare (no args), the
     * same transform [[MetaTransferDesugarer]] uses. A non-application head is left unchanged (it will not resolve to a

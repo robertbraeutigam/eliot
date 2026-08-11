@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
+import com.vanillasource.eliot.eliotc.codec.LangFactCodecs
 import com.vanillasource.eliot.eliotc.compiler.cache.codec.FactCodec
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
@@ -15,14 +16,15 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * passing: a leaf that originates a meta-carrying return but states no transfer is reported at the value and the fact
   * declines (aborts).
   *
-  * '''Not yet armed.''' The mechanism is landed and tested but not wired as a codegen precondition: nothing demands
-  * this fact in a normal build yet, so it is dormant. Arming it is a one-line
-  * `getFactOrAbort(MetaTransferAccounting.Key…)` in [[WovenValueProcessor]] beside the effect-accounting precondition —
-  * deferred until the meta-carrying stdlib leaves (`String::length`, `parseIntInternal`, `Process::exitCode`, …) state
-  * their transfers, whose platform-dependent bounds are a separate step (docs/total-meta-transfers.md §5/§P2).
+  * '''Armed''' (S5): [[WovenValueProcessor]] demands it beside the effect-accounting precondition, so a leaf that
+  * states nothing blocks its own `WovenValue` and with it codegen. Arming waited until the meta-carrying stdlib leaves
+  * stated their transfers (docs/total-meta-transfers.md §P2).
   *
-  * The fact carries no payload beyond its identity — it is a pass/fail witness, so it is not persisted (`valueCodec =
-  * None`), like [[com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding]].
+  * The fact carries no payload beyond its identity — a pass/fail witness — but it is nonetheless **persisted**, like
+  * its [[EffectAccounting]] peer and unlike
+  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding]]: only a fact that *cannot* be equality-stable may
+  * decline a codec (a binding holds a Scala lambda; this holds an FQN and ground type arguments), and a build now
+  * materialises this one.
   *
   * @param vfqn
   *   The value this accounting belongs to (the same instance identity as its `MonomorphicValue`).
@@ -42,6 +44,6 @@ object MetaTransferAccounting {
     * different type arguments is a different instance, hence a different accounting.
     */
   case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[MetaTransferAccounting] {
-    override def valueCodec: Option[FactCodec[MetaTransferAccounting]] = None
+    override def valueCodec: Option[FactCodec[MetaTransferAccounting]] = Some(LangFactCodecs.metaTransferAccountingCodec)
   }
 }

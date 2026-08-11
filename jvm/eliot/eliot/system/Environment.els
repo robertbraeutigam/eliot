@@ -42,8 +42,11 @@ private def argumentsInternal: List[String]
 
 /**
  * `System.getenv(name)`, `null` when unset. Implemented by the backend.
+ *
+ * The stated size is the JVM's `String` ceiling (see `readLineInternal` in `eliot.effect.Console`); the environment
+ * itself imposes no smaller limit the JVM exposes.
  */
-private def environmentVariableInternal(name: String): String
+private def environmentVariableInternal(name: String): String {closed(0, 2147483647)}
 
 /**
  * The `user.dir` system property as a normalized absolute `java.nio.file.Path`. Implemented by the backend.
