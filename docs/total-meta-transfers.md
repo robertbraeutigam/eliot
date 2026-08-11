@@ -1,15 +1,15 @@
 # Total Meta Transfers — meta as a shadow logic
 
-Status: **R2 is armed; the interpretation is still design.** **P1 and P2 are done** (S5): every native leaf in the
-tree that produces a meta-carrying type states its transfer, and
+Status: **R2 and R3 are armed; the interpretation is still design.** **P1, P2 and P3 are done** (S5, S6): every
+native leaf in the tree that produces a meta-carrying type states its transfer, **nothing else states one**, and
 `monomorphize/channel/MetaTransferAccountingProcessor` is a **codegen precondition** in `WovenValueProcessor` —
-a leaf that states nothing no longer compiles. With it the channel's own untotality is gone: a meta that is absent
-now means "nobody has computed this yet" for a *bodied* value only (the meta interpretation, §6/P4, is what
-answers those), never "a native quietly defaulted to ⊤". The pieces that had to land first all did: the range
-domain's top (`whole`, §5), the removal of the last *global* top (the generic `Meta[Bound[D]]`, §5's third
-amendment) — so every top is a domain top and the machinery keeps none — and the backend's result-edge re-encode
-(`docs/string-length-meta.md` §8, S3), which the first stated transfer tripped. Everything from §6 on — the meta
-interpretation — is still design.
+a leaf that states nothing no longer compiles, and neither does a bodied value that states one. With it the
+channel's own untotality is gone: a meta that is absent now means "nobody has computed this yet" for a *bodied*
+value only (the meta interpretation, §6/P4, is what answers those), never "a native quietly defaulted to ⊤". The
+pieces that had to land first all did: the range domain's top (`whole`, §5), the removal of the last *global* top
+(the generic `Meta[Bound[D]]`, §5's third amendment) — so every top is a domain top and the machinery keeps none —
+and the backend's result-edge re-encode (`docs/string-length-meta.md` §8, S3), which the first stated transfer
+tripped. Everything from §6 on — the meta interpretation — is still design.
 
 **S4 stated the whole of `String.els`** (`docs/string-length-meta.md` §10): `length`, `combine`, `substring`,
 `trim`, `toUpperCase`/`toLowerCase`, `repeat`, `replace` and `indexOfInternal` all carry a brace, and
@@ -148,7 +148,10 @@ meta type is `Unit`"*; if it is not, that is an error (§4). A leaf with genuine
 explicitly (§5).
 
 **R3 — A non-leaf derives, and may not state.** A brace on a value with an Eliot body is an error naming
-the fix.
+the fix. **Armed** (S6, §P3): the second arm of `MetaTransferAccountingProcessor`, split from R2 on the one
+test that separates the rules — `MonomorphicValue.runtime` — and blocking codegen through the same
+precondition. Read post-merge, so §8.2's cross-layer case (the brace in one layer, the body in another) is
+the same check rather than a second mechanism.
 
 **R4 — There is no undefined meta.** ⊤ is stated or structural, never an omission. The channel may still
 *lose* precision, but never because nobody said anything.
@@ -485,7 +488,9 @@ channel sees the resolved *instance* FQN post-mono.
 layers carried the brace, the merge rejects it with "Has multiple implementations". So R2 must say where
 the brace lives — with the **native**, i.e. in the layer that owns the leaf — and a brace must not be part
 of `signatureEquality` (the merge is lexical; requiring character-exact repetition across layers would be
-a new failure mode for no gain). A body-supplying layer may not carry one: a special case of R3.
+a new failure mode for no gain). A body-supplying layer may not carry one: a special case of R3 — and it needed
+no special code, because R3 reads the body *after* the layer merge (`MonomorphicValue.runtime`), so "the brace in
+one layer, the body in another" and "both in one declaration" are literally the same check.
 
 **8.3 `foldLeft` narrows nothing until the size domain lands.** `def size[A](list: List[A]): Int =
 list.foldLeft(0, _ -> count -> count + 1)` is the first thing anyone will try; its transfer stalls for want
@@ -628,9 +633,43 @@ either "this value is bodied and the interpretation that would derive it does no
 silently defaulted"; only the first survives, and it is now the *only* thing P4 has to answer. That is the property
 this document set out to buy, and it is bought at the price §P2 anticipated: eleven statements and one desugarer fix.
 
-**P3 — R3 enforcement (next).** Error on a brace over a bodied value. Should be a no-op on today's tree
-(`Numeric[Int]`, `fold`, `integerLiteral` and every S4/S5 statement are leaves) — a good sign and a good test. With
-R2 armed this is the cheap half of the pair: R2 says a leaf must state, R3 says nothing else may.
+**P3 — R3 enforcement — DONE (S6).** Error on a brace over a bodied value: the second arm of
+`MetaTransferAccountingProcessor`, reported at the value and blocking codegen through the precondition R2 already
+installed. R2 says a leaf must state; R3 says nothing else may. The implementation is the cheap half this entry
+predicted — one arm, one message, no new fact and no new lookup — and both rules now key off the value's
+pre-monomorphization `OperatorResolvedValue`, since both judge a *declaration*: an instance with none (a fact a
+test harness injected, a value synthesized past the front end) declares nothing and so has nothing to state or
+over-state.
+
+**What it was not is a no-op, and the exception is the finding.** The prediction above was made about the
+*layers*, and there it held exactly: every brace in `stdlib/` and `jvm/` sits on a body-less leaf, all 43 examples
+are unaffected, and the byte-identity oracle shows identical class content. But the tree also contained one
+suite — the former `InlineTransferBraceIntegrationTest` — whose every program stated a brace on an ordinary
+**bodied** test def, because that was the only way to author a brace end-to-end at all: a user module declares no
+natives, so a body-less user def dies at `JvmClassGenerator`'s "Function not implemented." before the channel is
+ever reached. R3 outlaws that shape, so the suite was rewritten as `TransferBraceReductionIntegrationTest`,
+exercising each shape through the layer brace that actually ships it: the ability call inside a brace through
+`Numeric[Int]::add`, the generic constructor helper through `Runtime::integerLiteral`'s `closed(V, V)`, the
+negative endpoint through `subtract`, the half-open endpoint through `Show[Int]::show`'s `atLeast(1)`, and the
+dotted subject-last form through a `where` predicate (the one user-authored meta companion R3 leaves alone — a
+precondition is a stated contract, never derived). A last case pins R3 itself.
+
+**Nothing was lost by that move, and something was gained.** The old suite carried its own caveat: lowering a
+brace-narrowed return across a *user* def's call boundary is a deferred backend representation matter
+(`docs/refinement-channel-follow-ups.md` §4), because the callee's body is compiled once with ⊤ parameters and so
+returns a wide representation the narrowed caller does not match. That caveat *was* the shape R3 removes — the
+`CHECKCAST`-class hazard §7 warns arrives as a `ClassCastException` rather than a type error — so arming R3 turned
+a known-broken, layer-unreachable capability into a compile error with a fix named. The general lesson for the
+remaining stages: **"no-op on the tree" must be checked against the tests as well as the layers**, since a test
+suite is exactly where a shape no shipped artefact uses will still be alive.
+
+**One hazard R3 inherits, unchanged and still §8.1's.** `declaresTransfer` finds a companion by the callee's
+stripped `name.name` in the `Qualifier.Meta` namespace of its module — the same lookup
+`RefinementChannelProcessor.metaViaCompanion` uses, so R3 flags exactly the situation in which the channel would
+read a companion for a bodied value. Where that lookup is wrong (an ability-impl leaf's brace colliding with a
+bodied sibling of the same bare name in the same module) R3 is wrong the same way, and reports it with a message
+about a brace the value does not carry. No such collision exists in the tree, and §8.1's naming fix — a transfer
+named in the callee's own qualifier namespace — repairs both readers at once. It stays P4's first step.
 
 **P4 — the interpretation (§6.2).** The naming fix of 8.1 first, then the walk, then the separation of §7.
 
