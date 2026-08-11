@@ -1,9 +1,8 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.processor.MetaConstructorDesugarer
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -19,10 +18,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   *     and carrying no `{ ... }` transfer brace silently defaults its meta to ⊤ rather than being forced to say what it
   *     does. This closed the TODO *"A native that produces a meta-carrying type must state its meta-information"*.
   *   - **R3 — nothing else may state.** A **bodied** value **derives** its transfer from that body, so a brace on it is
-  *     an error. Deriving is the meta-interpretation slice (§6.2/§P4) and does not exist yet, but the prohibition does
-  *     not wait for it: a brace on a bodied value is read by `RefinementChannelProcessor.metaViaCompanion` *instead of*
-  *     the body, so it is a stated summary silently overriding what the code actually does — the one shape in which the
-  *     channel can be wrong rather than merely imprecise.
+  *     an error: a stated summary would silently override what the code actually does — the one shape in which the
+  *     channel can be wrong rather than merely imprecise. Deriving is [[MetaInterpreter]], and the two rules meet
+  *     there: its `state or derive` split is this check read as a definition rather than as a prohibition, off the
+  *     same body test and the same companion lookup, so the two cannot drift into disagreeing about which values
+  *     summarise and which are read.
   *
   * A rider on [[MonomorphicValue]] (runtime track), on the [[EffectAccountingProcessor]] template. The leaf test both
   * rules split on is exactly the body test the fact already carries — `mv.runtime.isEmpty` (no Eliot body on this
@@ -87,7 +87,7 @@ class MetaTransferAccountingProcessor
     returnHead(OperatorResolvedExpression.SignatureView.of(orv.signature).returnType.value) match {
       case OperatorResolvedExpression.ValueReference(typeName, _) =>
         for {
-          metaCarrying   <- declaresMetaStructure(typeName.value)
+          metaCarrying   <- MetaInterpreter.declaresMetaStructure(typeName.value)
           statesTransfer <- declaresTransfer(mv.vfqn)
           _              <- if (metaCarrying && !statesTransfer) reportMissing(mv, typeName.value)
                             else ().pure[CompilerIO]
@@ -103,17 +103,6 @@ class MetaTransferAccountingProcessor
     case OperatorResolvedExpression.FunctionApplication(target, _) => returnHead(target.value)
     case other                                                     => other
   }
-
-  /** Whether a concrete type declares meta-information — i.e. its module (in the compiler pool, where
-    * [[MetaConstructorDesugarer]] emits meta structures) declares its `T$Meta` structure. A slotless type declares none,
-    * so its meta is the trivial `Unit` and a leaf returning it needs no transfer.
-    */
-  private def declaresMetaStructure(typeName: ValueFQN): CompilerIO[Boolean] =
-    getFactOrAbort(UnifiedModuleNames.Key(typeName.moduleName, Platform.Compiler)).map(
-      _.names.contains(
-        QualifiedName(typeName.name.name + MetaConstructorDesugarer.metaTypeSuffix, Qualifier.Type)
-      )
-    )
 
   /** Whether this value declares a `^Meta` transfer — its [[RefinementChannelProcessor.metaCompanionName]] in its
     * module's compiler pool, exactly what

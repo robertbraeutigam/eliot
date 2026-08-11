@@ -54,15 +54,19 @@ class StatedTransferResultEdgeIntegrationTest extends FullIntegrationTest {
   }
 
   // The re-encode is derived from the node's own meta, so a result the channel could not pin stays at the bignum
-  // boundary and nothing is emitted at all — the ⊤ case every call without a stated transfer takes. `twice` is bodied,
-  // so by R3 it states nothing and derives nothing; its result goes straight on to `show`.
-  "a call with no stated transfer" should "leave its result at the boundary width" in {
+  // boundary and nothing is emitted at all — the ⊤ case. Finding one now takes a *higher-order* call: since the meta
+  // interpretation landed (`docs/total-meta-transfers.md` §P4), an ordinary bodied callee no longer leaves ⊤ behind —
+  // it derives its result from its own body, which is what the earlier version of this case (`def twice(x: Int): Int =
+  // x + x`, called at a literal) now exercises instead. A lambda still carries no meta of its own, so `applyTo`'s
+  // result is genuinely unknown and its call emits nothing.
+  "a call whose result the channel cannot pin" should "leave its result at the boundary width" in {
     compileAndRun(
       """|import eliot.jvm.IO
          |import eliot.effect.Console
-         |def twice(x: Int): Int = x + x
-         |def main: IO[Unit] = printLine(show(twice(3)))""".stripMargin
-    ) >> instructionsFollowing("Test.twice", 1).asserting(_ shouldBe Seq("INVOKEVIRTUAL java/math/BigInteger.toString"))
+         |def applyTo(f: Function[Int, Int], x: Int): Int = f(x)
+         |def main: IO[Unit] = printLine(show(applyTo(y -> y + y, 3)))""".stripMargin
+    ).asserting(_ shouldBe "6") >>
+      instructionsFollowing("Test.applyTo", 1).asserting(_ shouldBe Seq("INVOKEVIRTUAL java/math/BigInteger.toString"))
   }
 
   /** The `count` instructions the compiled jar emits immediately after its (first) call to `owner.name`, rendered as

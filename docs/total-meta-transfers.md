@@ -1,18 +1,21 @@
 # Total Meta Transfers — meta as a shadow logic
 
-Status: **R2 and R3 are armed, P4's prerequisite is in, and the interpretation itself is still design.** **P1, P2 and
-P3 are done** (S5, S6), and **§8.1's naming fix — P4's stated first step — is done** (S7): a transfer companion keeps
-its callee's qualifier, so an ability implementation's brace is that implementation's and not a same-named sibling's,
-repairing the channel's lookup and R3's in one move. Every
+Status: **R2 and R3 are armed and the interpretation's walk has landed.** **P1, P2, P3 are done** (S5, S6), **§8.1's
+naming fix is done** (S7), and **P4's walk is done** (S8, §P4 below): a value with a body no longer stops the channel —
+its meta is obtained by *interpreting that body* under the caller's argument metas, so the closure invariant of §2 is
+executed rather than merely enforced. What is left of P4 is §7's separation (the walk still drops every record inside a
+lambda, which is what makes a *parametered* def's own table empty) and the higher-order rows of §5, which additionally
+wait on the `List` size domain. Every
 native leaf in the tree that produces a meta-carrying type states its transfer, **nothing else states one**, and
 `monomorphize/channel/MetaTransferAccountingProcessor` is a **codegen precondition** in `WovenValueProcessor` —
 a leaf that states nothing no longer compiles, and neither does a bodied value that states one. With it the
-channel's own untotality is gone: a meta that is absent now means "nobody has computed this yet" for a *bodied*
-value only (the meta interpretation, §6/P4, is what answers those), never "a native quietly defaulted to ⊤". The
-pieces that had to land first all did: the range domain's top (`whole`, §5), the removal of the last *global* top
-(the generic `Meta[Bound[D]]`, §5's third amendment) — so every top is a domain top and the machinery keeps none —
-and the backend's result-edge re-encode (`docs/string-length-meta.md` §8, S3), which the first stated transfer
-tripped. Everything from §6 on — the meta interpretation — is still design.
+channel's own untotality is gone: a meta that is absent now means "nobody has computed this yet", never "a native
+quietly defaulted to ⊤" — and since S8 the *bodied* half of that residue is answered too, leaving only what the
+interpretation itself declines (a lambda, a `match`, a budget it exhausted). The pieces that had to land first all did:
+the range domain's top (`whole`, §5), the removal of the last *global* top (the generic `Meta[Bound[D]]`, §5's third
+amendment) — so every top is a domain top and the machinery keeps none — and the backend's result-edge re-encode
+(`docs/string-length-meta.md` §8, S3), which the first stated transfer tripped and which S8 then leaned on at every
+derived call node.
 
 **S4 stated the whole of `String.els`** (`docs/string-length-meta.md` §10): `length`, `combine`, `substring`,
 `trim`, `toUpperCase`/`toLowerCase`, `repeat`, `replace` and `indexOfInternal` all carry a brace, and
@@ -439,9 +442,39 @@ program.
 **Recommendation: B.** A is the more elegant transform in isolation; B is the smaller *system*, and it is
 the only one of the two that makes the channel shrink.
 
+> **Landed as B (S8), and it is `monomorphize/channel/MetaInterpreter`.** The walk is exactly the three bullets above:
+> parameters bound to the caller's argument metas, leaves substituted by their stated transfer (reduced through the one
+> NbE evaluator, as before), non-leaves recursively interpreted. Two things about *where* it sits are worth recording,
+> because both were decided in the doing:
+>
+> - **It is a separate object from the channel's walk, and that split is §7's, made early.** The interpretation answers
+>   *what the meta is*; `RefinementChannelProcessor` keeps *what may be stamped*. That fell out of a requirement rather
+>   than a preference: a record is keyed by source position **in the value being walked**, and a `where` demand is
+>   raised at the position it is written, so interpreting a *callee's* body inside the caller's walk must record
+>   nothing and demand nothing — otherwise a callee's node positions would land in its caller's table and its
+>   preconditions would be re-reported per call site. So the interpretation raises no diagnostic at all, which is what
+>   makes it safe to run over another value's body.
+> - **`state or derive` is one `ifM` on the test R2/R3 already enforce** (`MetaTransferAccountingProcessor`, the
+>   companion lookup). The invariant of §2 is therefore executed and enforced by the same two facts, and cannot drift
+>   into two opinions about which values summarise and which are read. §7's predicted deletions did not all arrive with
+>   it, though, and the honest accounting is: the membership test *stays* (it is now the state-or-derive split rather
+>   than a "does anyone happen to have written a brace" test), and so does the α literal arm (a seed is a stated
+>   transfer whose argument is a raw number the walk supplies, not a node it can interpret). What did go is the notion
+>   that a call's precision depends on where the callee sits relative to a native.
+
 ---
 
 ## 7. Why this ends up simpler than today
+
+> **Amended by S8: the separation happened, the deletions mostly did not.** The interpretation is its own object and
+> raises no diagnostic, so "what the meta is" and "what may be stamped" are now answered in two places — that half is
+> done, and it was forced rather than chosen (a callee's node positions may not land in its caller's table). The
+> deletion list below is the part that did not come true: the membership test stays (as the state-or-derive split), the
+> α arm stays (a seed's argument is a raw number, not a node), and `MetaTransferDesugarer`'s two-mode signature rule is
+> untouched. What *is* gone is the "no companion ⇒ ⊤" branch's meaning — precision no longer depends on whether someone
+> happened to write a brace. **What remains of the separation is the second half**, the one the last paragraph of this
+> section warns about: the walk still drops every record inside a lambda, so a *parametered* def's own table is still
+> empty (`docs/string-length-meta.md` §9), and lifting that is a representation decision, not a meta one.
 
 Under B, these disappear:
 
@@ -527,16 +560,22 @@ list.foldLeft(0, _ -> count -> count + 1)` is the first thing anyone will try; i
 of an `n` (§5.2) and yields absence. Correct, but say so in the user-facing docs or the first report will
 be "you said meta was total".
 
-**8.4 The interpretation needs a budget on two axes.** Fold iteration (§5.2) is one. The other is
-depth/fan-out: the interpretation recurses into callee bodies, and a diamond-shaped call DAG re-interpreted
-per path is exponential even though each path is acyclic. Memoization on `(vfqn, typeArgs, argMetas)`
-handles the common case but distinct argument metas defeat it. Both budgets must fail the same way —
-absence, never a wrong answer.
+**8.4 The interpretation needs a budget on two axes — the second one LANDED (S8).** Fold iteration (§5.2) is one, and
+is not reachable yet (nothing iterates until `List` carries a size). The other is depth/fan-out: the interpretation
+recurses into callee bodies, and a diamond-shaped call DAG re-interpreted per path is exponential even though each path
+is acyclic. What shipped for it is a **single step count threaded through depth and fan-out together**
+(`MetaInterpreter.interpretationBudget`), not the memoization this entry proposed as the handler: a hard count bounds
+the diamond absolutely, whereas a cache is defeated by exactly the distinct argument metas this entry already names.
+Exhaustion yields absence, as required. Both budgets still have to fail that same way when the fold's arrives.
 
-**8.5 Memoization key growth.** That same cache key is `(vfqn, typeArgs, argMetas)`, and metas are
-arbitrary domain values, so distinct call sites with distinct literal ranges are distinct entries. Bounded
-by call-site count, but it interacts with the existing cache-serialization complaints — measure with
-`--statistics`, diffing a run with and without the flag (the flag itself inflates ~20%).
+**8.5 Memoization key growth — deferred, and nothing pays it yet (S8).** The cache key would be
+`(vfqn, typeArgs, argMetas)`, and metas are arbitrary domain values, so distinct call sites with distinct literal ranges
+are distinct entries — bounded by call-site count, but interacting with the existing cache-serialization complaints. S8
+shipped no memo at all and measured no cost to defer it: the 43-example sweep is 4m18s with the interpretation against
+4m20s without, because the *type* gate (a call whose result carries no meta is skipped before its body is fetched)
+keeps the walk off almost every call node. Add the memo when a program is found for which the budget, not the clock,
+is what limits precision — and measure with `--statistics`, diffing a run with and without the flag (the flag itself
+inflates ~20%).
 
 **8.6 The `Meta`/metavariable name collision.** `SemValue.VMeta`, `MetaStore`, `TypeStackLoop.returnMeta`
 are **unification metavariables**, nothing to do with refinement meta. New code in `monomorphize/` will
@@ -700,7 +739,49 @@ sibling of the same bare name in the same module) R3 was wrong the same way, rep
 carry. §8.1's naming fix repaired both readers at once, as predicted, because there is one name and both ask for it.
 Both readers now name it through the desugarer that emits it, so a future divergence would have to be written twice.
 
-**P4 — the interpretation (§6.2).** The naming fix of 8.1 — **done (S7)**; then the walk, then the separation of §7.
+**P4 — the interpretation (§6.2).** The naming fix of 8.1 — **done (S7)**. **The walk — done (S8)**; §7's separation is
+what remains.
+
+`monomorphize/channel/MetaInterpreter` is the whole of it, and the channel's walk shrank to calling it: an ordinary
+call, and a bare reference (a nullary def is a saturated call spelled without parentheses), now ask *"what is this
+callee's meta?"* instead of *"did someone write a brace on it?"*. What the walk gained is what §2's induction
+promises — `def double(x: Int): Int = add(x, x)` called at `60` is `[120, 120]`, `def label(s: String): String = s` at
+`"abcd"` is a size of `[4, 4]`, and both chain: `quadruple(30)` interprets `double` twice. A pure `val` block is
+interpreted too, since it lowers to an applied lambda and its bindings are ordinary parameter bindings.
+
+Four decisions this stage made:
+
+- **First-order.** A lambda is a function value and carries no meta of its own, so a callee that applies one of its own
+  parameters is ⊤ — §5's higher-order rows are untouched, and the fold additionally waits on `List` size (§8.3, still
+  exactly as written). What §6.2 called the payoff of B — *reaching a lambda argument's transfer* — is therefore
+  still owed; what B bought here is that the walk is over the real body, so paying it later is a closure over metas in
+  a walk that already exists rather than a second program.
+- **The budget is a step count, and there is no memo.** §8.4 asks for two budgets and §6.2/§8.5 for memoization on
+  `(vfqn, typeArgs, argMetas)`. What landed is one hard step count threaded through depth *and* fan-out together
+  (`interpretationBudget`, 256 nodes per call site), which is the stronger guarantee of the two: it bounds the
+  exponential diamond §8.4 warns about absolutely, rather than relying on a cache key that distinct argument metas
+  defeat. Exhaustion yields absence, never a wrong answer. Memoization is a *precision* follow-on, to be added if the
+  budget is ever observed to bind — and §8.5's cache-key growth is a cost nothing pays yet.
+- **The gate is the node's own type, and it is what makes this affordable.** Before any body is fetched, the
+  interpretation asks whether the call's result type carries meta at all (§2.3: non-structural, so `List[Int]`,
+  `Unit`, `IO[…]` and every function type answer no). That skips the overwhelming majority of call nodes at one cached
+  `UnifiedModuleNames` lookup. Measured: the 43-example sweep takes 4m18s with the interpretation and 4m20s without —
+  no regression to report, which is the outcome that would *not* have held without the gate.
+- **A `where` is still demanded at the definition, over ⊤ parameters.** The interpretation computes metas; it does not
+  demand preconditions. So `def relay(y: Int): Int = useByte(y)` is still rejected at `relay`, even where the use site
+  would satisfy it — re-demanding a callee's `where` with the caller's argument metas is P5, and it is now possible for
+  the first time.
+
+**What it costs the emitted code, honestly.** 35 of the 40 compiling examples are byte-identical; the five that moved
+(`Arithmetic`, `ArithmeticAbility`, `IntReturn`, `Ranges`, `WherePrecondition`) all *grew*, and each still prints its
+documented output. The growth is the result-edge re-encode (S3) firing where it never had to before: a derived call
+node now has a narrow meta, so the bignum the boundary hands back is narrowed to it — and every consumer today is a ⊤
+position, which widens it straight back. `Ranges`'s `count() + count() + count()` is the clearest case: three
+`BigInteger` ⤳ `Byte` ⤳ `BigInteger` round trips that compute the same `21`. That is not a soundness matter and not
+new in kind (a literal argument has round-tripped through its own stamped width since the channel shipped), but it is
+the first change to make it common. The fix is a backend peephole — a narrowing whose only consumer immediately widens
+need not be emitted — which is worth doing *before* the derived metas start being spent on anything, and which would
+shrink today's literal path too.
 
 **P5 — precision follow-ons.** Structural meta types (§2.3); `where` demanded with known argument metas at
 nested calls, which P4 makes possible for the first time.
