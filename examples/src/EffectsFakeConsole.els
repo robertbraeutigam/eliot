@@ -49,9 +49,9 @@ implement Console[Recorded] {
 }
 
 // Running the fake: unification instantiates `greeting`'s minted carrier to `Recorded`, ability resolution picks the
-// fake instance, and the result is a plain value a test can assert on. As in `EffectsFakeCarrier`, the run must sit in
-// a definition with no ambient carrier of its own, and that definition's declared return must be an *applied* type
-// (`docs/testing-effects.md` §3).
-def transcript: Pair[Unit, String] = runRecorded(greeting("Bob"))("")
+// fake instance, and the result is a plain value a test can assert on — here the transcript as a bare `String`. As in
+// `EffectsFakeCarrier`, the one shape this forces is that the run must sit in a definition with no ambient carrier of
+// its own, since a region writes every carrier-generic callee at *its* carrier (`docs/testing-effects.md` §3).
+def transcript: String = second(runRecorded(greeting("Bob"))(""))
 
-def main: {Console} Unit = printLine(second(transcript))
+def main: {Console} Unit = printLine(transcript)

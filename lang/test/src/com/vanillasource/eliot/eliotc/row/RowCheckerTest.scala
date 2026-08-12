@@ -243,6 +243,66 @@ class RowCheckerTest
       .asserting(r => (r.derived.map(_.abilityName), r.leak) shouldBe (Set("Con"), Set.empty))
   }
 
+  // --- a slot that *fixes a foreign concrete carrier* is undecidable here: the fake-carrier testing strategy runs
+  // carrier-generic production code by handing it to a slot declared at the test's own carrier, and whether the
+  // effect rides this definition's ambient is settled by the instantiation alone (docs/testing-effects.md L2). ---
+
+  /** A test double: a pure carrier `Fake`, whose field accessor `runFake(obj: Fake[A])` is the slot production code is
+    * handed to, plus the carrier-generic `probe` a test would run and a pure-callee pair to contrast with.
+    */
+  private val fakeCarrierDecls =
+    """data Fake[A](runFake: Function[Str, A])
+      |def probe: {Con} Str = readLine
+      |def emptyStr: Str
+      |def mkFake[A](a: A): Fake[A]
+      |def takeFake(f: Fake[Str]): Str
+      |data Opt[A]
+      |def readOpt: {Con} Opt[Str]
+      |def takeOpt(o: Opt[Str]): Str
+      |""".stripMargin
+
+  private val fakeCarrierNames =
+    Seq("items", "use", "probe", "emptyStr", "mkFake", "takeFake", "runFake", "readOpt", "takeOpt", "harness")
+
+  it should "not charge a harness for an effect a slot fixes to a foreign concrete carrier" in {
+    val source = prelude + fakeCarrierDecls + "def harness: Str = runFake(probe)(emptyStr)"
+    rowCheck(source, fakeCarrierNames, "harness")
+      .asserting(r =>
+        (r.derived.map(_.abilityName), r.undecided.map(_.abilityName), r.leak) shouldBe
+          (Set("Con"), Set("Con"), Set.empty)
+      )
+  }
+
+  it should "still report an unrelated leak in a definition that runs a fake carrier" in {
+    // Deferral is per row *entry*, not per definition: `Bee` rides this definition's (absent) ambient and is reported,
+    // while `Con` arrives through the fake's slot and is left to the post-mono channel.
+    val source = prelude + fakeCarrierDecls +
+      """ability Bee[F[_]] { def buzz: {Bee} Str }
+        |def buzzing: {Bee} Str = buzz
+        |def harness: Str = {
+        |val ignored = buzzing
+        |runFake(probe)(emptyStr)
+        |}
+        |""".stripMargin
+    rowCheck(source, fakeCarrierNames :+ "buzzing", "harness", abilityMethods = Seq(("buzz", "Bee")))
+      .asserting(_.leak.map(_.abilityName) shouldBe Set("Bee"))
+  }
+
+  it should "keep charging an effect that merely runs on the way to a concrete slot" in {
+    // `mkFake` declares no row, so it cannot host `readLine`'s effect: that effect ran here, on this ambient.
+    val source = prelude + fakeCarrierDecls + "def harness: Str = takeFake(mkFake(readLine))"
+    rowCheck(source, fakeCarrierNames, "harness")
+      .asserting(r => (r.leak.map(_.abilityName), r.undecided) shouldBe (Set("Con"), Set.empty))
+  }
+
+  it should "keep charging an effectful callee delivering its own declared payload to a concrete slot" in {
+    // `readOpt`'s declared return *is* what the slot expects, so the slot receives a payload rather than fixing a
+    // carrier — the `orEmpty(readLine)` shape, which must stay the located "declared pure but performs" diagnostic.
+    val source = prelude + fakeCarrierDecls + "def harness: Str = takeOpt(readOpt)"
+    rowCheck(source, fakeCarrierNames, "harness")
+      .asserting(r => (r.leak.map(_.abilityName), r.undecided) shouldBe (Set("Con"), Set.empty))
+  }
+
   private def namesOf(result: RowResult): (Set[String], Set[String]) =
     (result.derived.map(_.abilityName), result.declared.map(_.abilityName))
 

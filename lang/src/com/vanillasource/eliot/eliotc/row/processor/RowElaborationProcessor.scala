@@ -69,15 +69,19 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
     * machinery's downstream symptoms (the cryptic `AbilityResolver` demand for a `State`/`Throw`/`Abort` leak, a
     * mono-time carrier mismatch). The wording matches accounting's, so the two verifiers speak one language.
     *
-    * Enforcement is bounded twice, and by what is *undecidable from declarations* rather than by A.8.6's withdrawn
-    * uncertainty (A.11.6):
+    * Enforcement is bounded three times, and by what is *undecidable from declarations* rather than by A.8.6's
+    * withdrawn uncertainty (A.11.6):
     *
     *   - **coverage** (`unknownCallees` empty): an unknown callee means the derivation may be incomplete, and a
     *     possibly-wrong pre-mono error is worse than deferring to the post-mono
     *     [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]], which stays wired as the
     *     unconditional ground-truth fail-safe gating codegen;
     *   - **decidability** ([[RowChecker.RowResult.decidable]]): a definition declaring no ambient whose return could
-    *     itself be the carrier is the constructor-class shape, which only the instantiation settles.
+    *     itself be the carrier is the constructor-class shape, which only the instantiation settles;
+    *   - **a carrier-fixing slot** ([[RowChecker.RowResult.undecided]], subtracted inside
+    *     [[RowChecker.RowResult.leak]]): a contribution handed to a slot declared at a foreign concrete carrier is
+    *     performed in *that* carrier — the fake-carrier testing strategy (`docs/testing-effects.md` L2). Bounded per
+    *     row entry, so an unrelated leak in the same definition is still reported here.
     *
     * What A.11.6 removed is the *third* bounding: enforcement no longer requires a declared ambient at all, so a
     * pure-returning definition that performs an effect is reported here, in effect vocabulary, at its own definition —

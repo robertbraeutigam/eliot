@@ -490,9 +490,12 @@ does not declare it…"). Accounting gates each reference's contribution by the 
 performs its effect on the value's *own* ambient carrier, compared by exact `GroundValue` equality against the
 callee's forwarded `MonomorphicValue.ambientCarriers`. *Forward what is declared, derive what is done* — a
 forwarded per-operation verdict would be a checker self-report and is rejected, as is any negative-effect surface.
-The pre-mono check is bounded exactly twice by what declarations cannot settle: an unknown callee leaves the
-derivation incomplete, and a definition whose declared return could *itself* be the carrier (an applied
-`Box[String]`, `IO[Unit]`, a generic head) is the constructor-class shape. It also owns the one diagnostic
+The pre-mono check is bounded exactly three times by what declarations cannot settle: an unknown callee leaves the
+derivation incomplete, a definition whose declared return could *itself* be the carrier (an applied
+`Box[String]`, `IO[Unit]`, a generic head) is the constructor-class shape, and — per row entry — a contribution
+handed to a slot that **fixes a foreign concrete carrier** (`RowChecker.fixesCarrier`: a saturated rowed callee
+delivered to a concrete applied slot headed differently from that callee's own payload) is performed in *that* carrier,
+which is the whole of the fake-carrier testing strategy (`docs/testing-effects.md` L2). It also owns the one diagnostic
 accounting cannot voice — "declared pure but performs effects", for a definition whose return cannot host a
 carrier — since such a value's mono fails and produces no `MonomorphicValue`.
 

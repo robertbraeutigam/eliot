@@ -403,64 +403,15 @@ import eliot.effect.Console
 
   // --- Testing strategy: a fake effect implementation supplied by the test, with production code untouched ---
 
-  // The substitution mechanism of `docs/testing-effects.md` §2, end to end: `greet` is ordinary carrier-generic
-  // production code declaring `{Terminal}` and nothing else, and the test supplies both the carrier (`Session`, a pure
-  // input/transcript pair with no `Suspend` instance, so it cannot perform real I/O) and the `Terminal[Session]`
-  // instance that interprets the ability into it. Unification instantiates `greet`'s minted carrier to `Session` at
-  // `runSession`'s slot, and monomorphization resolves the fake. Also pins the two shapes §3 flags as accidental: the
-  // run sits *inside* `greetSession` (a program cannot be passed to a runner — L3) and `greetSession`'s declared return
-  // is an *applied* type (a nullary one trips the pre-mono row verifier — L2).
-  "a fake effect carrier" should "let a test interpret an ability without changing the production code" in {
-    compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
-        |
-        |ability Terminal[F[_]] {
-        |   def write(line: String): {Terminal} Unit
-        |   def read: {Terminal} String
-        |}
-        |
-        |def greet: {Terminal} Unit = {
-        |   val name = read
-        |   write("Hello, " ++ name ++ "!")
-        |}
-        |
-        |data Session[A](runSession: Function[Pair[String, String], Pair[A, Pair[String, String]]])
-        |
-        |implement Effect[Session] {
-        |   def pure[A](a: A): Session[A] = Session(w -> Pair(a, w))
-        |   def flatMap[A, B](f: Function[A, Session[B]], fa: Session[A]): Session[B] =
-        |      Session(w -> foldPair(a -> w2 -> runSession(f(a))(w2), runSession(fa)(w)))
-        |   def map[A, B](f: Function[A, B], fa: Session[A]): Session[B] =
-        |      Session(w -> foldPair(a -> w2 -> Pair(f(a), w2), runSession(fa)(w)))
-        |}
-        |
-        |implement Terminal[Session] {
-        |   def write(line: String): Session[Unit] =
-        |      Session(w -> Pair(unit, Pair(first(w), second(w) ++ line ++ ";")))
-        |   def read: Session[String] = Session(w -> Pair(first(w), w))
-        |}
-        |
-        |def greetSession: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
-        |
-        |def main: IO[Unit] = printLine(second(second(greetSession)))""".stripMargin
-    ).asserting(_ shouldBe "Hello, Bob!;")
-  }
-
-  // The same fake carrier consumed by a test framework of the `docs/effect-row-tails.md` shape: a `TestCase` whose body
-  // is a pinned `{Throw[AssertionError] | Id} Unit`. A pinned slot is a captured slot, so the framework needs no
-  // parameter-capture mechanism of its own (`docs/testing-effects.md` §3, L3) — the fake run just has to sit in its own
-  // carrier-free definition (`greetTranscript`), because inside the pinned body the ambient carrier is the pinned stack
-  // and `greet` would be written there instead of at `Session`.
-  private val fakeCarrierFramework =
-    """import eliot.jvm.IO
-import eliot.effect.Console
-      |import eliot.effect.Throw
-      |import eliot.lang.Id
-      |import eliot.carrier.Effect
-      |
-      |ability Terminal[F[_]] {
+  /** The substitution mechanism of `docs/testing-effects.md` §2: `greet` is ordinary carrier-generic production code
+    * declaring `{Terminal}` and nothing else, and the test supplies both the carrier (`Session`, a pure
+    * input/transcript pair with no `Suspend` instance, so it cannot perform real I/O) and the `Terminal[Session]`
+    * instance that interprets the ability into it.
+    *
+    * Declarations only: each program below prepends the imports it needs, since an Eliot file's imports lead it.
+    */
+  private val fakeCarrierDeclarations =
+    """ability Terminal[F[_]] {
       |   def write(line: String): {Terminal} Unit
       |   def read: {Terminal} String
       |}
@@ -485,7 +436,67 @@ import eliot.effect.Console
       |      Session(w -> Pair(unit, Pair(first(w), second(w) ++ line ++ ";")))
       |   def read: Session[String] = Session(w -> Pair(first(w), w))
       |}
+      |""".stripMargin
+
+  private val fakeCarrierImports =
+    """import eliot.jvm.IO
+import eliot.effect.Console
+      |import eliot.carrier.Effect
       |
+      |""".stripMargin
+
+  // Unification instantiates `greet`'s minted carrier to `Session` at `runSession`'s slot, and monomorphization
+  // resolves the fake. The harness returns a bare `String`: a contribution a slot fixes to a foreign concrete carrier is
+  // deferred to the post-mono channel (§3, L2), so the harness's return shape no longer decides whether it compiles.
+  // The one shape still forced is that the run sits in its own carrier-free definition (L3) — inside a carrier region
+  // `greet` would be written at *that* carrier rather than at `Session`.
+  "a fake effect carrier" should "let a test interpret an ability without changing the production code" in {
+    compileAndRun(
+      fakeCarrierImports + fakeCarrierDeclarations +
+        """
+          |def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
+          |
+          |def main: IO[Unit] = printLine(greetTranscript)""".stripMargin
+    ).asserting(_ shouldBe "Hello, Bob!;")
+  }
+
+  // The L2 shape the pre-mono row verifier used to reject: a runner taking the program at its own concrete-carrier slot
+  // (`program: Session[Unit]`, a written parameter rather than a generated field accessor) and a test returning a
+  // *nullary* `data TestResult`. Neither is special now — the effect performed inside the fake is simply not charged to
+  // the harness (`docs/testing-effects.md` L2, `examples/src/EffectsTestFramework.els`).
+  it should "let a harness take a program and return a nullary data type" in {
+    compileAndRun(
+      fakeCarrierImports + fakeCarrierDeclarations +
+        """
+          |data TestResult(label: String, failure: Option[String])
+          |
+          |def transcriptOf(program: Session[Unit]): String = second(second(runSession(program)(Pair("Bob", ""))))
+          |
+          |def expect(label: String, expected: String, actual: String): TestResult =
+          |   if(expected == actual, TestResult(label, None))
+          |   else TestResult(label, Some("expected '" ++ expected ++ "' but was '" ++ actual ++ "'"))
+          |
+          |def greetTest: TestResult = expect("greet", "Hello, Bob!;", transcriptOf(greet))
+          |
+          |def main: IO[Unit] =
+          |   printLine(failure(greetTest).foldOption("PASS " ++ label(greetTest), f -> "FAIL " ++ f))""".stripMargin
+    ).asserting(_ shouldBe "PASS greet")
+  }
+
+  // The same fake carrier consumed by a test framework of the `docs/effect-row-tails.md` shape: a `TestCase` whose body
+  // is a pinned `{Throw[AssertionError] | Id} Unit`. A pinned slot is a captured slot, so the framework needs no
+  // parameter-capture mechanism of its own (`docs/testing-effects.md` §3, L3) — the fake run just has to sit in its own
+  // carrier-free definition (`greetTranscript`), because inside the pinned body the ambient carrier is the pinned stack
+  // and `greet` would be written there instead of at `Session`.
+  private val fakeCarrierFramework =
+    """import eliot.jvm.IO
+import eliot.effect.Console
+      |import eliot.effect.Throw
+      |import eliot.lang.Id
+      |import eliot.carrier.Effect
+      |
+      |""".stripMargin + fakeCarrierDeclarations +
+      """
       |data AssertionError(reason: String)
       |
       |data TestCase(name: String, body: {Throw[AssertionError] | Id} Unit)
@@ -496,7 +507,7 @@ import eliot.effect.Console
       |def runCase(tc: TestCase): String =
       |   foldEither(e -> "FAIL " ++ name(tc) ++ ": " ++ reason(e), u -> "PASS " ++ name(tc), runId(runThrow(body(tc))))
       |
-      |def greetTranscript: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
+      |def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
       |
       |def main: IO[Unit] = printLine(runCase(greetTest))""".stripMargin
 
@@ -505,7 +516,7 @@ import eliot.effect.Console
       fakeCarrierFramework +
         """
           |
-          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Bob!;", second(second(greetTranscript))))""".stripMargin
+          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Bob!;", greetTranscript))""".stripMargin
     ).asserting(_ shouldBe "PASS greet")
   }
 
@@ -514,7 +525,7 @@ import eliot.effect.Console
       fakeCarrierFramework +
         """
           |
-          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Alice!;", second(second(greetTranscript))))""".stripMargin
+          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Alice!;", greetTranscript))""".stripMargin
     ).asserting(_ shouldBe "FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'")
   }
 }
