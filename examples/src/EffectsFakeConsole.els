@@ -1,0 +1,57 @@
+import eliot.carrier.Effect
+
+/**
+ * Substituting a fake implementation of a **standard-library effect** — here `Console` — for a test, without the
+ * production code knowing.
+ *
+ * `EffectsFakeCarrier` shows the same strategy for an *application-owned* ability. The interesting difference is that
+ * `Console` already has a real implementation in the `jvm` layer, written as a constrained catch-all
+ * (`implement[F[_] ~ Suspend] Console[F]`) that matches every carrier structurally. The fake below is a second
+ * structural match, so what decides between them is the `~ Suspend` constraint: `Recorded` is a pure carrier with no
+ * `Suspend` instance, so the jvm candidate declines and the fake is the unique survivor. In production nothing
+ * changes, because a real carrier does have `Suspend` and the fake does not match it.
+ *
+ * That is the whole mechanism — nothing is registered, injected or configured. See `docs/testing-effects.md`.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m EffectsFakeConsole
+ * java -jar target/EffectsFakeConsole.jar
+ * ```
+ */
+
+// Production code: carrier-generic, direct style, and unaware that a test exists. It declares `{Console}` and names no
+// carrier, so it commits to no interpretation of it.
+def greeting(name: String): {Console} Unit = printLine("Hello, " ++ name ++ "!")
+
+// The test double: an ordinary `data` carrier threading the accumulated transcript. It has no `Suspend` instance, so it
+// is *structurally* incapable of performing a real side effect — the same guard the deliberate absence of `Suspend[Id]`
+// provides.
+data Recorded[A](runRecorded: Function[String, Pair[A, String]])
+
+implement Effect[Recorded] {
+   def pure[A](a: A): Recorded[A] = Recorded(w -> Pair(a, w))
+
+   def flatMap[A, B](f: Function[A, Recorded[B]], fa: Recorded[A]): Recorded[B] =
+      Recorded(w -> foldPair(a -> w2 -> runRecorded(f(a))(w2), runRecorded(fa)(w)))
+
+   def map[A, B](f: Function[A, B], fa: Recorded[A]): Recorded[B] =
+      Recorded(w -> foldPair(a -> w2 -> Pair(f(a), w2), runRecorded(fa)(w)))
+}
+
+// The fake interpretation of the standard `Console` ability. Legally colocated with `Recorded` (an instance may live
+// with the ability *or* with one of its type arguments), and confined to this program: compilation is whole-program
+// monomorphization from `main`, so a test binary is a different program and its instances are not in production's
+// search space at all.
+implement Console[Recorded] {
+   def printLine(s: String): Recorded[Unit] = Recorded(w -> Pair(unit, w ++ s ++ ";"))
+
+   def readLine: Recorded[Option[String]] = Recorded(w -> Pair(None, w))
+}
+
+// Running the fake: unification instantiates `greeting`'s minted carrier to `Recorded`, ability resolution picks the
+// fake instance, and the result is a plain value a test can assert on. As in `EffectsFakeCarrier`, the run must sit in
+// a definition with no ambient carrier of its own, and that definition's declared return must be an *applied* type
+// (`docs/testing-effects.md` §3).
+def transcript: Pair[Unit, String] = runRecorded(greeting("Bob"))("")
+
+def main: {Console} Unit = printLine(second(transcript))

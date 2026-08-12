@@ -1,9 +1,10 @@
 # Testing Strategy: Substituting Effect Implementations
 
-Status: **design note**. The core mechanism *works today* (`examples/src/EffectsFakeCarrier.els`, verified
-end-to-end), and so does a test framework built on it (§3, L3). One limitation (L1) blocks it from reaching the
-stdlib effects and one (L2) is an everyday papercut; each is analysed below with the exact code that causes it and
-a proposed fix. No compiler change is made by this note.
+Status: **adopted, L1 fixed**. The core mechanism works for application-owned abilities
+(`examples/src/EffectsFakeCarrier.els`) *and*, since constraint-aware declination landed, for the stdlib effects
+(`examples/src/EffectsFakeConsole.els` — a fake `Console`, both verified end-to-end), and so does a test framework
+built on it (§3, L3). One limitation (L2) is left, an everyday papercut; it is analysed below with the exact code
+that causes it and a proposed fix.
 
 ## 1. The question
 
@@ -74,8 +75,10 @@ substitution.
 
 ### 2.2 What is available today without any compiler change
 
-- **A user-defined ability** can be faked exactly as above. This is the full recommended strategy for
-  application-owned effects, and it costs nothing.
+- **Any ability** can be faked exactly as above — application-owned (`examples/src/EffectsFakeCarrier.els`) or a
+  standard-library effect (`examples/src/EffectsFakeConsole.els`). This is the full recommended strategy, and it
+  costs nothing. Reaching the stdlib effects is what L1 took; the section header below is kept as written because
+  the analysis is what explains the fix.
 - **`Dep[X]`** is the supported route when you are willing to state the seam in the signature: declare
   `{Dep[Clock]}` and hand a fake at the discharge site with `provide`. It works now, and it composes. Its cost is
   that it *does* change production signatures, which is precisely what the question asked to avoid — so it is the
@@ -88,10 +91,11 @@ substitution.
 
 ## 3. What blocks this from being the whole story
 
-Three limitations, all established empirically against the current tree. None is a flaw in the strategy; each is a
-mechanism that has not been extended to reach it.
+Three limitations, all established empirically against the tree at the time of writing. None is a flaw in the
+strategy; each is a mechanism that had not been extended to reach it. **L1 is fixed** — what it took is recorded
+below, since the second half of it was not visible until the first half was done.
 
-### L1 — Catch-all library instances make every stdlib effect ambiguous
+### L1 — Catch-all library instances made every stdlib effect ambiguous — *fixed*
 
 ```
 error: Multiple ability implementations found for ability 'Console' with type arguments [Recorded].
@@ -114,18 +118,51 @@ decided first, so the fake never gets there.
 This affects every effect a program actually wants to fake: `Console`, `Log`, `FileSystem`, `Process`,
 `Environment`.
 
-**Proposed fix — constraint-aware declination.** A candidate whose type-parameter constraints have no
-implementation at the matched bindings should return `Verdict.Decline` rather than `Verdict.Keep`. This adds no
-surface and no new concept; it makes `~` mean at selection time what it already means at checking time. It also
-makes the deliberate absence of `Suspend[Id]` do exactly the job its doc comment claims — excluding real-effect
-instances from pure carriers — as a matter of resolution rather than of a later error message.
+**Fix — constraint-aware declination** (`AbilityImplementationProcessor.constraintsSatisfied`). A candidate whose
+type-parameter constraints have no implementation at the matched bindings returns `Verdict.Decline` rather than
+`Verdict.Keep`. This adds no surface and no new concept; it makes `~` mean at selection time what it already means
+at checking time. It also makes the deliberate absence of `Suspend[Id]` do exactly the job its doc comment claims —
+excluding real-effect instances from pure carriers — as a matter of resolution rather than of a later error
+message.
 
 With it, `Console[Session]`: the jvm candidate needs `Suspend[Session]`, finds none, declines; the fake is the
 unique survivor. In production nothing changes, because a real carrier does have `Suspend`.
 
-Implementation risk to weigh: each constraint check is itself an `AbilityImplementation` query, so the demand
-graph gains edges (`Console[C]` → `Suspend[C]` → …). Structural recursion down a carrier stack terminates, but the
-cycle behaviour of the fact engine on a mutually-constrained pair needs checking before this is written.
+Every step of the check is **fail-safe towards keeping**, so it can only remove a candidate that could not have
+worked, never create a resolution failure the pattern match alone would not have had. It judges a constraint only
+when its ability arguments are known exactly, and answers "satisfied" for an untraced match (the same operand
+unreliability the `where` discharge refuses to judge over), a binding that is the defaulted universe, an argument
+shape it cannot ground, an unreadable ability arity, and an absent probe. A constraint spells only the arguments
+that are not the constrained binder (`F[_] ~ Suspend` is `Suspend[F]`, `G[_] ~ State[S]` is `State[S, G]`), so the
+binder is appended exactly when the written arguments are one short of the ability's arity, and any other count is
+not judged.
+
+The implementation risk that had to be weighed — each constraint check is itself an `AbilityImplementation` query,
+so the demand graph gains edges (`Console[C]` → `Suspend[C]` → …) — is handled where the engine already handles it:
+structural recursion down a carrier stack terminates, and a probe that leads back to a resolution already in
+progress up the request chain (a mutually-constrained pair) is detected on `activeFactKeys` and answered
+"satisfied" rather than demanded. Demanding it would be refused by the engine as a dead-lock and recorded as a
+cyclic-demand error, and a candidate must not be declined for a question we chose not to ask.
+
+**The second half: effect accounting assumed instances are colocated with their ability.** With the ambiguity gone,
+the fake `Console` resolved and the program then failed with `This value performs the effect 'Console' but does not
+declare it` — reported at a value that declares exactly `{Console}`. The post-mono channel derived the performed
+ability as `AbilityFQN(ref.moduleName, name)`, reading the ability's module off the *implementation reference*.
+The orphan rule admits two placements — the ability's module, or a module of one of its type arguments — and that
+reading is correct only for the first. Every stdlib instance takes the first; a fake takes the second, because the
+test declares the carrier and not the ability. So `derived` was `Console@<the test's module>` while `declared` was
+`Console@eliot.effect.Console`, and the subset check reported an undeclared effect for an effect that *was*
+declared. `EffectAccountingProcessor.implementedAbility` now reads the ability off the implementation's own
+resolved declaration (`Qualifier.AbilityImplementation(abilityFQN, _)`, the one place the ability's module is
+recorded), which is unchanged for every colocated instance.
+
+**What it costs a diagnostic, and what was done about it.** The failing demand moves: `printLine` into a body
+pinned to `{Throw[String] | Id}` now fails as `Console` at that row — the jvm instance declining for want of
+`Suspend` — where it used to fail as `Suspend[Id]` raised deep inside the stdlib lift that carried it. Failing at
+the user's own call is the better position, but the message keyed on the ability being `Suspend` and the argument
+being `Id`. `AbilityResolver.sideEffectOnPureCarrier` now reads the *base* of the row instead
+(`GroundValueRenderer.baseCarrier`), so any effect demanded on a stack that bottoms out at `Id` keeps the
+pure-base explanation rather than degrading to "no implementation found".
 
 ### L2 — The pre-monomorphization row verifier false-positives on a nullary return
 
@@ -224,9 +261,10 @@ needed to ship a test framework, so this is a later convenience, not a prerequis
 
 1. **Adopt the carrier-substitution strategy as the testing story.** It requires nothing of production code, it is
    the direct consequence of effects being rows over an inferable carrier, and it is already demonstrably working.
-2. **Fix L1** (constraint-aware declination). Small, local to `AbilityImplementationProcessor`, and it is what
-   extends the strategy from application-owned abilities to `Console`/`Log`/`FileSystem`/`Process`/`Environment` —
-   i.e. to the effects anyone actually wants to fake. It is the only blocker.
+2. ~~**Fix L1**~~ **Done** (constraint-aware declination, plus reading an implementation's ability off its own
+   declaration in effect accounting). This is what extends the strategy from application-owned abilities to
+   `Console`/`Log`/`FileSystem`/`Process`/`Environment` — i.e. to the effects anyone actually wants to fake. It was
+   the only blocker.
 3. **Fix L2** (widen `decidable` to defer). A papercut, but it sits on the everyday path: it decides whether a
    harness may return the `data TestResult` a test author would naturally write.
 4. **L3 needs nothing.** A test framework can be built today on pinned `{… | Id}` bodies; the cost is that a test
@@ -237,14 +275,16 @@ needed to ship a test framework, so this is a later convenience, not a prerequis
 
 ## 5. Evidence
 
-Everything above was established against the tree at the time of writing:
+Everything above was established against the tree, the L1 rows re-checked against the fix:
 
 | Claim | How |
 | --- | --- |
 | A fake carrier interprets a user ability end-to-end | `examples/src/EffectsFakeCarrier.els`, compiled and run; prints `Hello, Bob!;` |
-| L1: a fake `Console` instance is ambiguous | a `data Recorded` carrier with `implement Console[Recorded]` ⤳ "Multiple ability implementations found for ability 'Console' with type arguments [Recorded]" |
+| A fake carrier interprets a **stdlib** effect end-to-end | `examples/src/EffectsFakeConsole.els`, compiled and run; prints `Hello, Bob!;` from the transcript, with no real output |
+| L1 (before): a fake `Console` instance is ambiguous | a `data Recorded` carrier with `implement Console[Recorded]` ⤳ "Multiple ability implementations found for ability 'Console' with type arguments [Recorded]" |
 | L1 scope | `implement[F[_] ~ Suspend] …` in jvm's `Console`, `Log`, `File`, `Process`, `Environment` |
-| L1 cause | `AbilityMatcher.matchImpl` matches patterns only; `verifyImplementation` adds only the `where` guard; `paramConstraints` is read by no ability processor |
+| L1 cause | `AbilityMatcher.matchImpl` matches patterns only; `verifyImplementation` added only the `where` guard; `paramConstraints` was read by no ability processor |
+| L1 (after): fake resolves, real instance unaffected, nothing over-resolves | `AbilityConstraintDeclinationTest` — the fake interprets untouched production code, the real instance still resolves for a real carrier *in the same program*, and a carrier with no `Console` of its own resolves nothing |
 | L2 | the same program accepted with an `Option[String]` return and rejected with a `String` return |
 | L3 does *not* block a framework | a mini framework (`TestCase` with a pinned `{Throw[AssertionError] \| Id} Unit` body, `assertEquals`, `runCase`) run against the fake `Terminal`: `PASS greet`, and `FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'` with the expectation changed |
 | L3's actual constraint | the run inside the pinned body ⤳ `Expected: {Throw[AssertionError] \| Id} Session[Type]` / `Actual: {Throw[AssertionError] \| Id} Unit`; moved to its own definition, it compiles |

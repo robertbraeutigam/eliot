@@ -45,8 +45,10 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
       |""".stripMargin
 
   /** A side effect reaching a computation pinned to the pure base: the `TestCase` field's row is pinned to `Id`, which
-    * has no `Suspend` instance *by design*, so `printLine` cannot run there. The demand surfaces as `Suspend[Id]` —
-    * before this gate it read "No ability implementation found for ability 'Suspend' with type arguments [Id]".
+    * has no `Suspend` instance *by design*, so `printLine` cannot run there. The demand that fails is the user's own
+    * `Console` at that row — the jvm instance declines for want of `Suspend` (constraint-aware declination,
+    * docs/testing-effects.md L1) — and the base of the row is what earns the effect-vocabulary wording instead of
+    * "No ability implementation found for ability 'Console' with type arguments [{Throw[String] | Id}]".
     */
   private val sideEffectOnPureBase =
     """import eliot.lang.Id
@@ -103,7 +105,7 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
 
   "a side effect on the pure identity base" should "be explained in effect vocabulary, not as a missing instance" in {
     compileErrors(sideEffectOnPureBase).asserting(
-      _.mkString should include("performs a side effect, but the computation it runs in is pure")
+      _.mkString should include("cannot run here, because the computation it runs in is pure")
     )
   }
 
