@@ -1,10 +1,11 @@
 # Testing Strategy: Substituting Effect Implementations
 
-Status: **adopted, L1 fixed**. The core mechanism works for application-owned abilities
+Status: **adopted, done**. The core mechanism works for application-owned abilities
 (`examples/src/EffectsFakeCarrier.els`) *and*, since constraint-aware declination landed, for the stdlib effects
 (`examples/src/EffectsFakeConsole.els` — a fake `Console`, both verified end-to-end), and so does a test framework
-built on it (§3, L3). One limitation (L2) is left, an everyday papercut; it is analysed below with the exact code
-that causes it and a proposed fix.
+built on it: `examples/src/EffectsTestFramework.els` is one, in three definitions, returning the `data TestResult` a
+test author would naturally write. Both limitations that were open are fixed (L1, L2, below, each with the code that
+caused it); L3 was downgraded to "needs nothing" and is a later convenience only.
 
 ## 1. The question
 
@@ -45,11 +46,11 @@ implement Terminal[Session] {
 }
 
 // Instantiating `greet` at `Session` and running it yields a plain value to assert on.
-def greetSession: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
+def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
 ```
 
-`greetSession` evaluates to `Pair(unit, Pair("Bob", "Hello, Bob!;"))`. No I/O happened, and no line of `greet`
-changed. This runs today; `examples/src/EffectsFakeCarrier.els` is the whole program.
+`greetTranscript` evaluates to `"Hello, Bob!;"`. No I/O happened, and no line of `greet` changed. This runs today;
+`examples/src/EffectsFakeCarrier.els` is the whole program.
 
 Three properties fall out of the existing design rather than being added for testing:
 
@@ -89,11 +90,11 @@ substitution.
   whole-program integration tests and suits nothing finer. Note it is an alternative to, not a variant of, the
   above: a test layer added *beside* `jvm` would collide at the merge ("Has multiple implementations").
 
-## 3. What blocks this from being the whole story
+## 3. What stood in the way, and what each fix took
 
 Three limitations, all established empirically against the tree at the time of writing. None is a flaw in the
-strategy; each is a mechanism that had not been extended to reach it. **L1 is fixed** — what it took is recorded
-below, since the second half of it was not visible until the first half was done.
+strategy; each is a mechanism that had not been extended to reach it. **L1 and L2 are fixed** — what each took is
+recorded below, since in both cases the second half was not visible until the first half was done.
 
 ### L1 — Catch-all library instances made every stdlib effect ambiguous — *fixed*
 
@@ -164,7 +165,7 @@ being `Id`. `AbilityResolver.sideEffectOnPureCarrier` now reads the *base* of th
 (`GroundValueRenderer.baseCarrier`), so any effect demanded on a stack that bottoms out at `Id` keeps the
 pure-base explanation rather than degrading to "no implementation found".
 
-### L2 — The pre-monomorphization row verifier false-positives on a nullary return
+### L2 — The pre-monomorphization row verifier charged the harness for the effect it faked — *fixed*
 
 ```
 error: This value performs the effect 'Terminal' but does not declare it; add it to its { ... } effect set.
@@ -174,43 +175,80 @@ The *post*-monomorphization channel gets this right: `EffectAccountingProcessor`
 test — an effect counts only if it is performed on the value's own ambient carrier — and a fake-carrier run is by
 construction not on the harness's ambient. The *pre*-monomorphization verifier
 (`RowElaborationProcessor.verifyRow`) works from declarations alone, cannot see that the callee was instantiated
-at a foreign concrete carrier, and reports the leak whenever `RowChecker.RowResult.decidable` holds.
+at a foreign concrete carrier, and reported the leak whenever `RowChecker.RowResult.decidable` held.
 
-`decidable` is `declared.nonEmpty || !returnMayCarry`. So the identical harness is accepted or rejected purely on
+`decidable` was `declared.nonEmpty || !returnMayCarry`. So the identical harness was accepted or rejected purely on
 the shape of its own return type:
 
 ```eliot
-def transcript: Option[String] = Some(second(runRecorded(greeting)("")))   -- applied return: deferred, compiles
+def transcript: Option[String] = Some(second(runRecorded(greeting)("")))   -- applied return: deferred, compiled
 def transcript: String         = second(runRecorded(greeting)(""))        -- nullary return: rejected
 ```
 
-This is why `greetSession` in the example returns `Pair[Unit, Pair[String, String]]`. That is an accident, not a
-design, and a test harness naturally wants to return a `data TestResult(...)` — a nullary concrete type, which
-would be rejected.
+That is why `greetSession` in the example used to return `Pair[Unit, Pair[String, String]]` — an accident, not a
+design, and one that stood between the strategy and the `data TestResult(...)` a test harness naturally wants to
+return.
 
-**Proposed fix**: widen `decidable` to defer whenever a contribution arrives through a slot whose declared type is
-headed by a concrete constructor the definition does not name. Deferring to the post-mono channel is fail-safe,
-since that channel still catches real leaks — it is already the authority on this exact question.
+**Fix — the argument-side undecidability, per row entry** (`RowChecker.fixesCarrier`). The derivation now marks the
+entries that arrive at a slot **fixing a foreign concrete carrier**, and `RowResult.leak` subtracts them
+(`RowResult.undecided`). This is the mirror of `returnMayCarry`: the return side asks "could my own declared return
+be the carrier?", the argument side asks "did this contribution land in someone else's?". Three conditions, each
+narrowing to the fake-carrier shape and each fail-safe *towards deciding*, the direction that keeps a diagnostic at
+the definition:
 
-With L3 downgraded (below), this is the friction that actually remains on the everyday path.
+- the argument is a **saturated call to a callee with a non-empty declared row** — a carrier-generic computation,
+  the only thing a slot can fix the carrier of. An effect that merely *runs* on the way to the slot is a different
+  thing: in `size(makeList(readLine))` the pure `makeList` cannot host `readLine`'s effect, so by §1 rule 1 that
+  effect ran on the ambient and stays charged;
+- the slot's declared type is a **concrete constructor applied to at least one argument**, and not the `Function`
+  arrow. A nullary slot (`s: String`) cannot be a carrier at all. A slot headed by one of the callee's *own*
+  binders (`step: F[Unit]` in `forever`, every effect-transparent combinator) is the opposite case — that binder is
+  instantiated at *this* definition's ambient, which is exactly how an effect rides through a combinator, so it
+  stays decided;
+- the slot is **not what the argument's own declared payload already is**. This was the half that only became
+  visible once the first half was written: `orEmpty(readLine)` hands `readLine`'s declared `Option[String]`
+  straight to an `Option[String]` slot, which is a *payload* delivery, and reading it as a carrier fixing silently
+  dropped the everyday "I forgot the effect set" diagnostic (`EffectDiagnosticVocabularyTest`,
+  `ExamplesIntegrationTest1` both pin it). So the payload must be headed by a *different* concrete constructor,
+  leaving the slot able only to be that constructor applied *to* the payload — `Recorded[A]` over a declared
+  `Unit`. Note it is the *payload* and not the declared return: a rowed callee's return is `F[X]` by the time the
+  row check reads it, `EffectSugarDesugarer` having written its minted carrier binder around the payload, so
+  comparing returns would compare every rowed callee's carrier binder and decide nothing. A generic-headed payload
+  decides nothing either, and stays charged.
+
+A decided capture — a pinned slot, a platform run boundary — is excluded outright: the declaration already says
+exactly what it consumes, and any residual rides on as before.
+
+Deferral is per **row entry** rather than per definition, which the original proposal ("widen `decidable`") would
+have made a whole-definition verdict. Two things fall out of that. An unrelated real leak in the same definition is
+still reported at the definition, in effect vocabulary. And the bound applies to a definition that *does* declare an
+ambient, which the old `declared.nonEmpty` short-circuit got wrong for a *different* ability: a faked `{Console}`
+run inside a `{Log}`-declaring harness must not be charged the faked `Console` either.
+
+**What it costs.** Rows are sets of abilities (§Appendix A.5's accepted approximation), so a definition that mixes a
+faked run with a real leak of *the same* ability defers that entry and the user gets the post-mono symptom — a
+`Type mismatch` at the harness body — instead of the located effect-vocabulary message. The program is still
+rejected, which is the property that matters; only the diagnostic's position and wording degrade, and only in that
+one mixed shape.
 
 ### L3 — The fake run and the assertions must be separate definitions
 
-**This does not block a test framework.** The framework already sketched in `docs/effect-row-tails.md` — a
-`TestCase` whose body is a pinned `{Throw[AssertionError] | Id} Unit` — works as-is against a fake carrier,
-because a pinned slot *is* a captured slot and nothing leaks across it. A complete mini framework (an
-`AssertionError`, `assertEquals`, a `TestCase` with a pinned body, a `runCase` folding
-`runId(runThrow(body(tc)))`) compiles and runs against the fake `Terminal`, printing `PASS greet` and, with the
-expectation changed, `FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'`.
+**This does not block a test framework.** `examples/src/EffectsTestFramework.els` is one — a `transcriptOf` whose
+`program: Recorded[Unit]` slot is the seam, a `data TestResult`, an `expect` and a `report` — and it needs nothing of
+what follows. The richer framework sketched in `docs/effect-row-tails.md` — a `TestCase` whose body is a pinned
+`{Throw[AssertionError] | Id} Unit` — also works as-is against a fake carrier, because a pinned slot *is* a captured
+slot and nothing leaks across it: an `AssertionError`, `assertEquals`, a `TestCase` with a pinned body and a
+`runCase` folding `runId(runThrow(body(tc)))` compiles and runs against the fake `Terminal`, printing `PASS greet`
+and, with the expectation changed, `FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'`.
 
 The one correction is **where the fake run may sit: outside the pinned body, not inside it.**
 
 ```eliot
 -- Step 1: run the production code under the fake carrier, yielding a plain value.
-def greetTranscript: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
+def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
 
 -- Step 2: assert on that value, inside the framework's pinned body.
-def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Bob!;", second(second(greetTranscript))))
+def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Bob!;", greetTranscript))
 ```
 
 Writing the run *inside* the pinned body instead fails, and instructively:
@@ -254,8 +292,8 @@ capture → `RowChecker.pinnedEntries`) applies unchanged:
 def check(name: String, program: {| Session} Unit): TestResult
 ```
 
-It would buy a runner that takes a program on a bespoke carrier directly, and it would subsume L2. Neither is
-needed to ship a test framework, so this is a later convenience, not a prerequisite.
+It would buy a runner that takes a program on a bespoke carrier directly. It is not needed to ship a test framework,
+so this is a later convenience, not a prerequisite — and with L2 fixed it no longer subsumes anything outstanding.
 
 ## 4. Recommendation
 
@@ -265,27 +303,33 @@ needed to ship a test framework, so this is a later convenience, not a prerequis
    declaration in effect accounting). This is what extends the strategy from application-owned abilities to
    `Console`/`Log`/`FileSystem`/`Process`/`Environment` — i.e. to the effects anyone actually wants to fake. It was
    the only blocker.
-3. **Fix L2** (widen `decidable` to defer). A papercut, but it sits on the everyday path: it decides whether a
-   harness may return the `data TestResult` a test author would naturally write.
-4. **L3 needs nothing.** A test framework can be built today on pinned `{… | Id}` bodies; the cost is that a test
-   is run-then-assert rather than a direct-style script. Revisit the declarable capture tag only if that shape
-   turns out to chafe.
+3. ~~**Fix L2**~~ **Done** (`RowChecker.fixesCarrier`: a contribution that a slot fixes to a foreign concrete
+   carrier is deferred, per row entry, to the post-mono channel that already owns the question). It sat on the
+   everyday path: it decided whether a harness may return the `data TestResult` a test author would naturally write,
+   and it now may — `examples/src/EffectsTestFramework.els`.
+4. **L3 needs nothing.** A test framework can be built today on plain values, or on pinned `{… | Id}` bodies; the
+   cost is that a test is run-then-assert rather than a direct-style script. Revisit the declarable capture tag only
+   if that shape turns out to chafe.
 5. Keep **`Dep` + `provide`** documented as the seam-in-the-signature alternative, and **layer swapping** as the
    whole-program integration-test route. Keep **`where`** out of it.
 
 ## 5. Evidence
 
-Everything above was established against the tree, the L1 rows re-checked against the fix:
+Everything above was established against the tree, the L1 and L2 rows re-checked against their fixes:
 
 | Claim | How |
 | --- | --- |
 | A fake carrier interprets a user ability end-to-end | `examples/src/EffectsFakeCarrier.els`, compiled and run; prints `Hello, Bob!;` |
 | A fake carrier interprets a **stdlib** effect end-to-end | `examples/src/EffectsFakeConsole.els`, compiled and run; prints `Hello, Bob!;` from the transcript, with no real output |
+| A test framework on the strategy, returning a nullary `data` | `examples/src/EffectsTestFramework.els`, compiled and run; prints `PASS greet` / `PASS farewell`, with no real output |
 | L1 (before): a fake `Console` instance is ambiguous | a `data Recorded` carrier with `implement Console[Recorded]` ⤳ "Multiple ability implementations found for ability 'Console' with type arguments [Recorded]" |
 | L1 scope | `implement[F[_] ~ Suspend] …` in jvm's `Console`, `Log`, `File`, `Process`, `Environment` |
 | L1 cause | `AbilityMatcher.matchImpl` matches patterns only; `verifyImplementation` added only the `where` guard; `paramConstraints` was read by no ability processor |
 | L1 (after): fake resolves, real instance unaffected, nothing over-resolves | `AbilityConstraintDeclinationTest` — the fake interprets untouched production code, the real instance still resolves for a real carrier *in the same program*, and a carrier with no `Console` of its own resolves nothing |
-| L2 | the same program accepted with an `Option[String]` return and rejected with a `String` return |
+| L2 (before) | the same program accepted with an `Option[String]` return and rejected with a `String` return |
+| L2 (after): the harness's return type is free, and a real leak is still caught | `RowCheckerTest` — the fake-carrier harness derives `{Con}` and leaks nothing; an unrelated `{Bee}` in the same definition is still reported; `takeFake(mkFake(readLine))` and `takeOpt(readOpt)` (an effect that merely *runs* on the way to a concrete slot, and a payload delivery) both stay charged |
+| L2 (after): the everyday "I forgot the effect set" diagnostic is untouched | `EffectDiagnosticVocabularyTest` / `ExamplesIntegrationTest1` — `def helper: String = printLine(orEmpty(readLine))` still reads "performs the effect 'Console' but does not declare it" |
+| L2's residual cost | a harness mixing a faked run with a real leak of the *same* ability is still rejected, but as a post-mono `Type mismatch` at the harness body rather than the located effect message |
 | L3 does *not* block a framework | a mini framework (`TestCase` with a pinned `{Throw[AssertionError] \| Id} Unit` body, `assertEquals`, `runCase`) run against the fake `Terminal`: `PASS greet`, and `FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'` with the expectation changed |
 | L3's actual constraint | the run inside the pinned body ⤳ `Expected: {Throw[AssertionError] \| Id} Session[Type]` / `Actual: {Throw[AssertionError] \| Id} Unit`; moved to its own definition, it compiles |
 | pinning over the fake carrier does not help | `{Throw[AssertionError] \| Session} Unit` ⤳ "performs the effects 'Terminal', 'Transcript' but does not declare them" *and* "No ability implementation found for ability 'Transcript' with type arguments [{Throw[AssertionError] \| Session}]" |

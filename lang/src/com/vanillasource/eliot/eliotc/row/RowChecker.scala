@@ -74,6 +74,12 @@ object RowChecker {
     *   True when the definition's declared return type is headed by a platform *run carrier* (`def main: IO[Unit]` —
     *   the carrier read off a registered run boundary's own parameter, never guessed from a name): the nominal-run
     *   spelling of a boundary, where the whole derived row is captured by the concrete carrier, so nothing leaks.
+    * @param undecided
+    *   The entries that reached the row through a slot **fixing a foreign concrete carrier** ([[fixesCarrier]]) — they
+    *   are performed, but on that carrier rather than on this definition's ambient, and only the instantiation says so.
+    *   The argument-side counterpart of [[returnMayCarry]], and the reason a fake-carrier test harness is not reported
+    *   as a leak (`docs/testing-effects.md` L2). Kept per entry rather than as one "undecidable" flag so an unrelated
+    *   real leak in the same definition is still reported here.
     */
   case class RowResult(
       vfqn: ValueFQN,
@@ -81,13 +87,20 @@ object RowChecker {
       declared: Row,
       unknownCallees: Set[ValueFQN],
       runCaptured: Boolean = false,
-      returnMayCarry: Boolean = false
+      returnMayCarry: Boolean = false,
+      undecided: Row = Set.empty
   ) {
 
     /** The effects performed but not declared — non-empty is the v3 diagnostic "performs the effect 'X' but does not
       * declare it", located at this definition.
+      *
+      * [[undecided]] entries drop out: they are performed on a carrier this derivation cannot see, so charging them here
+      * would report the fake-carrier testing strategy as a leak (`docs/testing-effects.md` L2). What answers for them is
+      * the post-mono [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]], whose *ride
+      * test* decides the same question against the ground carriers and which gates codegen unconditionally — so
+      * deferring costs a diagnostic its *position*, never the diagnostic.
       */
-    def leak: Row = if (runCaptured) Set.empty else derived -- declared
+    def leak: Row = if (runCaptured) Set.empty else derived -- declared -- undecided
 
     /** Whether a [[leak]] here is decidable from declarations alone, and so may be *reported* at this definition.
       *
@@ -99,6 +112,10 @@ object RowChecker {
       * pre-mono derivation can see. Those stay with the post-mono
       * [[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]] and the checker's own carrier
       * resolution.
+      *
+      * This is the *return* side of the same undecidability [[undecided]] tracks on the argument side. It stays a whole
+      * definition's verdict because a return type is a property of the definition, where a slot capture is a property of
+      * one contribution.
       */
     def decidable: Boolean = declared.nonEmpty || !returnMayCarry
   }
@@ -145,7 +162,8 @@ object RowChecker {
         declared,
         derivation.unknown,
         runCaptured = headOf(view.returnType.value).exists(runCarrierHeads(universe).contains),
-        returnMayCarry = mayCarry(view.returnType.value)
+        returnMayCarry = mayCarry(view.returnType.value),
+        undecided = derivation.undecided.filterNot(machinery)
       )
     }
 
@@ -274,11 +292,18 @@ object RowChecker {
   def peelBinders(expr: OperatorResolvedExpression): (Seq[String], OperatorResolvedExpression) =
     peelLambdas(expr)
 
-  /** A derivation in progress: the row performed plus the referenced names the universe could not resolve. */
-  private case class Derivation(row: Row, unknown: Set[ValueFQN]) {
-    def |+|(other: Derivation): Derivation        = Derivation(row ++ other.row, unknown ++ other.unknown)
-    def minus(entries: Row): Derivation           = copy(row = row -- entries)
-    def clearedWhen(cleared: Boolean): Derivation = if (cleared) copy(row = Set.empty) else this
+  /** A derivation in progress: the row performed, the referenced names the universe could not resolve, and the subset of
+    * the row that arrived through a carrier-fixing slot ([[RowResult.undecided]]).
+    */
+  private case class Derivation(row: Row, unknown: Set[ValueFQN], undecided: Row = Set.empty) {
+    def |+|(other: Derivation): Derivation        =
+      Derivation(row ++ other.row, unknown ++ other.unknown, undecided ++ other.undecided)
+    def minus(entries: Row): Derivation           = copy(row = row -- entries, undecided = undecided -- entries)
+    def clearedWhen(cleared: Boolean): Derivation =
+      if (cleared) copy(row = Set.empty, undecided = Set.empty) else this
+
+    /** Mark this contribution's entries as ones the declared world cannot place — see [[fixesCarrier]]. */
+    def undecidedAt(fixesCarrier: Boolean): Derivation = if (fixesCarrier) copy(undecided = undecided ++ row) else this
 
     /** Keep only what rides the enclosing definition's ambient carrier — see [[capturedByStack]]. */
     def ridingOn(ambient: Row, universe: Universe): Derivation = minus(capturedByStack(row, ambient, universe))
@@ -342,9 +367,14 @@ object RowChecker {
         val runBoundary = universe.runBoundaries.contains(name.value)
         args.zipWithIndex
           .map { case (arg, i) =>
+            val pinned   = pinnedEntries(orvOpt, i)
+            val captured = pinned.nonEmpty || (runBoundary && i == 0)
             argumentContribution(arg.value, env, ambient, universe)
-              .minus(pinnedEntries(orvOpt, i))
+              .minus(pinned)
               .clearedWhen(runBoundary && i == 0)
+              // A decided capture (pinned, run boundary) is never also undecidable: the declaration says exactly what
+              // it consumes, and any residual rides on as usual.
+              .undecidedAt(!captured && fixesCarrier(orvOpt, i, arg.value, universe))
           }
           .foldLeft(callee)(_ |+| _)
       case FunctionLiteral(_, _, body) if args.nonEmpty =>
@@ -417,6 +447,89 @@ object RowChecker {
       case Some(orv) => Derivation.of(declaredRow(orv))
       case None      => Derivation.unknown(fqn)
     }
+
+  /** Whether the callee's slot at `index` **fixes the carrier** of the computation delivered to it — the argument-side
+    * undecidability of the pre-mono derivation (`docs/testing-effects.md` L2), and the reason a fake-carrier test
+    * harness compiles whatever its return type is.
+    *
+    * The shape is the whole testing strategy: production code declaring `{Console}` is carrier-generic, and a test runs
+    * it by handing it to a slot declared at the test's own carrier — `runRecorded(obj: Recorded[A])`, the field accessor
+    * of `data Recorded[A](...)`. That slot instantiates the callee's minted binder to `Recorded`, so the effect lands
+    * inside the fake and rides nothing of *this* definition. Only the instantiation says so, and this derivation has no
+    * types, so the honest answer is "cannot decide": the entries land in [[RowResult.undecided]] and drop out of
+    * [[RowResult.leak]], leaving them to the post-mono channel whose ride test answers them exactly.
+    *
+    * Three conditions, each narrowing to that shape and each fail-safe *towards deciding* (the direction that keeps a
+    * diagnostic at the definition):
+    *
+    *   - the argument is a **saturated call to a callee with a non-empty declared row** — a carrier-generic computation,
+    *     the only thing a slot can fix a carrier of. An effect that merely *runs* on the way to the slot is not this
+    *     case: in `size(makeList(readLine))` the pure `makeList` cannot host `readLine`'s effect, so it ran on the
+    *     ambient (§1 rule 1) and stays charged here;
+    *   - the slot's declared type is a **concrete constructor applied to at least one argument**, and not the
+    *     `Function` arrow. A nullary slot (`s: String`) is a payload and cannot be a carrier at all — the mirror of
+    *     [[mayCarry]] on the return. A slot headed by one of the callee's *own* binders (`step: F[Unit]` in `forever`,
+    *     every effect-transparent combinator) is the opposite case: that binder is instantiated at *this* definition's
+    *     ambient, which is how an effect rides through, so it stays decided. An arrow is never a carrier (`Function` is
+    *     the one primitive Π-former) and its codomain's row is read as a latent row instead;
+    *   - the slot is **not what the argument's own declared payload already is**: the payload must be headed by a
+    *     *different* concrete constructor, so that the slot can only be that constructor applied *to* the payload. This
+    *     is what separates fixing a carrier from delivering a payload — `orEmpty(readLine)` hands `readLine`'s declared
+    *     `Option[String]` straight to an `Option[String]` slot, so the effect ran here and is charged here, where
+    *     `runRecorded(greeting("Bob"))` hands a declared `Unit` to a `Recorded[A]` slot. A generic-headed payload
+    *     decides nothing and so stays charged, the conservative direction.
+    */
+  private def fixesCarrier(
+      callee: Option[OperatorResolvedValue],
+      index: Int,
+      arg: OperatorResolvedExpression,
+      universe: Universe
+  ): Boolean = {
+    val fixed = for {
+      slotHead    <- slotType(callee, index).flatMap(carrierShapeHead)
+      computation <- carrierGenericComputation(arg, universe)
+      payloadHead <- headOf(payloadOf(SignatureView.of(computation.signature).returnType.value))
+    } yield payloadHead != slotHead
+    fixed.getOrElse(false)
+  }
+
+  /** What a declared return type *carries*: the last argument of an applied return (`F[Str]` ⇒ `Str`), which is where a
+    * rowed callee's payload sits once [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]] has written
+    * its minted carrier binder around it. A non-applied return is its own payload.
+    */
+  private def payloadOf(tpe: OperatorResolvedExpression): OperatorResolvedExpression =
+    spine(tpe)._2.lastOption.map(_.value).getOrElse(tpe)
+
+  private def slotType(callee: Option[OperatorResolvedValue], index: Int): Option[OperatorResolvedExpression] =
+    callee.flatMap(orv => SignatureView.of(orv.signature).parameters.lift(index)).map(_.value)
+
+  /** The head of a declared slot type that could be a concrete carrier applied to its payload (`Recorded[A]`,
+    * `Session[A]`) — an applied type headed by a resolved name other than the `Function` arrow.
+    */
+  private def carrierShapeHead(tpe: OperatorResolvedExpression): Option[ValueFQN] = {
+    val (head, args) = spine(tpe)
+    head match {
+      case ValueReference(name, _) if args.nonEmpty && !isFunctionReference(head) => Some(name.value)
+      case _                                                                     => None
+    }
+  }
+
+  /** The callee an argument expression *is a carrier-generic computation of*: a saturated reference to a value that
+    * declares a row, and so carries its effects in whatever carrier the receiving slot instantiates it at.
+    */
+  private def carrierGenericComputation(
+      arg: OperatorResolvedExpression,
+      universe: Universe
+  ): Option[OperatorResolvedValue] = {
+    val (head, args) = spine(arg)
+    head match {
+      case ValueReference(name, _) =>
+        universe
+          .lookup(name.value)
+          .filter(orv => args.sizeIs >= SignatureView.of(orv.signature).parameters.size && declaredRow(orv).nonEmpty)
+      case _                       => None
+    }
+  }
 
   /** The entries a callee's pinned parameter at `index` discharges, from the R2-recorded row metadata. */
   private def pinnedEntries(callee: Option[OperatorResolvedValue], index: Int): Row =

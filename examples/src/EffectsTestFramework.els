@@ -1,0 +1,84 @@
+import eliot.carrier.Effect
+
+/**
+ * A **miniature test framework** for effectful code, built entirely out of the fake-carrier strategy
+ * (`docs/testing-effects.md`). `EffectsFakeConsole` shows the mechanism on a single value; this is what it looks like
+ * once it is factored into the two pieces a suite actually needs:
+ *
+ *   - `transcriptOf` — one helper whose `program: Recorded[Unit]` slot *is* the seam. Handing carrier-generic
+ *     production code to it instantiates that code's carrier at the pure `Recorded`, so what would have been printed
+ *     is returned as a `String` instead;
+ *   - `TestResult` — an ordinary `data` a test returns, so a suite is a list of plain values to report on.
+ *
+ * Note what the production code does *not* have: no injected handler, no extra parameter, no test hook, not even a
+ * mention of `Recorded`. It declares `{Console}` and names no carrier, and that is the whole of its testability.
+ *
+ * Two shapes are forced, and both are properties of the design rather than of this example. A test is
+ * **run-then-assert**: the fake run must sit in a definition with no ambient carrier of its own, since a region writes
+ * every carrier-generic callee at *its* carrier, so `transcriptOf(greet("Bob"))` cannot be written inside an
+ * effectful body. And the fake can never cheat: `Recorded` has no `Suspend` instance, and `Suspend` is the only route
+ * to a native side effect, so a pure test carrier is *structurally* incapable of touching the real console.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m EffectsTestFramework
+ * java -jar target/EffectsTestFramework.jar
+ * ```
+ */
+
+// --- Production code: carrier-generic, direct style, unaware that a test exists. ------------------------------------
+
+def greet(name: String): {Console} Unit = printLine("Hello, " ++ name ++ "!")
+
+def farewell(name: String): {Console} Unit = {
+   printLine("Goodbye, " ++ name ++ ".")
+   printLine("Come back soon!")
+}
+
+// --- The test double: a pure carrier threading the accumulated transcript. ------------------------------------------
+
+data Recorded[A](runRecorded: Function[String, Pair[A, String]])
+
+implement Effect[Recorded] {
+   def pure[A](a: A): Recorded[A] = Recorded(w -> Pair(a, w))
+
+   def flatMap[A, B](f: Function[A, Recorded[B]], fa: Recorded[A]): Recorded[B] =
+      Recorded(w -> foldPair(a -> w2 -> runRecorded(f(a))(w2), runRecorded(fa)(w)))
+
+   def map[A, B](f: Function[A, B], fa: Recorded[A]): Recorded[B] =
+      Recorded(w -> foldPair(a -> w2 -> Pair(f(a), w2), runRecorded(fa)(w)))
+}
+
+// The fake interpretation of the standard `Console` ability, legally colocated with `Recorded` (an instance may live
+// with the ability *or* with one of its type arguments) and confined to this program, since compilation is
+// whole-program monomorphization from `main`.
+implement Console[Recorded] {
+   def printLine(s: String): Recorded[Unit] = Recorded(w -> Pair(unit, w ++ s ++ ";"))
+
+   def readLine: Recorded[Option[String]] = Recorded(w -> Pair(None, w))
+}
+
+// --- The framework: three definitions, no compiler support of its own. ----------------------------------------------
+
+// What a `{Console}` program wrote, with no console involved. Every test goes through this one slot.
+def transcriptOf(program: Recorded[Unit]): String = second(runRecorded(program)(""))
+
+data TestResult(name: String, failure: Option[String])
+
+def expect(name: String, expected: String, actual: String): TestResult =
+   if(expected == actual, TestResult(name, None))
+   else TestResult(name, Some("expected '" ++ expected ++ "' but was '" ++ actual ++ "'"))
+
+def report(result: TestResult): {Console} Unit =
+   printLine(failure(result).foldOption("PASS " ++ name(result), f -> "FAIL " ++ name(result) ++ ": " ++ f))
+
+// --- The tests. ------------------------------------------------------------------------------------------------------
+
+def greetTest: TestResult = expect("greet", "Hello, Bob!;", transcriptOf(greet("Bob")))
+
+def farewellTest: TestResult =
+   expect("farewell", "Goodbye, Bob.;Come back soon!;", transcriptOf(farewell("Bob")))
+
+def main: {Console} Unit = {
+   report(greetTest)
+   report(farewellTest)
+}

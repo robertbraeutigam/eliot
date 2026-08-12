@@ -224,13 +224,16 @@ what declarations settle, at the definition, before anything downstream runs. Th
 `EffectAccountingProcessor` (`derived ⊆ declared` at ground mono keys, codegen precondition) remains the
 unconditional fail-safe, per the use-site-verification cornerstone. Both emit the same message.
 
-The pre-mono check is bounded exactly twice, by what declarations genuinely cannot settle (A.11.6):
-**coverage** — an unknown callee may leave the derivation incomplete; and **decidability** — a definition
-declaring no ambient whose declared return could *itself* be the carrier (an applied `Box[String]`,
-`IO[Unit]`, or a generic-headed return) is the constructor-class shape, settled only by the
-instantiation. Everything else is enforced, including a pure-returning definition that performs an
-effect (the diagnostic the deleted `DeclaredPureChecker` used to voice post-mono, now earlier and naming
-the effect).
+The pre-mono check is bounded exactly three times, by what declarations genuinely cannot settle (A.11.6,
+extended once): **coverage** — an unknown callee may leave the derivation incomplete; **decidability** — a
+definition declaring no ambient whose declared return could *itself* be the carrier (an applied
+`Box[String]`, `IO[Unit]`, or a generic-headed return) is the constructor-class shape, settled only by the
+instantiation; and, per row entry, a contribution delivered to a slot that **fixes a foreign concrete
+carrier** (`RowChecker.fixesCarrier`) — a carrier-generic callee handed to a `Recorded[A]` slot performs
+in *that* carrier, not on this definition's ambient, which is the whole of the fake-carrier testing
+strategy (`docs/testing-effects.md` L2). All three defer to accounting's ride test, which decides them
+exactly. Everything else is enforced, including a pure-returning definition that performs an effect (the
+diagnostic the deleted `DeclaredPureChecker` used to voice post-mono, now earlier and naming the effect).
 
 ## 3. Elaboration: a desugar, not a checker mode
 
@@ -634,12 +637,16 @@ Judgments are per definition, over the operator-resolved body, reading only *dec
   *ride test* against the ground ambient carrier this mirrors, remains the unconditional verifier.
 - **contrib** at slot *i*: `contrib(aᵢ) = (row(aᵢ) ∪ latent(aᵢ)) ∖ pinnedEntries(f, i)` — the subtraction
   applies only when slot *i* is pinned; every non-pinned slot, strict *or suspended*, contributes
-  identically.
+  identically. A non-pinned slot that **fixes a foreign concrete carrier** (`fixesCarrier(f, i, aᵢ)`:
+  `aᵢ` is a saturated call to a rowed callee, and the slot is a concrete constructor — not `Function`, not
+  one of `f`'s own binders — headed differently from that callee's declared *payload*) still
+  contributes, but its entries are recorded as *undecided* and drop out of the leak: they are performed in
+  the slot's carrier, not on this definition's ambient (§2's third bounding).
 - **latent**: `latent(λx.e) = row(e)`; `latent(under-applied ref f) = declared(f)`; else `∅`.
 - **declared**: open-row return entries ∪ the effects constrained on the signature's carrier binders
   (machinery excluded); an effect-ability method's contribution is its own ability.
-- **check**: `row(peeled body) ⊆ declared`, reported at the definition, bounded by coverage and
-  decidability (§2).
+- **check**: `row(peeled body) ∖ undecided ⊆ declared`, reported at the definition, bounded by coverage,
+  decidability and carrier-fixing slots (§2).
 
 `RowElaborator.performs` reads the same derivation against the **region's** row, not the definition's:
 inside a pinned capture the region carrier provides that slot's pinned entries, and inside a
