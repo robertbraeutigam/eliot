@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -187,23 +186,29 @@ class AbilityResolver(
       }
     }
 
-  /** The one unresolvable ability demand that has a story worth telling instead of an ability name: `Suspend` at the
-    * identity carrier `Id`. `Id` has no `Suspend` instance **by design** (docs/effects-as-channel.md §6) — that absence
-    * is precisely what stops real I/O from running in a pure computation — so this demand always means the same thing:
-    * a side-effecting action reached a computation whose carrier is (or was pinned to) the pure base. The generic
-    * wording would instead hand the user `with type arguments [Id]`, naming machinery they never wrote and cannot act
-    * on, and it is reported inside the stdlib carrier instance that lifted the demand, not at their own call.
+  /** The one unresolvable ability demand that has a story worth telling instead of an ability name: an effect demanded
+    * on a row whose **base carrier is the identity `Id`**. `Id` has no `Suspend` instance **by design**
+    * (docs/effects-as-channel.md §6) — that absence is precisely what stops real I/O from running in a pure
+    * computation — so such a demand always means the same thing: an action reached a computation whose carrier is (or
+    * was pinned to) the pure base. The generic wording would instead hand the user `with type arguments [Id]`, naming
+    * machinery they never wrote and cannot act on.
+    *
+    * The *base* is what is read, not the argument itself, because since constraint-aware declination
+    * (`AbilityImplementationProcessor.constraintsSatisfied`, docs/testing-effects.md L1) the demand that fails is the
+    * user's own: `printLine` into a `{Throw[String] | Id}` body now fails as `Console` at that row — its jvm instance
+    * declines for want of `Suspend` — rather than as a `Suspend[Id]` raised deep inside the stdlib lift that used to
+    * carry it. Failing at the user's call is the better position; reading the base is what keeps the better wording.
     *
     * [[None]] for every other demand, which keeps the generic message — this only rewords a failure, never creates or
     * suppresses one.
     */
   private def sideEffectOnPureCarrier(abilityName: String, groundArgs: Seq[GroundValue]): Option[String] =
     Option.when(
-      abilityName == EffectMachinery.suspendAbilityName && groundArgs.exists(_.typeFQN.contains(WellKnownTypes.idFQN))
+      groundArgs.exists(arg => GroundValueRenderer.baseCarrier(arg).typeFQN.contains(WellKnownTypes.idFQN))
     )(
-      "This performs a side effect, but the computation it runs in is pure: its effect row is pinned to the identity " +
-        "base 'Id', which carries only the pure control effects (Abort, Throw, State, Dep, Writer). Discharge or run " +
-        "the side effect before this point, or pin the row to a base carrier that can perform it."
+      s"The effect '$abilityName' cannot run here, because the computation it runs in is pure: its effect row is " +
+        "pinned to the identity base 'Id', which carries only the pure control effects (Abort, Throw, State, Dep, " +
+        "Writer). Discharge or run the effect before this point, or pin the row to a base carrier that can perform it."
     )
 
   /** The number of ability-level type parameters of the ability owning `methodVfqn` — read off the ability *marker*'s

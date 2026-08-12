@@ -117,7 +117,13 @@ subset of its data.
     boundaries) and **verification** (`verifyRow` checks `derived ⊆ declared` per definition). `row/RowChecker`
     holds the derivation rules; `row/RunBoundaryFunctions` is the platform run-boundary config key. See the
     *Effects Are a Channel* cornerstone.
-12. **ability** — checks and returns a type-specific ability implementation
+12. **ability** — checks and returns a type-specific ability implementation. Selection is structural (pattern match) and
+    then filtered twice: by the candidate's `where` guard, and by **constraint-aware declination** — a candidate whose
+    `~` constraints have no implementation at the matched bindings declines, so `implement[F[_] ~ Suspend] Console[F]`
+    carries `Console` only for a carrier that can suspend. That is what lets a test declare its own instance for a pure
+    fake carrier without colliding with the library's catch-all (`docs/testing-effects.md` L1); every step of the check
+    is fail-safe *towards keeping*, so it can only remove a candidate that could not have worked. A constraint probe
+    that leads back to a resolution already in progress is answered "satisfied" off `activeFactKeys`, never demanded.
 13. **monomorphize** — the NbE monomorphic type checker: evaluates data and value definitions into typed
     structures and checks all types at every instantiated usage, with the single evaluator. (It absorbed the
     former standalone `eval` phase.) Because `row` already wrote the carrier, the checker sees effects as

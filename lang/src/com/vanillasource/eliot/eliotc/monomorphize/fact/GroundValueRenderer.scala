@@ -86,6 +86,13 @@ object GroundValueRenderer {
       s"${structure.typeName.name.name}[${structure.args.map(render).mkString(", ")}]"
     else s"${structure.typeName.name.name}(${structure.args.map(render).mkString(", ")})"
 
+  /** The carrier a **type constructor** in an ability's `F[_]` slot ultimately sits on: `IO` for
+    * `{Throw[E], State[S] | IO}`, and the value itself when it is not a carrier stack at all. Diagnostics use it to
+    * speak about the *base* of a row rather than about the machinery layered over it — the same rendering-only,
+    * recognised-by-name licence as the rest of this object.
+    */
+  def baseCarrier(value: GroundValue): GroundValue = EffectRowRendering.baseOf(value, peel)
+
   /** A canonical-carrier application rendered as the pinned row that spells it, split according to the caller's context
     * (see the class doc). Ability arguments and the payload are types; the base slot is a type constructor, so [[peel]]
     * reads nested layers in the payload-unapplied form.

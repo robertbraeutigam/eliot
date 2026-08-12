@@ -41,6 +41,19 @@ object EffectRowRendering {
       .map(ability => Layer(ability, args.take(baseIndex), args(baseIndex), Option.when(appliedToPayload)(args.last)))
   }
 
+  /** The carrier a stack ultimately sits on: peel base slot after base slot until the node is no longer a canonical
+    * carrier. `IO` for `ThrowCarrier[E, StateCarrier[S, IO]]`, and the node itself for anything that is not a stack.
+    *
+    * Same *rendering-only* licence as the rest of this object — recognition is by name, so a misrecognition costs a
+    * wrong diagnostic, never a wrong compilation.
+    */
+  @scala.annotation.tailrec
+  def baseOf[A](value: A, peel: A => Option[Layer[A]]): A =
+    peel(value) match {
+      case Some(layer) => baseOf(layer.base, peel)
+      case None        => value
+    }
+
   /** Render a layer as its pinned row. Layers nested in the base slot flatten into further entries (leftmost =
     * outermost = discharged first, matching the surface ordering), and the first non-carrier base ends up after the
     * `|`. A payload-bearing layer renders as `{Throw[E] | IO} String`; a payload-less one (a carrier passed as an

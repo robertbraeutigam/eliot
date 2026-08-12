@@ -158,12 +158,148 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               matched    <- AbilityMatcher.matchImpl(markerSig, expectedTypeArgs)
               verdict    <- matched match {
                               case None    => decline
-                              case Some(m) => dischargeGuard(vfqn, markerVfqn, markerSig, m)
+                              case Some(m) =>
+                                constraintsSatisfied(marker, m, platform).ifM(
+                                  dischargeGuard(vfqn, markerVfqn, markerSig, m),
+                                  decline
+                                )
                             }
             } yield verdict
           case _ => decline
         }
     }
+
+  /** Does every type-parameter constraint of a structurally-matched candidate have an implementation at the bindings
+    * the match produced? A candidate whose `~` constraints cannot be met at these arguments cannot apply, so it
+    * **declines** rather than being kept and colliding with the candidate that does apply
+    * (docs/testing-effects.md L1). This makes `~` mean at *selection* time what it already meant at checking time:
+    * `implement[F[_] ~ Suspend] Console[F]` matches every carrier structurally, but only carries `Console` for a
+    * carrier that can actually suspend — so a pure test carrier's own `Console` instance becomes the unique survivor
+    * instead of an ambiguity, and in production nothing changes because a real carrier does have `Suspend`.
+    *
+    * Every step is **fail-safe towards keeping**: the constraint is only allowed to decline a candidate when its
+    * ability arguments are known exactly. An untraced match (a `metaToGround`-collapsed binding, the same operand
+    * unreliability [[dischargeGuard]] refuses a guard over), a binding that is the defaulted universe, an argument
+    * shape this cannot ground, an unreadable ability arity, an absent probe (its resolution aborted on an error
+    * reported at its own definition) and a cyclic probe all answer "satisfied". So this never *creates* a resolution
+    * failure that the pattern match alone would not have had — it only ever removes a candidate that could not have
+    * worked.
+    */
+  private def constraintsSatisfied(
+      marker: OperatorResolvedValue,
+      matched: AbilityMatcher.Match,
+      platform: Platform
+  ): CompilerIO[Boolean] =
+    if (marker.paramConstraints.isEmpty || !matched.allTraced) true.pure[CompilerIO]
+    else {
+      // The marker's leading generic binders are, in declaration order, exactly the type parameters `matchImpl` bound
+      // — it peels the same lambdas out of the same signature — so zipping recovers the binder name of each binding.
+      val bindings = OperatorResolvedExpression.SignatureView
+        .of(marker.signature)
+        .binders
+        .map(_.name.value)
+        .zip(matched.groundArgs)
+        .toMap
+      marker.paramConstraints.toList
+        .flatMap { case (binderName, constraints) => constraints.map(binderName -> _) }
+        .forallM { case (binderName, constraint) => constraintSatisfied(binderName, constraint, bindings, platform) }
+    }
+
+  /** One `~` constraint of a matched candidate: ground its ability arguments at the match's bindings, then ask whether
+    * that ability is implemented there. Undecidable at any step ⤳ `true` (see [[constraintsSatisfied]]).
+    */
+  private def constraintSatisfied(
+      binderName: String,
+      constraint: OperatorResolvedValue.ResolvedAbilityConstraint,
+      bindings: Map[String, GroundValue],
+      platform: Platform
+  ): CompilerIO[Boolean] =
+    for {
+      arity  <- abilityArity(constraint.abilityFQN, platform)
+      args    = constraintArguments(binderName, constraint, arity, bindings)
+      result <- args match {
+                  case Some(groundArgs) if !groundArgs.exists(mentionsDefaultedUniverse) =>
+                    hasImplementation(constraint.abilityFQN, groundArgs, platform)
+                  case _                                                                 => true.pure[CompilerIO]
+                }
+    } yield result
+
+  /** The constraint's full ability arguments as ground values, or [[None]] when they cannot be determined exactly.
+    *
+    * A constraint spells only the arguments that are not the constrained binder itself: `F[_] ~ Suspend` carries `[F]`
+    * (the binder is supplied as the default when none is written), while `G[_] ~ State[S]` carries `[S]` and means
+    * `State[S, G]`. So the binder is appended exactly when the written arguments are one short of the ability's arity;
+    * any other count is a shape this cannot read, and declines to judge.
+    */
+  private def constraintArguments(
+      binderName: String,
+      constraint: OperatorResolvedValue.ResolvedAbilityConstraint,
+      arity: Option[Int],
+      bindings: Map[String, GroundValue]
+  ): Option[Seq[GroundValue]] =
+    for {
+      abilityArity <- arity
+      declared     <- constraint.typeArgs.toList.traverse(groundArgument(_, bindings))
+      full         <- if (declared.size == abilityArity) Some(declared)
+                      else if (declared.size + 1 == abilityArity) bindings.get(binderName).map(declared :+ _)
+                      else None
+    } yield full
+
+  /** Ground one constraint type-argument expression at the match's bindings: a reference to a bound type parameter is
+    * that parameter's binding, a value reference is its type constructor applied to its own grounded arguments.
+    * Anything else (a literal, a lambda, an application the resolver left unfolded) is [[None]] — not judged.
+    */
+  private def groundArgument(
+      expr: OperatorResolvedExpression,
+      bindings: Map[String, GroundValue]
+  ): Option[GroundValue] =
+    expr match {
+      case OperatorResolvedExpression.ParameterReference(name)      => bindings.get(name.value)
+      case OperatorResolvedExpression.ValueReference(name, typeArgs) =>
+        typeArgs.toList
+          .traverse(typeArg => groundArgument(typeArg.value, bindings))
+          .map(args => GroundValue.Structure(name.value, args, GroundValue.Type))
+      case _                                                        => None
+    }
+
+  /** The number of ability-level type parameters of `abilityFQN`, read off its marker's leading generic binders (the
+    * same read [[com.vanillasource.eliot.eliotc.monomorphize.check.AbilityResolver]] makes to slice a method
+    * reference's arguments). [[None]] when the marker has no signature in this pool.
+    */
+  private def abilityArity(abilityFQN: AbilityFQN, platform: Platform): CompilerIO[Option[Int]] =
+    getFactIfProduced(OperatorResolvedValue.Key(abilityMarkerFqnFor(abilityFQN), platform))
+      .map(_.map(orv => OperatorResolvedExpression.SignatureView.of(orv.signature).binders.length))
+
+  /** Is `abilityFQN` implemented at `groundArgs`? Asked by resolving the ability's own *marker* method, which is the
+    * query "does some implementation of this ability apply here" — the whole candidate/guard machinery of this
+    * processor, re-entered through the fact engine so the answer is computed once and cached.
+    *
+    * Only [[Resolution.NoImplementation]] refutes a constraint. `Ambiguous` means implementations do exist (the
+    * ambiguity is a separate failure, reported at the site that demands the ability itself), and `Rejected` keeps the
+    * instance author's message answerable at that same site rather than degrading it to a silent decline here.
+    *
+    * A **cyclic** probe — a constraint that leads back to a resolution already in progress up this request chain, as a
+    * mutually-constrained pair of instances would — is answered "satisfied" instead of demanded: the read would be
+    * refused by the engine as a dead-lock (and recorded as a global cyclic-demand error), and a candidate must not be
+    * declined for a question we chose not to ask.
+    */
+  private def hasImplementation(
+      abilityFQN: AbilityFQN,
+      groundArgs: Seq[GroundValue],
+      platform: Platform
+  ): CompilerIO[Boolean] = {
+    val probe = AbilityImplementation.Key(abilityMarkerFqnFor(abilityFQN), groundArgs, platform)
+    activeFactKeys.flatMap { ancestors =>
+      if (ancestors.contains(probe)) true.pure[CompilerIO]
+      else getFactIfProduced(probe).map(!_.map(_.resolution).contains(Resolution.NoImplementation))
+    }
+  }
+
+  /** The synthetic marker value an `ability` block mints beside its methods: same local name as the ability, in the
+    * ability's own namespace. Resolving *it* is the "is this ability implemented here" query.
+    */
+  private def abilityMarkerFqnFor(abilityFQN: AbilityFQN): ValueFQN =
+    ValueFQN(abilityFQN.moduleName, QualifiedName(abilityFQN.abilityName, Qualifier.Ability(abilityFQN.abilityName)))
 
   /** Judge a matched candidate by its `where` guard (ability-guards Stage 2). The guard rides the marker's return-type
     * slot (§2.3): an unguarded marker's slot is the literal `eliot.lang.Bool::true` reference, kept verbatim without

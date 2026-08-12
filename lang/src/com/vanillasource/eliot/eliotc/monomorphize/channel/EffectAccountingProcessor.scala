@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.Resolv
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 /** The effects-as-channel **effect accounting** processor (docs/effects-as-channel.md §5) — the post-monomorphization
@@ -125,9 +125,31 @@ class EffectAccountingProcessor
       case Qualifier.AbilityImplementation(name, _) if nonEffectAbility(name)      =>
         Set.empty[AbilityFQN].pure[CompilerIO]
       case Qualifier.AbilityImplementation(name, _)                                =>
-        gatedByRide(Set(AbilityFQN(ref.moduleName, name)), ref, typeArgs, ambient)
+        implementedAbility(ref, name).flatMap(gatedByRide(_, ref, typeArgs, ambient))
       case _                                                                       =>
         declaredEffectsOf(ref).flatMap(gatedByRide(_, ref, typeArgs, ambient))
+    }
+
+  /** The ability an implementation method implements, read off the implementation's own **resolved declaration**
+    * (`Qualifier.AbilityImplementation(abilityFQN, _)`, the one place the ability's module is recorded) rather than
+    * assumed to be where the implementation lives.
+    *
+    * The orphan rule admits two placements — the ability's module, *or* a module of one of its type arguments — and
+    * `ref.moduleName` names the ability's module only in the first. The second is exactly what a fake carrier does: a
+    * test's own `implement Console[Recorded]` is colocated with `Recorded`, so reading the module off the reference
+    * derived `Console@<the test's module>` while the faked production value declared `Console@eliot.effect.Console`,
+    * and the subset check reported an undeclared effect for an effect that *was* declared (docs/testing-effects.md,
+    * the strategy L1 unblocks). Colocated instances — every stdlib one — resolve to the same FQN as before.
+    *
+    * Falls back to the reference's own module when the front-end fact is unavailable, which is the previous reading and
+    * the conservative one: it can only widen `derived`, never shrink it.
+    */
+  private def implementedAbility(ref: ValueFQN, abilityName: String): CompilerIO[Set[AbilityFQN]] =
+    getFactIfProduced(OperatorResolvedValue.Key(ref, Platform.Runtime)).map { orv =>
+      Set(orv.map(_.name.value.qualifier) match {
+        case Some(ResolveQualifier.AbilityImplementation(abilityFQN, _)) => abilityFQN
+        case _                                                          => AbilityFQN(ref.moduleName, abilityName)
+      })
     }
 
   /** Ability names that are **never** a user effect and must not contribute even if they ride: the compiler machinery
