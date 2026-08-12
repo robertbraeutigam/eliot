@@ -54,9 +54,11 @@ implement Terminal[Session] {
 }
 
 // Running the fake: unification instantiates `greet`'s minted carrier to `Session`, ability resolution picks the fake
-// instance, and the result is a plain value a test can assert on. The run must be written *inside* the definition that
-// yields the transcript, and that definition's declared return type must be an applied one (here `Pair[...]`) — both
-// are current limitations of the pre-monomorphization row verifier, not of the semantics (`docs/testing-effects.md`).
+// instance, and the result is a plain value a test framework can then assert on inside its own pinned `{... | Id}` body.
+// Two shapes are forced here (`docs/testing-effects.md` §3): the run must sit in a definition with **no ambient carrier
+// of its own**, since a region writes every carrier-generic callee at *its* carrier; and that definition's declared
+// return must be an *applied* type (here `Pair[...]`), which is a limitation of the pre-monomorphization row verifier
+// rather than of the semantics.
 def greetSession: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
 
 def main: {Console} Unit = printLine(second(second(greetSession)))

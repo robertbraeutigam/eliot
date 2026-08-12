@@ -1,9 +1,9 @@
 # Testing Strategy: Substituting Effect Implementations
 
 Status: **design note**. The core mechanism *works today* (`examples/src/EffectsFakeCarrier.els`, verified
-end-to-end). Three limitations block it from reaching the stdlib effects and from being packaged as a test
-framework; each is analysed below with the exact code that causes it and a proposed fix. No compiler change is
-made by this note.
+end-to-end), and so does a test framework built on it (§3, L3). One limitation (L1) blocks it from reaching the
+stdlib effects and one (L2) is an everyday papercut; each is analysed below with the exact code that causes it and
+a proposed fix. No compiler change is made by this note.
 
 ## 1. The question
 
@@ -151,49 +151,74 @@ This is why `greetSession` in the example returns `Pair[Unit, Pair[String, Strin
 design, and a test harness naturally wants to return a `data TestResult(...)` — a nullary concrete type, which
 would be rejected.
 
-**Proposed fix**: subsumed by L3's tag. Once the run site is declared, the contribution is cleared at the source
-and the return type stops mattering. Absent that, `decidable` would have to be widened to defer whenever a
-contribution arrives through a slot whose declared type is headed by a concrete constructor the definition does
-not name — deferring to the post-mono channel is fail-safe, since that channel still catches real leaks.
+**Proposed fix**: widen `decidable` to defer whenever a contribution arrives through a slot whose declared type is
+headed by a concrete constructor the definition does not name. Deferring to the post-mono channel is fail-safe,
+since that channel still catches real leaks — it is already the authority on this exact question.
 
-### L3 — A program cannot be passed to a runner, which is what blocks a test framework
+With L3 downgraded (below), this is the friction that actually remains on the everyday path.
+
+### L3 — The fake run and the assertions must be separate definitions
+
+**This does not block a test framework.** The framework already sketched in `docs/effect-row-tails.md` — a
+`TestCase` whose body is a pinned `{Throw[AssertionError] | Id} Unit` — works as-is against a fake carrier,
+because a pinned slot *is* a captured slot and nothing leaks across it. A complete mini framework (an
+`AssertionError`, `assertEquals`, a `TestCase` with a pinned body, a `runCase` folding
+`runId(runThrow(body(tc)))`) compiles and runs against the fake `Terminal`, printing `PASS greet` and, with the
+expectation changed, `FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'`.
+
+The one correction is **where the fake run may sit: outside the pinned body, not inside it.**
 
 ```eliot
-def transcriptOf(input: String, program: Session[Unit]): Option[String] = ...
-def main: {Console} Unit = printLine(transcriptOf("Bob", greet) ...)
---                                                     ^ error: performs the effect 'Terminal' but does not declare it
+-- Step 1: run the production code under the fake carrier, yielding a plain value.
+def greetTranscript: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
+
+-- Step 2: assert on that value, inside the framework's pinned body.
+def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Bob!;", second(second(greetTranscript))))
 ```
 
-An argument's effects are subtracted from the caller's derived row in exactly two cases
-(`RowChecker.valueRow`): the slot is a **pinned row** (`pinnedEntries`), or the callee is a **registered run
-boundary** and the slot is parameter 0 (`clearedWhen`). A user's test carrier can be neither:
+Writing the run *inside* the pinned body instead fails, and instructively:
 
-- pinning requires the ability's canonical `<Ability>Carrier`, which forces *the* interpretation and so is the one
-  thing a fake must not use — and `Suspend`-riding abilities like `Console` have no canonical carrier at all;
-- `RunBoundaryFunctions` is a plugin-contributed `Configuration` key. Only a compiler plugin can add to it.
+```
+Expected: {Throw[AssertionError] | Id} Session[Type]
+Actual:   {Throw[AssertionError] | Id} Unit
+```
 
-So the run must be inlined into the definition that yields the result, and a reusable
-`def check(name: String, program: Session[Unit]): TestResult` — the core of any test framework — cannot be
-written. This is the limitation that actually matters: the out-of-tree test framework sketched in
-`docs/effects-as-rows.md` §A.11.13 gets its `TestCase` bodies as *pinned* rows precisely because this is missing.
+Inside a pinned region the ambient carrier **is** the pinned stack, and the elaborator writes every
+carrier-generic callee at the region's carrier — carriers are rigid and the checker never solves for one, which is
+the whole point of the design. So `greet` there is written at `ThrowCarrier[AssertionError, Id]`, not at
+`Session`, and `Session` gets pushed into the payload slot. A carrier-generic value can only be instantiated at a
+foreign carrier in a region that has no ambient carrier of its own.
 
-**Proposed fix — a user-declarable capture tag.** Let a parameter declare that it *hosts* a computation on the
-carrier its type names, rather than receiving it as data. This is not a new concept: it is the same tag the
+What that costs, and it is a real constraint rather than a defect: a test is **run-then-assert**, never
+interleaved. You cannot assert part-way through a faked run, or make later fake input depend on an earlier
+assertion.
+
+The richer shape — pin the assertion effect *over the fake carrier*, `{Throw[AssertionError] | Session} Unit`, so
+a test body is a direct-style script mixing effects and assertions — fails twice, and both failures are worth
+recording:
+
+1. `This value performs the effects 'Terminal', 'Transcript' but does not declare them.` Only a pinned row's
+   *entries* are subtracted, and a fake's abilities have no canonical `<Ability>Carrier`, so they cannot be
+   entries — the tail names the base carrier, not the abilities riding it.
+2. `No ability implementation found for ability 'Transcript' with type arguments [{Throw[AssertionError] | Session}].`
+   The ability must be implemented for the **whole stack**, not the base. Production `Console` reaches through
+   `ThrowCarrier`/`StateCarrier` for free because it rides `Suspend` and every transformer carries a `Suspend`
+   lift; a user-defined fake ability rides nothing, so it needs its own lift instance per layer.
+
+**Proposed fix, no longer on the critical path — a user-declarable capture tag.** Let a parameter declare that it
+*hosts* a computation on the carrier its type names, rather than receiving it as data. This is the same tag the
 platform already contributes for `runMain`'s `io: IO[A]` (carrier-recognition source (ii)), made declarable
-instead of plugin-only. The `RunBoundaryFunctions` doc is right that shape detection cannot decide this soundly —
-but a *declaration* can, which is exactly why the platform declares it.
-
-The cheapest surface reuses the pinned-row syntax with no ability entries, so the whole existing tag pipeline
-(`EffectRow.pinnedParameterIndices` → elaborator capture → `RowChecker.pinnedEntries`) applies unchanged:
+instead of plugin-only; the `RunBoundaryFunctions` doc is right that *shape detection* cannot decide this soundly,
+but a *declaration* can, which is exactly why the platform declares it. The cheapest surface reuses pinned-row
+syntax with no ability entries, so the existing tag pipeline (`EffectRow.pinnedParameterIndices` → elaborator
+capture → `RowChecker.pinnedEntries`) applies unchanged:
 
 ```eliot
 def check(name: String, program: {| Session} Unit): TestResult
 ```
 
-`{| Session} A` denotes exactly `Session[A]` and differs only in carrying the capture tag. The syntax is a
-bikeshed; the requirement is that the tag be *stated at the declaration* rather than inferred from the type.
-
-This fixes L2 as a side effect, and it is what turns section 2 from a technique into a library.
+It would buy a runner that takes a program on a bespoke carrier directly, and it would subsume L2. Neither is
+needed to ship a test framework, so this is a later convenience, not a prerequisite.
 
 ## 4. Recommendation
 
@@ -201,10 +226,13 @@ This fixes L2 as a side effect, and it is what turns section 2 from a technique 
    the direct consequence of effects being rows over an inferable carrier, and it is already demonstrably working.
 2. **Fix L1** (constraint-aware declination). Small, local to `AbilityImplementationProcessor`, and it is what
    extends the strategy from application-owned abilities to `Console`/`Log`/`FileSystem`/`Process`/`Environment` —
-   i.e. to the effects anyone actually wants to fake.
-3. **Fix L3** (a declarable capture tag), which subsumes L2 and is the precondition for an in-tree or out-of-tree
-   test framework.
-4. Keep **`Dep` + `provide`** documented as the seam-in-the-signature alternative, and **layer swapping** as the
+   i.e. to the effects anyone actually wants to fake. It is the only blocker.
+3. **Fix L2** (widen `decidable` to defer). A papercut, but it sits on the everyday path: it decides whether a
+   harness may return the `data TestResult` a test author would naturally write.
+4. **L3 needs nothing.** A test framework can be built today on pinned `{… | Id}` bodies; the cost is that a test
+   is run-then-assert rather than a direct-style script. Revisit the declarable capture tag only if that shape
+   turns out to chafe.
+5. Keep **`Dep` + `provide`** documented as the seam-in-the-signature alternative, and **layer swapping** as the
    whole-program integration-test route. Keep **`where`** out of it.
 
 ## 5. Evidence
@@ -218,4 +246,6 @@ Everything above was established against the tree at the time of writing:
 | L1 scope | `implement[F[_] ~ Suspend] …` in jvm's `Console`, `Log`, `File`, `Process`, `Environment` |
 | L1 cause | `AbilityMatcher.matchImpl` matches patterns only; `verifyImplementation` adds only the `where` guard; `paramConstraints` is read by no ability processor |
 | L2 | the same program accepted with an `Option[String]` return and rejected with a `String` return |
-| L3 | the same program accepted with the run inlined and rejected with the program passed as a `Session[Unit]` parameter |
+| L3 does *not* block a framework | a mini framework (`TestCase` with a pinned `{Throw[AssertionError] \| Id} Unit` body, `assertEquals`, `runCase`) run against the fake `Terminal`: `PASS greet`, and `FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'` with the expectation changed |
+| L3's actual constraint | the run inside the pinned body ⤳ `Expected: {Throw[AssertionError] \| Id} Session[Type]` / `Actual: {Throw[AssertionError] \| Id} Unit`; moved to its own definition, it compiles |
+| pinning over the fake carrier does not help | `{Throw[AssertionError] \| Session} Unit` ⤳ "performs the effects 'Terminal', 'Transcript' but does not declare them" *and* "No ability implementation found for ability 'Transcript' with type arguments [{Throw[AssertionError] \| Session}]" |

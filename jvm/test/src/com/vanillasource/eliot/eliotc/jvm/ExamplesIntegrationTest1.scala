@@ -447,4 +447,74 @@ import eliot.effect.Console
         |def main: IO[Unit] = printLine(second(second(greetSession)))""".stripMargin
     ).asserting(_ shouldBe "Hello, Bob!;")
   }
+
+  // The same fake carrier consumed by a test framework of the `docs/effect-row-tails.md` shape: a `TestCase` whose body
+  // is a pinned `{Throw[AssertionError] | Id} Unit`. A pinned slot is a captured slot, so the framework needs no
+  // parameter-capture mechanism of its own (`docs/testing-effects.md` §3, L3) — the fake run just has to sit in its own
+  // carrier-free definition (`greetTranscript`), because inside the pinned body the ambient carrier is the pinned stack
+  // and `greet` would be written there instead of at `Session`.
+  private val fakeCarrierFramework =
+    """import eliot.jvm.IO
+import eliot.effect.Console
+      |import eliot.effect.Throw
+      |import eliot.lang.Id
+      |import eliot.carrier.Effect
+      |
+      |ability Terminal[F[_]] {
+      |   def write(line: String): {Terminal} Unit
+      |   def read: {Terminal} String
+      |}
+      |
+      |def greet: {Terminal} Unit = {
+      |   val name = read
+      |   write("Hello, " ++ name ++ "!")
+      |}
+      |
+      |data Session[A](runSession: Function[Pair[String, String], Pair[A, Pair[String, String]]])
+      |
+      |implement Effect[Session] {
+      |   def pure[A](a: A): Session[A] = Session(w -> Pair(a, w))
+      |   def flatMap[A, B](f: Function[A, Session[B]], fa: Session[A]): Session[B] =
+      |      Session(w -> foldPair(a -> w2 -> runSession(f(a))(w2), runSession(fa)(w)))
+      |   def map[A, B](f: Function[A, B], fa: Session[A]): Session[B] =
+      |      Session(w -> foldPair(a -> w2 -> Pair(f(a), w2), runSession(fa)(w)))
+      |}
+      |
+      |implement Terminal[Session] {
+      |   def write(line: String): Session[Unit] =
+      |      Session(w -> Pair(unit, Pair(first(w), second(w) ++ line ++ ";")))
+      |   def read: Session[String] = Session(w -> Pair(first(w), w))
+      |}
+      |
+      |data AssertionError(reason: String)
+      |
+      |data TestCase(name: String, body: {Throw[AssertionError] | Id} Unit)
+      |
+      |def assertEquals(expected: String, actual: String): {Throw[AssertionError]} Unit =
+      |   if(expected == actual, unit) else raise(AssertionError("expected '" ++ expected ++ "' but was '" ++ actual ++ "'"))
+      |
+      |def runCase(tc: TestCase): String =
+      |   foldEither(e -> "FAIL " ++ name(tc) ++ ": " ++ reason(e), u -> "PASS " ++ name(tc), runId(runThrow(body(tc))))
+      |
+      |def greetTranscript: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
+      |
+      |def main: IO[Unit] = printLine(runCase(greetTest))""".stripMargin
+
+  it should "carry a fake-carrier result into a pinned test-framework body" in {
+    compileAndRun(
+      fakeCarrierFramework +
+        """
+          |
+          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Bob!;", second(second(greetTranscript))))""".stripMargin
+    ).asserting(_ shouldBe "PASS greet")
+  }
+
+  it should "report a failed assertion against the fake carrier's transcript" in {
+    compileAndRun(
+      fakeCarrierFramework +
+        """
+          |
+          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Alice!;", second(second(greetTranscript))))""".stripMargin
+    ).asserting(_ shouldBe "FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'")
+  }
 }
