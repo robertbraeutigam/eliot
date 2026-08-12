@@ -1,0 +1,62 @@
+import eliot.carrier.Effect
+
+/**
+ * Substituting a **fake implementation of an effect** for a test, without the production code knowing.
+ *
+ * The point: `greet` below is ordinary carrier-generic production code. It declares `{Terminal}` and nothing else —
+ * no injected handler, no extra parameter, no test hook. What decides whether `Terminal` means "the real terminal" or
+ * "a recorded transcript" is the *carrier* the program is instantiated at, and that is picked entirely at the test
+ * site: `Session` is declared here, its `Terminal` instance is declared here, and monomorphization from `main`
+ * resolves `Terminal[Session]` to the fake for this program only.
+ *
+ * The pure test carrier `Session` threads a `Pair(pendingInput, writtenOutput)`, so `read` is fed a canned line and
+ * `write` accumulates a transcript — the whole run is a pure function, with no `Suspend` and therefore no way for a
+ * real side effect to occur inside it (`docs/testing-effects.md`).
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m EffectsFakeCarrier
+ * java -jar target/EffectsFakeCarrier.jar
+ * ```
+ */
+ability Terminal[F[_]] {
+   def write(line: String): {Terminal} Unit
+
+   def read: {Terminal} String
+}
+
+// Production code: carrier-generic, direct style, with no knowledge that a test exists.
+def greet: {Terminal} Unit = {
+   val name = read
+   write("Hello, " ++ name ++ "!")
+}
+
+// The test double. A carrier is just a `data` with an `Effect` instance, so a fake is an ordinary type declared beside
+// the test: this one maps `Pair(pendingInput, writtenOutput)` to the result paired with the updated pair.
+data Session[A](runSession: Function[Pair[String, String], Pair[A, Pair[String, String]]])
+
+implement Effect[Session] {
+   def pure[A](a: A): Session[A] = Session(w -> Pair(a, w))
+
+   def flatMap[A, B](f: Function[A, Session[B]], fa: Session[A]): Session[B] =
+      Session(w -> foldPair(a -> w2 -> runSession(f(a))(w2), runSession(fa)(w)))
+
+   def map[A, B](f: Function[A, B], fa: Session[A]): Session[B] =
+      Session(w -> foldPair(a -> w2 -> Pair(f(a), w2), runSession(fa)(w)))
+}
+
+// The fake interpretation of the ability. `read` hands back the canned input without consuming it; `write` appends the
+// line to the transcript. Neither performs any I/O — `Session` has no `Suspend` instance, so it could not if it tried.
+implement Terminal[Session] {
+   def write(line: String): Session[Unit] =
+      Session(w -> Pair(unit, Pair(first(w), second(w) ++ line ++ ";")))
+
+   def read: Session[String] = Session(w -> Pair(first(w), w))
+}
+
+// Running the fake: unification instantiates `greet`'s minted carrier to `Session`, ability resolution picks the fake
+// instance, and the result is a plain value a test can assert on. The run must be written *inside* the definition that
+// yields the transcript, and that definition's declared return type must be an applied one (here `Pair[...]`) — both
+// are current limitations of the pre-monomorphization row verifier, not of the semantics (`docs/testing-effects.md`).
+def greetSession: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
+
+def main: {Console} Unit = printLine(second(second(greetSession)))

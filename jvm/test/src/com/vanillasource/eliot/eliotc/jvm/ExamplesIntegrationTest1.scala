@@ -400,4 +400,51 @@ import eliot.effect.Console
         |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), secondDep)))""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
+
+  // --- Testing strategy: a fake effect implementation supplied by the test, with production code untouched ---
+
+  // The substitution mechanism of `docs/testing-effects.md` §2, end to end: `greet` is ordinary carrier-generic
+  // production code declaring `{Terminal}` and nothing else, and the test supplies both the carrier (`Session`, a pure
+  // input/transcript pair with no `Suspend` instance, so it cannot perform real I/O) and the `Terminal[Session]`
+  // instance that interprets the ability into it. Unification instantiates `greet`'s minted carrier to `Session` at
+  // `runSession`'s slot, and monomorphization resolves the fake. Also pins the two shapes §3 flags as accidental: the
+  // run sits *inside* `greetSession` (a program cannot be passed to a runner — L3) and `greetSession`'s declared return
+  // is an *applied* type (a nullary one trips the pre-mono row verifier — L2).
+  "a fake effect carrier" should "let a test interpret an ability without changing the production code" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.carrier.Effect
+        |
+        |ability Terminal[F[_]] {
+        |   def write(line: String): {Terminal} Unit
+        |   def read: {Terminal} String
+        |}
+        |
+        |def greet: {Terminal} Unit = {
+        |   val name = read
+        |   write("Hello, " ++ name ++ "!")
+        |}
+        |
+        |data Session[A](runSession: Function[Pair[String, String], Pair[A, Pair[String, String]]])
+        |
+        |implement Effect[Session] {
+        |   def pure[A](a: A): Session[A] = Session(w -> Pair(a, w))
+        |   def flatMap[A, B](f: Function[A, Session[B]], fa: Session[A]): Session[B] =
+        |      Session(w -> foldPair(a -> w2 -> runSession(f(a))(w2), runSession(fa)(w)))
+        |   def map[A, B](f: Function[A, B], fa: Session[A]): Session[B] =
+        |      Session(w -> foldPair(a -> w2 -> Pair(f(a), w2), runSession(fa)(w)))
+        |}
+        |
+        |implement Terminal[Session] {
+        |   def write(line: String): Session[Unit] =
+        |      Session(w -> Pair(unit, Pair(first(w), second(w) ++ line ++ ";")))
+        |   def read: Session[String] = Session(w -> Pair(first(w), w))
+        |}
+        |
+        |def greetSession: Pair[Unit, Pair[String, String]] = runSession(greet)(Pair("Bob", ""))
+        |
+        |def main: IO[Unit] = printLine(second(second(greetSession)))""".stripMargin
+    ).asserting(_ shouldBe "Hello, Bob!;")
+  }
 }
