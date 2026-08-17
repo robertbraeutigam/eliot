@@ -144,7 +144,7 @@ object RowChecker {
   def checkValue(vfqn: ValueFQN, universe: Universe): Option[RowResult] =
     universe.values.get(vfqn).map { orv =>
       val view       = SignatureView.of(orv.signature)
-      val declared   = declaredRow(orv) ++ pinnedReturnEntries(orv)
+      val declared   = declaredRow(orv) ++ pinnedReturnEntries(orv, universe)
       val derivation = orv.runtime
         .map { r =>
           val (paramNames, body) = peelLambdas(r.value)
@@ -207,10 +207,27 @@ object RowChecker {
   }
 
   /** A *pinned* return (`def make: {X | G} A`) is a declared capture: the body's row lands in the returned stack, so
-    * its entries count as declared (the capture-legality reading of `derived ⊆ declared`).
+    * its entries count as declared (the capture-legality reading of `derived ⊆ declared`). The pinned tag is read
+    * directly off the signature, and — one alias level deep — off a **type alias** whose body is itself a pinned row
+    * (`def make: Names` for `type Names = {X | Id} A`), matching how [[RowElaborator.topRegionCarrier]] gives such a
+    * definition its region. Only the ability identity matters for the declared reading, so the alias's binders need no
+    * substitution (`pinnedRowEntries` records only a *top-level* pinned body, so a nested pinned row never leaks in).
     */
-  private def pinnedReturnEntries(orv: OperatorResolvedValue): Row =
-    orv.effectRow.returnPinnedEffects.map(_.abilityFQN).toSet
+  private def pinnedReturnEntries(orv: OperatorResolvedValue, universe: Universe): Row =
+    (orv.effectRow.returnPinnedEffects ++ aliasPinnedReturnEntries(orv, universe)).map(_.abilityFQN).toSet
+
+  /** The pinned-row entries a definition's declared return reaches through **one** type-alias level: empty unless the
+    * return type is headed by a type alias whose own body is a top-level pinned row ([[EffectRow.aliasPinned]]).
+    */
+  private def aliasPinnedReturnEntries(
+      orv: OperatorResolvedValue,
+      universe: Universe
+  ): Seq[OperatorResolvedValue.ResolvedAbilityConstraint] =
+    headOf(SignatureView.of(orv.signature).returnType.value)
+      .flatMap(universe.lookup)
+      .filter(_.effectRow.aliasPinned)
+      .map(_.effectRow.aliasPinnedEffects)
+      .getOrElse(Seq.empty)
 
   /** The row a single expression derives on the enclosing definition's *ambient* carrier — the [[RowElaborator]]'s test
     * for whether an argument must *run* at its call site. An expression *performs* iff its row is non-empty; a

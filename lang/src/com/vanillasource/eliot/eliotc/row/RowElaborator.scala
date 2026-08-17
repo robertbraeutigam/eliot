@@ -1530,13 +1530,19 @@ object RowElaborator {
           val view     = SignatureView.of(orv.signature)
           val supplied = args.size + extra
           if (supplied < view.parameters.size) Kind.Payload // an under-applied reference is a function value
-          else if (supplied === view.parameters.size && orv.effectRow.returnPinnedEffects.nonEmpty)
+          else if (
+            supplied === view.parameters.size &&
+            (orv.effectRow.returnPinnedEffects.nonEmpty || returnsPinnedAlias(view.returnType.value))
+          )
             // A **pinned** return (`{State[S] | Id} Unit`) is a carrier stack, and a saturated call to it yields that
             // computation. Its head is a concrete type constructor, which [[typeKind]] deliberately does not read as
             // a carrier, and it mints no binder of the callee's own for [[carrierHeaded]] to find — so without the
             // declared pinned tag such a call reads as a plain payload and gets `pure`-wrapped at a carrier position,
             // producing the stack applied to itself. The tag is the same one `topRegionCarrier` reads to give such a
-            // definition its own region, which is what keeps caller and callee agreeing on one carrier.
+            // definition its own region, which is what keeps caller and callee agreeing on one carrier. A pinned return
+            // spelled through a **type alias** (`def testCases: Test` for `type Test = {Writer[W] | Id} Unit`) carries
+            // the same tag on the alias's own body, read through [[returnsPinnedAlias]] — the one level of alias
+            // expansion the §3.2 whitelist grants, matching how `topRegionCarrier` reads the definition's own region.
             Kind.Carrier
           else {
             val carriers = EffectCarriers.declaredCarrierBinders(orv)
@@ -1550,6 +1556,14 @@ object RowElaborator {
           // Outside the universe (an effect-ability method resolved by qualifier only) the declared row decides.
           if (RowChecker.calleeRow(callee, universe).nonEmpty) Kind.Carrier else Kind.Unknown
       }
+
+    /** Whether a saturated callee's declared return is a **pinned** effect row spelled through a **type alias**
+      * (`def testCases: Test` for `type Test = {Writer[W] | Id} Unit`): the alias's own body carries the pinned tag
+      * ([[com.vanillasource.eliot.eliotc.ast.fact.EffectRow.aliasPinned]]), read through the one level of alias
+      * expansion the §3.2 whitelist grants — the same tag [[topRegionCarrier]] reads to give such a definition its own
+      * region, so caller and callee agree on the one carrier they share. */
+    private def returnsPinnedAlias(returnType: OperatorResolvedExpression): Boolean =
+      expandAlias(returnType, universe).exists { case (alias, _) => alias.effectRow.aliasPinned }
 
     /** Classify a declared type in the scope that declares it: headed by one of `carriers` (or by a platform run
       * carrier) it is a computation; headed by any other generic it is whatever `instantiation` binds that generic
