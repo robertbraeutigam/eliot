@@ -343,6 +343,25 @@ object EffectSugarDesugarer {
     }
   }
 
+  /** User-facing errors for effect rows in a **type alias** body (`type Test = {…} …`): an *open* row cannot be
+    * carried through an alias. The open-row lowering ([[desugar(function:*]]) mints the shared carrier `F[_]` onto the
+    * *alias's own* generic parameters, so a definition that names the alias (`def testCases: Test`) inherits neither the
+    * carrier nor the effect — the effect is silently dropped. An alias is a *type*, and only a **pinned** row is a type
+    * (docs/effects-as-rows.md §1 rule 3), so the fix is to pin the row (`{Throw[Error] | Id} String`) or to declare the
+    * effect directly on the definition instead of aliasing it. Empty for a non-type-level definition (an ordinary `def`,
+    * where an open row in the signature *is* legal) or a body-less type declaration.
+    */
+  def rowErrors(function: FunctionDefinition): Seq[Sourced[String]] =
+    if (isTypeLevel(function))
+      function.body.toSeq.flatMap(collectRows).collect {
+        case row if row.value.tail.isEmpty && row.value.effects.nonEmpty =>
+          row.as(
+            "An effect row in a type alias must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`. " +
+              "An open row cannot be carried through an alias — pin it, or declare the effect on the definition instead."
+          )
+      }
+    else Seq.empty
+
   /** Collects, in source order, every effect-row node within the expression, with its source position. */
   private def collectRows(expr: Sourced[Expression]): Seq[Sourced[EffectfulType]] = expr.value match {
     case et @ EffectfulType(effects, resultType, tail) =>

@@ -783,6 +783,25 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  // An open row cannot be carried through a type alias: its lowering mints the carrier onto the alias's own generics, so
+  // a definition naming the alias inherits neither the carrier nor the effect. Only a pinned row is a type, so an alias
+  // must pin — mirroring the `data`-field rule above.
+  private val aliasOpenRowError =
+    "An effect row in a type alias must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`. " +
+      "An open row cannot be carried through an alias — pin it, or declare the effect on the definition instead."
+
+  "effect rows in type aliases" should "reject an open positive row in an alias body" in {
+    coreErrors("type Susp = {Suspend} Unit").asserting(_ should contain(aliasOpenRowError))
+  }
+
+  it should "reject an open row nested in an alias body's arrow codomain" in {
+    coreErrors("type Handler = A => {Suspend} Unit").asserting(_ should contain(aliasOpenRowError))
+  }
+
+  it should "accept a pinned row in an alias body" in {
+    coreErrors("type Names = {Throw[Error] | Id} Unit").asserting(_ should not contain aliasOpenRowError)
+  }
+
   "flat expressions" should "pass through as FlatExpression in core" in {
     namedValue("def f: T = b + c").asserting { nv =>
       nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("b"), Ref("+"), Ref("c"))))

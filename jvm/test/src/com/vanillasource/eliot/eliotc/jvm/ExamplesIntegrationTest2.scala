@@ -664,6 +664,34 @@ import eliot.effect.Console
     ).asserting(_ shouldBe "ada\nbob")
   }
 
+  // The call-site twin of the block above: the sequenced helper's OWN return is spelled by the alias too, so each
+  // statement in `collectNames` is a saturated call to a callee whose pinned return lives only on the alias body. The
+  // call's result kind must read that pinned tag through one alias level (`declaredResultKind` → `returnsPinnedAlias`);
+  // without it the statement classifies as a plain payload and gets `pure`-wrapped at the carrier position it in fact
+  // returns, a hard mismatch (the A.11.13 "Not done" call-site gap).
+  "a block sequencing calls whose pinned return is spelled by an alias" should "classify each as a computation" in {
+    compileAndRun(
+      """import eliot.jvm.IO
+import eliot.effect.Console
+        |import eliot.lang.Id
+        |import eliot.effect.State
+        |import eliot.collection.List
+        |
+        |type Names = {State[List[String]] | Id} Unit
+        |
+        |def pushName(n: String): Names =
+        |   updateState(names -> append(names, n))
+        |
+        |def collectNames: Names = {
+        |   pushName("ada")
+        |   pushName("bob")
+        |}
+        |
+        |def main: IO[Unit] =
+        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
+    ).asserting(_ shouldBe "ada\nbob")
+  }
+
   // §1 rule 3's other direction: a pinned row is a reified computation AND an ordinary type, so a saturated call to a
   // pinned-returning definition is *data* to store — here into a `List` whose element type is the alias. Rule 4's
   // rowless-slot check must not fire on it: `append`'s `A` is a plain generic, but nothing performs anything at this

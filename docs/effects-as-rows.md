@@ -2588,10 +2588,38 @@ already existed for a pinned *parameter* (`isCapturedValue`) and now covers the 
 it also had to move out of the first arm, since the second — "it lands on the type parameter `A`" — was
 reporting the very same value one message later.
 
-**Not done, and fail-safe.** `declaredResultKind` still reads only the *syntactic* pinned tag, so a callee
-whose pinned return is spelled through an alias reads as a payload and is `pure`-wrapped at a carrier
-position. That is a hard checker error, never a silent re-route, and closing it requires the storage
-question of defect 2 to be settled for every consumer of the tag — not just this one.
+**Now closed (A.11.13-A).** The "Not done" gap below is fixed: `declaredResultKind` and the pre-mono
+verifier now read the pinned tag through the alias too. There turned out to be **two** consumers of the tag
+that the definition-side fix (`topRegionCarrier`) had left behind, and a callee spelling its pinned return
+through an alias needs both:
+
+1. **Elaboration** (`RowElaborator.declaredResultKind` → `returnsPinnedAlias`): a saturated call to such a
+   callee is now classified `Kind.Carrier`, matching a direct pinned return, so it is not `pure`-wrapped at
+   the carrier position it in fact returns. This is what lets a *block sequence* calls whose own return is
+   the alias (the call-site twin of A.11.13's aliased-definition block).
+2. **Verification** (`RowChecker.pinnedReturnEntries` → `aliasPinnedReturnEntries`): such a return is a
+   declared capture, so the alias's pinned abilities now count as *declared* — otherwise the pre-mono
+   `derived ⊆ declared` check reported the captured effect as an undeclared leak at the definition. Only the
+   ability identity is read (one universe lookup, no substitution), and `pinnedRowEntries` records only a
+   *top-level* pinned body, so a nested pinned row (an arrow codomain) never leaks in.
+
+Both mirror how `topRegionCarrier` already reads the tag; the post-mono `EffectAccountingProcessor` needs no
+change, because such a definition's carrier is written concrete (`StateCarrier[…]`) and so is not an
+open-row value it checks. Guarded by one new `ExamplesIntegrationTest2` case (a block sequencing calls whose
+pinned return is spelled by an alias) and three `CoreProcessorTest` cases for the open-row-alias rejection
+below.
+
+**Superseded — was: Not done, and fail-safe.** `declaredResultKind` read only the *syntactic* pinned tag, so
+a callee whose pinned return was spelled through an alias read as a payload and was `pure`-wrapped at a
+carrier position — a hard checker error, never a silent re-route. (Kept for the record; closed by
+A.11.13-A above.)
+
+**A.11.13-A also fail-safes the open-row alias.** An *open* row in a type-alias body
+(`type Susp = {Suspend} Unit`) lowers its carrier onto the alias's own generics, which a definition naming
+the alias cannot reach — the effect was silently dropped (or misreported as a leak). Only a pinned row is a
+type (§1 rule 3), so this is now rejected at core (`EffectSugarDesugarer.rowErrors(FunctionDefinition)`,
+mirroring the `data`-field open-row rule), pointing the author at pinning or declaring the effect on the
+definition.
 
 **Gate**: `__.test` green, including two new `ExamplesIntegrationTest2` cases (the aliased block, and the
 stored pinned computation), and all **39** example jars byte-identical to the pre-change build — jars being
