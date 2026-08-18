@@ -1,0 +1,14 @@
+import TestSuite
+
+/**
+ * An effectful test case: it prints as well as asserting, so its row is wider than `GreetingTest`'s. Both fit the
+ * same suite, because each gathered test is elaborated on its own at the slot that receives it.
+ *
+ * This one fails on purpose, to show what a failure looks like in the report.
+ */
+def defaultPort: String = "8080"
+
+def test: {Console, Throw[String]} Unit = {
+   printLine("  checking the default port")
+   assertEquals("80", defaultPort)
+}
