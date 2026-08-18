@@ -1,0 +1,33 @@
+import eliot.carrier.Effect
+import eliot.compiler.Reflect
+
+/**
+ * A test runner assembled at compile time: every module in the program that declares a `test` is a test case, and
+ * nothing registers it — `GreetingTest` and `SettingsTest` are simply found.
+ *
+ * `foldNamedValues` hands each gathered test to `runTest` as an *argument* rather than collecting them into a list,
+ * which is what lets a test be a computation instead of a value. `runTest` declares the assertion effect on the slot
+ * that receives one, so a failure is caught per test and the suite carries on; a test's remaining effects — printing,
+ * here — run on the carrier the suite itself runs on. `namedValues` could not gather these: a list element is a
+ * payload, and a payload may never be a computation.
+ *
+ * The second test fails on purpose, so the run shows both halves of the report.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m TestSuite
+ * java -jar target/TestSuite.jar
+ * ```
+ */
+def runTest[G[_] ~ Effect & Console](name: String, test: {Throw[String] | G} Unit, rest: G[Unit]): G[Unit] = {
+   printLine("- " ++ name)
+   test catch (reason -> printLine("  FAILED: " ++ reason))
+   rest
+}
+
+/**
+ * Fail the running test unless `actual` is exactly `expected`, reporting both.
+ */
+def assertEquals(expected: String, actual: String): {Throw[String]} Unit =
+   if(expected == actual, unit) else raise("expected '" ++ expected ++ "' but was '" ++ actual ++ "'")
+
+def main: {Console} Unit = foldNamedValues("test", printLine("suite done"), runTest)

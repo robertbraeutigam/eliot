@@ -11,8 +11,9 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.URLClassLoader
 import java.nio.file.{Files, Path}
 
-/** End-to-end coverage of the `namedValues` compile-time reflection intrinsic (`eliot.compiler.Reflect`), which reifies
-  * to a `List` of every top-level value of a given name across the program's modules.
+/** End-to-end coverage of the compile-time reflection intrinsics (`eliot.compiler.Reflect`): `foldNamedValues`, which
+  * reifies to a right fold handing every top-level value of a given name to a declared combining value, and its
+  * `namedValues` sugar, which is that fold at the free monoid and reifies to a `List`.
   *
   * Unlike [[FullIntegrationTest]] (one `Test.els`), these tests need **several modules in one program** to exercise
   * cross-module collection. Each test compiles a *fresh* multi-module project in its own temp directory (a new session,
@@ -75,12 +76,97 @@ def dynamicName: String = "contribution"
     ).asserting(_.mkString("\n") should include("requires a literal String name"))
   }
 
+  it should "collect the entries in qualified-name order" in {
+    runProject(
+      Map(
+        "Test"    ->
+          (registryPrelude +
+            """import eliot.jvm.IO
+def labels: String = namedValues[String]("label").joined(",")
+              |def main: IO[Unit] = printLine(labels)""".stripMargin),
+        "PluginB" -> """def label: String = "b"""",
+        "PluginA" -> """def label: String = "a""""
+      )
+    ).asserting(_ shouldBe "a,b")
+  }
+
   it should "reject a gathered value that does not have the claimed type" in {
     // `item` is a String, but the claim is `namedValues[Int]`; the emitted `append(_, item)` violates the Int element
     // type, so the ordinary checker rejects it — the claim is enforced, never silently dropped.
     projectErrors(sumOfContributions("def item: String = \"not an int\"\n").map { case (n, s) =>
       n -> s.replace("\"contribution\"", "\"item\"")
     }).asserting(_ should not be empty)
+  }
+
+  private val suitePrelude =
+    """import eliot.effect.Console
+      |import eliot.carrier.Effect
+      |import eliot.compiler.Reflect
+      |import eliot.jvm.IO
+      |""".stripMargin
+
+  /** The `eliot-test` shape: each gathered test is handed to a slot the runner *declares*, so the tests run on the
+    * runner's own carrier and their assertion failures are discharged one by one. No list could hold them — an element
+    * of a list is a payload, and a payload may not be a computation.
+    */
+  private def suite(step: String, extra: Map[String, String]): Map[String, String] =
+    Map(
+      "Test" ->
+        (suitePrelude + step +
+          """
+            |def main: IO[Unit] = foldNamedValues("test", printLine("done"), step)""".stripMargin)
+    ) ++ extra
+
+  private val runningStep =
+    """def step[G[_] ~ Effect & Console](name: String, test: {Throw[String] | G} Unit, rest: G[Unit]): G[Unit] = {
+      |   printLine(name)
+      |   test catch (e -> printLine("FAILED " ++ e))
+      |   rest
+      |}""".stripMargin
+
+  "foldNamedValues" should "run gathered effectful values on the caller's carrier, in qualified-name order" in {
+    runProject(
+      suite(
+        runningStep,
+        Map(
+          "AlphaTest" -> """def test: {Console} Unit = printLine("alpha ok")""",
+          "BetaTest"  -> """def test: {Console, Throw[String]} Unit = raise("beta broke")"""
+        )
+      )
+    ).asserting(
+      _ shouldBe "AlphaTest::test\nalpha ok\nBetaTest::test\nFAILED beta broke\ndone"
+    )
+  }
+
+  it should "fold to just the initial value when no module declares the name" in {
+    runProject(suite(runningStep, Map.empty).map { case (n, s) => n -> s.replace("\"test\"", "\"noSuchName\"") })
+      .asserting(_ shouldBe "done")
+  }
+
+  it should "gather values of different types through one ability-constrained combining value" in {
+    runProject(
+      Map(
+        "Test" ->
+          (suitePrelude +
+            """def render[V ~ Show](name: String, value: V, acc: String): String =
+              |   name ++ "=" ++ show(value) ++ ";" ++ acc
+              |def main: IO[Unit] = printLine(foldNamedValues("setting", "", render))""".stripMargin),
+        "Host" -> """def setting: String = "localhost"""",
+        "Port" -> """def setting: Int = 8080"""
+      )
+    ).asserting(_ shouldBe "Host::setting=localhost;Port::setting=8080;")
+  }
+
+  it should "reject a lambda as the combining value" in {
+    projectErrors(
+      Map(
+        "Test" ->
+          (suitePrelude +
+            """def main: IO[Unit] =
+              |   printLine(foldNamedValues("test", "", n -> t -> acc -> acc ++ n))""".stripMargin),
+        "AlphaTest" -> """def test: String = "alpha""""
+      )
+    ).asserting(_.mkString("\n") should include("requires a declared value as its combining argument"))
   }
 }
 
