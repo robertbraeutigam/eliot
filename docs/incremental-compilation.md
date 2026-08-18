@@ -1452,3 +1452,135 @@ turns replacing the region and both stay cold") — worth restating here because
 problem. It presents as whatever variable the benchmark happened to be alternating on. **Any A/B over compiler
 variants must give each variant its own `-o` directory**, and a result where the ordering explains the numbers
 better than the variable does should be assumed to be this until proven otherwise.
+
+## 25. A validation question is not a diagnostic (2026-08-18)
+
+A warm run reported errors about names the program being compiled does not contain. The symptom that surfaced it
+was the shared-session integration suites (`FullIntegrationTest`) going flaky whenever a test was added or moved —
+which is exactly what changes *which program was compiled before* a given test, and in which worker.
+
+### What was actually happening
+
+Backward validation walks the **previous** run's dependency graph: that is how it learns what moved. When the drill
+reaches a dependency whose own dependencies moved, it recomputes it and compares (`recomputeAndCompare`), and it
+does so through the ordinary generation path — the same `regenerate` a real demand uses, whose errors go straight
+into the run's diagnostics.
+
+So a program that drops a name pays for it twice. Compile `def numbers … def total …`, then compile something else:
+this run validates last run's `UsedNames` edges, reaches `UnifiedModuleValue(Test::numbers)`, regenerates it, and
+the module no longer has that name — `Could not find 'numbers'.` The build is otherwise correct; the jar it writes
+is byte-identical to a cold compiler's.
+
+Two properties made it read as flakiness rather than as a bug:
+
+- **It is order-dependent by construction.** `resolve` drills with `forallM`, which short-circuits on the first
+  changed dependency, over a `Set` whose iteration order is not the demand order. Whether a ghost fact is reached
+  before the drill finds a changed sibling is incidental.
+- **It only affects diagnostics.** Every jar in the reproduction was byte-identical to the fresh-session one, so
+  nothing failed where a miscompile would have been noticed.
+
+The suites had already been shaped around it: `FullIntegrationTest.compiled` gated on `targetProduced` alone, with
+a comment recording that gating on the error list "would fail every suite".
+
+### Why it is not only a test problem
+
+`CompilationResult.succeeded` is `errors.isEmpty && targetProduced`, and the CLI exits on it. A user renaming a
+value and rebuilding against a warm on-disk cache therefore gets a failed build, reported against a name their
+source no longer mentions — and an LSP session publishes the same as workspace diagnostics. The resident session in
+the tests is the same seam; it just reproduces it in seconds.
+
+### The fix: report the graph the run actually built
+
+Each diagnostic is now recorded with the generation that produced it (`AttributedError`), and `currentErrors`
+reports a diagnostic only if that generation is reachable from the run's **roots** through the edges **this run**
+recorded. A root is a demand from outside any generation — the target plugin asking for its artefact, a host
+querying a fact — recognised by its empty ancestor chain; the validation path bypasses the public entry point
+(`request`, not `getFact`), because asking whether a fact changed is not building it.
+
+This hides nothing a compilation reached. A fact the program genuinely needs is read by its dependent, and
+`DependencyTrackingProcess` records that edge *before* the read — including a read that comes back empty because the
+generation failed, which is the whole failure-reporting path.
+
+The engine's own invariants split on whether they are a statement about a *demand*. "A key was produced twice with
+different values" is two paths disagreeing about one fact, worth knowing wherever it arises, so it stays unattributed
+and is always reported. **The strict-accounting check is attributed**, because its premise is that something asked for
+the key — and validation asks for keys the previous run's graph had. A producer that only ever *pushes* a key (one file
+parse registering every name it declares) answers a direct demand for a name that file no longer declares with nothing
+at all: the right answer, and — before this — an "Internal error: no processor produced a fact, an error, or a decline"
+on every warm build that dropped a name. It only ever showed up once the suites started gating on diagnostics, which is
+the argument for gating on them.
+
+### Verification
+
+- `jvm/test/…/SharedSessionIsolationTest` — a corpus compiled in one resident session, forwards and backwards and
+  twice over, against a per-program *fresh* session as the oracle, comparing all three observables (target
+  produced, diagnostics, jar digest). It fails on the pre-fix compiler with exactly the leaked errors above.
+- `IncrementalFactGeneratorTest` — a fact that only the previous run's graph reaches errors when regenerated for
+  validation and is not reported; the same fact *is* reported when this run's graph still reaches it.
+- `FullIntegrationTest.compiled` now gates on `succeeded` (diagnostics included), so the workaround the leak forced
+  is gone and any future leak fails the suites instead of being absorbed by them.
+
+### What this does not explain
+
+The reachability filter is about *diagnostics*. It does not touch the second defect the same investigation turned
+up — a warm session occasionally disagreeing with a cold one about the program itself — which §26 takes apart.
+
+## 26. A retained fact must not be validated against an input that moved without it (2026-08-18)
+
+§25 fixed the diagnostics half of the shared-session flakiness. The other half was a wrong *build*: roughly one full
+`__.test` run in four, a worker running `ExamplesIntegrationTest2` after other suites failed seven consecutive tests
+with `Too many type arguments.` and no jar — a compile a cold compiler performs without complaint.
+
+### The mechanism, in twelve lines and no Eliot
+
+Validation asks, per dependency, "is this the same as the cache's entry for it?". What a dependent actually needs to
+know is "is it the same as what *I* consumed". Those two coincide only while the cache is **one consistent
+generation** — and §10's accumulation policy (retain every prior entry the run did not touch) deliberately makes it
+not one:
+
+```
+run 1: demand w        leaf=10 → m=10 → w=100        cache: leaf, m, w
+run 2: demand m only   leaf=20 → m=20                cache: m advances, w retained at 100
+run 3: demand w        w's dep m validates "unchanged" (it *is* the entry) → w served as 100
+```
+
+`w` is a function of `m`, `m` is now 20, and the answer 200 never appears. The middle run is the whole trap: it
+updated a fact and never reached its dependents. In the compiler that middle run is a **failing compile** — the
+overlapping-instances case in `ExamplesIntegrationTest2`, which advances the synthetic entry's `MonomorphicValue`
+(the two programs' `main` signatures happen to agree, so it recomputes equal and validates "unchanged") but dies
+before codegen, leaving `WovenValue`/`UncurriedMonomorphicValue` retained from *two* programs back — the
+carrier-generic `main[IO]` of the effect corpus. The next compile accepts them, demands `MonomorphicValue(Test::main,
+[IO])` against a `main` that now takes no type arguments, and reports exactly that.
+
+That the trigger is a failing compile is why it looked like flaky test-ordering: whether a suite meets it depends on
+which suite ran before it in the worker, and the middle run has to fail.
+
+### The fix
+
+`buildCacheData` now retains a prior entry only if none of its recorded dependencies **moved** this run — where moved
+means the run resolved the key and got something other than what the cache held (a different value, or nothing at all
+because it failed). A dependent recorded against a moved input is dropped and regenerates on its next demand.
+
+Only *direct* dependents need dropping: a retained entry pointing at one of those now finds no prior entry, which
+validation already reads as changed. And the drop is **fail-safe by construction** — its only effect is that a fact is
+recomputed rather than served, so a mistake here costs time, never correctness. A run that moved nothing (the warm
+no-change build, which is the case the metrics are about) does no work here at all: `WarmBuildLeafOnlyTest`'s
+leaf-only invariant is unchanged.
+
+### Verification
+
+- `IncrementalFactGeneratorTest` — the three-run scenario above, asserting run 3 answers 200. It fails on the
+  pre-fix engine with 100, which is the whole bug in one assertion.
+- The original failure, run directly as its worker ordering (`EffectCorpusIntegrationTest` then
+  `ExamplesIntegrationTest2` in one JVM, via `org.scalatest.tools.Runner`), reproduced 100% before and passes after,
+  as does the full twelve-suite ordering the failing worker had.
+- `./mill __.test` green across repeated runs.
+
+### What this says about the design
+
+The accumulation policy and backward validation are each sound on their own; together they need one extra invariant,
+which is now stated where it is enforced: **a cache may mix generations only for facts whose inputs did not move.**
+The alternative — recording, on each edge, the identity of the value consumed, and validating against *that* — is
+strictly more precise (it would keep the dependents whose input moved and moved back), and is the direction to take
+if retention loss ever shows up in the warm-build numbers. It costs a per-edge identity, which the value-less
+(`SemValue`-bearing) entries do not have today.

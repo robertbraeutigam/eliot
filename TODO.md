@@ -135,6 +135,15 @@ notes.
   compile window. See `docs/incremental-compilation.md` §23–§24; §19 is the earlier profile.
   Left on the cache itself: caching *declines* (§6 step 3) and compaction (§13 step 5, no longer
   urgent since a warm build appends nothing).
+- **The warm cache's two soundness holes are closed; one refinement is left.** A run now reports only
+  the diagnostics of the graph it actually built (`docs/incremental-compilation.md` §25 — validating the
+  previous run's graph used to spill "Could not find 'X'." into a rename's rebuild, and fail it, since
+  `succeeded` reads the error list), and a retained fact is no longer validated against an input that
+  moved without it (§26 — the mixed-generation hole that served a two-programs-old body and was the
+  shared-session test flakiness). The refinement §26 names: validate an edge against **the identity of
+  the value the dependent consumed** rather than against the cache's current entry, which would keep the
+  dependents whose input moved and moved back instead of dropping them. It needs a per-edge identity,
+  which the value-less (`SemValue`-bearing) entries do not have.
 - **Cache sharing across target directories.** One cache now accumulates across mains for the same
   roots and backend (§10), so the stdlib subgraph is built once per configuration rather than once
   per example. Two *different* compiler builds sharing a target directory still take turns
