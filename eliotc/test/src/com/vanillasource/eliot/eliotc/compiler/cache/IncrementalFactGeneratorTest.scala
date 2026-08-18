@@ -275,6 +275,58 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     }
   }
 
+  it should "not accept a fact against a dependency that moved while it was not looking" in {
+    // Three runs, and the middle one is the trap: it demands 'm' (which moves) but never 'w', so 'w' is retained from
+    // run 1 while its dependency's cache entry advances to run 2's value. Run 3 then validates 'w' against the *entry*,
+    // not against what 'w' actually consumed — the two agree, and a stale 'w' is served for a program it never saw.
+    // This is the mixed-generation hazard the accumulation policy opens (docs/incremental-compilation.md §26): a run
+    // that updates a fact without recomputing its dependents must not leave those dependents behind as if unchanged.
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "m", "w")
+      proc    = graph(Map("leaf" -> Leaf(src), "m" -> Derived("leaf", identity), "w" -> Derived("m", _ * 10)), counts)
+      run1   <- runBuild(proc, None)(_.getFact(NumberKey("w")))
+      _      <- src.set(20)
+      run2   <- runBuild(proc, Some(run1._2))(_.getFact(NumberKey("m"))) // 'm' moves; 'w' is never demanded
+      run3   <- runBuild(proc, Some(run2._2))(_.getFact(NumberKey("w")))
+    } yield (run1._1, run2._1, run3._1)
+    test.asserting(_ shouldBe (Some(NumberFact("w", 100)), Some(NumberFact("m", 20)), Some(NumberFact("w", 200))))
+  }
+
+  it should "not report a diagnostic from a fact regenerated only to answer whether it changed" in {
+    // The previous run's 'top' read 'old' before 'src'; this run's program has no 'old' at all — asking for it now
+    // fails. Validation still walks the *prior* edges (that is how it learns 'top' moved), so 'old' is regenerated and
+    // errors — but that failure is the answer "changed", not a diagnostic about the program being compiled. Reporting
+    // it is what made a rename surface as "Could not find '<the old name>'." and fail an otherwise correct build.
+    val test = for {
+      src     <- Ref.of[IO, Int](10)
+      counts  <- counters("src", "old", "top")
+      before   = graph(Map("src" -> Leaf(src), "old" -> Derived("src", identity), "top" -> Derived2("old", "src", _ + _)), counts)
+      after    = graph(Map("src" -> Leaf(src), "old" -> Failing("gone"), "top" -> Derived("src", _ + 1)), counts)
+      run1    <- runBuild(before, None)(_.getFact(NumberKey("top")))
+      _       <- src.set(20)
+      run2    <- runBuild(after, Some(run1._2))(g => g.getFact(NumberKey("top")).product(g.currentErrors()))
+      oldN    <- counts("old").get
+    } yield (run2._1._1, run2._1._2.map(_.message), oldN)
+    // 'old' did run (validation demanded it), and its error is not this compilation's
+    test.asserting(_ shouldBe (Some(NumberFact("top", 21)), Seq.empty, 2))
+  }
+
+  it should "report the diagnostic of a failing fact this run's graph does reach" in {
+    // Same shape, except 'top' still depends on 'old' — so the failure is genuinely on the path of the program being
+    // compiled, and must be reported (and 'top' declines).
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("src", "old", "top")
+      before  = graph(Map("src" -> Leaf(src), "old" -> Derived("src", identity), "top" -> Derived2("old", "src", _ + _)), counts)
+      after   = graph(Map("src" -> Leaf(src), "old" -> Failing("gone"), "top" -> Derived("old", _ + 1)), counts)
+      run1   <- runBuild(before, None)(_.getFact(NumberKey("top")))
+      _      <- src.set(20)
+      run2   <- runBuild(after, Some(run1._2))(g => g.getFact(NumberKey("top")).product(g.currentErrors()))
+    } yield (run2._1._1, run2._1._2.map(_.message))
+    test.asserting(_ shouldBe (None, Seq("gone")))
+  }
+
   it should "generate a newly requested fact fresh against an existing cache" in {
     val test = for {
       srcA  <- Ref.of[IO, Int](1)

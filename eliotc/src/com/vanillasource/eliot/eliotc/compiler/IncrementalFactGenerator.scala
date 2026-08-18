@@ -7,6 +7,8 @@ import com.vanillasource.eliot.eliotc.compiler.cache.{CacheEntry, DependencyTrac
 import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
+import scala.annotation.tailrec
+
 /** Cache-aware fact generator implementing incremental compilation by backward, demand-driven validation.
   *
   * It keeps the same concurrent core as a plain generator — a [[Deferred]]-per-key map that computes each fact at most
@@ -32,6 +34,11 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
   * forming the boundary with the external world. Failures are never cached, so a fact that failed has no prior entry
   * and is regenerated (re-emitting its error) on every run until fixed.
   *
+  * Validation therefore runs generations the compilation itself never asked for — including, when the source dropped a
+  * name, generations that can only fail now. Their diagnostics are not this program's, so every diagnostic is recorded
+  * with the generation that produced it ([[AttributedError]]) and only the reachable ones are reported (see
+  * [[currentErrors]]).
+  *
   * With an empty `prior` (cold start) every fact is regenerated, so behavior matches a non-incremental generator plus
   * harmless dependency recording.
   */
@@ -39,20 +46,31 @@ final class IncrementalFactGenerator(
     generator: CompilerProcessor,
     prior: Map[CompilerFactKey[?], CacheEntry],
     strictAccounting: Boolean,
-    errors: Ref[IO, Chain[CompilerError]],
+    errors: Ref[IO, Chain[AttributedError]],
     facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]],
     directDependencies: Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]],
     producedDuring: Ref[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]],
     carriedForward: Ref[IO, Map[CompilerFactKey[?], CacheEntry]],
     unchangedChecks: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]],
-    regeneratedKeysRef: Ref[IO, Set[CompilerFactKey[?]]]
+    regeneratedKeysRef: Ref[IO, Set[CompilerFactKey[?]]],
+    demandedRoots: Ref[IO, Set[CompilerFactKey[?]]]
 ) extends CompilationProcess
     with Logging {
 
+  /** A demand from outside any generation — the target plugin asking for its artefact, a host (LSP, a test harness)
+    * querying a fact — is a **root** of this run's graph. Everything else reaches a fact through a recorded dependency
+    * edge, so roots plus those edges are the whole of what this run actually built, and that is what decides which
+    * diagnostics it reports (see [[currentErrors]]). Reads made by a generation arrive with a non-empty ancestor chain;
+    * the validation path deliberately bypasses this entry point ([[getFactUntyped]]), because asking whether a fact
+    * changed is not building it.
+    */
   override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
       key: K,
       ancestors: List[CompilerFactKey[?]]
   ): IO[Option[V]] =
+    demandedRoots.update(_ + key).whenA(ancestors.isEmpty) >> request(key, ancestors).map(_.map(_.asInstanceOf[V]))
+
+  private def request(key: CompilerFactKey[?], ancestors: List[CompilerFactKey[?]]): IO[Option[CompilerFact]] =
     for {
       modifyResult <- modifyAtomicallyFor(key)
       _            <- resolve(key, modifyResult._1, ancestors)
@@ -61,7 +79,7 @@ final class IncrementalFactGenerator(
                         .start
                         .whenA(modifyResult._2) // only the first requester runs the computation
       result       <- modifyResult._1.get
-    } yield result.map(_.asInstanceOf[V])
+    } yield result
 
   /** Register a fact, completing its [[Deferred]]. Re-registering the *same* value is a no-op (the push pattern:
     * concurrent generations over one file legitimately push identical sibling facts). Registering a **different** value
@@ -77,13 +95,19 @@ final class IncrementalFactGenerator(
             case Some(Some(existing)) if (existing eq fact) || existing == fact => IO.unit
             case Some(Some(_))                                                  =>
               errors.update(
-                _ :+ CompilerError
-                  .global(s"Internal error: fact ${fact.key()} was produced twice with different values.")
+                _ :+ AttributedError(
+                  None, // an engine invariant, not a diagnostic about the program: always reported
+                  CompilerError
+                    .global(s"Internal error: fact ${fact.key()} was produced twice with different values.")
+                )
               )
             case _                                                              =>
               errors.update(
-                _ :+ CompilerError.global(
-                  s"Internal error: fact ${fact.key()} was registered after its generation already concluded without it."
+                _ :+ AttributedError(
+                  None, // an engine invariant, not a diagnostic about the program: always reported
+                  CompilerError.global(
+                    s"Internal error: fact ${fact.key()} was registered after its generation already concluded without it."
+                  )
                 )
               )
           }
@@ -192,19 +216,36 @@ final class IncrementalFactGenerator(
     */
   private def regenerate(key: CompilerFactKey[?], ancestors: List[CompilerFactKey[?]]): IO[Unit] =
     for {
-      _          <- regeneratedKeysRef.update(_ + key)
-      _          <- directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty)))
-      sawMissing <- Ref.of[IO, Boolean](false)
-      tracking    =
-        new DependencyTrackingProcess(this, key, directDependencies, producedDuring, errors, sawMissing, ancestors)
-      outcome    <- generator.generate(key).run(tracking).runS(Chain.empty).value
-      es          = outcome.fold(identity, identity)
-      _          <- errors.update(_ ++ es)
-      _          <- reportUnaccountedOutcome(key, sawMissing).whenA(strictAccounting && outcome.isRight && es.isEmpty)
+      _                <- regeneratedKeysRef.update(_ + key)
+      _                <- directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty)))
+      sawMissing       <- Ref.of[IO, Boolean](false)
+      // The engine-level diagnostics the tracking wrapper records (a refused cyclic read) belong to this generation
+      // exactly as the processor's own do, so they are collected here and attributed with them.
+      generationErrors <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
+      tracking          = new DependencyTrackingProcess(
+                            this,
+                            key,
+                            directDependencies,
+                            producedDuring,
+                            generationErrors,
+                            sawMissing,
+                            ancestors
+                          )
+      outcome          <- generator.generate(key).run(tracking).runS(Chain.empty).value
+      es                = outcome.fold(identity, identity)
+      tracked          <- generationErrors.get
+      _                <- errors.update(_ ++ (tracked ++ es).map(AttributedError(Some(key), _)))
+      _                <- reportUnaccountedOutcome(key, sawMissing).whenA(strictAccounting && outcome.isRight && es.isEmpty)
     } yield ()
 
   /** The generation neither erred nor declined; unless it registered its fact or read a missing input, nothing accounts
     * for its outcome — report it.
+    *
+    * Attributed to `key`, unlike the other two engine invariants, because this one is a statement about a *demand*: it
+    * assumes something asked for this key, so a producer must exist for it. The validation path breaks that premise on
+    * purpose — it asks for keys the previous run's graph had — and a producer that only ever *pushes* a key (one file
+    * parse registering every name it declares) answers such a demand with nothing at all, which is the right answer and
+    * not an engine fault. Reachability then tells the two apart: a demand the compilation actually made is live.
     */
   private def reportUnaccountedOutcome(key: CompilerFactKey[?], sawMissing: Ref[IO, Boolean]): IO[Unit] =
     for {
@@ -212,8 +253,11 @@ final class IncrementalFactGenerator(
       registered <- facts.get.flatMap(_.get(key).traverse(_.tryGet)).map(_.flatten.flatten.isDefined)
       _          <- errors
                       .update(
-                        _ :+ CompilerError.global(
-                          s"Internal error: no processor produced a fact, an error, or a decline for $key."
+                        _ :+ AttributedError(
+                          Some(key),
+                          CompilerError.global(
+                            s"Internal error: no processor produced a fact, an error, or a decline for $key."
+                          )
                         )
                       )
                       .whenA(!missing && !registered)
@@ -223,8 +267,7 @@ final class IncrementalFactGenerator(
     * for facts materialised through a processor generation, and the value-less `SemValue`-bearing facts the guard
     * protects are never materialised here — they take the structural-drill branch of [[computeUnchanged]].
     */
-  private def getFactUntyped(key: CompilerFactKey[?]): IO[Option[CompilerFact]] =
-    getFact(key.asInstanceOf[CompilerFactKey[CompilerFact]], Nil)
+  private def getFactUntyped(key: CompilerFactKey[?]): IO[Option[CompilerFact]] = request(key, Nil)
 
   private def modifyAtomicallyFor(
       key: CompilerFactKey[?]
@@ -244,7 +287,47 @@ final class IncrementalFactGenerator(
       resolved   <- currentMap.values.toSeq.traverse(_.tryGet.map(_.flatten)).map(_.flatten)
     } yield resolved.map(fact => fact.key() -> fact).toMap
 
-  def currentErrors(): IO[Seq[CompilerError]] = errors.get.map(_.toList)
+  /** The diagnostics of the graph this run actually built.
+    *
+    * A run reaches a fact two ways, and only one of them is compilation. Beyond the facts demanded from the roots, the
+    * incremental validation path regenerates facts to answer *whether they changed*, drilling the **previous** run's
+    * dependency graph — so it re-runs generations for values the program being compiled no longer has. Such a
+    * generation failing is the answer "changed", not an error in this program: reporting it turns a rename or a
+    * deletion into spurious diagnostics ("Could not find 'X'.") about a name the source no longer mentions, and — since
+    * a successful build is `errors.isEmpty && targetProduced` — fails a build whose artefact is correct.
+    *
+    * So a diagnostic is reported iff the generation it came from is reachable from this run's roots through the edges
+    * this run recorded ([[AttributedError]]). This hides nothing a compilation reached: a fact the program genuinely
+    * needs is read by its dependent, which records the edge before the read — including a read that comes back empty
+    * because the generation failed.
+    */
+  def currentErrors(): IO[Seq[CompilerError]] =
+    for {
+      attributed <- errors.get
+      roots      <- demandedRoots.get
+      deps       <- directDependencies.get
+    } yield {
+      val live = reachableFrom(roots, deps)
+
+      attributed.filter(_.source.forall(live.contains)).map(_.error).toList
+    }
+
+  /** The keys reachable from `roots` through `deps` — this run's live fact graph. */
+  private def reachableFrom(
+      roots: Set[CompilerFactKey[?]],
+      deps: Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]
+  ): Set[CompilerFactKey[?]] = {
+    @tailrec
+    def walk(frontier: Set[CompilerFactKey[?]], seen: Set[CompilerFactKey[?]]): Set[CompilerFactKey[?]] =
+      if (frontier.isEmpty) seen
+      else {
+        val next = frontier.flatMap(key => deps.getOrElse(key, Set.empty)) -- seen
+
+        walk(next, seen ++ next)
+      }
+
+    walk(roots, roots)
+  }
 
   /** The keys this run regenerated (ran a processor for from scratch) rather than accepting from the prior cache. On a
     * warm build over an unchanged tree this is exactly the set of world leaves — facts with no recorded dependencies,
@@ -281,6 +364,11 @@ final class IncrementalFactGenerator(
     * fall through to the prior. This is the one subtlety that keeps accumulation sound: without it, a fact that started
     * failing would be masked by its own stale success next run.
     *
+    * It excludes one more: an untouched entry whose recorded dependency this run **moved** ([[movedKeys]]). Retention
+    * is what lets the cache hold more than one generation at once, and validation compares a dependency against the
+    * cache's *entry* rather than against what the dependent consumed — so an entry left behind while its input advanced
+    * would be accepted against a value it never saw.
+    *
     * A materialised fact gets its dependency set from one of two places: its own `directDependencies` entry (it was
     * generated), or — for a fact **pushed** by a processor for a key other than the one being generated — the final
     * dependency set of the generation that pushed it (recorded in `producedDuring`): a pushed fact is a function of
@@ -305,8 +393,33 @@ final class IncrementalFactGenerator(
         key -> CacheEntry(Some(fact), recordedDeps.getOrElse(Set.empty))
       }
       val touched  = factMap.keySet ++ deps.keySet ++ carried.keySet // resolved, materialised, or drilled this run
-      val retained = prior.view.filterKeys(k => !touched(k)).toMap   // untouched prior facts accumulate
+      val moved    = movedKeys(factMap, deps)
+      val kept     = prior.view.filterKeys(k => !touched(k))         // untouched prior facts accumulate…
+      val retained =                                                 // …unless an input moved under them
+        if (moved.isEmpty) kept.toMap else kept.filter { case (_, entry) => !entry.directDeps.exists(moved) }.toMap
+
       FactCacheData(retained ++ carried ++ fresh)
+    }
+
+  /** The keys whose value this run *moved*: it resolved them and got something other than what the cache held — a
+    * different value, or nothing at all (a failure, which drops the entry).
+    *
+    * This is what makes retention safe. Validation asks "is this dependency the same as the cache's entry for it?",
+    * while what a dependent actually needs to know is "is it the same as what *I* consumed". Those coincide only while
+    * the cache is one consistent generation. A run that updates a fact but never reaches its dependents — it failed
+    * first, or simply never demanded them — leaves the two a generation apart, and the dependent is then accepted
+    * against a value it never saw. So a dependent recorded against a moved input is dropped rather than retained; it
+    * regenerates on its next demand.
+    *
+    * Only *direct* dependents need dropping: a retained entry pointing at one of them now finds no prior entry, which
+    * validation already reads as changed. And a run that moved nothing (the warm no-change build) does no work here.
+    */
+  private def movedKeys(
+      factMap: Map[CompilerFactKey[?], CompilerFact],
+      deps: Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]
+  ): Set[CompilerFactKey[?]] =
+    deps.keySet.filter { key =>
+      prior.get(key).exists(entry => !factMap.get(key).exists(entry.matches))
     }
 }
 
@@ -325,13 +438,14 @@ object IncrementalFactGenerator {
       strictAccounting: Boolean = false
   ): IO[IncrementalFactGenerator] =
     for {
-      errors          <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
+      errors          <- Ref.of[IO, Chain[AttributedError]](Chain.empty)
       facts           <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
       deps            <- Ref.of[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]](Map.empty)
       producedDuring  <- Ref.of[IO, Map[CompilerFactKey[?], CompilerFactKey[?]]](Map.empty)
       carriedForward  <- Ref.of[IO, Map[CompilerFactKey[?], CacheEntry]](Map.empty)
       unchangedChecks <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]](Map.empty)
       regenerated     <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
+      demandedRoots   <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
     } yield new IncrementalFactGenerator(
       generator,
       prior.map(_.entries).getOrElse(Map.empty),
@@ -342,6 +456,7 @@ object IncrementalFactGenerator {
       producedDuring,
       carriedForward,
       unchangedChecks,
-      regenerated
+      regenerated,
+      demandedRoots
     )
 }
