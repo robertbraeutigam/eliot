@@ -328,6 +328,8 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_EffectfulType
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.EffectfulType] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_EffectRowType
+      : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.EffectRowType] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_MatchCase
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.MatchCase] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity

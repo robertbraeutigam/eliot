@@ -108,6 +108,10 @@ spelling-free ("Type mismatch.") so hover was the only leak.
 3. **Discharger/handler authors**: nothing new to learn since effects-v5 step 2 — a parameter row is what you
    supply (`{Throw[E]} A`), and the stack over your own carrier is what it means.
 
+Level 1 gained one thing since effects-v5 §7: a row can be **named** (`type Web = {Console, Log}`), and the name
+is expanded wherever a row entry uses it. That is aliasing the *row*, not the computation, so it introduces no
+base, no stack, and nothing from this document — a row alias is not a type.
+
 ## Limits and deferred work
 
 - **Suspend-riding effects cannot be pinned** (v1): `Console`/`Log` have no canonical carrier of

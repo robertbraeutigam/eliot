@@ -787,6 +787,45 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def f: {| Id} Unit = a").asserting(_.size should be > 0)
   }
 
+  // A **row alias** `type Web = {Console, Log}` (effects-v5 §7) is a row with no payload, so it is not a type and not
+  // an `EffectfulType`; it reads only as a type-alias body, and only once the ordinary type run has failed there.
+  it should "parse a payload-less row as a row alias body" in {
+    runEngineForFunctionBodies("type Web = {Console, Log}").asserting(
+      _.collect { case ("Web", Expression.EffectRowType(effects)) => effects.map(_.abilityName.value) } shouldBe
+        Seq(Seq("Console", "Log"))
+    )
+  }
+
+  it should "parse a parameterised row alias body, keeping the entry's type arguments" in {
+    runEngineForFunctionBodies("type Fallible[E] = {Throw[E], Log}").asserting(
+      _.collect { case ("Fallible", Expression.EffectRowType(effects)) =>
+        effects.map(e => (e.abilityName.value, e.typeParameters.map(_.value.render)))
+      } shouldBe Seq(Seq(("Throw", Seq("E")), ("Log", Seq.empty)))
+    )
+  }
+
+  it should "keep a row over a payload an ordinary effectful type, not a row alias" in {
+    runEngineForFunctionBodies("type Test = {Writer[W] | Id} Unit").asserting(
+      _.collect { case ("Test", e) => e.getClass.getSimpleName } shouldBe Seq("EffectfulType")
+    )
+  }
+
+  it should "reject an empty row as an alias body, since it names no effects" in {
+    runEngineForErrors("type Web = {}").asserting(_.size should be > 0)
+  }
+
+  private def runEngineForFunctionBodies(source: String): IO[Seq[(String, Expression)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.flatMap(f => f.body.map(b => (f.name.value.name, b.value)))
+        }
+        .toSeq
+        .flatten
+    }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 

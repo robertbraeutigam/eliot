@@ -66,6 +66,18 @@ object Expression {
       tail: Option[Sourced[Expression]]
   ) extends Expression
 
+  /** A **row alias** body — the `{ E1, E2, … }` of a `type Web = {Console, Log, Throw[HttpError]}`, a row with no
+    * payload after it (docs/effects-v5-one-carrier.md §7). A row *is* a set of abilities and nothing else, so it is the
+    * natural unit to name; the alias is therefore not a type at all, and it appears in exactly one place — a type-level
+    * definition's body. [[core.processor.EffectSugarDesugarer]] lifts its entries into
+    * [[EffectRow.aliasEffects]] and leaves the definition abstract, so the node never survives the core phase; a *use*
+    * of the alias is a row entry, which `resolve` expands into the entries recorded here.
+    *
+    * Distinct from an [[EffectfulType]] with an empty effect set (`{} A`, "on my own ambient carrier"): that one has a
+    * payload and is a carrier position, this one has entries and no payload and is not a type.
+    */
+  case class EffectRowType(effects: Seq[GenericParameter.AbilityConstraint]) extends Expression
+
   case class MatchCase(pattern: Sourced[Pattern], body: Sourced[Expression])
 
   /** A reference to the boolean literal `true` (`eliot.lang.Bool::true`), the default ability-implementation guard
@@ -112,6 +124,8 @@ object Expression {
         val members = effects.map(renderAbilityConstraint)
         val tailStr = tail.fold("")(t => s" | ${t.value.render}")
         s"{${members.mkString(", ")}$tailStr} ${resultType.value.render}"
+      case EffectRowType(effects)                                                               =>
+        s"{${effects.map(renderAbilityConstraint).mkString(", ")}}"
       case BlockExpression(lines)                                                               =>
         lines.map(renderBlockLine).mkString("{ ", "; ", " }")
     }
@@ -252,6 +266,18 @@ object Expression {
     _          <- symbol("}")
     resultType <- sourced(typeAtom)
   } yield EffectfulType(entries, resultType, tail)
+
+  /** Parses a **row alias** body `{ Eff (, Eff)* }` — a row with no payload, which is what a `type Web = {Console,
+    * Log}` declares (docs/effects-v5-one-carrier.md §7). Deliberately *not* a type-run atom: a row alias is not a type,
+    * so it reads in exactly one position, a type-level definition's body, and only after [[typeRunParser]] has been
+    * tried and failed there (`{Console} Unit` is a pinned/open row over a payload and stays that). At least one entry
+    * is required — `type X = {}` names no effects and is the empty row, which needs no name.
+    */
+  lazy val effectRowTypeParser: Parser[Sourced[Token], Expression] = for {
+    _       <- symbol("{")
+    entries <- component[GenericParameter.AbilityConstraint].atLeastOnceSeparatedBy(symbol(","))
+    _       <- symbol("}")
+  } yield EffectRowType(entries)
 
   /** The optional `| base` tail of an effect row — read only after at least one entry, since a row realizing no effects
     * over a base carrier is that carrier itself and needs no row spelling. See [[effectfulTypeParser]].

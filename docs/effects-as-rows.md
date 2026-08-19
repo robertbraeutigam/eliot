@@ -219,6 +219,15 @@ Consequences the user sees:
 - Rows remain the only effect surface (`def main: {Console} Unit`); diagnostics stay in payload/row
   vocabulary.
 
+**A row can be named** (added by effects-v5 §7, `docs/effects-v5-one-carrier.md`, landed 2026-08-19): a
+type-level definition whose body is a payload-less row — `type Web = {Console, Log}`, `type Fallible[E] =
+{Throw[E], Log}` — is a name for the *set*, and `resolve` expands every row entry naming it. This adds no
+rule to the four above and no vocabulary anywhere below `resolve`: the expansion happens where a row
+entry's name is resolved, so both the declared row and the desugared carrier constraints see only the
+entries, and the channel is unchanged. It is deliberately the only effect aliasing offered — aliasing a
+*computation* (`type Test = {Writer[W]} Unit`) is aliasing a carrier-applied type, which rule 3 keeps as
+the pinned row or the ordinary generic.
+
 ## 2. The checking model: two channels beside each other
 
 Checking a runtime term yields a **payload type** (the existing NbE judgment, which never sees an effect)

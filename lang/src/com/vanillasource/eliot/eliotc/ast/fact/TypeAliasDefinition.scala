@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
-import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIf, acceptIfAll, optional, or}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
@@ -33,18 +33,32 @@ object TypeAliasDefinition {
       // cleanly at the next definition because every definition-introducing token (`infix`/`prefix`/`postfix`/`def`/
       // `type`/…) is a hard keyword and so is not a type-atom start. This lets an alias body carry a bare type operator,
       // e.g. `type Pred = A => Bool`.
-      body                <- (symbol("=") *> sourced(Expression.typeRunParser)).optional()
+      // A row alias (`type Web = {Console, Log}`, docs/effects-v5-one-carrier.md §7) is a row with no payload, which
+      // `typeRunParser` cannot read — its `{…}` atom always covers a following type atom. Try the type run first and
+      // atomically, so `{Console} Unit` (a row over a payload) is unaffected and only a payload-less brace falls
+      // through to the row-alias parser.
+      body                <- (symbol("=") *> sourced(Expression.typeRunParser)
+                               .atomic()
+                               .or(sourced(Expression.effectRowTypeParser))).optional()
     } yield {
-      val args      = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction, gp.inferable))
-      val typeExpr  = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), None, Seq.empty))
+      // A **row alias** (`type Fallible[E] = {Throw[E], Log}`) names a set of abilities, not a type, so its parameters
+      // are never applied as a type constructor's arguments — they are only substituted when a use of the alias is
+      // expanded (`resolve`). Keeping them as *generic* parameters is what makes their names readable there: a generic
+      // parameter becomes a named binder in the signature, while a value argument only survives in the body, which a
+      // row alias does not have (`EffectSugarDesugarer` leaves it abstract).
+      val isRowAlias = body.exists(_.value.isInstanceOf[Expression.EffectRowType])
+      val args       =
+        if (isRowAlias) Seq.empty
+        else genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction, gp.inferable))
+      val typeExpr   = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), None, Seq.empty))
       // Operators are never upper-case and are always referenced bare (no `[]`), so their references resolve in the
       // Default namespace (see `CoreExpressionConverter`). An operator-named alias must therefore live in the Default
       // namespace too — exactly like the equivalent `def` — or its uses would never find it; an ordinary (upper-case)
       // alias stays in the Type namespace as before.
-      val qualifier = if (isUserOperator(name)) Qualifier.Default else Qualifier.Type
+      val qualifier  = if (isUserOperator(name)) Qualifier.Default else Qualifier.Type
       FunctionDefinition(
         name.map(n => QualifiedName(n.content, qualifier)),
-        Seq.empty,
+        if (isRowAlias) genericParameters else Seq.empty,
         args,
         typeExpr,
         body,

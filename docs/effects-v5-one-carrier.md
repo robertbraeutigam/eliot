@@ -1,7 +1,8 @@
 # Effects v5: Rows Are Constraints on One Carrier
 
-**Status (2026-08-19): §4 steps 1 and 2 are LANDED; the rest is still a PROPOSAL that decides nothing** — per
-`docs/effects-as-rows.md` standing rule 1 the decision on steps 3-4 is Robert's. Written from scratch against seven constraints he stated: *we need effects; unordered
+**Status (2026-08-19): §4 steps 1 and 2 and §7 (the row alias) are LANDED; §4 steps 3-4 are still a PROPOSAL that
+decides nothing** — per `docs/effects-as-rows.md` standing rule 1 the decision on them is Robert's, and §4 step 3 now
+has a **measurement against it** (below, and §5 C1). Written from scratch against seven constraints he stated: *we need effects; unordered
 preferred; effects as monadic abilities preferred; a mechanism independent of `monomorphize`, so it can stay
 simple; no pinned rows, they are hard to grasp; effects must stay generic — testable with pure carriers; and `IO`
 is not special — it is discharged in Eliot too, private to the platform but ordinary from the language's point of
@@ -149,6 +150,22 @@ together. v5 has no such step, because every intermediate state is expressible i
 3. **Concrete pins become ordinary generics.** `data TestCase(body: {Throw[E] | Id} Unit)` ⤳
    `data TestCase[F[_] ~ Throw[E]](body: F[Unit])`, or keep a concrete carrier where one is wanted. Handful of
    sites, each independently green.
+   **Not taken, and measured rather than argued (2026-08-19).** Two findings, both from running the tree:
+   - **There is no site.** After step 2 the tree contains **zero** pinned rows in `.els` — the concrete-pin case the
+     step names (`TestCase`) was removed by `foldNamedValues` (`docs/reflection-fold.md`), which hands each gathered
+     value to a *slot* instead of storing it. The pinned tail survives only in compiler tests and in this document.
+   - **The replacement is not the free one C1 claims.** A `data TestCase[F[_] ~ Throw[String]](name: String, body:
+     F[Unit])` does work — a definition declaring `TestCase[ThrowCarrier[String, Id]]` constructs, discharges and runs
+     identically to the pinned field. What does **not** work is leaving `F` to be "inferred at every use site": the
+     elaborator *writes* carriers, it does not solve for them, so a carrier-generic stored value
+     (`def passing[F[_] ~ Effect & Throw[String]]: TestCase[F]`) is written at the **caller's ambient** carrier at
+     every use, and the stored `Throw` is then charged to the caller ("This value performs the effect 'Throw' but
+     does not declare it"). Constructing inline at the use site fails the same way, for the same reason: the
+     elaborator runs before the expected type is known. So the working spelling names the machinery —
+     `TestCase[ThrowCarrier[String, Id]]` — which is exactly the leak `docs/effect-row-tails.md` introduced the
+     pinned row to remove. Step 3 as written therefore trades a row spelling for a carrier-stack spelling; that is a
+     regression in the user surface, not a subtraction, and per `docs/effects-as-rows.md` standing rule 2 it is
+     surfaced rather than narrowed into shape.
 4. **Delete what is then unused**: the tail syntax, the pinned/open machinery in `EffectSugarDesugarer`, the
    `{Effect}` reuse rule, and — once the desugar writes every `pure` — `EffectLifter` and `CarrierKindChecker`.
 
@@ -157,10 +174,12 @@ Each step is `__.test`-green and example-jar-identical on its own, which is the 
 ## 5. Costs, risks and open questions — honestly
 
 - **C1 — storing a computation gets more verbose, and shows `F[_]`.** `data TestCase[F[_] ~ Throw[String]](body:
-  F[Unit])` is longer than `data TestCase(body: {Throw[String] | Id} Unit)`. The claim is not that it is shorter
-  but that it is **not a new concept**: it is the generic parameter the user already writes for any container, and
-  it is *inferred* at every use site rather than pinned by the author. Whether that trade is right is Robert's
-  call, and it is the one place v5 asks the user for more than v3 does.
+  F[Unit])` is longer than `data TestCase(body: {Throw[String] | Id} Unit)`. The claim was that it is **not a new
+  concept**: the generic parameter the user already writes for any container, *inferred* at every use site rather
+  than pinned by the author. **The second half is refuted** (§4 step 3): a stored value's carrier is *written* by the
+  elaborator, and what it writes at a definition's own carrier binder is the caller's ambient — so the carrier has to
+  be spelled concretely at the point of storage, in machinery vocabulary (`TestCase[ThrowCarrier[String, Id]]`). The
+  cost is therefore not verbosity but the carrier names, which is the cost the pinned row exists to avoid.
 - **R1 — the `{}` spelling is a bikeshed with real stakes.** "Suspended on my ambient" is the most common slot in
   the stdlib (`fold`, `if`, `else`'s fallback, `catch`'s handler). If `{}` reads as "no effects" rather than
   "mine", it will mislead. Alternatives: keep `{Effect}`; write the row the arm may perform (`{Abort} T` on `if`'s
@@ -194,7 +213,7 @@ three (rowless / carrier-headed / pinned), which is what actually eroded. That i
 it is available without a flag day, without a canonical order, and without giving up the ability to interpret an
 effect yourself.
 
-## 7. Aliasing an effectful type — alias the **row**
+## 7. Aliasing an effectful type — alias the **row** — LANDED 2026-08-19
 
 Yes, and in v5 the natural unit to alias is the row itself, because a row *is* a set of abilities and nothing
 else. Naming a set of effects once is also what a user usually wants — far more often than naming one
@@ -215,18 +234,39 @@ type Fallible[E] = {Throw[E], Log}
 def parse(s: String): {Fallible[SyntaxError]} Tree
 ```
 
-**The mechanics are one rule, in one place.** Rows desugar in `core` to ability constraints written by name
-(`F ~ Web`), and names are resolved later; so the only change is that `resolve`, when it meets a row entry naming
-a `type` whose body is a row, **splices that row's entries into the constraint list** instead of resolving one
-ability (`resolve/processor/ValueResolver.resolveAbilityName`, reached from both `resolveEffectRow` and
-`resolveParamConstraints`). Core is untouched, the lowering is untouched, and the channel sees the expanded row,
-so accounting and the two verifiers keep working with no new vocabulary. This is the change `docs/effects-as-channel-v4.md`
-§A.3 identified as *"the right change if v3 stands"* — it is equally right under v5, since v5 keeps the encoding
-A.3 assumes, and it can land **on today's tree, independently of everything else here**.
+**The mechanics are one rule, in one place**, and that is what landed. Rows desugar in `core` to ability
+constraints written by name (`F ~ Web`), and names are resolved later; so the change is that `resolve`, when a row
+entry names a `type` whose body is a row, **expands that row's entries in place** instead of resolving one ability
+(`resolve/processor/ValueResolver.resolveAbilityConstraint`, reached from both `resolveEffectRow` and
+`resolveParamConstraints` — the two channels a row feeds, and both must get it or the effect silently drops out of
+one). The lowering is untouched, and the channel sees the expanded row, so accounting and the two verifiers keep
+working with no new vocabulary. This is the change `docs/effects-as-channel-v4.md` §A.3 identified as *"the right
+change if v3 stands"* — it is equally right under v5, since v5 keeps the encoding A.3 assumes, and it landed **on
+today's tree, independently of everything else here**: all 44 compiling examples build to byte-identical jars.
 
-Two things fall out for free. A row alias naming itself is a cycle in the value-reference graph, which the
-recursion gate already rejects (*Total by Default*), so no new cycle check is needed. And a row alias is usable in
-both positions of §1 with no extra rule, because it expands before either position is interpreted.
+Five details the step had to settle:
+
+- **A row alias is not a type, so it is not an `EffectfulType`.** `{Console, Log}` with no payload after it is a new
+  AST node (`Expression.EffectRowType`) that reads in exactly one position — a type-alias body, and only after the
+  ordinary type run has failed there, so `type Test = {Writer[W] | Id} Unit` (a row over a payload) is untouched.
+  `EffectSugarDesugarer` lifts its entries into `EffectRow.aliasEffects` and leaves the definition **abstract**:
+  there is no type for it to be, and every use of the name is a row entry that expands away.
+- **An ability of the same name always wins.** The alias is looked up only when the name resolves to no ability at
+  all, so adding an alias can never capture an existing row entry.
+- **The alias's entries resolve in the alias's own scope** — its module, its dictionary, its parameters — because a
+  row alias is a declaration like any other and its names mean what they mean where it is written. The use's type
+  arguments are resolved at the use and substituted for the alias's parameters, which is what makes
+  `type Fallible[E] = {Throw[E], Log}` work at `{Fallible[SyntaxError]}`.
+- **The carrier rides through.** The same entry reaches the resolver twice — once in the declared row, captured from
+  the syntax before a carrier exists, and once as the carrier constraint `F ~ Fallible[E]` the desugar writes. The
+  alias's parameters bind the *leading* arguments and the one trailing argument, when present, is passed on to every
+  expanded entry; that is the carrier, and it is the whole of the difference between the two.
+- **A cycle is caught here, not later.** A row alias naming itself *is* a cycle in the value-reference graph, but the
+  recursion gate (*Total by Default*) runs several phases after resolve, so the expansion carries the set of aliases
+  it is inside and reports "Row alias is defined recursively." rather than looping.
+
+One thing falls out for free: a row alias is usable in both positions of §1 with no extra rule, because it expands
+before either position is interpreted.
 
 **What is deliberately *not* offered is aliasing the payload with the row** — `type Test = {Writer[List[TestCase]]}
 Unit`, the case that provoked v4 (§0 there). That is aliasing a *computation*, which is a carrier-applied type, so

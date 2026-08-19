@@ -115,6 +115,12 @@ object CoreExpressionConverter {
             convertExpression(line.expression, typeContext, compilerTrackContext)
           )
         }))
+      case _: SourceExpression.EffectRowType                                           =>
+        // A row alias body (`type Web = {Console, Log}`) is lifted into `EffectRow.aliasEffects` and the definition
+        // left abstract by EffectSugarDesugarer, so the node never reaches conversion. Anywhere else it is not a type.
+        throw IllegalStateException(
+          s"A payload-less effect row `{…}` is only a type alias body: ${expr.value.render}"
+        )
       case _: SourceExpression.EffectfulType                                           =>
         // EffectSugarDesugarer rewrites every `{…} A` to `F[A]` across the whole function before conversion, so an
         // EffectfulType reaching here means it was written somewhere the desugarer does not reach (only signature and

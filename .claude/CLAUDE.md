@@ -102,7 +102,8 @@ subset of its data.
    arms; `ability`/`implement` mint public values and so are covered with no exception, and a `private data` is
    private in *every* name it mints.
 5. **module** — from modules to individual values; unifies same-named modules from different paths
-6. **resolve** — resolve identifiers to fully qualified names or parameters
+6. **resolve** — resolve identifiers to fully qualified names or parameters; also the one place a **row alias**
+   expands (`{Web}` ⤳ `{Console, Log}`), since that is where a row entry's name is resolved
 7. **matchdesugar** — pattern matches into function applications; exhaustiveness, nested/constructor/wildcard patterns
 8. **operator** — infix operators by precedence and associativity, into structured applications
 9. **termination** — the recursion gate (see the *Total by Default* cornerstone)
@@ -481,6 +482,23 @@ a plain row (`runThrow(obj: {Throw[E]} A): G[Either[E, A]]`) and the desugar pin
 carrier, producing the identical type — so `signatureEquality` still holds across the merge, and a pinned tail is
 left only where the base is *concrete* (a `data` field's `| Id`). `Suspend`-riding effects (`Console`) have no
 canonical carrier and so cannot be pinned (v1) — nor supplied, which is the same diagnostic.
+
+**A row alias names the set, not the computation** (`type Web = {Console, Log}`, effects-v5 §7 — landed): a
+payload-less row in a type-alias body. It is the *only* effect aliasing offered, precisely because a row is a set of
+abilities and nothing else — aliasing a *computation* (`type Test = {Writer[W]} Unit`) is aliasing a carrier-applied
+type and stays the ordinary generic. A row alias is **not a type**: it parses as its own node
+(`Expression.EffectRowType`, read in one position and only after the type run has failed there, so `{…| Id} A` is
+untouched), `EffectSugarDesugarer` lifts its entries into `EffectRow.aliasEffects` and leaves the definition
+abstract, and `resolve` **expands** every row entry naming it (`ValueResolver.resolveAbilityConstraint`, from both
+`resolveEffectRow` *and* `resolveParamConstraints` — a row feeds two channels and reaching only one silently drops
+the effect from the other). Four rules it carries: an **ability of the same name always wins** (the alias is looked
+up only when the name is no ability at all); the alias's entries **resolve in the alias's own scope**, with the
+use's type arguments substituted for its parameters (`type Fallible[E]`); the alias's parameters bind the *leading*
+arguments and **one trailing argument is passed through to every expanded entry** — that is the carrier the desugar
+appends, which is what makes the row-channel and constraint-channel copies of the same entry differ; and a
+self-naming alias is rejected at the expansion ("Row alias is defined recursively."), since the recursion gate runs
+several phases too late to catch it. Aliases nest, and expansion is deduplicated in the *open* positions only — a
+pinned row is a stack, where order and multiplicity are the discharge order.
 
 **Rows are the user surface and the verifier's vocabulary — they never flow back into types.** `EffectRow` is
 declaration metadata (like `paramConstraints`), consumed by the desugar and the renderers; verification is a
