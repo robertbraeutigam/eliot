@@ -1,6 +1,6 @@
 # Effects as a Channel, v4: The Row Leaves the Type, the Carrier Leaves the Language
 
-**Status (2026-08-19): PROPOSAL. P0 and P1 executed, nothing else implemented.** The one phase §11 allows to start
+**Status (2026-08-19): PROPOSAL. P0, P1 and P3 executed; P2/P4/P5 — the flag day — not started.** The one phase §11 allows to start
 with — the R1 spike — has been run and written up in `docs/effects-v4-p0-spike.md`: R1 is **cleared by
 measurement**, with two amendments folded into §6 and two new risks (R7, R8) added to §10. That gate opens P1; it
 does not decide v4. This document is a design sketch written from a
@@ -405,8 +405,22 @@ output legitimately changes.
   the existing elaboration, comparing woven output per `(payload key × stack)` — P0 showed the payload key
   alone merges instances that differ. **Gate:** identical woven bodies on every example, which is the
   proof that the seam can *use* the information P0 showed it has.
-- **P3 — the woven re-check.** Land it on today's output first, where it must be a no-op. **Gate:** green
-  and no measurable build-time regression beyond a stated budget.
+- **P3 — the woven re-check. DONE (2026-08-19), gate met.** `monomorphize/channel/WovenRecheck`, wired into
+  `WovenValueProcessor` beside `assertNoIdResidue` and mandatory like it. Ground definitional equality with
+  no metavariables, no unification and no meta store: a function literal is `Function[parameterType,
+  bodyType]`, an application applies a function whose domain is its argument's type and whose codomain is its
+  own, a parameter reference has its binder's type, and a bodied value's signature is its body's type.
+  **Landed on today's output, where it is a no-op** — it accepts the whole example and integration corpus
+  unchanged. Two `used` fixtures had to be corrected: they injected hand-written monomorphic bodies annotating
+  a lambda and an applied head with a non-function type, which is exactly what the check is for. **Gate met:**
+  `__.test` green, examples byte-identical, and no measurable build-time regression (min-of-three warm
+  single-example compiles: 5.43 s with the check, 5.91 s without — the check is below the noise floor of the
+  measurement, so the stated budget is "not measurable at one example's granularity").
+  One half is deliberately deferred to the lowering: a value **reference**'s agreement with its callee's own
+  woven signature is the one rule needing a fact read, which would turn the seam into a callee-first traversal
+  — and the `used` fixtures that exist to prove the codegen driver tolerates a *cyclic* injected value show
+  that demand is not safe to add on its own. §6's demand direction gives the lowering that read for free, so
+  the rule lands with P2 rather than being bolted on ahead of it.
 - **P4 — flag day.** Signatures stop desugaring to carriers; the checker, ability resolution for effect
   methods and elaboration move together; `EffectSugarDesugarer`'s carrier half, `EffectLifter`,
   `IdNormalizer` and the naming/rendering pair are deleted in the same change. **Gate:** green, examples
