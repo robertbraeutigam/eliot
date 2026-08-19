@@ -328,7 +328,7 @@ class OperatorResolverProcessorTest
   it should "resolve {Suspend, Abort} and {Abort, Suspend} to the same signature and effect set" in {
     val source =
       "data Str\nability Suspend[F[_]] { def s(value: Str): F[Str] }\nability Abort[F[_]] { def a(value: Str): F[Str] }\n" +
-        "def ab(x: {Suspend, Abort} Str): Str\ndef ba(x: {Abort, Suspend} Str): Str"
+        "def ab(x: Str): {Suspend, Abort} Str\ndef ba(x: Str): {Abort, Suspend} Str"
     (runEngineForResolvedValue(source, "ab"), runEngineForResolvedValue(source, "ba")).mapN { (ab, ba) =>
       (signatureShow(ab), constraintShow(ab).view.mapValues(_.toSet).toMap) shouldBe
         (signatureShow(ba), constraintShow(ba).view.mapValues(_.toSet).toMap)
@@ -413,12 +413,13 @@ class OperatorResolverProcessorTest
   }
 
   it should "NOT mark a data-type parameter or an open-row parameter (only the open row feeds the entries)" in {
-    // `box: Box[Str]` is a plain data type; `eff: {Susp} Str` is an OPEN row. Neither is a pinned carrier stack, so the
-    // pinned tag stays empty — while the open row still populates `parameterEffects` at its index, showing the two
-    // channels are disjoint.
+    // `box: Box[Str]` is a plain data type; `eff: {Susp} Str` is an OPEN row — open because `Susp` is in `f`'s own
+    // declared row, so the argument rides `f`'s ambient carrier rather than being supplied a stack of its own
+    // (effects-v5 step 2). Neither is a pinned carrier stack, so the pinned tag stays empty — while the open row still
+    // populates `parameterEffects` at its index, showing the two channels are disjoint.
     val source =
       "data Str\ndata Box[X]\nability Susp[F[_]] { def d(v: Str): F[Str] }\n" +
-        "def f(box: Box[Str], eff: {Susp} Str): Str"
+        "def f(box: Box[Str], eff: {Susp} Str): {Susp} Str"
     runEngineForResolvedValue(source, "f").asserting { f =>
       (effectRowReturnPinned(f), effectRowPinnedParams(f), effectRowParameters(f)) shouldBe
         (false, Set.empty, Seq((1, Seq("Susp"))))

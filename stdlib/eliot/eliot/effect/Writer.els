@@ -36,25 +36,25 @@ type WriterCarrier[W, G[_], A]
 /**
  * Unwrap a `WriterCarrier` to its underlying `G[Pair[A, W]]`. The single accessor of the carrier; the platform layer
  * supplies the body (the *generated* `WriterCarrier` data-field accessor). Discharge is read structurally at
- * monomorphization from the `{Writer[W] | G}` input against the plain output, so no annotation is needed. Discharge the
+ * monomorphization from the `{Writer[W]}` input against the plain output, so no annotation is needed. Discharge the
  * effect with `runWriterToPair`.
  */
-def runWriterCarrier[W, G[_], A](obj: {Writer[W] | G} A): G[Pair[A, W]]
+def runWriterCarrier[W, G[_] ~ Effect, A](obj: {Writer[W]} A): G[Pair[A, W]]
 
 /**
  * Discharge the `Writer[W]` effect, materialising it as a `Pair[A, W]`: the result paired with the accumulated log. Any
  * other effects remain in the carrier `G`. Reach for `runWriterToValue` or `runWriterToLog` to keep only one side of the
  * pair.
  */
-def runWriterToPair[W, G[_], A](p: {Writer[W] | G} A): G[Pair[A, W]] = runWriterCarrier(p)
+def runWriterToPair[W, G[_] ~ Effect, A](p: {Writer[W]} A): G[Pair[A, W]] = runWriterCarrier(p)
 
 /**
  * Discharge the `Writer[W]` effect keeping only the result, discarding the accumulated log.
  */
-def runWriterToValue[W, G[_] ~ Effect, A](p: {Writer[W] | G} A): G[A] = map(first, runWriterToPair(p))
+def runWriterToValue[W, G[_] ~ Effect, A](p: {Writer[W]} A): G[A] = map(first, runWriterToPair(p))
 
 /**
  * Discharge the `Writer[W]` effect keeping only the accumulated log, discarding the result. This is the usual way to
  * collect a writer's output.
  */
-def runWriterToLog[W, G[_] ~ Effect, A](p: {Writer[W] | G} A): G[W] = map(second, runWriterToPair(p))
+def runWriterToLog[W, G[_] ~ Effect, A](p: {Writer[W]} A): G[W] = map(second, runWriterToPair(p))

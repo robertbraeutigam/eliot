@@ -18,7 +18,7 @@ import eliot.compiler.Reflect
  * java -jar target/TestSuite.jar
  * ```
  */
-def runTest[G[_] ~ Effect & Console](name: String, test: {Throw[String] | G} Unit, rest: G[Unit]): G[Unit] = {
+def runTest[G[_] ~ Effect & Console](name: String, test: {Throw[String]} Unit, rest: G[Unit]): G[Unit] = {
    printLine("- " ++ name)
    test catch (reason -> printLine("  FAILED: " ++ reason))
    rest

@@ -33,14 +33,21 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * interchangeable and let the tree migrate to `{}` one position at a time (effects-v5 step 1,
   * docs/effects-v5-one-carrier.md §4).
   *
+  * A row in a **parameter** position is read one step further (effects-v5 step 2, §4): it says *what I supply to this
+  * argument*, so an entry this definition's own declared row does not already have is **supplied** — the parameter's
+  * type is that entry's carrier stacked over the ambient carrier, which is what makes a discharger a discharger
+  * ([[supplyPinnedParameters]]). `def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]` therefore
+  * says the same thing the pinned spelling `{Abort | G} A` used to say by hand, and desugars to exactly it.
+  *
   * **Pinned rows** (`{E1, E2 | T} A`, docs/effect-row-tails.md) are not constraints at all but *concrete types*: the
   * canonical carrier stack realizing exactly those effects over the base `T`. The rewrite is pure type application —
   * `{Throw[E], State[S] | Id} A` ⤳ `ThrowCarrier[E, StateCarrier[S, Id], A]` — with each entry's carrier named by the
   * `<Ability>Carrier` convention (colocated with its ability, so it resolves wherever the ability does), entries
   * nesting left-to-right (leftmost = outermost = discharged first), and no generic parameter introduced. This is the
-  * one sanctioned spelling of a carrier stack: a stored (`data`-field) row must be pinned, and the discharger
-  * signatures in the stdlib are written in it. An effect without a colocated `<Ability>Carrier` type (e.g. a
-  * Suspend-riding one like `Console`) fails loudly at resolve time when pinned.
+  * one sanctioned spelling of a carrier stack, and the one a supplied parameter row lowers into; a stored
+  * (`data`-field) row must be written in it. An effect without a colocated `<Ability>Carrier` type (e.g. a
+  * Suspend-riding one like `Console`) fails loudly at resolve time when pinned — which is also the diagnostic a
+  * parameter row supplying such an effect gets.
   *
   * Discharge carries no syntax here: a discharger's consumed effect vanishes structurally at the monomorphize-phase
   * residual check (it lands on an inner transformer carrier, never on the caller's ambient), so there is no `-E`
@@ -102,16 +109,17 @@ object EffectSugarDesugarer {
     }
   }
 
-  /** Rewrite a single function definition: collapse its open `{…}` rows onto one inferable higher-kinded carrier
-    * generic `F[_]`, adding one `F ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`.
-    * Returns the function unchanged when it carries no effect rows. Synthetic functions (e.g. data-desugared ones)
-    * never carry `{…}`, so applying this uniformly to every function is a no-op for them.
+  /** Rewrite a single function definition: pin what its parameter rows **supply** ([[supplyPinnedParameters]]), then
+    * collapse the open `{…}` rows that are left onto one inferable higher-kinded carrier generic `F[_]`, adding one
+    * `F ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`. Returns the function unchanged
+    * when it carries no effect rows. Synthetic functions (e.g. data-desugared ones) never carry `{…}`, so applying
+    * this uniformly to every function is a no-op for them.
     *
     * **The carrier is the signature's, not the row's** (decided 2026-07-28, docs/effects-as-rows.md §1 rule 2): when
     * the signature *already binds* exactly one effect carrier of its own (`G[_] ~ Effect`, as every discharger does),
     * the rows reuse **that** binder rather than minting a second one, and their entries join its constraints. `{}`
     * then reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a slot that
-    * is `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {} A): G[A]` — the
+    * is `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]` — the
     * same type it always had, now saying "a value or a computation" rather than "a computation".
     * Without it the fallback could only be spelled `G[A]`, which under §1 rule 2 no longer accepts a pure actual, and
     * `host else "localhost"` would have to be written `host else pure("localhost")` — pushing carrier machinery into
@@ -119,49 +127,111 @@ object EffectSugarDesugarer {
     * (nothing in the tree mixed the two spellings); two or more `Effect`-constrained carriers decline it and mint as
     * before.
     */
-  def desugar(function: FunctionDefinition): FunctionDefinition = {
-    val signatureExprs =
-      function.args.map(_.typeExpression) ++
-        function.genericParameters.map(_.typeRestriction) :+
-        function.typeDefinition
-    val rows           = (signatureExprs ++ function.body.toSeq).flatMap(collectRows)
-    val openRows       = rows.filter(_.value.tail.isEmpty)
-    val positives      = openRows.flatMap(rowEntries).distinctBy(constraintKey)
-
-    if (rows.isEmpty) function
+  def desugar(function: FunctionDefinition): FunctionDefinition =
+    if (signatureAndBodyRows(function).isEmpty) function
     else {
-      val anchor         = function.name
-      val reusedCarrier  = ownEffectCarrier(function)
-      val carrierNameOpt = Option.when(positives.nonEmpty)(
-        reusedCarrier.getOrElse(freshName("F", function.genericParameters.map(_.name.value).toSet))
-      )
-      val rowConstraints = carrierNameOpt.toSeq.flatMap { carrierName =>
-        val carrierRef = anchor.as(typeExpr(anchor.as(carrierName)))
+      val anchor        = function.name
+      val reusedCarrier = ownEffectCarrier(function)
+      val carrierName   = reusedCarrier.getOrElse(freshName("F", function.genericParameters.map(_.name.value).toSet))
+      // Effects-v5 step 2: a *supplied* parameter row is pinned to this signature's own ambient carrier first, so
+      // everything below sees the pinned spelling it always saw.
+      val supplying     = supplyPinnedParameters(function, carrierName)
+      val supplies      = supplying ne function
+
+      val openRows       = signatureAndBodyRows(supplying).filter(_.value.tail.isEmpty)
+      val positives      = openRows.flatMap(rowEntries).distinctBy(constraintKey)
+      // A supplied row needs the carrier too — it is the base its stack sits on — even when nothing else constrains it.
+      val carrierNameOpt = Option.when(positives.nonEmpty || supplies)(carrierName)
+      val rowConstraints = carrierNameOpt.toSeq.flatMap { name =>
+        val carrierRef = anchor.as(typeExpr(anchor.as(name)))
         positives.map(e => GenericParameter.AbilityConstraint(e.abilityName, e.typeParameters :+ carrierRef))
       }
       // Minted only when nothing was reused: a reused binder keeps its declared position (and so its index, which
       // decides whether the elaborator can write it — A.11.4b's first-binder limit).
-      val carrierParam   = carrierNameOpt.filterNot(reusedCarrier.contains).map { carrierName =>
-        GenericParameter(anchor.as(carrierName), anchor.as(functionKind(anchor)), rowConstraints, inferable = true)
+      val carrierParam   = carrierNameOpt.filterNot(reusedCarrier.contains).map { name =>
+        GenericParameter(anchor.as(name), anchor.as(functionKind(anchor)), rowConstraints, inferable = true)
       }
       val rewriteExpr    = rewrite(carrierNameOpt)
 
-      function.copy(
-        genericParameters = carrierParam.toSeq ++ function.genericParameters.map { gp =>
+      supplying.copy(
+        genericParameters = carrierParam.toSeq ++ supplying.genericParameters.map { gp =>
           val constraints =
             if (reusedCarrier.contains(gp.name.value))
               (gp.abilityConstraints ++ rowConstraints).distinctBy(constraintKey)
             else gp.abilityConstraints
           gp.copy(typeRestriction = rewriteExpr(gp.typeRestriction), abilityConstraints = constraints)
         },
-        args = function.args.map(arg => arg.copy(typeExpression = rewriteExpr(arg.typeExpression))),
-        typeDefinition = rewriteExpr(function.typeDefinition),
-        body = function.body.map(rewriteExpr),
+        args = supplying.args.map(arg => arg.copy(typeExpression = rewriteExpr(arg.typeExpression))),
+        typeDefinition = rewriteExpr(supplying.typeDefinition),
+        body = supplying.body.map(rewriteExpr),
         // Effects-as-channel Phase 1 (dark): record the open rows, position-attributed, before the rewrite above erases
         // the `{…}` nodes. Inert on this path — nothing reads it yet; see [[EffectRow]].
-        effectRow = declaredEffectRow(function)
+        effectRow = declaredEffectRow(supplying)
       )
     }
+
+  /** Every effect row anywhere in a definition's signature (parameters, generic-parameter restrictions, return) or its
+    * body — the set that decides whether this definition carries the sugar at all.
+    */
+  private def signatureAndBodyRows(function: FunctionDefinition): Seq[Sourced[EffectfulType]] = {
+    val signatureExprs =
+      function.args.map(_.typeExpression) ++
+        function.genericParameters.map(_.typeRestriction) :+
+        function.typeDefinition
+    (signatureExprs ++ function.body.toSeq).flatMap(collectRows)
+  }
+
+  /** Pins every **supplied** parameter row to this signature's own ambient carrier — effects-v5 step 2
+    * (docs/effects-v5-one-carrier.md §4).
+    *
+    * A row in a *parameter* position says *"what I supply to this argument — I run it, on my ambient carrier extended
+    * by these"* (§1). "Extended by" is the operative word, and it is read exactly as the row elaborator's
+    * derived-discharge-stack rule reads a call (`carrier = stack(callee's row ∖ ambient's row) over ambient`), one
+    * level up: an entry my own declared (return) row *already* has needs no extension — my ambient carrier realizes it
+    * and the argument simply rides it — while an entry it does *not* have is one I supply, so the argument's type is
+    * that entry's carrier stacked over my ambient. So `def if[T](condition: Bool, value: {Abort} T): {Abort} T` hands
+    * `value` the plain ambient carrier (it declares `Abort` itself), while
+    * `def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]` discharges it — `computation` is
+    * `AbortCarrier[G, A]`, exactly what the old pinned spelling `{Abort | G} A` wrote by hand.
+    *
+    * Mechanically the supplied entries are rewritten into a **pinned** row over the ambient carrier, which is the one
+    * spelling of a carrier stack ([[rewrite]]) and the one that records the capture tag
+    * ([[EffectRow.pinnedParameterEffects]], via [[declaredEffectRow]]). Nothing downstream sees a new shape: the two
+    * spellings desugar to the identical signature and the identical row metadata, which is what let the stdlib
+    * dischargers migrate one at a time.
+    *
+    * Two entries never supply. **Machinery** (`Effect`/`Suspend`) is filtered out of every row by design, so the empty
+    * row `{}` — which contributes exactly the machinery entry `Effect` ([[rowEntries]]) — always stays open: `else`'s
+    * `fallback: {} A` is `G[A]`, never a stack. And only a **top-level** parameter row supplies; a row in an
+    * arrow codomain (`onError: E => {} A`, `combine: A => B => {} B`) is the callback's own row on the ambient
+    * carrier, as it always was.
+    */
+  private def supplyPinnedParameters(function: FunctionDefinition, carrierName: String): FunctionDefinition = {
+    val ambient = openRowEntries(function.typeDefinition)
+    val args    = function.args.map { arg =>
+      arg.copy(typeExpression = supplyPin(arg.typeExpression, ambient, carrierName))
+    }
+
+    if (args == function.args) function else function.copy(args = args)
+  }
+
+  /** One parameter position's supply-pinning: a top-level open row whose entries are not all machinery or already in
+    * `ambient` becomes the pinned row of the entries it supplies, based at `carrierName`. Returns the expression
+    * unchanged in every other case.
+    */
+  private def supplyPin(
+      expr: Sourced[Expression],
+      ambient: Seq[GenericParameter.AbilityConstraint],
+      carrierName: String
+  ): Sourced[Expression] = expr.value match {
+    case EffectfulType(effects, resultType, None) if effects.nonEmpty =>
+      val ambientKeys = ambient.map(constraintKey).toSet
+      val supplied    = effects.filterNot { e =>
+        EffectMachinery.isMachineryAbility(e.abilityName.value) || ambientKeys.contains(constraintKey(e))
+      }
+      if (supplied.isEmpty) expr
+      else expr.as(EffectfulType(supplied, resultType, Some(expr.as(typeExpr(expr.as(carrierName))))))
+    case _                                                            => expr
   }
 
   /** The one effect carrier a signature binds itself, if there is exactly one: a higher-kinded binder constrained by
