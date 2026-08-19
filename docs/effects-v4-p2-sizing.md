@@ -38,6 +38,13 @@ P1 was landable ahead of them and has landed. Everything else moves together.
 | `Id` / `runId` mentions | 47 |
 | carrier machinery modules to retire from the path | `eliot/carrier/Effect.els`, `eliot/carrier/Suspend.els` |
 
+**Corrected 2026-08-19** by `docs/effects-v4-flag-day-readiness.md` §3: of the 34 `~` occurrences, 31 are in code
+and only the **9 on `def` heads** go with the flag day. The 22 on `implement` heads sit on the carrier machinery and
+the carrier-indexed effect instances — the representation the seam itself emits calls to — and stay, as does the
+`eliot.carrier` package (it can only leave *user scope*, which being import-required it already has). Same note, §2:
+the 6 example programs that declare their own carrier are the *fake-carrier testing strategy*, which v4 as written
+removes without replacement (R9).
+
 **Compiler** — the carrier-aware Scala, 4,313 lines in eleven files:
 
 | file | lines | fate |
@@ -99,8 +106,10 @@ claim made concrete: none of what goes is about *which effects a program perform
 - **Q2 — answered by P1.** Two occurrences of one ability at *different* arguments are two entries, ordered by
   the same canonical key; at *identical* arguments they deduplicate. So `{State[S], State[T]}` is expressible
   and ordered, and `{Console, Console}` is `{Console}`.
-- **R7 — proposed rule: a stored computation is discharged at its canonical base, and a mismatch is a hard
-  error, not a silent lift.** No `hoist`/`mapBase` exists in the tree today and no program needs one (P0's S3
+- **R7 — still open as of the 2026-08-19 readiness check** (`docs/effects-v4-flag-day-readiness.md` §4), which
+  recommends adopting the proposal below as written. **Proposed rule: a stored computation is discharged at its
+  canonical base, and a mismatch is a hard error, not a silent lift.** No `hoist`/`mapBase` exists in the tree
+  today and no program needs one (P0's S3
   discharges at its canonical base and lifts only the pure result). Adding a per-carrier hoist to the stdlib
   is real work with no current caller; the fail-safe alternative costs nothing and cannot miscompile — a
   consumer whose ambient differs from a stored computation's canonical base gets a diagnostic naming both.
