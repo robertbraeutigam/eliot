@@ -52,6 +52,13 @@ class WovenValueProcessor()
       // channel's one remaining source of untotality.
       _ <- getFactOrAbort(MetaTransferAccounting.Key(mv.vfqn, mv.typeArguments))
       _ <- assertNoIdResidue(mv, erasedSig, normalized)
+      // The **woven re-check** (effects-as-channel v4 §6, §9 standing rule 4, §11 P3): the body that leaves this seam
+      // is type-checked once more, on ground types, with no metavariables and no unification. Landed on today's output
+      // first, where it must be a no-op — the v3 elaborator writes the same monadic core a v4 seam lowering would, so a
+      // rejection here is a rejection of the elaborator, not of the lowering. Mandatory, like `assertNoIdResidue`: a
+      // machine-generated core that nothing re-checks is exactly the silent-miscompile surface the fail-safe rule
+      // forbids.
+      _ <- assertWovenRechecks(mv, erasedSig, normalized)
     } yield WovenValue(mv.vfqn, mv.typeArguments, mv.name, erasedSig, normalized)
   }
 
@@ -77,5 +84,17 @@ class WovenValueProcessor()
             .mkString(", ")}${if (typeResidue) " [Id-headed type]" else ""}"
       )
     ).whenA(references.nonEmpty || typeResidue)
+  }
+
+  /** Report every disagreement [[WovenRecheck]] found in the woven body as a compiler error at the offending node, and
+    * abort — a weave that does not type-check must not reach codegen.
+    */
+  private def assertWovenRechecks(
+      mv: MonomorphicValue,
+      signature: GroundValue,
+      body: Option[Sourced[MonomorphicExpression.Expression]]
+  ): CompilerIO[Unit] = {
+    val problems = WovenRecheck.check(signature, body)
+    problems.headOption.traverse_(problem => compilerAbort[Unit](problem.at.as(problem.message)))
   }
 }

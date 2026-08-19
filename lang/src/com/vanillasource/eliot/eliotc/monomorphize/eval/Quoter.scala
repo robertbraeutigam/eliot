@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
-import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{CanonicalRow, GroundValue}
 
 /** Quotes semantic values back to ground values. This is the "read-back" phase of NbE.
   *
@@ -32,6 +32,19 @@ object Quoter {
           Seq(domGround, codGround),
           GroundValue.Type
         )
+
+      // A row reads back **canonical** — sorted and deduplicated — unconditionally, so no producer of a row has to
+      // remember to canonicalise and no two spellings of the same row can reach a structural comparison (v4 §4).
+      case VRow(entries) =>
+        entries
+          .traverse(entry => entry.args.traverse(quote(depth, _, metaStore)).map(GroundValue.Row.Entry(entry.ability, _)))
+          .map(quoted => GroundValue.Row(CanonicalRow.canonicalise(quoted)))
+
+      case VComputation(row, payload) =>
+        for {
+          rowGround     <- quote(depth, row, metaStore)
+          payloadGround <- quote(depth, payload, metaStore)
+        } yield GroundValue.Computation(rowGround, payloadGround)
 
       case VNeutral(NeutralHead.SignatureBinder(index, _), spine) =>
         // A leftover generic binder of a partial-arity signature twin (signature-unification C2), read back **under its

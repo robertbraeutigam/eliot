@@ -15,6 +15,8 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
   * - VStuckNative: a primitive (native) application stuck on not-yet-concrete arguments.
   * - VMeta: unsolved metavariable with a spine and expected type.
   * - VNeutral: stuck application with a variable head and a spine.
+  * - VRow: a canonical effect row (effects-as-channel v4) — an ordinary value, never a metavariable.
+  * - VComputation: `{r} A`, the one primitive effect former beside VPi.
   */
 sealed trait SemValue
 
@@ -89,6 +91,32 @@ object SemValue {
   case class VMeta(id: MetaId, spine: Spine) extends SemValue
 
   case class VNeutral(head: NeutralHead, spine: Spine) extends SemValue
+
+  /** A **row** value in the semantic domain — the NbE counterpart of [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Row]]
+    * (effects-as-channel v4, `docs/effects-as-channel-v4.md` §4). Its entries carry semantic argument values, so a row
+    * written over a still-abstract type argument (`{State[S]}` inside a generic definition) is an ordinary value like
+    * any other.
+    *
+    * A row *variable* is NOT this: it is an ordinary [[VNeutral]]/[[VTopDef]] of type `Row`, instantiated by the
+    * ordinary instantiation machinery. There is deliberately no row metavariable — a row is written, never solved (v4
+    * standing rule 1); a row meta in the [[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier]] is the tell that
+    * v4 has failed.
+    */
+  case class VRow(entries: Seq[VRow.Entry]) extends SemValue
+
+  object VRow {
+
+    /** One ability reference in a row: the ability's FQN and its own type arguments — never a carrier argument, since
+      * under v4 no type contains a carrier.
+      */
+    case class Entry(ability: ValueFQN, args: Seq[SemValue])
+  }
+
+  /** `{r} A` — the semantic **computation type**, the one primitive effect former beside [[VPi]]
+    * (`docs/effects-as-channel-v4.md` §4). [[VPi]] gains no field: an arrow with a latent row is a `VPi` whose codomain
+    * is a `VComputation`.
+    */
+  case class VComputation(row: SemValue, payload: SemValue) extends SemValue
 
   /** Opaque wrapper for metavariable identifiers. */
   opaque type MetaId = Int

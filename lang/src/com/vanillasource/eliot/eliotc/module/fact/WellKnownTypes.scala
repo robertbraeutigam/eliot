@@ -7,6 +7,14 @@ object WellKnownTypes {
   val typeFQN: ValueFQN =
     ValueFQN(ModuleName(compilerPackage, "Type"), QualifiedName("Type", Qualifier.Type))
 
+  /** The type of every effect **row** (effects-as-channel v4, `docs/effects-as-channel-v4.md` §4) — the ordinary
+    * nullary type constructor `Row`, in the compiler's own package beside [[typeFQN]]. A row is an ordinary value and
+    * this is its ordinary type: nothing here adds a sort or a kind. Compiler-owned by the same rule as [[typeFQN]] and
+    * [[anyFQN]] — the resolver maps the bare surface name straight to this FQN, so no `.els` declares it.
+    */
+  val rowFQN: ValueFQN =
+    ValueFQN(ModuleName(compilerPackage, "Row"), QualifiedName("Row", Qualifier.Type))
+
   val functionDataTypeFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 

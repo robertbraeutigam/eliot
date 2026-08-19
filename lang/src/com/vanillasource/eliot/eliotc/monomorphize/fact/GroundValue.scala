@@ -83,6 +83,62 @@ object GroundValue {
     */
   case class Param(index: Int, args: Seq[GroundValue], override val valueType: GroundValue) extends GroundValue
 
+  /** A **row** — the canonical, ordered, deduplicated set of ability references a computation may perform
+    * (effects-as-channel v4, `docs/effects-as-channel-v4.md` §4). A row is an *ordinary value*: it adds no sort and no
+    * kind, its own type is the ordinary nullary type constructor [[Row.rowType]] (`eliot.compiler.Row::Row`), and a row
+    * *variable* is an ordinary generic parameter of that type — never a metavariable (v4 standing rule 1: rows are
+    * declared and written, never solved).
+    *
+    * '''One spelling per row''' (v4 standing rule 2, §4's canonicalisation obligation). Ground values compare
+    * structurally — `Eq.fromUniversalEquals`, and a monomorphic key is a `Seq[GroundValue]` — so two spellings of the
+    * same row would read as disagreement exactly the way two spellings of the meta channel's top once did
+    * (`docs/total-meta-transfers.md`). Every `Row` reaching this constructor is therefore expected to be in the
+    * canonical form [[CanonicalRow]] fixes; the read-back
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter]]) canonicalises unconditionally so no other producer
+    * has to remember to.
+    *
+    * @param entries
+    *   The row's ability references in canonical order. An entry is an ability FQN plus that ability's own type
+    *   arguments — *without* the carrier argument the v3 desugar appends, because under v4 there is no carrier in a
+    *   type at all.
+    */
+  case class Row(entries: Seq[Row.Entry]) extends GroundValue {
+    override def valueType: GroundValue = Row.rowType
+  }
+
+  object Row {
+
+    /** One ability reference in a row: the ability's FQN and its own (payload) type arguments. */
+    case class Entry(ability: ValueFQN, args: Seq[GroundValue])
+
+    /** The type of every [[Row]] — the ordinary nullary type constructor `Row`. It is a type like any other; nothing
+      * about it is a new sort.
+      */
+    val rowType: GroundValue = Structure(WellKnownTypes.rowFQN, Seq.empty, Type)
+
+    /** The empty row — the row of a pure computation. Under v4 it needs no representation at all (`Id` exists in v3
+      * only because the empty row still had to find *a* carrier), so it lowers to nothing.
+      */
+    val empty: Row = Row(Seq.empty)
+  }
+
+  /** `{r} A` — a **computation type**, the one primitive effect former, beside `Function` (the Pi-former) and for the
+    * same reason (`docs/effects-as-channel-v4.md` §4, Q3): its introduction and elimination are the seam lowering's
+    * business, not a constructor's, so it is not `data`.
+    *
+    * This is the *only* place a row appears in a type (v4 §2 tier 2): a computation that is stored, passed or returned
+    * as data. An arrow with a latent row is simply a function type whose codomain is a computation type — `A => {r} B`
+    * is `Function[A, Computation[r, B]]` — so the Pi-former gains no field (§4, A.2).
+    *
+    * @param row
+    *   The row performed, an ordinary value of type [[Row.rowType]]: a canonical [[Row]], or a neutral row variable.
+    * @param payload
+    *   The type of the value the computation yields.
+    */
+  case class Computation(row: GroundValue, payload: GroundValue) extends GroundValue {
+    override def valueType: GroundValue = Type
+  }
+
   extension (gv: GroundValue) {
 
     def typeFQN: Option[ValueFQN] =
@@ -159,5 +215,10 @@ object GroundValue {
       case Structure(_, _, _)                                 => "Structure(...)"
       case Param(index, Nil, _)                               => s"?p$index"
       case Param(index, args, _)                              => s"?p$index[${args.map(_.debugString).mkString(", ")}]"
+      case Row(entries)                                       =>
+        entries
+          .map(entry => (entry.ability.name.name +: entry.args.map(_.debugString)).mkString("[", ", ", "]"))
+          .mkString("{", ", ", "}")
+      case Computation(row, payload)                          => s"${row.debugString} ${payload.debugString}"
     }
 }

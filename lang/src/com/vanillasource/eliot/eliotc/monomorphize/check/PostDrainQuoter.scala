@@ -467,6 +467,10 @@ class PostDrainQuoter(
         // A `Param` is a signature-twin artefact (C2) and is re-inflated to a metavariable long before any body reaches
         // read-back; one reaching materialisation would be a leak, so decline (never emit a parametric runtime value).
         Option.empty[MonomorphicExpression].pure[CompilerIO]
+      case _: GroundValue.Row | _: GroundValue.Computation =>
+        // A row and a computation type are *types* (v4 §2), never runtime constants — and a computation's
+        // representation is chosen by the seam lowering, not materialised here. Decline, like `Type`.
+        Option.empty[MonomorphicExpression].pure[CompilerIO]
     }
 
   /** Read a fully-ground compile-time **type** back as a structural value-reference spine — the type-level counterpart
@@ -494,6 +498,11 @@ class PostDrainQuoter(
     case _: GroundValue.Param                 =>
       // Unreachable: a `Param` is a signature-twin artefact (C2), never a reduced runtime/compiler body read here. Emit
       // the opaque top carrier as a fail-safe rather than a bogus structural reference.
+      MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.anyFQN), Seq.empty))
+    case _: GroundValue.Row | _: GroundValue.Computation =>
+      // A v4 row / computation type has no structural value-reference spelling: a row is a compiler-side set of
+      // abilities and a computation's representation is decided by the seam lowering, after this read-back. Emit the
+      // opaque top carrier as the same fail-safe the `Param` arm uses, rather than a bogus reference.
       MonomorphicExpression(g, MonomorphicExpression.MonomorphicValueReference(at.as(WellKnownTypes.anyFQN), Seq.empty))
   }
 

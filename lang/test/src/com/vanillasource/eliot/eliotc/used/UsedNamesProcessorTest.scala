@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.used
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.channel.{
   EffectAccountingProcessor,
   MetaTransferAccountingProcessor,
@@ -28,6 +28,13 @@ class UsedNamesProcessorTest
     ) {
   private val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
   private val intType = GroundValue.Structure(intVfqn, Seq.empty, GroundValue.Type)
+
+  /** `Int -> Int`. The injected bodies must be *well-typed*, not merely well-formed: `WovenValueProcessor` re-checks
+    * the body it weaves (effects-as-channel v4 §11 P3), so a hand-written fixture annotating a lambda or an applied
+    * head with a non-function type is rejected exactly as a mis-woven body would be.
+    */
+  private val intToIntType =
+    GroundValue.Structure(WellKnownTypes.functionDataTypeFQN, Seq(intType, intType), GroundValue.Type)
 
   "UsedNamesProcessor" should "include root name in used names for value with no body" in {
     val valueVfqn = ValueFQN(testModuleName, default("value"))
@@ -63,8 +70,8 @@ class UsedNamesProcessorTest
     val fVfqn = ValueFQN(testModuleName, default("f"))
     val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv  = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None, Set.empty)
-    val gRef = MonomorphicExpression(intType, valueRef(gVfqn))
+    val gMv  = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intToIntType, None, Set.empty)
+    val gRef = MonomorphicExpression(intToIntType, valueRef(gVfqn))
     val arg  = MonomorphicExpression(intType, MonomorphicExpression.IntegerLiteral(sourced(BigInt(42))))
     val app  = MonomorphicExpression.FunctionApplication(sourced(gRef), sourced(arg))
     val fMv  = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(app), Set.empty)
@@ -80,7 +87,7 @@ class UsedNamesProcessorTest
     val gMv      = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None, Set.empty)
     val innerRef = MonomorphicExpression(intType, valueRef(gVfqn))
     val lambda   = MonomorphicExpression.FunctionLiteral(sourced("x"), intType, sourced(innerRef))
-    val fMv      = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(lambda), Set.empty)
+    val fMv      = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intToIntType, runtime(lambda), Set.empty)
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames should contain key gVfqn)
