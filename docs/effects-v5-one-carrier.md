@@ -169,3 +169,53 @@ to a **syntactic** one with two cases (a slot has a row or it does not) rather t
 three (rowless / carrier-headed / pinned), which is what actually eroded. That is a smaller claim than v4's, and
 it is available without a flag day, without a canonical order, and without giving up the ability to interpret an
 effect yourself.
+
+## 7. Aliasing an effectful type — alias the **row**
+
+Yes, and in v5 the natural unit to alias is the row itself, because a row *is* a set of abilities and nothing
+else. Naming a set of effects once is also what a user usually wants — far more often than naming one
+computation type:
+
+```eliot
+type Web = {Console, Log, Throw[HttpError]}
+
+def handle(request: Request): {Web} Response                -- performs all three
+def audited[A](action: {Web} A): A                          -- supplies all three: a handler for the set
+def retry[A](action: {Web, State[Attempt]} A): {Web} A      -- rows compose by union, unordered
+```
+
+Parameterised aliases work the same way, since an entry is an ability applied to arguments:
+
+```eliot
+type Fallible[E] = {Throw[E], Log}
+def parse(s: String): {Fallible[SyntaxError]} Tree
+```
+
+**The mechanics are one rule, in one place.** Rows desugar in `core` to ability constraints written by name
+(`F ~ Web`), and names are resolved later; so the only change is that `resolve`, when it meets a row entry naming
+a `type` whose body is a row, **splices that row's entries into the constraint list** instead of resolving one
+ability (`resolve/processor/ValueResolver.resolveAbilityName`, reached from both `resolveEffectRow` and
+`resolveParamConstraints`). Core is untouched, the lowering is untouched, and the channel sees the expanded row,
+so accounting and the two verifiers keep working with no new vocabulary. This is the change `docs/effects-as-channel-v4.md`
+§A.3 identified as *"the right change if v3 stands"* — it is equally right under v5, since v5 keeps the encoding
+A.3 assumes, and it can land **on today's tree, independently of everything else here**.
+
+Two things fall out for free. A row alias naming itself is a cycle in the value-reference graph, which the
+recursion gate already rejects (*Total by Default*), so no new cycle check is needed. And a row alias is usable in
+both positions of §1 with no extra rule, because it expands before either position is interpreted.
+
+**What is deliberately *not* offered is aliasing the payload with the row** — `type Test = {Writer[List[TestCase]]}
+Unit`, the case that provoked v4 (§0 there). That is aliasing a *computation*, which is a carrier-applied type, so
+in v5 it is ordinary generics and is written as such:
+
+```eliot
+type Test[F[_] ~ Writer[List[TestCase]]] = F[Unit]
+```
+
+The reason the sugar cannot quietly do it is mechanical and worth stating, because it is the same reason the
+current tree errors: the row desugar runs in `core`, before names resolve, so a definition that merely *names* an
+alias (`def testCases: Test`) carries no `{…}` of its own and mints no carrier — today's diagnostic says exactly
+that, and it is right ("the open-row lowering mints the shared carrier onto the *alias's own* generic parameters
+… the effect is silently dropped"). Under v5 the position rule needs an ambient carrier to attach the row to, and
+a bare alias name supplies none. So the honest spellings are the two above: the row alias at each use, or the
+explicit generic parameter — and the first is the one to ship.
