@@ -26,6 +26,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * phase) — bodies must already be in monadic form; the rewrite still descends into the body so no
   * [[Expression.EffectfulType]] survives.
   *
+  * The **empty open row** `{}` says "on my own ambient carrier, nothing added" — the spelling of every
+  * suspended-but-effect-transparent slot (`fold`'s arms, `else`'s fallback, `foldLeft`'s `initial`). It is an open row
+  * like any other and takes the same route, contributing the single machinery entry `Effect` ([[rowEntries]]), so it
+  * *is* the older spelling `{Effect}`: same carrier, same constraint, same row tag. That is what makes the two
+  * interchangeable and let the tree migrate to `{}` one position at a time (effects-v5 step 1,
+  * docs/effects-v5-one-carrier.md §4).
+  *
   * **Pinned rows** (`{E1, E2 | T} A`, docs/effect-row-tails.md) are not constraints at all but *concrete types*: the
   * canonical carrier stack realizing exactly those effects over the base `T`. The rewrite is pure type application —
   * `{Throw[E], State[S] | Id} A` ⤳ `ThrowCarrier[E, StateCarrier[S, Id], A]` — with each entry's carrier named by the
@@ -66,9 +73,9 @@ object EffectSugarDesugarer {
     */
   def desugar(data: DataDefinition): DataDefinition = {
     val fieldExprs = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression))
-    val rows       = fieldExprs.flatMap(collectRows).map(_.value)
-    val openRows   = rows.filter(_.tail.isEmpty)
-    val positives  = openRows.flatMap(_.effects).distinctBy(constraintKey)
+    val rows       = fieldExprs.flatMap(collectRows)
+    val openRows   = rows.filter(_.value.tail.isEmpty)
+    val positives  = openRows.flatMap(rowEntries).distinctBy(constraintKey)
 
     if (openRows.isEmpty) data
     else {
@@ -102,10 +109,10 @@ object EffectSugarDesugarer {
     *
     * **The carrier is the signature's, not the row's** (decided 2026-07-28, docs/effects-as-rows.md §1 rule 2): when
     * the signature *already binds* exactly one effect carrier of its own (`G[_] ~ Effect`, as every discharger does),
-    * the rows reuse **that** binder rather than minting a second one, and their entries join its constraints.
-    * `{Effect}` then reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a
-    * slot that is `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {Effect}
-    * A): G[A]` — the same type it always had, now saying "a value or a computation" rather than "a computation".
+    * the rows reuse **that** binder rather than minting a second one, and their entries join its constraints. `{}`
+    * then reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a slot that
+    * is `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {} A): G[A]` — the
+    * same type it always had, now saying "a value or a computation" rather than "a computation".
     * Without it the fallback could only be spelled `G[A]`, which under §1 rule 2 no longer accepts a pure actual, and
     * `host else "localhost"` would have to be written `host else pure("localhost")` — pushing carrier machinery into
     * user code. The reuse is decidable from the declaration alone and applies to no signature written before it
@@ -117,9 +124,9 @@ object EffectSugarDesugarer {
       function.args.map(_.typeExpression) ++
         function.genericParameters.map(_.typeRestriction) :+
         function.typeDefinition
-    val rows           = (signatureExprs ++ function.body.toSeq).flatMap(collectRows).map(_.value)
-    val openRows       = rows.filter(_.tail.isEmpty)
-    val positives      = openRows.flatMap(_.effects).distinctBy(constraintKey)
+    val rows           = (signatureExprs ++ function.body.toSeq).flatMap(collectRows)
+    val openRows       = rows.filter(_.value.tail.isEmpty)
+    val positives      = openRows.flatMap(rowEntries).distinctBy(constraintKey)
 
     if (rows.isEmpty) function
     else {
@@ -244,7 +251,21 @@ object EffectSugarDesugarer {
 
   /** The distinct *open*-row (`tail == None`) ability entries anywhere within one signature-position expression. */
   private def openRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
-    collectRows(expr).map(_.value).filter(_.tail.isEmpty).flatMap(_.effects).distinctBy(constraintKey)
+    collectRows(expr).filter(_.value.tail.isEmpty).flatMap(rowEntries).distinctBy(constraintKey)
+
+  /** The ability entries one row contributes to its signature's carrier.
+    *
+    * For a written row these are simply its entries. The **empty open row** `{}` — "on my own ambient carrier, nothing
+    * added" (effects-v5 step 1, docs/effects-v5-one-carrier.md §1) — contributes the machinery entry `Effect`, which
+    * makes it *exactly* the spelling `{Effect}` has today: the same carrier, the same `F ~ Effect` constraint, the same
+    * row tag ([[EffectRow.parameterEffects]], which is what marks a parameter as a row rather than a carrier position).
+    * The two spellings are therefore interchangeable — one desugars into the other — and a definition may be migrated
+    * one position at a time. An empty row is never a *pinned* row, so this reads the open form only.
+    */
+  private def rowEntries(row: Sourced[EffectfulType]): Seq[GenericParameter.AbilityConstraint] =
+    if (row.value.effects.isEmpty)
+      Seq(GenericParameter.AbilityConstraint(row.as(EffectMachinery.effectAbilityName), Seq.empty))
+    else row.value.effects
 
   /** The entries of a signature-position type expression that is *itself* — at top level — a **pinned** effect row
     * (`{Throw[E] | G} A`, i.e. an [[EffectfulType]] with a non-empty effect set and a base tail), in declared order.
@@ -304,7 +325,7 @@ object EffectSugarDesugarer {
             Seq.empty
           )
         )
-      case EffectfulType(effects, resultType, None) if effects.nonEmpty                         =>
+      case EffectfulType(_, resultType, None)                                                   =>
         val name = carrierName.getOrElse(
           throw IllegalStateException(s"An effect set introduced no carrier: ${expr.value.render}")
         )
@@ -338,7 +359,7 @@ object EffectSugarDesugarer {
   def rowErrors(data: DataDefinition): Seq[Sourced[String]] = {
     val rows = data.constructors.getOrElse(Seq.empty).flatMap(_.fields.map(_.typeExpression)).flatMap(collectRows)
     rows.collect {
-      case row if row.value.tail.isEmpty && row.value.effects.nonEmpty =>
+      case row if row.value.tail.isEmpty =>
         row.as("A stored effect row must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`.")
     }
   }
@@ -354,7 +375,7 @@ object EffectSugarDesugarer {
   def rowErrors(function: FunctionDefinition): Seq[Sourced[String]] =
     if (isTypeLevel(function))
       function.body.toSeq.flatMap(collectRows).collect {
-        case row if row.value.tail.isEmpty && row.value.effects.nonEmpty =>
+        case row if row.value.tail.isEmpty =>
           row.as(
             "An effect row in a type alias must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`. " +
               "An open row cannot be carried through an alias — pin it, or declare the effect on the definition instead."

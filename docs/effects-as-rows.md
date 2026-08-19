@@ -125,13 +125,21 @@ it is effect-irrelevant by construction.
    **row tag** the desugar records (`EffectRow.parameterEffects`, source (i)), never from the type. This
    is the same tag-not-shape discipline rule 4's capture rule uses.
 
-   **`{Effect}` denotes the signature's own carrier.** When a definition already binds exactly one
-   `Effect`-constrained carrier (`G[_] ~ Effect`, as every discharger does), its rows reuse *that* binder
-   instead of minting a second, and the row's entries join its constraints. So `fallback: {Effect} A` in
-   `else` **is** `G[A]`, now carrying the row tag: the same type, saying "a value or a computation". Two
-   or more such binders are ambiguous and mint as before. Without this the rule above would have forced
-   `host else pure("localhost")` on every discharge, pushing `eliot.carrier` — machinery the language
-   deliberately hides — into user code.
+   **`{}` denotes the signature's own carrier — "on my own ambient carrier, nothing added".** This is the
+   empty row, and it is the *written* spelling of the position above: `fallback: {} A`, `whenTrue: {} A`,
+   `f: A => {} B`. When a definition already binds exactly one `Effect`-constrained carrier (`G[_] ~
+   Effect`, as every discharger does), its rows reuse *that* binder instead of minting a second, and the
+   row's entries join its constraints. So `fallback: {} A` in `else` **is** `G[A]`, now carrying the row
+   tag: the same type, saying "a value or a computation". Two or more such binders are ambiguous and mint
+   as before. Without this the rule above would have forced `host else pure("localhost")` on every
+   discharge, pushing `eliot.carrier` — machinery the language deliberately hides — into user code.
+
+   `{}` is what the tree writes since effects-v5 step 1 (`docs/effects-v5-one-carrier.md` §4). The older
+   spelling `{Effect}` names that machinery ability explicitly and is exactly what `{}` desugars *into*
+   — same carrier, same `F ~ Effect` constraint, same row tag — so the two are interchangeable and both
+   parse; `{}` is preferred because a definition saying "on my own carrier" should not have to name, or
+   import, the machinery. The synthesized constraint resolves at its fixed FQN (`eliot.carrier.Effect`),
+   so writing `{}` needs no import.
 3. **Pinned means captured** (unchanged from v2). `{Throw[E] | G} A` is a reified computation — an
    ordinary type, usable in `data` fields, discharger parameters, `List[TestCase]`. Open rows never
    appear in types; pinned rows are the only place a type contains a computation.
@@ -145,7 +153,7 @@ it is effect-irrelevant by construction.
    - A **rowless slot may not receive a computation.** Not a carrier-headed value, not a pinned capture,
      not a value whose declared row is non-empty. This is a hard error naming the slot, never a silent
      re-route.
-   - `{Effect}` is a **row variable**, not a fixed carrier. `ρ := {}` is an ordinary instantiation, so
+   - `{}` (formerly `{Effect}`) is a **row variable**, not a fixed carrier. `ρ := {}` is an ordinary instantiation, so
      `dependency.url` (ρ = `{}`) and `items.foreach(x -> printLine(x))` (ρ = `{Console}`) go through the
      *same* declaration of `.`.
    - **`Id` is the value of the empty row, and that is allowed** (decided 2026-07-28, Robert, after the

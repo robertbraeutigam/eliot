@@ -33,8 +33,11 @@ import cats.syntax.all.*
   *   declared` check verifies the body against). Empty when the return carries no open row.
   * @param parameterEffects
   *   One entry per value parameter that itself carried an open row — an arrow-codomain callback row like `action: A =>
-  *   {Effect} Unit` — holding that parameter's index (into the definition's value args) and its open-row entries.
-  *   Effect-transparent under §5. Empty for a first-order signature.
+  *   {} Unit` — holding that parameter's index (into the definition's value args) and its open-row entries.
+  *   Effect-transparent under §5. Empty for a first-order signature. An **empty** row `{}` carries the single
+  *   machinery entry `Effect` here (see [[core.processor.EffectSugarDesugarer.rowEntries]]), so the position is tagged
+  *   exactly as the older `{Effect}` spelling tagged it — the tag is what tells a row position from a carrier-typed
+  *   one, and an entry-less tag would silently turn every migrated slot into the latter.
   * @param returnPinnedEffects
   *   The **return** position's pinned-row entries, in declared (leftmost-outermost = discharge) order, when the return
   *   type is itself a *pinned* row (`def counter: {State[S] | Id} A`). Empty otherwise. Deliberately not deduplicated:

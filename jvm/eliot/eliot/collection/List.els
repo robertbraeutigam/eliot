@@ -2,7 +2,7 @@ import eliot.carrier.Effect
 
 type List[A]
 
-def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: List[A]): {Effect} B =
+def foldLeft[A, B](initial: {} B, combine: A => B => {} B, list: List[A]): {} B =
   foldLeftInternal(list, initial, e -> facc -> flatMap(acc -> combine(e)(acc), facc))
 
 /**

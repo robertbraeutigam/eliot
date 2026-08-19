@@ -1,5 +1,3 @@
-import eliot.carrier.Effect
-
 /**
  * A `T` that may not exist because nothing bounds it: either `Bounded(value)`, or `Unbounded`.
  *
@@ -33,7 +31,7 @@ type Bound[T]
  *
  * `b` is the last parameter, so this dot-chains as `b.foldBound(...)`.
  */
-def foldBound[T, B](ifUnbounded: {Effect} B, ifBounded: T => {Effect} B, b: Bound[T]): {Effect} B
+def foldBound[T, B](ifUnbounded: {} B, ifBounded: T => {} B, b: Bound[T]): {} B
 
 /**
  * The lesser of two bounds, with `Unbounded` absorbing: `minBound(Unbounded, b)` is `Unbounded`.

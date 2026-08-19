@@ -772,8 +772,19 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("implement Show[A] where a { def show: String = a }").asserting(_ shouldBe Seq.empty)
   }
 
-  it should "still reject an empty effect set" in {
-    runEngineForErrors("def f: {} Unit = a").asserting(_.size should be > 0)
+  // The **empty row** `{}` is the row that adds nothing — "on my own ambient carrier" (effects-v5 step 1). It is a row
+  // like any other, so it parses as one; what keeps it apart from a non-row brace is that a row is followed by the type
+  // atom it covers.
+  it should "parse an empty effect set as a tail-less row" in {
+    runEngineForFunctionReturnTypes("def f: {} Unit = a").asserting(
+      _.collect { case ("f", Expression.EffectfulType(effects, resultType, tail)) =>
+        (effects, resultType.value.render, tail)
+      } shouldBe Seq((Seq.empty, "Unit", None))
+    )
+  }
+
+  it should "reject an empty effect set with a pinned base" in {
+    runEngineForErrors("def f: {| Id} Unit = a").asserting(_.size should be > 0)
   }
 
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =

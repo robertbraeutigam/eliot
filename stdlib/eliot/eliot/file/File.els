@@ -1,4 +1,3 @@
-import eliot.carrier.Effect
 import eliot.file.Path
 import eliot.collection.List
 
@@ -120,7 +119,7 @@ ability FileSystem[F[_]] {
  * def echoFile(p: Path): {Console, FileSystem, Throw[IoError]} Unit = foreachLine(printLine, p)
  * ```
  */
-def foreachLine(action: String => {Effect} Unit, path: Path): {FileSystem, Throw[IoError]} Unit = {
+def foreachLine(action: String => {} Unit, path: Path): {FileSystem, Throw[IoError]} Unit = {
    val lines = readLines(path)
    lines.foreach(action)
 }

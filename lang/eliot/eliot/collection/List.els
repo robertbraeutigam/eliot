@@ -1,5 +1,3 @@
-import eliot.carrier.Effect
-
 /**
  * An immutable, ordered sequence of `A` values.
  *
@@ -44,4 +42,4 @@ def prepend[A](list: List[A], element: A): List[A]
  * The fold is **effect-transparent**: `combine` may perform effects, and they run once per element in order, joining
  * the caller's effect row. A fold whose `combine` is pure performs none, and costs nothing for the possibility.
  */
-def foldLeft[A, B](initial: {Effect} B, combine: A => B => {Effect} B, list: List[A]): {Effect} B
+def foldLeft[A, B](initial: {} B, combine: A => B => {} B, list: List[A]): {} B

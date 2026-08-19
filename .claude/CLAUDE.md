@@ -379,19 +379,19 @@ design: `docs/effects-as-rows.md` (§1 the four user rules, §2 the two channels
 1. **Effects run where they are written.** Strict call-by-value in *every* plain position, a bare generic slot
    included: `choose(readLine, readLine)` runs both reads.
 2. **Suspension is declared, and a row is not a carrier.** A parameter that must *not* run its argument declares
-   an open row (`whenTrue: {Effect} A`, `if`'s `value: {Abort} T`). A **row** position means "a value or a
+   an open row (`whenTrue: {} A`, `if`'s `value: {Abort} T`). A **row** position means "a value or a
    computation" — the empty row is a legal row — so a pure argument fits and is lifted. A **carrier-typed**
    position (`x: G[A]`, `IO[A]`, a pinned stack) means "a computation on this carrier": a plain `A` is a type
    error there, never a lift. Both are `F[A]` after desugaring, so the difference is read from the **row tag**
-   (`EffectRow.parameterEffects`), never the shape. `{Effect}` denotes the signature's *own* carrier when it binds
-   exactly one `Effect`-constrained one — which is how `else`'s `fallback: {Effect} A` is `G[A]` *and* accepts
+   (`EffectRow.parameterEffects`), never the shape. The **empty row `{}`** denotes the signature's *own* carrier when
+   it binds exactly one `Effect`-constrained one — which is how `else`'s `fallback: {} A` is `G[A]` *and* accepts
    `host else "localhost"`.
 3. **Pinned means captured.** `{Throw[E] | G} A` is a reified computation *and* an ordinary type — usable in
    `data` fields, discharger parameters, `List[TestCase]`. Open rows never appear in types; pinned rows are the
    only place a type contains a computation.
 4. **An effect passes through a position if and only if that position declares it.** A **plain generic** (`A`,
-   `B`, `T`) is a payload, always — a function that transports effects says so (`f: A => {Effect} B`,
-   `initial: {Effect} B`). A **rowless** slot may not receive a computation: a hard error naming the slot, never a
+   `B`, `T`) is a payload, always — a function that transports effects says so (`f: A => {} B`,
+   `initial: {} B`). A **rowless** slot may not receive a computation: a hard error naming the slot, never a
    silent re-route. A **carrier-headed** slot captures, however that carrier is named — a pinned row's stack, one
    of the callee's own carrier binders, the concrete `Id`, or a platform run carrier. That is one predicate, not
    four arms, and there is no third kind of slot.
@@ -448,7 +448,7 @@ row — which is why wrapper-reached discharge inside a `{Console}` body just co
 spell as a negative effect. A discharger must be **called directly** (`runStateToPair(s0, p)`): by rule 4 the
 dot's subject is a plain type parameter, which may not carry a computation, so `p.runStateToPair(s0)` is a hard
 error naming the fix. The infix dischargers `catch`/`else` resolve to a direct call and are unaffected. A
-discharger's **handler may itself perform effects** (`catch`'s is `onError: E => {Effect} A`, a row over the same
+discharger's **handler may itself perform effects** (`catch`'s is `onError: E => {} A`, a row over the same
 carrier `G`), and a **`val`-bound** computation is dischargeable, since a call needing more than the ambient
 declares carries its own discharge stack and the `val` binds the reified computation as data. Known limitation,
 not a bug: a handler whose effects enter via a **declared carrier-typed parameter** must still return a
@@ -498,6 +498,14 @@ delivered to a concrete applied slot headed differently from that callee's own p
 which is the whole of the fake-carrier testing strategy (`docs/testing-effects.md` L2). It also owns the one diagnostic
 accounting cannot voice — "declared pure but performs effects", for a definition whose return cannot host a
 carrier — since such a value's mono fails and produces no `MonomorphicValue`.
+
+**The empty row `{}` is how a definition says "on my own ambient carrier, nothing added"** — the spelling of every
+suspended-but-effect-transparent slot (`fold`'s arms, `else`'s fallback, `catch`'s handler, `foldLeft`'s `initial`,
+`.`'s `f`). It is the only spelling in the tree since effects-v5 step 1 (`docs/effects-v5-one-carrier.md` §4); the
+older `{Effect}` names the machinery ability explicitly and is exactly what an empty row desugars *into*, so both
+parse and mean the same thing. The synthesized constraint resolves at its fixed FQN, so `{}` needs no
+`import eliot.carrier.Effect` — which is why writing one never puts `map`/`flatMap`/`pure` in a user's scope. A row
+with a base but no entries (`{| G} A`) is rejected: that is just `G[A]`.
 
 **Ambient scope.** The whole `eliot.effect` package is auto-imported: `ModuleName.effectSystemModules` joins the
 `eliot.lang` prelude in `defaultSystemModules`, in a **weak** tier — an explicitly imported module is deduplicated,

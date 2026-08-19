@@ -717,6 +717,40 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  // The **empty row** `{}` is the parameter/return spelling of "on my own ambient carrier, nothing added" (effects-v5
+  // step 1, docs/effects-v5-one-carrier.md §1). It desugars into `{Effect}` — the same carrier, the same constraint,
+  // the same row tag — so the two spellings are interchangeable and a definition may migrate one position at a time.
+  "the empty effect row" should "desugar to the same signature as `{Effect}`" in {
+    (namedValue("def f[A](x: {} A): {} A"), namedValue("def f[A](x: {Effect} A): {Effect} A"))
+      .mapN { (empty, effect) =>
+        (empty.signature.value.structure, constraintShapes(empty)) shouldBe
+          (effect.signature.value.structure, constraintShapes(effect))
+      }
+  }
+
+  it should "mint the carrier with the Effect constraint when the signature binds none" in {
+    namedValue("def f[A](x: {} A): {} A").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Effect", Seq(Ref("F", T)))))
+    }
+  }
+
+  it should "reuse the signature's own Effect-constrained carrier" in {
+    namedValue("def f[G[_] ~ Effect, A](x: {} A): G[A]").asserting { nv =>
+      (constraintShapes(nv).keySet, nv.inferableArity) shouldBe (Set("G"), 0)
+    }
+  }
+
+  it should "share the carrier with the signature's other rows, adding nothing of its own" in {
+    namedValue("def f[A](x: {} A): {Suspend} A").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Effect", Seq(Ref("F", T))), ("Suspend", Seq(Ref("F", T)))))
+    }
+  }
+
+  it should "be rejected in a data field, like any other open row" in {
+    coreErrors("data Box(body: {} Unit)")
+      .asserting(_ should contain("A stored effect row must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`."))
+  }
+
   // A *pinned* row `{E1, E2 | T} A` is a concrete type: the canonical carrier stack over the base `T`, spelled in
   // effect vocabulary. It rewrites by the `<Ability>Carrier` naming convention — no generic parameter is introduced.
   "pinned effect rows" should "rewrite to the canonical carrier stack in a def signature" in {

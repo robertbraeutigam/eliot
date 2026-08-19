@@ -232,18 +232,35 @@ object Expression {
 
   /** Parses the effect-row sugar `{ Eff (, Eff)* [| tail] } <type atom>`, e.g. `{Suspend} String`, `{State[Account],
     * Abort} A`, or the *pinned* form `{Throw[E] | Id} A` naming the base carrier after `|`. Each brace entry is an
-    * ability reference (the same shape as a `~` ability constraint). The braces must be non-empty (an empty effect set
-    * is just the plain type). The row covers exactly the one type atom that follows, and is itself a type-run atom
-    * ([[typeRunAtom]]), so it also reads nested in a run — most usefully in an arrow codomain, typing an effectful
-    * callback: `action: A => {Console} Unit`. See [[EffectfulType]].
+    * ability reference (the same shape as a `~` ability constraint). The row covers exactly the one type atom that
+    * follows, and is itself a type-run atom ([[typeRunAtom]]), so it also reads nested in a run — most usefully in an
+    * arrow codomain, typing an effectful callback: `action: A => {Console} Unit`. See [[EffectfulType]].
+    *
+    * The brace may be **empty** — `{} A` is the row that adds nothing, i.e. "on my own ambient carrier" (effects-v5
+    * step 1, docs/effects-v5-one-carrier.md §1). It is still a row, so it is still a carrier position: the `}` must be
+    * followed by a type atom, which is what keeps an empty *transfer* brace (`: T {}`, nothing after it) and a `where`
+    * guard out of this parser. A tail is only read after at least one entry: `{| G} A` names a carrier stack realizing
+    * no effects, which is the plain `G[A]` and has no reason to be spelled as a row.
     */
   private lazy val effectfulTypeParser: Parser[Sourced[Token], Expression] = for {
     _          <- symbol("{")
-    entries    <- component[GenericParameter.AbilityConstraint].atLeastOnceSeparatedBy(symbol(","))
-    tail       <- (symbol("|") *> sourced(typeRunParser)).optional()
+    entries    <- component[GenericParameter.AbilityConstraint]
+                    .atLeastOnceSeparatedBy(symbol(","))
+                    .optional()
+                    .map(_.getOrElse(Seq.empty))
+    tail       <- rowTailParser(entries)
     _          <- symbol("}")
     resultType <- sourced(typeAtom)
   } yield EffectfulType(entries, resultType, tail)
+
+  /** The optional `| base` tail of an effect row — read only after at least one entry, since a row realizing no effects
+    * over a base carrier is that carrier itself and needs no row spelling. See [[effectfulTypeParser]].
+    */
+  private def rowTailParser(
+      entries: Seq[GenericParameter.AbilityConstraint]
+  ): Parser[Sourced[Token], Option[Sourced[Expression]]] =
+    if (entries.isEmpty) Option.empty[Sourced[Expression]].pure
+    else (symbol("|") *> sourced(typeRunParser)).optional()
 
   /** A named reference with an optional generic argument list `[…]` (always attached) and a value-argument list `(…)`
     * attached *only* when its `(` is adjacent to the preceding token (no intervening whitespace). The one call parser

@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{
   PrecedenceDeclaration as CorePrecedenceDeclaration
 }
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{typeFQN, patternMatchAbilityName, typeMatchAbilityName}
+import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleName,
@@ -99,10 +100,10 @@ class ValueResolver
     getAbility(name.value).flatMap {
       case Some(abilityName) => abilityName.pure[ScopedIO]
       case None              =>
-        // The desugaring-machinery abilities (`PatternMatch`/`TypeMatch`) are referenced by compiler-generated
-        // `implement` markers, which should not depend on the user's import scope. They live at fixed FQNs in the
-        // `eliot.compiler.internal` package, so resolve them directly instead of requiring an (auto-)import.
-        ValueResolver.compilerInternalAbilities.get(name.value) match {
+        // The machinery abilities (`PatternMatch`/`TypeMatch`, and the `Effect` an empty row `{}` synthesizes) are
+        // referenced by compiler-generated code, which should not depend on the user's import scope. They live at
+        // fixed FQNs, so resolve them directly instead of requiring an (auto-)import.
+        ValueResolver.fixedFqnAbilities.get(name.value) match {
           case Some(abilityFQN) => abilityFQN.pure[ScopedIO]
           case None             => compilerAbort(name.as(s"Ability not found.")).liftToScoped
         }
@@ -334,11 +335,23 @@ class ValueResolver
 
 object ValueResolver {
 
-  /** The desugaring-machinery abilities resolved by fixed FQN rather than via import scope: `PatternMatch`/`TypeMatch`,
-    * which only compiler-generated `implement` markers (and `match` desugaring) ever name. They live in the
-    * `eliot.compiler.internal` package, kept out of the user-facing prelude and *not* auto-imported. */
-  private val compilerInternalAbilities: Map[String, AbilityFQN] =
+  /** The machinery abilities resolved by **fixed FQN** rather than via import scope, because only the compiler ever
+    * writes the reference:
+    *
+    *   - `PatternMatch`/`TypeMatch` (in `eliot.compiler.internal`), named by compiler-generated `implement` markers and
+    *     by the `match` desugaring;
+    *   - `Effect` (in the import-required `eliot.carrier`), synthesized by the **empty row** `{}`
+    *     ([[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]]) — a definition writing `{}` names
+    *     nothing, so it must not need `import eliot.carrier.Effect` to say "on my own ambient carrier".
+    *
+    * None of these is auto-imported. An explicit import (or a local declaration) of the same name still wins: this map
+    * is only reached when the name is not in scope at all. */
+  private val fixedFqnAbilities: Map[String, AbilityFQN] =
     Seq(patternMatchAbilityName, typeMatchAbilityName)
       .map(name => name -> AbilityFQN(ModuleName(ModuleName.compilerInternalPackage, name), name))
-      .toMap
+      .toMap +
+      (EffectMachinery.effectAbilityName -> AbilityFQN(
+        ModuleName(ModuleName.carrierPackage, EffectMachinery.effectAbilityName),
+        EffectMachinery.effectAbilityName
+      ))
 }

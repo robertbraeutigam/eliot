@@ -293,6 +293,16 @@ class RowElaboratorTest
     )
   }
 
+  // The **empty row** `{}` is the spelling of `{Effect}` (effects-v5 step 1): same carrier, same constraint, same row
+  // tag. So a callee declaring its slot either way is the same callee — the hoist below is what proves the tag
+  // survived, since an untagged (carrier-typed) slot would capture instead.
+  it should "read a `{}` callback slot exactly as the `{Effect}` spelling" in {
+    compareToTwin(
+      "def d(action: Str => {} Str): {Con} Str = action(readLine)",
+      "def t(action: Str => {Effect} Str): {Con} Str = flatMap(x -> action(x), readLine)"
+    )
+  }
+
   // --- pinned/run-boundary captures are their own carrier regions: a compound captured computation binds on the
   // pinned/run stack even under a pure definition, and a pure captured argument lifts via pure. A pinned *return*
   // makes the whole body a carrier region; a nominal-run return (IOish[Str]) likewise. ---
