@@ -92,9 +92,10 @@ object Evaluator {
 
     case VMeta(id, spine) => VMeta(id, spine :+ x)
 
-    case VConst(_) | VType =>
+    case VConst(_) | VType | VRow(_) | VComputation(_, _) =>
       // Non-applicable head in an ill-typed program (already-recorded diagnostic) — fail loud at read-back, never
-      // silently return the argument. See the class-level note above.
+      // silently return the argument. A row and a computation type are values, not functions: applying one is the same
+      // ill-typed shape as applying a literal. See the class-level note above.
       VNeutral(badApplyHead, Spine.SNil :+ x)
   }
 
@@ -194,6 +195,13 @@ object Evaluator {
       case VTopDef(fqn, None, spine, _)  =>
         val args = spine.toList.map(renormalize(_, metaStore, lookupNative, deep))
         args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+      case VRow(entries)                 =>
+        VRow(entries.map(entry => entry.copy(args = entry.args.map(renormalize(_, metaStore, lookupNative, deep)))))
+      case VComputation(row, payload)    =>
+        VComputation(
+          renormalize(row, metaStore, lookupNative, deep),
+          renormalize(payload, metaStore, lookupNative, deep)
+        )
       case VPi(domain, codomain) if deep =>
         VPi(
           renormalize(domain, metaStore, lookupNative, deep),
@@ -227,6 +235,9 @@ object Evaluator {
     */
   def groundToSem(g: GroundValue): SemValue = g match {
     case GroundValue.Type                    => VType
+    case GroundValue.Row(entries)            =>
+      VRow(entries.map(entry => VRow.Entry(entry.ability, entry.args.map(groundToSem))))
+    case GroundValue.Computation(row, payload) => VComputation(groundToSem(row), groundToSem(payload))
     case GroundValue.Structure(fqn, args, _) =>
       args.map(groundToSem).foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
     case GroundValue.Param(index, args, _)   =>
@@ -250,6 +261,10 @@ object Evaluator {
     */
   def groundToSemParam(g: GroundValue, param: Int => SemValue): SemValue = g match {
     case GroundValue.Type                    => VType
+    case GroundValue.Row(entries)            =>
+      VRow(entries.map(entry => VRow.Entry(entry.ability, entry.args.map(groundToSemParam(_, param)))))
+    case GroundValue.Computation(row, payload) =>
+      VComputation(groundToSemParam(row, param), groundToSemParam(payload, param))
     case GroundValue.Structure(fqn, args, _) =>
       args.map(groundToSemParam(_, param)).foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
     case GroundValue.Param(index, args, _)   =>

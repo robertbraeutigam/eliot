@@ -416,6 +416,12 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Literal] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Structure
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Structure] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Row
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Row] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Row_Entry
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Row.Entry] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_GroundValue_Computation
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.Computation] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicExpression
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicExpression_Expression

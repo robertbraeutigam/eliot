@@ -64,10 +64,24 @@ object GroundValueRenderer {
         case Some((from, to)) => s"${renderOperand(from)} -> ${render(to)}"
         case None             => pinnedRow(structure, appliedToPayload).getOrElse(application(structure))
       }
+    case GroundValue.Row(entries)                                                      => rowString(entries)
+    // `{Console} String` — a computation type reads as its row over its payload. Carrier machinery is never printed;
+    // under v4 there is none in a type to print (`docs/effects-as-channel-v4.md` §10 R5).
+    case GroundValue.Computation(row, payload)                                         =>
+      s"${go(row, appliedToPayload)} ${renderOperand(payload)}"
     case GroundValue.Param(index, Nil, _)                                              => s"?p$index"
     case GroundValue.Param(index, args, _)                                             =>
       s"?p$index[${args.map(render).mkString(", ")}]"
   }
+
+  /** `{Console, State[Int]}` — a row in the user's own vocabulary. The empty row prints as `{}`. */
+  private def rowString(entries: Seq[GroundValue.Row.Entry]): String =
+    entries
+      .map(entry =>
+        if (entry.args.isEmpty) entry.ability.name.name
+        else s"${entry.ability.name.name}[${entry.args.map(render).mkString(", ")}]"
+      )
+      .mkString("{", ", ", "}")
 
   /** A function type used as the left operand of an arrow is parenthesised so the arrow nesting reads unambiguously. */
   def renderOperand(value: GroundValue): String =

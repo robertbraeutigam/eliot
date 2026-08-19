@@ -181,6 +181,13 @@ object IdNormalizer {
         GroundValue.Param(index, args.map(eraseIdTypes), eraseIdTypes(valueType))
       case GroundValue.Direct(value, valueType)                                     =>
         GroundValue.Direct(value, eraseIdTypes(valueType))
+      // v4's row and computation types carry no carrier at all, so there is no `Id` in them to erase — a row is a set
+      // of abilities and a computation type is a row over a payload (`docs/effects-as-channel-v4.md` §2). Their
+      // *arguments* are ordinary types and are still descended into.
+      case GroundValue.Row(entries)                                                 =>
+        GroundValue.Row(entries.map(entry => entry.copy(args = entry.args.map(eraseIdTypes))))
+      case GroundValue.Computation(row, payload)                                    =>
+        GroundValue.Computation(eraseIdTypes(row), eraseIdTypes(payload))
       case GroundValue.Type                                                         => GroundValue.Type
     }
 
@@ -231,6 +238,10 @@ object IdNormalizer {
       case GroundValue.Structure(_, args, valueType)                                => (args :+ valueType).exists(typeHasIdHead)
       case GroundValue.Param(_, args, valueType)                                    => (args :+ valueType).exists(typeHasIdHead)
       case GroundValue.Direct(_, valueType)                                         => typeHasIdHead(valueType)
+      case GroundValue.Row(entries)                                                 =>
+        entries.exists(_.args.exists(typeHasIdHead))
+      case GroundValue.Computation(row, payload)                                    =>
+        typeHasIdHead(row) || typeHasIdHead(payload)
       case GroundValue.Type                                                         => false
     }
 

@@ -1,6 +1,6 @@
 # Effects as a Channel, v4: The Row Leaves the Type, the Carrier Leaves the Language
 
-**Status (2026-08-19): PROPOSAL. P0 executed, nothing else implemented.** The one phase §11 allows to start
+**Status (2026-08-19): PROPOSAL. P0 and P1 executed, nothing else implemented.** The one phase §11 allows to start
 with — the R1 spike — has been run and written up in `docs/effects-v4-p0-spike.md`: R1 is **cleared by
 measurement**, with two amendments folded into §6 and two new risks (R7, R8) added to §10. That gate opens P1; it
 does not decide v4. This document is a design sketch written from a
@@ -330,9 +330,16 @@ That is the claim to test, and §11's gates are written to test it.
   is real work and touches `check/AbilityResolver`'s contract. Size it before committing.
 - **R3 — re-check cost.** A ground re-check per mono instance is cheap per instance but runs on every
   instance. Measure against the existing cold-build baseline (`--statistics`), not by estimate.
-- **R4 — the empty row.** `Id` exists today because the empty row still needed *a* carrier. In v4 the
-  empty row needs no representation at all — pure code lowers to itself. Confirm there is no second
-  reason `Id` was written; v3 A.11.7-S concluded it was needed *given the encoding*, which v4 removes.
+- **R4 — the empty row. AMENDED by P1 (2026-08-19): there *is* a second reason.** The first half holds —
+  the empty row needs no representation at all, and `CanonicalStack.representation` hands back the payload
+  untouched for it, so pure code lowers to itself. But a **non-empty** row that rides no `Suspend` lowers to
+  a transformer stack, and its innermost transformer still needs a base monad to sit on: `ThrowCarrier[E, ?]`.
+  That base is exactly what `Id` is, and removing the empty row's need for a carrier does not remove it. So
+  §7's deletion line for `Id` + `Effect[Id]` is one line too broad: `Id` leaves the *language* (no user or
+  stdlib signature names it, and no checker decision reads it) but stays as the pure base of the
+  *representation* — a parameter of the lowering, which a backend lowering `Throw` to a branch rather than to
+  a transformer (§8) supplies differently. `IdNormalizer` and `assertNoIdResidue` still go: what they erase is
+  `Id` appearing in a *type*, which under v4 cannot happen.
 - **R5 — diagnostics.** Rule 4's violations become `unify` mismatches, which is correct but must not read
   as `Expected: Computation[{Console}, String] / Actual: String`. The user vocabulary is rows and
   payloads; the renderer must say "this position may not receive a computation" as today.
@@ -385,10 +392,15 @@ output legitimately changes.
   into §6. Two new risks (R7, R8) came out of it; neither is a stop condition. The stored shape had to be
   measured in its v3-expressible form (a pinned row in a `data` field), a list element being a payload
   today.
-- **P1 — `Row` and `Computation` in the type language.** Canonicaliser, `unify` case, printer, no
-  behaviour change: nothing produces them yet. The canonical form must fix the **stack** a row lowers to,
-  not just the row's own spelling (§6, R8) — the same "one spelling" obligation, and not addable
-  afterwards. **Gate:** `__.test` green, examples byte-identical.
+- **P1 — `Row` and `Computation` in the type language. DONE (2026-08-19), gate met.**
+  `GroundValue.Row` / `GroundValue.Computation` and their semantic twins `VRow` / `VComputation`, the
+  canonicaliser (`monomorphize/fact/CanonicalRow`), the `unify` cases, both printers, a read-back that
+  canonicalises unconditionally (so no producer can mint a second spelling), and the canonical row ⤳ stack
+  rule (`row/CanonicalStack`). Nothing produces either former yet, so there is no behaviour change; the
+  obligations are pinned by `lang/test/…/row/EffectsV4RowAndComputationTest.scala`. **Gate met:** `__.test`
+  green, all 44 example jars `md5sum`-identical to the pre-change build. One amendment fell out and is
+  folded into §10 R4 — the *empty* row indeed needs no representation, but the **pure base** it would have
+  sat on does not disappear with it.
 - **P2 — the seam lowering, behind a flag, output compared.** Implement the lowering and run it *beside*
   the existing elaboration, comparing woven output per `(payload key × stack)` — P0 showed the payload key
   alone merges instances that differ. **Gate:** identical woven bodies on every example, which is the

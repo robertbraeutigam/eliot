@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -111,6 +112,19 @@ case class Unifier(
         val (fresh, u1) = freshVar()
         u1.unify(d1, d2, context)
           .unify(c1(fresh), c2(fresh), context)
+
+      // `{r} A` — the one primitive effect former beside `VPi` (effects-as-channel v4 §4). Ordinary definitional
+      // equality: unify the rows, unify the payloads. Nothing here is directional, nothing is lifted, and no row
+      // metavariable is ever created (v4 standing rule 1).
+      case (VComputation(r1, p1), VComputation(r2, p2)) =>
+        unify(r1, r2, context).unify(p1, p2, context)
+
+      // Two rows are equal when they name the same abilities at definitionally equal arguments. Entries are compared
+      // **grouped by ability** rather than positionally, so equality does not depend on the canonical order having
+      // already been applied to a semantic (not-yet-ground) row; within a group they pair by index, which is what keeps
+      // two occurrences of the same ability at different arguments distinguishable (§10 Q2).
+      case (VRow(e1), VRow(e2)) =>
+        unifyRows(fl, fr, e1, e2, context)
 
       case (VLam(_, c1), VLam(_, c2)) =>
         val (fresh, u1) = freshVar()
@@ -326,6 +340,32 @@ case class Unifier(
     loop(this)
   }
 
+  /** Unify two rows entry-wise. Entries are grouped by ability FQN; the groups must match exactly in ability and in
+    * size, and within a group entries pair by index. A row is a *set*, so this is order-insensitive across abilities —
+    * which is exactly what makes canonicalisation a read-back obligation rather than a unification precondition.
+    */
+  private def unifyRows(
+      l: SemValue,
+      r: SemValue,
+      left: Seq[VRow.Entry],
+      right: Seq[VRow.Entry],
+      context: Sourced[String]
+  ): Unifier = {
+    val leftGroups  = left.groupBy(_.ability)
+    val rightGroups = right.groupBy(_.ability)
+    if (leftGroups.keySet != rightGroups.keySet || left.length != right.length) addMismatch(l, r, context)
+    else
+      leftGroups.toSeq.sortBy(_._1.show).foldLeft(this) { case (unifier, (ability, leftEntries)) =>
+        val rightEntries = rightGroups(ability)
+        if (leftEntries.length != rightEntries.length) unifier.addMismatch(l, r, context)
+        else
+          leftEntries.zip(rightEntries).foldLeft(unifier) { case (u, (le, re)) =>
+            if (le.args.length != re.args.length) u.addMismatch(l, r, context)
+            else le.args.zip(re.args).foldLeft(u) { case (uu, (la, ra)) => uu.unify(la, ra, context) }
+          }
+      }
+  }
+
   private def unifySpines(l: SemValue, r: SemValue, sp1: Spine, sp2: Spine, context: Sourced[String]): Unifier = {
     val l1 = sp1.toList
     val l2 = sp2.toList
@@ -351,6 +391,8 @@ case class Unifier(
         val (fresh, _) = freshVar()
         occursIn(id, closure(fresh))
       case VNative(paramType, _)   => occursIn(id, paramType)
+      case VRow(entries)           => entries.exists(_.args.exists(occursIn(id, _)))
+      case VComputation(row, payload) => occursIn(id, row) || occursIn(id, payload)
       case VConst(_) | VType       => false
     }
 
@@ -383,6 +425,13 @@ case class Unifier(
       a1.length == a2.length &&
       groundEquals(t1, t2) &&
       a1.zip(a2).forall { case (l, r) => groundEquals(l, r) }
+    case (GroundValue.Row(e1), GroundValue.Row(e2))                             =>
+      e1.length === e2.length && e1.zip(e2).forall { case (l, r) =>
+        l.ability === r.ability && l.args.length === r.args.length &&
+        l.args.zip(r.args).forall { case (la, ra) => groundEquals(la, ra) }
+      }
+    case (GroundValue.Computation(r1, p1), GroundValue.Computation(r2, p2))     =>
+      groundEquals(r1, r2) && groundEquals(p1, p2)
     case _                                                                      => false
   }
 }

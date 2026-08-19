@@ -68,6 +68,15 @@ object SemValuePrinter {
       case VStuckNative(fqn, spine) =>
         showHeaded(fqn, spine, metaStore, depth)
 
+      case VRow(entries) =>
+        rowString(entries.map(entry => (entry.ability.name.name, entry.args)), metaStore, depth)
+
+      // `{Console} String` — a computation type reads as the row it performs over the payload it yields. The user
+      // vocabulary is rows and payloads; no carrier name ever appears (v4 §10 R5).
+      case VComputation(row, payload) =>
+        val rowStr = go(row, metaStore, depth, topLevel = false)
+        parenIf(!topLevel, s"$rowStr ${go(payload, metaStore, depth, topLevel = false)}")
+
       case VNative(_, _) =>
         "<native>"
     }
@@ -115,6 +124,21 @@ object SemValuePrinter {
     else if (fqn.name.qualifier === Qualifier.Type) s"$name[${args.mkString(", ")}]"
     else s"$name(${args.mkString(", ")})"
   }
+
+  /** `{Console, State[Int]}` — a row printed in the user's own vocabulary. An empty row prints as `{}`, which is the
+    * pure row and a legal spelling of it.
+    */
+  private def rowString(
+      entries: Seq[(String, Seq[SemValue])],
+      metaStore: MetaStore,
+      depth: Int
+  ): String =
+    entries
+      .map {
+        case (ability, Nil)  => ability
+        case (ability, args) => s"$ability[${args.map(go(_, metaStore, depth, topLevel = true)).mkString(", ")}]"
+      }
+      .mkString("{", ", ", "}")
 
   private def parenIf(cond: Boolean, s: String): String =
     if (cond) s"($s)" else s
