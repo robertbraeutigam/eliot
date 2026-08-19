@@ -1,7 +1,7 @@
 # Effects v5: Rows Are Constraints on One Carrier
 
-**Status (2026-08-19): PROPOSAL, and it decides nothing** — per `docs/effects-as-rows.md` standing rule 1 the
-decision is Robert's. Written from scratch against seven constraints he stated: *we need effects; unordered
+**Status (2026-08-19): §4 step 1 is LANDED; the rest is still a PROPOSAL that decides nothing** — per
+`docs/effects-as-rows.md` standing rule 1 the decision on steps 2-4 is Robert's. Written from scratch against seven constraints he stated: *we need effects; unordered
 preferred; effects as monadic abilities preferred; a mechanism independent of `monomorphize`, so it can stay
 simple; no pinned rows, they are hard to grasp; effects must stay generic — testable with pure carriers; and `IO`
 is not special — it is discharged in Eliot too, private to the platform but ordinary from the language's point of
@@ -117,7 +117,14 @@ together. v5 has no such step, because every intermediate state is expressible i
 1. **`{}` as the parameter-position spelling of "on my ambient carrier"**, accepted alongside `{Effect}`. Pure
    addition; nothing breaks. Migrate the 28 `{Effect}` occurrences — note they are already both positions today
    (`foldLeft(initial: {Effect} B, …): {Effect} B` is "mine" in the argument *and* in the return), which is the
-   same two readings v5 gives `{}`.
+   same two readings v5 gives `{}`. **Landed 2026-08-19.** `{}` parses as a tail-less row and the desugar treats an
+   empty open row as the entry `Effect` — so the two spellings produce the *same* AST: one carrier, one `F ~ Effect`
+   constraint, one row tag (`EffectRow.parameterEffects`, which is what makes the position a row rather than a carrier
+   type). Both parse, and a definition can migrate one position at a time. Two details the step had to settle:
+   `{| G} A` is rejected at the parser (a row realizing no effects over a base *is* that base), and the synthesized
+   `Effect` constraint resolves at its fixed FQN alongside `PatternMatch`/`TypeMatch`, so writing `{}` needs no
+   `import eliot.carrier.Effect` — which is the whole point, and is what let every `{Effect}` in the tree, and the
+   import that carried it, go. Verified by the full suite plus a jar-byte-identity sweep over the examples.
 2. **A tailless row in *parameter* position means "supplied by me"**, i.e. what `{X | G}` means today with `G` the
    signature's own binder. Migrate the 15 pinned rows in code; the generic-tail ones are a one-for-one rewrite
    (`{Abort | G} A` ⤳ `{Abort} A`), and the elaborator's existing derived-discharge-stack rule

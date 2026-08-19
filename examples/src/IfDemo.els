@@ -41,7 +41,7 @@ def describe(a: Bool, b: Bool): String = {
 
 // `fold` is the raw two-armed eliminator that `if` is built on: `if(cond, v)` is exactly `fold(cond, v, abort)`, and
 // `else` discharges that abort. The difference is that `fold` takes BOTH arms explicitly and adds no `{Abort}` to the
-// effect row. Both arms are suspended (`{Effect} A`), so only the selected one ever runs and a pure arm lifts to sit
+// effect row. Both arms are suspended (`{} A`), so only the selected one ever runs and a pure arm lifts to sit
 // beside an effectful one — they need only agree on the value type they yield.
 def foldForms(flag: Bool): {Console} Unit = {
    // 1. Two pure arms of one type: `fold` selects a value and adds nothing to the effect row (result is `String`).

@@ -1,5 +1,3 @@
-import eliot.carrier.Effect
-
 /**
  * The result of a computation that may fail: `Left(error)` for failure, `Right(value)` for success.
  *
@@ -16,4 +14,4 @@ type Either[E, A]
  * def message(e: Either[String, Int]): String = e.foldEither(err -> err, n -> show(n))
  * ```
  */
-def foldEither[E, A, B](ifLeft: E => {Effect} B, ifRight: A => {Effect} B, e: Either[E, A]): {Effect} B
+def foldEither[E, A, B](ifLeft: E => {} B, ifRight: A => {} B, e: Either[E, A]): {} B

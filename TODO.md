@@ -78,7 +78,7 @@ notes.
 - **Rule-4 violations are diagnosed twice, unequally.** A user pipe declaring no row
   (`|>[A, B](a: A, f: A => B): B`) given a computation gets the elaborator's own "This argument is
   a computation, but argument N of '|>' declares no effect row". The stdlib `.` — whose `f`
-  declares `{Effect}` — instead hoists the subject and leaves the checker to report an
+  declares `{}` — instead hoists the subject and leaves the checker to report an
   unattributable `Type mismatch. Expected: IO(IO(Option(String)))` at the subject. Both are the
   same violation (`readLine.flatMap(f)`); only one names the slot.
 

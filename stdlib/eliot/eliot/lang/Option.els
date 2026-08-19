@@ -1,5 +1,3 @@
-import eliot.carrier.Effect
-
 type Option[A]
 
 /**
@@ -14,7 +12,7 @@ def none[A]: Option[A]
  * def label(o: Option[String]): String = o.foldOption("absent", s -> s)
  * ```
  */
-def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B
+def foldOption[A, B](ifNone: {} B, ifSome: A => {} B, o: Option[A]): {} B
 
 /**
  * The value `o` holds, or `fallback` when it holds none — the everyday way to consume an `Option`, without
@@ -30,7 +28,7 @@ def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]):
  * for `foldOption` when the two cases deserve different treatment.
  */
 infix right
-def orElse[A](o: Option[A], fallback: {Effect} A): {Effect} A = foldOption(fallback, a -> a, o)
+def orElse[A](o: Option[A], fallback: {} A): {} A = foldOption(fallback, a -> a, o)
 
 /**
  * `f` applied to the value `o` holds, leaving absence absent — the way to work on an optional value without naming
@@ -44,5 +42,5 @@ def orElse[A](o: Option[A], fallback: {Effect} A): {Effect} A = foldOption(fallb
  * def readLength: {Console} Option[Int] = readLine.mapOption(length)
  * ```
  */
-def mapOption[A, B](f: A => {Effect} B, o: Option[A]): {Effect} Option[B] =
+def mapOption[A, B](f: A => {} B, o: Option[A]): {} Option[B] =
    o.foldOption(none, a -> some(f(a)))

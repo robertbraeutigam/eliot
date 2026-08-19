@@ -1,5 +1,3 @@
-import eliot.carrier.Effect
-
 data Option[A] = None | Some(value: A)
 
 // The base layer declares `some`/`none` abstractly (a `def` name may not be upper-case, so the platform's `Some`/`None`
@@ -9,7 +7,7 @@ def some[A](value: A): Option[A] = Some(value)
 
 def none[A]: Option[A] = None
 
-def foldOption[A, B](ifNone: {Effect} B, ifSome: A => {Effect} B, o: Option[A]): {Effect} B = o match {
+def foldOption[A, B](ifNone: {} B, ifSome: A => {} B, o: Option[A]): {} B = o match {
    case None -> ifNone
    case Some(v) -> ifSome(v)
 }
