@@ -1,6 +1,8 @@
 # Effects as a Channel, v4: The Row Leaves the Type, the Carrier Leaves the Language
 
-**Status (2026-08-19): PROPOSAL. P0, P1 and P3 executed; P2/P4/P5 — the flag day — not started.** The one phase §11 allows to start
+**Status (2026-08-19): PROPOSAL. P0, P1 and P3 executed; P2/P4/P5 — the flag day — not started, and held: a
+readiness check (`docs/effects-v4-flag-day-readiness.md`) found one design hole (R9), one amendment (R10) and one
+open decision (R7) between here and the flag day, the first of which the plan does not know about.** The one phase §11 allows to start
 with — the R1 spike — has been run and written up in `docs/effects-v4-p0-spike.md`: R1 is **cleared by
 measurement**, with two amendments folded into §6 and two new risks (R7, R8) added to §10. That gate opens P1; it
 does not decide v4. This document is a design sketch written from a
@@ -370,6 +372,42 @@ That is the claim to test, and §11's gates are written to test it.
   order is declared to *be* the semantics for stored computations, or the type must carry the order — and that
   decision must be made **before** the canonical form is fixed, since adding it afterwards is exactly the
   two-spellings trap of §4. Neighbour of Q2.
+- **R9 — v4 deletes the only way a program can substitute an effect implementation, and nothing replaces it.
+  Found by the readiness check (2026-08-19), `docs/effects-v4-flag-day-readiness.md` §2. STOP CONDITION under
+  standing rule 5; the decision is Robert's.** `docs/testing-effects.md` is marked *adopted, done* and its
+  mechanism is "the carrier **is** the injection point": the test declares its own carrier and its own instance,
+  and the production code is instantiated at it. v4 removes all three legs — a user cannot name a carrier (§2 tier
+  3, §8, §11 P5), cannot choose one (§6's canonical stack puts every `Suspend`-riding row on the platform's run
+  carrier, and the run-boundary registry is compiler configuration), and so never has their instance queried. §5
+  touches the strategy once, and only about accounting's `fixesCarrier` bound; "discharge it instead" is not
+  available, because the `Suspend`-riding abilities have no carrier for a discharger to be written over and
+  user-visible handlers are what §6 says v4 does not build. Three example programs and two integration test classes
+  depend on the mechanism, so the flag day's own gate (`__.test` green, jars `md5sum`-identical) cannot be met
+  while this is open. Three options are laid out in the readiness note §2.4. The recommendation there (updated after
+  Robert's preference to remove pinning outright, provided computations can still be stored — which tier 2 gives
+  without any tail) is to **keep the choice of interpretation as a term rather than a type**: one run-site form
+  `runAt[Recorded](program)`, which is `row/RunBoundaryFunctions` generalised from a platform-registered FQN with a
+  fixed base to one form whose base is a type argument. Every §7 deletion then stands, including the `| T` tail and
+  the pinned/open distinction.
+- **R10 — §7's deletion list retires the machinery that the lowering emits. Amendment, the second of R4's kind
+  (2026-08-19), `docs/effects-v4-flag-day-readiness.md` §3.** The 16 `Effect`/`Suspend` instances in the layers
+  *are* the representation the seam writes calls to, they are ordinary Eliot over carrier generics, and their `~`
+  constraints are what lets their own bodies typecheck. So the machinery leaves the *language* (the `{Effect}`
+  sugar and the 9 `~` constraints on ordinary `def` heads go) and stays as code; `eliot.carrier` can only be
+  removed from *user scope*, which being import-required it already is. Same note records one unlisted work item:
+  a native with a carrier-typed parameter (`foldLeftInternal[F[_] ~ Effect, A, B]`) means the lowering must lower
+  leaf **signatures**, not only bodies.
+- **R11 — a row in a type needs weakening, and weakening may not enter `unify`. Found by the readiness check
+  (2026-08-19), `docs/effects-v4-flag-day-readiness.md` §2.5.** §4 says row equality is definitional equality and
+  nothing bespoke, and §3 rule 2 carves out one exception (a pure argument lifting at a suspended slot). Real
+  programs need the general case: `examples/src/TestSuite.els` hands a gathered `{Throw[String]} Unit` to a slot
+  that also permits the suite's own effects, which under v3 is `{Throw[String] | G} Unit` elaborated at `G` per
+  use — no row is ever compared. Under v4 the slot is a computation type and the two rows are not definitionally
+  equal, so `{ρ₁} A` must be accepted at a `{ρ₂} A` slot when `ρ₁ ⊆ ρ₂`. It must live **at declared slots in the
+  elaboration**, exactly like the zero-row lift, never as an assignability arm in `unify` (the Types-Are-Values
+  guardrail forbids one outright). Representationally the widening is a **re-weave of the callee at the slot's
+  stack** — free for a call or a value reference, impossible for a value already built at a narrower stack, which
+  is R7 met by an ordinary user rather than by an exotic program.
 - **Q1** — does anything besides accounting need a *definition-site* row certificate? If yes, `RowChecker`
   grows; if no, it shrinks.
 - **Q2** — do two occurrences of the same effect in one row (two `State`s) need distinguishing? Today the
@@ -431,7 +469,8 @@ output legitimately changes.
   — and the `used` fixtures that exist to prove the codegen driver tolerates a *cyclic* injected value show
   that demand is not safe to add on its own. §6's demand direction gives the lowering that read for free, so
   the rule lands with P2 rather than being bolted on ahead of it.
-- **P4 — flag day.** Signatures stop desugaring to carriers; the checker, ability resolution for effect
+- **P4 — flag day. Held (2026-08-19) pending R9, R10 and R7** — see
+  `docs/effects-v4-flag-day-readiness.md`. Signatures stop desugaring to carriers; the checker, ability resolution for effect
   methods and elaboration move together; `EffectSugarDesugarer`'s carrier half, `EffectLifter`,
   `IdNormalizer` and the naming/rendering pair are deleted in the same change. **Gate:** green, examples
   byte-identical, and the diagnostics corpus re-read by hand (R5).
