@@ -326,8 +326,11 @@ That is the claim to test, and §11's gates are written to test it.
   amendments fell out and are folded into §6 — the seam must be keyed by the carrier stack as well as by the
   payload arguments (the payload key alone does not determine the carrier), and a stored computation's stack
   must be computed from its row by a canonical rule rather than read off a base the type no longer has.
-- **R2 — ability selection at the seam.** Relocating effect-method instance selection out of the checker
-  is real work and touches `check/AbilityResolver`'s contract. Size it before committing.
+- **R2 — ability selection at the seam. SIZED (2026-08-19), `docs/effects-v4-p2-sizing.md` §2.** It is an
+  **addition at the seam, not a move**: `check/AbilityResolver` (234 lines) is one of four post-drain
+  collaborators and serves *every* ability, not only effect methods, so the checker keeps it and the seam
+  gains a second, ground-carrier entry point — a lookup per stack, as P0 §4 measured. Budget the lookup plus
+  §6's demand plumbing.
 - **R3 — re-check cost.** A ground re-check per mono instance is cheap per instance but runs on every
   instance. Measure against the existing cold-build baseline (`--statistics`), not by estimate.
 - **R4 — the empty row. AMENDED by P1 (2026-08-19): there *is* a second reason.** The first half holds —
@@ -354,8 +357,11 @@ That is the claim to test, and §11's gates are written to test it.
   would*: a `Suspend`-riding row cannot be pinned, and a pinned `{Throw[E] | Id}` forces its handler pure. v4
   admits them, so v4 must budget the hoist — either a per-carrier `hoist`/`mapBase` in the stdlib, or a rule that
   a stored computation is discharged at its canonical base (which is what today's programs do, and why P0's S3
-  needs no hoist). **Unsized.** Settle before P2: it decides whether the lowering ever emits something today's
-  elaboration does not.
+  needs no hoist). **Sized, with a proposal, 2026-08-19** (`docs/effects-v4-p2-sizing.md` §4): no `hoist`/`mapBase`
+  exists in the tree and no program needs one, so the proposal is the fail-safe rule — a stored computation is
+  discharged at its canonical base, and a consumer whose ambient differs gets a hard error naming both, never a
+  silent lift. A hoist is then written when a program asks for one, which is also when its semantics can be judged.
+  The decision is Robert's.
 - **R8 — canonicalisation fixes the stack order of a stored computation.** §3 rule 3's replacement says the order
   of interacting effects "lives in the term (handler nesting)". That holds at a *discharge* site and not at a
   *storage* site: a stored `{Throw[E], State[S]}` computation has no handler in the term where it is built, so its
@@ -401,10 +407,14 @@ output legitimately changes.
   green, all 44 example jars `md5sum`-identical to the pre-change build. One amendment fell out and is
   folded into §10 R4 — the *empty* row indeed needs no representation, but the **pure base** it would have
   sat on does not disappear with it.
-- **P2 — the seam lowering, behind a flag, output compared.** Implement the lowering and run it *beside*
-  the existing elaboration, comparing woven output per `(payload key × stack)` — P0 showed the payload key
-  alone merges instances that differ. **Gate:** identical woven bodies on every example, which is the
-  proof that the seam can *use* the information P0 showed it has.
+- **P2 — the seam lowering, behind a flag, output compared. AMENDED (2026-08-19): P2 cannot precede P4;
+  they are one change.** Implement the lowering and compare woven output per `(payload key × stack)` — P0
+  showed the payload key alone merges instances that differ. **Gate:** identical woven bodies on every
+  example, which is the proof that the seam can *use* the information P0 showed it has. What the sizing
+  measurement found (`docs/effects-v4-p2-sizing.md` §1): the lowering's input must be a *direct-style* body,
+  and what reaches the seam today is the already-elaborated one, so running it "beside the existing
+  elaboration" needs a monomorphized direct-style body — which is exactly P4's checker change. There is no
+  scaffold in between. So P2 and P4 land together, under P2's gate, and R6 is stronger than it states.
 - **P3 — the woven re-check. DONE (2026-08-19), gate met.** `monomorphize/channel/WovenRecheck`, wired into
   `WovenValueProcessor` beside `assertNoIdResidue` and mandatory like it. Ground definitional equality with
   no metavariables, no unification and no meta store: a function literal is `Function[parameterType,
