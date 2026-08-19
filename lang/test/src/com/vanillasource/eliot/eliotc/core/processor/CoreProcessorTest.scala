@@ -648,13 +648,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "append the carrier as the final argument of a parameterized effect" in {
-    namedValue("def f(x: {State[Account]} String): String").asserting { nv =>
+    namedValue("def f(x: String): {State[Account]} String").asserting { nv =>
       constraintShapes(nv) shouldBe Map("F" -> Seq(("State", Seq(Ref("Account", T), Ref("F", T)))))
     }
   }
 
   it should "carry every distinct effect of a multi-effect set" in {
-    namedValue("def f(x: {Suspend, Abort} String): String").asserting { nv =>
+    namedValue("def f(x: String): {Suspend, Abort} String").asserting { nv =>
       constraintShapes(nv) shouldBe Map("F" -> Seq(("Suspend", Seq(Ref("F", T))), ("Abort", Seq(Ref("F", T)))))
     }
   }
@@ -700,7 +700,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "add the row's other effects as constraints on the reused carrier" in {
-    namedValue("def f[G[_] ~ Effect, A](x: {Abort} A): G[A]").asserting { nv =>
+    namedValue("def f[G[_] ~ Effect, A](x: G[A]): {Abort} A").asserting { nv =>
       constraintShapes(nv) shouldBe Map("G" -> Seq(("Effect", Seq(Ref("G", T))), ("Abort", Seq(Ref("G", T)))))
     }
   }
@@ -749,6 +749,48 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "be rejected in a data field, like any other open row" in {
     coreErrors("data Box(body: {} Unit)")
       .asserting(_ should contain("A stored effect row must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`."))
+  }
+
+  // Effects-v5 step 2 (docs/effects-v5-one-carrier.md §4): a row in a **parameter** position says "what I supply to
+  // this argument — I run it, on my ambient carrier extended by these". An entry the definition's own declared row
+  // already has needs no extension (the argument rides the ambient carrier); an entry it does not have is supplied,
+  // so the argument's type is that entry's carrier stacked over the ambient — exactly what the pinned spelling
+  // `{Abort | G} A` wrote by hand, which is what let the stdlib dischargers migrate one signature at a time.
+  "a supplied parameter row" should "desugar to the same signature as the pinned spelling over the same carrier" in {
+    (
+      namedValue("def f[G[_] ~ Effect, A](x: {Abort} A): G[A]"),
+      namedValue("def f[G[_] ~ Effect, A](x: {Abort | G} A): G[A]")
+    ).mapN { (supplied, pinned) => supplied.signature.value.structure shouldBe pinned.signature.value.structure }
+  }
+
+  it should "stack the supplied entry over the ambient carrier without constraining it" in {
+    namedValue("def f[G[_] ~ Effect, A](x: {Abort} A): G[A]").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("G" -> Seq(("Effect", Seq(Ref("G", T)))))
+    }
+  }
+
+  it should "stack onto the minted carrier when the signature binds none" in {
+    namedValue("def f[A](x: {Abort} A): {Console} A").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Console", Seq(Ref("F", T)))))
+    }
+  }
+
+  it should "supply only what the definition's own declared row lacks (`if`'s arm rides the ambient)" in {
+    (namedValue("def f[A](c: Bool, value: {Abort} A): {Abort} A"), namedValue("def f[A](c: Bool, value: {} A): {Abort} A"))
+      .mapN { (rowed, empty) => rowed.signature.value.structure shouldBe empty.signature.value.structure }
+  }
+
+  it should "never supply the machinery, so a sibling `{}` stays the ambient carrier (the `else` shape)" in {
+    (
+      namedValue("def f[G[_] ~ Effect, A](x: {Abort} A, y: {} A): G[A]"),
+      namedValue("def f[G[_] ~ Effect, A](x: AbortCarrier[G, A], y: G[A]): G[A]")
+    ).mapN { (rowed, hand) => rowed.signature.value.structure shouldBe hand.signature.value.structure }
+  }
+
+  it should "leave a row in an arrow codomain open (a callback rides the ambient carrier)" in {
+    namedValue("def f[G[_] ~ Effect, A](x: A => {Abort} A): G[A]").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("G" -> Seq(("Effect", Seq(Ref("G", T))), ("Abort", Seq(Ref("G", T)))))
+    }
   }
 
   // A *pinned* row `{E1, E2 | T} A` is a concrete type: the canonical carrier stack over the base `T`, spelled in

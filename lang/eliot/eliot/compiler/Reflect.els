@@ -27,7 +27,7 @@ import eliot.collection.List
  *
  * // One test, then the rest of the suite. The failure is discharged here, so a failing test
  * // does not fail the run, and `rest` — every test to the right — is still unrun at this point.
- * def runTest[G[_] ~ Effect & Console](name: String, test: {Throw[String] | G} Unit, rest: G[Unit]): G[Unit] = {
+ * def runTest[G[_] ~ Effect & Console](name: String, test: {Throw[String]} Unit, rest: G[Unit]): G[Unit] = {
  *    printLine("- " ++ name)
  *    test catch (e -> printLine("  FAILED: " ++ e))
  *    rest

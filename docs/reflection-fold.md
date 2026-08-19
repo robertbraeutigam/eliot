@@ -60,7 +60,8 @@ Each gathered value is an ordinary **argument**, so it lands in whatever slot `c
 ordinary elaboration machinery answers for it with no new mechanism:
 
 - an **open row** (`test: {Effect} Unit`) runs it on the caller's carrier;
-- a **pinned row over the algebra's own carrier** (`test: {Throw[E] | G} Unit`) lets the algebra discharge it —
+- a **supplied row** (`test: {Throw[E]} Unit`, pinned to the algebra's own carrier by the desugar) lets the
+  algebra discharge it —
   the derived discharge stack `stack(callee.declaredRow ∖ ambient.declaredRow) over ambient` is exactly what the
   call site needs;
 - a **concrete carrier** (`program: Recorded[Unit]`) fixes it to a test double, and `fixesCarrier` now sees a

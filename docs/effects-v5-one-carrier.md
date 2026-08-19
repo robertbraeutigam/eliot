@@ -1,7 +1,7 @@
 # Effects v5: Rows Are Constraints on One Carrier
 
-**Status (2026-08-19): §4 step 1 is LANDED; the rest is still a PROPOSAL that decides nothing** — per
-`docs/effects-as-rows.md` standing rule 1 the decision on steps 2-4 is Robert's. Written from scratch against seven constraints he stated: *we need effects; unordered
+**Status (2026-08-19): §4 steps 1 and 2 are LANDED; the rest is still a PROPOSAL that decides nothing** — per
+`docs/effects-as-rows.md` standing rule 1 the decision on steps 3-4 is Robert's. Written from scratch against seven constraints he stated: *we need effects; unordered
 preferred; effects as monadic abilities preferred; a mechanism independent of `monomorphize`, so it can stay
 simple; no pinned rows, they are hard to grasp; effects must stay generic — testable with pure carriers; and `IO`
 is not special — it is discharged in Eliot too, private to the platform but ordinary from the language's point of
@@ -129,6 +129,23 @@ together. v5 has no such step, because every intermediate state is expressible i
    signature's own binder. Migrate the 15 pinned rows in code; the generic-tail ones are a one-for-one rewrite
    (`{Abort | G} A` ⤳ `{Abort} A`), and the elaborator's existing derived-discharge-stack rule
    (`carrier(call) = stack(callee.declaredRow ∖ ambient.declaredRow) over ambient`) is *already* this rule.
+   **Landed 2026-08-19.** The rule is that same subtraction read one level up, at the *declaration*: a parameter row's
+   entry that the definition's **own declared (return) row already has** needs no extension — the argument rides the
+   ambient carrier, which is why `def if[T](condition: Bool, value: {Abort} T): {Abort} T` is unchanged — and an entry
+   it does **not** have is supplied, so the parameter's type is that entry's carrier stacked over the ambient. The
+   supplied entries are rewritten into the **pinned** spelling over the ambient carrier before anything else runs
+   (`EffectSugarDesugarer.supplyPinnedParameters`), so the two spellings produce the *identical* signature and the
+   identical row metadata (`EffectRow.pinnedParameterEffects`, the capture tag the elaborator reads) — which is what
+   let all 15 signatures migrate one at a time with no downstream phase touched. Machinery never supplies, so `{}`
+   stays the ambient carrier (`else`'s `fallback: {} A` is `G[A]`, never a stack), and only a **top-level** parameter
+   row supplies — a row in an arrow codomain (`onError: E => {} A`) is the callback's own row on the ambient carrier,
+   as before. Two details the step had to settle: the ambient carrier of a discharger is found by the *existing*
+   rule (docs/effects-as-rows.md §1 rule 2 — the signature's one `Effect`-constrained binder), so the five dischargers
+   whose base carrier was left unconstrained precisely *because* the pinned tail named it (`runAbort`, `runThrow`,
+   `runStateCarrier`, `runWriterCarrier`, `runDepCarrier`, and the bodied `runStateToPair`/`runWriterToPair`/`provide`)
+   now say `G[_] ~ Effect` — no new carrier-discovery rule was added, and none should be; and a parameter row
+   supplying an effect with no `<Ability>Carrier` (R2's `{Console}`) is the pinned form's existing loud resolve-time
+   error. Verified by the full suite plus a jar-byte-identity sweep over the examples.
 3. **Concrete pins become ordinary generics.** `data TestCase(body: {Throw[E] | Id} Unit)` ⤳
    `data TestCase[F[_] ~ Throw[E]](body: F[Unit])`, or keep a concrete carrier where one is wanted. Handful of
    sites, each independently green.

@@ -1,6 +1,11 @@
 # Effect-Row Tails: Pinned Rows as the One Spelling of a Carrier Stack
 
 Status: **SHIPPED** (parser + core desugar + stored-row rule + stdlib sweep + hover rendering).
+**Amended 2026-08-19 by effects-v5 step 2** (`docs/effects-v5-one-carrier.md` §4): the **generic tail** below is no
+longer written in the tree. A discharger spells its input as a plain row (`{Throw[E]} A`) and the desugar pins it to
+the signature's own carrier, producing the identical type — so everything here still describes what a pinned row
+*is* and what it desugars to; only the third usage level (writing `| G` by hand) is gone. A **concrete** base
+(`| Id`, `| IO`) is untouched and is still the spelling a stored row must use.
 
 ## The problem this solves
 
@@ -22,7 +27,7 @@ unifies the whole surface:
 ```eliot
 {Throw[E]} A          -- open: tail elided, caller picks the carrier (unchanged)
 {Throw[E] | Id} A     -- pinned: the canonical Throw layer over the pure base Id
-{Throw[E] | G} A      -- generic tail: for discharger/handler authors, G a type parameter
+{Throw[E] | G} A      -- generic tail: superseded by effects-v5 step 2 — write `{Throw[E]} A`
 ```
 
 A **pinned row** is not a constraint but a *concrete type*: the canonical carrier stack realizing
@@ -69,15 +74,17 @@ annotation; see the effect section of `.claude/CLAUDE.md`.)
 
 ### Stdlib sweep
 
-Every discharger signature spells its *input* as a pinned row over its generic base (the carrier
-data-type names are gone from all `def` signatures) and its *output* as the plain carrier:
+Every discharger signature spells its *input* as a row and its *output* as the plain carrier (the carrier
+data-type names are gone from all `def` signatures). Since effects-v5 step 2 the input row is written **without**
+the tail — a parameter row is supplied by the definition, so the desugar pins it to the signature's own carrier and
+the type below is what it produces:
 
 ```eliot
-def runThrow[E, G[_], A](obj: {Throw[E] | G} A): G[Either[E, A]]
-def catch[E, G[_] ~ Effect, A](computation: {Throw[E] | G} A, onError: E => {Effect} A): G[A]
-def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {Effect} A): G[A]
-def runStateToPair[S, G[_], A](initial: S, p: {State[S] | G} A): G[Pair[A, S]]
-def provide[X, G[_], A](x: X, computation: {Dep[X] | G} A): G[A]
+def runThrow[E, G[_] ~ Effect, A](obj: {Throw[E]} A): G[Either[E, A]]
+def catch[E, G[_] ~ Effect, A](computation: {Throw[E]} A, onError: E => {} A): G[A]
+def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]
+def runStateToPair[S, G[_] ~ Effect, A](initial: S, p: {State[S]} A): G[Pair[A, S]]
+def provide[X, G[_] ~ Effect, A](x: X, computation: {Dep[X]} A): G[A]
 ```
 
 The `type XxxCarrier` declarations and the platform layer's `data` + instances are untouched —
@@ -98,7 +105,8 @@ spelling-free ("Type mismatch.") so hover was the only leak.
 2. **Storing an effectful value**: learn one thing — rows have a base; `| Id` when only pure
    control effects (`Abort`/`Throw`/`State`/`Dep`) remain. Such a value can provably do no I/O
    (`Id` has no `Suspend`), and — since `Inf` has no canonical carrier either — it is total.
-3. **Discharger/handler authors**: generic tails (`{Throw[E] | G} A`), the same notation.
+3. **Discharger/handler authors**: nothing new to learn since effects-v5 step 2 — a parameter row is what you
+   supply (`{Throw[E]} A`), and the stack over your own carrier is what it means.
 
 ## Limits and deferred work
 

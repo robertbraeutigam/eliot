@@ -386,9 +386,10 @@ design: `docs/effects-as-rows.md` (§1 the four user rules, §2 the two channels
    (`EffectRow.parameterEffects`), never the shape. The **empty row `{}`** denotes the signature's *own* carrier when
    it binds exactly one `Effect`-constrained one — which is how `else`'s `fallback: {} A` is `G[A]` *and* accepts
    `host else "localhost"`.
-3. **Pinned means captured.** `{Throw[E] | G} A` is a reified computation *and* an ordinary type — usable in
+3. **Pinned means captured.** `{Throw[E] | Id} A` is a reified computation *and* an ordinary type — usable in
    `data` fields, discharger parameters, `List[TestCase]`. Open rows never appear in types; pinned rows are the
-   only place a type contains a computation.
+   only place a type contains a computation. A discharger parameter no longer *writes* the pin (effects-v5 step 2:
+   `computation: {Throw[E]} A`); the desugar pins it to the signature's own carrier, so the type is the same.
 4. **An effect passes through a position if and only if that position declares it.** A **plain generic** (`A`,
    `B`, `T`) is a payload, always — a function that transports effects says so (`f: A => {} B`,
    `initial: {} B`). A **rowless** slot may not receive a computation: a hard error naming the slot, never a
@@ -475,9 +476,11 @@ Classifying by the `<Ability>Carrier` naming convention, an LSP reverse table, o
 **Pinned rows** (`{Throw[E] | Id} A`, `docs/effect-row-tails.md`): a tail after `|` makes the row a *concrete
 type* — the canonical carrier stack over the base, built in core by the `<Ability>Carrier` naming convention,
 entries leftmost-outermost = discharge order, no carrier generic minted. Stored (`data`-field) rows **MUST** be
-pinned. The stdlib discharger signatures spell their **input** as a pinned row and their **output** as the plain
-carrier (`runThrow(obj: {Throw[E] | G} A): G[Either[E, A]]`), so `signatureEquality` holds across the merge.
-`Suspend`-riding effects (`Console`) have no canonical carrier and so cannot be pinned (v1).
+pinned. Since effects-v5 step 2 a **generic** tail is no longer written anywhere: a discharger spells its input as
+a plain row (`runThrow(obj: {Throw[E]} A): G[Either[E, A]]`) and the desugar pins it to that signature's own
+carrier, producing the identical type — so `signatureEquality` still holds across the merge, and a pinned tail is
+left only where the base is *concrete* (a `data` field's `| Id`). `Suspend`-riding effects (`Console`) have no
+canonical carrier and so cannot be pinned (v1) — nor supplied, which is the same diagnostic.
 
 **Rows are the user surface and the verifier's vocabulary — they never flow back into types.** `EffectRow` is
 declaration metadata (like `paramConstraints`), consumed by the desugar and the renderers; verification is a
@@ -506,6 +509,18 @@ older `{Effect}` names the machinery ability explicitly and is exactly what an e
 parse and mean the same thing. The synthesized constraint resolves at its fixed FQN, so `{}` needs no
 `import eliot.carrier.Effect` — which is why writing one never puts `map`/`flatMap`/`pure` in a user's scope. A row
 with a base but no entries (`{| G} A`) is rejected: that is just `G[A]`.
+
+**A non-empty row in a parameter position is *supplied* by the definition** — effects-v5 step 2, and what makes a
+discharger a discharger. `{Abort} A` in a parameter says "on my ambient carrier **extended by** `Abort`", and the
+extension is the same subtraction the elaborator applies to a call, read one level up at the declaration: an entry
+the definition's own declared (return) row already has needs no extension, so `if`'s `value: {Abort} T` rides the
+ambient carrier unchanged; an entry it lacks is supplied, so the slot is that entry's carrier stacked over the
+ambient. `EffectSugarDesugarer.supplyPinnedParameters` rewrites the supplied entries into the pinned spelling
+before anything else runs, so `else`'s `computation: {Abort} A` yields exactly the signature and the capture tag
+(`EffectRow.pinnedParameterEffects`) that `{Abort | G} A` yielded — no downstream phase knows the spelling changed.
+Machinery never supplies (`{}` is never a stack), and only a **top-level** parameter row supplies: a row in an
+arrow codomain (`onError: E => {} A`) is the callback's own row on the ambient carrier. A discharger whose base
+carrier the tail used to name now says so with the existing rule — `G[_] ~ Effect`.
 
 **Ambient scope.** The whole `eliot.effect` package is auto-imported: `ModuleName.effectSystemModules` joins the
 `eliot.lang` prelude in `defaultSystemModules`, in a **weak** tier — an explicitly imported module is deduplicated,

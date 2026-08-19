@@ -104,7 +104,7 @@ Shown indented so the literal comment markup is visible; in real source the exam
      * ```
      */
     infix right
-    def else[G[_] ~ Effect, A](computation: {Abort | G} A, fallback: {} A): G[A]
+    def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]
 
 ## Template
 

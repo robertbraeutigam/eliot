@@ -140,6 +140,18 @@ it is effect-irrelevant by construction.
    parse; `{}` is preferred because a definition saying "on my own carrier" should not have to name, or
    import, the machinery. The synthesized constraint resolves at its fixed FQN (`eliot.carrier.Effect`),
    so writing `{}` needs no import.
+
+   **A non-empty row in a parameter position is *supplied* by the definition** (effects-v5 step 2, same
+   §4). "On my own ambient carrier, nothing added" is what `{}` says; `{Abort} A` says "on my ambient
+   carrier **extended by** `Abort`", and the extension is read as the elaborator already reads a call —
+   an entry my own declared (return) row has needs none (`if`'s `value: {Abort} T` rides the ambient,
+   since `if` declares `Abort` itself), and an entry it lacks is one I supply, so the slot is that
+   entry's carrier stacked over my ambient. That is what makes a discharger a discharger, and it is
+   *identical* to what the pinned tail spelled by hand: the desugar rewrites the supplied entries into
+   `{Abort | G} A` before anything else runs, so `else`'s `computation: {Abort} A` produces the same
+   signature and the same capture tag it always did. Machinery never supplies (so `{}` is never a
+   stack), and only a top-level parameter row does (a row in an arrow codomain, `onError: E => {} A`, is
+   the callback's own row on the ambient carrier).
 3. **Pinned means captured** (unchanged from v2). `{Throw[E] | G} A` is a reified computation — an
    ordinary type, usable in `data` fields, discharger parameters, `List[TestCase]`. Open rows never
    appear in types; pinned rows are the only place a type contains a computation.

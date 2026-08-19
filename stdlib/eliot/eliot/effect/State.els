@@ -49,28 +49,28 @@ type StateCarrier[S, G[_], A]
 /**
  * Unwrap a `StateCarrier` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor
  * of the carrier; the platform layer supplies the body (the *generated* `StateCarrier` data-field accessor). Discharge
- * is read structurally at monomorphization from the `{State[S] | G}` input against the plain output, so no annotation
+ * is read structurally at monomorphization from the `{State[S]}` input against the plain output, so no annotation
  * is needed. Discharge the effect with `runStateToPair`, which threads an initial state through this function.
  */
-def runStateCarrier[S, G[_], A](obj: {State[S] | G} A): S => G[Pair[A, S]]
+def runStateCarrier[S, G[_] ~ Effect, A](obj: {State[S]} A): S => G[Pair[A, S]]
 
 /**
  * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state, threaded
  * from `initial`. Any other effects remain in the carrier `G`. Reach for `runStateToValue` or `runStateToFinalState` to
  * keep only one side of the pair.
  */
-def runStateToPair[S, G[_], A](initial: S, p: {State[S] | G} A): G[Pair[A, S]] = runStateCarrier(p)(initial)
+def runStateToPair[S, G[_] ~ Effect, A](initial: S, p: {State[S]} A): G[Pair[A, S]] = runStateCarrier(p)(initial)
 
 /**
  * Discharge the `State[S]` effect keeping only the result, discarding the final state. Threads `initial` through the
  * computation and yields its value.
  */
-def runStateToValue[S, G[_] ~ Effect, A](initial: S, p: {State[S] | G} A): G[A] =
+def runStateToValue[S, G[_] ~ Effect, A](initial: S, p: {State[S]} A): G[A] =
    map(first, runStateToPair(initial, p))
 
 /**
  * Discharge the `State[S]` effect keeping only the final state, discarding the result. Threads `initial` through the
  * computation and yields the state left behind.
  */
-def runStateToFinalState[S, G[_] ~ Effect, A](initial: S, p: {State[S] | G} A): G[S] =
+def runStateToFinalState[S, G[_] ~ Effect, A](initial: S, p: {State[S]} A): G[S] =
    map(second, runStateToPair(initial, p))
