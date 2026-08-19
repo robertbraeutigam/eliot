@@ -1,6 +1,6 @@
 # Effects v5: Rows Are Constraints on One Carrier
 
-**Status (2026-08-19): §4 steps 1 and 2 and §7 (the row alias) are LANDED; §4 steps 3-4 are still a PROPOSAL that
+**Status (2026-08-19): §4 steps 1 and 2 and §7 (naming a set of effects) are LANDED; §4 steps 3-4 are still a PROPOSAL that
 decides nothing** — per `docs/effects-as-rows.md` standing rule 1 the decision on them is Robert's, and §4 step 3 now
 has a **measurement against it** (below, and §5 C1). Written from scratch against seven constraints he stated: *we need effects; unordered
 preferred; effects as monadic abilities preferred; a mechanism independent of `monomorphize`, so it can stay
@@ -213,73 +213,81 @@ three (rowless / carrier-headed / pinned), which is what actually eroded. That i
 it is available without a flag day, without a canonical order, and without giving up the ability to interpret an
 effect yourself.
 
-## 7. Aliasing an effectful type — alias the **row** — LANDED 2026-08-19
+## 7. Naming a set of effects — the ability requires the others — LANDED 2026-08-19
 
-Yes, and in v5 the natural unit to alias is the row itself, because a row *is* a set of abilities and nothing
-else. Naming a set of effects once is also what a user usually wants — far more often than naming one
-computation type:
-
-```eliot
-type Web = {Console, Log, Throw[HttpError]}
-
-def handle(request: Request): {Web} Response                -- performs all three
-def audited[A](action: {Web} A): A                          -- supplies all three: a handler for the set
-def retry[A](action: {Web, State[Attempt]} A): {Web} A      -- rows compose by union, unordered
-```
-
-Parameterised aliases work the same way, since an entry is an ability applied to arguments:
+Yes, and the unit to name is the *set of abilities*, because that is all a row is. Naming a set of effects is also
+what a user usually wants — far more often than naming one computation type. **The name is an ability**, and it
+says what it requires of its carrier:
 
 ```eliot
-type Fallible[E] = {Throw[E], Log}
-def parse(s: String): {Fallible[SyntaxError]} Tree
+ability Web[F[_] ~ Console & Log]
+
+def handle(request: Request): {Web} Response                -- declares all three
+def audited[A](action: {} A): {Web} A                       -- effect-transparent over the set
 ```
 
-**The mechanics are one rule, in one place**, and that is what landed. Rows desugar in `core` to ability
-constraints written by name (`F ~ Web`), and names are resolved later; so the change is that `resolve`, when a row
-entry names a `type` whose body is a row, **expands that row's entries in place** instead of resolving one ability
-(`resolve/processor/ValueResolver.resolveAbilityConstraint`, reached from both `resolveEffectRow` and
-`resolveParamConstraints` — the two channels a row feeds, and both must get it or the effect silently drops out of
-one). The lowering is untouched, and the channel sees the expanded row, so accounting and the two verifiers keep
-working with no new vocabulary. This is the change `docs/effects-as-channel-v4.md` §A.3 identified as *"the right
-change if v3 stands"* — it is equally right under v5, since v5 keeps the encoding A.3 assumes, and it landed **on
-today's tree, independently of everything else here**: all 44 compiling examples build to byte-identical jars.
+Parameterised sets work the same way, since a requiring ability may thread its own parameters into what it
+requires, and requirements compose transitively:
 
-Five details the step had to settle:
+```eliot
+ability Api[E, F[_] ~ Web & Throw[E, F]]
+def parse(s: String): {Api[SyntaxError]} Tree
+```
 
-- **A row alias is not a type, so it is not an `EffectfulType`.** `{Console, Log}` with no payload after it is a new
-  AST node (`Expression.EffectRowType`) that reads in exactly one position — a type-alias body, and only after the
-  ordinary type run has failed there, so `type Test = {Writer[W] | Id} Unit` (a row over a payload) is untouched.
-  `EffectSugarDesugarer` lifts its entries into `EffectRow.aliasEffects` and leaves the definition **abstract**:
-  there is no type for it to be, and every use of the name is a row entry that expands away.
-- **An ability of the same name always wins.** The alias is looked up only when the name resolves to no ability at
-  all, so adding an alias can never capture an existing row entry.
-- **The alias's entries resolve in the alias's own scope** — its module, its dictionary, its parameters — because a
-  row alias is a declaration like any other and its names mean what they mean where it is written. The use's type
-  arguments are resolved at the use and substituted for the alias's parameters, which is what makes
-  `type Fallible[E] = {Throw[E], Log}` work at `{Fallible[SyntaxError]}`.
-- **The carrier rides through.** The same entry reaches the resolver twice — once in the declared row, captured from
-  the syntax before a carrier exists, and once as the carrier constraint `F ~ Fallible[E]` the desugar writes. The
-  alias's parameters bind the *leading* arguments and the one trailing argument, when present, is passed on to every
-  expanded entry; that is the carrier, and it is the whole of the difference between the two.
-- **A cycle is caught here, not later.** A row alias naming itself *is* a cycle in the value-reference graph, but the
-  recursion gate (*Total by Default*) runs several phases after resolve, so the expansion carries the set of aliases
-  it is inside and reports "Row alias is defined recursively." rather than looping.
+**The first draft of this section proposed `type Web = {Console, Log}` instead, and it was rejected** (2026-08-19,
+Robert) on two grounds, both right: `type X = …` names a *type*, and a set of abilities is not one — which is
+exactly why that spelling needed a body no type expression could hold; and paying for it with a new
+`ast.fact.Expression` case is not how this language grows. Everything is defined in terms of named values, and an
+AST element is the most expensive thing to add: the one node forced arms in the codec, the core converter, the
+strict-positivity checker and two places in the desugarer, plus a new `EffectRow` field and a special case
+rerouting the alias's parameters in `TypeAliasDefinition`. All of that is gone.
 
-One thing falls out for free: a row alias is usable in both positions of §1 with no extra rule, because it expands
-before either position is interpreted.
+**What shipped adds no syntax at all.** `ability`'s common generic parameters are ordinary `GenericParameter`s, so
+they already accepted `~ A & B`, and the braces are already optional — `ability Web[F[_] ~ Console & Log]` parsed
+before this change, and a method-less, never-implemented ability already rode a row to `main` and linked (nothing
+demands an instance when there are no methods to call). The whole feature is one rule, in
+`ValueResolver.superConstraints`: **a `~` constraint is closed under what the named ability itself requires.**
 
-**What is deliberately *not* offered is aliasing the payload with the row** — `type Test = {Writer[List[TestCase]]}
-Unit`, the case that provoked v4 (§0 there). That is aliasing a *computation*, which is a carrier-applied type, so
-in v5 it is ordinary generics and is written as such:
+Five details it settles:
+
+- **Which of the ability's requirements are inherited is decided by the use, not by a shape.** A constraint is
+  being built for one binder, so what is inherited is what the ability requires of *the parameter this use bound
+  to that binder* — `Web[F]` binds `Web`'s `F`, `Fallible[String, F]` binds `Fallible`'s second. A requirement on
+  an unrelated parameter (`ability Fallible[E ~ Show, F[_] ~ Throw[E, F]]`) stays on `E` and never lands on the
+  carrier, where `declaredEffects` would read it as a declared effect.
+- **It lands in `resolveParamConstraints` only.** A carrier binder's constraints are the single source of truth
+  for "declared" that both verifiers read (`RowChecker.declaredRow`, `EffectAccountingProcessor.openRow`), so one
+  place covers the whole channel. The declared row (`EffectRow`) is rendering vocabulary and keeps the name the
+  user wrote — `{Web}` still reads as `{Web}`.
+- **The ability's requirements resolve in the ability's own scope**, then its parameters are substituted by the
+  arguments the use wrote. A declaration means what it says where it is written.
+- **Closure is transitive and idempotent.** Two abilities that require each other close rather than loop, so no
+  cycle diagnostic is needed and none was added.
+- **It is uniform.** A hand-written `G[_] ~ Web` inherits exactly as a row entry does, and an ability *with*
+  methods requires others the same way. Nothing is special-cased for method-less abilities.
+
+Two consequences worth stating plainly, because they are what makes this an abstraction rather than a macro. The
+name is **real**, so it propagates to callers as itself — correct, since the caller's carrier must have it too.
+And it is a property of the **carrier**, so discharging one effect behind the name does not remove the name:
+`report` below handles the `Throw` and still declares `{Api[String]}`. Name a set for what rides together, not for
+what one function happens to discharge.
+
+The same rule states a relation the tree could not express before: `ability Console[F[_] ~ Suspend]` would put
+"Console rides Suspend" in the ability, instead of repeating it on every instance and leaving the compiler to know
+it by convention. That is the strongest argument that this is a missing language feature rather than an alias
+mechanism — and `docs/effects-as-channel-v4.md` §A.3's *"the right change if v3 stands"* is satisfied by it, since
+what A.3 wanted was the expanded row reaching the channel, which is what the closure delivers.
+
+**What is deliberately *not* offered is a `type` spelling of a row, or aliasing the payload with the row** —
+`type Test = {Writer[List[TestCase]]} Unit`, the case that provoked v4 (§0 there). That is aliasing a
+*computation*, which is a carrier-applied type, so it is ordinary generics and is written as such:
 
 ```eliot
 type Test[F[_] ~ Writer[List[TestCase]]] = F[Unit]
 ```
 
-The reason the sugar cannot quietly do it is mechanical and worth stating, because it is the same reason the
-current tree errors: the row desugar runs in `core`, before names resolve, so a definition that merely *names* an
-alias (`def testCases: Test`) carries no `{…}` of its own and mints no carrier — today's diagnostic says exactly
-that, and it is right ("the open-row lowering mints the shared carrier onto the *alias's own* generic parameters
-… the effect is silently dropped"). Under v5 the position rule needs an ambient carrier to attach the row to, and
-a bare alias name supplies none. So the honest spellings are the two above: the row alias at each use, or the
-explicit generic parameter — and the first is the one to ship.
+The reason no sugar quietly does it is mechanical and worth stating: the row desugar runs in `core`, before names
+resolve, so a definition that merely *names* an alias (`def testCases: Test`) carries no `{…}` of its own and
+mints no carrier — today's diagnostic says exactly that, and it is right. The position rule needs an ambient
+carrier to attach a row to, and a bare alias name supplies none. So the honest spellings are the two above: the
+requiring ability at each use, or the explicit generic parameter.

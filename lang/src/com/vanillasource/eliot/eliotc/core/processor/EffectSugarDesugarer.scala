@@ -110,30 +110,25 @@ object EffectSugarDesugarer {
   }
 
   /** Rewrite a single function definition: pin what its parameter rows **supply** ([[supplyPinnedParameters]]), then
-    * collapse the open `{…}` rows that are left onto one inferable higher-kinded carrier generic `F[_]`, adding one `F
-    * ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`. Returns the function unchanged
-    * when it carries no effect rows. Synthetic functions (e.g. data-desugared ones) never carry `{…}`, so applying this
-    * uniformly to every function is a no-op for them.
+    * collapse the open `{…}` rows that are left onto one inferable higher-kinded carrier generic `F[_]`, adding one
+    * `F ~ Ei` constraint per positive entry and rewriting every open `{…} A` to `F[A]`. Returns the function unchanged
+    * when it carries no effect rows. Synthetic functions (e.g. data-desugared ones) never carry `{…}`, so applying
+    * this uniformly to every function is a no-op for them.
     *
     * **The carrier is the signature's, not the row's** (decided 2026-07-28, docs/effects-as-rows.md §1 rule 2): when
     * the signature *already binds* exactly one effect carrier of its own (`G[_] ~ Effect`, as every discharger does),
-    * the rows reuse **that** binder rather than minting a second one, and their entries join its constraints. `{}` then
-    * reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a slot that is
-    * `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]` — the same
-    * type it always had, now saying "a value or a computation" rather than "a computation". Without it the fallback
-    * could only be spelled `G[A]`, which under §1 rule 2 no longer accepts a pure actual, and `host else "localhost"`
-    * would have to be written `host else pure("localhost")` — pushing carrier machinery into user code. The reuse is
-    * decidable from the declaration alone and applies to no signature written before it (nothing in the tree mixed the
-    * two spellings); two or more `Effect`-constrained carriers decline it and mint as before.
+    * the rows reuse **that** binder rather than minting a second one, and their entries join its constraints. `{}`
+    * then reads as "this signature's effect carrier" everywhere, which is what lets a discharger declare a slot that
+    * is `G[A]` *and* row-tagged: `def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]` — the
+    * same type it always had, now saying "a value or a computation" rather than "a computation".
+    * Without it the fallback could only be spelled `G[A]`, which under §1 rule 2 no longer accepts a pure actual, and
+    * `host else "localhost"` would have to be written `host else pure("localhost")` — pushing carrier machinery into
+    * user code. The reuse is decidable from the declaration alone and applies to no signature written before it
+    * (nothing in the tree mixed the two spellings); two or more `Effect`-constrained carriers decline it and mint as
+    * before.
     */
-  def desugar(function: FunctionDefinition): FunctionDefinition = {
-    val aliasEntries = rowAliasEntries(function)
-    if (aliasEntries.nonEmpty)
-      // A row alias (`type Web = {Console, Log}`) declares a set of abilities, not a type. Record the entries and drop
-      // the body: the definition is left abstract, since there is no type for it to be, and `resolve` expands every
-      // *use* of the name — which is always a row entry — into these entries.
-      function.copy(body = None, effectRow = EffectRow(aliasEffects = aliasEntries))
-    else if (signatureAndBodyRows(function).isEmpty) function
+  def desugar(function: FunctionDefinition): FunctionDefinition =
+    if (signatureAndBodyRows(function).isEmpty) function
     else {
       val anchor        = function.name
       val reusedCarrier = ownEffectCarrier(function)
@@ -174,20 +169,6 @@ object EffectSugarDesugarer {
         effectRow = declaredEffectRow(supplying)
       )
     }
-  }
-
-  /** The entries of a **row alias** — a type-level definition whose body is a payload-less row (`type Web = {Console,
-    * Log}`, docs/effects-v5-one-carrier.md §7). Empty for every other definition, including a type alias whose body is
-    * an ordinary row over a payload (`type Test = {Writer[W] | Id} Unit`), which is a type and takes the pinned route.
-    */
-  private def rowAliasEntries(function: FunctionDefinition): Seq[GenericParameter.AbilityConstraint] =
-    if (isTypeLevel(function)) function.body.toSeq.flatMap {
-      _.value match {
-        case EffectRowType(effects) => effects
-        case _                      => Seq.empty
-      }
-    }
-    else Seq.empty
 
   /** Every effect row anywhere in a definition's signature (parameters, generic-parameter restrictions, return) or its
     * body — the set that decides whether this definition carries the sugar at all.
@@ -209,9 +190,9 @@ object EffectSugarDesugarer {
     * level up: an entry my own declared (return) row *already* has needs no extension — my ambient carrier realizes it
     * and the argument simply rides it — while an entry it does *not* have is one I supply, so the argument's type is
     * that entry's carrier stacked over my ambient. So `def if[T](condition: Bool, value: {Abort} T): {Abort} T` hands
-    * `value` the plain ambient carrier (it declares `Abort` itself), while `def else[G[_] ~ Effect, A](computation:
-    * {Abort} A, fallback: {} A): G[A]` discharges it — `computation` is `AbortCarrier[G, A]`, exactly what the old
-    * pinned spelling `{Abort | G} A` wrote by hand.
+    * `value` the plain ambient carrier (it declares `Abort` itself), while
+    * `def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A]` discharges it — `computation` is
+    * `AbortCarrier[G, A]`, exactly what the old pinned spelling `{Abort | G} A` wrote by hand.
     *
     * Mechanically the supplied entries are rewritten into a **pinned** row over the ambient carrier, which is the one
     * spelling of a carrier stack ([[rewrite]]) and the one that records the capture tag
@@ -221,9 +202,9 @@ object EffectSugarDesugarer {
     *
     * Two entries never supply. **Machinery** (`Effect`/`Suspend`) is filtered out of every row by design, so the empty
     * row `{}` — which contributes exactly the machinery entry `Effect` ([[rowEntries]]) — always stays open: `else`'s
-    * `fallback: {} A` is `G[A]`, never a stack. And only a **top-level** parameter row supplies; a row in an arrow
-    * codomain (`onError: E => {} A`, `combine: A => B => {} B`) is the callback's own row on the ambient carrier, as it
-    * always was.
+    * `fallback: {} A` is `G[A]`, never a stack. And only a **top-level** parameter row supplies; a row in an
+    * arrow codomain (`onError: E => {} A`, `combine: A => B => {} B`) is the callback's own row on the ambient
+    * carrier, as it always was.
     */
   private def supplyPinnedParameters(function: FunctionDefinition, carrierName: String): FunctionDefinition = {
     val ambient = openRowEntries(function.typeDefinition)
@@ -385,8 +366,6 @@ object EffectSugarDesugarer {
   ): Sourced[Expression] = {
     val recurse = rewrite(carrierName, rewritePinned)
     expr.value match {
-      case EffectRowType(effects)                                                               =>
-        expr.as(EffectRowType(effects.map(e => e.copy(typeParameters = e.typeParameters.map(recurse)))))
       case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty && !rewritePinned =>
         expr.as(
           EffectfulType(
@@ -455,13 +434,13 @@ object EffectSugarDesugarer {
     }
   }
 
-  /** User-facing errors for effect rows in a **type alias** body (`type Test = {…} …`): an *open* row cannot be carried
-    * through an alias. The open-row lowering ([[desugar(function:*]]) mints the shared carrier `F[_]` onto the *alias's
-    * own* generic parameters, so a definition that names the alias (`def testCases: Test`) inherits neither the carrier
-    * nor the effect — the effect is silently dropped. An alias is a *type*, and only a **pinned** row is a type
+  /** User-facing errors for effect rows in a **type alias** body (`type Test = {…} …`): an *open* row cannot be
+    * carried through an alias. The open-row lowering ([[desugar(function:*]]) mints the shared carrier `F[_]` onto the
+    * *alias's own* generic parameters, so a definition that names the alias (`def testCases: Test`) inherits neither the
+    * carrier nor the effect — the effect is silently dropped. An alias is a *type*, and only a **pinned** row is a type
     * (docs/effects-as-rows.md §1 rule 3), so the fix is to pin the row (`{Throw[Error] | Id} String`) or to declare the
-    * effect directly on the definition instead of aliasing it. Empty for a non-type-level definition (an ordinary
-    * `def`, where an open row in the signature *is* legal) or a body-less type declaration.
+    * effect directly on the definition instead of aliasing it. Empty for a non-type-level definition (an ordinary `def`,
+    * where an open row in the signature *is* legal) or a body-less type declaration.
     */
   def rowErrors(function: FunctionDefinition): Seq[Sourced[String]] =
     if (isTypeLevel(function))
@@ -488,7 +467,6 @@ object EffectSugarDesugarer {
       collectRows(scrutinee) ++ cases.flatMap(c => collectRows(c.body))
     case BlockExpression(lines)                        =>
       lines.flatMap(l => l.binder.flatMap(_.typeExpression).toSeq.flatMap(collectRows) ++ collectRows(l.expression))
-    case EffectRowType(effects)                        => effects.flatMap(_.typeParameters.flatMap(collectRows))
     case _: IntegerLiteral | _: StringLiteral          => Seq.empty
   }
 

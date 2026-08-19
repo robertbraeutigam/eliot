@@ -20,6 +20,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{
   QualifiedName as CoreQualifiedName,
   Qualifier as CoreQualifier
 }
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*
@@ -111,136 +112,110 @@ class ValueResolver
     }
 
   /** Resolve the effects-as-channel declared row (Phase 1, dark): each entry's ability name and type-arguments are
-    * resolved exactly as [[resolveParamConstraints]] resolves a constraint, positions preserved.
+    * resolved exactly as [[resolveConstraint]] resolves a constraint, positions preserved.
     */
   private def resolveEffectRow(
       effectRow: EffectRow[NamedValue.CoreAbilityConstraint]
   ): ScopedIO[EffectRow[ResolvedValue.ResolvedAbilityConstraint]] =
-    effectRow.flatTraverse(resolveAbilityConstraint(_, Set.empty)).map { row =>
-      // A *pinned* row is a carrier stack, where order and multiplicity are the discharge order; the open positions are
-      // unordered sets, so an alias contributing an entry a sibling already names collapses to one.
-      row.copy(
-        returnEffects = distinctConstraints(row.returnEffects),
-        parameterEffects = row.parameterEffects.map(pe => pe.copy(effects = distinctConstraints(pe.effects))),
-        aliasEffects = distinctConstraints(row.aliasEffects)
-      )
-    }
+    effectRow.traverse(resolveConstraint)
 
+  /** Resolve a value's `~` ability constraints, per generic parameter, **closed under what each named ability itself
+    * requires of that parameter** ([[superConstraints]]).
+    */
   private def resolveParamConstraints(
       paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]]
   ): ScopedIO[Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]] =
     paramConstraints.toSeq
       .traverse { case (paramName, constraints) =>
         constraints
-          .traverse(resolveAbilityConstraint(_, Set.empty))
+          .traverse(c =>
+            for {
+              resolved <- resolveConstraint(c)
+              inherited <- superConstraints(resolved, paramName, Set.empty)
+            } yield resolved +: inherited
+          )
           .map(cs => paramName -> distinctConstraints(cs.flatten))
       }
       .map(_.toMap)
 
-  /** Resolve one declared ability constraint into **possibly several**, which is what a **row alias** expands to.
-    *
-    * A row alias (`type Web = {Console, Log, Throw[HttpError]}`, docs/effects-v5-one-carrier.md §7) names a *set of
-    * abilities* — it is not an ability and not a type — so a row entry naming one simply *is* that alias's entries,
-    * with the alias's own generic parameters substituted by the use's type arguments (`type Fallible[E] = {Throw[E],
-    * Log}` used as `{Fallible[SyntaxError]}`). The expansion happens here, in the one place a row entry's name is
-    * resolved, so a declared row and a carrier's `~` constraints both get it and no phase below learns a new
-    * vocabulary — the channel sees an ordinary expanded row.
-    *
-    * An ability of the same name always wins: the alias is looked up only when the name resolves to no ability at all.
-    * Expansion is recursive (an alias may name another), guarded by `expanding` — a cycle is a user error here rather
-    * than a hang, since the recursion gate that would otherwise catch it runs several phases later.
-    */
-  private def resolveAbilityConstraint(
-      constraint: NamedValue.CoreAbilityConstraint,
-      expanding: Set[ValueFQN]
-  ): ScopedIO[Seq[ResolvedValue.ResolvedAbilityConstraint]] = {
-    def asAbility(abilityFQN: AbilityFQN): ScopedIO[Seq[ResolvedValue.ResolvedAbilityConstraint]] =
-      constraint.typeArgs
-        .traverse(resolveExpression(_, false))
-        .map(args => Seq(ResolvedValue.ResolvedAbilityConstraint(abilityFQN, args)))
-
-    getAbility(constraint.abilityName.value).flatMap {
-      case Some(abilityFQN) => asAbility(abilityFQN)
-      case None             =>
-        ValueResolver.fixedFqnAbilities.get(constraint.abilityName.value) match {
-          case Some(abilityFQN) => asAbility(abilityFQN)
-          case None             =>
-            rowAliasOf(constraint.abilityName).flatMap {
-              case Some((vfqn, unified)) => expandRowAlias(vfqn, unified, constraint, expanding)
-              case None                  => compilerAbort(constraint.abilityName.as("Ability not found.")).liftToScoped
-            }
-        }
-    }
-  }
-
-  /** The row alias a row entry's name denotes, if any: a value in this scope's `Type` namespace whose recorded row
-    * ([[EffectRow.aliasEffects]]) is non-empty. Any other `Type`-namespace name — an ordinary type or alias — is not
-    * one, and yields `None` so the caller reports the name as an unknown ability.
-    */
-  private def rowAliasOf(name: Sourced[String]): ScopedIO[Option[(ValueFQN, UnifiedModuleValue)]] =
+  private def resolveConstraint(
+      constraint: NamedValue.CoreAbilityConstraint
+  ): ScopedIO[ResolvedValue.ResolvedAbilityConstraint] =
     for {
-      platform <- getPlatform
-      vfqnOpt  <- getValue(CoreQualifiedName(name.value, CoreQualifier.Type))
-      unified  <- vfqnOpt.traverse(vfqn =>
-                    getFactOrAbort(UnifiedModuleValue.Key(vfqn, platform)).liftToScoped.map(vfqn -> _)
-                  )
-    } yield unified.filter(_._2.namedValue.effectRow.rowAlias)
+      abilityFQN   <- resolveAbilityName(constraint.abilityName)
+      resolvedArgs <- constraint.typeArgs.traverse(resolveExpression(_, false))
+    } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
 
-  /** Expand one use of a row alias into its entries. The alias's own entries are resolved **in the alias's own scope**
-    * (its module, its dictionary, its generic parameters) — a row alias is a declaration like any other and its names
-    * mean what they mean where it is written, not where it is used — and the use's type arguments, resolved here, are
-    * then substituted for the alias's parameters.
+  /** The constraints a named ability itself declares on the parameter this use bound to `paramName` — the superability
+    * relation, and the one rule that lets a name stand for a set of effects.
     *
-    * The alias's parameters bind the **leading** arguments; **one trailing argument may follow them, and is passed on
-    * to every expanded entry**. That trailing argument is the carrier: an entry reaching this resolver as a *carrier
-    * constraint* (`F ~ Fallible[E]`, which is what `EffectSugarDesugarer` writes for `{Fallible[E]}`) carries it,
-    * while the same entry in the declared row ([[EffectRow]], captured from the syntax before the carrier exists) does
-    * not. Both are the same expansion with the same substitution; only the pass-through differs.
+    * `ability Web[F[_] ~ Console & Log]` says a carrier that has `Web` has `Console` and `Log`, so `{Web}` — which
+    * desugars to the constraint `Web[F]` — declares all three, and `derived ⊆ declared` sees the set the user named
+    * (docs/effects-v5-one-carrier.md §7). The same rule states a relation the tree could not express before: `ability
+    * Console[F[_] ~ Suspend]` puts "Console rides Suspend" in the ability instead of repeating it on every instance.
+    *
+    * Nothing here is read off a shape. **Which** of the ability's parameters to inherit from is decided by the use: the
+    * one whose argument *is* this binder (`Web[F]` binds `Web`'s `F`, `Fallible[String, F]` binds `Fallible`'s second),
+    * so a constraint the ability declares on an unrelated parameter (`E ~ Show`) stays there and never lands on the
+    * carrier. The ability's own constraints are resolved **in the ability's own scope**, then its parameters are
+    * substituted by the arguments this use wrote — the ordinary reading of a declaration.
+    *
+    * Closure is transitive and `expanding` makes it idempotent: an ability already inherited from contributes nothing a
+    * second time, so mutually-requiring abilities close instead of looping. Only an ability found *in scope* is looked
+    * up — the fixed-FQN machinery (`Effect`, `PatternMatch`, `TypeMatch`) is compiler-written and requires nothing.
     */
-  private def expandRowAlias(
-      vfqn: ValueFQN,
-      unified: UnifiedModuleValue,
-      use: NamedValue.CoreAbilityConstraint,
-      expanding: Set[ValueFQN]
-  ): ScopedIO[Seq[ResolvedValue.ResolvedAbilityConstraint]] = {
-    val params  = collectGenericParamsFromExpr(unified.namedValue.signature.value)
-    val trailing = use.typeArgs.size - params.size
-
-    if (expanding.contains(vfqn))
-      compilerAbort(use.abilityName.as("Row alias is defined recursively.")).liftToScoped
-    else if (trailing < 0 || trailing > 1)
-      compilerAbort(
-        use.abilityName.as(
-          s"Row alias '${use.abilityName.value}' takes ${params.size} type argument(s), but got ${use.typeArgs.size}."
-        )
-      ).liftToScoped
+  private def superConstraints(
+      use: ResolvedValue.ResolvedAbilityConstraint,
+      paramName: String,
+      expanding: Set[AbilityFQN]
+  ): ScopedIO[Seq[ResolvedValue.ResolvedAbilityConstraint]] =
+    if (expanding.contains(use.abilityFQN)) Seq.empty[ResolvedValue.ResolvedAbilityConstraint].pure[ScopedIO]
     else
-      for {
-        args     <- use.typeArgs.traverse(resolveExpression(_, false))
-        platform <- getPlatform
-        entries  <- unified.namedValue.effectRow.aliasEffects
-                      .traverse(c =>
-                        resolveAbilityConstraint(c, expanding + vfqn)
-                          .runA(
-                            ValueResolverScope(
-                              vfqn.moduleName,
-                              unified.dictionary,
-                              unified.privateNames,
-                              params.toSet,
-                              platform
-                            )
-                          )
-                          .liftToScoped
-                      )
-                      .map(_.flatten)
-      } yield {
-        val bindings   = params.zip(args).toMap
-        val passThrough = args.drop(params.size)
-        entries.map(e => e.copy(typeArgs = e.typeArgs.map(substituteParameters(bindings)) ++ passThrough))
+      // The ability's marker carries its common generic parameters, so its presence in scope is both the lookup and
+      // the "is this a real, in-scope ability" test — a direct dictionary hit rather than a scan.
+      getValue(markerOf(use.abilityFQN).name).flatMap {
+        case None    => Seq.empty[ResolvedValue.ResolvedAbilityConstraint].pure[ScopedIO]
+        case Some(_) =>
+          for {
+            platform <- getPlatform
+            marker   <- getFactOrAbort(UnifiedModuleValue.Key(markerOf(use.abilityFQN), platform)).liftToScoped
+            params    = collectGenericParamsFromExpr(marker.namedValue.signature.value)
+            inherited = params
+                          .zip(use.typeArgs)
+                          .collectFirst {
+                            case (param, Expression.ParameterReference(n)) if n.value === paramName => param
+                          }
+                          .toSeq
+                          .flatMap(marker.namedValue.paramConstraints.getOrElse(_, Seq.empty))
+            resolved <- inherited.traverse(c =>
+                          resolveInAbilityScope(use.abilityFQN, marker, params, platform)(resolveConstraint(c))
+                        )
+            bindings  = params.zip(use.typeArgs).toMap
+            direct    = resolved.map(c => c.copy(typeArgs = c.typeArgs.map(substituteParameters(bindings))))
+            deeper   <- direct.traverse(superConstraints(_, paramName, expanding + use.abilityFQN))
+          } yield direct ++ deeper.flatten
       }
-  }
 
-  /** Replace every reference to one of the alias's generic parameters by the use's corresponding type argument. */
+  /** An ability's marker value — the synthetic `Foo^Foo` [[AbilityBlock]] emits, which is where its common generic
+    * parameters (and so its `~` constraints) live.
+    */
+  private def markerOf(abilityFQN: AbilityFQN): ValueFQN =
+    ValueFQN(
+      abilityFQN.moduleName,
+      CoreQualifiedName(abilityFQN.abilityName, CoreQualifier.Ability(abilityFQN.abilityName))
+    )
+
+  private def resolveInAbilityScope[T](
+      abilityFQN: AbilityFQN,
+      marker: UnifiedModuleValue,
+      params: Seq[String],
+      platform: Platform
+  )(computation: ScopedIO[T]): ScopedIO[T] =
+    computation
+      .runA(ValueResolverScope(abilityFQN.moduleName, marker.dictionary, marker.privateNames, params.toSet, platform))
+      .liftToScoped
+
+  /** Replace every reference to one of the ability's own parameters by the argument this use wrote for it. */
   private def substituteParameters(bindings: Map[String, Expression])(expr: Expression): Expression =
     expr match {
       case Expression.ParameterReference(name) if bindings.contains(name.value) => bindings(name.value)

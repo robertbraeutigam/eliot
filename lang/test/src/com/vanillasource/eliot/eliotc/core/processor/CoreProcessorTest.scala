@@ -878,30 +878,6 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     coreErrors("type Names = {Throw[Error] | Id} Unit").asserting(_ should not contain aliasOpenRowError)
   }
 
-  // A **row alias** (`type Web = {Console, Log}`, effects-v5 §7) names a set of abilities, not a type. Core records its
-  // entries and leaves the definition abstract; every *use* of the name is a row entry, which `resolve` expands.
-  "a row alias" should "record its entries and leave the definition abstract" in {
-    namedValue("type Web = {Console, Log}", QualifiedName("Web", Qualifier.Type)).asserting { nv =>
-      (nv.effectRow.aliasEffects.map(_.abilityName.value), nv.runtime) shouldBe (Seq("Console", "Log"), None)
-    }
-  }
-
-  it should "keep its parameters as named binders in the signature, so a use can substitute them" in {
-    namedValue("type Fallible[E] = {Throw[E], Log}", QualifiedName("Fallible", Qualifier.Type)).asserting { nv =>
-      nv.signature.value.structure shouldBe Lambda("E", Ref("Type", T), Ref("Type", T))
-    }
-  }
-
-  it should "mint no carrier of its own, since it is not a computation" in {
-    namedValue("type Web = {Console, Log}", QualifiedName("Web", Qualifier.Type))
-      .asserting(nv => (nv.paramConstraints, nv.inferableArity) shouldBe (Map.empty, 0))
-  }
-
-  it should "not be confused with an alias whose body is a row over a payload" in {
-    namedValue("type Names = {Throw[Error] | Id} Unit", QualifiedName("Names", Qualifier.Type))
-      .asserting(_.effectRow.aliasEffects shouldBe Seq.empty)
-  }
-
   "flat expressions" should "pass through as FlatExpression in core" in {
     namedValue("def f: T = b + c").asserting { nv =>
       nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("b"), Ref("+"), Ref("c"))))

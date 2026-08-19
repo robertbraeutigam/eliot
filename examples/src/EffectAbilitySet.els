@@ -1,0 +1,46 @@
+/**
+ * An **ability can require other abilities of its carrier**, which is how a set of effects gets a name:
+ * `ability Web[F[_] ~ Console & Log]`.
+ *
+ * A carrier that has `Web` has `Console` and `Log`, so `{Web}` declares all three — one name where the whole
+ * capability set of a handler would otherwise be spelled out, and still checked entry by entry: dropping `Log`
+ * from `Web`'s requirements rejects `serve` below.
+ *
+ * This is the ordinary superability relation, not a separate aliasing feature. `Web` is a real ability, declared
+ * with the same `~` constraints any generic parameter takes; it happens to have no methods of its own, so it
+ * performs nothing and needs no implementation. An ability *with* methods requires others the same way.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m EffectAbilitySet
+ * java -jar target/EffectAbilitySet.jar
+ * ```
+ */
+ability Web[F[_] ~ Console & Log]
+
+/**
+ * Requirements compose, and a requiring ability may thread its own parameters into what it requires: `Api`
+ * requires `Web` — so, transitively, `Console` and `Log` — plus `Throw[E]`, leaving the error type to the caller.
+ *
+ * A name is a property of the *carrier*, so it does not go away when one of the effects behind it is discharged:
+ * `report` handles the `Throw` and still declares `{Api[String]}`, because it still runs on a carrier that has
+ * `Api`. Name a set for what rides together, not for what one function happens to discharge.
+ */
+ability Api[E, F[_] ~ Web & Throw[E, F]]
+
+/**
+ * Serve one request. `{Api[String]}` names the whole set the handler needs — `log`, `printLine` and `raise` are
+ * all covered by it, and the caller reads one name instead of three.
+ */
+def serve(path: String): {Api[String]} String = {
+   log("serving " ++ path)
+   printLine("GET " ++ path)
+   fold(path == "/", raise("no such path: " ++ path), "body of " ++ path)
+}
+
+/** Report one path, recovering a failure into the message. */
+def report(path: String): {Api[String]} Unit = printLine(serve(path) catch (reason -> "failed: " ++ reason))
+
+def main: {Api[String]} Unit = {
+   report("/index")
+   report("/")
+}

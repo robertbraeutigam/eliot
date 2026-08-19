@@ -34,10 +34,10 @@ import cats.syntax.all.*
   * @param parameterEffects
   *   One entry per value parameter that itself carried an open row — an arrow-codomain callback row like `action: A =>
   *   {} Unit` — holding that parameter's index (into the definition's value args) and its open-row entries.
-  *   Effect-transparent under §5. Empty for a first-order signature. An **empty** row `{}` carries the single machinery
-  *   entry `Effect` here (see [[core.processor.EffectSugarDesugarer.rowEntries]]), so the position is tagged exactly as
-  *   the older `{Effect}` spelling tagged it — the tag is what tells a row position from a carrier-typed one, and an
-  *   entry-less tag would silently turn every migrated slot into the latter.
+  *   Effect-transparent under §5. Empty for a first-order signature. An **empty** row `{}` carries the single
+  *   machinery entry `Effect` here (see [[core.processor.EffectSugarDesugarer.rowEntries]]), so the position is tagged
+  *   exactly as the older `{Effect}` spelling tagged it — the tag is what tells a row position from a carrier-typed
+  *   one, and an entry-less tag would silently turn every migrated slot into the latter.
   * @param returnPinnedEffects
   *   The **return** position's pinned-row entries, in declared (leftmost-outermost = discharge) order, when the return
   *   type is itself a *pinned* row (`def counter: {State[S] | Id} A`). Empty otherwise. Deliberately not deduplicated:
@@ -55,13 +55,6 @@ import cats.syntax.all.*
   *   alias is never mistaken for a value returning a computation: a consumer resolving a *use* of the alias (`def
   *   testCases: Test`) reads this tag through one level of alias expansion, which is what the elaborator's whitelist
   *   (docs/effects-as-rows.md §3.2) sanctions. Empty for every other definition.
-  * @param aliasEffects
-  *   The entries of a **row alias** — a type-level definition whose body is a payload-less row (`type Web = {Console,
-  *   Log}`, docs/effects-v5-one-carrier.md §7). Like `aliasPinnedEffects` this is read from the *body*, because for a
-  *   type-level definition the body is what is declared; unlike it, the body is not a type at all but a set of
-  *   abilities, so the definition itself is left abstract and this is the only record of it. A *use* of the alias is a
-  *   row entry naming it, which `resolve` expands into these entries (with the alias's own generic parameters
-  *   substituted by the use's type arguments). Empty for every other definition.
   * @tparam C
   *   The phase's ability-constraint representation: ast [[GenericParameter.AbilityConstraint]] at the desugarer, then
   *   `NamedValue.CoreAbilityConstraint`, then each later phase's `ResolvedAbilityConstraint`.
@@ -71,8 +64,7 @@ case class EffectRow[C](
     parameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
     returnPinnedEffects: Seq[C] = Seq.empty[C],
     pinnedParameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
-    aliasPinnedEffects: Seq[C] = Seq.empty[C],
-    aliasEffects: Seq[C] = Seq.empty[C]
+    aliasPinnedEffects: Seq[C] = Seq.empty[C]
 ) {
 
   /** Position-only view: whether the return position's declared type is a pinned row. */
@@ -80,9 +72,6 @@ case class EffectRow[C](
 
   /** Position-only view: whether this definition is a type alias whose body is a pinned row. */
   def aliasPinned: Boolean = aliasPinnedEffects.nonEmpty
-
-  /** Position-only view: whether this definition is a **row alias** (`type Web = {Console, Log}`). */
-  def rowAlias: Boolean = aliasEffects.nonEmpty
 
   /** Position-only view: the value-parameter indices whose declared type is a pinned row. */
   def pinnedParameterIndices: Set[Int] = pinnedParameterEffects.map(_.parameterIndex).toSet
@@ -96,23 +85,8 @@ case class EffectRow[C](
       parameterEffects.map(_.map(f)),
       returnPinnedEffects.map(f),
       pinnedParameterEffects.map(_.map(f)),
-      aliasPinnedEffects.map(f),
-      aliasEffects.map(f)
+      aliasPinnedEffects.map(f)
     )
-
-  /** Convert every entry with an effectful function that may yield **several** entries, preserving positions — the
-    * one-to-many hop `resolve` needs, where a row entry naming a *row alias* expands into that alias's own entries
-    * (docs/effects-v5-one-carrier.md §7).
-    */
-  def flatTraverse[F[_]: Applicative, D](f: C => F[Seq[D]]): F[EffectRow[D]] =
-    (
-      returnEffects.traverse(f).map(_.flatten),
-      parameterEffects.traverse(_.flatTraverse(f)),
-      returnPinnedEffects.traverse(f).map(_.flatten),
-      pinnedParameterEffects.traverse(_.flatTraverse(f)),
-      aliasPinnedEffects.traverse(f).map(_.flatten),
-      aliasEffects.traverse(f).map(_.flatten)
-    ).mapN(EffectRow.apply)
 
   /** Convert every entry with an effectful function, preserving positions — the resolving fact-chain hops
     * (core→resolve, matchdesugar→operator) use this, mirroring their monadic `paramConstraints` conversion.
@@ -123,8 +97,7 @@ case class EffectRow[C](
       parameterEffects.traverse(_.traverse(f)),
       returnPinnedEffects.traverse(f),
       pinnedParameterEffects.traverse(_.traverse(f)),
-      aliasPinnedEffects.traverse(f),
-      aliasEffects.traverse(f)
+      aliasPinnedEffects.traverse(f)
     ).mapN(EffectRow.apply)
 }
 
@@ -138,9 +111,6 @@ object EffectRow {
 
     def traverse[F[_]: Applicative, D](f: C => F[D]): F[ParameterEffects[D]] =
       effects.traverse(f).map(ParameterEffects(parameterIndex, _))
-
-    def flatTraverse[F[_]: Applicative, D](f: C => F[Seq[D]]): F[ParameterEffects[D]] =
-      effects.traverse(f).map(es => ParameterEffects(parameterIndex, es.flatten))
   }
 
   def empty[C]: EffectRow[C] = EffectRow(Seq.empty, Seq.empty)
