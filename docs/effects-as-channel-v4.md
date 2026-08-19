@@ -1,6 +1,9 @@
 # Effects as a Channel, v4: The Row Leaves the Type, the Carrier Leaves the Language
 
-**Status (2026-08-19): PROPOSAL, nothing implemented.** This document is a design sketch written from a
+**Status (2026-08-19): PROPOSAL. P0 executed, nothing else implemented.** The one phase §11 allows to start
+with — the R1 spike — has been run and written up in `docs/effects-v4-p0-spike.md`: R1 is **cleared by
+measurement**, with two amendments folded into §6 and two new risks (R7, R8) added to §10. That gate opens P1; it
+does not decide v4. This document is a design sketch written from a
 question Robert asked — *"what if effects were part of the type properly, so `{Eff} A` is not `[E[_] ~
 Eff] … : E[A]`; a parallel mechanism rather than something the checker implements — would that be easier
 and simpler?"* — and answered against the tree as it stands at `claude/type-aliases-non-pinned-effects`.
@@ -194,6 +197,28 @@ signature is a `GroundValue`, the type arguments are `GroundValue`s, the ambient
 platform run boundary (`row/RunBoundaryFunctions`, `SyntheticMainSourceProcessor`) or by the discharge
 stack the declared row demands.
 
+**Keyed by the stack, and demanded from the run boundary down** (P0, measured). A v4 mono key holds only
+*payload* type arguments, and the payload key does **not** determine the carrier: one `{Console}` helper called
+both inside and outside a `catch`-discharged region is two instances, with two different bodies and one payload
+key (`docs/effects-v4-p0-spike.md` S2). So the weave is keyed `(vfqn, payload arguments, carrier stack)` — the
+dimension `WovenValue`'s own scaladoc already reserves (*"weave key = mono key × stack"*) — and the lowering
+runs as an ordinary demand from the run boundary downwards, each call demanding its callee *at the stack that
+call runs on*. This costs no instance that is not already paid for: today's mono key carries the same stack
+inside its type arguments. It terminates for the same reason today's monomorphization does — the value-reference
+graph is acyclic (*Total by Default*) and each call's stack is the discharge stack of a finite row difference
+over its caller's. The lowering also reads each callee's **declared row** sideways off
+`ResolvedValue`/`OperatorResolvedValue` (keyed by `(vfqn, platform)`, not by the mono key): a read
+`WovenValueProcessor` does not perform today.
+
+**A stored computation takes its stack from its row, not from a base its type no longer has** (P0, measured). A
+computation held in a `data` field is reached through the *type*, and producer and consumer share nothing else —
+today the author writes the base into the pin (`{Throw[String] | Id}`) and the seam reads it off the field. A v4
+computation type has no base, so the lowering computes one: the **canonical stack of a row** is its canonical
+ability order lowered to carriers, over the pure base when the row rides no `Suspend`, and over the platform's
+run carrier when it does. Both are ground at the seam. This extends §4's canonicalisation obligation from the
+row to the stack the row lowers to, and it must be fixed in P1 with the canonical form — not discovered in P2.
+Its two consequences are R7 and R8.
+
 **What it writes.** Exactly what `RowElaborator` writes today — `flatMap` chains for sequenced effects,
 `pure` at pure boundaries, the derived discharge stack at a call needing more than the ambient, captures
 at suspended slots — but on ground types, so every decision it makes today from *declarations* it now
@@ -295,9 +320,12 @@ That is the claim to test, and §11's gates are written to test it.
 
 ## 10. Risks and open questions
 
-- **R1 — the seam may not be late enough.** The lowering needs the ambient carrier of *every* definition,
-  including one reached only through a stored computation. Ground types should settle it; this is the
-  first thing to spike, because if it does not, v4's central claim fails. **Unverified.**
+- **R1 — the seam may not be late enough. CLEARED by P0 (2026-08-19), `docs/effects-v4-p0-spike.md`.**
+  Measured over the real layers on the three shapes P0 names: every instance's carrier is fully ground at the
+  seam (no `Param` residue anywhere), including a definition reached *only* through a stored computation. Two
+  amendments fell out and are folded into §6 — the seam must be keyed by the carrier stack as well as by the
+  payload arguments (the payload key alone does not determine the carrier), and a stored computation's stack
+  must be computed from its row by a canonical rule rather than read off a base the type no longer has.
 - **R2 — ability selection at the seam.** Relocating effect-method instance selection out of the checker
   is real work and touches `check/AbilityResolver`'s contract. Size it before committing.
 - **R3 — re-check cost.** A ground re-check per mono instance is cheap per instance but runs on every
@@ -311,11 +339,31 @@ That is the claim to test, and §11's gates are written to test it.
 - **R6 — flag day.** There is no partial state in which signatures both do and do not desugar to
   carriers. The checker, the elaborator and ability resolution move in one change. This is the single
   biggest practical objection to v4 and it does not have a mitigation, only a plan (§11).
+- **R7 — a stored computation may need a hoist, which v3 never needs.** v3 answers "this callee must run on a
+  bigger stack than it was written for" by *re-monomorphizing the callee at that stack* — the same `{Console}`
+  helper woven twice (P0 S2). A **stored** computation cannot be re-monomorphized: its representation is fixed at
+  construction by its canonical stack, so a consumer whose ambient differs needs a base hoist (`Id`-based to
+  `IO`-based, or a stack embedded in a larger one). v3 never meets this because it *forbids the programs that
+  would*: a `Suspend`-riding row cannot be pinned, and a pinned `{Throw[E] | Id}` forces its handler pure. v4
+  admits them, so v4 must budget the hoist — either a per-carrier `hoist`/`mapBase` in the stdlib, or a rule that
+  a stored computation is discharged at its canonical base (which is what today's programs do, and why P0's S3
+  needs no hoist). **Unsized.** Settle before P2: it decides whether the lowering ever emits something today's
+  elaboration does not.
+- **R8 — canonicalisation fixes the stack order of a stored computation.** §3 rule 3's replacement says the order
+  of interacting effects "lives in the term (handler nesting)". That holds at a *discharge* site and not at a
+  *storage* site: a stored `{Throw[E], State[S]}` computation has no handler in the term where it is built, so its
+  transformer order is whatever the canonical form says — a semantics today's author picks by writing the pin's
+  order (`State` outside `Throw` keeps the state a raise discards; the other order does not). Either the canonical
+  order is declared to *be* the semantics for stored computations, or the type must carry the order — and that
+  decision must be made **before** the canonical form is fixed, since adding it afterwards is exactly the
+  two-spellings trap of §4. Neighbour of Q2.
 - **Q1** — does anything besides accounting need a *definition-site* row certificate? If yes, `RowChecker`
   grows; if no, it shrinks.
 - **Q2** — do two occurrences of the same effect in one row (two `State`s) need distinguishing? Today the
   pinned stack orders them structurally. In v4 the order lives in the *term* (handler nesting), which is
-  the standard answer, but the stdlib dischargers must be read for a case that relies on the type.
+  the standard answer, but the stdlib dischargers must be read for a case that relies on the type. P0
+  sharpened the question: "in the term" holds only where there *is* a term — a stored computation has none
+  at its storage site (R8), so the answer must cover both.
 - **Q4** — does the grade generalisation above want the grade in the *type* of a first-class computation
   (tier 2), or only in the channel? A stored computation's cycle bound is as much a part of its contract as
   its abilities are, which suggests the type; settle it before the canonical form is fixed, since adding an
@@ -329,16 +377,22 @@ Each phase ends at a **measured** gate. The standing gate for the whole plan is 
 every example jar `md5sum`-identical to the pre-change build, except where a phase's own note says an
 output legitimately changes.
 
-- **P0 — spike R1 only.** Take three shapes (a `{Console}` block, a `catch` discharge, a stored
-  computation in `List[TestCase]`) and, by hand at the `WovenValue` seam, confirm that ground information
-  suffices to write the carrier. **Gate:** a written note, per shape, saying yes or no. If any says no,
-  stop here; the rest of the plan is void.
+- **P0 — spike R1 only. DONE (2026-08-19), gate met.** Three shapes (a `{Console}` block, a `catch`
+  discharge, a stored computation) measured at the `WovenValue` seam over the real layers; the note is
+  `docs/effects-v4-p0-spike.md`, the measurement the permanent
+  `jvm/test/…/EffectsV4SeamGroundnessTest.scala`. **Yes on all three**: S1 unconditionally, S2 with the
+  seam key gaining its stack dimension, S3 conditional on the canonical row ⤳ stack rule — both folded
+  into §6. Two new risks (R7, R8) came out of it; neither is a stop condition. The stored shape had to be
+  measured in its v3-expressible form (a pinned row in a `data` field), a list element being a payload
+  today.
 - **P1 — `Row` and `Computation` in the type language.** Canonicaliser, `unify` case, printer, no
-  behaviour change: nothing produces them yet. **Gate:** `__.test` green, examples byte-identical.
+  behaviour change: nothing produces them yet. The canonical form must fix the **stack** a row lowers to,
+  not just the row's own spelling (§6, R8) — the same "one spelling" obligation, and not addable
+  afterwards. **Gate:** `__.test` green, examples byte-identical.
 - **P2 — the seam lowering, behind a flag, output compared.** Implement the lowering and run it *beside*
-  the existing elaboration, comparing woven output. **Gate:** identical woven bodies on every example,
-  which is the proof that the seam has enough information — R1 confirmed by measurement rather than
-  argument.
+  the existing elaboration, comparing woven output per `(payload key × stack)` — P0 showed the payload key
+  alone merges instances that differ. **Gate:** identical woven bodies on every example, which is the
+  proof that the seam can *use* the information P0 showed it has.
 - **P3 — the woven re-check.** Land it on today's output first, where it must be a no-op. **Gate:** green
   and no measurable build-time regression beyond a stated budget.
 - **P4 — flag day.** Signatures stop desugaring to carriers; the checker, ability resolution for effect
@@ -349,7 +403,8 @@ output legitimately changes.
   `eliot.carrier` package is removed from the path. **Gate:** green, plus the alias case that prompted
   this document compiling as an ordinary alias.
 
-**Do not start at P1.** P0 is the only phase whose failure is cheap.
+**Do not start at P1.** P0 is the only phase whose failure is cheap — and it has now run, so P1 is the
+next phase to consider, not the first one to start unasked: the decision in §0/§11 is still Robert's.
 
 ---
 
@@ -365,6 +420,13 @@ output legitimately changes.
   teaches every unification site, the printer and the `Function` native about rows — putting effects
   *into* the mechanism v4 exists to keep them out of. §4's arrow-with-computation-codomain gets the same
   expressiveness with no change to the Π-former.
+- **A.4** **P0 was executed on 2026-08-19** — `docs/effects-v4-p0-spike.md`, with
+  `jvm/test/…/EffectsV4SeamGroundnessTest.scala` as its permanent measurement. It measured the tree as it stands,
+  by projecting each of today's monomorphic instances into the v4 form (payload key = mono type arguments minus
+  the instance's own carriers) and asking whether that key still determines the carrier. It does not for a
+  definition called at two stacks, which is what §6's stack-keyed seam answers; and a stored computation's stack
+  comes from the base its author pinned, which is what §6's canonical row ⤳ stack rule replaces. Both amendments,
+  and R7/R8, are P0's output, not part of the original sketch.
 - **A.3** The narrower alternative that does not need any of this, if v4 is not taken: **row aliases** —
   alias the row rather than the row-plus-payload (`type Test = {Writer[List[TestCase]]}`, used as
   `{Test} Unit`), spliced into the ability-constraint list during resolution
