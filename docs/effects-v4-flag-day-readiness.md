@@ -127,19 +127,38 @@ capability, not plumbing. Removing it is a language decision, not a lowering dec
   to a transformer a user can discharge with a fake handler. Most principled; keeps both the strategy and "no
   carrier in the language". Also the largest scope increase in the whole project — it is the effect-handler
   runtime §6 rules out — and it changes the production lowering of every I/O effect. Not a flag-day-sized step.
-- **(b) Keep the pinned tail as the one interpretation seam** (recommended). This is v4 **minus one deletion**:
-  a computation type may name its base — `def transcriptOf(program: {Console | Recorded} Unit): String` — and
-  everything else v4 deletes still goes. Ordinary code (tier 1) still never names a carrier, so §3 rule 4 still
-  becomes a theorem, the minted binder, `{Effect}` reuse, `Id` in types and the open/pinned *distinction* still
-  disappear; what survives is the ability of a **stored or passed** computation (tier 2, where v3 already
-  *requires* a pin) to say which representation it is. It needs the extension
-  `docs/effect-row-tails.md` already sketches and defers — carrier-less effects left of `|` read as constraints on
-  the tail, so `{Console | Recorded}` resolves — which v3 never needed because the carrier-typed slot did the job,
-  and which v4 makes load-bearing. Two rules to settle with it: the base must be **explicit in the canonical form
-  after desugar** (an unpinned computation type elaborates to its canonical base) or `{Console} A` and
-  `{Console | IO} A` are two spellings of one type, which is §4's trap; and the seam must select the ability at
-  the pinned base, which is exactly today's `Console[Recorded]` query and therefore needs the declination
-  mechanism B2 keeps anyway.
+- **(b) Drop pinning entirely, and make the seam a term, not a type** (recommended; updated 2026-08-19 after
+  Robert's preference to remove pinning if storage survives). **Storage does not need the tail** — that is what
+  tier 2 buys, and it is the one place v4 is unambiguously simpler than v3: `data TestCase(name: String, body:
+  {Throw[String]} Unit)`, `List[{Console} Unit]`, `f: A => {Console} B` are ordinary types whose stack the seam
+  computes from the row (`row/CanonicalStack`, §6). So the `| T` tail, the pinned/open distinction, the
+  `<Ability>Carrier` spelling and the "a stored row must be pinned" rule can all go exactly as §7 says.
+
+  What must not go with them is the **choice of interpretation**, and it need not: put it at the *run site*
+  instead of in the type — one form that runs a computation at a named base and returns that base's own type:
+
+  ```eliot
+  def transcriptOf(program: {Console} Unit): String = second(runRecorded(runAt[Recorded](program))(""))
+  ```
+
+  Nothing here is a carrier in a stored or passed type: `program`'s type is base-free as tier 2 wants, and
+  `Recorded` appears once, in test code, as an ordinary user `data` type constructor. The mechanism already
+  exists — this is precisely a **run boundary** (`row/RunBoundaryFunctions`: "parameter 0 *hosts* a computation on
+  a carrier rather than receiving it as data", registered today for `eliot.jvm::runMain`), generalised from a
+  platform-registered FQN with a fixed base to one form whose base is a type argument. The seam then weaves the
+  argument at the stack `CanonicalStack` builds over **that** base instead of the platform's, and selects
+  `Console[Recorded]` there — the same query that runs today, which is why the declination mechanism B2 keeps is
+  what makes it unambiguous.
+
+  Cost: one form plus its lowering rule, and the honest restatement that the carrier leaves *types* rather than
+  the language outright. Against v3 this is a simplification for users too: the concept a test author has to hold
+  is "run this at my carrier", at one call, rather than a representation spelled into a type.
+
+  One price is paid by dropping the tail, and it is **R8**, already recorded and settled by P1: with no pin, the
+  author no longer chooses a stored computation's layer order or base — the canonical order does. For a stored
+  `{Throw[E], State[S]}` that is the difference between state surviving a raise and not, decided once by the
+  canonical key rather than per declaration. That is the trade removing pinning makes; it is not a new risk, but
+  it is the one thing the tail said that the row cannot.
 - **(c) Drop substituted interpretation.** State that a program cannot choose an ability's implementation, delete
   the three examples, the two test classes and most of `docs/testing-effects.md`, and rewrite the flag-day gate to
   match. Note this is *not* "test with a swapped layer": a test project is **additive** — it sees the subject's

@@ -383,10 +383,12 @@ That is the claim to test, and §11's gates are written to test it.
   available, because the `Suspend`-riding abilities have no carrier for a discharger to be written over and
   user-visible handlers are what §6 says v4 does not build. Three example programs and two integration test classes
   depend on the mechanism, so the flag day's own gate (`__.test` green, jars `md5sum`-identical) cannot be met
-  while this is open. Three options are laid out in the readiness note §2.4; the recommendation there is **v4 minus
-  one deletion** — keep the pinned tail (`{Console | Recorded} Unit`) as the one interpretation seam, with the
-  carrier-less-effects-as-tail-constraints extension `docs/effect-row-tails.md` already sketches, and leave tier-1
-  code carrier-free as v4 intends.
+  while this is open. Three options are laid out in the readiness note §2.4. The recommendation there (updated after
+  Robert's preference to remove pinning outright, provided computations can still be stored — which tier 2 gives
+  without any tail) is to **keep the choice of interpretation as a term rather than a type**: one run-site form
+  `runAt[Recorded](program)`, which is `row/RunBoundaryFunctions` generalised from a platform-registered FQN with a
+  fixed base to one form whose base is a type argument. Every §7 deletion then stands, including the `| T` tail and
+  the pinned/open distinction.
 - **R10 — §7's deletion list retires the machinery that the lowering emits. Amendment, the second of R4's kind
   (2026-08-19), `docs/effects-v4-flag-day-readiness.md` §3.** The 16 `Effect`/`Suspend` instances in the layers
   *are* the representation the seam writes calls to, they are ordinary Eliot over carrier generics, and their `~`
