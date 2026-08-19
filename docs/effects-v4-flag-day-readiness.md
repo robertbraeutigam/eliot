@@ -70,9 +70,16 @@ they split into two kinds — the distinction matters, because v4 treats them op
 
 Every leg of the mechanism is removed by the design as written, in three independent ways:
 
-1. **The user cannot name a carrier.** §2 tier 3: the carrier is "never named by a user, never seen by the
-   checker"; §8: "`IO` stops being reachable from any user or stdlib signature"; §11 P5 removes `eliot.carrier`
-   from the path. `implement Effect[Recorded]` has no spelling left.
+1. **The user cannot name a carrier — by either of the two routes v3 gives.** The routes today are the **pinned
+   tail** (`{Throw[E] | Id} A`, `{State[List[String]] | Id} Unit` — concrete pins are used in the test corpus, and
+   a `type` alias over a pinned row works) and a plain **carrier-typed slot** (`def transcriptOf(program:
+   Recorded[Unit])`, which is what `EffectsTestFramework` uses, since a `Suspend`-riding effect cannot be pinned
+   today — `docs/effect-row-tails.md` "Limits", v1). v4 deletes both: §3 rule 3 ("it needs no `| G` tail to say
+   so, because there is no carrier to pin to"), §11 P5 ("`| G` tails, the pinned/open distinction … go"), and §2
+   tier 3 / §8 for the slot ("never named by a user"; "`IO` stops being reachable from any user or stdlib
+   signature"). Note the subtlety on the second route: `Recorded` stays spellable — it is ordinary user `data` —
+   but nothing can *produce* a `Recorded[Unit]` any more, because `greet("Bob")` has computation type
+   `{Console} Unit` and the row ⤳ stack map is compiler-owned.
 2. **The user cannot choose one either.** Under §6 the stack is not a choice but a *function of the row*:
    `row/CanonicalStack.of` puts a `Suspend`-riding row (every `Console` program) on **the platform's run
    carrier**. The run-boundary registry that names that carrier is compiler configuration
@@ -120,20 +127,27 @@ capability, not plumbing. Removing it is a language decision, not a lowering dec
   to a transformer a user can discharge with a fake handler. Most principled; keeps both the strategy and "no
   carrier in the language". Also the largest scope increase in the whole project — it is the effect-handler
   runtime §6 rules out — and it changes the production lowering of every I/O effect. Not a flag-day-sized step.
-- **(b) Keep one explicit interpretation seam, and only there** (recommended). Carriers stay in the language as an
-  **import-required, advanced surface**: the `eliot.carrier` package survives (it is import-required *today*, so
-  no user sees it unasked — see `.claude/CLAUDE.md`'s ambient-scope note), plus one form that instantiates a
-  computation at a named carrier — `runAt[Recorded](greeting("Bob"))`, the explicit spelling of what unification
-  does implicitly today. Production code and the stdlib still never name a carrier, so §3 rule 4, `Id`, the
-  open/pinned split and the rest still become unreachable states; what survives is the ability of a *test* to say
-  which interpretation it wants. Cost: one primitive plus its lowering rule, and the title claim weakens from
-  "the carrier leaves the language" to "the carrier leaves ordinary code". It also disposes of B2 for free, since
-  the machinery has to stay anyway.
-- **(c) Demote testing to layer swapping.** `docs/testing-effects.md` §2.2 already lists it: a test build drops
-  `jvm/eliot` and puts a test layer in its place. Zero new mechanism, and it is honest about what it buys — but it
-  substitutes everything at once, suits nothing finer than a whole-program integration test, and means deleting an
-  adopted capability, six example programs, two test classes and most of a design document. If this is the choice,
-  it should be made explicitly and written down, not arrived at by discovering the examples no longer compile.
+- **(b) Keep the pinned tail as the one interpretation seam** (recommended). This is v4 **minus one deletion**:
+  a computation type may name its base — `def transcriptOf(program: {Console | Recorded} Unit): String` — and
+  everything else v4 deletes still goes. Ordinary code (tier 1) still never names a carrier, so §3 rule 4 still
+  becomes a theorem, the minted binder, `{Effect}` reuse, `Id` in types and the open/pinned *distinction* still
+  disappear; what survives is the ability of a **stored or passed** computation (tier 2, where v3 already
+  *requires* a pin) to say which representation it is. It needs the extension
+  `docs/effect-row-tails.md` already sketches and defers — carrier-less effects left of `|` read as constraints on
+  the tail, so `{Console | Recorded}` resolves — which v3 never needed because the carrier-typed slot did the job,
+  and which v4 makes load-bearing. Two rules to settle with it: the base must be **explicit in the canonical form
+  after desugar** (an unpinned computation type elaborates to its canonical base) or `{Console} A` and
+  `{Console | IO} A` are two spellings of one type, which is §4's trap; and the seam must select the ability at
+  the pinned base, which is exactly today's `Console[Recorded]` query and therefore needs the declination
+  mechanism B2 keeps anyway.
+- **(c) Drop substituted interpretation.** State that a program cannot choose an ability's implementation, delete
+  the three examples, the two test classes and most of `docs/testing-effects.md`, and rewrite the flag-day gate to
+  match. Note this is *not* "test with a swapped layer": a test project is **additive** — it sees the subject's
+  sources plus its own — so what it can add is more *instances*, and an added instance only bites if something
+  selects it. Under v4 nothing would: an added `Console[Recorded]` is never queried, and an added `Console[IO]`
+  collides at the merge ("Has multiple implementations."). The whole-layer swap `docs/testing-effects.md` §2.2
+  lists is a different thing — replacing `jvm/eliot` wholesale on the `--path` — and it substitutes everything at
+  once, so it is an alternative to the strategy, not a version of it.
 
 Whichever is chosen, it must be chosen **before** the flag day starts: (a) and (b) both add a rule the lowering
 has to implement, and (c) rewrites the gate the flag day is measured by.
