@@ -397,6 +397,17 @@ That is the claim to test, and §11's gates are written to test it.
   removed from *user scope*, which being import-required it already is. Same note records one unlisted work item:
   a native with a carrier-typed parameter (`foldLeftInternal[F[_] ~ Effect, A, B]`) means the lowering must lower
   leaf **signatures**, not only bodies.
+- **R11 — a row in a type needs weakening, and weakening may not enter `unify`. Found by the readiness check
+  (2026-08-19), `docs/effects-v4-flag-day-readiness.md` §2.5.** §4 says row equality is definitional equality and
+  nothing bespoke, and §3 rule 2 carves out one exception (a pure argument lifting at a suspended slot). Real
+  programs need the general case: `examples/src/TestSuite.els` hands a gathered `{Throw[String]} Unit` to a slot
+  that also permits the suite's own effects, which under v3 is `{Throw[String] | G} Unit` elaborated at `G` per
+  use — no row is ever compared. Under v4 the slot is a computation type and the two rows are not definitionally
+  equal, so `{ρ₁} A` must be accepted at a `{ρ₂} A` slot when `ρ₁ ⊆ ρ₂`. It must live **at declared slots in the
+  elaboration**, exactly like the zero-row lift, never as an assignability arm in `unify` (the Types-Are-Values
+  guardrail forbids one outright). Representationally the widening is a **re-weave of the callee at the slot's
+  stack** — free for a call or a value reference, impossible for a value already built at a narrower stack, which
+  is R7 met by an ordinary user rather than by an exotic program.
 - **Q1** — does anything besides accounting need a *definition-site* row certificate? If yes, `RowChecker`
   grows; if no, it shrinks.
 - **Q2** — do two occurrences of the same effect in one row (two `State`s) need distinguishing? Today the

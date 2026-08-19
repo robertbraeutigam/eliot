@@ -171,6 +171,57 @@ capability, not plumbing. Removing it is a language decision, not a lowering dec
 Whichever is chosen, it must be chosen **before** the flag day starts: (a) and (b) both add a rule the lowering
 has to implement, and (c) rewrites the gate the flag day is measured by.
 
+### 2.5 Where a stored computation's carrier comes from — and the rule that falls out (R11)
+
+Robert's question on reading the above: *if the carrier is fixed statically, how does a test change it — and when
+you store a computation, where does its carrier come from? Is it a generic parameter of the data structure?*
+
+**It comes from the row, canonically, and it is not a generic parameter.** `data TestCase(body: {Throw[String]}
+Unit)` needs no carrier parameter: the row says `Throw` and nothing else, so the field's representation is
+`ThrowCarrier[String, Id, Unit]`. A body that also prints has row `{Throw[String], Console}`, rides `Suspend`, and
+is represented over the platform run carrier instead. The row determines the representation — that is exactly what
+`row/CanonicalStack` is for, and why §6 could replace "read the base off the author's pin" with a rule. Making it a
+generic parameter of the data structure (`data TestCase[F[_]](body: F[Unit])`) is possible, and it is **pinning
+under another name**: the carrier back in the user's type language, which is the thing being removed.
+
+**So a stored computation commits its representation at construction, and cannot be reinterpreted later.** That is
+not a v4 regression — it is v3's rule too, and stated in the tree: a stored row *must* be pinned to a concrete base
+(`docs/effect-row-tails.md`), and `lang/eliot/eliot/compiler/Reflect.els` says why in the doc comment of
+`foldNamedValues`:
+
+> Because a gathered value is handed to a *declared slot* instead of being stored, it is `combine` that decides
+> what it receives. A slot declaring an open row runs the gathered computation on the caller's carrier; a pinned
+> row lets `combine` discharge its effects; a slot naming a concrete carrier fixes it to a test double. That is
+> what `namedValues` cannot do — a list element is a payload, and a payload may never be a computation.
+
+So **interpretation is chosen at a slot or at construction, never for a value already stored** — today and under
+v4 alike. The two working test programs in the tree are exactly those two shapes, and both survive without
+pinning: `EffectsTestFramework` builds at the call (`transcriptOf(greet("Bob"))`, which becomes
+`runAt[Recorded](…)`), and `TestSuite` hands each gathered *code reference* to a declared slot, which the lowering
+weaves per use at that slot's stack (the weave key's stack dimension, P0 S2). The third shape, a pinned
+`data TestCase(body: {Throw[E] | Id} Unit)`, keeps its representation exactly — `Id` *is* the canonical base of
+that row — and simply loses the spelling.
+
+**R11 — rows in types need weakening, and weakening may not enter `unify`.** The question exposes one rule v4
+does not state. `TestSuite`'s `runTest` receives a gathered `test: {Throw[String]} Unit` at a slot that also
+permits the suite's own effects; under v3 the slot is `{Throw[String] | G} Unit` and the gathered value is
+elaborated at `G` per use, so no comparison of rows ever happens. Under v4 the slot is a computation type over a
+row variable, and a `{Throw[String]}` argument meeting a `{Throw[String], Console}` slot is **not definitionally
+equal** to it. §4 says row equality is definitional equality and nothing bespoke; §3 rule 2 already carves out one
+exception ("a pure argument at a suspended slot still lifts — a syntactic zero-row coercion at a declared slot").
+The general case is that carve-out generalised: `{ρ₁} A` is accepted at a `{ρ₂} A` slot when `ρ₁ ⊆ ρ₂`. Two things
+must hold when it is written:
+
+- it lives **at declared slots**, in the elaboration, exactly like the zero-row lift — never as an assignability
+  arm in `unify`, which the Types-Are-Values guardrail forbids outright ("`unify` is pure definitional equality …
+  never a refinements map or an assignability arm");
+- representationally the widening is a **re-weave of the callee at the slot's stack**, which is free when the
+  argument is a call or a value reference (the weave key already carries the stack) and **impossible when the
+  argument is a value already built at a narrower stack** — which is R7, and this is where a user actually meets
+  it. R7's "no program needs a hoist" is true of today's tree; under v4 it is the error message a user gets for
+  storing a computation and then running it somewhere wider, so its wording matters more than the sizing note
+  assumed.
+
 ## 3. B2 — the machinery abilities are the representation, not sugar over it
 
 §7 lists for deletion "`Effect` / `Suspend` machinery abilities, `Id` + `Effect[Id]`", and the sizing note counts
