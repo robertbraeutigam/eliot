@@ -118,7 +118,8 @@ class CoreProcessor
         gp.name.value -> gp.abilityConstraints.map(c =>
           NamedValue.CoreAbilityConstraint(
             c.abilityName,
-            c.typeParameters.map(te => convertExpression(te, typeContext = true).value)
+            c.typeParameters.map(te => convertExpression(te, typeContext = true).value),
+            c.combinedBy
           )
         )
       )

@@ -483,6 +483,19 @@ carrier, producing the identical type — so `signatureEquality` still holds acr
 left only where the base is *concrete* (a `data` field's `| Id`). `Suspend`-riding effects (`Console`) have no
 canonical carrier and so cannot be pinned (v1) — nor supplied, which is the same diagnostic.
 
+**`&` is a standard-library name, and an ability resolves like any other value** (`docs/effects-syntax-userspace.md`,
+stages 1-2 landed). The constraint combinator is `infix left type &[A, B]` in `eliot.lang.Ability` (prelude, so
+ambient): the parser accepts *any* operator between two `~` constraints and `ValueResolver.resolveCombinator` looks
+the name up in the ordinary dictionary, requiring `WellKnownTypes.abilityCombinatorFQN` — so a module declaring its
+own `&` takes the name back and gets a diagnostic instead of the built-in meaning. The combinator rides ast→core on
+`AbilityConstraint.combinedBy` purely to reach that check and is dropped there; no phase past resolve knows it
+existed. `~` stays reserved — it is a binder marker like `:`, not a name — until the constraint channel itself
+becomes an expression (that document's stages 3-4, both **proposals**; stage 4 carries a stated reservation and
+should not be started without deciding it). Alongside it, `ValueResolverScope.getAbility` is a keyed lookup of the
+ability's **marker** (`QualifiedName(n, Ability(n))`), not a scan of `dictionary.values` for the qualifier — so an
+ability name honours import scope and shadowing exactly as a value name does, and is no longer decided by hash
+order. **Do not reintroduce the scan**, and do not add a second lookup path for ability names.
+
 **An ability may require other abilities of its carrier, and that is how a set of effects gets a name**
 (`ability Web[F[_] ~ Console & Log]`, effects-v5 §7 — landed). It is the ordinary superability relation, not an
 aliasing feature: `Web` is a real ability declared with the same `~` constraints any generic parameter takes, it

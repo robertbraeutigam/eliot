@@ -58,6 +58,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     // single primitive) — enough for auto-import to find the module and resolve the bare type/ability name in every
     // snippet. Tests that exercise the derived surface (`+`/`-`/`*`, `<`/`min`/`max`, `==`, `some`/`fold`, …) enrich
     // just those modules via [[ambientStubsWith]], which overrides these defaults.
+    // The ability-constraint combinator `&` is an ordinary prelude declaration the resolver looks up by name
+    // (`docs/effects-syntax-userspace.md` §4 stage 1), so every snippet writing `A ~ X & Y` needs it in scope.
+    SystemImport("Ability", "infix left type &[A, B]"),
     SystemImport("Bool", ProcessorTest.boolImportContent),
     SystemImport("Numeric", ProcessorTest.numericStubContent),
     SystemImport("Compare", ProcessorTest.compareAbilityStubContent),

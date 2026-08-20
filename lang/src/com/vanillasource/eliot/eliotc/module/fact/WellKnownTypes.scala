@@ -50,6 +50,16 @@ object WellKnownTypes {
   val anyFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Any"), QualifiedName("Any", Qualifier.Default))
 
+  /** The ability-constraint combinator `&` — `infix left type &[A, B]` in `eliot.lang.Ability`, the one name the `~`
+    * constraint syntax resolves rather than recognises (`docs/effects-syntax-userspace.md` §4 stage 1).
+    *
+    * It sits in [[Qualifier.Default]] because an operator-named `type` does: operators are always referenced bare, so
+    * [[com.vanillasource.eliot.eliotc.ast.fact.TypeAliasDefinition]] puts them in the value namespace where a bare
+    * reference looks.
+    */
+  val abilityCombinatorFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Ability"), QualifiedName("&", Qualifier.Default))
+
   val bigIntFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
 

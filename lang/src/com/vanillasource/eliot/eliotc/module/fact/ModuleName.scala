@@ -109,6 +109,7 @@ object ModuleName {
   // literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so they must resolve with
   // no import anyway.
   val defaultSystemModules = Seq(
+    "Ability",
     "BigInteger",
     "Bool",
     "Bound",

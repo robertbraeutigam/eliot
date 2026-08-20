@@ -49,16 +49,22 @@ object ValueResolverScope {
           .toSeq
       )
 
+  /** Resolve an ability name exactly as any other name resolves: a keyed lookup of the ability's own **marker** —
+    * the synthetic `Foo^Foo` value [[com.vanillasource.eliot.eliotc.ast.fact.AbilityBlock]] emits — in the ordinary
+    * dictionary. An ability is a value, and this is the one lookup that says so
+    * (`docs/effects-syntax-userspace.md` §4 stage 2).
+    *
+    * It replaces a scan of `dictionary.values` matching *any* member carrying the `Ability(name)` qualifier. That
+    * scan resolved an ability by a mechanism no other name used, and got two things wrong: an ability resolved
+    * whenever any *method* of it was in scope even if the weak prelude tier had dropped the marker itself, and with
+    * two same-named abilities in scope the `collectFirst` winner was `Map` iteration order rather than the
+    * dictionary's answer. Abilities are always public (`ability` takes no visibility modifier), so there is no
+    * `privateNames` fallback to make here.
+    */
   def getAbility(name: String): ScopedIO[Option[AbilityFQN]] =
     StateT
       .get[CompilerIO, ValueResolverScope]
-      .map(
-        _.dictionary.values
-          .collectFirst {
-            case vfqn @ ValueFQN(_, QualifiedName(_, Ability(abilityName), Role.Runtime)) if abilityName === name =>
-              AbilityFQN(vfqn.moduleName, name)
-          }
-      )
+      .map(_.dictionary.get(QualifiedName(name, Ability(name))).map(vfqn => AbilityFQN(vfqn.moduleName, name)))
 
   def getCurrentModule: ScopedIO[ModuleName] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.currentModule)
