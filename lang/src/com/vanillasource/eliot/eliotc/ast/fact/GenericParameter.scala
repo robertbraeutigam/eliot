@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.AbilityConstraint
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
-import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, atLeastOnceSeparatedBy, optional, or}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIf, acceptIfAll, anyTimes, optional, or}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
@@ -28,7 +28,21 @@ case class GenericParameter(
 )
 
 object GenericParameter {
-  case class AbilityConstraint(abilityName: Sourced[String], typeParameters: Seq[Sourced[Expression]])
+  /** One `~` ability constraint on a generic binder.
+    *
+    * @param combinedBy
+    *   The infix operator that joined this constraint to the one before it — `None` for the first of a list, and for
+    *   every constraint the `{E}` effect-row sugar mints (nothing wrote an operator for those). It is kept as the
+    *   name the user typed, not as a recognised symbol: [[com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver]]
+    *   resolves it through the ordinary dictionary and requires the standard library's combinator
+    *   ([[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.abilityCombinatorFQN]]), then drops it — no later
+    *   phase knows it existed. See `docs/effects-syntax-userspace.md` §4 stage 1.
+    */
+  case class AbilityConstraint(
+      abilityName: Sourced[String],
+      typeParameters: Seq[Sourced[Expression]],
+      combinedBy: Option[Sourced[String]] = None
+  )
 
   val signatureEquality: Eq[GenericParameter] = (x: GenericParameter, y: GenericParameter) =>
     x.name.value === y.name.value && x.typeRestriction.value.render === y.typeRestriction.value.render
@@ -39,12 +53,23 @@ object GenericParameter {
   }
 
   given ASTComponent[GenericParameter] = new ASTComponent[GenericParameter] {
+    /** The operator joining two ability constraints. Any user operator parses here — which one is legal is a *name*
+      * question, answered at resolution against the standard library's `&`, not a symbol the parser recognises. The
+      * follow set inside a generic-parameter list is `,` and `]`, both reserved and so never user operators, so this
+      * stays unambiguous.
+      */
+    private val constraintCombinator: Parser[Sourced[Token], Sourced[String]] =
+      acceptIf(isUserOperator, "'&' between ability constraints").map(_.map(_.content))
+
     private val abilityConstraintsParser =
       for {
-        _                  <- symbol("~")
-        abilityConstraints <- component[AbilityConstraint]
-                                .atLeastOnceSeparatedBy(symbol("&"))
-      } yield abilityConstraints
+        _     <- symbol("~")
+        first <- component[AbilityConstraint]
+        rest  <- (for {
+                   combinedBy <- constraintCombinator
+                   constraint <- component[AbilityConstraint]
+                 } yield constraint.copy(combinedBy = Some(combinedBy))).anyTimes()
+      } yield first +: rest
 
     override def parser: Parser[Sourced[Token], GenericParameter] =
       for {
@@ -67,7 +92,7 @@ object GenericParameter {
         defaultGeneric: Sourced[String]
     ): AbilityConstraint =
       if (abilityConstraint.typeParameters.isEmpty) {
-        AbilityConstraint(abilityConstraint.abilityName, Seq(defaultGeneric.as(typeExpr(defaultGeneric))))
+        abilityConstraint.copy(typeParameters = Seq(defaultGeneric.as(typeExpr(defaultGeneric))))
       } else {
         abilityConstraint
       }

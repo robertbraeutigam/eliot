@@ -10,7 +10,12 @@ import com.vanillasource.eliot.eliotc.core.fact.{
   Pattern as CorePattern,
   PrecedenceDeclaration as CorePrecedenceDeclaration
 }
-import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{typeFQN, patternMatchAbilityName, typeMatchAbilityName}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
+  abilityCombinatorFQN,
+  typeFQN,
+  patternMatchAbilityName,
+  typeMatchAbilityName
+}
 import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{
@@ -142,9 +147,40 @@ class ValueResolver
       constraint: NamedValue.CoreAbilityConstraint
   ): ScopedIO[ResolvedValue.ResolvedAbilityConstraint] =
     for {
+      _            <- constraint.combinedBy.traverse_(resolveCombinator)
       abilityFQN   <- resolveAbilityName(constraint.abilityName)
       resolvedArgs <- constraint.typeArgs.traverse(resolveExpression(_, false))
     } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
+
+  /** Resolve the operator that joined this constraint to the previous one, and require it to be the standard library's
+    * `&` ([[abilityCombinatorFQN]]).
+    *
+    * This is the whole of what makes `&` a **name** rather than a symbol the parser recognises
+    * (`docs/effects-syntax-userspace.md` §4 stage 1): the lookup is the ordinary dictionary one, so it honours import
+    * scope and a module that declares its own `&` takes the name back — and then says so here instead of silently
+    * meaning the built-in. The combinator is dropped after this check; nothing downstream of resolution knows a
+    * constraint list was written with an operator at all.
+    */
+  private def resolveCombinator(combinator: Sourced[String]): ScopedIO[Unit] =
+    getValue(CoreQualifiedName(combinator.value, CoreQualifier.Default)).flatMap {
+      case Some(vfqn) if vfqn === abilityCombinatorFQN => ().pure[ScopedIO]
+      case Some(vfqn)                                  =>
+        compilerAbort(
+          combinator.as(s"Does not combine ability constraints."),
+          Seq(
+            s"Resolved to: ${vfqn.show}",
+            s"Ability constraints are combined with '&' (${abilityCombinatorFQN.moduleName.show})."
+          )
+        ).liftToScoped
+      case None                                        =>
+        compilerAbort(
+          combinator.as("Ability constraint combinator not found."),
+          Seq(
+            s"'&' is declared in ${abilityCombinatorFQN.moduleName.show}, which is part of the prelude.",
+            "A module declaring its own '&' shadows it."
+          )
+        ).liftToScoped
+    }
 
   /** The constraints a named ability itself declares on the parameter this use bound to `paramName` — the superability
     * relation, and the one rule that lets a name stand for a set of effects.

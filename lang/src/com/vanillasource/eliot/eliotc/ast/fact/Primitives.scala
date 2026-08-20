@@ -127,7 +127,14 @@ object Primitives {
     case _                        => false
   }
 
-  private val reservedSymbols = Set("(", ")", "[", "]", "{", "}", ",", "->", "_", "::", ":", "~", "&", "=")
+  /** Symbols the ordinary user-operator surface may not claim, because a parser matches them structurally.
+    *
+    * `&` is deliberately **not** here: it is the ability-constraint combinator, declared in the standard library as
+    * `infix left type &[A, B]` (`eliot.lang.Ability`) and resolved through the ordinary dictionary like any other
+    * name (`docs/effects-syntax-userspace.md` §4 stage 1). `~` stays reserved — it is a binder marker like `:`, not
+    * a name — until the constraint channel itself becomes an expression (that document's stage 4).
+    */
+  private val reservedSymbols = Set("(", ")", "[", "]", "{", "}", ",", "->", "_", "::", ":", "~", "=")
 
   def isUserOperator(st: Sourced[Token]): Boolean = isSymbol(st) && !reservedSymbols.contains(st.value.content)
 

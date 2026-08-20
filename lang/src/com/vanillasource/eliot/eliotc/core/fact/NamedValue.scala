@@ -46,7 +46,16 @@ case class NamedValue(
 )
 
 object NamedValue {
-  case class CoreAbilityConstraint(abilityName: Sourced[String], typeArgs: Seq[Expression])
+  /** A `~` ability constraint, core representation. `combinedBy` is the operator the user wrote between this
+    * constraint and the one before it, carried this far only so [[com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver]]
+    * can resolve it as an ordinary name; it goes no further (see
+    * [[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.AbilityConstraint.combinedBy]]).
+    */
+  case class CoreAbilityConstraint(
+      abilityName: Sourced[String],
+      typeArgs: Seq[Expression],
+      combinedBy: Option[Sourced[String]] = None
+  )
 
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
     structuralEquality.eqv(x.signature.value, y.signature.value)
