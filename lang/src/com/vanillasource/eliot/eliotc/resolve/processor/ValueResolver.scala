@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
+import cats.Id
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, PrecedenceDeclaration as AstPrecedenceDeclaration, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
@@ -19,6 +20,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{
   QualifiedName as CoreQualifiedName,
   Qualifier as CoreQualifier
 }
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*
@@ -110,33 +112,121 @@ class ValueResolver
     }
 
   /** Resolve the effects-as-channel declared row (Phase 1, dark): each entry's ability name and type-arguments are
-    * resolved exactly as [[resolveParamConstraints]] resolves a constraint, positions preserved.
+    * resolved exactly as [[resolveConstraint]] resolves a constraint, positions preserved.
     */
   private def resolveEffectRow(
       effectRow: EffectRow[NamedValue.CoreAbilityConstraint]
   ): ScopedIO[EffectRow[ResolvedValue.ResolvedAbilityConstraint]] =
-    effectRow.traverse { c =>
-      for {
-        abilityFQN   <- resolveAbilityName(c.abilityName)
-        resolvedArgs <- c.typeArgs.traverse(resolveExpression(_, false))
-      } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
-    }
+    effectRow.traverse(resolveConstraint)
 
+  /** Resolve a value's `~` ability constraints, per generic parameter, **closed under what each named ability itself
+    * requires of that parameter** ([[superConstraints]]).
+    */
   private def resolveParamConstraints(
       paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]]
   ): ScopedIO[Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]] =
     paramConstraints.toSeq
       .traverse { case (paramName, constraints) =>
         constraints
-          .traverse { c =>
+          .traverse(c =>
             for {
-              abilityFQN   <- resolveAbilityName(c.abilityName)
-              resolvedArgs <- c.typeArgs.traverse(resolveExpression(_, false))
-            } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
-          }
-          .map(paramName -> _)
+              resolved <- resolveConstraint(c)
+              inherited <- superConstraints(resolved, paramName, Set.empty)
+            } yield resolved +: inherited
+          )
+          .map(cs => paramName -> distinctConstraints(cs.flatten))
       }
       .map(_.toMap)
+
+  private def resolveConstraint(
+      constraint: NamedValue.CoreAbilityConstraint
+  ): ScopedIO[ResolvedValue.ResolvedAbilityConstraint] =
+    for {
+      abilityFQN   <- resolveAbilityName(constraint.abilityName)
+      resolvedArgs <- constraint.typeArgs.traverse(resolveExpression(_, false))
+    } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
+
+  /** The constraints a named ability itself declares on the parameter this use bound to `paramName` — the superability
+    * relation, and the one rule that lets a name stand for a set of effects.
+    *
+    * `ability Web[F[_] ~ Console & Log]` says a carrier that has `Web` has `Console` and `Log`, so `{Web}` — which
+    * desugars to the constraint `Web[F]` — declares all three, and `derived ⊆ declared` sees the set the user named
+    * (docs/effects-v5-one-carrier.md §7). The same rule states a relation the tree could not express before: `ability
+    * Console[F[_] ~ Suspend]` puts "Console rides Suspend" in the ability instead of repeating it on every instance.
+    *
+    * Nothing here is read off a shape. **Which** of the ability's parameters to inherit from is decided by the use: the
+    * one whose argument *is* this binder (`Web[F]` binds `Web`'s `F`, `Fallible[String, F]` binds `Fallible`'s second),
+    * so a constraint the ability declares on an unrelated parameter (`E ~ Show`) stays there and never lands on the
+    * carrier. The ability's own constraints are resolved **in the ability's own scope**, then its parameters are
+    * substituted by the arguments this use wrote — the ordinary reading of a declaration.
+    *
+    * Closure is transitive and `expanding` makes it idempotent: an ability already inherited from contributes nothing a
+    * second time, so mutually-requiring abilities close instead of looping. Only an ability found *in scope* is looked
+    * up — the fixed-FQN machinery (`Effect`, `PatternMatch`, `TypeMatch`) is compiler-written and requires nothing.
+    */
+  private def superConstraints(
+      use: ResolvedValue.ResolvedAbilityConstraint,
+      paramName: String,
+      expanding: Set[AbilityFQN]
+  ): ScopedIO[Seq[ResolvedValue.ResolvedAbilityConstraint]] =
+    if (expanding.contains(use.abilityFQN)) Seq.empty[ResolvedValue.ResolvedAbilityConstraint].pure[ScopedIO]
+    else
+      // The ability's marker carries its common generic parameters, so its presence in scope is both the lookup and
+      // the "is this a real, in-scope ability" test — a direct dictionary hit rather than a scan.
+      getValue(markerOf(use.abilityFQN).name).flatMap {
+        case None    => Seq.empty[ResolvedValue.ResolvedAbilityConstraint].pure[ScopedIO]
+        case Some(_) =>
+          for {
+            platform <- getPlatform
+            marker   <- getFactOrAbort(UnifiedModuleValue.Key(markerOf(use.abilityFQN), platform)).liftToScoped
+            params    = collectGenericParamsFromExpr(marker.namedValue.signature.value)
+            inherited = params
+                          .zip(use.typeArgs)
+                          .collectFirst {
+                            case (param, Expression.ParameterReference(n)) if n.value === paramName => param
+                          }
+                          .toSeq
+                          .flatMap(marker.namedValue.paramConstraints.getOrElse(_, Seq.empty))
+            resolved <- inherited.traverse(c =>
+                          resolveInAbilityScope(use.abilityFQN, marker, params, platform)(resolveConstraint(c))
+                        )
+            bindings  = params.zip(use.typeArgs).toMap
+            direct    = resolved.map(c => c.copy(typeArgs = c.typeArgs.map(substituteParameters(bindings))))
+            deeper   <- direct.traverse(superConstraints(_, paramName, expanding + use.abilityFQN))
+          } yield direct ++ deeper.flatten
+      }
+
+  /** An ability's marker value — the synthetic `Foo^Foo` [[AbilityBlock]] emits, which is where its common generic
+    * parameters (and so its `~` constraints) live.
+    */
+  private def markerOf(abilityFQN: AbilityFQN): ValueFQN =
+    ValueFQN(
+      abilityFQN.moduleName,
+      CoreQualifiedName(abilityFQN.abilityName, CoreQualifier.Ability(abilityFQN.abilityName))
+    )
+
+  private def resolveInAbilityScope[T](
+      abilityFQN: AbilityFQN,
+      marker: UnifiedModuleValue,
+      params: Seq[String],
+      platform: Platform
+  )(computation: ScopedIO[T]): ScopedIO[T] =
+    computation
+      .runA(ValueResolverScope(abilityFQN.moduleName, marker.dictionary, marker.privateNames, params.toSet, platform))
+      .liftToScoped
+
+  /** Replace every reference to one of the ability's own parameters by the argument this use wrote for it. */
+  private def substituteParameters(bindings: Map[String, Expression])(expr: Expression): Expression =
+    expr match {
+      case Expression.ParameterReference(name) if bindings.contains(name.value) => bindings(name.value)
+      case other                                                                =>
+        Expression.mapChildrenM[Id](substituteParameters(bindings))(other)
+    }
+
+  private def distinctConstraints(
+      constraints: Seq[ResolvedValue.ResolvedAbilityConstraint]
+  ): Seq[ResolvedValue.ResolvedAbilityConstraint] =
+    constraints.distinctBy(c => (c.abilityFQN, c.typeArgs.map(_.render)))
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a type annotation
     * (paramType is Some). All FunctionLiterals in type position are universal intros.

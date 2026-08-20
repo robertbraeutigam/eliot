@@ -219,6 +219,16 @@ Consequences the user sees:
 - Rows remain the only effect surface (`def main: {Console} Unit`); diagnostics stay in payload/row
   vocabulary.
 
+**A set of effects can be named** (added by effects-v5 §7, `docs/effects-v5-one-carrier.md`, landed
+2026-08-19): an ability may require other abilities of its carrier — `ability Web[F[_] ~ Console & Log]` — and a
+`~` constraint is closed under what the ability it names requires. This adds no rule to the four above, no syntax
+(`ability`'s generic parameters already took `~`), and no vocabulary anywhere below `resolve`: the closure lands
+on the carrier binder's constraints, which is already the single source of truth both verifiers read as
+"declared". It is the superability relation, so the name is a real ability that propagates to callers and is a
+property of the carrier rather than of one call — which also lets a relation like "`Console` rides `Suspend`" be
+stated on the ability instead of repeated on every instance. Aliasing a *computation* (`type Test = {Writer[W]}
+Unit`) is aliasing a carrier-applied type, which rule 3 keeps as the pinned row or the ordinary generic.
+
 ## 2. The checking model: two channels beside each other
 
 Checking a runtime term yields a **payload type** (the existing NbE judgment, which never sees an effect)

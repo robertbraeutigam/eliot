@@ -102,7 +102,8 @@ subset of its data.
    arms; `ability`/`implement` mint public values and so are covered with no exception, and a `private data` is
    private in *every* name it mints.
 5. **module** — from modules to individual values; unifies same-named modules from different paths
-6. **resolve** — resolve identifiers to fully qualified names or parameters
+6. **resolve** — resolve identifiers to fully qualified names or parameters; also where a `~` constraint is closed
+   under what the named ability itself requires (`{Web}` ⤳ `Web, Console, Log`)
 7. **matchdesugar** — pattern matches into function applications; exhaustiveness, nested/constructor/wildcard patterns
 8. **operator** — infix operators by precedence and associativity, into structured applications
 9. **termination** — the recursion gate (see the *Total by Default* cornerstone)
@@ -481,6 +482,26 @@ a plain row (`runThrow(obj: {Throw[E]} A): G[Either[E, A]]`) and the desugar pin
 carrier, producing the identical type — so `signatureEquality` still holds across the merge, and a pinned tail is
 left only where the base is *concrete* (a `data` field's `| Id`). `Suspend`-riding effects (`Console`) have no
 canonical carrier and so cannot be pinned (v1) — nor supplied, which is the same diagnostic.
+
+**An ability may require other abilities of its carrier, and that is how a set of effects gets a name**
+(`ability Web[F[_] ~ Console & Log]`, effects-v5 §7 — landed). It is the ordinary superability relation, not an
+aliasing feature: `Web` is a real ability declared with the same `~` constraints any generic parameter takes, it
+just has no methods, so it performs nothing and needs no implementation. **No syntax was added** — `ability`'s
+common generic parameters already accepted `~`; the whole feature is one rule in `ValueResolver.superConstraints`:
+a `~` constraint is closed under what the named ability itself requires **of the parameter this use bound to this
+binder**. That last clause is what keeps it shape-free — `ability Fallible[E ~ Show, F[_] ~ Throw[E, F]]` leaves
+`Show` on `E` and never lands it on the carrier, where it would read as a declared effect. The ability's own
+constraints resolve **in the ability's own scope** and its parameters are then substituted by the use's arguments;
+closure is transitive and idempotent (`expanding`), so mutually-requiring abilities close instead of looping. It
+lands in `resolveParamConstraints` **only**, because a carrier binder's constraints are the single source of truth
+for "declared" that *both* verifiers read (`RowChecker.declaredRow`, `EffectAccountingProcessor.openRow`); the
+declared row (`EffectRow`) is rendering vocabulary and keeps the name the user wrote. Two consequences to state
+plainly: the name is **real**, so it propagates to callers as itself (that is correct — the caller's carrier must
+have it too); and it is a property of the **carrier**, so discharging one effect behind it does not remove it —
+name a set for what rides together, not for what one function discharges. The same rule states a relation the tree
+could not express before: `ability Console[F[_] ~ Suspend]` would put "Console rides Suspend" in the ability
+instead of repeating it on every instance. Aliasing a *computation* (`type Test = {Writer[W]} Unit`) is a
+carrier-applied type and stays the ordinary generic — no `type` spelling of a row exists, deliberately.
 
 **Rows are the user surface and the verifier's vocabulary — they never flow back into types.** `EffectRow` is
 declaration metadata (like `paramConstraints`), consumed by the desugar and the renderers; verification is a
