@@ -77,9 +77,6 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Qualifier] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue
       : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue_ResolvedAbilityConstraint
-      : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue.ResolvedAbilityConstraint] =
-    FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_ResolvedValue_Key
       : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_used_UsedNames: FactCodec[com.vanillasource.eliot.eliotc.used.UsedNames] =
@@ -105,9 +102,6 @@ object LangFactCodecs {
     FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue
       : FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue_ResolvedAbilityConstraint
-      : FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue.ResolvedAbilityConstraint] =
-    FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredValue_Key
       : FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_AST: FactCodec[com.vanillasource.eliot.eliotc.core.fact.AST]   =
@@ -132,8 +126,6 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_NamedValue
       : FactCodec[com.vanillasource.eliot.eliotc.core.fact.NamedValue] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_core_fact_NamedValue_CoreAbilityConstraint
-      : FactCodec[com.vanillasource.eliot.eliotc.core.fact.NamedValue.CoreAbilityConstraint] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Pattern
       : FactCodec[com.vanillasource.eliot.eliotc.core.fact.Pattern] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Pattern_ConstructorPattern
@@ -293,9 +285,6 @@ object LangFactCodecs {
     FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedValue
       : FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedValue_ResolvedAbilityConstraint
-      : FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint] =
-    FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedValue_Key
       : FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_saturate_fact_BinderRoles
@@ -318,6 +307,10 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.DataDefinition] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_EffectRow[C: FactCodec]
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.EffectRow[C]] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_ast_fact_UnresolvedAbilityConstraint[E: FactCodec]
+      : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.UnresolvedAbilityConstraint[E]] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_resolve_fact_AbilityConstraint[E: FactCodec]
+      : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.AbilityConstraint[E]] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_EffectRow_ParameterEffects[C: FactCodec]
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.EffectRow.ParameterEffects[C]] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression
@@ -338,8 +331,6 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_GenericParameter
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_ast_fact_GenericParameter_AbilityConstraint
-      : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.AbilityConstraint] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_ImportStatement
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.ImportStatement] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_LambdaParameterDefinition

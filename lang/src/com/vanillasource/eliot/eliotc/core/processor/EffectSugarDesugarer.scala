@@ -1,7 +1,13 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, EffectRow, FunctionDefinition, GenericParameter}
+import com.vanillasource.eliot.eliotc.ast.fact.{
+  DataDefinition,
+  EffectRow,
+  FunctionDefinition,
+  GenericParameter,
+  UnresolvedAbilityConstraint
+}
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
@@ -94,7 +100,7 @@ object EffectSugarDesugarer {
         GenericParameter(
           anchor.as(carrierName),
           anchor.as(functionKind(anchor)),
-          positives.map(e => GenericParameter.AbilityConstraint(e.abilityName, e.typeParameters :+ carrierRef)),
+          positives.map(e => UnresolvedAbilityConstraint(e.abilityName, e.typeArgs :+ carrierRef)),
           inferable = true
         )
       }
@@ -144,7 +150,7 @@ object EffectSugarDesugarer {
       val carrierNameOpt = Option.when(positives.nonEmpty || supplies)(carrierName)
       val rowConstraints = carrierNameOpt.toSeq.flatMap { name =>
         val carrierRef = anchor.as(typeExpr(anchor.as(name)))
-        positives.map(e => GenericParameter.AbilityConstraint(e.abilityName, e.typeParameters :+ carrierRef))
+        positives.map(e => UnresolvedAbilityConstraint(e.abilityName, e.typeArgs :+ carrierRef))
       }
       // Minted only when nothing was reused: a reused binder keeps its declared position (and so its index, which
       // decides whether the elaborator can write it — A.11.4b's first-binder limit).
@@ -221,7 +227,7 @@ object EffectSugarDesugarer {
     */
   private def supplyPin(
       expr: Sourced[Expression],
-      ambient: Seq[GenericParameter.AbilityConstraint],
+      ambient: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
       carrierName: String
   ): Sourced[Expression] = expr.value match {
     case EffectfulType(effects, resultType, None) if effects.nonEmpty =>
@@ -294,7 +300,9 @@ object EffectSugarDesugarer {
     * Body rows and generic-parameter-bound rows are deliberately excluded — the declared row is the value's public
     * signature only.
     */
-  private def declaredEffectRow(function: FunctionDefinition): EffectRow[GenericParameter.AbilityConstraint] =
+  private def declaredEffectRow(
+      function: FunctionDefinition
+  ): EffectRow[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     EffectRow(
       openRowEntries(function.typeDefinition),
       function.args.zipWithIndex.flatMap { case (arg, index) =>
@@ -320,7 +328,7 @@ object EffectSugarDesugarer {
   }
 
   /** The distinct *open*-row (`tail == None`) ability entries anywhere within one signature-position expression. */
-  private def openRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
+  private def openRowEntries(expr: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     collectRows(expr).filter(_.value.tail.isEmpty).flatMap(rowEntries).distinctBy(constraintKey)
 
   /** The ability entries one row contributes to its signature's carrier.
@@ -332,9 +340,9 @@ object EffectSugarDesugarer {
     * The two spellings are therefore interchangeable — one desugars into the other — and a definition may be migrated
     * one position at a time. An empty row is never a *pinned* row, so this reads the open form only.
     */
-  private def rowEntries(row: Sourced[EffectfulType]): Seq[GenericParameter.AbilityConstraint] =
+  private def rowEntries(row: Sourced[EffectfulType]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     if (row.value.effects.isEmpty)
-      Seq(GenericParameter.AbilityConstraint(row.as(EffectMachinery.effectAbilityName), Seq.empty))
+      Seq(UnresolvedAbilityConstraint(row.as(EffectMachinery.effectAbilityName), Seq.empty))
     else row.value.effects
 
   /** The entries of a signature-position type expression that is *itself* — at top level — a **pinned** effect row
@@ -343,7 +351,7 @@ object EffectSugarDesugarer {
     * *nested* pinned row (e.g. the codomain of a callback `A => {Throw[E] | G} B`) does not make the position itself a
     * carrier stack, so only the top-level shape counts. Empty for any non-pinned position.
     */
-  private def pinnedRowEntries(expr: Sourced[Expression]): Seq[GenericParameter.AbilityConstraint] =
+  private def pinnedRowEntries(expr: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     expr.value match {
       case EffectfulType(effects, _, Some(_)) => effects
       case _                                  => Seq.empty
@@ -369,7 +377,7 @@ object EffectSugarDesugarer {
       case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty && !rewritePinned =>
         expr.as(
           EffectfulType(
-            effects.map(e => e.copy(typeParameters = e.typeParameters.map(recurse))),
+            effects.map(_.map(recurse)),
             recurse(resultType),
             Some(recurse(tail))
           )
@@ -381,7 +389,7 @@ object EffectSugarDesugarer {
             FunctionApplication(
               None,
               e.abilityName.map(EffectCarrierNaming.carrierName),
-              Some(e.typeParameters.map(recurse) :+ acc),
+              Some(e.typeArgs.map(recurse) :+ acc),
               Seq.empty
             )
           )
@@ -391,7 +399,7 @@ object EffectSugarDesugarer {
           FunctionApplication(
             None,
             head.abilityName.map(EffectCarrierNaming.carrierName),
-            Some(head.typeParameters.map(recurse) :+ innerStack :+ recurse(resultType)),
+            Some(head.typeArgs.map(recurse) :+ innerStack :+ recurse(resultType)),
             Seq.empty
           )
         )
@@ -456,7 +464,7 @@ object EffectSugarDesugarer {
   /** Collects, in source order, every effect-row node within the expression, with its source position. */
   private def collectRows(expr: Sourced[Expression]): Seq[Sourced[EffectfulType]] = expr.value match {
     case et @ EffectfulType(effects, resultType, tail) =>
-      (expr.as(et) +: effects.flatMap(_.typeParameters.flatMap(collectRows))) ++
+      (expr.as(et) +: effects.flatMap(_.typeArgs.flatMap(collectRows))) ++
         collectRows(resultType) ++ tail.toSeq.flatMap(collectRows)
     case FunctionApplication(_, _, genericArgs, args)  =>
       genericArgs.getOrElse(Seq.empty).flatMap(collectRows) ++ args.flatMap(collectRows)
@@ -470,8 +478,8 @@ object EffectSugarDesugarer {
     case _: IntegerLiteral | _: StringLiteral          => Seq.empty
   }
 
-  private def constraintKey(ac: GenericParameter.AbilityConstraint): String =
-    ac.abilityName.value + "|" + ac.typeParameters.map(_.value.render).mkString(",")
+  private def constraintKey(ac: UnresolvedAbilityConstraint[Sourced[Expression]]): String =
+    ac.abilityName.value + "|" + ac.typeArgs.map(_.value.render).mkString(",")
 
   /** The kind `Function[Type, Type]` of a `[F[_]]` carrier, built exactly as the `[F[_]]` arity sugar produces it. */
   private def functionKind(anchor: Sourced[?]): Expression =

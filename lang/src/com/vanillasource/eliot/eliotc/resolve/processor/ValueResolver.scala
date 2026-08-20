@@ -2,7 +2,12 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.Id
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, PrecedenceDeclaration as AstPrecedenceDeclaration, Visibility}
+import com.vanillasource.eliot.eliotc.ast.fact.{
+  EffectRow,
+  PrecedenceDeclaration as AstPrecedenceDeclaration,
+  UnresolvedAbilityConstraint,
+  Visibility
+}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{
   NamedValue,
@@ -120,16 +125,16 @@ class ValueResolver
     * resolved exactly as [[resolveConstraint]] resolves a constraint, positions preserved.
     */
   private def resolveEffectRow(
-      effectRow: EffectRow[NamedValue.CoreAbilityConstraint]
-  ): ScopedIO[EffectRow[ResolvedValue.ResolvedAbilityConstraint]] =
+      effectRow: EffectRow[UnresolvedAbilityConstraint[CoreExpression]]
+  ): ScopedIO[EffectRow[AbilityConstraint[Expression]]] =
     effectRow.traverse(resolveConstraint)
 
   /** Resolve a value's `~` ability constraints, per generic parameter, **closed under what each named ability itself
     * requires of that parameter** ([[superConstraints]]).
     */
   private def resolveParamConstraints(
-      paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]]
-  ): ScopedIO[Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]] =
+      paramConstraints: Map[String, Seq[UnresolvedAbilityConstraint[CoreExpression]]]
+  ): ScopedIO[Map[String, Seq[AbilityConstraint[Expression]]]] =
     paramConstraints.toSeq
       .traverse { case (paramName, constraints) =>
         constraints
@@ -144,13 +149,13 @@ class ValueResolver
       .map(_.toMap)
 
   private def resolveConstraint(
-      constraint: NamedValue.CoreAbilityConstraint
-  ): ScopedIO[ResolvedValue.ResolvedAbilityConstraint] =
+      constraint: UnresolvedAbilityConstraint[CoreExpression]
+  ): ScopedIO[AbilityConstraint[Expression]] =
     for {
       _            <- constraint.combinedBy.traverse_(resolveCombinator)
       abilityFQN   <- resolveAbilityName(constraint.abilityName)
       resolvedArgs <- constraint.typeArgs.traverse(resolveExpression(_, false))
-    } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
+    } yield AbilityConstraint(abilityFQN, resolvedArgs)
 
   /** Resolve the operator that joined this constraint to the previous one, and require it to be the standard library's
     * `&` ([[abilityCombinatorFQN]]).
@@ -201,16 +206,16 @@ class ValueResolver
     * up — the fixed-FQN machinery (`Effect`, `PatternMatch`, `TypeMatch`) is compiler-written and requires nothing.
     */
   private def superConstraints(
-      use: ResolvedValue.ResolvedAbilityConstraint,
+      use: AbilityConstraint[Expression],
       paramName: String,
       expanding: Set[AbilityFQN]
-  ): ScopedIO[Seq[ResolvedValue.ResolvedAbilityConstraint]] =
-    if (expanding.contains(use.abilityFQN)) Seq.empty[ResolvedValue.ResolvedAbilityConstraint].pure[ScopedIO]
+  ): ScopedIO[Seq[AbilityConstraint[Expression]]] =
+    if (expanding.contains(use.abilityFQN)) Seq.empty[AbilityConstraint[Expression]].pure[ScopedIO]
     else
       // The ability's marker carries its common generic parameters, so its presence in scope is both the lookup and
       // the "is this a real, in-scope ability" test — a direct dictionary hit rather than a scan.
       getValue(markerOf(use.abilityFQN).name).flatMap {
-        case None    => Seq.empty[ResolvedValue.ResolvedAbilityConstraint].pure[ScopedIO]
+        case None    => Seq.empty[AbilityConstraint[Expression]].pure[ScopedIO]
         case Some(_) =>
           for {
             platform <- getPlatform
@@ -260,8 +265,8 @@ class ValueResolver
     }
 
   private def distinctConstraints(
-      constraints: Seq[ResolvedValue.ResolvedAbilityConstraint]
-  ): Seq[ResolvedValue.ResolvedAbilityConstraint] =
+      constraints: Seq[AbilityConstraint[Expression]]
+  ): Seq[AbilityConstraint[Expression]] =
     constraints.distinctBy(c => (c.abilityFQN, c.typeArgs.map(_.render)))
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a type annotation

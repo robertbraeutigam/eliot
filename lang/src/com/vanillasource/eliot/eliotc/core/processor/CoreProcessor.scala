@@ -115,13 +115,7 @@ class CoreProcessor
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body, isTypeBody, isMetaBody))
     val constraints  = function.genericParameters
       .map(gp =>
-        gp.name.value -> gp.abilityConstraints.map(c =>
-          NamedValue.CoreAbilityConstraint(
-            c.abilityName,
-            c.typeParameters.map(te => convertExpression(te, typeContext = true).value),
-            c.combinedBy
-          )
-        )
+        gp.name.value -> gp.abilityConstraints.map(_.map(te => convertExpression(te, typeContext = true).value))
       )
       .filter(_._2.nonEmpty)
       .toMap
@@ -134,12 +128,7 @@ class CoreProcessor
     val precedence   = function.precedence.map(convertPrecedenceDeclaration)
     // Effects-as-channel Phase 1 (dark): forward the declared row, converting each entry's ability type-arguments
     // ast→core exactly as `constraints` above does.
-    val effectRow    = function.effectRow.map(c =>
-      NamedValue.CoreAbilityConstraint(
-        c.abilityName,
-        c.typeParameters.map(te => convertExpression(te, typeContext = true).value)
-      )
-    )
+    val effectRow    = function.effectRow.map(_.map(te => convertExpression(te, typeContext = true).value))
     Seq(
       NamedValue(
         function.name,

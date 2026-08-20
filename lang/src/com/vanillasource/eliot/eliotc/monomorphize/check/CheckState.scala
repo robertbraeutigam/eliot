@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Immutable state for the bidirectional type checker.
@@ -148,7 +148,7 @@ case class CheckState(
     * until unification has connected them back to the ambient parameter.
     */
   def findConstraintTypeArgs(
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
+      paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]],
       abilityName: String
   ): Option[Seq[SemValue]] =
     paramConstraints.collectFirst(Function.unlift { (_, constraints) =>

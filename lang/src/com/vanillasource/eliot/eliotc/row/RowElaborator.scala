@@ -6,9 +6,8 @@ import com.vanillasource.eliot.eliotc.effect.EffectCarrierNaming
 import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMachinery}
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import scala.collection.mutable
@@ -1043,7 +1042,9 @@ object RowElaborator {
     /** The declared row of an argument expression, with its type arguments — available exactly when the argument is a
       * call, whose callee's declaration states it ([[declaredEntries]]).
       */
-    private def argumentRow(arg: Sourced[OperatorResolvedExpression]): Seq[ResolvedAbilityConstraint] =
+    private def argumentRow(
+        arg: Sourced[OperatorResolvedExpression]
+    ): Seq[AbilityConstraint[OperatorResolvedExpression]] =
       spine(arg.value)._1 match {
         case ValueReference(name, _) => declaredEntries(name.value)
         case _                       => Seq.empty
@@ -1112,7 +1113,7 @@ object RowElaborator {
       * (`Effect`/`Suspend`) are dropped: they are inserted by the compiler, never discharged, and have no carrier
       * layer of their own.
       */
-    private def declaredEntries(callee: ValueFQN): Seq[ResolvedAbilityConstraint] =
+    private def declaredEntries(callee: ValueFQN): Seq[AbilityConstraint[OperatorResolvedExpression]] =
       universe
         .lookup(callee)
         .toSeq

@@ -254,15 +254,43 @@ the compiler's own metadata travel as surface syntax it must re-parse at every r
 
 **Do not implement stage 3 as written.** Instead, in order:
 
-1. **Take the footprint win without the design commitment.** Collapse the five phase-specific case classes into
-   *one* representation parametric in the phase's expression type — `AbilityConstraint[N, E](name: N, typeArgs:
-   Seq[E])`, `N` being `Sourced[String]` pre-resolve and `AbilityFQN` after — exactly as `EffectRow[C]` is already
-   parametric. The three hand-written converters become `map`/`traverse`. This deletes four case classes and the
-   converters, changes no semantics, no phase order and no `signatureEquality`, and is byte-identity verifiable.
-   It is the whole of stage 3's *mechanical* content and none of its controversy.
+1. **Take the footprint win without the design commitment.** ✅ **LANDED** — see §8.
 2. **Answer §5** — do `~` and `where` unify? — and with it 7.3's (a)/(b)/(c).
 3. **Only then** decide whether a constraint should be an expression, and if so, land the closure relocation
    (7.2, option 3) as its own change first.
 
 Stage 3 is not blocked by difficulty. It is blocked by the fact that it is the language decision, and it has been
 filed as a refactor.
+
+---
+
+## 8. What landed from §7.5 step 1: one constraint type per resolution state
+
+The five phase-specific case classes are gone, replaced by **two** generic ones, each parametric in the phase's
+expression type exactly as `EffectRow[C]` already was:
+
+- `ast/fact/UnresolvedAbilityConstraint[E](abilityName: Sourced[String], typeArgs: Seq[E], combinedBy)` — the ast
+  spelling at `E = Sourced[Expression]`, the core spelling at `E = core.fact.Expression`.
+- `resolve/fact/AbilityConstraint[E](abilityFQN: AbilityFQN, typeArgs: Seq[E])` — resolve and block desugaring at
+  `E = resolve.fact.Expression`, then `MatchDesugaredExpression`, then `OperatorResolvedExpression`.
+
+Two rather than the one §7.5 sketched, and the split is load-bearing rather than cosmetic: `combinedBy` lives only
+on the unresolved type, so stage 1's "no phase past resolve knows a combinator existed" is now a property of the
+model instead of a convention about a field that is always `None`.
+
+What that bought, all of it mechanical:
+
+- the three hand-written inter-phase converters collapse to `map` / `traverse` on the constraint itself
+  (`CoreProcessor`, `MatchDesugaringProcessor`, `OperatorResolverProcessor`);
+- five derived `FactCodec` instances become two generic ones — the codec file is a proof of coverage, so this is
+  two lines standing in for five;
+- the ast field `typeParameters` is renamed `typeArgs`, so one name means one thing across every phase.
+
+What deliberately did **not** change: no constraint became an expression, `&` is still resolved-and-dropped at
+resolve, the superability closure still runs where it ran, `signatureEquality` is untouched, and every reader
+still reads `.abilityFQN` / `.typeArgs` exactly as before. §7.2 and §7.3 are therefore still open, unchanged, and
+still the things to settle before any of stage 3 proper.
+
+**Verification.** `./mill __.test` green (871 tasks). All 45 examples carrying a `main` compile, and their jars are
+**byte-for-byte identical** to those built from the same tree with this change stashed — which is the check that
+matters for a change that rewrites the representation every signature-carrying fact holds.

@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, PrecedenceDeclaration, QualifiedName, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, PrecedenceDeclaration, QualifiedName}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class MatchDesugaredValue(
@@ -17,7 +17,7 @@ case class MatchDesugaredValue(
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[MatchDesugaredExpression]],
     signature: Sourced[MatchDesugaredExpression],
-    paramConstraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]] = Map.empty,
+    paramConstraints: Map[String, Seq[AbilityConstraint[MatchDesugaredExpression]]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     inferableArity: Int = 0,
@@ -25,14 +25,12 @@ case class MatchDesugaredValue(
     platform: Platform = Platform.Runtime,
     // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from
     // [[BlockDesugaredValue]] with its entry type-arguments re-expressed as [[MatchDesugaredExpression]]. Inert.
-    effectRow: EffectRow[MatchDesugaredValue.ResolvedAbilityConstraint] = EffectRow.empty
+    effectRow: EffectRow[AbilityConstraint[MatchDesugaredExpression]] = EffectRow.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[MatchDesugaredValue] = MatchDesugaredValue.Key(vfqn, platform)
 }
 
 object MatchDesugaredValue {
-  case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[MatchDesugaredExpression])
-
   case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[MatchDesugaredValue] {
     override def valueCodec: Option[FactCodec[MatchDesugaredValue]] = Some(LangFactCodecs.matchDesugaredValueCodec)
   }

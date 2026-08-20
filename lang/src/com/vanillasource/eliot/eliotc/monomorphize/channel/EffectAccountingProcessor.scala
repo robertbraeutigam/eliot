@@ -7,11 +7,10 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN, Qualifier as ResolveQualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 /** The effects-as-channel **effect accounting** processor (docs/effects-as-channel.md §5) — the post-monomorphization
@@ -237,7 +236,9 @@ object EffectAccountingProcessor {
     * ([[declaredEffectsOf]]), the single source of truth, so a hand-written discharger with no surface `{E}` row still
     * accounts correctly. Pure, hence unit-testable in isolation.
     */
-  private[channel] def channelDeclaredEffects(effectRow: EffectRow[ResolvedAbilityConstraint]): Set[AbilityFQN] =
+  private[channel] def channelDeclaredEffects(
+      effectRow: EffectRow[AbilityConstraint[OperatorResolvedExpression]]
+  ): Set[AbilityFQN] =
     (effectRow.returnEffects ++ effectRow.parameterEffects.flatMap(_.effects))
       .map(_.abilityFQN)
       .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))

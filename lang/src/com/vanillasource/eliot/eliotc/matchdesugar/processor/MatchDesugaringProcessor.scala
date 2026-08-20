@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpressio
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, Expression}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class MatchDesugaringProcessor
@@ -47,8 +47,8 @@ class MatchDesugaringProcessor
     )
 
   private def convertParamConstraints(
-      constraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
-  ): Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]] =
+      constraints: Map[String, Seq[AbilityConstraint[Expression]]]
+  ): Map[String, Seq[AbilityConstraint[MatchDesugaredExpression]]] =
     constraints.map { (key, cs) =>
       key -> cs.map(convertConstraint)
     }
@@ -57,17 +57,14 @@ class MatchDesugaringProcessor
     * [[convertParamConstraints]] does, positions preserved.
     */
   private def convertEffectRow(
-      effectRow: EffectRow[ResolvedValue.ResolvedAbilityConstraint]
-  ): EffectRow[MatchDesugaredValue.ResolvedAbilityConstraint] =
+      effectRow: EffectRow[AbilityConstraint[Expression]]
+  ): EffectRow[AbilityConstraint[MatchDesugaredExpression]] =
     effectRow.map(convertConstraint)
 
   private def convertConstraint(
-      c: ResolvedValue.ResolvedAbilityConstraint
-  ): MatchDesugaredValue.ResolvedAbilityConstraint =
-    MatchDesugaredValue.ResolvedAbilityConstraint(
-      c.abilityFQN,
-      c.typeArgs.map(MatchDesugaredExpression.fromExpression)
-    )
+      c: AbilityConstraint[Expression]
+  ): AbilityConstraint[MatchDesugaredExpression] =
+    c.map(MatchDesugaredExpression.fromExpression)
 
   private def desugarExpression(expr: Expression, platform: Platform): CompilerIO[Expression] =
     expr match {

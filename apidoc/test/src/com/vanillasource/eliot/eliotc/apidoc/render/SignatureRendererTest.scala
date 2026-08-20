@@ -20,7 +20,7 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
   private def gp(
       name: String,
       restriction: Expression = ty("Type"),
-      constraints: Seq[GenericParameter.AbilityConstraint] = Seq.empty
+      constraints: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] = Seq.empty
   ): GenericParameter = GenericParameter(s(name), s(restriction), constraints)
 
   private def arg(name: String, t: Expression): ArgumentDefinition =
@@ -74,7 +74,7 @@ class SignatureRendererTest extends AnyFlatSpec with Matchers {
     SignatureRenderer.function(
       fn(
         "showIt",
-        generics = Seq(gp("A", constraints = Seq(GenericParameter.AbilityConstraint(s("Show"), Seq(s(ty("A"))))))),
+        generics = Seq(gp("A", constraints = Seq(UnresolvedAbilityConstraint(s("Show"), Seq(s(ty("A"))))))),
         args = Seq(arg("a", ty("A"))),
         ret = ty("String")
       )

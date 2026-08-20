@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.resolve.fact.{
-  AbilityFQN,
+  AbilityConstraint,
   Expression,
   PrecedenceDeclaration,
   QualifiedName,
@@ -28,7 +28,7 @@ case class BlockDesugaredValue(
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[Expression]],
     signature: Sourced[Expression],
-    paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
+    paramConstraints: Map[String, Seq[AbilityConstraint[Expression]]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     inferableArity: Int = 0,
@@ -36,7 +36,7 @@ case class BlockDesugaredValue(
     platform: Platform = Platform.Runtime,
     // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — carried through unchanged from
     // [[ResolvedValue]] (block desugaring does not touch signatures), reusing the resolve entry representation.
-    effectRow: EffectRow[ResolvedValue.ResolvedAbilityConstraint] = EffectRow.empty
+    effectRow: EffectRow[AbilityConstraint[Expression]] = EffectRow.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[BlockDesugaredValue] = BlockDesugaredValue.Key(vfqn, platform)
 }

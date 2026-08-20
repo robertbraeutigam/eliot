@@ -61,7 +61,7 @@ object Expression {
     * negative `-E` member.
     */
   case class EffectfulType(
-      effects: Seq[GenericParameter.AbilityConstraint],
+      effects: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
       resultType: Sourced[Expression],
       tail: Option[Sourced[Expression]]
   ) extends Expression
@@ -119,9 +119,9 @@ object Expression {
   private def renderBlockLine(line: BlockLine): String =
     line.binder.map(b => s"val ${b.render} = ").getOrElse("") + line.expression.value.render
 
-  private def renderAbilityConstraint(ac: GenericParameter.AbilityConstraint): String =
+  private def renderAbilityConstraint(ac: UnresolvedAbilityConstraint[Sourced[Expression]]): String =
     ac.abilityName.value +
-      (if (ac.typeParameters.isEmpty) "" else ac.typeParameters.map(_.value.render).mkString("[", ", ", "]"))
+      (if (ac.typeArgs.isEmpty) "" else ac.typeArgs.map(_.value.render).mkString("[", ", ", "]"))
 
   // Shared sub-parsers, all using fullParser for inner expression positions
 
@@ -244,7 +244,7 @@ object Expression {
     */
   private lazy val effectfulTypeParser: Parser[Sourced[Token], Expression] = for {
     _          <- symbol("{")
-    entries    <- component[GenericParameter.AbilityConstraint]
+    entries    <- component[UnresolvedAbilityConstraint[Sourced[Expression]]]
                     .atLeastOnceSeparatedBy(symbol(","))
                     .optional()
                     .map(_.getOrElse(Seq.empty))
@@ -257,7 +257,7 @@ object Expression {
     * over a base carrier is that carrier itself and needs no row spelling. See [[effectfulTypeParser]].
     */
   private def rowTailParser(
-      entries: Seq[GenericParameter.AbilityConstraint]
+      entries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]]
   ): Parser[Sourced[Token], Option[Sourced[Expression]]] =
     if (entries.isEmpty) Option.empty[Sourced[Expression]].pure
     else (symbol("|") *> sourced(typeRunParser)).optional()
