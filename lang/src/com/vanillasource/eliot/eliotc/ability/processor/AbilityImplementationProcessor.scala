@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression,
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN, Qualifier as ResolveQualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Resolves the ability implementation for one `(ability, type arguments, platform)` query: collects the candidate
@@ -210,7 +210,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     */
   private def constraintSatisfied(
       binderName: String,
-      constraint: OperatorResolvedValue.ResolvedAbilityConstraint,
+      constraint: AbilityConstraint[OperatorResolvedExpression],
       bindings: Map[String, GroundValue],
       platform: Platform
   ): CompilerIO[Boolean] =
@@ -233,7 +233,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     */
   private def constraintArguments(
       binderName: String,
-      constraint: OperatorResolvedValue.ResolvedAbilityConstraint,
+      constraint: AbilityConstraint[OperatorResolvedExpression],
       arity: Option[Int],
       bindings: Map[String, GroundValue]
   ): Option[Seq[GroundValue]] =

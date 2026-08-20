@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.S
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityConstraint
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -99,7 +100,7 @@ class CarrierKindChecker(
   private def recordMetaConstraints(
       id: SemValue.MetaId,
       binder: SignatureView.Binder,
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
+      paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]],
       substEnv: Env
   ): CheckIO[Unit] =
     if (!EffectCarriers.isHktBinder(binder)) pure(())

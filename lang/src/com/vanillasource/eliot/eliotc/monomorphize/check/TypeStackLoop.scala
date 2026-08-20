@@ -13,6 +13,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.S
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityConstraint
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 
@@ -369,7 +370,7 @@ class TypeStackLoop(
     */
   private def resolveAbilitiesToFixedPoint(
       abilityRefs: Seq[AbilityRef],
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]]
   ): CheckIO[Unit] = {
     def loop: CheckIO[Unit] =
       for {

@@ -1,7 +1,8 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.NamedValue
+import com.vanillasource.eliot.eliotc.ast.fact.UnresolvedAbilityConstraint
+import com.vanillasource.eliot.eliotc.core.fact.{Expression, NamedValue}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleNames, ModuleValue, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -79,7 +80,7 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
   private def mergeEffectRows(
       values: Seq[ModuleValue],
       chosen: ModuleValue
-  ): com.vanillasource.eliot.eliotc.ast.fact.EffectRow[NamedValue.CoreAbilityConstraint] = {
+  ): com.vanillasource.eliot.eliotc.ast.fact.EffectRow[UnresolvedAbilityConstraint[Expression]] = {
     val rows = chosen.namedValue.effectRow +: values.map(_.namedValue.effectRow)
     chosen.namedValue.effectRow.copy(
       returnEffects = rows.map(_.returnEffects).find(_.nonEmpty).getOrElse(Seq.empty),

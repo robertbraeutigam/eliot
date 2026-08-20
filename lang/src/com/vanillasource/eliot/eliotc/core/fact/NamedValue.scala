@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.core.fact
 
 import cats.Eq
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity, Visibility}
+import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, Fixity, UnresolvedAbilityConstraint, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact
 import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEquality
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
@@ -33,30 +33,19 @@ case class NamedValue(
     qualifiedName: Sourced[QualifiedName],
     runtime: Option[Sourced[Expression]],
     signature: Sourced[Expression],
-    paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty,
+    paramConstraints: Map[String, Seq[UnresolvedAbilityConstraint[Expression]]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     visibility: Visibility = Visibility.Public,
     roleHint: RoleHint = RoleHint.NoHint,
     inferableArity: Int = 0,
     // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from the
-    // [[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition]] beside `paramConstraints`, its entries converted to
-    // [[NamedValue.CoreAbilityConstraint]]. Inert; never part of `signatureEquality`.
-    effectRow: EffectRow[NamedValue.CoreAbilityConstraint] = EffectRow.empty
+    // [[com.vanillasource.eliot.eliotc.ast.fact.FunctionDefinition]] beside `paramConstraints`, its entries converted
+    // to this phase's expression type. Inert; never part of `signatureEquality`.
+    effectRow: EffectRow[UnresolvedAbilityConstraint[Expression]] = EffectRow.empty
 )
 
 object NamedValue {
-  /** A `~` ability constraint, core representation. `combinedBy` is the operator the user wrote between this
-    * constraint and the one before it, carried this far only so [[com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver]]
-    * can resolve it as an ordinary name; it goes no further (see
-    * [[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.AbilityConstraint.combinedBy]]).
-    */
-  case class CoreAbilityConstraint(
-      abilityName: Sourced[String],
-      typeArgs: Seq[Expression],
-      combinedBy: Option[Sourced[String]] = None
-  )
-
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
     structuralEquality.eqv(x.signature.value, y.signature.value)
 

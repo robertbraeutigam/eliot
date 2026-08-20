@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, QualifiedName}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, QualifiedName}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class OperatorResolvedValue(
@@ -18,7 +18,7 @@ case class OperatorResolvedValue(
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[OperatorResolvedExpression]],
     signature: Sourced[OperatorResolvedExpression],
-    paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
+    paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]] = Map.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
     platform: Platform = Platform.Runtime,
@@ -26,14 +26,12 @@ case class OperatorResolvedValue(
     // [[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue]] with its entry type-arguments resolved to
     // [[OperatorResolvedExpression]]. Carried unchanged through the termination/saturate wrappers to the monomorphize
     // phase. Inert; never part of `signatureEquality`.
-    effectRow: EffectRow[OperatorResolvedValue.ResolvedAbilityConstraint] = EffectRow.empty
+    effectRow: EffectRow[AbilityConstraint[OperatorResolvedExpression]] = EffectRow.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn, platform)
 }
 
 object OperatorResolvedValue {
-  case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[OperatorResolvedExpression])
-
   case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[OperatorResolvedValue] {
     override def valueCodec: Option[FactCodec[OperatorResolvedValue]] = Some(LangFactCodecs.operatorResolvedValueCodec)
   }

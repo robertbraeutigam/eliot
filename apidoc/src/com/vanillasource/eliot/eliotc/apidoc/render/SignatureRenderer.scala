@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionApplication
 import com.vanillasource.eliot.eliotc.ast.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Renders an AST declaration back to a single line of Eliot source text — the signature shown (and syntax-highlighted)
   * on a documentation page. It reconstructs the surface syntax the compiler erased: the `def`/`type` keyword from the
@@ -149,8 +150,8 @@ object SignatureRenderer {
   private def typeParameter(arg: ArgumentDefinition): String =
     s"${arg.name.value}${kindOrRestriction(arg.typeExpression.value)}"
 
-  private def constraint(defaultGeneric: String)(c: GenericParameter.AbilityConstraint): String =
-    c.typeParameters.map(_.value.render) match {
+  private def constraint(defaultGeneric: String)(c: UnresolvedAbilityConstraint[Sourced[Expression]]): String =
+    c.typeArgs.map(_.value.render) match {
       case Seq(single) if single === defaultGeneric => c.abilityName.value
       case Seq()                                    => c.abilityName.value
       case params                                   => s"${c.abilityName.value}${params.mkString("[", ", ", "]")}"

@@ -4,7 +4,6 @@ import cats.Eq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.AbilityConstraint
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIf, acceptIfAll, anyTimes, optional, or}
@@ -23,27 +22,11 @@ import com.vanillasource.eliot.eliotc.token.Token
 case class GenericParameter(
     name: Sourced[String],
     typeRestriction: Sourced[Expression],
-    abilityConstraints: Seq[AbilityConstraint],
+    abilityConstraints: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
     inferable: Boolean = false
 )
 
 object GenericParameter {
-  /** One `~` ability constraint on a generic binder.
-    *
-    * @param combinedBy
-    *   The infix operator that joined this constraint to the one before it — `None` for the first of a list, and for
-    *   every constraint the `{E}` effect-row sugar mints (nothing wrote an operator for those). It is kept as the
-    *   name the user typed, not as a recognised symbol: [[com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver]]
-    *   resolves it through the ordinary dictionary and requires the standard library's combinator
-    *   ([[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.abilityCombinatorFQN]]), then drops it — no later
-    *   phase knows it existed. See `docs/effects-syntax-userspace.md` §4 stage 1.
-    */
-  case class AbilityConstraint(
-      abilityName: Sourced[String],
-      typeParameters: Seq[Sourced[Expression]],
-      combinedBy: Option[Sourced[String]] = None
-  )
-
   val signatureEquality: Eq[GenericParameter] = (x: GenericParameter, y: GenericParameter) =>
     x.name.value === y.name.value && x.typeRestriction.value.render === y.typeRestriction.value.render
 
@@ -64,10 +47,10 @@ object GenericParameter {
     private val abilityConstraintsParser =
       for {
         _     <- symbol("~")
-        first <- component[AbilityConstraint]
+        first <- component[UnresolvedAbilityConstraint[Sourced[Expression]]]
         rest  <- (for {
                    combinedBy <- constraintCombinator
-                   constraint <- component[AbilityConstraint]
+                   constraint <- component[UnresolvedAbilityConstraint[Sourced[Expression]]]
                  } yield constraint.copy(combinedBy = Some(combinedBy))).anyTimes()
       } yield first +: rest
 
@@ -88,11 +71,11 @@ object GenericParameter {
       * on as default.
       */
     private def extendWithDefault(
-        abilityConstraint: AbilityConstraint,
+        abilityConstraint: UnresolvedAbilityConstraint[Sourced[Expression]],
         defaultGeneric: Sourced[String]
-    ): AbilityConstraint =
-      if (abilityConstraint.typeParameters.isEmpty) {
-        abilityConstraint.copy(typeParameters = Seq(defaultGeneric.as(typeExpr(defaultGeneric))))
+    ): UnresolvedAbilityConstraint[Sourced[Expression]] =
+      if (abilityConstraint.typeArgs.isEmpty) {
+        abilityConstraint.copy(typeArgs = Seq(defaultGeneric.as(typeExpr(defaultGeneric))))
       } else {
         abilityConstraint
       }
@@ -129,12 +112,4 @@ object GenericParameter {
   /** Helper to create a type expression from a name and optional generic arguments. */
   private def typeExpr(name: Sourced[String], genericArgs: Seq[Sourced[Expression]] = Seq.empty): Expression =
     Expression.FunctionApplication(None, name, Option.when(genericArgs.nonEmpty)(genericArgs), Seq.empty)
-
-  given ASTComponent[AbilityConstraint] = new ASTComponent[AbilityConstraint] {
-    override def parser: Parser[Sourced[Token], AbilityConstraint] =
-      for {
-        name           <- acceptIfAll(isUpperCase, isIdentifier)("ability name")
-        typeParameters <- optionalBracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
-      } yield AbilityConstraint(name.map(_.content), typeParameters)
-  }
 }

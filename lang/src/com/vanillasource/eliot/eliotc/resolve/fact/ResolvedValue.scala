@@ -16,22 +16,20 @@ case class ResolvedValue(
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[Expression]],
     signature: Sourced[Expression],
-    paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
+    paramConstraints: Map[String, Seq[AbilityConstraint[Expression]]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
     platform: Platform = Platform.Runtime,
     // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from [[NamedValue]]
-    // with its entries resolved to [[ResolvedValue.ResolvedAbilityConstraint]]. Inert; never part of `signatureEquality`.
-    effectRow: EffectRow[ResolvedValue.ResolvedAbilityConstraint] = EffectRow.empty
+    // with its entries resolved to [[AbilityConstraint]]. Inert; never part of `signatureEquality`.
+    effectRow: EffectRow[AbilityConstraint[Expression]] = EffectRow.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[ResolvedValue] = ResolvedValue.Key(vfqn, platform)
 }
 
 object ResolvedValue {
-  case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[Expression])
-
   case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[ResolvedValue] {
     override def valueCodec: Option[FactCodec[ResolvedValue]] = Some(LangFactCodecs.resolvedValueCodec)
   }

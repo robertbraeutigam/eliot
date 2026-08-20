@@ -11,8 +11,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   asArrow
 }
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN}
 
 /** Identifying effect carriers. An effect carrier is a value's higher-kinded generic binder (`F` in `[F[_] ~ E...]`,
   * the shape the M1 `{E...}` sugar produces) that an effectful result rides in (`F[String]`, `IO[Unit]`). The
@@ -102,7 +101,7 @@ object EffectCarriers {
     */
   def declaredEffects(
       carriers: Set[String],
-      paramConstraints: Map[String, Seq[ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]]
   ): Set[AbilityFQN] =
     carriers
       .flatMap(c => paramConstraints.getOrElse(c, Seq.empty).map(_.abilityFQN))

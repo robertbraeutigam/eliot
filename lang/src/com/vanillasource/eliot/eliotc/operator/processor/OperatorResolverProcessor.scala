@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityConstraint
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class OperatorResolverProcessor
@@ -86,8 +87,8 @@ class OperatorResolverProcessor
     }
 
   private def resolveParamConstraints(
-      constraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]]
-  )(using Platform): CompilerIO[Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]] =
+      constraints: Map[String, Seq[AbilityConstraint[MatchDesugaredExpression]]]
+  )(using Platform): CompilerIO[Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]]] =
     constraints.toSeq
       .traverse { (key, cs) =>
         cs.traverse(resolveConstraint).map(key -> _)
@@ -98,12 +99,12 @@ class OperatorResolverProcessor
     * [[resolveParamConstraints]] does, positions preserved.
     */
   private def resolveEffectRow(
-      effectRow: EffectRow[MatchDesugaredValue.ResolvedAbilityConstraint]
-  )(using Platform): CompilerIO[EffectRow[OperatorResolvedValue.ResolvedAbilityConstraint]] =
+      effectRow: EffectRow[AbilityConstraint[MatchDesugaredExpression]]
+  )(using Platform): CompilerIO[EffectRow[AbilityConstraint[OperatorResolvedExpression]]] =
     effectRow.traverse(resolveConstraint)
 
   private def resolveConstraint(
-      c: MatchDesugaredValue.ResolvedAbilityConstraint
-  )(using Platform): CompilerIO[OperatorResolvedValue.ResolvedAbilityConstraint] =
-    c.typeArgs.traverse(resolveInExpression).map(OperatorResolvedValue.ResolvedAbilityConstraint(c.abilityFQN, _))
+      c: AbilityConstraint[MatchDesugaredExpression]
+  )(using Platform): CompilerIO[AbilityConstraint[OperatorResolvedExpression]] =
+    c.traverse(resolveInExpression)
 }

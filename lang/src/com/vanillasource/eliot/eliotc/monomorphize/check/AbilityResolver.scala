@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, GroundValu
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityConstraint
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
@@ -68,7 +69,7 @@ class AbilityResolver(
     */
   def resolveAbilities(
       allRefs: Seq[AbilityRef],
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]]
   ): CheckIO[Boolean] =
     allRefs.toList.foldLeftM(false) { (acc, ref) =>
       tryResolveOne(ref, paramConstraints).map(_ || acc)
@@ -90,7 +91,7 @@ class AbilityResolver(
     */
   private def tryResolveOne(
       ref: AbilityRef,
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]]
   ): CheckIO[Boolean] = {
     val (abilityVfqn, refTypeArgs) = ref
     abilityVfqn.value.name.qualifier match {

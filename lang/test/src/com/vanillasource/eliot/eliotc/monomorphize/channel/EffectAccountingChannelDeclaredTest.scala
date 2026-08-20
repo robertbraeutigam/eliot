@@ -2,8 +2,8 @@ package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue.ResolvedAbilityConstraint
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -19,7 +19,8 @@ class EffectAccountingChannelDeclaredTest extends AnyFlatSpec with Matchers {
   private def ability(name: String): AbilityFQN =
     AbilityFQN(ModuleName(Seq("eliot", "effect"), name), name)
 
-  private def entry(name: String): ResolvedAbilityConstraint = ResolvedAbilityConstraint(ability(name), Seq.empty)
+  private def entry(name: String): AbilityConstraint[OperatorResolvedExpression] =
+    AbilityConstraint(ability(name), Seq.empty)
 
   "the channel declared-row rendering extraction" should "union the return and parameter positions" in {
     val row = EffectRow(Seq(entry("Console")), Seq(EffectRow.ParameterEffects(0, Seq(entry("Log")))))
@@ -32,6 +33,8 @@ class EffectAccountingChannelDeclaredTest extends AnyFlatSpec with Matchers {
   }
 
   it should "be empty for a row carrying no open effects" in {
-    EffectAccountingProcessor.channelDeclaredEffects(EffectRow.empty[ResolvedAbilityConstraint]) shouldBe Set.empty
+    EffectAccountingProcessor.channelDeclaredEffects(
+      EffectRow.empty[AbilityConstraint[OperatorResolvedExpression]]
+    ) shouldBe Set.empty
   }
 }

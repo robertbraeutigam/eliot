@@ -47,7 +47,7 @@ case class FunctionDefinition(
     // this signature, position-attributed, captured by `EffectSugarDesugarer.desugar` before the carrier rewrite erases
     // them. Unlike the fields above it is *not* dropped at the core boundary — it forwards down the value fact chain to
     // the monomorphize phase (see [[EffectRow]]). Dark/inert in Phase 1 and never part of `signatureEquality`.
-    effectRow: EffectRow[GenericParameter.AbilityConstraint] = EffectRow.empty
+    effectRow: EffectRow[UnresolvedAbilityConstraint[Sourced[Expression]]] = EffectRow.empty
 )
 
 object FunctionDefinition {

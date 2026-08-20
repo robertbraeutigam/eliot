@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityConstraint
 
 /** The codegen-relevance classification of each leading generic binder of a value, computed once,
   * statically (no evaluation), on the *saturated* signature + body. This is the monomorphization-keying plan's **B1**
@@ -163,7 +164,7 @@ object BinderRoles {
     * collapse, never causes an unsound merge.
     */
   private def dispatchedRefs(
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]]
   ): Set[String] =
     paramConstraints.keySet ++
       paramConstraints.values.flatten.flatMap(_.typeArgs.flatMap(parameterRefs)).toSet

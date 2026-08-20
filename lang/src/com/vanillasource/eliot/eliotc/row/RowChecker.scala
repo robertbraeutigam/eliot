@@ -4,7 +4,7 @@ import com.vanillasource.eliot.eliotc.effect.processor.{EffectCarriers, EffectMa
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN}
 
 /** The effects-as-rows **per-definition row checker** (docs/effects-as-rows.md §2 / Appendix A), run by
   * [[com.vanillasource.eliot.eliotc.row.processor.RowElaborationProcessor]] on every runtime definition.
@@ -222,7 +222,7 @@ object RowChecker {
   private def aliasPinnedReturnEntries(
       orv: OperatorResolvedValue,
       universe: Universe
-  ): Seq[OperatorResolvedValue.ResolvedAbilityConstraint] =
+  ): Seq[AbilityConstraint[OperatorResolvedExpression]] =
     headOf(SignatureView.of(orv.signature).returnType.value)
       .flatMap(universe.lookup)
       .filter(_.effectRow.aliasPinned)

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -150,7 +150,7 @@ object Track {
       */
     private def throwCarrierErrorType(
         binderName: String,
-        constraints: Seq[OperatorResolvedValue.ResolvedAbilityConstraint]
+        constraints: Seq[AbilityConstraint[OperatorResolvedExpression]]
     ): Option[OperatorResolvedExpression] =
       constraints.collectFirst {
         case c

@@ -56,8 +56,9 @@ import cats.syntax.all.*
   *   testCases: Test`) reads this tag through one level of alias expansion, which is what the elaborator's whitelist
   *   (docs/effects-as-rows.md §3.2) sanctions. Empty for every other definition.
   * @tparam C
-  *   The phase's ability-constraint representation: ast [[GenericParameter.AbilityConstraint]] at the desugarer, then
-  *   `NamedValue.CoreAbilityConstraint`, then each later phase's `ResolvedAbilityConstraint`.
+  *   The phase's ability-constraint representation: [[UnresolvedAbilityConstraint]] over the ast's and then the core's
+  *   expression type, and from resolution onwards
+  *   [[com.vanillasource.eliot.eliotc.resolve.fact.AbilityConstraint]] over each phase's expression type.
   */
 case class EffectRow[C](
     returnEffects: Seq[C] = Seq.empty[C],
