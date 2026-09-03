@@ -127,6 +127,16 @@ def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S]      -- suppli
 Read as English they are already right: *"I will run this computation, and the `Throw` it needs comes from
 me."* That is what a discharger is, and it needs no tail, no base and no second concept.
 
+The first bullet has a consequence worth stating outright, because it reads as a bug the first time it is
+met: **a definition cannot supply an entry its own declared return row already names.** A combinator that
+consumes `Throw[E]` and re-raises `Throw[E]` itself — the "rewrite this failure's message" shape — cannot
+spell its parameter `{Throw[E]} A`, because that denotes the very same carrier rather than one layer above
+it, and there is then nothing to discharge. The two available answers are both honest: take the inner error
+at a *different* declared type (`[E1, E2]`, the shape `Throw`'s own cross-lift instance already uses), or
+pin the body (`{Throw[E] | Id} A`) and give up composing with effectful bodies. This is not a limitation of
+the supply rule so much as the rule being per *entry* and syntactic, which is what keeps it decidable from
+declarations alone.
+
 `EffectSugarDesugarer.supplyPinnedParameters` rewrites the supplied entries into the **pinned** spelling
 over the ambient carrier before anything else runs, so the signature and the capture tag
 (`EffectRow.pinnedParameterEffects`) are identical to what `{Abort | G} A` produced by hand — which is why
@@ -380,6 +390,13 @@ carrier fixing silently dropped the everyday "I forgot the effect set" diagnosti
 *payload*, not the declared return, because a rowed callee's return is `F[X]` by the time the row check
 reads it.
 
+The first condition is asked of what the argument **finally delivers**, not of its outermost node. A
+`{ … }` block is an applied lambda, so before that peel a block never matched and the harness was charged
+for the very effect it fakes — while the same harness written as a single call deferred correctly, which is
+a difference the user cannot see and cannot act on. The peel changes only *which* expression the
+discriminator is applied to: a block delivering the slot's own payload (`takeOpt({ …; readOpt })`) is still
+charged where it ran.
+
 ### 3.4 `Id`
 
 `Id` is the value of the empty row, and it is **written**, not manufactured. It stays ordinary `data`
@@ -587,6 +604,27 @@ Two mechanisms had to be extended to reach it, and both are now load-bearing par
   it fakes. Before it, the identical harness was accepted or rejected purely on the shape of its own return
   type.
 
+**What a fake gets, and what it does not: lifting.** A real effect instance is **carrier-polymorphic**
+(`implement[F[_] ~ Suspend] Console[F]`), so it applies at any *stack* whose base can suspend — and
+`Suspend` lifts through all five stdlib carriers. That is why real effects appear to compose freely: the
+`Suspend` constraint is doing the work an mtl `lift` would. A fake instance is **monomorphic at one concrete
+carrier** (`implement Console[Recorded]`) — which is exactly what makes it uncheatable — and therefore gets
+no lifting at all. So a fake carrier can host any number of abilities, but the moment a stdlib control
+carrier is stacked *over* it, resolution fails at the stack:
+
+```
+No ability implementation found for ability 'Transcript' with type arguments [{Throw[AssertionError] | Recorded}]
+```
+
+The strategy that follows, and the one the framework in `eliot-test` uses, is **do not stack over a fake**:
+give the fake carrier its own instance of every ability the test body needs — assertions included
+(`implement Throw[AssertionError, Recorded]`) — so everything rides one carrier and nothing has to lift.
+That is what makes §7.7's interleaved case work. A missing cell *can* be hand-written
+(`implement[E, G[_] ~ Transcript & Effect] Transcript[ThrowCarrier[E, G]]` resolves and runs), but it is one
+instance per (ability × carrier layer) — the n² matrix the stdlib's own cross-lift comments name. Whether
+that matrix should ever be derived rather than written is **not** an open decision here: nothing in the
+testing strategy needs it, and the no-stacking answer costs nothing.
+
 **Alternatives, deliberately kept documented.** `Dep[X]` + `provide` is the supported route when you are
 willing to state the seam in the signature — it changes production signatures, so it is the fallback, not
 the strategy. **Swapping the platform layer** (drop `jvm/eliot` from `--path`, put a test layer there)
@@ -615,11 +653,21 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    the argument's **declared** row.
 5. **A lambda body at a rowless arrow slot does not get its own pure region.** → **D5**.
 6. **Rule-4 violations are diagnosed twice, unequally.** → **W2**.
-7. **A test is run-then-assert, never interleaved.** Inside a pinned region the ambient carrier *is* the
-   pinned stack, and the elaborator writes every carrier-generic callee at the region's carrier — so a fake
-   run written *inside* a pinned body is written at the pinned stack, not at the fake carrier. A
-   carrier-generic value can only be instantiated at a foreign carrier in a region with no ambient carrier
-   of its own. → **W3** is the convenience that would remove it.
+7. **A fake run needs a region with no ambient carrier of its own.** Inside a pinned region the ambient
+   carrier *is* the pinned stack, and the elaborator writes every carrier-generic callee at the region's
+   carrier — so a fake run written *inside* a pinned body is written at the pinned stack, not at the fake
+   carrier. A carrier-generic value can only be instantiated at a foreign carrier in a region with no
+   ambient carrier of its own. → **W3** is the convenience that would remove it.
+
+   This was previously stated as "a test is run-then-assert, never interleaved", which is **wrong** and is
+   corrected here: interleaving assertions with faked effects works today, and `eliot-test`'s
+   `test/eliot/test/example/` is the worked example. What made it work was not stacking — a pinned
+   `{Throw[AssertionError] | Session}` does fail, for the two reasons the retired L3 note recorded — but
+   giving the *fake carrier itself* a `Throw[AssertionError]` instance, so assertions ride the same carrier
+   as the faked effects and nothing has to lift (§6). What genuinely remains is the region rule above: the
+   run must sit in its own definition, so a direct-style faked case costs a body `def` and a discharge
+   `def`. Since the block peel (§3.3) the *body* of either may be a multi-statement `{ … }` block; before
+   it, only a single call was deferred and a block was charged to the harness.
 8. **Rows are sets of abilities**, so a definition mixing a faked run with a real leak of *the same* ability
    defers that entry and the user gets the post-mono `Type mismatch` at the harness body instead of the
    located effect-vocabulary message. The program is still rejected; only the diagnostic degrades, and only
@@ -878,8 +926,15 @@ codegen precondition, the unconditional fail-safe, and the only verifier that se
   This is the tag the platform already contributes for `runMain`'s `io: IO[A]`, made declarable instead of
   plugin-only; the cheapest surface reuses pinned-row syntax with no ability entries, so the existing tag
   pipeline applies unchanged. It would buy a runner taking a program on a bespoke carrier directly, removing
-  §7.7's run-then-assert constraint. **A later convenience, not a prerequisite** — a framework ships today
-  without it. If D1/B1 lands option (b), `runAt[…]` supersedes it.
+  §7.7's region constraint — the remaining cost of a faked case, now that interleaving itself works.
+  **A later convenience, not a prerequisite** — a framework ships today without it. If D1/B1 lands option
+  (b), `runAt[…]` supersedes it.
+
+  One thing measured while correcting §7.7, so it is not re-derived: declaring the slot as a **pinned row
+  over the fake** (`body: {Throw[AssertionError] | Recorded} Unit`) *does* widen the capture's ambient row —
+  the higher-kinded mismatch disappears and the block elaborates — but it lands the body on
+  `ThrowCarrier[…, Recorded]` and so walks straight into the fake-lifting wall (§6). Any W3 surface must put
+  the body on the fake carrier itself, not on a stack over it.
 - **W4 — optional hardening: reject a `data` field typed by the data's own open carrier binder** (§7.9).
   The open-*row* field is already rejected; this shape reaches the same place by another spelling.
 
