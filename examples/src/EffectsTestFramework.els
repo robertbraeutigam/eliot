@@ -2,7 +2,7 @@ import eliot.carrier.Effect
 
 /**
  * A **miniature test framework** for effectful code, built entirely out of the fake-carrier strategy
- * (`docs/testing-effects.md`). `EffectsFakeConsole` shows the mechanism on a single value; this is what it looks like
+ * (`docs/effects.md` §6). `EffectsFakeConsole` shows the mechanism on a single value; this is what it looks like
  * once it is factored into the two pieces a suite actually needs:
  *
  *   - `transcriptOf` — one helper whose `program: Recorded[Unit]` slot *is* the seam. Handing carrier-generic

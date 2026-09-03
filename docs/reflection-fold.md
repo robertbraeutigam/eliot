@@ -32,7 +32,7 @@ error: This value performs the effect 'Console' but does not declare it
 ```
 
 `RowChecker.fixesCarrier` reads *declarations*, and `prepend`'s slot is declared `A`, so the fake-carrier deferral
-(`docs/testing-effects.md` L2) cannot see the concrete `[Recorded[Unit]]` written at the call. Declare the effect
+(`docs/effects.md` §3.3) cannot see the concrete `[Recorded[Unit]]` written at the call. Declare the effect
 to satisfy it, and the definition acquires an ambient carrier — at which point the elaborator writes every
 carrier-generic callee at *that* carrier, the gathered values included:
 

@@ -11,7 +11,7 @@ import eliot.carrier.Effect
  *
  * The pure test carrier `Session` threads a `Pair(pendingInput, writtenOutput)`, so `read` is fed a canned line and
  * `write` accumulates a transcript — the whole run is a pure function, with no `Suspend` and therefore no way for a
- * real side effect to occur inside it (`docs/testing-effects.md`).
+ * real side effect to occur inside it (`docs/effects.md` §6).
  *
  * ```sh
  * ./mill examples.run jvm exe-jar examples/src/ -m EffectsFakeCarrier
@@ -55,7 +55,7 @@ implement Terminal[Session] {
 
 // Running the fake: unification instantiates `greet`'s minted carrier to `Session`, ability resolution picks the fake
 // instance, and the result is a plain value — here the written transcript as a bare `String` — a test framework can then
-// assert on. The one shape forced (`docs/testing-effects.md` §3) is that the run must sit in a definition with **no
+// assert on. The one shape forced (`docs/effects.md` §7.7) is that the run must sit in a definition with **no
 // ambient carrier of its own**, since a region writes every carrier-generic callee at *its* carrier. Its return type is
 // free: a definition handing a carrier-generic value to a slot that fixes a concrete carrier is left to the post-mono
 // effect channel, which knows what the effect actually rides on.

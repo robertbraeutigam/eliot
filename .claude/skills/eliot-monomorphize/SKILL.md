@@ -96,7 +96,7 @@ and its sibling tests under `lang/test/src/com/vanillasource/eliot/eliotc/monomo
 `monomorphize` is the sole monomorphic type-checker package. There is **one** evaluator traversal (`NbeEvaluator`)
 and **one** semantic domain (`SemValue`) shared by types and values — never a second, weaker compile-time interpreter.
 
-**Effect elaboration is *not* in this package.** Since effects-as-rows (`docs/effects-as-rows.md`), the upstream
+**Effect elaboration is *not* in this package.** Since effects-as-rows (`docs/effects.md` §3.1), the upstream
 `row/` phase desugars direct-style code into explicit monadic core and **writes the carrier as a type argument**, so
 the checker receives ordinary, fully explicit code in which every carrier position is rigid. What that leaves here is
 listed under "The effect channel" below: one pure-lift rule, the compile track's inferred guard carrier, the
@@ -401,8 +401,7 @@ the JVM backend decodes machine widths from it, the LSP hover shows value ranges
 
 ### The effect channel (`channel/`) — the other post-pass
 
-Authoritative design: `docs/effects-as-rows.md` (§1 the user rules, §3 elaboration, §4 what is deleted / stays).
-`docs/effects-as-channel.md` is the superseded v2 design — history only. Same template as the refinement channel: a
+Authoritative design: `docs/effects.md` (§1 the user rules, §3 the mechanism, §3.3 the two verifiers). Same template as the refinement channel: a
 rider on `MonomorphicValue`, strictly downstream of typing.
 
 - **The carrier is written, not inferred.** `row/RowElaborator` writes the ambient carrier (and every other

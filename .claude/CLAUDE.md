@@ -122,7 +122,7 @@ subset of its data.
     then filtered twice: by the candidate's `where` guard, and by **constraint-aware declination** — a candidate whose
     `~` constraints have no implementation at the matched bindings declines, so `implement[F[_] ~ Suspend] Console[F]`
     carries `Console` only for a carrier that can suspend. That is what lets a test declare its own instance for a pure
-    fake carrier without colliding with the library's catch-all (`docs/testing-effects.md` L1); every step of the check
+    fake carrier without colliding with the library's catch-all (`docs/effects.md` §6); every step of the check
     is fail-safe *towards keeping*, so it can only remove a candidate that could not have worked. A constraint probe
     that leads back to a resolution already in progress is answered "satisfied" off `activeFactKeys`, never demanded.
 13. **monomorphize** — the NbE monomorphic type checker: evaluates data and value definitions into typed
@@ -132,7 +132,7 @@ subset of its data.
     - **elaboration is not here** — no bind, no `pure`, no `Id` is decided by the checker. The one effect rule it
       keeps is `check/EffectLifter.tryPureWrap` (a pure term into a *rigid* carrier-headed expected type).
       `EffectLifter` and `CarrierKindChecker` are **not** otherwise deletable, and that is measured, not assumed
-      (effects-v5 step 4, `docs/effects-v5-one-carrier.md` §5 Q1): five of their six arms are live, two for
+      (`docs/effects.md` §11, "do not re-propose"): five of their six arms are live, two for
       *soundness* — `CarrierKindChecker.verifyCarrierKinds` is the only thing rejecting a `[F[_]]` binder
       instantiated at a fully-applied proper type, and with it off that program silently compiles. The one arm
       that did measure dead, `mustLiftBeforeUnify`, is deleted. **Do not re-attempt the whole-file deletion**; the
@@ -378,8 +378,9 @@ any program in which some input it does take is wrong.*
 
 The user writes **effect rows** (`def main: {Console} Unit`); the compiler works in **carriers**. These are two
 different things on purpose, and keeping them apart is what makes effects free of special cases. Authoritative
-design: `docs/effects-as-rows.md` (§1 the four user rules, §2 the two channels, §3 elaboration and its whitelist,
-§4 what is deleted / stays). `docs/effects-as-channel.md` is the **superseded** v2 design — history only.
+design: `docs/effects.md` — Part I states the design (§1 the four user rules, §2 the surface, §3 the mechanism,
+§4 the derivation spec, §5 the standing rules) and Part II the open plan. It replaces the ten retired effect
+documents; §12 there maps their citations.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 
@@ -480,7 +481,7 @@ to a carrier stack with no residual marker, so the marker is added at the desuga
 Classifying by the `<Ability>Carrier` naming convention, an LSP reverse table, or "has an `Effect` instance"
 **miscompiles in both directions** and is prohibited.
 
-**Pinned rows** (`{Throw[E] | Id} A`, `docs/effect-row-tails.md`): a tail after `|` makes the row a *concrete
+**Pinned rows** (`{Throw[E] | Id} A`, `docs/effects.md` §2.3): a tail after `|` makes the row a *concrete
 type* — the canonical carrier stack over the base, built in core by the `<Ability>Carrier` naming convention,
 entries leftmost-outermost = discharge order, no carrier generic minted. Stored (`data`-field) rows **MUST** be
 pinned. Since effects-v5 step 2 a **generic** tail is no longer written anywhere: a discharger spells its input as
@@ -489,8 +490,8 @@ carrier, producing the identical type — so `signatureEquality` still holds acr
 left only where the base is *concrete* (a `data` field's `| Id`). `Suspend`-riding effects (`Console`) have no
 canonical carrier and so cannot be pinned (v1) — nor supplied, which is the same diagnostic.
 
-**`&` is a standard-library name, and an ability resolves like any other value** (`docs/effects-syntax-userspace.md`,
-stages 1-2 landed). The constraint combinator is `infix left type &[A, B]` in `eliot.lang.Ability` (prelude, so
+**`&` is a standard-library name, and an ability resolves like any other value** (`docs/effects.md` §2.5;
+full user-space `~`/`&` is decision D3, blocked). The constraint combinator is `infix left type &[A, B]` in `eliot.lang.Ability` (prelude, so
 ambient): the parser accepts *any* operator between two `~` constraints and `ValueResolver.resolveCombinator` looks
 the name up in the ordinary dictionary, requiring `WellKnownTypes.abilityCombinatorFQN` — so a module declaring its
 own `&` takes the name back and gets a diagnostic instead of the built-in meaning. The combinator rides ast→core on
@@ -538,13 +539,13 @@ derivation incomplete, a definition whose declared return could *itself* be the 
 `Box[String]`, `IO[Unit]`, a generic head) is the constructor-class shape, and — per row entry — a contribution
 handed to a slot that **fixes a foreign concrete carrier** (`RowChecker.fixesCarrier`: a saturated rowed callee
 delivered to a concrete applied slot headed differently from that callee's own payload) is performed in *that* carrier,
-which is the whole of the fake-carrier testing strategy (`docs/testing-effects.md` L2). It also owns the one diagnostic
+which is the whole of the fake-carrier testing strategy (`docs/effects.md` §6). It also owns the one diagnostic
 accounting cannot voice — "declared pure but performs effects", for a definition whose return cannot host a
 carrier — since such a value's mono fails and produces no `MonomorphicValue`.
 
 **The empty row `{}` is how a definition says "on my own ambient carrier, nothing added"** — the spelling of every
 suspended-but-effect-transparent slot (`fold`'s arms, `else`'s fallback, `catch`'s handler, `foldLeft`'s `initial`,
-`.`'s `f`). It is the only spelling in the tree since effects-v5 step 1 (`docs/effects-v5-one-carrier.md` §4); the
+`.`'s `f`). It is the only spelling in the tree (`docs/effects.md` §2.1); the
 older `{Effect}` names the machinery ability explicitly and is exactly what an empty row desugars *into*, so both
 parse and mean the same thing. The synthesized constraint resolves at its fixed FQN, so `{}` needs no
 `import eliot.carrier.Effect` — which is why writing one never puts `map`/`flatMap`/`pure` in a user's scope. A row

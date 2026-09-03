@@ -56,31 +56,11 @@ notes.
 
 ## Effects & I/O
 
-- **A lambda body at a rowless arrow slot does not get its own pure region.** It is elaborated in
-  the *enclosing* region, so a discharge written inline there lands on the caller's carrier
-  instead of reaching the `Id` boundary:
-
-  ```
-  def call(f: Option[String] => String): {Console} Unit = printLine(readLine.f)
-  def main: IO[Unit] = call(s -> s.orAbort else "")   // Expected: String, Actual: IO(String)
-  ```
-
-  `f`'s codomain is declared rowless, so by §1 rule 4 the lambda's body is a value position and
-  its `else` should discharge to `Id` — which is exactly what happens when the same discharge sits
-  in a named pure helper (`call(s -> orEmpty(s))` compiles and runs). This is the same principle as
-  the block-tail fix in `a669f530` (a value position must reach the boundary), applied one level
-  further in: `elaborateLambdaNatural` would take the slot's declared codomain rather than
-  inheriting `region`. It is held back because it changes what "a lambda at a plain arrow slot"
-  means for *every* call — the existing arm deliberately lets an effectful body become a bind chain
-  on the enclosing carrier — so it is a rule decision, not a patch (doc standing rule 2). Pinned by
-  `ExamplesIntegrationTest1`, "bind an effectful subject dotted into a function-typed parameter",
-  whose handler is spelled around the gap.
-- **Rule-4 violations are diagnosed twice, unequally.** A user pipe declaring no row
-  (`|>[A, B](a: A, f: A => B): B`) given a computation gets the elaborator's own "This argument is
-  a computation, but argument N of '|>' declares no effect row". The stdlib `.` — whose `f`
-  declares `{}` — instead hoists the subject and leaves the checker to report an
-  unattributable `Type mismatch. Expected: IO(IO(Option(String)))` at the subject. Both are the
-  same violation (`readLine.flatMap(f)`); only one names the slot.
+The effect system has **one** document, `docs/effects.md`: Part I is the design, Part II is the whole
+remaining plan — the open decisions (D1 whether the row leaves the carrier behind, D2 an ability declaring
+its carrier, D3 `~`/`&` in user space, D4 `Suspend`-riding pins, D5 a lambda at a rowless arrow slot), the
+open work items (W1–W4) and §11's list of things closed by measurement. Nothing effect-related is tracked
+here; add it there.
 
 ## Syntax sugar & ergonomics
 
