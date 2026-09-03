@@ -504,10 +504,26 @@ object RowChecker {
   ): Boolean = {
     val fixed = for {
       slotHead    <- slotType(callee, index).flatMap(carrierShapeHead)
-      computation <- carrierGenericComputation(arg, universe)
+      computation <- carrierGenericComputation(resultOf(arg), universe)
       payloadHead <- headOf(payloadOf(SignatureView.of(computation.signature).returnType.value))
     } yield payloadHead != slotHead
     fixed.getOrElse(false)
+  }
+
+  /** What a **block** argument finally delivers. A `{ a; b }` block (and every `val` in one) is desugared to an
+    * *applied* lambda whose body is the continuation, so the expression that decides what the block hands to the slot
+    * is the innermost body, not the outermost application.
+    *
+    * Peeling it is what lets [[fixesCarrier]] judge a block by the same declared information it judges a bare call by:
+    * `onConsole(input, { printLine(l); transcript shouldBe t })` fixes the fake carrier exactly as
+    * `onConsole(input, script)` does, and before this the block shape simply failed to match and the whole harness was
+    * charged for the effects it fakes. The discriminator itself is unchanged — the peeled result still has to be a
+    * saturated rowed callee whose declared payload is headed differently from the slot — so a block delivering the
+    * slot's own payload (`take({ log(n); someList })` at a `List[A]` slot) stays charged here, where it ran.
+    */
+  private def resultOf(expr: OperatorResolvedExpression): OperatorResolvedExpression = spine(expr) match {
+    case (FunctionLiteral(_, _, body), args) if args.nonEmpty => resultOf(body.value)
+    case _                                                    => expr
   }
 
   /** What a declared return type *carries*: the last argument of an applied return (`F[Str]` ⇒ `Str`), which is where a

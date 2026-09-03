@@ -295,6 +295,35 @@ class RowCheckerTest
       .asserting(r => (r.leak.map(_.abilityName), r.undecided) shouldBe (Set("Con"), Set.empty))
   }
 
+  it should "not charge a harness for a block handed to a slot that fixes a foreign concrete carrier" in {
+    // A `{ ... }` block is an *applied lambda*, so before the block was peeled to its result the harness was charged
+    // for the very effect it fakes — the shape a test writes when a faked body has more than one statement.
+    val source = prelude + fakeCarrierDecls +
+      """def harness: Str = runFake({
+        |val ignored = emptyStr
+        |probe
+        |})(emptyStr)
+        |""".stripMargin
+    rowCheck(source, fakeCarrierNames, "harness")
+      .asserting(r =>
+        (r.derived.map(_.abilityName), r.undecided.map(_.abilityName), r.leak) shouldBe
+          (Set("Con"), Set("Con"), Set.empty)
+      )
+  }
+
+  it should "keep charging a block delivering the slot's own declared payload" in {
+    // The peel changes *which* expression is judged, never the test applied to it: the block answers with `readOpt`,
+    // whose declared `Opt[Str]` is what the slot expects, so the effect ran here and stays charged here.
+    val source = prelude + fakeCarrierDecls +
+      """def harness: Str = takeOpt({
+        |val ignored = emptyStr
+        |readOpt
+        |})
+        |""".stripMargin
+    rowCheck(source, fakeCarrierNames, "harness")
+      .asserting(r => (r.leak.map(_.abilityName), r.undecided) shouldBe (Set("Con"), Set.empty))
+  }
+
   it should "keep charging an effectful callee delivering its own declared payload to a concrete slot" in {
     // `readOpt`'s declared return *is* what the slot expects, so the slot receives a payload rather than fixing a
     // carrier — the `orEmpty(readLine)` shape, which must stay the located "declared pure but performs" diagnostic.
