@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 /** The post-monomorphization **Id-normalization** stage (docs/effects-as-channel.md §6/§10, U1) — the one step that
   * occupies the `WovenValue` codegen seam between checking and codegen (`used`/`uncurry`/jvm read [[WovenValue]]). On
-  * by default: today's checker already inserts `runId`/`Id` (`tryIdDefault`, discharge-to-pure) and would otherwise
+  * by default: the elaborator writes `runId`/`Id` at the two pure boundaries and the tree would otherwise
   * ship the identity carrier `Id` to bytecode as a real data type with real allocations. This stage erases that pure
   * overhead totally so pure code recovers its efficient shape and no effect machinery ships for pure code:
   *

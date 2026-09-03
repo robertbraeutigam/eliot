@@ -107,36 +107,8 @@ class EffectLifterTest extends AnyFlatSpec with Matchers {
     run(solved, lifter.effectCarrierSplit(applied(io, string))) shouldBe Some((io, string))
   }
 
-  // --- mustLiftBeforeUnify / mustPureWrapBeforeUnify (the doomed-postponement pre-arms) ---
-
-  "mustLiftBeforeUnify" should "fire for a carrier-meta application against an under-applied rigid head" in {
-    val (ids, st) = stateWithMetas(1)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, string)) shouldBe true
-  }
-
-  it should "not fire against an equal-arity rigid head (injectivity decomposes it)" in {
-    val (ids, st) = stateWithMetas(1)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, applied(io, string))) shouldBe false
-  }
-
-  it should "not fire against another meta application (a storage-slot postponement stays with unification)" in {
-    val (ids, st) = stateWithMetas(2)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, applied(VMeta(ids(1), Spine.SNil), string)))
-      .shouldBe(false)
-  }
-
-  it should "not fire for a concrete carrier head (which mismatches properly and takes the failure path)" in {
-    run(ambientIoState, lifter.mustLiftBeforeUnify(applied(io, string), string)) shouldBe false
-  }
-
-  it should "not fire against a VType expected (an effectful term must not bind-lift at a type/return boundary)" in {
-    val (ids, st) = stateWithMetas(1)
-    val actual    = applied(VMeta(ids.head, Spine.SNil), string)
-    run(higherKinded(st, ids.head), lifter.mustLiftBeforeUnify(actual, VType)) shouldBe false
-  }
+  // --- mustPureWrapBeforeUnify (the doomed-postponement pre-arm; its bind-lift dual retired in
+  // effects-v5 step 4, docs/effects-v5-one-carrier.md §5 Q1) ---
 
   "mustPureWrapBeforeUnify" should "fire for a pure rigid term against an ambient carrier-meta application" in {
     val (ids, st) = stateWithMetas(1)

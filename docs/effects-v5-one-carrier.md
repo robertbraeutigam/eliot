@@ -1,7 +1,11 @@
 # Effects v5: Rows Are Constraints on One Carrier
 
-**Status (2026-08-19): §4 steps 1 and 2 and §7 (naming a set of effects) are LANDED; §4 steps 3-4 are still a PROPOSAL that
-decides nothing** — per `docs/effects-as-rows.md` standing rule 1 the decision on them is Robert's, and §4 step 3 now
+**Status (2026-09-03): §4 steps 1, 2 and 4 and §7 (naming a set of effects) are LANDED; §4 step 3 is NOT TAKEN,
+refuted by measurement.** Step 4 was executed as the deletion it describes and found three of its four items *not*
+unused — the tail syntax, the pinned/open desugar machinery and the `{Effect}` binder-reuse rule all stay, the
+latter two because step 2 as landed *depends* on them — leaving one dead arm of six across `EffectLifter` /
+`CarrierKindChecker` (`mustLiftBeforeUnify`, deleted). §5 Q1 carries the per-arm measurement and the two soundness
+arms it found. Per `docs/effects-as-rows.md` standing rule 1 the decision on step 3 is Robert's, and it now
 has a **measurement against it** (below, and §5 C1). Written from scratch against seven constraints he stated: *we need effects; unordered
 preferred; effects as monadic abilities preferred; a mechanism independent of `monomorphize`, so it can stay
 simple; no pinned rows, they are hard to grasp; effects must stay generic — testable with pure carriers; and `IO`
@@ -93,6 +97,16 @@ inference and specialised by whole-program monomorphization.
 
 Compared with v3-as-landed, and all of it subtraction rather than replacement:
 
+> **Superseded by measurement (2026-09-03), and left standing rather than edited** — this table is what v5 predicted
+> it would delete *if all four steps of §4 landed*. Steps 1, 2 and 4 landed and step 3 did not, and under that
+> outcome **the first three rows are wrong**: pinned rows and the `{… | T}` tail are still the sanctioned spelling
+> of a stored computation (§4 step 3), the open/pinned distinction is what step 2 *lowers into*, and the
+> `{Effect}` binder-reuse rule is what step 2 *finds a discharger's ambient carrier with*. Row 4 (`~ Effect` on
+> `def` heads) went the other way: step 2 **added** five such heads, deliberately, rather than removing nine.
+> Rows 5 and 6 are untouched and still open — row 6 is §5 Q2. The table is a record of the prediction; §4 step 4
+> and §5 Q1 are the record of what actually happened. Amending it in place would erase the difference between the
+> two, which is the part worth keeping.
+
 | what goes | why it existed |
 | --- | --- |
 | pinned rows, `{… \| T}` tails, "a stored row must be pinned" | a row that must be a *type* needed a concrete stack |
@@ -168,6 +182,33 @@ together. v5 has no such step, because every intermediate state is expressible i
      surfaced rather than narrowed into shape.
 4. **Delete what is then unused**: the tail syntax, the pinned/open machinery in `EffectSugarDesugarer`, the
    `{Effect}` reuse rule, and — once the desugar writes every `pure` — `EffectLifter` and `CarrierKindChecker`.
+   **Executed 2026-09-03, and the operative word turned out to be *then*: three of the four items are not unused,
+   and the fourth is unused only in one of its six arms.** Q1's measurement (§5, and §4-Q1 below) was run first;
+   what it found, item by item:
+
+   - **The tail syntax stays.** Step 3 was not taken, so the pinned row is still the sanctioned spelling of a
+     stored computation (§1 rule 3, `docs/effect-row-tails.md`) and the only one that does not name a carrier
+     stack. Deleting it would remove the ability to store a computation at all — a language subtraction, not a
+     cleanup. Step 4 assumed step 3 had landed; it had not, and the refutation recorded under step 3 is precisely
+     why it should not.
+   - **The pinned/open machinery in `EffectSugarDesugarer` stays, and now has *more* callers than before v5.**
+     Step 2 lowers a supplied parameter row *into* the pinned spelling (`supplyPinnedParameters` ⤳
+     `{Abort} A` becomes `AbortCarrier[G, A]`), which is exactly what let the fifteen signatures migrate with no
+     downstream phase touched. The machinery is the internal representation the new surface desugars to.
+   - **The `{Effect}` binder-reuse rule stays, and step 2 depends on it.** §4 step 2 found the ambient carrier of
+     a discharger "by the *existing* rule — the signature's one `Effect`-constrained binder", which is that rule;
+     the five dischargers were given `G[_] ~ Effect` so it would fire. Removing it breaks every discharger. §3's
+     table listed it as deleted on the assumption that steps 3 and 4 removed the need for it; step 2 as landed
+     creates the need instead.
+   - **`EffectLifter` and `CarrierKindChecker` stay; one arm of six goes.** See Q1 below. `mustLiftBeforeUnify`
+     is deleted (with its `equalArityNonCarrier` / `isFlexMeta` guards and its `Checker` call site); the other
+     five arms are load-bearing, two of them for soundness.
+
+   The honest summary of step 4 is therefore: **it is done, and it removed 105 net lines of Scala (137 deleted,
+   32 added, across four source files and one test) rather than the two whole files it names.** The
+   deletion step was sized against an end state (steps 1–3 all landed) that the tree did not reach, and the parts
+   of it that did not apply are recorded here rather than forced through — `docs/effects-as-rows.md` standing
+   rule 2.
 
 Each step is `__.test`-green and example-jar-identical on its own, which is the gate v3 and v4 both use.
 
@@ -192,9 +233,44 @@ Each step is `__.test`-green and example-jar-identical on its own, which is the 
   whenFalse: {} A): {} A` carries whatever its arms carry because all three share one carrier; v4 needed a row
   variable and then row weakening (its R11) for the same thing. This is v5's strongest structural claim and it
   should be verified on `foldLeft` and on `TestSuite.els`'s reflection shape before anything is deleted.
-- **Q1 — does the desugar really leave the checker with no effect rule?** Verify by deleting `EffectLifter` and
-  `CarrierKindChecker` and seeing what fails; that measurement is the gate for step 4 and can be run cheaply
-  today.
+- **Q1 — does the desugar really leave the checker with no effect rule? — ANSWERED 2026-09-03: no, it leaves
+  five, two of them soundness.** The measurement §4 step 4 gates on was run as specified — each arm of the two
+  classes disabled behind its own switch, then the whole gate (`__.test`, 871 tasks) and all 45 example
+  compilations run per switch. Disabling *everything* still compiles all 45 examples to **byte-identical** jars,
+  which is exactly the trap the examples-only audit warns about (`reference_verification_harness_recipes`: an
+  audit over the examples alone under-reports, because elaboration is demand-driven); the jvm end-to-end suites
+  are what actually separated the arms.
+
+  | Arm | Failures with it off | Verdict |
+  |---|---|---|
+  | `EffectLifter.effectCarrierSplit` | 19 (incl. 4 end-to-end) | **live** — the carrier recognition every other arm and `typeImmediateLambda` read |
+  | `EffectLifter.mustLiftBeforeUnify` | 1, its own unit test | **dead — deleted** |
+  | `EffectLifter.mustPureWrapBeforeUnify` | 5 (incl. 3 end-to-end) | **live** |
+  | `EffectLifter.tryPureWrap` | 9 (incl. end-to-end) | **live** — the one sanctioned checker effect rule |
+  | `CarrierKindChecker.recordCarrierMetas` | 6 (incl. 4 end-to-end + a soundness case) | **live** |
+  | `CarrierKindChecker.verifyCarrierKinds` | 1, and it is a **soundness** case | **live** |
+
+  The soundness case is `MonomorphicTypeCheckTest`'s *"reject a higher-kinded carrier inferred as a fully-applied
+  proper type"* — `def bad[F[_]](x: F): F` instantiated at `?F := Box[String]`. With `verifyCarrierKinds` off it
+  **compiles**, which is a wrongly-kinded program accepted silently. That single test is the whole answer to
+  whether `CarrierKindChecker` can go: it cannot, and the reason is not effects at all — it is the kind system
+  the class was always described as ("a non-equality *kind system*, kept out of the checker's definitional
+  equality concern"). Step 4 bundled it with the effect machinery because it lives next door.
+
+  **Why `mustLiftBeforeUnify` really is dead**, beyond "no test failed" — the arm was instrumented to print on
+  every `true` return, and across the entire gate *and* all 45 examples it fired **exactly once**, inside its own
+  unit test. Structurally: both shapes it recognized require the carrier to be a *metavariable*, and since the
+  elaborator writes the carrier (A.11.4) a runtime-track carrier never is, while the compile track's are pinned
+  by `Track.Compiler.pinCarriers`. Its original regression — the compound state `{State[List[String]]}` whose
+  `?F[?S]` spuriously unified with `List[X]` (2026-07-20, `2a821837`) — is in the gate twice
+  (`ExamplesIntegrationTest2`, `CarrierSlotCompileTest`) and passes without the arm.
+
+  **The residual risk, stated rather than buried.** The arm was a guard against a *silent* miscompile (carrier
+  theft), and its own documentation said the guard family "cannot be completed — do not extend it further". Its
+  removal is safe on the runtime track by construction; on the compile track, where carrier metas still exist, it
+  rests on the gate rather than on a proof. If a compile-track program is ever found in which a carrier meta
+  application meets an equal-arity data constructor at a flex payload, this is the commit to revisit — and the
+  fix is the elaborator writing that carrier too, not the guard coming back.
 - **Q2 — what does an ability declare about its carrier?** The `<Ability>Carrier` convention should become an
   explicit declaration on the ability, so "which representation supplies this effect" is written once, in one
   place, and no phase recognises a carrier by name.

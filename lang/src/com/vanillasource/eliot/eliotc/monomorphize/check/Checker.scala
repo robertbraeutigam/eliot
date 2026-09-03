@@ -800,22 +800,18 @@ class Checker(
                                     bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
                                     (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
                                     resolved                   <- expected match {
-                                                                    // Definitional equality, with the doomed shape
-                                                                    // (`?G[String]` ~ `String`, which unification can
-                                                                    // only postpone) skipped so it commits a single
-                                                                    // Expected/Actual mismatch rather than the
-                                                                    // unifier's per-type-argument spine errors. The
-                                                                    // pure-boundary `Id` fallback that used to sit
-                                                                    // here retired with the effects-as-rows slices —
-                                                                    // the elaborator writes `Id` and its `runId`
-                                                                    // projection at the two pure boundaries itself.
+                                                                    // Definitional equality. Two arms that used to
+                                                                    // sit here are gone: the pure-boundary `Id`
+                                                                    // fallback retired with the effects-as-rows
+                                                                    // slices (the elaborator writes `Id` and its
+                                                                    // `runId` projection at the two pure boundaries
+                                                                    // itself), and the bind-lift consultation
+                                                                    // retired with effects-v5 step 4 — the
+                                                                    // elaborator writes the carrier, so the
+                                                                    // carrier-meta shapes it recognized no longer
+                                                                    // arise (docs/effects-v5-one-carrier.md §5 Q1).
                                                                     case Some(exp) =>
-                                                                      lifter
-                                                                        .mustLiftBeforeUnify(wrappedType, exp)
-                                                                        .flatMap {
-                                                                          case true  => pure(false)
-                                                                          case false => tryUnifyCommitting(wrappedType, exp, body.as("Type mismatch."))
-                                                                        }
+                                                                      tryUnifyCommitting(wrappedType, exp, body.as("Type mismatch."))
                                                                         .flatMap {
                                                                           case true  => pure((wrappedExpr, exp))
                                                                           case false =>

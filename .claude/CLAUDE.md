@@ -131,6 +131,12 @@ subset of its data.
     ordinary types:
     - **elaboration is not here** — no bind, no `pure`, no `Id` is decided by the checker. The one effect rule it
       keeps is `check/EffectLifter.tryPureWrap` (a pure term into a *rigid* carrier-headed expected type).
+      `EffectLifter` and `CarrierKindChecker` are **not** otherwise deletable, and that is measured, not assumed
+      (effects-v5 step 4, `docs/effects-v5-one-carrier.md` §5 Q1): five of their six arms are live, two for
+      *soundness* — `CarrierKindChecker.verifyCarrierKinds` is the only thing rejecting a `[F[_]]` binder
+      instantiated at a fully-applied proper type, and with it off that program silently compiles. The one arm
+      that did measure dead, `mustLiftBeforeUnify`, is deleted. **Do not re-attempt the whole-file deletion**; the
+      remaining arms are a *kind* system living next door, not effect machinery.
     - **verification is not here either** — `derived ⊆ declared` is checked twice outside it (phase 11 pre-mono,
       and `channel/EffectAccountingProcessor` post-mono). The checker holds no effect diagnostic.
     - the **compile track** keeps its mid-spine default ladder and deferred slots *by design* (`Track.Compiler`,
