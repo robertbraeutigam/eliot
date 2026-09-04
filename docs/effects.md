@@ -854,8 +854,46 @@ representation supplies this effect" is written once, in one place, and no phase
 name. Half of this is already reachable and unused: `ability Console[F[_] ~ Suspend]` (§2.4) states "Console
 rides Suspend" on the ability instead of repeating it on every instance. The other half — naming
 `ThrowCarrier` as the representation of `Throw` — is what the pinned-row desugar and `EffectCarrierNaming`
-read by convention today. **Decision needed**: the spelling, and whether it subsumes the resolve-time "no
-such carrier" error that §3.1's dischargeability filter currently relies on.
+read by convention today.
+
+**Decided 2026-09-04: leave the convention as it is.** Not a rejection of the analysis below — a judgement
+that the convention is cheap enough, and every replacement either relocates the implicitness or buys a new
+declaration form. Revisit with D1, which changes the premise. What the round of analysis settled, so it is
+not re-derived:
+
+- **The property has a name, and it is not "has a pure model" — it is "has a canonical monad *transformer*"**:
+  a representation parametric in the base, so it can be a **layer**. `ThrowCarrier[E, G, A] = G[Either[E, A]]`
+  sits over any `G`; nothing does that for `Console`, and `Recorded` implements `Console` while being a
+  **base**, not a layer. That single property explains three things previously stated separately: which
+  effects can be pinned (§2.3), why one must not stack over a fake (§6), and why the carrier split exists at
+  all. Worth stating even while the convention stands.
+- **The convention is more contained than it looks.** It is read in the *construct* direction only —
+  `EffectSugarDesugarer` (2 sites), `RowElaborator`, `CanonicalStack` — plus the explicitly cosmetic inverse
+  in `EffectRowRendering`. Nothing decides by it. (`Checker.scala` imports `EffectCarrierNaming` and never
+  uses it; a dead import.)
+- **What it actually costs**, so the price is on the record: the carrier's *name* and its *module* are both
+  conventional, the complier cannot tell "no carrier" from a typo or a misplaced file, and the failure is
+  silent — which is why `{Console | X}` reports `Name not defined` pointing at `Console`, never mentioning
+  the carrier it looked for. That diagnostic is **W1**, and W1 cannot be fixed without this entry.
+- **The options, priced.** (2) a `type Carrier[G[_], A]` member on the ability — no new syntax, ability
+  blocks already parse `type` members (`PatternMatch` uses one) — but it *relocates* the convention rather
+  than removing it: `Carrier` is still a magic name and `type Carier` still silently means "no carrier".
+  (3) reserved syntax (`carrier ThrowCarrier[…] for Throw[E]`, on either the ability or the carrier) — the
+  only option where a typo is an error, because **a compiler-known name is unavoidable here and the only
+  real choice is whether it is reserved**. Carrier-side reads better and needs a uniqueness check;
+  ability-side is cheaper.
+- **Measured, so it is not re-feared:** `~ Suspend` on an ability does **not** constrain implementations.
+  `ability Transcript[F[_] ~ Suspend]` with a pure `implement Transcript[Recorded]` compiles and runs. So
+  §2.4's half is safe to use — but it is documentation, enforced nowhere, and therefore cannot be the signal
+  a desugar reads.
+- **A dedicated `effect` declaration form** (`effect Throw[E]` + `carrier … for Throw[E]`, mirroring
+  `ability`/`implement`) was considered and is **premature, not wrong**. Cost is ordinary — `data`,
+  `ability` and `implement` already desugar to `FunctionDefinition`s. The objection is conceptual: its one
+  gain over option (3) is an implicit carrier binder, and making an `effect`'s methods perform implicitly
+  reintroduces **effect-ness by shape**, which §3.6 removed on purpose and which is what made constructor
+  classes expressible. It also asserts at the syntax level the very specialness the cornerstone denies. It
+  becomes the *right* surface if **D1** lands, because effects would by then genuinely have stopped being
+  ordinary abilities — so it is a D1 question, not a standalone one.
 
 ### D3 — `~` and `&` fully in user space (stages 3 and 4)
 
