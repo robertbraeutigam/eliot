@@ -786,8 +786,32 @@ change, with no partial state.
   - **(b) keep the choice of interpretation as a *term*, not a type** (recommended): one run-site form
     `runAt[Recorded](program)` — precisely `row/RunBoundaryFunctions` generalised from a
     platform-registered FQN with a fixed base to one form whose base is a type argument. Nothing is a
-    carrier in a stored or passed type; the seam weaves the argument at the stack built over *that* base and
-    selects `Console[Recorded]` there. Every deletion then stands, tail included;
+    carrier in a stored or passed type; the seam weaves the argument at *that* base and selects
+    `Console[Recorded]` there. Every deletion then stands, tail included.
+
+    **Two corrections to this option, both load-bearing** (2026-09-04):
+
+    1. `runAt[B]` must mean **"the residual row resolves at `B`"**, *not* "the canonical stack of the row is
+       built over `B`". The stack-from-row rule is right for a **stored** computation, which has no base to
+       read one off — it is wrong here. Applied to `runAt[Recorded]` with a row of
+       `{Console, Transcript, Throw[AssertionError]}` it builds `ThrowCarrier[AssertionError, Recorded]`,
+       leaving `Console[Recorded]` and `Transcript[Recorded]` one layer down with nothing to lift them
+       (§6) — so the option would fail to preserve the exact capability B1 exists to preserve. The correct
+       rule is what the *real* path already does: whatever carrier is landed on, the row's abilities resolve
+       **there**, and **dischargers build their own layers internally**. Today `Console` at
+       `ThrowCarrier[E, IO]` resolves at the stack via the `Suspend` lift, and that stack came from a
+       discharger, not from the row. A fake with no discharger in play therefore lands on `Recorded` itself,
+       where its instances are. (A fake *with* an inner discharger still stacks and still hits §6 — the same
+       limitation as today, not a new one.)
+    2. The form **cannot be written in the language as it stands**, and not for a syntactic reason: the
+       elaborator would have to take the capture's carrier from the **call's own explicit type argument**,
+       which is not a source `§3.2`'s whitelist admits. Measured, so it is not re-tried:
+       `def runAt[B[_], A](body: B[A]): B[A] = body` called as `runAt[Recorded](script)` *inside a region*
+       is elaborated at the region's carrier and the script is charged to the enclosing definition — the
+       `[Recorded]` is simply not read. Admitting explicit type arguments to the whitelist is a decision, not
+       an implementation detail; it is defensible (an explicitly written type argument is not inference, and
+       is arguably the most declared thing at a call) but it is an amendment and needs sign-off. **W3's
+       parameter tag needs no such amendment** — see W3;
   - **(c) drop substituted interpretation** — delete the examples, the test classes and most of §6, and
     rewrite the flag-day gate. Note a test project is *additive*, so "test with a swapped layer" is a
     different thing (whole-layer replacement), not a version of the strategy.
@@ -934,7 +958,22 @@ codegen precondition, the unconditional fail-safe, and the only verifier that se
   over the fake** (`body: {Throw[AssertionError] | Recorded} Unit`) *does* widen the capture's ambient row —
   the higher-kinded mismatch disappears and the block elaborates — but it lands the body on
   `ThrowCarrier[…, Recorded]` and so walks straight into the fake-lifting wall (§6). Any W3 surface must put
-  the body on the fake carrier itself, not on a stack over it.
+  the body on the fake carrier itself, not on a stack over it. The entry-less spelling `{| Recorded} A` is
+  exactly that, and it is why the tag carries **no** entries: what the body performs, ability resolution
+  finds out on its own and reports precisely; the one thing no declaration states today is *"this slot hosts
+  a computation on this carrier"*, which is one bit, and the tag is it. (`{| B} A` does not parse today —
+  `ast.fact.Expression`'s row-tail parser reads `| base` only after at least one entry, on the reasoning that
+  such a row "is that carrier itself and needs no row spelling". True of the *type*; the point of the tag is
+  that it is not true of the *tag*. This is the same tag-not-shape distinction that already separates `{} A`
+  from `G[A]` under §1 rule 2, so it adds no concept.)
+
+  **W3 and D1's B1(b) are the same mechanism at two granularities**, which is the argument for doing W3
+  first regardless of how D1 goes. Both generalise `row/RunBoundaryFunctions` from "a platform-registered
+  FQN with a fixed base" to "a base the user supplies": W3 declares the boundary **on a parameter**, so the
+  base is in the callee's declared parameter type — already on §3.2's whitelist, no amendment needed;
+  `runAt[B]` is a **built-in** boundary whose base is a call-site type argument, which is not (B1(b)
+  correction 2). So W3 is a **down payment on B1**, in the one surface today's elaborator can already
+  consume, and it is not throwaway work under any outcome of D1.
 - **W4 — optional hardening: reject a `data` field typed by the data's own open carrier binder** (§7.9).
   The open-*row* field is already rejected; this shape reaches the same place by another spelling.
 
