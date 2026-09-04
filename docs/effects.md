@@ -1011,6 +1011,13 @@ codegen precondition, the unconditional fail-safe, and the only verifier that se
   including that a body performing an effect the named carrier cannot supply is rejected rather than
   rerouted.
 
+  A tagged slot also holds when the *callee itself* declares a row on its return, which was a stated
+  limitation before: giving a discharge word a `{Throw[E]} Unit` return used to stop the elaborator capturing
+  at the foreign carrier, because an untagged concrete slot is only recognised in a region with no carrier of
+  its own. The tag is read from the declaration and does not care, so a discharge word may both fix the
+  carrier and answer an effect — which is what lets a fake-carrier test case read as a **single word**
+  (`"…" should "…" in onConsole(input, { … })` in `eliot-test`) rather than a nested discharge.
+
   **Decided 2026-09-04: build this (Form A), not the `runAt` term (Form B).** Form A needs no §3.2
   amendment, Form B does (B1(b) correction 2); both generalise the same mechanism, so A is a down payment on
   B and is not throwaway if D1 later lands. Scope of the build: allow the entry-less row tail in the parser,
