@@ -947,6 +947,15 @@ codegen precondition, the unconditional fail-safe, and the only verifier that se
   instead hoists the subject and leaves the checker to report an unattributable
   `Type mismatch. Expected: IO(IO(Option(String)))`. Same violation, one message.
 - **W3 — a user-declarable capture tag** (`def check(name: String, program: {| Session} Unit): TestResult`).
+  **Decided 2026-09-04: build this (Form A), not the `runAt` term (Form B).** Form A needs no §3.2
+  amendment, Form B does (B1(b) correction 2); both generalise the same mechanism, so A is a down payment on
+  B and is not throwaway if D1 later lands. Scope of the build: allow the entry-less row tail in the parser,
+  thread the existing pinned tag with **zero** entries, and **derive no discharge stack inside a capture
+  whose carrier the declaration names concretely** — without that last part an assertion inside the block
+  still stacks a `ThrowCarrier` over the fake and lands back at §6's wall, which is the whole point of the
+  feature. Accepted cost: two spellings of one type (`{| Recorded} A` and `Recorded[A]`), separated by the
+  rule that already separates `{} A` from `G[A]` — *row spelling when the slot runs the thing, bare type
+  when it is data passed through*.
   This is the tag the platform already contributes for `runMain`'s `io: IO[A]`, made declarable instead of
   plugin-only; the cheapest surface reuses pinned-row syntax with no ability entries, so the existing tag
   pipeline applies unchanged. It would buy a runner taking a program on a bespoke carrier directly, removing
@@ -966,6 +975,23 @@ codegen precondition, the unconditional fail-safe, and the only verifier that se
   such a row "is that carrier itself and needs no row spelling". True of the *type*; the point of the tag is
   that it is not true of the *tag*. This is the same tag-not-shape distinction that already separates `{} A`
   from `G[A]` under §1 rule 2, so it adds no concept.)
+
+  **`{| B} A` is not a third meaning of the row** — it is the pinned row at **n = 0**. The rule is uniform:
+  `{E₁, …, Eₙ | B} A` is the canonical stack of the entries' carriers, leftmost-outermost, bottoming out at
+  `B`; with no entries there are no layers and the type is `B[A]`. `{Console | Recorded}` fails under that
+  *same* rule rather than a different one — there is no `ConsoleCarrier` to layer. What the tag adds is a
+  **fifth naming** on §1 rule 4's list of four (a pinned stack, a callee's own carrier binder, `Id`, a
+  platform run carrier); rule 4 already holds that the namings are "one predicate, not four arms", so this
+  extends an enumeration rather than adding a kind of slot.
+
+  **Why the tag cannot be replaced by reading `Effect` instances** — the first thing anyone reading this
+  will propose, since asking for an `Effect` instance is the sanctioned "is this a carrier?" test elsewhere.
+  It would decide a *caller's* calling convention from a declaration the carrier's author wrote for their
+  own body's sake, which is the bug already fixed in the other direction (the elaborator's own note: adding
+  `~ Effect` to `def hold[G[_]](x: G[String])` silently changed what callers could pass). The in-tree
+  counterexample is live: `implement Effect[Either[String]]` exists in `stdlib/eliot-compiler`, so every
+  `Either[String, A]` parameter in compile-track code would silently become a capture slot. Carrier-ness at
+  a *slot* must be written by whoever writes the signature.
 
   **W3 and D1's B1(b) are the same mechanism at two granularities**, which is the argument for doing W3
   first regardless of how D1 goes. Both generalise `row/RunBoundaryFunctions` from "a platform-registered
