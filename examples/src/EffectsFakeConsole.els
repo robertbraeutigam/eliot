@@ -54,4 +54,16 @@ implement Console[Recorded] {
 // its own, since a region writes every carrier-generic callee at *its* carrier (`docs/effects.md` §7.7).
 def transcript: String = second(runRecorded(greeting("Bob"))(""))
 
-def main: {Console} Unit = printLine(transcript)
+// …unless the slot *declares* that it hosts a computation on `Recorded`. `{| Recorded} Unit` is the pinned row at zero
+// entries: the same type as `Recorded[Unit]`, tagged as a capture (docs/effects.md W3). The tag is the one thing about
+// a user's own carrier that no declaration could state before, and with it the run may be written inline at a call site
+// that has an ambient carrier of its own — `main` below — instead of needing a definition with none.
+def onRecorded(body: {| Recorded} Unit): String = second(runRecorded(body)(""))
+
+def main: {Console} Unit = {
+   printLine(transcript)
+   printLine(onRecorded({
+      greeting("Ann")
+      greeting("Bob")
+   }))
+}

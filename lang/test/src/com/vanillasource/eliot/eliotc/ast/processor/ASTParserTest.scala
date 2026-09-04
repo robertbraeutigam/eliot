@@ -783,8 +783,15 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
-  it should "reject an empty effect set with a pinned base" in {
-    runEngineForErrors("def f: {| Id} Unit = a").asserting(_.size should be > 0)
+  // The row at **zero entries over a base** (`{| Id} A`) was rejected until W3, on the reasoning that it is the plain
+  // `Id[A]` and needs no row spelling. True of the type; the row spelling is there for the *tag* — a pinned position
+  // declares that the slot hosts a computation on that carrier (docs/effects.md W3).
+  it should "parse an empty effect set with a pinned base" in {
+    runEngineForFunctionReturnTypes("def f: {| Id} Unit = a").asserting(
+      _.collect { case ("f", Expression.EffectfulType(effects, resultType, Some(tail))) =>
+        (effects, resultType.value.render, tail.value.render)
+      } shouldBe Seq((Seq.empty, "Unit", "Id"))
+    )
   }
 
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =

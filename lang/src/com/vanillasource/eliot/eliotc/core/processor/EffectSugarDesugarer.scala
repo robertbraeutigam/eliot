@@ -310,9 +310,14 @@ object EffectSugarDesugarer {
         Option.when(entries.nonEmpty)(EffectRow.ParameterEffects(index, entries))
       },
       returnPinnedEffects = pinnedRowEntries(function.typeDefinition),
+      // Keyed on *being* a pinned row, not on pinning something: a zero-entry pin (`{| Recorded} A`) discharges no
+      // entries and is still a capture, and `EffectRow.pinnedParameterIndices` — which is what marks the slot — is the
+      // record's presence, not its contents. Return position deliberately keeps the non-empty test: a return that is a
+      // computation on `G` is just `G[A]`, and "capture" is a property of an argument.
       pinnedParameterEffects = function.args.zipWithIndex.flatMap { case (arg, index) =>
-        val entries = pinnedRowEntries(arg.typeExpression)
-        Option.when(entries.nonEmpty)(EffectRow.ParameterEffects(index, entries))
+        Option.when(isPinnedRow(arg.typeExpression))(
+          EffectRow.ParameterEffects(index, pinnedRowEntries(arg.typeExpression))
+        )
       },
       aliasPinnedEffects = if (isTypeLevel(function)) function.body.toSeq.flatMap(pinnedRowEntries) else Seq.empty
     )
@@ -357,6 +362,41 @@ object EffectSugarDesugarer {
       case _                                  => Seq.empty
     }
 
+  /** A pinned row's **base applied to its result type** — how the zero-entry stack `{| Recorded} A` reaches its type
+    * `Recorded[A]`. With entries the base is passed *as an argument* to the outermost carrier layer, so only this
+    * arm ever needs the base in head position, and only here does the row's own spelling decide an application.
+    *
+    * The base is a type position, so it is a [[Expression.FunctionApplication]] naming the carrier, possibly already
+    * carrying generic arguments (`{| StateCarrier[S, Id]} A`); the result type is appended to those. Any other shape
+    * is not a type reference and is left standing as the row it was, so the failure is the ordinary "this is not a
+    * type" one at the position the user wrote rather than a silent mis-application here.
+    */
+  private def appliedTo(base: Sourced[Expression], resultType: Sourced[Expression]): Sourced[Expression] =
+    base.value match {
+      case FunctionApplication(moduleName, functionName, genericArguments, Seq()) =>
+        base.as(
+          FunctionApplication(
+            moduleName,
+            functionName,
+            Some(genericArguments.getOrElse(Seq.empty) :+ resultType),
+            Seq.empty
+          )
+        )
+      case _                                                                      =>
+        base.as(EffectfulType(Seq.empty, resultType, Some(base)))
+    }
+
+  /** Whether a signature position *is* a pinned row, which is not the same question as which entries it pins: the row
+    * at **zero entries** (`{| Recorded} A`, the W3 capture tag) pins nothing and is still a pinned position. The type
+    * it collapses to is the plain `Recorded[A]`; what the row spelling adds is the tag saying the slot **hosts a
+    * computation on that carrier**, which is the one thing about a user's own carrier no declaration could state
+    * before (docs/effects.md W3).
+    */
+  private def isPinnedRow(expr: Sourced[Expression]): Boolean = expr.value match {
+    case EffectfulType(_, _, Some(_)) => true
+    case _                            => false
+  }
+
   /** Rewrites the effect-rows of an expression: an *open* `{…} A` node becomes `F[A]` (the carrier is always present
     * then — a row anywhere in the signature introduced it); a *pinned* node (`{Throw[E], State[S] | Id} A`) becomes its
     * canonical carrier stack `ThrowCarrier[E, StateCarrier[S, Id], A]` — each entry's carrier named by the
@@ -374,6 +414,12 @@ object EffectSugarDesugarer {
   ): Sourced[Expression] = {
     val recurse = rewrite(carrierName, rewritePinned)
     expr.value match {
+      // The pinned row at zero entries: no layers, so the stack *is* the base. Kept standing under `rewritePinned =
+      // false` for the same reason a pinned row with entries is.
+      case EffectfulType(effects, resultType, Some(tail)) if effects.isEmpty && !rewritePinned  =>
+        expr.as(EffectfulType(Seq.empty, recurse(resultType), Some(recurse(tail))))
+      case EffectfulType(effects, resultType, Some(tail)) if effects.isEmpty                    =>
+        appliedTo(recurse(tail), recurse(resultType))
       case EffectfulType(effects, resultType, Some(tail)) if effects.nonEmpty && !rewritePinned =>
         expr.as(
           EffectfulType(

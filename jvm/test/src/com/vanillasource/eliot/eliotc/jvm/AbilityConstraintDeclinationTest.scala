@@ -88,6 +88,54 @@ class AbilityConstraintDeclinationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "Hello, World!")
   }
 
+  // W3, the **capture tag**: `{| Recorded} A` is the pinned row at zero entries — the same type as `Recorded[A]`,
+  // tagged as a slot that *hosts a computation on that carrier*. Without it the run had to sit in a definition with no
+  // ambient carrier of its own, because a region writes every carrier-generic callee at its own carrier; `main`
+  // declares `{Console}` and so is a region. With the tag the slot is a capture, the elaborator writes nothing into it,
+  // and the checker instantiates the body at the declared `Recorded`.
+  it should "run a fake carrier inline, at a call site inside a region of its own" in {
+    compileAndRun(
+      s"""$recordedCarrier
+         |$fakeConsole
+         |$production
+         |def onRecorded(body: {| Recorded} Unit): String = second(runRecorded(body)(""))
+         |
+         |def main: {Console} Unit = printLine(onRecorded(greeting("Bob")))
+         |""".stripMargin
+    ).asserting(_ shouldBe "Hello, Bob!;")
+  }
+
+  // The same, with a *block* — several statements on the fake carrier, still written inline. This is the shape a test
+  // framework wants, and it needed both halves: the tag to fix the carrier, and the block peel (§3.3) so the harness is
+  // not charged for the effect it fakes.
+  it should "run a multi-statement block on a fake carrier inline" in {
+    compileAndRun(
+      s"""$recordedCarrier
+         |$fakeConsole
+         |$production
+         |def onRecorded(body: {| Recorded} Unit): String = second(runRecorded(body)(""))
+         |
+         |def main: {Console} Unit = printLine(onRecorded({
+         |   greeting("Ann")
+         |   greeting("Bob")
+         |}))
+         |""".stripMargin
+    ).asserting(_ shouldBe "Hello, Ann!;Hello, Bob!;")
+  }
+
+  // The tag fixes the carrier the *declaration* names and nothing else: a body performing an effect that carrier has no
+  // instance for is rejected at the use site, never silently rerouted to the real one.
+  it should "reject a captured body performing an effect the named carrier cannot supply" in {
+    compileForErrors(
+      s"""$recordedCarrier
+         |$production
+         |def onRecorded(body: {| Recorded} Unit): String = second(runRecorded(body)(""))
+         |
+         |def main: {Console} Unit = printLine(onRecorded(greeting("Bob")))
+         |""".stripMargin
+    ).asserting(_ should include("Console"))
+  }
+
   // Declining is not resolving: a carrier with no `Console` instance of its own has no candidate left once the jvm
   // catch-all declines, and the demand fails at the use site rather than silently picking the real instance.
   it should "resolve nothing for a pure carrier that implements no Console at all" in {

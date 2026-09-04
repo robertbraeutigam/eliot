@@ -239,8 +239,13 @@ object Expression {
     * The brace may be **empty** — `{} A` is the row that adds nothing, i.e. "on my own ambient carrier" (effects-v5
     * step 1, docs/effects-v5-one-carrier.md §1). It is still a row, so it is still a carrier position: the `}` must be
     * followed by a type atom, which is what keeps an empty *transfer* brace (`: T {}`, nothing after it) and a `where`
-    * guard out of this parser. A tail is only read after at least one entry: `{| G} A` names a carrier stack realizing
-    * no effects, which is the plain `G[A]` and has no reason to be spelled as a row.
+    * guard out of this parser.
+    *
+    * A tail is read **with or without entries**. `{| G} A` is the pinned row at *n = 0*: the canonical stack of no
+    * entries over `G`, which is the plain `G[A]`. It is spelled as a row not for the type — that needs no row — but
+    * for the **tag**: a pinned position declares "this slot hosts a computation on this carrier", which is the one
+    * thing about a user's own carrier that no declaration could state before (docs/effects.md W3). Same type,
+    * different slot, exactly as §1 rule 2 already separates `{} A` from `G[A]`.
     */
   private lazy val effectfulTypeParser: Parser[Sourced[Token], Expression] = for {
     _          <- symbol("{")
@@ -248,19 +253,17 @@ object Expression {
                     .atLeastOnceSeparatedBy(symbol(","))
                     .optional()
                     .map(_.getOrElse(Seq.empty))
-    tail       <- rowTailParser(entries)
+    tail       <- rowTailParser
     _          <- symbol("}")
     resultType <- sourced(typeAtom)
   } yield EffectfulType(entries, resultType, tail)
 
-  /** The optional `| base` tail of an effect row — read only after at least one entry, since a row realizing no effects
-    * over a base carrier is that carrier itself and needs no row spelling. See [[effectfulTypeParser]].
+  /** The optional `| base` tail of an effect row. Read whether or not entries precede it: with entries it names the
+    * base of the canonical stack they build, and with none it is the stack at zero layers — the base itself, tagged as
+    * a capture. See [[effectfulTypeParser]].
     */
-  private def rowTailParser(
-      entries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]]
-  ): Parser[Sourced[Token], Option[Sourced[Expression]]] =
-    if (entries.isEmpty) Option.empty[Sourced[Expression]].pure
-    else (symbol("|") *> sourced(typeRunParser)).optional()
+  private def rowTailParser: Parser[Sourced[Token], Option[Sourced[Expression]]] =
+    (symbol("|") *> sourced(typeRunParser)).optional()
 
   /** A named reference with an optional generic argument list `[…]` (always attached) and a value-argument list `(…)`
     * attached *only* when its `(` is adjacent to the preceding token (no intervening whitespace). The one call parser

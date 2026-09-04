@@ -180,6 +180,15 @@ with its ability, so it resolves wherever the ability does):
   cannot reach.
 - A **generic tail** (`{E | G}`) is no longer written anywhere: §2.2's supply rule produces the identical
   type. A **concrete** base (`| Id`, `| IO`) is the live spelling.
+- **Zero entries is a legal pin** (`{| Recorded} A`, shipped 2026-09-04 as W3): no layers, so the stack *is*
+  the base and the type is the plain `Recorded[A]`. It is spelled as a row not for the type — that needs no
+  row — but for the **tag**, which says the slot *hosts a computation on that carrier*. That is the one
+  thing about a user's own carrier no declaration could state before, and it is what lets a fake run be
+  written inline at a call site that has an ambient carrier of its own (§7.7). It is not a new meaning of
+  the row and not a new kind of slot: §1 rule 4's first naming, "a pinned row's stack", already covers it,
+  and the tag-not-shape distinction is the one that already separates `{} A` from `G[A]`. It was rejected
+  until W3 on the reasoning that such a row "is that carrier itself and needs no row spelling" — true of the
+  type, false of the tag.
 - A pinned row spelled **through a type alias** is read through one level of alias expansion by all three
   consumers that need it: `topRegionCarrier` (the definition side), `RowElaborator.declaredResultKind` (a
   saturated call to such a callee is `Kind.Carrier`, not a payload to `pure`-wrap) and
@@ -664,10 +673,15 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    `test/eliot/test/example/` is the worked example. What made it work was not stacking — a pinned
    `{Throw[AssertionError] | Session}` does fail, for the two reasons the retired L3 note recorded — but
    giving the *fake carrier itself* a `Throw[AssertionError]` instance, so assertions ride the same carrier
-   as the faked effects and nothing has to lift (§6). What genuinely remains is the region rule above: the
-   run must sit in its own definition, so a direct-style faked case costs a body `def` and a discharge
-   `def`. Since the block peel (§3.3) the *body* of either may be a multi-statement `{ … }` block; before
-   it, only a single call was deferred and a block was charged to the harness.
+   as the faked effects and nothing has to lift (§6).
+
+   **Since W3 shipped (2026-09-04) the region rule is opt-out-able rather than binding.** A slot declared
+   `{| Recorded} A` (§2.3) is a capture, so the elaborator writes nothing into it and the checker
+   instantiates the body at the declared carrier — even at a call site inside a region of its own. A faked
+   case therefore costs **no** helper definitions: the run and a multi-statement body may both be written
+   inline at the `in` site. The rule above still governs every *untagged* slot, which is why it stays
+   stated. Two halves were needed and both are in: the tag, and the block peel (§3.3) so the harness is not
+   charged for the effect it fakes.
 8. **Rows are sets of abilities**, so a definition mixing a faked run with a real leak of *the same* ability
    defers that entry and the user gets the post-mono `Type mismatch` at the harness body instead of the
    located effect-vocabulary message. The program is still rejected; only the diagnostic degrades, and only
@@ -984,7 +998,19 @@ codegen precondition, the unconditional fail-safe, and the only verifier that se
   computation, but argument N of '|>' declares no effect row"*. The stdlib `.` — whose `f` declares `{}` —
   instead hoists the subject and leaves the checker to report an unattributable
   `Type mismatch. Expected: IO(IO(Option(String)))`. Same violation, one message.
-- **W3 — a user-declarable capture tag** (`def check(name: String, program: {| Session} Unit): TestResult`).
+- **W3 — a user-declarable capture tag — SHIPPED 2026-09-04** (`def onRecorded(body: {| Recorded} Unit):
+  String`). What landed: the row-tail parser reads a tail with or without entries; `EffectSugarDesugarer`
+  keys `pinnedParameterEffects` on *being* a pinned row rather than on pinning something, so a zero-entry
+  parameter pin registers in `EffectRow.pinnedParameterIndices`; and `rewrite` collapses the zero-entry row
+  to its base applied to the result type. **The stack-suppression half proved unnecessary** — a pinned
+  capture's region is already `RegionCarrier.Unspelled`, so the elaborator declines to write and the checker
+  solves the carrier from the declared slot type, which is the same mechanism that always made the
+  two-definition form work. Return position deliberately keeps the non-empty test: a return that is a
+  computation on `G` is just `G[A]`, and capture is a property of an argument. Worked example in
+  `examples/src/EffectsFakeConsole.els`; three end-to-end tests in `AbilityConstraintDeclinationTest`,
+  including that a body performing an effect the named carrier cannot supply is rejected rather than
+  rerouted.
+
   **Decided 2026-09-04: build this (Form A), not the `runAt` term (Form B).** Form A needs no §3.2
   amendment, Form B does (B1(b) correction 2); both generalise the same mechanism, so A is a down payment on
   B and is not throwaway if D1 later lands. Scope of the build: allow the entry-less row tail in the parser,
