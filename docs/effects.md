@@ -642,6 +642,11 @@ collides at the merge. **`where` is the wrong tool**: a guard can only make a ca
 to be written on the library's instance, and needs a predicate no guard can express (guards see type
 arguments, not the instance environment).
 
+**Whether the carrier should *remain* the injection point is D1's B1.** The 2026-09-05 assessment there names
+every limitation of this strategy — the lifting wall, the region rule, one interpretation per type argument —
+as a symptom of choosing an interpretation by *instantiation*, and recommends choosing it by a *term* instead.
+This section describes what ships; that one describes what would replace it.
+
 ## 7. Live limitations
 
 Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
@@ -850,8 +855,10 @@ change, with no partial state.
   row.
 
 **Recommendation.** Do not start the flag day. Decide B1 first — it is a language decision (*on what terms
-may a program interpret an effect of its own?*), not a lowering decision, and option (b) is the one that
-keeps the shipped capability while allowing every deletion. If v4 is dropped rather than deferred, revert
+may a program interpret an effect of its own?*), not a lowering decision. Option (b) keeps the shipped
+capability while allowing every deletion; its generalisation **(b′) — the interpretation is a term, a handler
+value at a run site — is the recommended answer** (assessed 2026-09-05, below), because it also dissolves B2,
+B3 and B4 rather than adding to them. If v4 is dropped rather than deferred, revert
 the dormant `Row`/`Computation` formers and their canonicaliser (~180 lines, plus their pass-through arms in
 the evaluator, the quoter, `unify` and both printers — unreachable type language is exactly the sort of thing
 that misleads a later reader) and **keep** `WovenRecheck` and the seam test, which earn their place
@@ -860,6 +867,156 @@ independently.
 **The narrower alternative is already taken.** Row aliases — aliasing the row rather than the row-plus-payload
 and splicing it into the constraint list at resolve — was the "right change if v3 stands"; §2.4's requiring
 ability delivers what it wanted (the expanded row reaching the channel) and shipped.
+
+#### B1, assessed 2026-09-05 — the interpretation is a term, and free monads are not the vehicle
+
+**Status: recommended, not adopted.** Adopting it changes Part I (§6's title and the fourth of rule 4's
+carrier namings), so it is a decision under standing rule 1. What follows is the assessment that produced the
+recommendation, recorded so it is not re-derived; the question it answers was raised as *"would free monads
+simplify the effect system, given that the carrier concept is still not quite right and a unit test cannot
+just submit its own mocks?"*
+
+**The premise, corrected.** A test *can* submit its own interpreter today, and §6 is the adopted strategy
+for it: mint a pure `data Recorded[A]`, write `implement Console[Recorded]` beside it (the orphan rule's
+second placement), and hand the production code to a `{| Recorded} Unit` slot (W3). Three example programs
+and two integration test classes do exactly this. So the blocker is not "instances may live in only two
+places". The blocker is *how* one gets to submit an interpreter: by conjuring a **type** and hanging
+instances on it. That is dependency injection routed through the type system, and every pain §6 and §7
+record is a symptom of that one fact:
+
+- a fake is monomorphic at one carrier, so it gets no lifting and a stdlib discharger cannot be stacked over
+  it (§6's wall, the n² matrix);
+- a fake run needs a region with no ambient carrier of its own, or the W3 tag, because the interpretation is
+  chosen by *instantiation*, and a region instantiates everything at its own carrier (§7.7);
+- the interpretation of one effect cannot be swapped while another keeps its real one, because both are
+  decided by the same type argument (§7.8 is the diagnostic shadow of this).
+
+Named precisely: the carrier does **three jobs** — it is the sequencing representation (`flatMap`/`pure`),
+the discharge-stack representation (the transformer layers), and the **selector of interpretation**. The
+first two are fine as compiler internals, and D1 already moves them there. The third is the misfit, and
+"the carrier is the injection point" (§6's title) is its name.
+
+**Free monads, priced.** The one thing `Free` gets right is the thing wanted: program and interpretation
+are separated, and an interpreter is a **term** — a natural transformation handed to `foldFree` — so a test
+passes a different one and no type, instance or colocation is involved. Everything else about it lands on
+the wrong side of this project's constraints:
+
+1. **Representation.** A runtime free monad is a heap tree of closures, one node per bind, walked by an
+   interpreter loop; a *stored* computation is that tree. Today the whole carrier tower erases under
+   monomorphization to flat code (the `IO.els` instances are written so that it does). On an ATtiny the tree
+   is disqualifying, and "harder to optimise, especially when stored" is exactly right.
+2. **Composition.** Several effects in one program need a coproduct of functors and an injection (`Inject`,
+   "data types à la carte"), which puts the row back **into the type** — the thing this design and D1 both
+   keep it out of — and adds a second constraint machinery beside `~`.
+3. **Scoped effects.** `catch`, `provide`, `runStateToPair`, `if`'s `{Abort}` slot are *scoped*
+   operations; plain `Free` does not express them, and the variants that do (scoped or higher-order free)
+   are more machinery than the transformers in the tree now, not less.
+4. **The attractive variant is not new.** A free monad that is *fused away* at compile time, because every
+   run site's interpreter is statically known under whole-program monomorphization, is D1's Tier 3 lowering
+   at the ground seam plus B1 option (b), with a different name for the intermediate representation. The
+   seam measurements above apply to it unchanged, including "the payload key does not determine the
+   carrier": the fused program is keyed by its interpreter exactly as the woven one is keyed by its stack.
+
+Verdict: **free monads are not the vehicle**, and a runtime `Free` is closed (§11). The *separation* they
+stand for is the correct target, and B1 is where it is decided.
+
+**The nearer neighbour is algebraic effects and handlers** — Koka, Effekt, Unison's *abilities* (the same
+word, and the closest vocabulary to Eliot's). They deliver the separation with user code in **direct
+style**, the row in the type or the channel, and the handler an ordinary **term installed at a run site**;
+a Unison test installs a different handler and touches nothing else. They also answer the optimisation
+question: Koka lowers handlers by evidence passing, Effekt by lexically scoped capability passing, and both
+compile **tail-resumptive** operations (the handler resumes exactly once, in tail position — which is every
+effect Eliot has today: `Console`, `Log`, `State`, `Writer`, `Dep`) and **abortive** ones (`Throw`,
+`Abort`, which never resume) to plain calls and jumps, capturing no continuation and allocating nothing.
+Eliot's position is *stronger* than either: whole-program monomorphization from `main` makes the handler at
+every run site a compile-time constant, so there is no runtime evidence vector and no handler search — the
+handler is resolved at the seam exactly where today's carrier is measured ground
+(`EffectsV4SeamGroundnessTest`). This is "a free monad, but optimisable", and it is what a test framework
+wants to write:
+
+```eliot
+def transcript: String = written(handle(recordingConsole, greeting("Bob")))
+```
+
+**The recommended answer — B1 option (b′): the interpretation is a term.** Option (b) generalised from
+"a *type* argument names the base" to "a *value* argument names the handler":
+
+- **A handler is a value.** An implementation of an ability becomes nameable and passable — an
+  `implement` given a name, or a dedicated literal (surface: **decision D-a** below). Its clauses are the
+  ability's methods, each with its own row, so a handler may itself perform effects (`recordingConsole`'s
+  `printLine` performs `Writer[String]`), exactly as `catch`'s `onError` may today.
+- **One run form.** `handle(h, computation)` for `h` a handler of ability `E` and
+  `computation: {E, ρ} A` yields `{ρ, ρ_h} A`, where `ρ_h` is the handler's own row. This is
+  `provide(x, computation: {Dep[X]} A)` with the constant handler `x` generalised to an arbitrary one — the
+  tree **already ships one handler-as-term**, and it is the one effect a user never needs to mint a carrier
+  for. Every discharge word becomes library code over `handle` with that effect's standard handler:
+  `runThrow` is `handle(eitherHandler, c)`, `runStateToPair(s0, c)` is `handle(stateHandler(s0), c)`,
+  `catch` is `handle` with a handler whose `raise` clause runs `onError`. Nothing is a carrier in a stored,
+  passed or written type.
+- **The platform's instances become its default handlers**, installed once at the run boundary: the
+  synthesized entry point wraps `main` in the jvm layer's `Console`/`Log`/`Inf` handlers, generalising
+  `row/RunBoundaryFunctions` from "a registered FQN with a fixed base" to "the platform's handler set".
+  `Suspend` stays the one route to a native side effect, and a test's handler has none — the "fake cannot
+  cheat" property of §6 survives unchanged.
+- **Staging, stated as a seam rule (fail-safe).** "Ability references are fully resolved during
+  monomorphization, never passed around in structures" is kept, restated for handlers: *a handler must be
+  ground at the seam*. A `handle` site whose handler is a literal, a named handler, or a parameter the
+  caller instantiates statically is ground there, because every site is reached from `main`; a handler
+  that is still a parameter at the seam is a **hard error**, never a runtime dispatch. That is the same
+  use-site-verification stance the rest of the language takes, and it is what keeps the ATtiny in reach: a
+  handler resolved at the seam is inlined, and a tail-resumptive clause is a call.
+- **Resumption is restricted (decision D-c).** Only tail-resumptive and abortive clauses are admitted —
+  checkable per clause, and exactly the subset that lowers to direct code. Multi-shot and non-tail
+  resumption (generators, async) are **out**, deliberately; `forever` stays a native, as it is today.
+
+**What it removes**, each a §6/§7 item, none by adding a rule:
+
+| today | under (b′) |
+| --- | --- |
+| a fake needs a minted carrier type plus colocated instances | a handler is a value in the test module; no type, no orphan question, and **no coherence requirement**, since a handler is chosen explicitly at a site and never searched for |
+| no stacking over a fake (§6's wall) | handlers are chosen **per effect**: `Console` handled by the fake, `Throw[AssertionError]` by the ordinary `catch`, in either nesting |
+| a fake run needs a carrier-free region or the W3 tag (§7.7) | `handle` is a term at any call site; W3's tag is subsumed (the run boundary is the handler argument's declared slot) |
+| `runAt[B]` cannot be written (B1(b) correction 2) | the handler is an **argument at a declared parameter**, which is what W3 already reads; no whitelist amendment, and under D1 the elaborator is gone anyway |
+| "declared pure but performs effects" can only be voiced pre-mono | unchanged: the row and both verifiers stay |
+
+**What it does to D1's other blockers** — and this is the strongest argument for it, because each gets
+*easier*, not harder, when a computation is a function of its handlers rather than a fixed transformer
+nesting:
+
+- **B2 (the stored hoist)** dissolves. A stored `{Throw[E]} A` has no canonical stack to be built at; it is
+  a computation awaiting a `Throw[E]` handler, and runs under any handler environment that supplies one.
+- **B3 (weakening)** is free at a run site for the same reason: a computation over `ρ₁` runs wherever
+  `ρ₁ ⊆ ρ₂` handlers are installed. It still must live at declared slots, never in `unify`.
+- **B4 (canonical order decides semantics)** is answered by the **user, at the run site**, as the nesting
+  of `handle` calls — `runState(catch(c))` versus `catch(runState(c))` — which is what the pin's written
+  order did, with no canonical form to fix and therefore no two-spellings trap for D6's grades.
+
+**What stays.** Rows as the user surface; the channel and its two verifiers; rule 4 as a theorem of
+definitional equality (D1's whole point); `Inf` as an ability and the absence of a `Terminating` token;
+§3.6 exactly (a method performs an effect because it declares one — a handler clause implements a declared
+row); the `~` closure (§2.4). Effects remain abilities. D2's caution against an `effect` form was "premature
+if the premise holds"; under (b′) the premise changes, and a dedicated form becomes the natural surface for
+D-a without reintroducing effect-ness by shape.
+
+**Decisions this opens** (each Robert's):
+
+- **D-a — the handler surface.** A named `implement` (`implement recordingConsole: Console { … }`), or a
+  separate `handler` form. Named `implement` is the smaller change and keeps one declaration kind; a
+  separate form reads better once D2 is revisited. Either desugars to a `data` record of clauses plus the
+  `handle` intrinsic, so the cost is ordinary.
+- **D-b — what an ability denotes as a value.** (b′) makes an ability **a type inhabited by its handlers**,
+  which is D3's option (b) — coherent with types-are-values, and the one D3 named as head-on against "never
+  passed around in structures". The seam rule above is the reconciliation; take D3(b) and the seam rule
+  together or not at all.
+- **D-c — resumption discipline** (recommended: tail-resumptive + abortive only, above).
+- **D-d — the platform default handler set** and its registration at the run boundary.
+
+**Cost, unchanged from D1:** it is a flag day — P2 is not separable from P4, the lowering's input is a
+direct-style monomorphized body, and the checker change is the lowering's precondition. The gate gains one
+row: `EffectsFakeCarrier`, `EffectsFakeConsole`, `EffectsTestFramework` and the two integration test
+classes must express the same tests **without minting a carrier type**, and `eliot-test`'s single-word
+case (`onConsole(input, { … })`) must read as a `handle`. If that gate cannot be met, (b′) has failed B1
+and the assessment above is wrong somewhere; find where before landing anything.
 
 ### D2 — what does an ability declare about its carrier?
 
@@ -1032,7 +1189,8 @@ codegen precondition, the unconditional fail-safe, and the only verifier that se
   pipeline applies unchanged. It would buy a runner taking a program on a bespoke carrier directly, removing
   §7.7's region constraint — the remaining cost of a faked case, now that interleaving itself works.
   **A later convenience, not a prerequisite** — a framework ships today without it. If D1/B1 lands option
-  (b), `runAt[…]` supersedes it.
+  (b), `runAt[…]` supersedes it. Under (b′) a `handle` site subsumes it: the handler argument's declared slot *is*
+  the boundary the tag marks today.
 
   One thing measured while correcting §7.7, so it is not re-derived: declaring the slot as a **pinned row
   over the fake** (`body: {Throw[AssertionError] | Recorded} Unit`) *does* widen the capture's ambient row —
@@ -1125,6 +1283,11 @@ Each of these was tried, measured, or decided, and the record is the reason not 
 - **Scanning the dictionary for an ability name.** Replaced by the keyed marker lookup; the scan was
   hash-order-dependent and ignored import scope.
 - **Running v4's P2 before P4.** Not separable — see D1.
+- **A runtime free monad as the effect representation.** Assessed 2026-09-05 (D1, B1): a heap tree of
+  closures walked by an interpreter, a coproduct-with-injection to compose effects (the row back in the type)
+  and no plain spelling of the scoped operations (`catch`, `provide`). The one thing it gets right —
+  the interpretation is a *term* — is B1 option (b′); the compile-time-fused variant is D1's lowering under
+  another name. Do not re-propose as a representation.
 
 ---
 
