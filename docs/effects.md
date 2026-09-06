@@ -1,10 +1,11 @@
 # Effects in Eliot — the design, and what is left to do
 
-**Status (2026-09-03): the effect system is shipped and this is its single document.** It replaces ten
-separate notes — the v2, v3, v4 and v5 designs, the three v4 measurement notes, the row-tails note, the
+**Status (2026-09-06): the v5 effect system is shipped, this is its single document, and Part II is the decided
+plan to replace its carrier with handlers (v6).** Part I describes the tree as it is until §10's flag day
+lands. This document replaces ten separate notes — the v2, v3, v4 and v5 designs, the three v4 measurement notes, the row-tails note, the
 `~`/`&` user-space note and the testing note — whose landed steps, migration roadmaps, deletion slices and
 per-step measurements are removed. What survives here is (I) the design as it actually behaves, (II) the
-work that is still open, and (III) enough provenance to read a source comment that cites a retired
+plan to replace it, and (III) enough provenance to read a source comment that cites a retired
 document.
 
 **One-sentence summary.** The user writes **effect rows**; the compiler works in **carriers**; suspension is
@@ -13,9 +14,10 @@ before checking instead of solved by the checker — so effect elaboration is a 
 verify as a **channel** beside the type (the same architectural move as the `Int` refinement channel), and
 the NbE checker holds one local rule and no effect decisions.
 
-**How to read this document.** Part I states the design; it is the authority, and the CLAUDE.md *Effects Are
-a Channel* cornerstone is its summary. Part II is the plan: numbered decisions (**D**), work items (**W**)
-and a list of things that are **closed by measurement and must not be re-proposed**. Part III is provenance.
+**How to read this document.** Part I states the shipped design; it is the authority for the tree, and the
+CLAUDE.md *Effects Are a Channel* cornerstone is its summary. Part II is the plan: the v6 decision (§9), its
+implementation steps (§10), the decisions still open (§11, numbered **D**) and the list of things that are
+**closed by measurement or decision and must not be re-proposed** (§12). Part III is provenance.
 Where Part I and any code, stdlib signature, example or test disagree, Part I wins and the artefact is the
 defect.
 
@@ -241,7 +243,8 @@ effect behind the name does not remove the name: name a set for what rides toget
 function discharges.
 
 The same rule can state a relation the tree could not express before: `ability Console[F[_] ~ Suspend]`
-would put "Console rides Suspend" in the ability instead of repeating it on every instance — see **D2**.
+would put "Console rides Suspend" in the ability instead of repeating it on every instance. Under v6 (§9) an
+`effect` has no carrier binder and the question disappears.
 
 ### 2.5 `~` and `&`
 
@@ -491,7 +494,7 @@ effect diagnostic of its own; the rule above is enforced where the declaration i
 this arm is the fallback for what the elaborator does not classify.
 
 Beside it live two classes that are **not** effect machinery and must not be deleted as such (measured — see
-§11): `EffectLifter`'s carrier recognition (`effectCarrierSplit`, `mustPureWrapBeforeUnify`) and
+§12): `EffectLifter`'s carrier recognition (`effectCarrierSplit`, `mustPureWrapBeforeUnify`) and
 `check/CarrierKindChecker` (`recordCarrierMetas`, `verifyCarrierKinds`). `verifyCarrierKinds` is the only
 thing rejecting a `[F[_]]` binder instantiated at a fully-applied proper type; with it off, a wrongly-kinded
 program silently compiles. They are a **kind system living next door**, not effects.
@@ -561,7 +564,7 @@ These bind every future change to the effect system.
    holds". A conflict is a decision for Robert, not a judgement call in flight.
 3. **No carrier inference.** No carrier metavariable, no join, no lattice, no ordering-sensitive slot
    decision. That is the historical bug class — carrier theft and premature commitment — and it is
-   prohibited. The same prohibition covers rows if a row ever enters a type (**D1**): rows are declared and
+   prohibited. The same prohibition covers rows if a row ever enters a type (§9.9 restates it for v6): rows are declared and
    written, never solved.
 4. **Carrier-ness by tag, never by name or shape** — except in the one inverter (§3.7).
 5. **The whitelist** (§3.2) is closed. No sibling-expression rule.
@@ -642,6 +645,11 @@ collides at the merge. **`where` is the wrong tool**: a guard can only make a ca
 to be written on the library's instance, and needs a predicate no guard can express (guards see type
 arguments, not the instance environment).
 
+**This strategy is what ships; it is not the final form.** Part II (§9, decided 2026-09-06) replaces the carrier
+as the injection point with a handler *value* installed by `with` — every limitation below (the lifting wall, the
+region rule, one interpretation per type argument) is a symptom of choosing an interpretation by instantiating a
+type, and disappears with it.
+
 ## 7. Live limitations
 
 Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
@@ -661,12 +669,12 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    raise("boom")` + `Task(bad)` compiles — the elaborator instantiates a pinned row's ability arguments from
    the argument's **declared** row.
 5. **A lambda body at a rowless arrow slot does not get its own pure region.** → **D5**.
-6. **Rule-4 violations are diagnosed twice, unequally.** → **W2**.
+6. **Rule-4 violations are diagnosed twice, unequally.** → §10.3 A3 (formerly W2).
 7. **A fake run needs a region with no ambient carrier of its own.** Inside a pinned region the ambient
    carrier *is* the pinned stack, and the elaborator writes every carrier-generic callee at the region's
    carrier — so a fake run written *inside* a pinned body is written at the pinned stack, not at the fake
    carrier. A carrier-generic value can only be instantiated at a foreign carrier in a region with no
-   ambient carrier of its own. → **W3** is the convenience that would remove it.
+   ambient carrier of its own. W3 (below) removed the constraint; v6's `with` (§9) subsumes it.
 
    This was previously stated as "a test is run-then-assert, never interleaved", which is **wrong** and is
    corrected here: interleaving assertions with faked effects works today, and `eliot-test`'s
@@ -687,21 +695,36 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    located effect-vocabulary message. The program is still rejected; only the diagnostic degrades, and only
    in that one mixed shape.
 9. **Rule 3 has no check of its own for a `data` field typed by the data's *own* open carrier binder**
-   (`data Box[F[_]](action: F[Unit])`). The open-*row* field is rejected; this shape is not. → **W4**.
+   (`data Box[F[_]](action: F[Unit])`). The open-*row* field is rejected; this shape is not. Has no subject under v6 (§10.3 A3, formerly W4).
 
 ---
 
-# Part II — The plan
+# Part II — The plan: effects are handled, not carried (v6)
+
+**Status (2026-09-06): decided.** Part I stays the authoritative description of the tree *until the flag day in
+§10 lands*; nothing in Part I is amended in place before then (standing rule 1). This part is the design that
+replaces it, the reasoning that produced it in condensed form, the implementation steps, and the decisions
+still open. It supersedes the former D1 (v4, "does the row leave the carrier behind?"), its blocker B1, and
+D2 (an ability declaring its carrier), whose premise it removes; Part III says how to read a citation to them.
 
 ## 8. How this plan is run
 
-**Decision protocol.** Standing rules 1 and 2 (§5) govern. Every entry below marked **decision** is
-Robert's; nothing in it is a judgement call to be made in flight, and a step that finds itself narrowing one
-of Part I's rules stops instead of landing.
+**Decision protocol.** Standing rules 1 and 2 (§5) govern. Every entry below marked **decision** is Robert's;
+nothing in it is a judgement call to be made in flight, and a step that finds itself narrowing one of the
+rules here stops instead of landing.
 
-**The gate**, for every step: `./mill __.test` green, all 45 example programs carrying a `main` compile, and
-every example jar `md5sum`-identical to the pre-change build except where the step's own note says an output
-legitimately changes. Byte-identity is a **safety oracle, not a hard gate**.
+**The gate**, for every pre-flag-day step: `./mill __.test` green, all example programs carrying a `main`
+compile, and every example jar `md5sum`-identical to the pre-change build. Byte-identity is a **safety
+oracle, not a hard gate**.
+
+**The gate for the flag day itself** is different, because the output legitimately changes wholesale:
+byte-identity is replaced by **behavioural identity**. Before the change, run every example jar and record
+its standard output and exit code (the sweep recipe in the `reference_verification_harness_recipes` memory);
+after it, the same sweep must produce the same transcript. Plus: `./mill __.test` green; the fake-carrier
+examples (`EffectsFakeCarrier`, `EffectsFakeConsole`, `EffectsTestFramework`) and the two integration test
+classes express the same tests **without minting a carrier type**; `eliot-test`'s single-word case
+(`"…" should "…" in onConsole(input, { … })`) reads as a `with`; and the seam test still finds every handler
+ground.
 
 **The method, when the question is "is this still load-bearing?"** — reuse it rather than re-inventing it:
 
@@ -724,413 +747,479 @@ legitimately changes. Byte-identity is a **safety oracle, not a hard gate**.
   the cache (`target/.eliot-*`) must be deleted before every run or the pipeline replays facts and the trace
   comes back empty.
 
-The harness recipes themselves (fast example sweep, byte-identity compare, cache clearing, mill/test-session
-traps) are in the `reference_verification_harness_recipes` memory.
+## 9. The decision — the interpretation is a term
 
-## 9. Open decisions
+### 9.1 The model, in five sentences
 
-### D1 — v4: does the row leave the carrier behind? (the one large decision)
+An **effect** is an interface: a set of operations, each performing that effect. A **handler** is a named
+**value** implementing one effect, and `with` installs it over a computation. Rows stay the user surface and
+the verifiers' vocabulary — `derived ⊆ declared` per definition, exactly as now — and never enter a type
+except as the row of a stored computation. Because the program is monomorphized from `main`, the handler at
+every `with` site is a compile-time constant, so an operation call is a direct call to a clause and the
+whole mechanism erases, as ability resolution erases today. There is no carrier: sequencing is strict
+evaluation order, and the two things a carrier used to express in library code — a non-local exit and a value
+threaded through calls — live in one post-monomorphization lowering the user never sees.
 
-**The proposal.** Put the row in the type only where a computation is genuinely a *value* (arrows, stored
-computations), keep everything else in the channel that already verifies it, and move the carrier out of the
-language entirely into one post-monomorphization lowering where every type is ground.
+### 9.2 What was decided, and why (condensed from the 2026-09-05 assessment)
 
-- **Tier 1 — the channel (most code).** `def readLine: {Console} String` gives the checker `readLine :
-  String` plus declared-row metadata. The checker never sees an effect.
-- **Tier 2 — the type (only where a computation is a value).** One primitive former `Computation[r, A]`
-  beside `VPi`; an arrow with a latent row is `VPi(A, _ => Computation(r, B))`, so **`VPi` gains no field**.
-  A row is an ordinary canonical value; a row variable is an ordinary generic parameter of type `Row`.
-- **Tier 3 — the carrier (compiler-internal, post-mono).** `IO`, `flatMap`, `pure`, the transformer stacks:
-  introduced by one lowering pass at the `WovenValue` seam, where every type argument is ground.
+- **The problem was never "instances may live in only two places".** §6 already lets a test submit an
+  interpreter, but only by conjuring a *type* and hanging instances on it — dependency injection routed
+  through the type system. Every §6/§7 limitation is a symptom of that: a fake is monomorphic at one carrier
+  and gets no lifting (the n² wall); a fake run needs a carrier-free region or the W3 tag; one type argument
+  decides the interpretation of *every* effect at once. Named precisely, the carrier does three jobs —
+  sequencing representation, discharge-stack representation, selector of interpretation — and the third is
+  the misfit.
+- **Runtime free monads: rejected** (§12). A heap tree of closures walked by an interpreter, a coproduct with
+  injection to compose effects (the row back in the type), no plain spelling of the scoped operations
+  (`catch`, `provide`). What they get right — the interpretation is a *term* — is this decision; the
+  compile-time-fused variant is v4's lowering under another name. The nearer neighbour is algebraic effects
+  and handlers (Koka, Effekt, Unison's abilities): direct-style code, handlers as terms, and — for
+  tail-resumptive and abortive operations, which is every effect Eliot has — compilation to plain calls with
+  nothing allocated. Eliot's position is stronger than theirs: whole-program monomorphization makes every
+  handler a constant, so there is no evidence vector and no handler search at runtime.
+- **Decision: the interpretation is a term.** A handler value at a `with` site; the platform's instances
+  become its default handlers, installed at the run boundary.
+- **Decision: one handler environment per stored computation, fixed at compile time.** Running the *same
+  runtime value* under two different handlers is a type error naming both — never a silent lift, never a
+  runtime dispatch. (The former B2's proposed rule, adopted.) A *definition* producing such computations is
+  unaffected: it is generic in the handler and is instantiated per use like any polymorphic definition.
+- **Decision: carriers and transformer stacks leave the language, the stdlib and the type system.** The
+  non-local exit and the threaded value become one compiler-internal lowering over ground code (§9.6) — "the
+  shadow monad shrinks to one invisible pass", which is what it was always meant to be.
+- **Decision: resumption is tail-resumptive or abortive, nothing else.** A clause either returns the
+  operation's result (a call) or finishes to the `with` site (an early return). Multi-shot and non-tail
+  resumption — generators, async, coroutines — are out. This is what keeps a microcontroller in reach, and
+  it is checkable per clause.
+- **Decision: purity is decided by the evaluator, not declared** (§9.7). Whatever the one NbE evaluator can
+  reduce is pure and optimisable; whatever is stuck on a runtime-only native is the World. No `World` token,
+  no purity annotation. A native without a compile-time twin may be called only from a handler clause.
 
-**What it buys.** Rule 4 stops being a rule the elaborator enforces and becomes ordinary definitional
-equality — the rule whose erosion caused every stall in this design's history becomes a theorem. `Id`,
-`runId`, `~ Effect`, `~ Suspend`, the `<Ability>Carrier` convention, the open/pinned split, the `{}` binder
-reuse, the inferable carrier binder and the type-alias limitation all become unreachable states rather than
-handled ones. A backend also becomes free *not* to build a carrier (`Throw` as a branch, `State` as an
-extra in/out parameter) — which matters on an ATtiny and is foreclosed today.
+### 9.3 The surface
 
-**What it costs.** One type former and a canonicalisation obligation; effect lowering becomes a compiler
-pass instead of a desugar over library code; the lowered core is machine-generated and must be re-checked;
-and it is a **flag day** — the checker, the elaborator and effect-method ability selection move in one
-change, with no partial state.
+**Unchanged:** every definition that declares a row and calls operations. Direct style, blocks, `val`, the
+`.` pipe, `if`/`match`, the four user rules minus their carrier vocabulary.
 
-**What already landed, and is dormant in the tree:**
+```eliot
+def greeting(name: String): {Console} Unit = printLine("Hello, " ++ name ++ "!")
 
-| piece | where | state |
-| --- | --- | --- |
-| seam-groundness measurement | `jvm/test/…/EffectsV4SeamGroundnessTest.scala` (211) | permanent; pins that every instance's carrier is ground at the seam |
-| `Row`/`Computation` formers, canonicaliser, `unify` cases, printers | `GroundValue`, `SemValue`, `fact/CanonicalRow` (67), `row/CanonicalStack` (109), `Unifier`, `SemValuePrinter` | **nothing produces either former**; behaviour-neutral |
-| the woven re-check | `monomorphize/channel/WovenRecheck` (114) | **live and mandatory** at the seam beside `assertNoIdResidue`; a no-op on today's output and below the measurement noise floor |
+def swap(next: String): {State[String]} String = {
+   val old = state
+   putState(next)
+   old
+}
+```
 
-**What the measurements settled**, and what any future attempt inherits:
+**An effect is declared without a carrier binder.** The `[F[_]]` existed only because something had to be
+the monad. Effects get their own declaration pair mirroring `ability`/`implement`, so effect-ness is a
+keyword and never a shape (§3.6's concern, answered by syntax rather than by a rule). Inside an `effect`
+block every operation performs that effect by definition; the `{E}` on each method is gone.
 
-- The seam **is** late enough — no instance carries an unsolved `Param` in its carriers.
-- But the payload key does **not** determine the carrier: one `{Console}` helper called both inside and
-  outside a `catch`-discharged region is two instances with two different bodies and one payload key. The
-  weave must be keyed `(vfqn, payload arguments, carrier stack)` and the lowering must be a demand from the
-  run boundary downwards. It terminates for the same reason today's monomorphization does.
-- A stored computation's stack must be **computed from its row** (canonical ability order lowered to
-  carriers, over the pure base when the row rides no `Suspend`, over the platform run carrier when it does),
-  because a v4 computation type has no base to read one off.
-- Effect-method ability selection is an **addition at the seam, not a move**: `AbilityResolver` serves every
-  ability, so the checker keeps it and the seam gains a second, ground-carrier entry point.
-- **P2 is not separable from P4.** The lowering's input must be a *direct-style* monomorphized body, and
-  producing one *is* the checker change. There is no scaffold in between, so the flag day is one change.
-- The machinery **abilities are the representation, not sugar over it.** Of the 40 `~ Effect`/`~ Suspend`
-  constraints in `.els` today, the 23 on `implement` heads stay (they are what lets the instances' own
-  bodies typecheck, and the lowering emits calls to them); only the 17 on `def` heads go. `eliot.carrier`
-  can only leave *user scope*, which being import-required it already has. Same family: a native with a
-  carrier-typed parameter (`foldLeftInternal`) means the lowering must lower leaf **signatures**, not only
-  bodies.
+```eliot
+effect Console {
+   def printLine(s: String): Unit
+   def readLine: Option[String]
+}
 
-**What blocks it, and none of these is cheap to discover later:**
+effect Throw[E] {
+   def raise[A](err: E): A
+}
+```
 
-- **B1 (the real one) — v4 deletes the only mechanism a program has to substitute an effect
-  implementation, and nothing replaces it.** §6's strategy has three legs and v4 removes all three: a user
-  cannot *name* a carrier (both routes — the pinned tail and a carrier-typed slot — go), cannot *choose* one
-  (the stack is a function of the row, and every `Suspend`-riding row lands on the platform run carrier),
-  and so never has their instance queried. This is wider than testing: an application-owned ability whose
-  only implementation is on the program's own pure carrier has no v4 spelling either. "Discharge it instead"
-  is not available — the `Suspend`-riding abilities have no carrier for a discharger to be written over, and
-  user-visible handlers are what v4 explicitly does not build. Three example programs and two integration
-  test classes depend on the mechanism, so the flag day cannot meet its own gate while this is open.
-  Three options:
-  - **(a) grow user-visible handlers** — most principled, and the largest scope increase in the project;
-  - **(b) keep the choice of interpretation as a *term*, not a type** (recommended): one run-site form
-    `runAt[Recorded](program)` — precisely `row/RunBoundaryFunctions` generalised from a
-    platform-registered FQN with a fixed base to one form whose base is a type argument. Nothing is a
-    carrier in a stored or passed type; the seam weaves the argument at *that* base and selects
-    `Console[Recorded]` there. Every deletion then stands, tail included.
+**A handler is a named value implementing one effect over a scope.** Its clauses are the operations, each
+with its own row, so a handler may itself perform effects. The platform's `implement[F[_] ~ Suspend]
+Console[F]` becomes a handler calling its natives directly; a test's fake is the same declaration in the
+test module — no carrier type, no colocation, no coherence question, because a handler is chosen at a site
+and never searched for:
 
-    **Two corrections to this option, both load-bearing** (2026-09-04):
+```eliot
+handler jvmConsole: Console {
+   def printLine(s: String): Unit = printLineInternal(s)
+   def readLine: Option[String] = lineOrNone(readLineInternal)
+}
 
-    1. `runAt[B]` must mean **"the residual row resolves at `B`"**, *not* "the canonical stack of the row is
-       built over `B`". The stack-from-row rule is right for a **stored** computation, which has no base to
-       read one off — it is wrong here. Applied to `runAt[Recorded]` with a row of
-       `{Console, Transcript, Throw[AssertionError]}` it builds `ThrowCarrier[AssertionError, Recorded]`,
-       leaving `Console[Recorded]` and `Transcript[Recorded]` one layer down with nothing to lift them
-       (§6) — so the option would fail to preserve the exact capability B1 exists to preserve. The correct
-       rule is what the *real* path already does: whatever carrier is landed on, the row's abilities resolve
-       **there**, and **dischargers build their own layers internally**. Today `Console` at
-       `ThrowCarrier[E, IO]` resolves at the stack via the `Suspend` lift, and that stack came from a
-       discharger, not from the row. A fake with no discharger in play therefore lands on `Recorded` itself,
-       where its instances are. (A fake *with* an inner discharger still stacks and still hits §6 — the same
-       limitation as today, not a new one.)
-    2. The form **cannot be written in the language as it stands**, and not for a syntactic reason: the
-       elaborator would have to take the capture's carrier from the **call's own explicit type argument**,
-       which is not a source `§3.2`'s whitelist admits. Measured, so it is not re-tried:
-       `def runAt[B[_], A](body: B[A]): B[A] = body` called as `runAt[Recorded](script)` *inside a region*
-       is elaborated at the region's carrier and the script is charged to the enclosing definition — the
-       `[Recorded]` is simply not read. Admitting explicit type arguments to the whitelist is a decision, not
-       an implementation detail; it is defensible (an explicitly written type argument is not inference, and
-       is arguably the most declared thing at a call) but it is an amendment and needs sign-off. **W3's
-       parameter tag needs no such amendment** — see W3;
-  - **(c) drop substituted interpretation** — delete the examples, the test classes and most of §6, and
-    rewrite the flag-day gate. Note a test project is *additive*, so "test with a swapped layer" is a
-    different thing (whole-layer replacement), not a version of the strategy.
-- **B2 — R7, the stored-computation hoist.** A stored computation's representation is fixed at construction
-  by its canonical stack, so a consumer whose ambient differs needs a base hoist, which v3 never meets
-  because it forbids the programs that would. **Proposed rule** (fail-safe, costs nothing, cannot
-  miscompile): *a stored computation is discharged at its canonical base, and a mismatch is a hard error
-  naming both, never a silent lift.* No hoist exists in the tree and no program needs one; write one when a
-  program asks, which is also when its semantics can be judged. **Adopt or reject before the lowering is
-  written — it is one of the lowering's error paths.**
-- **B3 — R11, weakening.** `{ρ₁} A` must be accepted at a `{ρ₂} A` slot when `ρ₁ ⊆ ρ₂` (today the slot is
-  `{ρ₁ | G} A` elaborated at `G` per use, so no rows are ever compared). It must live **at declared slots in
-  the elaboration**, exactly like the zero-row lift — never as an assignability arm in `unify`, which the
-  Types-Are-Values guardrail forbids outright. Representationally the widening is a re-weave of the callee
-  at the slot's stack: free for a call or a value reference, **impossible for a value already built at a
-  narrower stack**, which is where an ordinary user meets B2.
-- **B4 — R8/Q4, canonicalisation decides semantics.** Canonical order fixes a stored `{Throw[E], State[S]}`
-  computation's transformer nesting — the difference between state surviving a raise and not — where today
-  the author writes the pin's order. The canonical form is already fixed in the tree, so **adding an entry
-  kind afterwards is the two-spellings trap**; the flow-grade generalisation (§9 D6) must therefore answer
-  "grade in the type of a first-class computation, or only in the channel?" *before* anything produces a
-  row.
+handler recordingConsole: Console {
+   def printLine(s: String): {Writer[String]} Unit = tell(s ++ ";")
+   def readLine: Option[String] = None
+}
+```
 
-**Recommendation.** Do not start the flag day. Decide B1 first — it is a language decision (*on what terms
-may a program interpret an effect of its own?*), not a lowering decision, and option (b) is the one that
-keeps the shipped capability while allowing every deletion. If v4 is dropped rather than deferred, revert
-the dormant `Row`/`Computation` formers and their canonicaliser (~180 lines, plus their pass-through arms in
-the evaluator, the quoter, `unify` and both printers — unreachable type language is exactly the sort of thing
-that misleads a later reader) and **keep** `WovenRecheck` and the seam test, which earn their place
-independently.
+**A finishing handler declares what it hands back**, and a `return` clause for the normal path. `Throw`
+becomes a library handler instead of a platform-owned transformer:
 
-**The narrower alternative is already taken.** Row aliases — aliasing the row rather than the row-plus-payload
-and splicing it into the constraint list at resolve — was the "right change if v3 stands"; §2.4's requiring
-ability delivers what it wanted (the expanded row reaching the channel) and shipped.
+```eliot
+handler either[E, A]: Throw[E] returning Either[E, A] {
+   def raise[B](err: E) = finish(Left(err))
+   def return(a: A) = Right(a)
+}
+```
 
-### D2 — what does an ability declare about its carrier?
+**A stateful handler carries a parameter** that every clause receives and re-supplies (Leijen's parameterised
+handler — the one extra form the design needs, since the core has no mutation):
 
-The `<Ability>Carrier` convention should become an explicit declaration on the ability, so "which
-representation supplies this effect" is written once, in one place, and no phase recognises a carrier by
-name. Half of this is already reachable and unused: `ability Console[F[_] ~ Suspend]` (§2.4) states "Console
-rides Suspend" on the ability instead of repeating it on every instance. The other half — naming
-`ThrowCarrier` as the representation of `Throw` — is what the pinned-row desugar and `EffectCarrierNaming`
-read by convention today.
+```eliot
+handler threaded[S, A](s: S): State[S] returning Pair[A, S] {
+   def state = resume(s, s)
+   def putState(next: S) = resume(unit, next)
+   def return(a: A) = Pair(a, s)
+}
+```
 
-**Decided 2026-09-04: leave the convention as it is.** Not a rejection of the analysis below — a judgement
-that the convention is cheap enough, and every replacement either relocates the implicitness or buys a new
-declaration form. Revisit with D1, which changes the premise. What the round of analysis settled, so it is
-not re-derived:
+**One run form.** `with` installs a handler over a computation, subject-first, so it reads as `catch` does
+today. Every discharge word becomes a handler or a handler constructor in the library, and the stdlib stops
+owning any carrier at all:
 
-- **The property has a name, and it is not "has a pure model" — it is "has a canonical monad *transformer*"**:
-  a representation parametric in the base, so it can be a **layer**. `ThrowCarrier[E, G, A] = G[Either[E, A]]`
-  sits over any `G`; nothing does that for `Console`, and `Recorded` implements `Console` while being a
-  **base**, not a layer. That single property explains three things previously stated separately: which
-  effects can be pinned (§2.3), why one must not stack over a fake (§6), and why the carrier split exists at
-  all. Worth stating even while the convention stands.
-- **The convention is more contained than it looks.** It is read in the *construct* direction only —
-  `EffectSugarDesugarer` (2 sites), `RowElaborator`, `CanonicalStack` — plus the explicitly cosmetic inverse
-  in `EffectRowRendering`. Nothing decides by it. (`Checker.scala` imports `EffectCarrierNaming` and never
-  uses it; a dead import.)
-- **What it actually costs**, so the price is on the record: the carrier's *name* and its *module* are both
-  conventional, the complier cannot tell "no carrier" from a typo or a misplaced file, and the failure is
-  silent — which is why `{Console | X}` reports `Name not defined` pointing at `Console`, never mentioning
-  the carrier it looked for. That diagnostic is **W1**, and W1 cannot be fixed without this entry.
-- **The options, priced.** (2) a `type Carrier[G[_], A]` member on the ability — no new syntax, ability
-  blocks already parse `type` members (`PatternMatch` uses one) — but it *relocates* the convention rather
-  than removing it: `Carrier` is still a magic name and `type Carier` still silently means "no carrier".
-  (3) reserved syntax (`carrier ThrowCarrier[…] for Throw[E]`, on either the ability or the carrier) — the
-  only option where a typo is an error, because **a compiler-known name is unavoidable here and the only
-  real choice is whether it is reserved**. Carrier-side reads better and needs a uniqueness check;
-  ability-side is cheaper.
-- **Measured, so it is not re-feared:** `~ Suspend` on an ability does **not** constrain implementations.
-  `ability Transcript[F[_] ~ Suspend]` with a pure `implement Transcript[Recorded]` compiles and runs. So
-  §2.4's half is safe to use — but it is documentation, enforced nowhere, and therefore cannot be the signal
-  a desugar reads.
-- **A dedicated `effect` declaration form** (`effect Throw[E]` + `carrier … for Throw[E]`, mirroring
-  `ability`/`implement`) was considered and is **premature, not wrong**. Cost is ordinary — `data`,
-  `ability` and `implement` already desugar to `FunctionDefinition`s. The objection is conceptual: its one
-  gain over option (3) is an implicit carrier binder, and making an `effect`'s methods perform implicitly
-  reintroduces **effect-ness by shape**, which §3.6 removed on purpose and which is what made constructor
-  classes expressible. It also asserts at the syntax level the very specialness the cornerstone denies. It
-  becomes the *right* surface if **D1** lands, because effects would by then genuinely have stopped being
-  ordinary abilities — so it is a D1 question, not a standalone one.
+```eliot
+def transcript: String = written(greeting("Bob") with recordingConsole)
+def demo: Pair[String, String] = swap("second") with threaded("first")
+def safe: Configuration = parse(config) with recovering(_ -> emptyConfiguration)
+def value: Option[String] = allowed with orNone
+```
+
+| today | v6 |
+| --- | --- |
+| `runThrow(c)` | `c with either` |
+| `c catch f` | `c with recovering(f)` |
+| `c else x` | `c with fallback(x)` |
+| `runAbort(c)` | `c with orNone` |
+| `runStateToPair(s0, c)` | `c with threaded(s0)` |
+| `provide(x, c)` | `c with constant(x)` — the tree's one existing handler-as-term, generalised |
+
+**A stored computation is a row-typed field with no tail.** `data TestCase(body: {Throw[E]} Unit)`; the
+`| Id` pin disappears. Its row lists the effects still unhandled, so *where it is run is where they are
+handled*. A computation created inside a `with` scope and run outside carries the effect in its type and is
+handled at the run site; one created with its effect already handled is `{} Unit`. The lexical-versus-dynamic
+handler question therefore has a definite answer written in the type.
+
+**What disappears from the user's world:** the whole `eliot.carrier` package (`Effect`, `Suspend`,
+`flatMap`, `pure`, `map`, `suspend`); every `<Ability>Carrier` type and `run*Carrier` accessor; the
+cross-lift instance matrix; `~ Effect` and `~ Suspend` on definitions; `Id` and `runId`; pinned tails; the
+`{| Recorded}` capture tag; the fake-carrier recipe. Rule 2's "carrier-typed position" and rule 4's four
+carrier namings collapse to one predicate: a slot either has a computation type and captures, or it does not
+and is a payload.
+
+### 9.4 The core desugar — everything is still a def
+
+The front end fits the current core with **no new expression node**; a handler rides exactly the path an
+`implement` block rides today.
+
+| construct | desugars to |
+| --- | --- |
+| `effect E[…] { def op(…): R }` | the ability marker `Qualifier.Ability("E")` plus a method def `op[H ~ E[…, H]](…): R` — as `ability` today, with the self parameter a **nullary** type `H` instead of an `F[_]` |
+| `handler h[…](params): E returning B { clauses }` | a nullary type marker `type h[…]` (a `data h(params)` when it has parameters) plus `implement E[…, h] { clause defs }` — `ImplementBlock`'s `Qualifier.AbilityImplementation` unchanged; `returning B` and the `return` clause become a type-level result function of the marker, read by ordinary evaluation |
+| a row `{E1, E2}` on a def | minted binders `H1 ~ E1[H1], H2 ~ E2[H2]`, **one per entry** — today's `EffectSugarDesugarer` mints one carrier `F ~ E1[F] & E2[F]` for the whole row; this single change is what deletes stacking, lifting and canonical order, since two effects never share a representation |
+| a row on a `data` field | the same minting on the `data` declaration; the field's type is a thunk of the payload |
+| an operation call `op(args)` | the ordinary call `op[H](args)`; `H` unifies with the region's binder for that effect — plain generic instantiation, one binder per effect per region, so there is nothing to choose |
+| `c with h` | `handle[h](c)`: an explicit type argument on the compiler-known `handle`, whose `c: {E} A` rides `handle`'s own binder for `E` and whose result type is the handler's result function applied to `A` |
+
+Types are values, so a handler's *name* being a type is the cornerstone working for the design: `Console[h]`
+is an ordinary ability constraint and the former D3(b) question ("is an ability a type inhabited by its
+implementations?") is **not** forced. The orphan rule is satisfied trivially (the marker is declared in the
+handler's own module) and the overlap check is a no-op (one implementation per marker).
+
+**Operation resolution is the existing `AbilityResolver`.** It already rewrites an ability-qualified reference
+at ground type arguments to the implementation's method def; `printLine[recordingConsole]` resolves to the
+fake's clause by exact structural match, with no declination, no `~ Suspend` filter and no `where` guard.
+
+**Both verifiers keep their vocabulary and their source of truth.** `RowChecker.declaredRow` and
+`EffectAccountingProcessor.openRow` read a binder's `~` constraints; that is unchanged, now with one binder per
+effect. The accounting ride test becomes binder identity: an operation counts toward a definition's row iff
+its `H` *is* the definition's own binder for that effect; an `H` instantiated to a concrete handler is handled.
+
+### 9.5 Semantics
+
+- **An operation call** inside a region jumps to the clause of the handler its binder is instantiated to; a
+  resuming clause computes and returns, and evaluation continues after the call.
+- **A finishing clause** makes its `finish` value the value of the enclosing `with` expression. The `return`
+  clause maps the normal result into the same type.
+- **A parameterised handler** threads its parameter: `resume(result, next)` returns the operation's result and
+  the parameter every later clause of that installation sees. `return` sees the final one.
+- **Nesting order at the run site decides interaction.** `(c with threaded(s)) with either` versus
+  `(c with either) with threaded(s)` is the difference between state surviving a `raise` and not — written by
+  the user where the handlers are installed, as the pin's order was written, with no canonical form to fix.
+- **Instantiation.** A definition is instantiated once per handler environment it runs under, keyed
+  `(vfqn, payload arguments, handler bindings)` — the v4 seam finding with "handler bindings" in place of
+  "carrier stack". Every `with` site is a term reachable from `main`, so every binding is ground at the seam.
+  A handler-typed *parameter* is allowed exactly as a `T ~ Show[T]` binder is: every instantiation binds it to
+  a constant. A handler chosen by a runtime `if` or stored in a data structure is a compile error — "ability
+  references are never passed around in structures", applied to handlers.
+- **The run boundary.** The synthesized entry point is ordinary code: `main with jvmConsole with jvmLog with
+  jvmInf`. `SyntheticMainSourceProcessor` shrinks; `RunBoundaryFunctions` is deleted.
+- **`Inf`** stays an effect handled only by the platform (`forever` as a native loop), and it stays the one
+  effect that may reach `main` unhandled by anything but the platform.
+- **"The fake cannot cheat" survives without `Suspend`.** A user module cannot declare a native, and the
+  platform's natives are private to its layer, so a test's handler reaches I/O only through effects it
+  declares in its own clauses' rows — which the verifiers charge as usual.
+
+### 9.6 The lowering — where the two control-flow transformations live
+
+A resuming clause is a call and needs nothing. A finishing clause is a **non-local exit**; a parameterised
+handler, or a handler constructed from a runtime value (`recovering(f)`), needs a value **threaded through
+calls that never mention it**. Neither is expressible as a def in a strict pure core — today both are
+expressed as defs precisely by the monad instances (`ThrowCarrier`'s `flatMap` is the exit,
+`StateCarrier`'s the threading), which is the whole reason the carrier existed. They now live in **one
+post-monomorphization lowering at the `WovenValue` seam**, over ground code where every handler is a known
+constant:
+
+- a finishing handler's region is rewritten into **result-code form** (each call that may finish returns
+  the result-or-exit, checked once at the call);
+- a threaded handler's region is rewritten into **parameter-passing form** (each call that may reach a
+  clause takes and returns the parameter);
+- **per effect, never nested** — the two rewrites are orthogonal on the same code, which is what makes a
+  stack unnecessary;
+- **the compile track needs neither**: the NbE evaluator is an interpreter and implements `finish` and
+  `resume` directly (what `Either[String, _]` on the compile track does by hand today);
+- a backend **may substitute a primitive** — an exception or early return on the JVM, a status flag and a
+  jump on a microcontroller — as an optimisation, never as a requirement. The first cut emits the
+  result-code form as ordinary data; no backend change is needed to get green.
+
+The honest statement: the transformer monads do not vanish, they shrink to one invisible pass over ground
+code, replaceable per target, outside the library, the type system and the user's scope.
+
+### 9.7 Optimisation — purity is what the evaluator can reduce
+
+The original plan (distinguish constants from World-dependent values by threading a `World`, as GHC's token
+does) is not needed and would not fit handlers. GHC needs the token because its core is lazy and purity alone
+lets the optimiser reorder I/O; Eliot's core is **strict**, and rule 1 fixes the order and count of every
+evaluation syntactically. So the rule is:
+
+- **A term is pure iff the one NbE evaluator reduces it; a term is the World iff it is stuck on a
+  runtime-only native.** The evaluator is also the optimiser — applied to runtime bodies as a partial
+  evaluator — so the single-evaluator cornerstone holds. Transitivity is free: a body that calls an untwinned
+  native is stuck at that call, and stuckness propagates.
+- **A compile-time twin is a proof of purity**, axiomatic in the same sense a meta transfer is: it asserts the
+  result is a function of the inputs (otherwise the compile-time answer would be wrong). A pure native without
+  a twin is treated as impure — an optimisation withheld, never a miscompile.
+- **The one constraint on the optimiser**: a stuck call keeps its position and its multiplicity. Everything
+  reducible may be folded, deduplicated, inlined, deleted when unused, or evaluated at another time, because
+  in a total pure language the strategy is unobservable. `Inf` is native, so the evaluator never loops; fuel
+  bounds the cost of a legal large pure fold, and out-of-fuel means "leave the code as written".
+- **Handlers make it better.** An effectful definition is pure code parameterised by its handler, so purity
+  is decided per instantiation: `greeting("Bob") with recordingConsole` reduces to the transcript string at
+  compile time; under `jvmConsole` the same body is stuck at `printLineInternal`, in place, once.
+- **A nullary definition that reduces is a constant** (compile-time or once at startup); one that is stuck
+  is re-evaluated at every reference — which is what "effects run where they are written" says.
+- **Rule: a native without a compile-time twin may be called only from a handler clause.** Today nothing
+  forces a native-calling definition to declare a row (`def now: Int = currentTimeMillisInternal` hides an
+  effect from both verifiers; the `suspend` wrapper was the informal guard and goes with the carrier). The
+  check is a reachability check on runtime bodies like the recursion gate; the error names the two fixes
+  (provide a twin, or route it through an effect). Every I/O native in the jvm layer today — the `*Internal`
+  leaves in `file`, `effect` and `system` — is already inside an `implement` block that becomes a handler.
+  The pure natives without twins — `String`'s (`combine`, `length`, `substring`, `toUpperCase`, …) and
+  `List`'s — need one, which the refinement channel and `where` already want.
+
+### 9.8 What it deletes, keeps and adds
+
+**Deleted:** `RowElaborator` and `RowElaborationProcessor`'s elaboration half; the carrier-minting,
+pinning and supplying halves of `EffectSugarDesugarer`; `EffectLifter`; `IdNormalizer` and
+`assertNoIdResidue`; `EffectCarrierNaming` and `EffectRowRendering`; `RunBoundaryFunctions`; the
+constraint-aware declination and `activeFactKeys` probe in `AbilityImplementationProcessor`;
+`RowChecker.fixesCarrier` and the block peel; the dormant `Computation`/`Row` formers, `CanonicalRow` and
+`CanonicalStack`; every `*Carrier` type, `Suspend` instance and cross-lift instance in stdlib and jvm; the
+`eliot.carrier` package; the compile-track `Id.els` and `AbortCarrier`.
+
+**Kept:** `RowChecker` (verification) and `EffectAccountingProcessor` as the two verifiers;
+`AbilityResolver`, `AbilityImplementationProcessor` (structural match + `where`), `CarrierKindChecker` as the
+kind system it is; `WovenRecheck`; the seam-groundness test, re-pointed at handlers.
+
+**Added:** the `effect`/`handler`/`with` syntax and their desugar to marker + `implement`; the compiler-known
+`handle` and the handler result function; the lowering pass (§9.6); the twin-less-native check (§9.7); the
+evaluator's quiet-stall mode and fuel.
+
+### 9.9 Standing rules, re-read for v6
+
+Rules 1, 2, 6, 7 and 8 of §5 carry over verbatim. Rule 3 is restated: **handler binders are ordinary
+generics** — solved by first-order unification against rigid handler types, one binder per effect per region,
+and two different handlers meeting is a mismatch. No join, no lattice, no ordering-sensitive slot decision;
+that bug class stays prohibited. Rule 4 ("carrier-ness by tag") has no subject left and is retired. Rule 5
+(the whitelist) is retired with the elaborator; the desugar consults declarations only, and there is no
+component that could accrete a sibling rule.
+
+## 10. Implementation steps
+
+Three groups: what lands **before** the flag day under the byte-identity gate, the **flag day** as one change
+under the behavioural gate, and what follows. The flag day is one change because the ability's self
+parameter changes kind (`F[_]` to nullary `H`) and no ability can be both at once; everything else is staged
+around that boundary.
+
+### 10.1 Before the flag day (each independently landable, byte-identical)
+
+1. **Evaluator: quiet-stall mode and fuel.** A partial-evaluation entry point on the one evaluator in which
+   a stuck runtime-only native is a residual neutral rather than the loud stall of the compile track, with a
+   fuel budget. No caller yet; tested on runtime bodies directly. This is the optimiser's engine and the
+   compile track's `finish`/`resume` host.
+2. **Compile-time twins for the pure natives.** `String` and `List` leaves (`StdlibNativesProcessor` covers
+   arithmetic, comparison and `Bool` today). Owed to the refinement channel and `where` regardless of v6.
+3. **The twin-less-native check, in today's spelling:** a native without a twin is reachable only from an
+   ability implementation's method body. A reachability processor beside `RecursionCheckProcessor`, producing
+   its own fact and a diagnostic naming the two fixes. Measured first by listing every native and its call
+   sites; the jvm layer should already satisfy it.
+4. **Delete the dormant v4 formers** — `Computation`, `Row`, `CanonicalRow`, `CanonicalStack`, their
+   pass-through arms in the evaluator, the quoter, `unify` and both printers (~180 lines). Unreachable type
+   language misleads a later reader. Keep `WovenRecheck` and the seam test.
+5. **Parser and AST for `effect`, `handler` and `with`**, landed dark: parsed into `ast.fact` nodes, rejected
+   at `core` with "not supported yet". Lets the TextMate grammar, the IntelliJ plugin, the apidoc renderer
+   and the `eliot-code` skill be prepared, and makes the flag-day diff smaller.
+6. **Author the v6 stdlib, jvm layer, compile-track overlays, examples and `eliot-test` on a branch**, ahead
+   of time, so the flag day is a compiler change plus a prepared tree rather than one long day of both.
+7. **Record the behavioural baseline** — the stdout/exit-code transcript of every example jar — so the
+   flag-day gate has something to compare against.
+
+### 10.2 The flag day (one change, behavioural gate)
+
+- **F1 — the desugar.** `EffectSugarDesugarer`: a row mints one binder per entry of nullary kind; `effect`
+  produces the ability marker and method defs; `handler` produces the type marker and `implement` block, the
+  result function for `returning`/`return`, and the parameter record for a parameterised handler; a row on a
+  `data` field mints on the data. Delete pinning, supplying and the carrier-reuse rule.
+- **F2 — deletions.** `RowElaborator`, `EffectLifter`, `IdNormalizer` + `assertNoIdResidue`,
+  `EffectCarrierNaming` + `EffectRowRendering`, `RunBoundaryFunctions`, the declination and `activeFactKeys`
+  probe, `fixesCarrier` and the block peel. `RowElaborationProcessor` keeps only `verifyRow` and is renamed
+  to say so.
+- **F3 — the checker.** No rigid carrier to lift into, so `tryPureWrap` goes; an operation call is a call
+  whose binder unifies with the region's; `handle[h]` is an explicit type argument. Rendering: a
+  handler-instantiated type prints as itself (the handler is a name the user wrote) — no inverter.
+- **F4 — the run boundary.** `SyntheticMainSourceProcessor` emits `main with <platform handlers>`; the jvm
+  plugin contributes its default handler list instead of a boundary FQN.
+- **F5 — the lowering.** The pass at the `WovenValue` seam (§9.6): result-code form for finishing handlers,
+  parameter-passing form for threaded ones, per effect. The compile track routes `finish`/`resume` to the
+  evaluator (step 1). `WovenRecheck` re-checks the lowered output.
+- **F6 — accounting.** `EffectAccountingProcessor`'s ride test becomes binder identity; the "declared pure
+  but performs effects" diagnostic stays in the pre-mono verifier.
+- **F7 — the tree.** Land the branch from step 6: `Throw`/`Abort`/`State`/`Writer`/`Dep`/`Console`/`Log`/
+  `Inf` as `effect` + handlers; `either`, `recovering`, `fallback`, `orNone`, `threaded`, `written`,
+  `constant` in the base; jvm handlers over the natives; delete `eliot.carrier`, `Id.els`, `AbortCarrier`,
+  every `*Carrier`; examples and `eliot-test` in handler form.
+- **F8 — the gate** (§8): behavioural identity on every example, tests green, the fake examples and
+  integration classes with no minted carrier, the single-word `eliot-test` case as a `with`, seam groundness
+  on handlers.
+- **F9 — the documents.** Part I rewritten to the v6 design (this Part's §9 is its draft); the CLAUDE.md
+  *Effects Are a Channel* cornerstone rewritten; the `eliot-code`, `eliot-layers` and `eliot-jvm-backend`
+  skills' effect sections; the `TODO.md` pointer.
+
+If the gate cannot be met, the assessment in §9.2 is wrong somewhere — find where before landing anything,
+and do not land a narrowed version (standing rule 2).
+
+### 10.3 After the flag day
+
+- **A1 — the optimisation pass.** Partial-evaluate every monomorphic runtime body with the step-1 evaluator
+  under fuel; residualise stuck subterms; measure with `--statistics` and the example sweep. Enabled once the
+  twins exist, off by default until measured.
+- **A2 — backend exit primitive**, if A1's measurements or a microcontroller target justify replacing
+  result-code form with a jump.
+- **A3 — the reconsidered work items.** W1 (the "cannot pin a `Suspend`-riding effect" diagnostic) has no
+  subject: any effect can be stored. W3's tag is subsumed by `with`. W4 (a `data` field typed by its own open
+  carrier binder) has no subject. W2 (the two rule-4 diagnostics) is re-measured: with the elaborator gone the
+  checker's mismatch is the only one left, and it must name the slot.
+- **A4 — D4 dissolves** (any effect is storable and suppliable); **D5** is re-decided in v6 terms (§11).
+
+## 11. Open decisions
+
+Kept numbers where a Part I cross-reference uses them.
 
 ### D3 — `~` and `&` fully in user space (stages 3 and 4)
 
-Stages 1 and 2 landed (§2.5). Stage 3 would collapse the constraint types to a single `Sourced[Expression]`
-and make `&` an applied type constructor; stage 4 would make `~` a compiler native
-(`infix def ~[K](kind: K, c: Constraints): K`) and delete `paramConstraints` from every fact. **Assessed and
-blocked, on meaning rather than on difficulty:**
-
-- **What does an ability denote, as a value?** `&` is `Type → Type → Type` and an ability's marker is a
-  partially applied *function value*, so `&[Console[F], Log[F]]` is ill-kinded under the only declarations
-  either side has — caught by nothing today only because no reader ever type-checks a constraint. Three
-  honest answers: **(a)** give constraints their own sort — forbidden by the *Effects Are a Channel*
-  cornerstone ("no kind or sort is added to the type language") and the first stratification in a
-  deliberately non-stratified PTS; **(b)** make an ability a type inhabited by its implementations — coherent
-  with types-are-values, and head-on against "ability references are fully resolved during monomorphization,
-  never passed around in structures"; **(c)** leave it an uninterpreted stuck neutral — implementable
-  tomorrow, and the side channel again, now spelled as an application.
-- **Do `~` and `where` unify?** After stage 4 they are two spellings of "a compile-time predicate on a
-  signature", one evaluable and one search-driven. Settle this before any representation is committed.
-- **A phase-order blocker must be cleared first, as its own change.** The superability closure (§2.4) runs
-  at resolve (6) and is *structural*; infix operators are not structured until 8, and a constraint that is
-  still an un-precedence-resolved `&` run cannot be decomposed. The only clean route is moving the closure
-  to ≥ 8 — which relocates the single source of truth both verifiers read, so it lands **before** stage 3,
-  not inside it.
-- **The footprint win is illusory.** 46 structural reads across 16 files consume `.abilityFQN`/`.typeArgs`
-  directly and would each decode the expression back into them; and the overwhelming majority of constraints
-  in a build are not user-written `~ A & B` at all (about fifteen `&` uses in the whole tree) but minted by
-  `EffectSugarDesugarer` from rows — so stage 3 makes the compiler's own metadata travel as surface syntax
-  it must re-parse at every read.
-- **`signatureEquality` changes meaning**: constraints are excluded from it today; folding them into the
-  restriction makes a layer adding a body spell identical constraints. Sanctioned duplication, arguably an
-  improvement — but a deliberate decision, not a side effect.
-
-**Recommendation.** Do not implement stage 3 as written. Answer the two meaning questions first; land the
-closure relocation on its own if and when they are answered yes.
+Unchanged and still blocked on meaning, not difficulty (the two questions: what an ability denotes as a
+value, and whether `~` and `where` unify). v6 does **not** force D3(b): a handler's name is an ordinary
+type and `E[h]` an ordinary constraint. The phase-order blocker (the superability closure runs at resolve,
+before operators are structured) still lands first if the questions are ever answered yes.
 
 ### D4 — `Suspend`-riding effects: pinning and supplying
 
-`Console`/`Log` have no canonical carrier, so they can be neither pinned nor supplied (§7.2). The designed
-extension is two parts: **(a)** an abstract base-layer `type Suspended[A]` aliased per target
-(jvm: `= IO[A]`) — the nameable platform base, the same commitment the synthetic entry already makes
-grounding `main`; and **(b)** treating carrier-less effects left of `|` as *constraints on the tail* rather
-than as layers. Neither is needed until a real use case stores platform actions in a row-stating field —
-payload-indifferent generic containers already store effectful functions fine. **Decision**: whether to
-build it, or to keep the loud resolve-time error as the answer (see **W1** for the diagnostic either way).
-
-Note this decision interacts with D1: under v4 the limitation disappears, and under B1 option (b) the run
-site names the base instead.
+**Dissolves at the flag day.** There is no canonical carrier for an effect to lack; a stored `{Console} Unit`
+is handled where it is run. Kept as a number only so §7.2 still resolves.
 
 ### D5 — a lambda body at a rowless arrow slot
 
-```eliot
-def call(f: Option[String] => String): {Console} Unit = printLine(readLine.f)
-def main: IO[Unit] = call(s -> s.orAbort else "")        -- Expected: String, Actual: IO(String)
-```
-
-`f`'s codomain is declared rowless, so by rule 4 the lambda's body is a value position and its `else` should
-discharge to `Id` — which is exactly what happens when the same discharge sits in a named pure helper. The
-fix is one line in shape (`elaborateLambdaNatural` takes the slot's declared codomain rather than inheriting
-the enclosing region), but it changes what "a lambda at a plain arrow slot" means for *every* call: the
-existing arm deliberately lets an effectful body become a bind chain on the enclosing carrier. Per standing
-rule 2 this is a **rule decision, not a patch**. Pinned by `ExamplesIntegrationTest1`'s "bind an effectful
-subject dotted into a function-typed parameter", whose handler is spelled around the gap.
+Still a rule decision. In v6 terms: `def call(f: Option[String] => String)` declares `f`'s codomain rowless,
+so a lambda at that slot whose body performs an effect must be rejected naming the slot (rule 4 as a theorem
+of definitional equality now makes this the *default* outcome, since the lambda's body has no binder for the
+effect to ride). The question left is whether a lambda body gets its **own** region — so that an effect
+handled *inside* the lambda (`s -> s.orAbort with fallback("")`) is accepted, as it is when the same code
+sits in a named pure helper. Recommended: yes, a lambda body is a region; the elaborator's old "become a bind
+chain on the enclosing carrier" arm has no v6 counterpart.
 
 ### D6 — flow grades (cross-reference)
 
-The planned generalisation — the row becomes *"abilities + named grades"* (`{Timer, cycles: <=800}`), with
-today's row as the powerset special case (`seq` = `branch` = union, `within` = `subset`) — is specified in
-`TODO.md` and gated on `List`/`Array` `size` meta. Two connections to this document: it lands **better**
-under D1 (a row is already an ordinary value with an algebra, so a grade is a new entry *kind*, not a new
-mechanism, and "grade-only rows do not force a carrier" stops being a carve-out); and if D1 is taken, B4
-must answer it before the canonical form is relied on.
+Lands better under v6 than under either v3 or v4: a row entry is a binder with a constraint, so a grade is a
+new *kind of entry* in the channel with no representation question at all — grade-only rows never needed a
+carrier, and now nothing does. B4's "canonical order decides semantics" no longer exists to be answered.
 
 ### D7 — can the post-mono accounting verifier retire?
 
-The pre-mono per-definition check is unbounded except for the three cases in §3.3, so in principle the
-post-mono one is redundant for everything it decides. It stays until experience says otherwise: it is the
-codegen precondition, the unconditional fail-safe, and the only verifier that sees ground instantiations.
-**Default answer: no.** Revisit only with evidence.
+Default answer still **no**: it is the codegen precondition, the unconditional fail-safe, and the only
+verifier that sees ground handler bindings. Revisit only with evidence.
 
-## 10. Open work (no decision needed)
+### D8 — the handler surface, exact spelling
 
-- **W1 — the "cannot supply / cannot pin a `Suspend`-riding effect" diagnostic must name the route to
-  take.** Today it is a loud resolve-time failure about a missing `<Ability>Carrier`; it should say which of
-  the two available answers applies (substitute the carrier, or declare the effect and let it ride).
-- **W2 — make both rule-4 diagnostics name the slot.** A user pipe declaring no row
-  (`|>[A, B](a: A, f: A => B): B`) given a computation gets the elaborator's own *"This argument is a
-  computation, but argument N of '|>' declares no effect row"*. The stdlib `.` — whose `f` declares `{}` —
-  instead hoists the subject and leaves the checker to report an unattributable
-  `Type mismatch. Expected: IO(IO(Option(String)))`. Same violation, one message.
-- **W3 — a user-declarable capture tag — SHIPPED 2026-09-04** (`def onRecorded(body: {| Recorded} Unit):
-  String`). What landed: the row-tail parser reads a tail with or without entries; `EffectSugarDesugarer`
-  keys `pinnedParameterEffects` on *being* a pinned row rather than on pinning something, so a zero-entry
-  parameter pin registers in `EffectRow.pinnedParameterIndices`; and `rewrite` collapses the zero-entry row
-  to its base applied to the result type. **The stack-suppression half proved unnecessary** — a pinned
-  capture's region is already `RegionCarrier.Unspelled`, so the elaborator declines to write and the checker
-  solves the carrier from the declared slot type, which is the same mechanism that always made the
-  two-definition form work. Return position deliberately keeps the non-empty test: a return that is a
-  computation on `G` is just `G[A]`, and capture is a property of an argument. Worked example in
-  `examples/src/EffectsFakeConsole.els`; three end-to-end tests in `AbilityConstraintDeclinationTest`,
-  including that a body performing an effect the named carrier cannot supply is rejected rather than
-  rerouted.
+Recommended and used throughout §9: `effect`/`handler` as a declaration pair mirroring `ability`/`implement`;
+`with` infix, subject-first; `returning B` on a finishing or parameterised handler; `finish(b)` and
+`resume(a, next)` in clauses; a `return` clause. Alternatives priced: a named `implement` instead of `handler`
+keeps one declaration kind but makes effect-ness a shape again (§3.6). **Decision:** the keywords.
 
-  A tagged slot also holds when the *callee itself* declares a row on its return, which was a stated
-  limitation before: giving a discharge word a `{Throw[E]} Unit` return used to stop the elaborator capturing
-  at the foreign carrier, because an untagged concrete slot is only recognised in a region with no carrier of
-  its own. The tag is read from the declaration and does not care, so a discharge word may both fix the
-  carrier and answer an effect — which is what lets a fake-carrier test case read as a **single word**
-  (`"…" should "…" in onConsole(input, { … })` in `eliot-test`) rather than a nested discharge.
+### D9 — a mutable cell for stateful handlers
 
-  **Decided 2026-09-04: build this (Form A), not the `runAt` term (Form B).** Form A needs no §3.2
-  amendment, Form B does (B1(b) correction 2); both generalise the same mechanism, so A is a down payment on
-  B and is not throwaway if D1 later lands. Scope of the build: allow the entry-less row tail in the parser,
-  thread the existing pinned tag with **zero** entries, and **derive no discharge stack inside a capture
-  whose carrier the declaration names concretely** — without that last part an assertion inside the block
-  still stacks a `ThrowCarrier` over the fake and lands back at §6's wall, which is the whole point of the
-  feature. Accepted cost: two spellings of one type (`{| Recorded} A` and `Recorded[A]`), separated by the
-  rule that already separates `{} A` from `G[A]` — *row spelling when the slot runs the thing, bare type
-  when it is data passed through*.
-  This is the tag the platform already contributes for `runMain`'s `io: IO[A]`, made declarable instead of
-  plugin-only; the cheapest surface reuses pinned-row syntax with no ability entries, so the existing tag
-  pipeline applies unchanged. It would buy a runner taking a program on a bespoke carrier directly, removing
-  §7.7's region constraint — the remaining cost of a faked case, now that interleaving itself works.
-  **A later convenience, not a prerequisite** — a framework ships today without it. If D1/B1 lands option
-  (b), `runAt[…]` supersedes it.
+Koka and Effekt implement `State` with a handler-local mutable variable, which lowers to a register. Eliot's
+core has no cells (Landin's knot; `termination/PurityGuardTest`), and a cell restricted to non-function data
+would be a new sort-like restriction. **Recommended: no** — parameter-passing form (§9.6) needs no
+restriction and costs one argument per call in the region. Revisit only with a microcontroller measurement.
 
-  One thing measured while correcting §7.7, so it is not re-derived: declaring the slot as a **pinned row
-  over the fake** (`body: {Throw[AssertionError] | Recorded} Unit`) *does* widen the capture's ambient row —
-  the higher-kinded mismatch disappears and the block elaborates — but it lands the body on
-  `ThrowCarrier[…, Recorded]` and so walks straight into the fake-lifting wall (§6). Any W3 surface must put
-  the body on the fake carrier itself, not on a stack over it. The entry-less spelling `{| Recorded} A` is
-  exactly that, and it is why the tag carries **no** entries: what the body performs, ability resolution
-  finds out on its own and reports precisely; the one thing no declaration states today is *"this slot hosts
-  a computation on this carrier"*, which is one bit, and the tag is it. (`{| B} A` does not parse today —
-  `ast.fact.Expression`'s row-tail parser reads `| base` only after at least one entry, on the reasoning that
-  such a row "is that carrier itself and needs no row spelling". True of the *type*; the point of the tag is
-  that it is not true of the *tag*. This is the same tag-not-shape distinction that already separates `{} A`
-  from `G[A]` under §1 rule 2, so it adds no concept.)
+### D10 — a purity annotation for twin-less pure natives
 
-  **`{| B} A` is not a third meaning of the row** — it is the pinned row at **n = 0**. The rule is uniform:
-  `{E₁, …, Eₙ | B} A` is the canonical stack of the entries' carriers, leftmost-outermost, bottoming out at
-  `B`; with no entries there are no layers and the type is `B[A]`. `{Console | Recorded}` fails under that
-  *same* rule rather than a different one — there is no `ConsoleCarrier` to layer. What the tag adds is a
-  **fifth naming** on §1 rule 4's list of four (a pinned stack, a callee's own carrier binder, `Id`, a
-  platform run carrier); rule 4 already holds that the namings are "one predicate, not four arms", so this
-  extends an enumeration rather than adding a kind of slot.
+An axiom without the proof a twin gives. **Deferred**: the twins are owed anyway, and an annotation is a
+second spelling of the same fact. Revisit if a native is found that is pure and genuinely has no
+compile-time expression.
 
-  **Why the tag cannot be replaced by reading `Effect` instances** — the first thing anyone reading this
-  will propose, since asking for an `Effect` instance is the sanctioned "is this a carrier?" test elsewhere.
-  It would decide a *caller's* calling convention from a declaration the carrier's author wrote for their
-  own body's sake, which is the bug already fixed in the other direction (the elaborator's own note: adding
-  `~ Effect` to `def hold[G[_]](x: G[String])` silently changed what callers could pass). The in-tree
-  counterexample is live: `implement Effect[Either[String]]` exists in `stdlib/eliot-compiler`, so every
-  `Either[String, A]` parameter in compile-track code would silently become a capture slot. Carrier-ness at
-  a *slot* must be written by whoever writes the signature.
-
-  **W3 and D1's B1(b) are the same mechanism at two granularities**, which is the argument for doing W3
-  first regardless of how D1 goes. Both generalise `row/RunBoundaryFunctions` from "a platform-registered
-  FQN with a fixed base" to "a base the user supplies": W3 declares the boundary **on a parameter**, so the
-  base is in the callee's declared parameter type — already on §3.2's whitelist, no amendment needed;
-  `runAt[B]` is a **built-in** boundary whose base is a call-site type argument, which is not (B1(b)
-  correction 2). So W3 is a **down payment on B1**, in the one surface today's elaborator can already
-  consume, and it is not throwaway work under any outcome of D1.
-- **W4 — optional hardening: reject a `data` field typed by the data's own open carrier binder** (§7.9).
-  The open-*row* field is already rejected; this shape reaches the same place by another spelling.
-
-## 11. Closed by measurement — do not re-propose
+## 12. Closed by measurement or decision — do not re-propose
 
 Each of these was tried, measured, or decided, and the record is the reason not to spend the time again.
 
 - **Carrier inference** — a carrier metavariable, a join solver, an `Id`-headed uniform judgment, a mode
   obligation, a post-drain mode resolver. Of 15 fix commits in the v2 window, the four highest-impact were
-  one failure: a carrier metavariable captured by first-contact unification. The guard family was documented
-  as uncompletable. Gone, and prohibited (standing rule 3).
-- **Deleting `EffectLifter` and `CarrierKindChecker`.** Measured per arm, each behind its own switch, with
-  the whole gate and all 45 examples run per switch: **five of six arms are live, two for soundness**. The
-  one dead arm (`mustLiftBeforeUnify`) is deleted. `verifyCarrierKinds` is the only thing rejecting
-  `def bad[F[_]](x: F): F` instantiated at `?F := Box[String]`; with it off that program silently compiles.
-  Residual risk, stated rather than buried: `mustLiftBeforeUnify`'s removal is safe on the runtime track by
-  construction (the elaborator writes the carrier, so a runtime carrier is never a meta) and rests on the
-  gate on the compile track, where carrier metas still exist. If a compile-track program is ever found in
-  which a carrier meta application meets an equal-arity data constructor at a flex payload, that is the
-  commit to revisit — and **the fix is the elaborator writing that carrier too, not the guard coming back**.
-- **Replacing concrete pins with ordinary generics** (`data TestCase(body: {Throw[E] | Id} Unit)` ⤳
-  `data TestCase[F[_] ~ Throw[E]](body: F[Unit])`). Refuted twice by running the tree: **there is no site**
-  (the tree contains zero pinned rows in `.els`; the one case was removed by `foldNamedValues`, which hands
-  each gathered value to a *slot* instead of storing it), and **the replacement is not free** — leaving `F`
-  to be inferred at each use fails, because the elaborator *writes* carriers rather than solving for them,
-  so a carrier-generic stored value is written at the caller's ambient and the stored effect is charged to
-  the caller. The working spelling names the machinery (`TestCase[ThrowCarrier[String, Id]]`), which is
-  exactly the leak the pinned row exists to remove. A regression in the user surface, not a subtraction.
-- **Deleting the pinned tail, the pinned/open desugar machinery, or the `{}` binder-reuse rule.** All three
-  are load-bearing: the tail is the only spelling of a stored computation that does not name a carrier
-  stack; the pinned machinery is what a supplied parameter row *lowers into*; and the binder-reuse rule is
-  how a discharger's ambient carrier is found.
-- **Deleting `Id` or its erasure.** Never a decision — an inference from v2's critique of the `Id`-headed
-  *encoding*, which is a different thing and was removed separately.
+  one failure: a carrier metavariable captured by first-contact unification. Under v6 the class is still
+  prohibited in its restated form (§9.9): handler binders are solved by first-order unification against
+  rigid types, never joined.
+- **The carrier as the injection point** (§6's strategy as the *final* form). Decided 2026-09-06: it chose an
+  interpretation by instantiating a type, and every §6/§7 limitation was a symptom. Superseded by §9.
+- **A runtime free monad as the effect representation.** Assessed 2026-09-05: a heap tree of closures walked
+  by an interpreter, a coproduct-with-injection to compose effects (the row back in the type), and no plain
+  spelling of the scoped operations. The one thing it gets right — the interpretation is a *term* — is §9;
+  the compile-time-fused variant is v4's lowering under another name.
+- **v4 as written** (the row leaves the type, the carrier is lowered post-mono but *stays* the mechanism).
+  Its measurements are inherited (§9.5's instantiation key; the seam is late enough), its blockers B2–B4
+  dissolve under handlers rather than being answered, and its B1 options (a) user-visible handlers as a
+  scope increase, (b) `runAt[B]` naming a *base type*, (c) dropping substitution — are all superseded by
+  "the interpretation is a term": (a) is what §9 builds, made cheap by whole-program constancy; (b) named
+  the wrong thing.
+- **A `World` token / threading a fake dependency to sequence and protect I/O.** Not needed in a strict
+  core (§9.7); purity is decided by evaluator stuckness.
+- **Deleting `EffectLifter` and `CarrierKindChecker` *under v5*.** Measured per arm: five of six live, two for
+  soundness. Under v6 `EffectLifter` has no subject and goes at the flag day; `CarrierKindChecker` stays as
+  the kind system it is — `verifyCarrierKinds` is still the only thing rejecting a `[F[_]]` binder
+  instantiated at a proper type.
+- **Replacing concrete pins with ordinary generics *under v5*.** Refuted twice by running the tree, because
+  the elaborator *writes* carriers rather than solving binders. Under v6 the stated reason is gone, and the
+  replacement is exactly the desugar (§9.4: a stored row mints binders on the `data`) — not a
+  re-proposal, a different premise.
+- **Deleting `Id` or its erasure *under v5*.** Never a decision then; under v6 `Id` has no subject.
 - **Bounded staging / deferring an instantiation-decided position.** A deferred position is one the
-  elaborator writes nothing at, so it cannot write the carrier there either: the "small local concession"
-  is what kept the carrier inferred and the whole v2 machinery alive for six days.
-- **Approximating rule 4 in the elaborator** (letting the payload test accept a generic head) instead of
-  declaring it in the signature.
-- **A relayed slot-mode rule.** It named nothing and handled depth 1 only; it existed because `a.f(b)` is
-  `.(a, f(b))`. Standing rule 7.
-- **Putting the row on `VPi`** (Koka-style `VPi(domain, codomain, row)`). Feasible and adds no sort, but it
-  teaches every unification site, the printer and the `Function` native about rows — putting effects *into*
-  the mechanism the design exists to keep them out of. D1's arrow-with-computation-codomain gets the same
-  expressiveness with no change to the Π-former.
-- **A `type X = {A, B}` row alias with its own AST node.** Rejected: `type` names a type, a set of abilities
-  is not one, and an `ast.fact.Expression` case is the most expensive thing this language can add — one node
-  forced arms in the codec, the core converter, the strict-positivity checker, two places in the desugarer, a
-  new `EffectRow` field and a special case in `TypeAliasDefinition`. §2.4 replaced it with one resolve rule
-  and no syntax.
-- **Discharge markers (`{-E}`).** There is no negative-effect surface; discharge is structural.
-- **Scanning the dictionary for an ability name.** Replaced by the keyed marker lookup; the scan was
-  hash-order-dependent and ignored import scope.
-- **Running v4's P2 before P4.** Not separable — see D1.
+  elaborator writes nothing at, so it cannot write the carrier there either; kept v2 alive for six days.
+- **Approximating rule 4 in the elaborator** instead of declaring it in the signature.
+- **A relayed slot-mode rule.** Named nothing and handled depth 1 only.
+- **Putting the row on `VPi`** (Koka-style). Teaches every unification site, the printer and the `Function`
+  native about rows. v6 puts the row on a *binder*, which the Π-former already has.
+- **A `type X = {A, B}` row alias with its own AST node.** An `ast.fact.Expression` case is the most
+  expensive thing this language can add; §2.4 replaced it with one resolve rule.
+- **Discharge markers (`{-E}`).** There is no negative-effect surface; discharge is a `with`.
+- **Scanning the dictionary for an ability name.** Replaced by the keyed marker lookup.
+- **Running v4's P2 before P4.** Not separable — and moot: the flag day is §10.2.
+- **The `<Ability>Carrier` convention as an explicit declaration** (the former D2). Its premise — that an
+  effect *has* a representation — is gone; the property it named ("has a canonical monad transformer") is
+  exactly what §9.6 lowers away.
 
 ---
 
 # Part III — Provenance
 
-## 12. Retired documents, and how to read a citation
+## 13. Retired documents, and how to read a citation
 
 Ten documents were merged into this one and deleted. Their full text is in git history (`git log --diff-filter=D
 -- docs/`), and the table below says what each was and where its subject now lives. **Scaladoc comments across
@@ -1139,16 +1228,20 @@ X §N"), not live references, and they do not index this document.
 
 | retired document | what it was | anchor scheme in comments | where its live content is |
 | --- | --- | --- | --- |
-| `effects-as-channel.md` (v2, "uniform carriers") | the first shipped design: the carrier as a type argument the *checker solves* | `§0`–`§13`, `finding N`, `U1`/`U4-x` | superseded in direction and in code. What it got right and kept: the channel (§3.3), rows never flowing into types, carrier-ness by tag (§3.6), `Id` without `Suspend[Id]` (§3.4), payload/row vocabulary (§3.7). What it got wrong is §11's first entry |
+| `effects-as-channel.md` (v2, "uniform carriers") | the first shipped design: the carrier as a type argument the *checker solves* | `§0`–`§13`, `finding N`, `U1`/`U4-x` | superseded in direction and in code. What it got right and kept: the channel (§3.3), rows never flowing into types, carrier-ness by tag (§3.6), `Id` without `Suspend[Id]` (§3.4), payload/row vocabulary (§3.7). What it got wrong is §12's first entry |
 | `effects-as-rows.md` (v3) | the landed design + its A.1–A.11 record: the elaborator writes the carrier | `§1`–`§9`, `A.x`, `R1`–`R6` | Part I in its entirety; §4 is its Appendix A.1; §5 its standing rules; §8 its A.9.4 method |
 | `effect-row-tails.md` | pinned rows as the one spelling of a carrier stack | prose only | §2.3, §7.2, D4 |
 | `testing-effects.md` | substituting effect implementations | `L1`–`L3`, `§2.x` | §6, §7.7, W3 |
-| `effects-v5-one-carrier.md` | rows as constraints on one carrier — the subtraction from v3 | `§4 step N`, `§5 Q1`–`Q4`, `§7` | §2.1 (step 1), §2.2 (step 2), §2.4 (§7), §3.8 + §11 (step 4 and Q1), D2 (Q2). Step 3 is §11's third entry |
-| `effects-as-channel-v4.md` | the row leaves the type, the carrier leaves the language | `R1`–`R11`, `P0`–`P5`, `Q1`–`Q4`, `§0`–`§11` | **D1** |
-| `effects-v4-p0-spike.md` | does the `WovenValue` seam know the carrier? | `S1`–`S3` | D1's "what the measurements settled"; the test is permanent |
-| `effects-v4-p2-sizing.md` | sizing the flag day | `§1`–`§5` | D1, same |
-| `effects-v4-flag-day-readiness.md` | is the flag day ready? (no) | `B1`–`B3` | D1's blockers |
+| `effects-v5-one-carrier.md` | rows as constraints on one carrier — the subtraction from v3 | `§4 step N`, `§5 Q1`–`Q4`, `§7` | §2.1 (step 1), §2.2 (step 2), §2.4 (§7), §3.8 + §12 (step 4 and Q1), §12's last entry (Q2). Step 3 is §12's "pins with generics" entry |
+| `effects-as-channel-v4.md` | the row leaves the type, the carrier leaves the language | `R1`–`R11`, `P0`–`P5`, `Q1`–`Q4`, `§0`–`§11` | superseded by **§9** (v6); its measurements in §9.5, its blockers in §12 |
+| `effects-v4-p0-spike.md` | does the `WovenValue` seam know the carrier? | `S1`–`S3` | §9.5's instantiation key; the test is permanent |
+| `effects-v4-p2-sizing.md` | sizing the flag day | `§1`–`§5` | §10.2 |
+| `effects-v4-flag-day-readiness.md` | is the flag day ready? (no) | `B1`–`B3` | §12 (v4 as written) |
 | `effects-syntax-userspace.md` | `~` and `&` as ordinary values | `stage 1`–`stage 4`, `§7.x` | §2.5 (stages 1–2, landed), **D3** (stages 3–4) |
+
+**Citations to Part II's former numbering** (in commits and comments dated before 2026-09-06): *D1* was the v4
+decision and *B1*–*B4* its blockers — now §9 and §12; *D2* was the `<Ability>Carrier` declaration — §12's last
+entry; *W1*–*W4* were the v5 work items — §10.3 A3; the "2026-09-05 B1 assessment" is condensed into §9.2.
 
 Two older citations in the tree — `docs/effect-lift-in-checker.md` and `docs/effectful-signatures.md` — point
 at documents retired before these and are likewise historical.

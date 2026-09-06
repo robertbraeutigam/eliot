@@ -56,11 +56,11 @@ notes.
 
 ## Effects & I/O
 
-The effect system has **one** document, `docs/effects.md`: Part I is the design, Part II is the whole
-remaining plan — the open decisions (D1 whether the row leaves the carrier behind, D2 an ability declaring
-its carrier, D3 `~`/`&` in user space, D4 `Suspend`-riding pins, D5 a lambda at a rowless arrow slot), the
-open work items (W1–W4) and §11's list of things closed by measurement. Nothing effect-related is tracked
-here; add it there.
+The effect system has **one** document, `docs/effects.md`: Part I is the shipped (v5) design, Part II is the
+decided plan to replace its carriers with handlers (v6): the decision and its model (§9), the implementation
+steps before, at and after the flag day (§10), the decisions still open (§11: D3 `~`/`&` in user space, D5 a
+lambda at a rowless arrow slot, D8–D10 handler surface, mutable cells, purity annotations) and §12's list of
+things closed by measurement or decision. Nothing effect-related is tracked here; add it there.
 
 ## Syntax sugar & ergonomics
 
