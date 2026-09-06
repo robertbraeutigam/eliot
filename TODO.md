@@ -57,10 +57,12 @@ notes.
 ## Effects & I/O
 
 The effect system has **one** document, `docs/effects.md`: Part I is the shipped (v5) design, Part II is the
-decided plan to replace its carriers with handlers (v6): the decision and its model (§9), the implementation
-steps before, at and after the flag day (§10), the decisions still open (§11: D3 `~`/`&` in user space, D5 a
-lambda at a rowless arrow slot, D8–D10 handler surface, mutable cells, purity annotations) and §12's list of
-things closed by measurement or decision. Nothing effect-related is tracked here; add it there.
+decided plan to replace its carriers with implementation records — effects as abilities, an implementation
+as a value applied by `with` (v6): the reversal record and the model (§9), the implementation steps before, at
+and after the flag day (§10), the decisions still open (§11: D3 `~`/`&` in user space, D5 a lambda at a
+rowless arrow slot, D7 retiring the post-mono verifier, D10 purity annotations, D11 the row spelling of a
+ground ability default, D12 a user-declared boundary default) and §12's list of things closed by measurement
+or decision. Nothing effect-related is tracked here; add it there.
 
 ## Syntax sugar & ergonomics
 
