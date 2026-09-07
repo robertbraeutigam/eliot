@@ -805,12 +805,31 @@ express, and specialisation is the monomorphizer keying on a record argument it 
   tail-resumptive and abortive operations — every effect Eliot has — compile to plain calls.
 - **Decision: the interpretation is a term.** An implementation record at a `with` site; the platform's
   instances are the records the synthesized entry applies.
-- **Decision: abilities and effects are one mechanism.** A `~ Show[T]` constraint and a `{Console}` row entry
-  are both record parameters; they differ only in the **default**. A constraint's default is the two-site
-  search at its ground type arguments; an effect has no default except at the run boundary. This is what makes
-  "an implementation cannot be passed around" — true of abilities today — false for both at once, and why
-  effects must be **declared** as such (`effect`): the compiler must know not to search at the first call
-  site but to forward.
+- **Decision: abilities and effects are one mechanism, and the model is stated abilities-first.** An
+  `ability` is what it is today: a marker plus one body-less method def per operation. An `implement` block
+  is what it is today plus one thing: beside its concrete methods it defines a **def whose value is a
+  constant record** of those methods, and an operation is a call through that record. An implementation in
+  one of the two sites — the ability's module or the binder type's module — is **searched for by default**,
+  at a use whose type arguments are ground, exactly as today. A `~ Show[T]` constraint and a `{Console}` row
+  entry are both parameters receiving such a record; they differ in **one bit**: whether an unsupplied use may
+  be defaulted silently at its own site. For an ability it may; for an `effect` it may not, anywhere but the
+  synthesized `main`. That bit is the whole of effect-ness — one predicate at the one place a missing record
+  would be defaulted, not a second resolution path — and it is why effects are **declared** as such: without
+  it `def greeting(name: String): Unit = printLine(…)` would find the jvm `Console` at its first ground use
+  and compile with no row. It is also what makes "an implementation cannot be passed around" — true of
+  abilities today — false for both at once.
+- **Decision: the bit stays; "everything is passed" is closed** (§12). Removing the default so that no ability
+  is ever searched inside a function gives no capability the plan lacks — a function that wants an instance
+  overridable declares it (D11) and it is a passed parameter — and costs the **declaration burden**: every
+  `==` is an `Eq`, every `++` a `Combine`, every `match` a `PatternMatch[T]`, so `def isEmpty(s: String): Bool`
+  becomes `{Eq[Int]} Bool` and every caller inherits it transitively, drowning the `Console` beside it. The
+  criterion behind the bit is **canonicity**: a ground instance is a *fact* (there is one `Eq[Int]`), so
+  search says nothing wrong; an effect's implementation is a *choice*, so the row says something. And the
+  search cannot be deleted in any case: the compile track dispatches `Meta[Interval[T]]`,
+  `Numeric[Bound[T]]`, `PatternMatch` and `TypeMatch` from compiler machinery with no call chain and no `main`
+  to bubble to. Haskell is the precedent — dictionary passing, resolved at the ground site, forwarded only
+  where the type is abstract, `IO` bolted on as the missing bit; Scala 3's `using` plus a global-less
+  `CanThrow` is the same pair from the other side.
 - **Decision: the handler is a value, so there is no binder** (§9.0). What the type-level encoding bought —
   erasure on day one — is recovered by A1; what it cost — a binder, unification, an environment rule, a result
   function, a lowering pass, four keywords — is not built.
@@ -941,8 +960,28 @@ positional **value** parameters of record type, one per entry, in a leading pref
 | a rowless arrow `X => B` | `X => B` with capture **not** permitted (rule 4; D5 decides the lambda body's region) |
 | a row on a `data` field | the same function type as the field's type; construction uses the slot rule below |
 | an actual at a row-typed slot | if it already has the slot's type, passed as is; otherwise **abstracted over the slot's row**, the abstracted records being the ambient of its interior — one rule for `catch`'s first parameter, a `data` field and `with`'s subject alike (today's "captures at carrier-headed slots") |
-| an operation call `op(args)` | `<ambient E>.op(args)`; no ambient record for `E` is the "performs but does not declare" error at the call |
-| `c with h` | `handle(c, h)`, the compiler-known `def handle[E, A](c: {E} A, h: E): A = c(h)` — an application, with `with`'s subject slot governed by the actual-at-a-row-typed-slot rule like any other |
+| an operation call `op(args)` | a call through the record found by the **resolution order**: the nearest enclosing row binding — the def's own row or constraint, or a slot abstraction — else, for an ability, the two-site default at ground arguments; else the "performs but does not declare" error at the call (for an effect, always, except at the synthesized `main`) |
+| `c with h` | `handle(c, h)`, `def handle[E, A](c: {E} A, h: E): A = c(h)` — an application whose subject slot is governed by the actual-at-a-row-typed-slot rule like any other; **compiler-known for one reason only**, that its slot's row is read from `h`'s type instead of from a signature |
+
+**The context belongs to the slot, not to `with`.** Take the rule apart with something that is a plain def
+under this table:
+
+```eliot
+def withShowInt[A](computation: {Show[Int]} A, impl: Show[Int]): A = computation(impl)
+
+def greeting(i: Int): Unit = printLine(i.show).withShowInt(myIntShow)
+```
+
+`withShowInt`'s first parameter has a row, so the actual `printLine(i.show)` is abstracted over a
+`Show[Int]` record, and inside that abstraction `show` finds the abstracted record before it falls back to
+the search. Nothing here is `with`; it is the slot rule that makes `catch`, `else`, `if` and `runState` work
+— the operation inside the argument finds the record the callee supplies — together with the resolution
+order above, which is scope-aware by construction. `with` is that def with the ability name filled in from
+its second argument: `{E} A` with `E` ranging over ability types is not a row the syntax can spell (D3), so
+the desugar types `h` first and abstracts `c` over `h`'s type. That single step is the whole of `with`'s
+special status; it is sugar over a construct the compiler must understand anyway. If D3 ever lets a row entry
+be a type parameter, `with` becomes the stdlib def above with no change in meaning, and the compiler forgets
+it exists. Per-ability forms like `withShowInt` are legal user code from day one and are the test of the rule.
 
 Types are values, so an ability's name being the type of its implementations is the cornerstone working for
 the design, and the former D3(b) question — "is an ability a type inhabited by its implementations?" — is
@@ -970,6 +1009,16 @@ under the §8 method (D7).
   nothing resolves `sort`'s `Ord[Int]` to the default at that call, and `printAll(xs) with reverseOrd` is an
   error because `printAll` has no `Ord[Int]` parameter to receive it in — the same discipline the row imposes
   today, and what makes a def's behaviour readable from its own signature.
+- **Where `with` may be placed** follows: anywhere a record parameter exists to fill, which is exactly three
+  places. At the **operation itself** (`i.show with myIntShow` — `show` is the ability's method def and its
+  record is its hidden first parameter); around **any subexpression that lexically contains the use**
+  (`printLine(i.show) with myIntShow`, the subject being abstracted and the abstraction being its interior's
+  ambient); and at a **call to a function that declares the ability**, generically (`greeting[T ~ Show[T]]`)
+  or at a ground type (D11). Not at `greeting(5) with myIntShow` against a `greeting(i: Int): Unit` that
+  declared nothing: the error names the fix. In one sentence, **`with` reaches every use inside its subject's
+  own text, and crosses a def boundary only through a declaration.** `with` binds looser than application and
+  the `.` pipe, so `xs.sort.render with reverseOrd` applies to the whole chain, and `c with a with b` is
+  `(c with a) with b`, an inner `with` for the same ability shadowing the outer within its subject.
 - **Exit and threading.** A record built over the escape primitive makes its `finish` the value of the
   enclosing `escape`; a record built over a cell threads a value through calls that never mention it.
   **Nesting order at the run site decides interaction**: `runState(s, runThrow(c))` versus
@@ -1207,7 +1256,9 @@ scope rule the desugar enforces (§9.4: capture permitted at `{}`, not at a rowl
 is whether a lambda body gets its **own** region — so that an effect applied *inside* the lambda
 (`s -> s.orAbort else ""`) is accepted, as it is when the same code sits in a named pure helper. Recommended:
 yes, a lambda body is a region whose ambient is what the slot's row declares, and a `with` inside it extends
-that; the elaborator's old "become a bind chain on the enclosing carrier" arm has no v6 counterpart.
+that; the elaborator's old "become a bind chain on the enclosing carrier" arm has no v6 counterpart. Note
+that a `with` inside a `{}` thunk or a lambda body is already a region of its own by the slot rule (§9.4),
+since its subject is abstracted; what D5 decides is only what the lambda's *ambient* is before any `with`.
 
 ### D6 — flow grades (cross-reference)
 
@@ -1229,7 +1280,10 @@ and a **parameterised** `implement name[…](params): E[…] { … }` as the rec
 subject-first. The first draft's `handler`, `returning`, `finish`, `resume` and `return` are **not** built: a
 finishing record is a named `implement` over `escape`, its "return clause" is the def that wraps the
 `escape`, and a stateful one is the same over the cell. Alternatives priced: an anonymous record-literal
-expression (`Console(printLine = …)`) — deferred, a named `implement` covers every case in the tree.
+expression (`Console(printLine = …)`) — deferred, a named `implement` covers every case in the tree. `with`
+is infix at the loosest precedence, left-associative (§9.5), and is the one construct in the surface that is
+compiler-known rather than a stdlib def, for the single reason §9.4 states; a user may always write the
+per-ability def instead.
 
 ### D9 — a mutable cell for stateful records
 
@@ -1280,6 +1334,17 @@ Each of these was tried, measured, or decided, and the record is the reason not 
   compile time; the carrier's third job in a new costume. Forwarding is by declaration only (§9.5).
 - **A runtime handler stack / dynamic scoping at runtime.** Kills erasure and makes storage semantics
   unwritable in a type. The `with` is lexical and a stored computation's row says what it still needs.
+- **Full unification — every ability passed, none searched inside a function** (assessed 2026-09-07, §9.2).
+  Two readings, both closed. Declared rows for every ground ability use: no new capability over D11, and the
+  declaration burden puts `{Eq[Int], Combine[String], PatternMatch[Shape]}` on most monomorphic code,
+  transitively, drowning the row's signal. Rows inferred for abilities: that is inference, and it makes
+  `printAll(xs) with reverseOrd` reach an undeclared resolution — the transitive `with` above. Under either
+  reading the two-site search stays, because the compile track dispatches `Meta`/`Numeric`/`PatternMatch`/
+  `TypeMatch` instances from machinery with no call chain; unification would delete one predicate and add
+  rows everywhere.
+- **`with` as a construct with a resolution mode of its own.** The context is the row-typed slot's (§9.4),
+  shared with every discharger; `with` is compiler-known only because its slot's row is generic over
+  abilities, and a per-ability `withShowInt` is a plain def today.
 - **A public cell or escape in the base.** A public cell is Landin's knot (D9); both primitives are
   platform-private, and the dischargers are abstract in the base for exactly that reason (§9.6).
 - **A runtime free monad as the effect representation.** Assessed 2026-09-05: a heap tree of closures walked
