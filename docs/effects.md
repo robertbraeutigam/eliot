@@ -699,9 +699,13 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
 
 ---
 
-# Part II — The plan: effects are abilities, and an implementation is a value (v6)
+# Part II — The plan: effects are abilities, and an implementation is a name (v6)
 
-**Status (2026-09-06): decided.** Part I stays the authoritative description of the tree *until the flag day in
+**Status (2026-09-07): decided, second revision.** Part II has been reversed twice, and both records are in
+§9.0/§9.0bis. The current decision is **§9.0bis — an implementation is a *name*, statically linked, and `with`
+is a compile-time rebinding that joins the monomorphization key**; §9.1–§9.8 are the previous
+"implementation is a runtime record" draft, still load-bearing except where §9.0bis lists what it supersedes.
+**Read §9.0bis first.** Part I stays the authoritative description of the tree *until the flag day in
 §10 lands*; nothing in Part I is amended in place before then (standing rule 1). This part is the design that
 replaces it, the reasoning that produced it in condensed form, the implementation steps, and the decisions
 still open. It supersedes the former D1 (v4, "does the row leave the carrier behind?"), its blocker B1, D2 (an
@@ -752,7 +756,11 @@ class, and the flag-day commit states the regression it accepts.
   the cache (`target/.eliot-*`) must be deleted before every run or the pipeline replays facts and the trace
   comes back empty.
 
-## 9. The decision — an implementation is a value
+## 9. The decision — an implementation is a name (was: a value)
+
+> **Superseded in part.** §9.0bis (2026-09-07) reverses "an implementation is a value" to "an implementation
+> is a *name*". §9.1–§9.8 below are retained as the reasoning that produced the model; the list of exactly
+> what §9.0bis supersedes is at the end of that section. Nothing here is amended in place (standing rule 1).
 
 ### 9.0 What changed since the first draft — the reversal record
 
@@ -778,6 +786,100 @@ record that captures an escape may not outlive its `with` (§9.5). Two further p
 discussion: forwarding is **lexical, by declaration only** — never a sum over a monomorphized sub-graph
 (§9.5) — and the platform's default instances are found by the ordinary two-site search consulted **at the
 synthesized `main` and nowhere else** (§9.5). Each is marked **decision** where it is stated below.
+
+### 9.0bis The second reversal — the implementation is a *name* (2026-09-07)
+
+**Decision (Robert, 2026-09-07): an implementation is a name, not a value.** An `implement` block stays what
+it is today — statically resolved method bodies. No ability becomes a record type, no implementation is ever
+a runtime value, and no row becomes a runtime parameter. A **named** `implement` mints an addressable *name*;
+`with` binds that name for the calls lexically inside its subject; and the binding joins the
+**monomorphization key**, so `greeting` under `recordingConsole` is its own instantiation and the operation
+call still erases. Specialisation therefore happens from day one, and A1 is not a follow-up but the
+mechanism.
+
+**What re-opened it.** §12's entry on the first draft states the reason the *type-level* encoding failed
+correctly: because a type cannot close over a runtime value, a finishing or stateful handler needed a
+post-monomorphization lowering pass. **§9.6 was decided after that reversal, and removes that premise** — a
+finishing clause is the **escape** primitive and a stateful one is the **cell**, two platform-private leaves.
+With them no handler closes over a runtime value at all: `catch`'s `onError` is an ordinary parameter of
+`catch`, applied *after* the escape returns and outside the handler; `runState`'s `initial` is an argument to
+`withCell`; `recovering(k, f)` has no subject; and a fake needing runtime data declares an effect in its
+clause rows and receives the data through it rather than by capture. The lowering pass, not static selection,
+was the defect, and it had already been removed on other grounds. Two decisions were taken in sequence and
+the second was never re-applied to the first.
+
+**This is not the first draft returning.** That draft's hidden type binder existed, per §9.0, "for one reason
+only, so that the handler is part of the monomorphization key". Widening the key *directly* gets that with no
+binder, so the unification, the "two handlers meeting is a mismatch" rule, the one-environment-per-stored-
+computation rule, the result function and the four keywords are not rebuilt either. What the two drafts share
+is only the **goal** — selection decided at compile time. §12's entry is revised accordingly, not deleted.
+
+**What forced it, beyond simplicity — measured 2026-09-07** (the §10.1 step 6 spike, run before anything
+landed): the record encoding requires Π-typed fields and the checker cannot represent one. A field position
+demands a proper type (`Expected: Type / Actual: Type -> Type`), there is no surface spelling for a binder in
+a type position, and instantiating a polytype anywhere but a `ValueReference` throws — `Checker.appendTypeArgs`,
+whose own comment states the invariant the encoding breaks: *"polymorphism lives on named signatures."* The
+root cause is not a missing former but the mono key's indexing: a polytype is `VLam`, and instantiating it
+writes metas into a `ValueReference`'s `typeArguments`, which *is* the key; a field is reached by an accessor
+**application**, which has neither. The plan's "`raise[A]` is the one operation with its own type parameter"
+also undercounts — there are six, and the four that genuinely *return* their parameter
+(`FileSystem.foldLines[B]`, `foldCodePoints[B]`, `PatternMatch.handleCases[R]`, `TypeMatch.typeMatch[R]`)
+admit no workaround. Two further gaps the spike surfaced in §9.4, both moot under this decision but real
+against any record encoding: an ability may declare an **associated type** (`type Cases[R]`, `type Fields[R]`),
+which "a record whose fields are the operations" has no place for; and a **nullary operation as a plain field
+is strict**, so `implement Console`'s `readLine` would be computed once at construction and every call would
+return the same line.
+
+**What forced the naming, specifically.** `Qualifier.AbilityImplementation(name, pattern)` keys an
+implementation by its ability *and its type-argument pattern*, and that pattern is where today's
+discriminator lives: `implement[F[_] ~ Suspend] Console[F]` and a test's `implement Console[FakeCarrier]`
+differ only there — which is precisely the §6 fake-carrier recipe. Under v6 `Console` is **nullary**, so
+every implementation of it has the same empty pattern and they all overlap; the coherence rule can no longer
+tell them apart. Removing the carrier removes not just a monad but the **identity dimension implementations
+were keyed on** — the carrier's third job was also serving as their primary key. A name is exactly the
+replacement, so `Qualifier.AbilityImplementation` grows an optional impl-name component: identity becomes
+(ability, pattern, name), anonymous two-site defaults keep today's identity unchanged, and named ones are
+distinct by construction.
+
+**The mechanism, in four places.**
+
+1. **resolve** — `with h` resolves `h` in the ordinary dictionary to an implementation `ValueFQN`; only that
+   FQN flows onward. **Not a string carried downstream to be searched by**: that is the scan §12 already
+   closed, and it would give a `with` that ignores import scope, cannot be shadowed and is decided by hash
+   order. The keyed lookup mirrors `ValueResolverScope.getAbility` exactly.
+2. **desugar** — a row contributes **no term**; a row on a parameter thunks (`{Abort} T` ⤳ `Unit => T`, the
+   existing suspension rule); `with` records a lexical binding. §9.4's rows-to-parameters table and its
+   actual-at-a-row-typed-slot abstraction are not built.
+3. **`AbilityResolver`** — two arms. Ambient bound for this (ability marker FQN, ground type arguments)? Use
+   that FQN **directly** — no structural match, no `where` filter, no coherence question. Unbound? Today's
+   two-site search, unchanged. `with` **replaces** the search rather than parameterising it, which is what
+   makes a named implementation free to overlap a default without being checked against it.
+4. **`MonomorphicValue.Key`** — gains the *consulted* subset of the ambient environment (the subset, or the
+   key duplicates spuriously; `AbilityResolver` already records exactly what each value resolved, and
+   `ambientCarriers` is the precedent for a forwarded field derived at production).
+
+Only (4) is new machinery, and it is the narrow form of A1 the plan had already committed to building.
+
+**What it costs, accepted as decided.** An implementation is **not first-class**: not storable in a `data`
+field or a `List`, not chosen by a runtime `if`, not returned from a function. A handler needing runtime data
+gets it through an effect, not by capture. And **a stored computation's handler is decided at its
+construction site, not its run site** — §9.3's "where it is run is where they are applied" reverses, and
+`TestCase(body with h)` becomes the mandatory form rather than one option. Robert's assessment, recorded as
+the decision: deciding the handler before storing is *unambiguous and easier to understand*, and losing
+first-classness is acceptable because it is simpler.
+
+**What §9 this supersedes.** §9.1's "an implementation is a value of that type" and "an effect is received
+as a parameter"; §9.3's implementation-as-record and clause-row-as-record-parameter readings, and the
+parameterised `implement recovering[E, A](k, f)`; the whole of §9.4's desugar table except the ability marker
+and the two-site registration; §9.5's storage rule (a record capturing an escape) and its instantiation
+paragraph; §9.7's specialisation half, which becomes the mechanism rather than A1; §9.8's added list, minus
+the primitives and the boundary rule. **Unchanged and still load-bearing:** §9.2's decision that the
+interpretation is chosen rather than searched, §9.3's user surface, §9.5's *lexical forwarding* and boundary
+rules, §9.6 in full, §9.7's purity half and the twin-less-native rule, and §9.9.
+
+**Open before this can be written up as Part I** — see **D13**: whether every `eliot-test` `TestCase` can be
+built with its handlers already applied. If the runner must supply handlers to cases it did not construct,
+this decision fails there and records earn their keep.
 
 ### 9.1 The model, in five sentences
 
@@ -1163,6 +1265,13 @@ under the behavioural gate, and what follows. The flag day is one change because
 parameter changes kind (`F[_]` to none) and no ability can be both at once; everything else is staged around
 that boundary.
 
+> **Stated for the record encoding, and not yet re-derived under §9.0bis.** Steps 1, 6 and A1 are directly
+> affected — step 6 is measured and has no subject (below), and A1's key widening becomes the mechanism
+> rather than a follow-up, which also removes the flag day's accepted indirect-call regression from §8's
+> gate. Steps 2, 3, 4, 5, 7, 8 and 9 stand as written. The F-series needs re-deriving: F1 becomes the
+> four-place mechanism in §9.0bis rather than the rows-to-parameters desugar, and F3's "an operation call is
+> a field call" does not apply. Re-derive before starting, not in flight (standing rule 2).
+
 ### 10.1 Before the flag day (each independently landable, byte-identical)
 
 1. **Evaluator: quiet-stall mode and fuel.** A partial-evaluation entry point on the one evaluator in which
@@ -1181,11 +1290,26 @@ that boundary.
 5. **Parser and AST for `effect`, the named/parameterised `implement`, and `with`**, landed dark: parsed
    into `ast.fact` nodes, rejected at `core` with "not supported yet". Lets the TextMate grammar, the IntelliJ
    plugin, the apidoc renderer and the `eliot-code` skill be prepared, and makes the flag-day diff smaller.
-6. **A polymorphic record field on both tracks.** `raise[A](err: E): A` is the one operation with its own
-   type parameter, so a `Throw[E]` record has a Π-typed field. Confirm with a small test that a `data` field
-   may carry one, that the checker instantiates it per use, and that the jvm backend erases it as it erases a
-   generic native. Expected to hold — `VPi` is the one primitive former — but it is the single place the
-   record encoding touches the type system, and it is checked before anything depends on it.
+6. **A polymorphic record field on both tracks — RUN 2026-09-07, and it does not hold.** The step asked
+   whether a `data` field may carry a Π type; the answer is no, twice over. A field position demands a proper
+   type (`data Poly(ident: Identity)` over `type Identity[A] = A => A` gives
+   `Expected: Type / Actual: Type -> Type`), there is no surface spelling for a binder in a type position
+   (`data T(f: [A] => Err => A)` does not parse; a binder list exists only on `FunctionDefinition`,
+   `DataDefinition` and `TypeAliasDefinition`, never on an `ArgumentDefinition`), and a use through the
+   accessor throws `IllegalStateException: Polytype instantiation produced implicit type arguments for a
+   non-reference expression` — `Checker.appendTypeArgs`, whose comment states the invariant the encoding
+   breaks: *"polymorphism lives on named signatures."* The premise "`VPi` is the one primitive former, so it
+   should hold" checks the wrong thing: a polytype is `VLam`, and instantiating it writes metas into a
+   `ValueReference`'s `typeArguments`, which is itself the mono key; a field is reached by an accessor
+   **application**, which has neither slot. The step's count is also wrong — six operations carry their own
+   type parameter, not one, and while the two abortive ones (`raise[A]`, `abort[A]`) can be encoded around
+   (store `E => Void`, keep the binder on a named def — proven to typecheck and monomorphize at two
+   instantiations, with only the `absurd` native missing), the four that genuinely return their parameter
+   cannot: `FileSystem.foldLines[B]`, `FileSystem.foldCodePoints[B]`, `PatternMatch.handleCases[R]`,
+   `TypeMatch.typeMatch[R]`. This measurement is what forced **§9.0bis**; under that decision the step has no
+   subject, because nothing becomes a record. It is kept in full because the finding stands against *any*
+   future record encoding, and because two further gaps it surfaced do too: an ability may declare an
+   **associated type**, and a **nullary operation as a plain field is strict** and so would be read once.
 7. **The two evaluator intrinsics** — escape and cell — on the compile track, tested directly. They replace
    the `Either`-based `AbortCarrier` overlay at the flag day.
 8. **Author the v6 stdlib, jvm layer, compile-track overlays, examples and `eliot-test` on a branch**, ahead
@@ -1323,6 +1447,16 @@ the two-site search and would handle an undischarged `Throw[ConfigError]` at `ma
 useful; the tree does not have it today. **Decide** before the flag day whether the boundary accepts it or
 restricts itself to the platform layer's instances.
 
+### D13 — can every `eliot-test` case be built with its handlers already applied?
+
+The one question §9.0bis leaves open, and the thing that decides it. Under that decision a stored
+computation's handler is fixed at its **construction** site, so `data TestCase(body: {Throw[E]} Unit)` must be
+built as `TestCase(body with h)` — the form §9.3 already blesses ("a computation stored with its effect
+already applied is `{} Unit`"), but mandatory rather than optional. If the `eliot-test` runner must supply
+handlers to cases it did not construct, §9.0bis fails there and the record encoding earns its keep — at which
+point step 6's measurement becomes a blocker rather than a moot finding. **Check before writing §9.0bis up as
+Part I**, and do not narrow either side to make it fit (standing rule 2).
+
 ## 12. Closed by measurement or decision — do not re-propose
 
 Each of these was tried, measured, or decided, and the record is the reason not to spend the time again.
@@ -1337,8 +1471,13 @@ Each of these was tried, measured, or decided, and the record is the reason not 
 - **The handler as a type — the first draft of v6.** A marker type per handler, a hidden type binder per row
   entry, `with` as a type argument, and a post-mono lowering pass into result-code and parameter-passing form
   for what a type cannot close over. Reversed the same day (§9.0): the binder existed only to key
-  monomorphization, which A1 does with a value; everything else it forced — unification, the environment
-  rule, the result function, the lowering, four keywords — is not built.
+  monomorphization; everything else it forced — unification, the environment rule, the result function, the
+  lowering, four keywords — is not built. **Revised 2026-09-07 (§9.0bis):** what stays closed is the
+  *encoding* — the marker type, the binder, the lowering pass and the four keywords. What is **re-opened, and
+  now decided**, is the *goal* it shared: selection at compile time. Its stated defeater ("a type cannot close
+  over a runtime value") was dissolved by §9.6's escape and cell primitives, decided **after** the reversal
+  and never re-applied to it; and the key is widened directly, so no binder returns. Do not re-propose the
+  encoding; do not cite this entry against static selection.
 - **Transitive `with` / summing abilities over a monomorphized sub-graph.** Dynamic scoping resolved at
   compile time; the carrier's third job in a new costume. Forwarding is by declaration only (§9.5).
 - **A runtime handler stack / dynamic scoping at runtime.** Kills erasure and makes storage semantics
@@ -1383,7 +1522,11 @@ Each of these was tried, measured, or decided, and the record is the reason not 
 - **A `type X = {A, B}` row alias with its own AST node.** An `ast.fact.Expression` case is the most
   expensive thing this language can add; §2.4 replaced it with one resolve rule.
 - **Discharge markers (`{-E}`).** There is no negative-effect surface; discharge is a `with`.
-- **Scanning the dictionary for an ability name.** Replaced by the keyed marker lookup.
+- **Scanning the dictionary for an ability name.** Replaced by the keyed marker lookup. **Extended
+  2026-09-07 (§9.0bis):** the same closure covers `with`. An implementation name resolves at `resolve` to a
+  `ValueFQN` by keyed lookup, and only that FQN flows onward — never a string carried downstream for
+  `AbilityResolver` to search by, which would be a second lookup path with the same three failures the scan
+  had: it ignores import scope, cannot be shadowed, and is decided by hash order.
 - **Running v4's P2 before P4.** Not separable — and moot: the flag day is §10.2.
 - **The `<Ability>Carrier` convention as an explicit declaration** (the former D2). Its premise — that an
   effect *has* a representation — is gone; the property it named ("has a canonical monad transformer") is
