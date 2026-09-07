@@ -865,8 +865,17 @@ def swap(next: String): {State[String]} String = {
 ```
 
 **An effect is an ability declared with the `effect` keyword and no carrier binder.** The `[F[_]]` existed
-only because something had to be the monad. Inside an `effect` block every operation performs that effect by
-definition; the `{E}` on each method is gone. An `ability` is unchanged.
+only because something had to be the monad. An `ability` is unchanged. **A member's row lists what it performs
+beyond the ability it belongs to** — for `effect` and `ability` alike. Membership in the block already says a
+member needs that record (it *is* a field of it, and is called through it), exactly as `show` inside
+`ability Show[T]` does not repeat `~ Show[T]`; so `{Console}` on a member of `effect Console` is not written,
+and writing it is rejected as a second spelling of one fact. A member's row is real where it names *other*
+effects — `effect FileSystem { def readAll(p: Path): {Throw[IoError]} String }` needs the `FileSystem`
+record and performs `Throw`. A function that needs no such record is not a member: it lives outside the
+block as an ordinary def with its own row, as `updateState`, `orRaise` and `orAbort` do today beside the
+primitives `state`, `putState` and `raise` inside. §3.6's decision — effect-ness is declared, never read off
+a method's shape — is kept; the declaration moves from the method to the block, where an ability's already
+is, and a constructor class is simply an `ability`.
 
 ```eliot
 effect Console {
@@ -949,7 +958,7 @@ positional **value** parameters of record type, one per entry, in a leading pref
 
 | construct | desugars to |
 | --- | --- |
-| `effect E[…] { def op(…): R }` / `ability A[…] { … }` | a record type whose fields are the operations, plus the ability marker `Qualifier.Ability` for the two-site registry; an operation `op` is a field selection on a record of that type. `raise[A]` is a **polymorphic field** — a Π-typed field, which `VPi` as the one primitive former admits (§10.1 step 6 confirms it on both tracks) |
+| `effect E[…] { def op(…): R }` / `ability A[…] { … }` | a record type whose fields are the operations, plus the ability marker `Qualifier.Ability` for the two-site registry; an operation `op` is a field selection on a record of that type, and a member's own row (`{Throw[IoError]}` on `readAll`) becomes that field's further record parameters — never an `E` entry, which membership supplies. `raise[A]` is a **polymorphic field** — a Π-typed field, which `VPi` as the one primitive former admits (§10.1 step 6 confirms it on both tracks) |
 | `implement E[…] { clauses }` in a two-site module | a record value, registered as the default for its pattern — `ImplementBlock`'s `Qualifier.AbilityImplementation` unchanged |
 | `implement name[…](params): E[…] { clauses }` | a `def name[…](params): E[…]` whose body is the record; a clause row `{W}` adds a `W` record parameter to the def, so `with name` applies the ambient `W` first |
 | a row `{E1, E2}` on a def's return | two leading parameters `e1: E1, e2: E2`; the body's **ambient** for those abilities is those parameters |
