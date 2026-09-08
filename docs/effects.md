@@ -1144,8 +1144,7 @@ without one is merely stuck at compile time, which is the loud fail-safe the com
 pinning and supplying halves of `EffectSugarDesugarer`; `EffectLifter`; `IdNormalizer` and
 `assertNoIdResidue`; `EffectCarrierNaming` and `EffectRowRendering`; `RunBoundaryFunctions`; the
 constraint-aware declination and `activeFactKeys` probe in `AbilityImplementationProcessor`;
-`RowChecker.fixesCarrier`, the derivation rules and the block peel; the dormant `Computation`/`Row` formers,
-`CanonicalRow` and `CanonicalStack`; every `*Carrier` type, `Suspend` instance and cross-lift instance in
+`RowChecker.fixesCarrier`, the derivation rules and the block peel; every `*Carrier` type, `Suspend` instance and cross-lift instance in
 stdlib and jvm; the `eliot.carrier` package; the compile-track `Id.els` and `AbortCarrier`; the "a
 discharger must be called directly" diagnostic.
 
@@ -1197,9 +1196,11 @@ that boundary.
    tree (`eliot.file.Path` calls six twin-less pure natives from plain defs) and wrong in principle: a
    twin is not a purity proof, and purity is not what the language guards — declared effects are (§9.7).
    Recorded in §12; nothing replaces it.
-3. **Delete the dormant v4 formers** — `Computation`, `Row`, `CanonicalRow`, `CanonicalStack`, their
-   pass-through arms in the evaluator, the quoter, `unify` and both printers (~180 lines). Keep
-   `WovenRecheck` and the seam test.
+3. **Delete the dormant v4 formers — DONE 2026-09-08.** `GroundValue.Row`/`Computation`, `VRow`/`VComputation`,
+   `CanonicalRow`, `CanonicalStack`, `WellKnownTypes.rowFQN` and their arms in the evaluator, the quoter (both), the
+   unifier, `IdNormalizer`, both printers and the codecs — 231 lines, plus the P1 unit test that pinned them.
+   `WovenRecheck` and the seam test stay. Verified byte-identical over the 45 example jars against a pristine
+   baseline; every test green.
 4. **Parser and AST for `effect`, the named `implement`, and `with` in expression and type position**, landed dark:
    parsed into `ast.fact` nodes, rejected at `core` with "not supported yet". Lets the TextMate grammar, the
    IntelliJ plugin, the apidoc renderer and the `eliot-code` skill be prepared, and makes the flag-day diff
