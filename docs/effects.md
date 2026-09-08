@@ -242,7 +242,7 @@ function discharges.
 
 The same rule can state a relation the tree could not express before: `ability Console[F[_] ~ Suspend]`
 would put "Console rides Suspend" in the ability instead of repeating it on every instance. Under v6 (§9) an
-`effect` has no carrier binder, so the question disappears — and so does this spelling of a *set* of effects (D16).
+`effect` has no carrier binder, so the question disappears — and so does this spelling of a *set* of effects (§12, "not now").
 
 ### 2.5 `~` and `&`
 
@@ -804,7 +804,7 @@ arguments written at each reference, exactly as it keys on type arguments today.
   declaration says something. That bit is why effects are **declared** as such: without it
   `def greeting(name: String): Unit = printLine(…)` would find the jvm `Console` at its first ground use and
   compile with no row. Removing the bit in the other direction ("every ability declared, none searched")
-  is closed (§12): it buys nothing over D11 and costs `{Eq[Int], Combine[String], PatternMatch[Shape]}` on
+  is closed (§12): it buys nothing over a `~` constraint and costs `{Eq[Int], Combine[String], PatternMatch[Shape]}` on
   most monomorphic code, and the search cannot be deleted in any case, since the compile track dispatches
   `Meta`/`Numeric`/`PatternMatch`/`TypeMatch` from machinery with no call chain.
 - **Decision: forwarding is lexical, by declaration.** A binding reaches a call only through a declaration
@@ -927,8 +927,10 @@ data Suite(cases: {Console} Unit with recordingConsole)
 The slot form reads "this slot's computation, run with mockConsole": the actual delivered there has its
 parameter applied by the callee's signature, and the caller writes nothing. `with` **inside** a row
 (`{Console with mockConsole}`) is rejected: it would put an ability on the left instead of a subject, a
-second grammar repeating a pairing the implementation already declares. A slot doubling many effects names
-one implementation covering several abilities rather than a chain (D16).
+second grammar repeating a pairing the implementation already declares. A slot doubling many effects writes
+the chain; a name for a set of implementations or of effects is deliberately not added (§12, "not now"). A
+`with` is accepted on a parameter's or a field's type only, not on a def's own return row, which would be a
+second spelling of `with` around the body.
 
 `catch`, `else`, `runThrow`, `runAbort`, `runState*` and `written` **keep their names and signatures** in
 the base — a `G[_] ~ Effect` binder and a `G[…]` return become the plain payload — and lose their bodies
@@ -1019,7 +1021,7 @@ type arguments, so the check is that set ⊆ the declared row (D7).
   `Ord[Int]` declaration to receive it in — the same discipline the row imposes today, and what makes a
   def's behaviour readable from its own signature.
 - **Where `with` may be placed.** Around any expression that lexically contains the use, or that calls a def
-  declaring the ability, generically (`greeting[T ~ Show[T]]`) or at a ground type (D11). In one sentence,
+  declaring the ability through a `~` constraint (`greeting[T ~ Show[T]]`). In one sentence,
   **`with` reaches every use inside its subject's own text, and crosses a def boundary only through a
   declaration.** A `with` whose subject does neither — a bare rowed parameter, a `data` field, a value
   received through a plain generic — is a hard error naming the fix (write it on the slot's type, §9.3),
@@ -1047,8 +1049,9 @@ type arguments, so the check is that set ⊆ the declared row (D7).
 - **The run boundary (decision).** The synthesized entry point is ordinary code: it reads `main`'s row and
   binds, for each entry, the instance the **two-site search** finds, and installs the frame for a control
   effect. A miss is an error at the boundary naming the effect and the fix (discharge it).
-  `SyntheticMainSourceProcessor` shrinks; `RunBoundaryFunctions` is deleted. Whether a user-declared
-  `implement Throw[ConfigError]` may serve there is D12.
+  `SyntheticMainSourceProcessor` shrinks; `RunBoundaryFunctions` is deleted. Only the platform layer's
+  defaults serve there: an effect with none reaching `main` is that error, and a user-declared boundary
+  default is not a feature (§12, "not now").
 - **`Inf`** is the platform's default instance of the `Inf` effect (`forever` over the loop primitive), and
   stays the one effect that reaches `main` and is handled by the platform alone.
 - **"The fake cannot cheat" survives without `Suspend`.** A user module cannot declare a native, and the
@@ -1102,23 +1105,17 @@ any handler.
 The honest statement: the transformer monads do not vanish, they shrink to two leaves per target, outside
 the library's bodies, the type system and the user's scope — and there is no pass.
 
-### 9.7 Optimisation — specialisation is the mono key; purity is what the evaluator can reduce
+### 9.7 Specialisation, purity, and the one rule on natives
 
 **Specialisation** is the mechanism, not a follow-up: a definition is instantiated per `(vfqn, type
 arguments)` and the phantom binders are type arguments (§9.4), so an operation call is a direct call to a
-known method from the first build, exactly as an ability call erases today. There is no indirect call to remove and no runtime
-representation of an implementation to fold away.
+known method from the first build, exactly as an ability call erases today. There is no indirect call to
+remove and no runtime representation of an implementation to fold away.
 
-**Purity.** A term is pure iff the one NbE evaluator reduces it; a term is the World iff it is stuck on a
-runtime-only native; a compile-time twin is a proof of purity, axiomatic as a meta transfer is; a stuck call
-keeps its position and its multiplicity, and everything reducible may be folded, deduplicated, inlined,
-deleted when unused, or evaluated at another time. `Inf` is native, so the evaluator never loops; fuel
-bounds a legal large pure fold, and out-of-fuel means "leave the code as written". Names make it better: an
-effectful definition under a pure implementation is pure code, so `greeting("Bob") with recordingConsole`
-may reduce to the transcript at compile time, and under the jvm instance is stuck at `printLineInternal`,
-in place, once. A nullary definition that reduces is a constant; one that is stuck is re-evaluated at every
-reference, which is rule 1 by construction. This is an optimisation with no consumer on the flag-day path
-(§10.3, A1).
+**Purity** is decided by the evaluator, not declared (§9.2): a term is pure iff the one NbE evaluator reduces
+it, and a compile-time twin is a proof of purity, axiomatic as a meta transfer is. Reducing effectful code
+under a pure implementation at compile time is possible under this model and is **not planned**: nothing on
+the flag-day path needs it.
 
 **Rule: a native without a compile-time twin may be called only from an `implement` clause.** Today nothing
 forces a native-calling definition to declare a row (`def now: Int = currentTimeMillisInternal` hides an
@@ -1164,7 +1161,7 @@ consults declarations only, and there is no component that could accrete a sibli
 Three groups: what lands **before** the flag day under the byte-identity gate, the **flag day** as one change
 under the behavioural gate, and what follows. The flag day is one change because the ability's self
 parameter changes kind (`F[_]` to none) and no ability can be both at once; everything else is staged around
-that boundary. D16 is decided before step 4 starts.
+that boundary.
 
 ### 10.1 Before the flag day (each independently landable, byte-identical)
 
@@ -1233,21 +1230,19 @@ and do not land a narrowed version (standing rule 2).
 
 ### 10.3 After the flag day
 
-- **A1 — compile-time reduction of pure effectful code** (§9.7's purity half): a quiet-stall entry point on
-  the one evaluator in which a stuck runtime-only native is a residual neutral rather than the loud stall of
-  the compile track, with a fuel budget; residualise stuck subterms. Measured against the step-9 baseline.
 - **A2 — backend exit primitive**, if a microcontroller target replaces the jvm exception with a status flag
   and a jump; the primitive's shape (§9.6) does not change.
 - **A3 — the reconsidered Part I limitations** (§7). Items 2 (cannot pin a `Suspend`-riding effect), 7 (a
   fake run needs a carrier-free region) and 9 (a `data` field typed by its own open carrier binder) have no
   subject. Item 6 (rule-4 violations diagnosed twice) is re-measured: with the elaborator gone the scope
   check's error is the only one left, and it must name the slot.
-- **A4 — D4 dissolves** (any effect is storable and suppliable); **D5** is re-decided in v6 terms (§11).
+- **A4 — D4 dissolves** (any effect is storable and suppliable); **D5** is decided in v6 terms (§11).
 - **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
 
 ## 11. Open decisions
 
-Numbers are kept where a Part I cross-reference uses them.
+Numbers are kept where a Part I cross-reference uses them. Only rule decisions are listed; every
+convenience is in §12 under "not now".
 
 ### D3 — `~` and `&` fully in user space (stages 3 and 4)
 
@@ -1272,11 +1267,6 @@ installed *inside* the lambda (`s -> s.orAbort else ""`) is accepted, as it is w
 named pure helper. Recommended: yes, a lambda body is a region whose ambient is what the slot's row declares,
 and a `with` inside it extends that.
 
-### D6 — flow grades (cross-reference)
-
-A row entry is a declaration, so a grade is a new *kind of entry* in the channel with no representation
-question at all.
-
 ### D7 — can the post-mono accounting verifier retire?
 
 Under names the post-mono check is "received bindings consulted ⊆ declared row", a subset of the mono key
@@ -1284,48 +1274,12 @@ that the pre-mono scope check already establishes lexically. The expectation is 
 (A5), by the §8 method: keep it through the flag day as the codegen precondition, trace it, retire it when
 it fires on nothing. Not before, and not on the argument alone.
 
-### D11 — the spelling of a ground ability parameter with a default
-
-`[T ~ Ord[T]]` attaches to a generic; a ground `printAll(xs: List[Int])` that wants to be overridable by
-`with reverseOrd` must declare an `Ord[Int]` binding, and the row is the natural place —
-`def printAll(xs: List[Int]): {Ord[Int]} Unit` would mean "receives an `Ord[Int]`, defaults to the searched
-instance". Under §9.2 that is what a row already means, with effects being the entries with no default.
-Whether the two spellings stay separate or merge is a syntax decision for the flag day's F9, not a mechanism
-question; the mechanism is one either way.
-
-### D12 — a user-declared boundary default for a parameterised effect
-
-§9.5's boundary rule binds `main`'s undischarged `Throw[ConfigError]` by the two-site search. The platform's
-single `implement[E] Throw[E]` in `Throw`'s module (§9.6) already answers that search, and a user
-`implement Throw[ConfigError]` in `ConfigError`'s module would **overlap** it, which coherence rejects
-today. So the tree's own rules answer "no" unless the platform's implementation is guarded to decline where
-a type-site one exists. **Decide** whether the boundary is platform-only (recommended: yes, and an
-undischarged `Throw[E]` at `main` is reported through the escape as a failed run, needing `Show[E]`), or
-whether that guard is wanted.
-
 ### D13 — can every `eliot-test` case be built with its handlers already applied?
 
-**Closed 2026-09-08, yes.** `TestCase` carries no body at all; `in` runs the body in place and discharges
-only `Throw[AssertionError]` with `runThrow`; the runner reaches each suite by reflection into a **declared**
-slot and discharges only `Writer` with `runWriterToLog`. Both are control effects at their single
-implementation, bound by the slot and framed by the discharger. The one *chosen* interpretation, `Mock`, is
-applied by `mocked` at the construction site of the body, which under §9.3 is `with` on `mocked`'s slot type.
-Nothing in the framework hands a computation it did not construct to a chosen implementation, so static
-binding holds. Kept as a number so the memory notes resolve.
-
-### D16 — one implementation for several abilities, and the effect-set spelling
-
-Two spellings v6 removes with the carrier binder, and one answer is recommended for both. `mocked`'s slot
-doubles seven effects, so its type would carry a seven-long `with` chain; and Part I §2.4's
-`ability Web[F[_] ~ Console & Log]` hangs a *set* of effects on the binder, so `EffectAbilitySet.els` has no
-v6 spelling. **Recommended:** let one named `implement` cover several abilities —
-`implement mocks: Console & FileSystem & Process { … }` — so `mocked`'s slot says `with mocks`; `&` is
-already the constraint combinator (§2.5). A set of effects *as a row alias* stays closed (§12); whether
-`effect Web ~ Console & Log {}` is wanted as a declaration, or the example is dropped at the flag day, is the
-part left to **decide**. Also to decide: a `with` on a def's own **return** row
-(`def greeting(name: String): {Console} Unit with recordingConsole`) means exactly `with` around the body;
-allow it as the same fact, or reject it as a second spelling. Recommended: allow, since forbidding one type
-position is an exception to an otherwise uniform rule.
+**Closed 2026-09-08, yes.** `TestCase` carries no body; `in` runs the body in place and discharges only
+`Throw[AssertionError]`; the runner reaches each suite by reflection into a declared slot and discharges only
+`Writer`. Both are control effects at their single implementation. The one chosen interpretation, `Mock`, is
+`with` on `mocked`'s slot type. Kept as a number so the memory notes resolve.
 
 ## 12. Closed by measurement or decision — do not re-propose
 
@@ -1367,7 +1321,7 @@ position is an exception to an otherwise uniform rule.
   makes storage semantics unwritable in a type. The one dynamic discipline that exists is the machine stack
   inside the escape and cell leaves (§9.6), private to the platform.
 - **Full unification — every ability passed, none searched inside a function.** Declared rows for every
-  ground ability use: no new capability over D11, and the declaration burden puts
+  ground ability use: no new capability over a `~` constraint, and the declaration burden puts
   `{Eq[Int], Combine[String], PatternMatch[Shape]}` on most monomorphic code, transitively. Rows inferred for
   abilities: that is inference, and it makes `printAll(xs) with reverseOrd` reach an undeclared resolution.
   Under either reading the two-site search stays, because the compile track dispatches
@@ -1390,8 +1344,8 @@ position is an exception to an otherwise uniform rule.
 - **Putting the row on `VPi`** (Koka-style). Teaches every unification site, the printer and the `Function`
   native about rows. v6 keeps the row as declaration metadata beside the signature.
 - **A `type X = {A, B}` row alias with its own AST node.** An `ast.fact.Expression` case is the most
-  expensive thing this language can add; §2.4 replaced it with one resolve rule. (What replaces §2.4 under v6
-  is D16.)
+  expensive thing this language can add; §2.4 replaced it with one resolve rule. (§2.4's own v6 spelling is
+  in the "not now" group below.)
 - **Discharge markers (`{-E}`).** There is no negative-effect surface; discharge is a frame a discharger
   installs.
 - **Scanning the dictionary for an ability or implementation name.** Replaced by the keyed marker lookup,
@@ -1402,6 +1356,26 @@ position is an exception to an otherwise uniform rule.
 - **The `<Ability>Carrier` convention as an explicit declaration.** Its premise — that an effect *has* a
   representation — is gone; the property it named ("has a canonical monad transformer") is exactly what
   §9.6's two primitives replace.
+
+**Not now — conveniences deliberately left out of the flag day (2026-09-08).** Each is additive later, none
+touches the mechanism, and the plan is kept as simple as possible until the flag day has landed:
+
+- **A name for several implementations** (`implement mocks = mockConsole & mockFileSystem`) and **a name for
+  several effects** (Part I §2.4's `ability Web[F[_] ~ Console & Log]`, whose carrier-binder spelling goes
+  with the binder). A slot doubling many effects writes its chain and its row in full; a project wrapping
+  `mocked` for an effect of its own restates them. `EffectAbilitySet.els` is deleted at the flag day; the
+  superability closure stays for ordinary binders.
+- **`with` on a def's own return row.** Rejected as a second spelling of `with` around the body.
+- **A row spelling for a ground ability default** (`def printAll(xs: List[Int]): {Ord[Int]} Unit`). `with`
+  on an ability reaches a callee only through a `~` constraint on a generic.
+- **A user-declared boundary default** (`implement Throw[ConfigError]` handling an undischarged
+  `Throw[ConfigError]` at `main`). It would overlap the platform's single `implement[E] Throw[E]`, which
+  coherence rejects; the boundary binds the platform layer's defaults only.
+- **Compile-time reduction of effectful code under a pure implementation** (a quiet-stall evaluator entry
+  with fuel). Possible under the model, wanted by nothing.
+- **Derived mocks** (`with mock[Database]`, EasyMock-style): compile-time reflection over an ability's methods,
+  a derived implementation, a derived per-ability answer store and a recorder derivation. A feature in its
+  own right, after the flag day, and a consumer for D3 if it is ever wanted.
 
 ---
 
@@ -1431,5 +1405,6 @@ X §N"), not live references, and they do not index this document.
 were the v4 decision and its blockers (now §9 and §12); *D2* the `<Ability>Carrier` declaration (§12's last
 entry); *W1*–*W4* the v5 work items (§10.3 A3); *D8*/*D9*/*D10* the surface spelling, the cell and the purity
 annotation (decided: §9.3, §9.6, §12); *D14*/*D15* (2026-09-07 only) were the slot `with` and the binding's
-carrier (decided: §9.3, §9.4). Two older citations in the tree — `docs/effect-lift-in-checker.md` and
+carrier (decided: §9.3, §9.4); *D6*, *D11*, *D12* and *D16* (grades, the ground-ability row spelling, the
+user boundary default, bundles and effect sets) are §12's "not now" group. Two older citations in the tree — `docs/effect-lift-in-checker.md` and
 `docs/effectful-signatures.md` — point at documents retired before these and are likewise historical.
