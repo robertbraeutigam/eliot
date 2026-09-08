@@ -999,6 +999,13 @@ def that declares the ability, walk outward lexically:
 4. for an ability, `Default`; for an effect, the "performs but does not declare" error at the call — except
    at the synthesized `main`, where the chain of every effect ends and `Default` is written (§9.5).
 
+**The walk crosses a lambda boundary if and only if the lambda's slot has a row** (decision, D5); `{}` counts
+as a row. That is the whole of rule 4 for lambdas: a lambda at a rowless arrow (`map`'s `f: A => B`) may
+bind and discharge locally — `xs.map(s -> s.orAbort else "")` is accepted, since `else`'s slot supplies the
+`Abort` and the walk stops inside — and may not reach the enclosing def's binders, so anything it performs
+and does not discharge is the error at the lambda. A `{}`-slotted or rowed lambda body sees the enclosing
+declarations, as today. There is no separate "is a lambda a region" rule.
+
 **Both verifiers keep their vocabulary.** The pre-mono `RowChecker.verifyRow` becomes a **scope check**: an
 operation or a rowed callee needs a covering declaration, and the only places one can come from are the
 enclosing def's row or constraints, an enclosing `with`, or a slot's row. That check is complete before
@@ -1237,7 +1244,8 @@ and do not land a narrowed version (standing rule 2).
   fake run needs a carrier-free region) and 9 (a `data` field typed by its own open carrier binder) have no
   subject. Item 6 (rule-4 violations diagnosed twice) is re-measured: with the elaborator gone the scope
   check's error is the only one left, and it must name the slot.
-- **A4 — D4 dissolves** (any effect is storable and suppliable); **D5** is decided in v6 terms (§11).
+- **A4 — D4 dissolves** (any effect is storable and suppliable); Part I's limitation 5 dissolves with D5
+  (§9.4).
 - **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
 
 ## 11. Open decisions
@@ -1260,13 +1268,9 @@ values (§9.2).
 
 ### D5 — a lambda body at a rowless arrow slot
 
-Still a rule decision. Under names a lambda at `f: X => B` could silently bind the enclosing def's
-declarations for the calls inside it, so rule 4 is no longer a theorem of the encoding but a scope rule the
-desugar enforces: a `{}`-slotted or rowed arrow's body may consult the enclosing declarations, a rowless
-arrow's body may not. The question left is whether a lambda body gets its **own** region — so that a frame
-installed *inside* the lambda (`s -> s.orAbort else ""`) is accepted, as it is when the same code sits in a
-named pure helper. Recommended: yes, a lambda body is a region whose ambient is what the slot's row declares,
-and a `with` inside it extends that.
+**Closed 2026-09-08.** The walk crosses a lambda boundary iff the lambda's slot has a row (§9.4). A rowless
+lambda is a barrier to received bindings only; it may bind and discharge locally, and must discharge everything
+it performs. Kept as a number so §7.5 still resolves.
 
 ### D7 — can the post-mono accounting verifier retire?
 
