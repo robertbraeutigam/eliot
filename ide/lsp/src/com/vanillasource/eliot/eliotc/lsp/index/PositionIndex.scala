@@ -74,6 +74,10 @@ object PositionIndex {
       parameterType.toSeq.flatMap(pt => fromExpression(pt.value)) ++ fromExpression(body.value)
     case Expression.FlatExpression(parts)                                                              =>
       parts.flatMap(part => fromExpression(part.value))
+    // A `with` binding is a reference like any other: the implementation's marker is where go-to-definition should
+    // land, and the subject carries the rest.
+    case Expression.WithBinding(subject, implementation)                                               =>
+      implementation +: fromExpression(subject.value)
     case Expression.MatchExpression(scrutinee, cases)                                                  =>
       fromExpression(scrutinee.value) ++
         cases.flatMap(matchCase => fromPattern(matchCase.pattern.value) ++ fromExpression(matchCase.body.value))

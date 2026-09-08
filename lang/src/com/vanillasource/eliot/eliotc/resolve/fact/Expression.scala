@@ -30,6 +30,13 @@ object Expression {
   // A `{ … }` block, lowered to immediately-applied lambdas by BlockDesugaringProcessor; gone before matchdesugar.
   case class BlockExpression(lines: Seq[BlockLine]) extends Expression
 
+  /** `subject with implementation` — effects v6's binding of a named implementation for the calls lexically inside
+    * `subject` (`docs/effects.md` §9.3), with the name already resolved to the implementation's **marker**
+    * ([[ImplementationNameResolver]]). Consumed by the `row` phase, which writes the binding into every phantom
+    * binder inside the subject and erases the node.
+    */
+  case class WithBinding(subject: Sourced[Expression], implementation: Sourced[ValueFQN]) extends Expression
+
   case class MatchCase(
       pattern: Sourced[Pattern],
       body: Sourced[Expression]
@@ -67,6 +74,8 @@ object Expression {
               .mapN((bt, e) => BlockLine(line.binderName, bt, e))
           )
           .map(BlockExpression.apply)
+      case WithBinding(subject, implementation)            =>
+        f(subject.value).map(s => WithBinding(subject.as(s), implementation))
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }
 
@@ -89,5 +98,6 @@ object Expression {
         lines
           .map(l => l.binderName.map(n => s"val ${n.value} = ").getOrElse("") + l.expression.value.render)
           .mkString("{ ", "; ", " }")
+      case WithBinding(subject, implementation)    => s"${subject.value.render} with ${implementation.value.show}"
     }
 }

@@ -63,6 +63,8 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.MatchExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_MatchCase
       : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.MatchCase] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_WithBinding
+      : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.WithBinding] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Expression_BlockLine
       : FactCodec[com.vanillasource.eliot.eliotc.resolve.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_Pattern
@@ -91,6 +93,9 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression
       : FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_WithBinding
+      : FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.WithBinding] =
+    FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_matchdesugar_fact_MatchDesugaredExpression_FunctionApplication
       : FactCodec[com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression.FunctionApplication] =
     FactCodec.derived
@@ -122,6 +127,8 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.MatchExpression] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_MatchCase
       : FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.MatchCase] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_WithBinding
+      : FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.WithBinding] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_Expression_BlockLine
       : FactCodec[com.vanillasource.eliot.eliotc.core.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_core_fact_NamedValue
@@ -268,6 +275,9 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.operator.processor.TokenClassifier.Operand] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression
       : FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_WithBinding
+      : FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.WithBinding] =
+    FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_operator_fact_OperatorResolvedExpression_FunctionApplication
       : FactCodec[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.FunctionApplication] =
     FactCodec.derived

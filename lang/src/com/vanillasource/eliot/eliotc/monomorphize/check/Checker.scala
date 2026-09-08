@@ -393,6 +393,11 @@ class Checker(
     case OperatorResolvedExpression.FunctionApplication(_, _) =>
       inferSpine(tm)
 
+    // Effects v6: the `row` phase writes every phantom binder inside a `with`'s subject and erases the node, so one
+    // reaching the checker is a front-end defect. Fail loudly rather than check the subject as if nothing were bound.
+    case OperatorResolvedExpression.WithBinding(_, implementation) =>
+      throw IllegalStateException(s"A `with ${implementation.value.show}` binding survived row elaboration.")
+
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeExpr), body) =>
       for {
         paramType            <- evalExpr(paramTypeExpr.value)

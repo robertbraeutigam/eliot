@@ -40,6 +40,18 @@ object Expression {
   // A `{ … }` block, to be lowered to immediately-applied lambdas by BlockDesugaringProcessor (after resolution).
   case class BlockExpression(lines: Seq[BlockLine]) extends Expression
 
+  /** `subject with implementation` — effects v6's binding of a named implementation for the calls lexically inside
+    * `subject` (`docs/effects.md` §9.3). The name is carried as written (plus its optional module qualifier) and
+    * resolved at [[com.vanillasource.eliot.eliotc.resolve.processor.ImplementationNameResolver]] to the
+    * implementation's marker; the node itself is consumed by the `row` phase, which writes the binding into every
+    * phantom binder inside the subject and erases the node, so nothing from saturation onwards ever sees it.
+    */
+  case class WithBinding(
+      subject: Sourced[Expression],
+      implementationName: Sourced[String],
+      moduleName: Option[Sourced[String]] = None
+  ) extends Expression
+
   case class MatchCase(
       pattern: Sourced[Pattern],
       body: Sourced[Expression]
@@ -96,5 +108,8 @@ object Expression {
         lines
           .map(l => l.binderName.map(n => s"val ${n.value} = ").getOrElse("") + l.expression.value.render)
           .mkString("{ ", "; ", " }")
+      case WithBinding(subject, implementationName, moduleName)               =>
+        s"${subject.value.render} with " + moduleName.map(m => s"${m.value}::").getOrElse("") +
+          implementationName.value
     }
 }

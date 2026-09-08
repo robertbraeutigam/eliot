@@ -115,11 +115,17 @@ object CoreExpressionConverter {
             convertExpression(line.expression, typeContext, compilerTrackContext)
           )
         }))
-      case SourceExpression.WithBinding(subject, _)                                    =>
-        // Effects v6, landed dark: `UnsupportedSyntaxChecker` has already reported every `with` in this definition as
-        // not supported yet, and that error blocks the build. The subject is converted so the rest of the definition
-        // still checks; the binding itself is never lowered here.
-        convertExpression(subject, typeContext, compilerTrackContext)
+      case SourceExpression.WithBinding(subject, implementation)                       =>
+        // Effects v6 (`docs/effects.md` §9.3): the binding rides the tree as far as the `row` phase, which writes it
+        // into every phantom binder inside the subject and erases the node. The name is carried as written and
+        // resolved at `ImplementationNameResolver`; the parser guarantees the shape below (a bare, optionally
+        // module-qualified lower-case identifier, never applied).
+        val (moduleName, name) = implementation.value match {
+          case SourceExpression.FunctionApplication(module, fnName, None, Seq()) => (module, fnName)
+          case other                                                             =>
+            throw IllegalStateException(s"An implementation binding is not a plain name: ${other.render}")
+        }
+        expr.as(WithBinding(convertExpression(subject, typeContext, compilerTrackContext), name, moduleName))
       case _: SourceExpression.EffectfulType                                           =>
         // EffectSugarDesugarer rewrites every `{…} A` to `F[A]` across the whole function before conversion, so an
         // EffectfulType reaching here means it was written somewhere the desugarer does not reach (only signature and

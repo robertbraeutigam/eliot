@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -24,26 +24,30 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   */
 object ImplementationNameResolver {
 
-  def resolve(name: Sourced[String]): ScopedIO[ValueFQN] =
-    getImplementation(name.value).flatMap {
-      case None             => compilerAbort[ValueFQN](name.as("Implementation not found.")).liftToScoped
-      case Some(nameMarker) =>
-        for {
-          platform  <- getPlatform
-          abilities <- getFactOrError(ModuleAbilities.Key(nameMarker.moduleName, platform))(
-                         Sourced.compilerError(name.as("Implementation not found."))
-                       ).liftToScoped
-          marker    <- abilities.markerOfImplementationName(name.value) match {
-                         // The name marker and the implementation are minted together, so a name marker with no
-                         // implementation beside it is a compiler defect, not a user error — but it is reported at the
-                         // `with` rather than thrown, so a broken module cannot take the build down at an unrelated
-                         // position.
-                         case Some(marker) => marker.pure[ScopedIO]
-                         case None         =>
-                           compilerAbort[ValueFQN](
-                             name.as("Implementation has no marker.")
-                           ).liftToScoped
-                       }
-        } yield marker
+  /** @param moduleName
+    *   The `Test::` of a module-qualified `with Test::mock`. Given, it names the module directly and the dictionary
+    *   step is skipped — the same bypass an ordinary `module::name` reference makes.
+    */
+  def resolve(name: Sourced[String], moduleName: Option[Sourced[String]] = None): ScopedIO[ValueFQN] =
+    moduleName match {
+      case Some(qualifier) => markerIn(ModuleName.parse(qualifier.value), name)
+      case None            =>
+        getImplementation(name.value).flatMap {
+          case None             => compilerAbort[ValueFQN](name.as("Implementation not found.")).liftToScoped
+          case Some(nameMarker) => markerIn(nameMarker.moduleName, name)
+        }
     }
+
+  /** The implementation's real marker in `moduleName`, or the error at `name`. */
+  private def markerIn(moduleName: ModuleName, name: Sourced[String]): ScopedIO[ValueFQN] =
+    for {
+      platform  <- getPlatform
+      abilities <- getFactOrError(ModuleAbilities.Key(moduleName, platform))(
+                     Sourced.compilerError(name.as("Implementation not found."))
+                   ).liftToScoped
+      marker    <- abilities.markerOfImplementationName(name.value) match {
+                     case Some(marker) => marker.pure[ScopedIO]
+                     case None         => compilerAbort[ValueFQN](name.as("Implementation not found.")).liftToScoped
+                   }
+    } yield marker
 }

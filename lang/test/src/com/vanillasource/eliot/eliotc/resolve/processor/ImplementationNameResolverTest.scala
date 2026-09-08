@@ -85,6 +85,6 @@ class ImplementationNameResolverTest extends AnyFlatSpec with Matchers {
     val empty = Map[CompilerFactKey[?], CompilerFact](
       ModuleAbilities.Key(fake, Platform.Runtime) -> abilities.copy(implementations = Seq.empty)
     )
-    resolve(inScope, empty) shouldBe Left(Seq("Implementation has no marker."))
+    resolve(inScope, empty) shouldBe Left(Seq("Implementation not found."))
   }
 }

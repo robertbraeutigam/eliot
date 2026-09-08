@@ -288,6 +288,13 @@ class ValueResolver
       runtime: Boolean
   ): ScopedIO[Expression] =
     expression match {
+      // Effects v6 §9.4 step 1: the name is resolved here, to the implementation's marker, and only that marker
+      // flows onward — a name carried downstream would ignore import scope and be decided by hash order.
+      case WithBinding(subject, implementationName, moduleName)      =>
+        for {
+          resolvedSubject <- resolveExpression(subject.value, runtime).map(subject.as)
+          marker          <- ImplementationNameResolver.resolve(implementationName, moduleName)
+        } yield Expression.WithBinding(resolvedSubject, implementationName.as(marker))
       case NamedValueReference(nameSrc, None, typeArgExprs)          =>
         isParameter(nameSrc.value.name).flatMap { isParam =>
           if (isParam) {
