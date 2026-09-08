@@ -1,0 +1,42 @@
+import eliot.collection.List
+import eliot.test.Assertion
+
+/**
+ * What a test case is *about*: the `subject` under test and the `should` phrase naming the expectation. It carries no
+ * body — a case's body is run by `in`, where it stands, so what the framework ever holds is the case's name and what
+ * running it answered.
+ */
+data TestCase(subject: String, shouldPhrase: String)
+
+/**
+ * A test case together with the verdict of running it. Plain data throughout: nothing here is a suspended computation,
+ * so there is nothing left for the runner to run or to discharge.
+ */
+data TestResult(testCase: TestCase, outcome: Outcome)
+
+/**
+ * What running one test body answered: the `AssertionError` it raised, or `unit` when it raised nothing.
+ */
+type Outcome = Either[AssertionError, Unit]
+
+/**
+ * Name a test case: the `subject` under test and the `should` phrase naming the expectation. The case is not complete
+ * until `in` gives it a body.
+ */
+infix none def should(subject: String, shouldPhrase: String): TestCase =
+   TestCase(subject, shouldPhrase)
+
+/**
+ * Run a named case's body and register its verdict into the enclosing suite.
+ *
+ * `in` **supplies** the assertion effect and is transparent to every other effect the body performs: `{Throw[AssertionError]}`
+ * on the slot is the one entry `in` discharges, and every other operation the body performs is bound where it is
+ * written — by the suite's own declarations, or by a `with` the body itself carries. So what a test may do is decided
+ * by the suite's declared row and by nothing here: a suite declaring `{Writer[List[TestResult]]}` alone admits only
+ * bodies that assert; one that also declares `{Console}` admits bodies that print.
+ *
+ * Because the body is a *slot* rather than stored data, it is written where it stands — no test is collected unrun.
+ */
+infix none below should
+def in(testCase: TestCase, body: {Throw[AssertionError]} Unit): {Writer[List[TestResult]]} Unit =
+   tell(singleton(TestResult(testCase, runThrow(body))))

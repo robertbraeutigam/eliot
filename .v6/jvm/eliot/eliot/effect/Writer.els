@@ -1,0 +1,38 @@
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the stdlib layer, which carries the documentation.
+effect Writer[W] {
+   def tell(w: W): Unit
+}
+
+/**
+ * The JVM `Writer[W]` implementation — the single one for this platform, `State` restricted to append-only: `tell`
+ * joins `w` onto the content of the nearest enclosing cell with the `Combine[W]` monoid, and nothing here can read it
+ * back out, which is the whole contract.
+ */
+implement[W ~ Combine[W]] Writer[W] {
+   def tell(w: W): Unit = writeCellInternal(combine(readCellInternal, w))
+}
+
+/**
+ * Discharge `Writer[W]` by installing the cell `tell` appends to, starting from `empty`, and running the computation
+ * inside it: the result paired with what was accumulated. The platform body of the base's body-less signature.
+ */
+def runWriterToPair[W ~ Combine[W], A](p: {Writer[W]} A): Pair[A, W] = withCellInternal(empty, p)
+
+/**
+ * Install a cell for `W` holding `initial`, run `body` inside it, and answer the result paired with the cell's final
+ * content. `eliot.effect.State`'s leaf of the same shape and purpose; per-module `private` means each module declares
+ * its own — which is also what keeps a writer's cell and a state's cell apart at the same type. Implemented by the
+ * backend.
+ */
+private def withCellInternal[S, A](initial: S, body: {} A): Pair[A, S]
+
+/**
+ * The content of the nearest enclosing cell for `S`. Implemented by the backend.
+ */
+private def readCellInternal[S]: S
+
+/**
+ * Replace the content of the nearest enclosing cell for `S`. Implemented by the backend.
+ */
+private def writeCellInternal[S](s: S): Unit

@@ -1,0 +1,33 @@
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file).
+effect Abort {
+   def abort[A]: A
+}
+
+/**
+ * The JVM `Abort` implementation — the single one for this platform, `Throw` without a reason: `abort` leaves through
+ * the nearest enclosing `runAbort` frame carrying nothing.
+ */
+implement Abort {
+   def abort[A]: A = exitInternal(unit)
+}
+
+/**
+ * Discharge `Abort` by installing the frame `abort` leaves through: `Some(a)` if the computation finished, `None` if it
+ * short-circuited. The platform body of the base's body-less signature.
+ *
+ * Its frame is this module's own `escapeInternal`, so it can never be confused with a `Throw[Unit]` frame: the two are
+ * different names and the backend keys a frame class on the name it was installed by.
+ */
+def runAbort[A](obj: {Abort} A): Option[A] = foldEither(_ -> None, a -> Some(a), escapeInternal(obj))
+
+/**
+ * Install an escape frame carrying nothing, run `body` inside it, and answer `Right` of its result or `Left(unit)` if
+ * it left. `eliot.effect.Throw`'s leaf of the same shape and purpose; per-module `private` means each module declares
+ * its own, which is also what keeps the two frames apart. Implemented by the backend.
+ */
+private def escapeInternal[A](body: {} A): Either[Unit, A]
+
+/**
+ * Leave through the nearest enclosing `escapeInternal` frame of this module. Implemented by the backend.
+ */
+private def exitInternal[A](nothing: Unit): A

@@ -1,0 +1,42 @@
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the stdlib layer, which carries the documentation.
+effect Throw[E] {
+   def raise[A](err: E): A
+}
+
+/**
+ * The JVM `Throw[E]` implementation — the **single** one for this platform, since `Throw` is a control effect and a
+ * discharger only installs the frame it exits to (`docs/effects.md` §9.6). It is anonymous, so it is the default every
+ * `{Throw[E]}` declaration binds; a test does not replace it, it discharges it.
+ *
+ * `raise` is the non-local exit itself: it leaves through the nearest enclosing frame of *this* instantiation, so a
+ * `raise` of a `NetError` passes straight through a `runThrow` installed for a `ParseError`.
+ */
+implement[E] Throw[E] {
+   def raise[A](err: E): A = exitInternal(err)
+}
+
+/**
+ * Discharge `Throw[E]` by installing the frame `raise` exits to and running the computation inside it: `Right(a)` if it
+ * finished, `Left(err)` if it left. The platform body of the base's body-less signature — the base may not carry it,
+ * because the exit primitive below is private to this layer.
+ */
+def runThrow[E, A](obj: {Throw[E]} A): Either[E, A] = escapeInternal(obj)
+
+/**
+ * Install an escape frame for the error type `E`, run `body` inside it, and answer `Right` of its result or `Left` of
+ * whatever `exitInternal` left with. The abortive half of the platform's two control-flow primitives
+ * (`docs/effects.md` §9.6): on the JVM a frame is an exception, one class per instantiation of `E`, and the machine
+ * stack is what makes "the nearest enclosing frame" mean what it says.
+ *
+ * `private`, and re-declared per module rather than shared from one place, exactly as `isNull` is: a public escape is
+ * one half of Landin's knot, and the recursion gate (`termination/PurityGuardTest`) exists to keep the other half out.
+ * Implemented by the backend.
+ */
+private def escapeInternal[E, A](body: {} A): Either[E, A]
+
+/**
+ * Leave through the nearest enclosing `escapeInternal` frame of this instantiation, carrying `err`. Control does not
+ * return, so the result stands in for a value of any type. Implemented by the backend.
+ */
+private def exitInternal[E, A](err: E): A

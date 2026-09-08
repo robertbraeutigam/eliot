@@ -1,0 +1,52 @@
+data Bound[T] = Unbounded | Bounded(value: T)
+
+def foldBound[T, B](ifUnbounded: {} B, ifBounded: T => {} B, b: Bound[T]): B = b match {
+   case Unbounded -> ifUnbounded
+   case Bounded(v) -> ifBounded(v)
+}
+
+def minBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
+   case Unbounded -> Unbounded
+   case Bounded(x) -> b match {
+      case Unbounded -> Unbounded
+      case Bounded(y) -> Bounded(min(x, y))
+   }
+}
+
+def maxBound[T ~ Compare](a: Bound[T], b: Bound[T]): Bound[T] = a match {
+   case Unbounded -> Unbounded
+   case Bounded(x) -> b match {
+      case Unbounded -> Unbounded
+      case Bounded(y) -> Bounded(max(x, y))
+   }
+}
+
+/**
+ * The compiler platform's self-sufficient copy of the runtime `Numeric[Bound[T]]` instance (base signatures + jvm
+ * bodies) — structurally identical, so the refinement channel's `Int` arithmetic transfers dispatch through *this*
+ * instance rather than borrowing a sibling target's. `Unbounded` absorbs; see the base declaration for why the
+ * absorbing `multiply` is deliberately not tightened for a zero operand.
+ */
+implement[T ~ Numeric[T]] Numeric[Bound[T]] {
+   def add(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(add(x, y))
+      }
+   }
+   def subtract(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(subtract(x, y))
+      }
+   }
+   def multiply(a: Bound[T], b: Bound[T]): Bound[T] = a match {
+      case Unbounded -> Unbounded
+      case Bounded(x) -> b match {
+         case Unbounded -> Unbounded
+         case Bounded(y) -> Bounded(multiply(x, y))
+      }
+   }
+}

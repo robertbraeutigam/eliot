@@ -1,0 +1,46 @@
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file).
+effect State[S] {
+   def state: S
+   def putState(s: S): Unit
+}
+
+/**
+ * The JVM `State[S]` implementation — the single one for this platform: the threaded value lives in the nearest
+ * enclosing cell of this instantiation, so `state` reads it and `putState` replaces it, and neither wraps the result.
+ */
+implement[S] State[S] {
+   def state: S = readCellInternal
+
+   def putState(s: S): Unit = writeCellInternal(s)
+}
+
+/**
+ * Discharge `State[S]` by installing the cell `state`/`putState` reach, holding `initial`, and running the computation
+ * inside it: the result paired with the cell's final content. The platform body of the base's body-less signature.
+ *
+ * Nesting is the user's: `runStateToPair(s, runThrow(c))` keeps the state across a `raise`, `runThrow(runStateToPair(s, c))`
+ * does not, because the cell is gone when the frame it sat inside is exited.
+ */
+def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S] = withCellInternal(initial, p)
+
+/**
+ * Install a cell for `S` holding `initial`, run `body` inside it, and answer the result paired with the cell's final
+ * content. The stateful half of the platform's two control-flow primitives (`docs/effects.md` §9.6): on the JVM a cell
+ * is a static field per instantiation, saved and restored around this call, so it is scoped to it and gone afterwards
+ * — including when the call is exited through.
+ *
+ * `private`, and re-declared per module rather than shared: a public cell *is* Landin's knot — a cell holding a closure
+ * that reads the cell is a loop — and the recursion gate (`termination/PurityGuardTest`) exists to keep that out.
+ * Implemented by the backend.
+ */
+private def withCellInternal[S, A](initial: S, body: {} A): Pair[A, S]
+
+/**
+ * The content of the nearest enclosing cell for `S`. Implemented by the backend.
+ */
+private def readCellInternal[S]: S
+
+/**
+ * Replace the content of the nearest enclosing cell for `S`. Implemented by the backend.
+ */
+private def writeCellInternal[S](s: S): Unit

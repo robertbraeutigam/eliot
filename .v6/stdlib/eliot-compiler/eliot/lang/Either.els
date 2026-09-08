@@ -1,0 +1,34 @@
+import eliot.carrier.Effect
+import eliot.effect.Throw
+
+data Either[E, A] = Left(error: E) | Right(value: A)
+
+def foldEither[E, A, B](ifLeft: E => {} B, ifRight: A => {} B, e: Either[E, A]): B = e match {
+   case Left(err) -> ifLeft(err)
+   case Right(v) -> ifRight(v)
+}
+
+/**
+ * `Either[String, _]` is the *pure* (identity-base) error carrier the compiler runs type-level computations on: `pure`
+ * injects a result via `Right`; `flatMap` continues on `Right(a)` and short-circuits on `Left(err)` (propagating the
+ * error) — the `Throw` semantics; `map` transforms a `Right` value and propagates a `Left` error. Specialised to the
+ * error type `String` (the compiler's guard-message type).
+ */
+implement Effect[Either[String]] {
+   def pure[A](a: A): Either[String, A] = Right(a)
+
+   def flatMap[A, B](f: Function[A, Either[String, B]], fa: Either[String, A]): Either[String, B] =
+      foldEither(err -> Left(err), a -> f(a), fa)
+
+   def map[A, B](f: Function[A, B], fa: Either[String, A]): Either[String, B] =
+      foldEither(err -> Left(err), a -> Right(f(a)), fa)
+}
+
+/**
+ * The `Throw` instance: `raise(err)` is the failure — purely the `Left(err)` value. A `{Throw[String]}` signature
+ * computation that rejects (e.g. a guard like `head` on an empty `Seq`) `raise`s its author message here, and the
+ * compiler reads the resulting `Left(msg)` back as a diagnostic.
+ */
+implement Throw[String, Either[String]] {
+   def raise[A](err: String): Either[String, A] = Left(err)
+}

@@ -1,0 +1,33 @@
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the stdlib layer, which carries the documentation.
+effect Dep[X] {
+   def dependency: X
+}
+
+/**
+ * The JVM `Dep[X]` implementation — the single one for this platform, the reader's `ask`: `dependency` reads the
+ * nearest enclosing cell for `X`, which is whatever the enclosing `provide` put there. Two distinct dependency types
+ * are two distinct cells, so two nested `provide`s do not see each other.
+ */
+implement[X] Dep[X] {
+   def dependency: X = readCellInternal
+}
+
+/**
+ * Discharge `Dep[X]` by installing a cell for `X` holding `x` and running the computation inside it, keeping only its
+ * result — nothing writes this cell, so its final content is `x` again. The platform body of the base's body-less
+ * signature.
+ */
+def provide[X, A](x: X, computation: {Dep[X]} A): A = first(withCellInternal(x, computation))
+
+/**
+ * Install a cell for `S` holding `initial`, run `body` inside it, and answer the result paired with the cell's final
+ * content. `eliot.effect.State`'s leaf of the same shape and purpose; per-module `private` means each module declares
+ * its own. Implemented by the backend.
+ */
+private def withCellInternal[S, A](initial: S, body: {} A): Pair[A, S]
+
+/**
+ * The content of the nearest enclosing cell for `S`. Implemented by the backend.
+ */
+private def readCellInternal[S]: S

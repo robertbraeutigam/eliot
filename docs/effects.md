@@ -1297,8 +1297,42 @@ that boundary.
      `A`) trips R2 — the overlay must say what such a leaf states, an F5 item; and a function-typed payload through
      the compile-track `Id` (`val f = fold(c, thunk1, thunk2)`) is a mismatch at `runId` (`Unit -> Bool` against
      `Function[Unit, Bool]`), so the test wraps its arms in a `data`.
-8. **Author the v6 stdlib, jvm layer, compile-track overlays, examples and `eliot-test` on a branch**, ahead
-   of time, so the flag day is a compiler change plus a prepared tree rather than one long day of both.
+8. **The v6 stdlib, jvm layer, compile-track overlays, examples and `eliot-test` — DONE 2026-09-08**, staged in
+   **`.v6/`** with its own manifest (`.v6/README.md`), which is where the flag day picks them up. A directory
+   rather than a branch: it lands in ordinary commits on `master`, is reviewable next to the tree it replaces,
+   applies at F7 as a copy plus the manifest's deletions, and — unlike a branch — carries a gate,
+   `ast/processor/V6TreeParseTest`, which tokenizes and parses every staged file on every test run so a tree
+   nobody compiles cannot rot while the compiler moves under it. It is *hidden* because the LSP's
+   `SourceRootDiscovery` would otherwise take `.v6/stdlib/eliot` for a layer root beside the real one. Only files
+   that *change* are staged; the manifest lists the deletions (`eliot.carrier`, all three `Id.els`, `eliot.jvm.IO`,
+   `EffectAbilitySet`, `EffectsFakeCarrier`).
+
+   Four consequences the design did not spell out, decided here and recorded in the manifest: a combinator's
+   **return** row disappears (`foldLeft`, `map`, `foldOption`, `fold`, `.` — the callback's effects are bound at the
+   caller, so the combinator declares nothing), `foldLeft`'s seed becomes a payload, only the five dischargers that
+   actually touch a primitive are body-less in the base (`catch`/`else`/`runStateToValue`/… stay bodied there), and
+   `runWriterToPair` grows the `~ Combine[W]` its platform body needs. The jvm leaves are declared `private`
+   **per module** — five copies of two shapes, as `isNull` already is — because Eliot has no layer-private
+   visibility and a public cell is Landin's knot; the compile-track intrinsics cannot do the same, since
+   `EffectIntrinsics` matches their exact FQNs.
+
+   One compiler change landed with it, byte-identical: `ImplementBlock`'s pattern is now **optional**, so an
+   anonymous `implement Console { … }` parses. Step 4 landed the v6 surface dark but missed that shape, which every
+   v6 `effect` implementation takes; the parse gate found it on its first run.
+
+   **What it surfaced, and one thing that needs a decision.** For F5: R2 on the compile-track primitives (a brace
+   over a generic result has no spelling); whether a generic binder can be written as a type value
+   (`escape(E[], obj)`); and why the compile-track overlay stages `Abort` and `Throw` **only** — the track has one
+   cell intrinsic keyed by the type it is handed, so `State[String]`/`Writer[String]`/`Dep[String]` would share a
+   frame where the jvm layer separates them by declaring its leaves per module, and keeping them apart needs an
+   *applied* marker key whose value-position spelling is unsettled; the nullary-read memoisation trap (step 7's
+   third finding) hits the same three. `Abort` carries a private nullary marker (`Aborted`) rather than keying on
+   `Unit`, so it cannot share frames with a `Throw[Unit]`. An unbodied discharger reached at compile time is
+   *stuck*, which is loud, so nothing is lost meanwhile. **Needing a decision before F7:** `eliot.test`'s `pure { … }` has no v6 spelling. It
+   forbade *all* effects in a test body by pinning it to `Id`; under §9.4 a slot's row does not close — an entry the
+   slot does not supply continues the walk into the caller — so a slot cannot say "and nothing else". The staged
+   framework drops the word and those cases become plain `in { … }`, bounded by the suite's own row. Making it
+   expressible again would be a language addition (a closed row), so it is surfaced rather than invented.
 9. **Record the behavioural baseline** — the stdout/exit-code transcript of every example jar, plus each
    jar's size and `main`-class instruction count — so the flag-day gate has something to compare against.
 

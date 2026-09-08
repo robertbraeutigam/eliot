@@ -1,0 +1,54 @@
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the stdlib layer, which carries the documentation.
+effect Console {
+   def printLine(s: String): Unit
+   def readLine: Option[String]
+}
+
+/**
+ * The JVM `Console` implementation: each operation calls a `private` impure leaf native. It is anonymous and lives in
+ * the effect's own module, so it is the **default** — the implementation a `{Console}` declaration binds when no `with`
+ * names another one, and what the synthesized entry point binds at the run boundary.
+ *
+ * A test does not have to replace it in place: it declares its own named `implement` anywhere it likes and binds it
+ * with `with`, which is why nothing here is generic, registered or configured.
+ */
+implement Console {
+   def printLine(s: String): Unit = printLineInternal(s)
+
+   def readLine: Option[String] = lineOrNone(readLineInternal)
+}
+
+/**
+ * Build the `Option` a `readLine` yields from what the leaf native returns: `java.io.BufferedReader.readLine` signals
+ * end of input with a `null`, which is not a value any Eliot type admits, so it is turned into a `None` here — in
+ * ordinary Eliot, at the narrowest possible boundary, following the `eliot.file` rule that a native never constructs an
+ * Eliot `data` value in bytecode.
+ */
+private def lineOrNone(line: String): Option[String] = if(isNull(line), None) else Some(line)
+
+/**
+ * The single impure operation behind `printLine`: writes a line to standard output. `private` so user code
+ * reaches output only through the `{Console}`-typed `printLine`. Implemented by the backend.
+ */
+private def printLineInternal(s: String): Unit
+
+/**
+ * The single impure operation behind `readLine`: reads a line from standard input, or `null` at end of input (never
+ * seen outside this module — `lineOrNone` turns it into a `None` immediately). `private` for the same reason as
+ * `printLineInternal`. Implemented by the backend.
+ *
+ * The stated size is the JVM's own string ceiling: a `java.lang.String` holds at most `2147483647` UTF-16 units, so it
+ * holds at most that many code points. This is what a platform-representation transfer looks like — the fact stated is
+ * a property of the JVM's `String`, so it lives in this layer rather than in the base, and an MCU target with a smaller
+ * line buffer states its own. A line read at end of input is `null`, which has no size at all; the bound describes the
+ * strings this can actually yield.
+ */
+private def readLineInternal: String {closed(0, 2147483647)}
+
+/**
+ * `true` when `x` is the null reference — lets `lineOrNone` branch on what the reader returned in ordinary Eliot. The
+ * `eliot.file` leaf of the same name and purpose; per-file name resolution means each module declares its own.
+ * Implemented by the backend.
+ */
+private def isNull[A](x: A): Bool

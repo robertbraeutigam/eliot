@@ -1,0 +1,19 @@
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the stdlib layer, which carries the documentation.
+effect Log {
+   def log(s: String): Unit
+}
+
+/**
+ * The JVM `Log` implementation, the default this platform ships: it calls a `private` impure leaf native, exactly like
+ * `Console`. A test that wants to see what was logged declares its own named `implement` and binds it with `with`.
+ */
+implement Log {
+   def log(s: String): Unit = logInternal(s)
+}
+
+/**
+ * The single impure operation behind `log`: writes a diagnostic line to standard output. `private` so user
+ * code reaches logging only through the `{Log}`-typed `log`. Implemented by the backend.
+ */
+private def logInternal(s: String): Unit
