@@ -90,7 +90,7 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
             )
           )
         ),
-        (userModule, "src", ast(functions = Seq(fn("Show", Qualifier.AbilityImplementation("Show", "Hello"), args = Seq(arg("arg0", ty("Hello")))))))
+        (userModule, "src", ast(functions = Seq(fn("Show", Qualifier.AbilityImplementation("Show", "Hello", None), args = Seq(arg("arg0", ty("Hello")))))))
       )
     ).modules
     val item       = moduleNamed(modules, "Show").items.find(_.kind == DocItem.Kind.Ability).getOrElse(fail("no ability item"))
@@ -116,8 +116,8 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
           ast(functions =
             Seq(
               fn("BigInteger", Qualifier.Type),
-              fn("Numeric", Qualifier.AbilityImplementation("Numeric", "BigInteger"), args = Seq(arg("arg0", ty("BigInteger")))),
-              fn("Compare", Qualifier.AbilityImplementation("Compare", "BigInteger"), args = Seq(arg("arg0", ty("BigInteger"))))
+              fn("Numeric", Qualifier.AbilityImplementation("Numeric", "BigInteger", None), args = Seq(arg("arg0", ty("BigInteger")))),
+              fn("Compare", Qualifier.AbilityImplementation("Compare", "BigInteger", None), args = Seq(arg("arg0", ty("BigInteger"))))
             )
           )
         )
@@ -143,7 +143,7 @@ class DocModelBuilderTest extends AnyFlatSpec with Matchers {
               fn("Console", Qualifier.Ability("Console"), generics = Seq(gp("F"))),
               fn(
                 "Console",
-                Qualifier.AbilityImplementation("Console", "F"),
+                Qualifier.AbilityImplementation("Console", "F", None),
                 generics = Seq(gp("F")),
                 args = Seq(arg("arg0", ty("F")))
               )

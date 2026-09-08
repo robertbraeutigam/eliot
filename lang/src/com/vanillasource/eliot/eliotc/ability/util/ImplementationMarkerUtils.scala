@@ -39,9 +39,9 @@ object ImplementationMarkerUtils {
       platform: Platform = Platform.Runtime
   ): CompilerIO[Boolean] =
     methodVfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(name, _) if name === abilityName && methodVfqn.name.name === methodName =>
+      case Qualifier.AbilityImplementation(name, _, _) if name === abilityName && methodVfqn.name.name === methodName =>
         firstPatternTypeConstructorName(methodVfqn, abilityName, platform).map(_.contains(targetTypeConstructor))
-      case _                                                                                                       =>
+      case _                                                                                                          =>
         false.pure[CompilerIO]
     }
 
@@ -53,29 +53,12 @@ object ImplementationMarkerUtils {
       abilityName: String,
       platform: Platform = Platform.Runtime
   ): CompilerIO[Option[String]] =
-    methodVfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(_, pattern) =>
-        firstPatternTypeConstructorName(methodVfqn.moduleName, abilityName, pattern, platform)
-      case _                                           =>
-        None.pure[CompilerIO]
-    }
+    firstPatternTypeConstructorName(methodVfqn.moduleName, abilityName, methodVfqn.name.qualifier, platform)
 
-  /** Keyed by `(moduleName, abilityName, index)` directly. */
-  def firstPatternTypeConstructorName(
-      moduleName: ModuleName,
-      abilityName: String,
-      pattern: String,
-      platform: Platform
-  ): CompilerIO[Option[String]] =
-    findMarkerVfqn(moduleName, abilityName, pattern, platform).flatMap {
-      case None             => None.pure[CompilerIO]
-      case Some(markerVfqn) =>
-        getFactIfProduced(UnifiedModuleValue.Key(markerVfqn, platform)).map(
-          _.flatMap(umv => firstArgTypeConstructorName(umv.namedValue.signature.value))
-        )
-    }
-
-  /** Variant for callers that already have an impl qualifier (e.g., iterating a names table). */
+  /** Variant for callers that already have an impl qualifier (e.g., iterating a names table). The marker is found by
+    * the implementation's full identity — `(ability, pattern, implementation name)` — so a named implementation never
+    * answers for the anonymous default of the same pattern, nor the other way round.
+    */
   def firstPatternTypeConstructorName(
       moduleName: ModuleName,
       abilityName: String,
@@ -83,9 +66,15 @@ object ImplementationMarkerUtils {
       platform: Platform
   ): CompilerIO[Option[String]] =
     implQualifier match {
-      case Qualifier.AbilityImplementation(_, pattern) =>
-        firstPatternTypeConstructorName(moduleName, abilityName, pattern, platform)
-      case _                                           =>
+      case Qualifier.AbilityImplementation(_, pattern, implementationName) =>
+        findMarkerVfqn(moduleName, abilityName, pattern, implementationName, platform).flatMap {
+          case None             => None.pure[CompilerIO]
+          case Some(markerVfqn) =>
+            getFactIfProduced(UnifiedModuleValue.Key(markerVfqn, platform)).map(
+              _.flatMap(umv => firstArgTypeConstructorName(umv.namedValue.signature.value))
+            )
+        }
+      case _                                                               =>
         None.pure[CompilerIO]
     }
 
@@ -93,9 +82,10 @@ object ImplementationMarkerUtils {
       moduleName: ModuleName,
       abilityName: String,
       pattern: String,
+      implementationName: Option[String],
       platform: Platform
   ): CompilerIO[Option[ValueFQN]] =
-    getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).map(_.markerOf(abilityName, pattern))
+    getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).map(_.markerOf(abilityName, pattern, implementationName))
 
   private def firstArgTypeConstructorName(signature: Expression): Option[String] = {
     import Expression.*

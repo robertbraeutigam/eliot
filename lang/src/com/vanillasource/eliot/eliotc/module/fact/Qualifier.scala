@@ -48,22 +48,30 @@ object Qualifier {
     * instance whose `where` clause is part of its identity) apart. The pattern is *also* recoverable from the synthetic
     * marker function's signature;
     * this key is that same information, lifted into the name so the merge and dispatch can compare it directly.
+    *
+    * `implementationName` is the third component of that identity (effects v6, `docs/effects.md` §9.4 step 1): a
+    * **named** `implement` (`implement recordingConsole: Console { … }`) is addressable by `with` and is never a
+    * default, so it must stay apart from the anonymous default of the same `(ability, pattern)` — under v6 every
+    * implementation of a nullary effect shares the empty pattern, and the name is what keeps them distinct. An
+    * anonymous `implement` block carries [[None]] and keeps exactly the identity it had.
     */
-  case class AbilityImplementation(name: String, pattern: String) extends Qualifier
+  case class AbilityImplementation(name: String, pattern: String, implementationName: Option[String]) extends Qualifier
 
   /** Renders a qualifier for user-facing messages. An [[AbilityImplementation]] shows its ability name and pattern key
-    * (e.g. `PatternMatch#Person` or `Arithmetic#Int[L1, H1], Int[L2, H2]`); a [[Meta]] over the plain [[Default]]
-    * namespace shows as bare `Meta` (`add^Meta`), and over any other one names the namespace it shadows
+    * (e.g. `PatternMatch#Person` or `Arithmetic#Int[L1, H1], Int[L2, H2]`), a named one prefixed by its name as the
+    * surface writes it (`recordingConsole: Console#`); a [[Meta]] over the plain [[Default]] namespace shows as bare
+    * `Meta` (`add^Meta`), and over any other one names the namespace it shadows
     * (`add^Meta(Arithmetic#Int[L1, H1], Int[L2, H2])`).
     */
   given Show[Qualifier] with {
     override def show(qualifier: Qualifier): String = qualifier match {
-      case Default                              => "Default"
-      case Type                                 => "Type"
-      case Meta(Default)                        => "Meta"
-      case Meta(of)                             => s"Meta(${show(of)})"
-      case Ability(name)                        => name
-      case AbilityImplementation(name, pattern) => s"$name#$pattern"
+      case Default                                          => "Default"
+      case Type                                             => "Type"
+      case Meta(Default)                                    => "Meta"
+      case Meta(of)                                         => s"Meta(${show(of)})"
+      case Ability(name)                                    => name
+      case AbilityImplementation(name, pattern, None)       => s"$name#$pattern"
+      case AbilityImplementation(name, pattern, Some(impl)) => s"$impl: $name#$pattern"
     }
   }
 

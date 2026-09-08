@@ -38,7 +38,7 @@ object MarkerGuardSignature {
     */
   def isMarker(resolvedValue: OperatorResolvedValue): Boolean =
     resolvedValue.name.value.qualifier match {
-      case Qualifier.AbilityImplementation(abilityFQN, _) => resolvedValue.vfqn.name.name == abilityFQN.abilityName
+      case Qualifier.AbilityImplementation(abilityFQN, _, _) => resolvedValue.vfqn.name.name == abilityFQN.abilityName
       case _                                              => false
     }
 

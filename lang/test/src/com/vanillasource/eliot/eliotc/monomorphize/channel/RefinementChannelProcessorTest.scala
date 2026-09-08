@@ -16,7 +16,7 @@ class RefinementChannelProcessorTest extends AnyFlatSpec with Matchers {
   import RefinementChannelProcessor.*
 
   private val intModule  = ModuleName(ModuleName.defaultSystemPackage, "Int")
-  private val numericInt = Qualifier.AbilityImplementation("Numeric", "Int")
+  private val numericInt = Qualifier.AbilityImplementation("Numeric", "Int", None)
 
   "metaCompanionFqn" should "name a merge callee's ^Meta companion in its own module and the Meta namespace" in {
     val fold = ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Bool"), QualifiedName("fold", Qualifier.Default))

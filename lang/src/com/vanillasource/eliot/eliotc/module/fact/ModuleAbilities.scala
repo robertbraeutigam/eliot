@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * (`Qualifier.AbilityImplementation`).
   *
   * Every implementation of an ability contributes one synthetic method per ability method, each carried as a
-  * `Qualifier.AbilityImplementation(abilityName, index)` name; the method whose local name equals the ability name is
+  * `Qualifier.AbilityImplementation(abilityName, pattern, implementationName)` name; the method whose local name equals the ability name is
   * the implementation's "marker". Decoding these (and the `Qualifier.Ability` declarations) used to be open-coded — the
   * same `collect`-and-decode over the raw name map — in six places (`AbilityImplementationProcessor`,
   * `AbilityImplementationCheckProcessor`, `ImplementationMarkerUtils`, `MatchDesugarUtils`,
@@ -48,10 +48,14 @@ case class ModuleAbilities(
   def markersOf(abilityName: String): Seq[ValueFQN] =
     namedImplementationMethodsOf(abilityName, abilityName)
 
-  /** The marker method of the implementation of `abilityName` with the given `pattern` key, if present. */
-  def markerOf(abilityName: String, pattern: String): Option[ValueFQN] =
+  /** The marker method of the implementation of `abilityName` with the given `pattern` key and implementation name (the
+    * implementation's full identity, [[Qualifier.AbilityImplementation]]), if present.
+    */
+  def markerOf(abilityName: String, pattern: String, implementationName: Option[String]): Option[ValueFQN] =
     implementations.collectFirst {
-      case impl if impl.abilityName == abilityName && impl.methodName == abilityName && impl.pattern == pattern =>
+      case impl
+          if impl.abilityName == abilityName && impl.methodName == abilityName && impl.pattern == pattern &&
+            impl.implementationName == implementationName =>
         impl.vfqn
     }
 }
@@ -78,8 +82,17 @@ object ModuleAbilities {
     * @param pattern
     *   The implementation's pattern key ([[Qualifier.AbilityImplementation.pattern]]) disambiguating multiple
     *   implementations of the same ability in one module.
+    * @param implementationName
+    *   The implementation's own name for a named `implement`
+    *   ([[Qualifier.AbilityImplementation.implementationName]]), [[None]] for an anonymous default.
     */
-  case class Impl(vfqn: ValueFQN, methodName: String, abilityName: String, pattern: String)
+  case class Impl(
+      vfqn: ValueFQN,
+      methodName: String,
+      abilityName: String,
+      pattern: String,
+      implementationName: Option[String]
+  )
 
   case class Key(moduleName: ModuleName, platform: Platform = Platform.Runtime)
       extends CompilerFactKey[ModuleAbilities] {

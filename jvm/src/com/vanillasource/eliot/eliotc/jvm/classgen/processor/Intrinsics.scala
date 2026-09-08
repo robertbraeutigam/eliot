@@ -54,7 +54,7 @@ object Intrinsics {
     vfqn.moduleName == ModuleName(defaultSystemPackage, "Int") &&
       names.contains(vfqn.name.name) &&
       (vfqn.name.qualifier match {
-        case Qualifier.AbilityImplementation(`ability`, _) => true
+        case Qualifier.AbilityImplementation(`ability`, _, _) => true
         case _                                             => false
       })
 

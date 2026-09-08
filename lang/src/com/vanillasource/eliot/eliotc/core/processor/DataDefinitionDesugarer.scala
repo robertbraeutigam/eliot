@@ -180,7 +180,7 @@ object DataDefinitionDesugarer {
           s.as(
             QualifiedName(
               "PatternMatch",
-              Qualifier.AbilityImplementation("PatternMatch", implKey)
+              Qualifier.AbilityImplementation("PatternMatch", implKey, None)
             )
           ),
           definition.genericParameters,
@@ -193,7 +193,7 @@ object DataDefinitionDesugarer {
           s.as(
             QualifiedName(
               "Cases",
-              Qualifier.AbilityImplementation("PatternMatch", implKey)
+              Qualifier.AbilityImplementation("PatternMatch", implKey, None)
             )
           ),
           definition.genericParameters,
@@ -206,7 +206,7 @@ object DataDefinitionDesugarer {
           s.as(
             QualifiedName(
               "handleCases",
-              Qualifier.AbilityImplementation("PatternMatch", implKey)
+              Qualifier.AbilityImplementation("PatternMatch", implKey, None)
             )
           ),
           definition.genericParameters :+ resultParam,
@@ -245,7 +245,7 @@ object DataDefinitionDesugarer {
       definition.genericParameters.map(gp => typeExpr(gp.name))
     )
 
-    val abilityQualifier = Qualifier.AbilityImplementation("TypeMatch", implKey)
+    val abilityQualifier = Qualifier.AbilityImplementation("TypeMatch", implKey, None)
 
     val matchCaseType = typeMatchHandlerType(definition, resultParamName)
     val elseCaseType  = typeExpr(

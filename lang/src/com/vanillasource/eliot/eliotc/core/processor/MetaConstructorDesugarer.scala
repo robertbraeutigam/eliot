@@ -84,7 +84,7 @@ object MetaConstructorDesugarer {
   private def metaJoinInstance(definition: FunctionDefinition): Seq[(FunctionDefinition, RoleHint)] = {
     val metaTypeName  = definition.name.map(_.name + metaTypeSuffix)
     val metaTypeRef   = app(metaTypeName)
-    val implQualifier = Qualifier.AbilityImplementation("Meta", metaTypeName.value)
+    val implQualifier = Qualifier.AbilityImplementation("Meta", metaTypeName.value, None)
     val perSlotJoins  = definition.metaSlots.traverse(slotJoin)
     perSlotJoins.toSeq.flatMap { joins =>
       val marker = FunctionDefinition(

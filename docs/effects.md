@@ -1234,9 +1234,27 @@ that boundary.
      evaluate the `where` precondition"), while a concrete dispatch inside a guard works. The compile-track
      mono checker is unaffected. Also observed: a failing `where` at `main` still writes the jar, against the
      build-artifact hygiene rule — a defect to fix on its own.
-6. **The impl-name component of `Qualifier.AbilityImplementation`**, the `Default` marker, and the
-   read-the-argument arm of `AbilityResolver`, with no producer yet — the arm is dead until F1 and is tested
-   by injection.
+6. **The impl-name component, the `Default` marker and the read-the-argument arm — DONE 2026-09-08**, with no
+   producer: the arm is dead until F1 and is tested by injection. `Qualifier.AbilityImplementation` (both the module
+   and the resolved twin) carries `implementationName: Option[String]` as the third identity component, threaded
+   through every match site, `ModuleAbilities.Impl`/`markerOf`, the marker utilities and the jvm name mangling (a
+   named implementation appends its name; an anonymous one mangles exactly as before). `Default` is
+   `WellKnownTypes.defaultImplementationFQN`, a compiler-owned sentinel like `Any` — declared in no layer, the
+   nullary `Structure` a phantom binder carries when no `with` names an implementation. The reader is
+   `monomorphize/check/ImplementationBinding`: a binding is the sentinel or a structure headed by an
+   implementation's **marker** (an associated type shares the namespace but never the ability's own local name)
+   applied to that implementation's own type arguments in declaration order, and
+   **the contract with F1 is positional** — the binding is the **last ability-level type argument** (the marker
+   declares its pattern parameters, then the phantom), so `AbilityResolver`'s existing arity slice ends with it.
+   The arm: an implementation is recorded directly as its method of the reference's name at the binding's
+   arguments, with no search, no `where` and no coherence question; `Default` and no binding at all run the
+   two-site search at the pattern arguments; the resolution key keeps the binding, so one span under two bindings
+   is two entries. Two things the step surfaced, both hash-order dependencies the new field exposed and both fixed:
+   the missing-method diagnostic reported at whichever implementation method hashed first (now at the
+   implementation's marker), and `JvmClassGenerator` emitted a module class's members in `Map` order, so every
+   example jar's method order and constant pool changed with no semantic change — landed as its own commit ahead of
+   this step, and verified by normalising all 175 differing classes to member order. Against that baseline the step
+   is byte-identical over the 45 example jars; every test green.
 7. **The two evaluator intrinsics** — escape and cell — on the compile track, tested directly. They replace
    the `Either`-based `AbortCarrier` overlay at the flag day.
 8. **Author the v6 stdlib, jvm layer, compile-track overlays, examples and `eliot-test` on a branch**, ahead

@@ -535,7 +535,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate an implement method's transfer companion in that implementation's own namespace" in {
     val companion =
-      QualifiedName("add", Qualifier.Meta(Qualifier.AbilityImplementation("Num", "Foo")))
+      QualifiedName("add", Qualifier.Meta(Qualifier.AbilityImplementation("Num", "Foo", None)))
     namedValues("implement Num[Foo] { def add(a: Foo, b: Foo): Foo {a} }").asserting { nvs =>
       nvs.map(_.qualifiedName.value) should contain(companion)
     }

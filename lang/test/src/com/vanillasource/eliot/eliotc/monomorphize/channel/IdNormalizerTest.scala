@@ -39,7 +39,7 @@ class IdNormalizerTest extends AnyFlatSpec with Matchers {
   private val str: Sourced[MonomorphicExpression] = node(stringType, MonomorphicExpression.StringLiteral(at("x")))
 
   private def effectId(method: String): ValueFQN =
-    ValueFQN(WellKnownTypes.idModuleName, QualifiedName(method, Qualifier.AbilityImplementation("Effect", "Id")))
+    ValueFQN(WellKnownTypes.idModuleName, QualifiedName(method, Qualifier.AbilityImplementation("Effect", "Id", None)))
 
   private def normalizedExpr(top: MonomorphicExpression.Expression): MonomorphicExpression.Expression =
     IdNormalizer.normalize(at(top)).value
@@ -88,7 +88,7 @@ class IdNormalizerTest extends AnyFlatSpec with Matchers {
   }
 
   it should "leave a pure@Effect[IO] application untouched (not the Id carrier)" in {
-    val pureIo = ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("pure", Qualifier.AbilityImplementation("Effect", "IO")))
+    val pureIo = ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("pure", Qualifier.AbilityImplementation("Effect", "IO", None)))
     val call   = app(ref(pureIo, fnType(stringType, stringType)), str, stringType)
     normalizedExpr(call.value.expression).shouldBe(call.value.expression)
   }

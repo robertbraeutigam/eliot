@@ -62,7 +62,7 @@ class CompilerAbortCarrierTest extends ProcessorTest(LangProcessors(systemModule
       .map(_._1.fold(Set.empty[QualifiedName])(_.names.keySet))
 
   private def implementedAbilities(names: Set[QualifiedName]): Set[String] =
-    names.collect { case QualifiedName(_, Qualifier.AbilityImplementation(name, _), Role.Runtime) => name }
+    names.collect { case QualifiedName(_, Qualifier.AbilityImplementation(name, _, _), Role.Runtime) => name }
 
   "the compiler-platform Abort carrier" should "extract the concrete data names under the compiler marker" in {
     compilerNames.asserting(

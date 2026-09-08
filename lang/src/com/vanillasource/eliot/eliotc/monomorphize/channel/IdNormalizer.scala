@@ -304,7 +304,7 @@ object IdNormalizer {
   private def isEffectIdMethod(fqn: ValueFQN, method: String): Boolean =
     fqn.moduleName == WellKnownTypes.idModuleName && fqn.name.name == method &&
       (fqn.name.qualifier match {
-        case Qualifier.AbilityImplementation("Effect", _) => true
+        case Qualifier.AbilityImplementation("Effect", _, _) => true
         case _                                            => false
       })
 }

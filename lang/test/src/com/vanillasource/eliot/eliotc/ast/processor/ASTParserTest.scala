@@ -409,7 +409,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       _.head shouldBe
         (
           "show",
-          Qualifier.AbilityImplementation("Show", "A")
+          Qualifier.AbilityImplementation("Show", "A", None)
         )
     )
   }
@@ -419,11 +419,11 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       _.take(2) shouldBe Seq(
         (
           "show",
-          Qualifier.AbilityImplementation("Show", "A")
+          Qualifier.AbilityImplementation("Show", "A", None)
         ),
         (
           "display",
-          Qualifier.AbilityImplementation("Show", "A")
+          Qualifier.AbilityImplementation("Show", "A", None)
         )
       )
     )
@@ -441,7 +441,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
         ("f", Qualifier.Default),
         (
           "show",
-          Qualifier.AbilityImplementation("Show", "A")
+          Qualifier.AbilityImplementation("Show", "A", None)
         )
       )
     )
@@ -516,7 +516,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       _.head shouldBe
         (
           "Element",
-          Qualifier.AbilityImplementation("Show", "A")
+          Qualifier.AbilityImplementation("Show", "A", None)
         )
     )
   }
@@ -526,7 +526,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       .asserting(
         _.take(4).map { case (name, q) =>
           name -> (q match {
-            case Qualifier.AbilityImplementation(_, pattern) => pattern
+            case Qualifier.AbilityImplementation(_, pattern, _) => pattern
             case _                                           => ""
           })
         } shouldBe Seq(("show", "A"), ("Show", "A"), ("show", "B"), ("Show", "B"))

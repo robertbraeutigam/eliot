@@ -42,6 +42,18 @@ object WellKnownTypes {
   val anyFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Any"), QualifiedName("Any", Qualifier.Default))
 
+  /** The **`Default`** implementation marker of effects v6 (`docs/effects.md` §9.4 step 3): the value a phantom row or
+    * constraint binder carries when no `with` names an implementation — "search at the ground arguments", today's
+    * two-site resolution. It is the compiler's own sentinel, like [[anyFQN]]: not declared in any layer, never named by
+    * a user, and never a runtime value (a phantom binder occurs in no type and is erased). It occupies a
+    * type-argument position, hence the type-constructor qualifier; as a ground value it is the nullary
+    * `Structure(defaultImplementationFQN, Nil, Type)`, which
+    * [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads back. The other value such a
+    * binder can carry is an implementation, headed by a [[Qualifier.AbilityImplementation]] name.
+    */
+  val defaultImplementationFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Implementation"), QualifiedName("Default", Qualifier.Type))
+
   /** The ability-constraint combinator `&` — `infix left type &[A, B]` in `eliot.lang.Ability`, the one name the `~`
     * constraint syntax resolves rather than recognises (`docs/effects-syntax-userspace.md` §4 stage 1).
     *
@@ -194,7 +206,7 @@ object WellKnownTypes {
   /** The ability name an implementation method belongs to, if its qualifier is an ability implementation. */
   private def abilityImplementationName(vfqn: ValueFQN): Option[String] =
     vfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(name, _) => Some(name)
+      case Qualifier.AbilityImplementation(name, _, _) => Some(name)
       case _                                        => None
     }
 

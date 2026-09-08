@@ -60,7 +60,7 @@ object ImplementBlock {
             // and every future `FunctionDefinition` field would re-open it. `f.copy` closes it.
             f.copy(
               name =
-                f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey))),
+                f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, patternKey, None))),
               genericParameters = genericParameters ++ f.genericParameters,
               visibility = Visibility.Public
             )
@@ -76,7 +76,7 @@ object ImplementBlock {
             // uniformly so it never fights the guard at concrete discharge (ability-guards §2.3).
             FunctionDefinition(
               name.as(
-                QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.value.content, patternKey))
+                QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.value.content, patternKey, None))
               ),
               genericParameters,
               pattern.zipWithIndex.map { case (p, i) => ArgumentDefinition(name.as(s"arg$i"), p) },

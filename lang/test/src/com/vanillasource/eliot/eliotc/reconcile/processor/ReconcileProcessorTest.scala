@@ -65,7 +65,7 @@ class ReconcileProcessorTest extends ProcessorTest(ReconcileProcessor()) {
   private val numericIntAdd: ValueFQN =
     ValueFQN(
       ModuleName(defaultSystemPackage, "Int"),
-      QualifiedName("add", Qualifier.AbilityImplementation("Numeric", "Int"))
+      QualifiedName("add", Qualifier.AbilityImplementation("Numeric", "Int", None))
     )
 
   private def structureType(module: String, name: String): GroundValue =

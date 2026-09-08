@@ -149,7 +149,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       case None           => decline
       case Some(resolved) =>
         resolved.name.value.qualifier match {
-          case ResolveQualifier.AbilityImplementation(resolvedAbilityFQN, _)
+          case ResolveQualifier.AbilityImplementation(resolvedAbilityFQN, _, _)
               if resolvedAbilityFQN == expectedAbilityFQN =>
             for {
               markerVfqn <- markerVfqnFor(vfqn, expectedAbilityFQN.abilityName).pure[CompilerIO]

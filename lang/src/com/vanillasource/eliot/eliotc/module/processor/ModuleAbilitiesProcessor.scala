@@ -28,8 +28,12 @@ class ModuleAbilitiesProcessor extends SingleFactProcessor[ModuleAbilities.Key] 
         ModuleAbilities.DeclaredMethod(ValueFQN(key.moduleName, qn), abilityName)
       }
       val implementations = keys.collect {
-        case qn @ QualifiedName(methodName, Qualifier.AbilityImplementation(abilityName, pattern), Role.Runtime) =>
-          ModuleAbilities.Impl(ValueFQN(key.moduleName, qn), methodName, abilityName, pattern)
+        case qn @ QualifiedName(
+              methodName,
+              Qualifier.AbilityImplementation(abilityName, pattern, implementationName),
+              Role.Runtime
+            ) =>
+          ModuleAbilities.Impl(ValueFQN(key.moduleName, qn), methodName, abilityName, pattern, implementationName)
       }
       ModuleAbilities(key.moduleName, declaredMethods, implementations, key.platform)
     }

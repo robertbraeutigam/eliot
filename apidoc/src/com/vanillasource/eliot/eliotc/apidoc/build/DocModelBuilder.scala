@@ -273,7 +273,7 @@ object DocModelBuilder {
   }
 
   private def implMarkerAbility(fn: FunctionDefinition): Option[String] = fn.name.value.qualifier match {
-    case Qualifier.AbilityImplementation(abilityName, _) if fn.name.value.name == abilityName => Some(abilityName)
+    case Qualifier.AbilityImplementation(abilityName, _, _) if fn.name.value.name == abilityName => Some(abilityName)
     case _                                                                                    => None
   }
 }

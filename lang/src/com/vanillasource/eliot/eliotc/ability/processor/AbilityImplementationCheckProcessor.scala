@@ -41,7 +41,7 @@ class AbilityImplementationCheckProcessor
                             // reported at its use site) or a normal decline (a checker-inserted probe like `Coerce`).
                             ().pure[CompilerIO]
                           case _   =>
-                            checkCompleteness(abilityMethods, implMethods) >>
+                            checkCompleteness(abilityFQN, abilityMethods, implMethods) >>
                               checkNoExtras(abilityMethods, implMethods) >>
                               checkSignatures(abilityFQN, abilityMethods, implMethods, key.platform)
                         }
@@ -73,7 +73,7 @@ class AbilityImplementationCheckProcessor
         .traverse(vfqn => toResolvedMethod(vfqn, platform))
         .flatMap(_.traverseFilter { method =>
           method.name.value.qualifier match {
-            case ResolveQualifier.AbilityImplementation(resolvedFQN, _) if resolvedFQN == abilityFQN =>
+            case ResolveQualifier.AbilityImplementation(resolvedFQN, _, _) if resolvedFQN == abilityFQN =>
               for {
                 markerSig <- loadMarkerSignature(method.vfqn, abilityFQN.abilityName, platform)
                 matched   <- AbilityMatcher.matchImpl(markerSig, typeArguments)
@@ -94,19 +94,27 @@ class AbilityImplementationCheckProcessor
       )
     )
 
+  /** A missing method is reported at the implementation's **marker** — the synthetic method named after the ability,
+    * positioned at the `implement` head — so the error points at the block that is incomplete. `implMethods` arrives in
+    * name-table order, which is a `Map`'s and so hash-dependent; picking its head would report at whichever method's
+    * name hashes first, and did until the qualifier grew a component. The declaring ability method is the fallback
+    * when no marker is among the methods.
+    */
   private def checkCompleteness(
+      abilityFQN: AbilityFQN,
       abilityMethods: Seq[ResolvedMethod],
       implMethods: Seq[ResolvedMethod]
   ): CompilerIO[Unit] = {
     val implMethodNames = implMethods.map(_.vfqn.name.name).toSet
     val abstractMethods = abilityMethods.filter(!_.hasRuntime)
+    val marker          = implMethods.find(_.vfqn.name.name == abilityFQN.abilityName)
     abstractMethods
       .filterNot(m => implMethodNames.contains(m.vfqn.name.name))
       .traverse_ { m =>
-        implMethods.headOption match {
-          case Some(implHead) =>
-            compilerError(implHead.name.as(s"Ability implementation is missing method '${m.vfqn.name.name}'."))
-          case None           =>
+        marker match {
+          case Some(implMarker) =>
+            compilerError(implMarker.name.as(s"Ability implementation is missing method '${m.vfqn.name.name}'."))
+          case None             =>
             compilerError(m.name.map(qn => s"Ability implementation is missing method '${qn.name}'."))
         }
       }

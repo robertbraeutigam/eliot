@@ -121,9 +121,9 @@ class EffectAccountingProcessor
         Set.empty[AbilityFQN].pure[CompilerIO]
       case Qualifier.Ability(name)                                                 =>
         Set(AbilityFQN(ref.moduleName, name)).pure[CompilerIO]
-      case Qualifier.AbilityImplementation(name, _) if nonEffectAbility(name)      =>
+      case Qualifier.AbilityImplementation(name, _, _) if nonEffectAbility(name)   =>
         Set.empty[AbilityFQN].pure[CompilerIO]
-      case Qualifier.AbilityImplementation(name, _)                                =>
+      case Qualifier.AbilityImplementation(name, _, _)                             =>
         implementedAbility(ref, name).flatMap(gatedByRide(_, ref, typeArgs, ambient))
       case _                                                                       =>
         declaredEffectsOf(ref).flatMap(gatedByRide(_, ref, typeArgs, ambient))
@@ -146,7 +146,7 @@ class EffectAccountingProcessor
   private def implementedAbility(ref: ValueFQN, abilityName: String): CompilerIO[Set[AbilityFQN]] =
     getFactIfProduced(OperatorResolvedValue.Key(ref, Platform.Runtime)).map { orv =>
       Set(orv.map(_.name.value.qualifier) match {
-        case Some(ResolveQualifier.AbilityImplementation(abilityFQN, _)) => abilityFQN
+        case Some(ResolveQualifier.AbilityImplementation(abilityFQN, _, _)) => abilityFQN
         case _                                                          => AbilityFQN(ref.moduleName, abilityName)
       })
     }

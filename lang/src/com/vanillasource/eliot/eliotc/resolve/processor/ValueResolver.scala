@@ -102,10 +102,11 @@ class ValueResolver
       // (the companion is generated in the same file, hence the same import scope).
       case CoreQualifier.Meta(of)                              => convertQualifier(of, at).map(Qualifier.Meta(_))
       case CoreQualifier.Ability(n)                            => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
-      case CoreQualifier.AbilityImplementation(name, pattern) =>
+      case CoreQualifier.AbilityImplementation(name, pattern, implementationName) =>
         // The module qualifier carries the ability name as a bare string (identity is position-independent); borrow the
         // enclosing name's position for any "Ability not found" diagnostic.
-        resolveAbilityName(at.as(name)).map(resolvedName => Qualifier.AbilityImplementation(resolvedName, pattern))
+        resolveAbilityName(at.as(name))
+          .map(resolvedName => Qualifier.AbilityImplementation(resolvedName, pattern, implementationName))
     }
 
   private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityFQN] =

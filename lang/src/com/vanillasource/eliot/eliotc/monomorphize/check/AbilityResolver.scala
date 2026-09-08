@@ -83,6 +83,13 @@ class AbilityResolver(
     *     unification connects them. The constraint path is the direct way to get concrete args.
     *   - Otherwise the ref's own type arguments are used.
     *   - Quoting failure (still-unsolved metas) leaves the ref pending for the next iteration.
+    *   - The ground ability-level arguments may end in a **binding** ([[ImplementationBinding]], effects v6 §9.4 step
+    *     4): an implementation named there is recorded **directly** — its method of this reference's name, at the
+    *     binding's own type arguments — with no search, no `where` filter and no coherence question, since `with`
+    *     *replaces* the search rather than parameterising it; the `Default` marker (and no binding at all, the whole
+    *     tree today) goes to the two-site search at the pattern arguments. The resolution is keyed under the full
+    *     sliced arguments, binding included, so one span referenced under two bindings records two entries — exactly
+    *     as two carriers at one span do — and the post-drain quoter re-derives the same slice.
     *   - `resolveAbility` returning `None` at *ground* arguments is a failed **demand**: the [[AbilityImplementation]]
     *     fact's non-resolved outcome is read back and reported here, at this reference — the demand site — and the
     *     check aborts (see [[reportFailedDemand]]). Only an *absent* fact (the resolution aborted on an upstream error,
@@ -127,20 +134,33 @@ class AbilityResolver(
           progressed <- groundArgsE match {
                           case Right(_) if state.abilityResolutions.contains(key) => pure(false)
                           case Right(groundArgs)                                  =>
-                            for {
-                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
-                              stepped  <- resolved match {
-                                            case Some(impl) =>
-                                              modify(_.recordAbilityResolution(key, impl)).as(true)
-                                            case None       => reportFailedDemand(abilityVfqn, abilityName, groundArgs)
-                                          }
-                            } yield stepped
+                            ImplementationBinding.split(groundArgs) match {
+                              case (_, Some(impl: ImplementationBinding.Implementation)) =>
+                                val method = impl.method(abilityVfqn.value.name.name)
+                                modify(_.recordAbilityResolution(key, (method, impl.typeArguments))).as(true)
+                              case (patternArgs, _)                                      =>
+                                searchAndRecord(abilityVfqn, abilityName, key, patternArgs)
+                            }
                           case Left(_)                                            => pure(false)
                         }
         } yield progressed
       case _                              => pure(false)
     }
   }
+
+  /** The two-site search: resolve the ability at its ground pattern arguments and record the impl under `key`, or
+    * report the failed demand. What every reference gets today, and what a `Default` binding asks for.
+    */
+  private def searchAndRecord(
+      abilityVfqn: Sourced[ValueFQN],
+      abilityName: String,
+      key: CheckState.AbilityResolutionKey,
+      patternArgs: Seq[GroundValue]
+  ): CheckIO[Boolean] =
+    liftF(resolveAbility(abilityVfqn.value, patternArgs)).flatMap {
+      case Some(impl) => modify(_.recordAbilityResolution(key, impl)).as(true)
+      case None       => reportFailedDemand(abilityVfqn, abilityName, patternArgs)
+    }
 
   /** A ground-argument demand did not resolve. The producer
     * ([[com.vanillasource.eliot.eliotc.ability.processor.AbilityImplementationProcessor]]) registers the failed
