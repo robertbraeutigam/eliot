@@ -1125,13 +1125,18 @@ it, and a compile-time twin is a proof of purity, axiomatic as a meta transfer i
 under a pure implementation at compile time is possible under this model and is **not planned**: nothing on
 the flag-day path needs it.
 
-**Rule: a native without a compile-time twin may be called only from an `implement` clause.** Today nothing
-forces a native-calling definition to declare a row (`def now: Int = currentTimeMillisInternal` hides an
-effect from both verifiers; the `suspend` wrapper was the informal guard and goes with the carrier). The
-check is a reachability check on runtime bodies like the recursion gate; the error names the two fixes.
-Every I/O native in the jvm layer is already inside an `implement` block, and every pure native now has a twin
-(`String`'s in `StringReductions`, `List`'s in `ListReductions` — §10.1 step 1), which the refinement channel and
-`where` already wanted.
+**No rule on natives — decided 2026-09-08.** A twin proves that a native *reduces*, not that it is pure, and
+the two are different: a pure native over a platform representation the compile track does not have (the
+jvm layer's `Path` algebra — `pathInternal`, `slashInternal`, `isAbsoluteInternal` — called from plain
+defs in `eliot.file.Path`) can never have a twin and is not thereby effectful. Purity is not detectable
+from the outside, and it is not what needs guarding. **Side effects are declared, never detected**: a
+native that performs one is the body of an operation of some `effect` — `def now: Int =
+currentTimeMillisInternal` is a bug of the *layer*, and its fix is an effect (`Time`), exactly as
+cats-effect's `Clock` is. A native leaf is the axiomatic boundary, as a meta transfer is: the layer author
+states what it does, nothing rechecks it. A twin remains what it always was — a compile-time
+implementation for a native that has one, wanted by the refinement channel and `where` — and a native
+without one is merely stuck at compile time, which is the loud fail-safe the compiler platform already has.
+(The earlier reachability check, §10.1 step 2, is withdrawn — §12.)
 
 ### 9.8 What it deletes, keeps and adds
 
@@ -1153,7 +1158,7 @@ default; `EffectRow` as declaration metadata; `CarrierKindChecker` as the kind s
 the impl-name component of `Qualifier.AbilityImplementation`; the phantom binder per row entry and constraint,
 the `Default` marker and the implementation-valued ground argument; the read-the-argument arm of
 `AbilityResolver`; the three primitives per platform and the two evaluator intrinsics; the boundary rule in
-`SyntheticMainSourceProcessor`; the twin-less-native check (§9.7). **Not added:** a bindings field on
+`SyntheticMainSourceProcessor`. **Not added:** a bindings field on
 `ValueReference`, a scoping node, a new `MonomorphicValue.Key` component, a consulted-set fixpoint.
 
 ### 9.9 Standing rules, re-read for v6
@@ -1188,10 +1193,10 @@ that boundary.
    Two standing guard limitations were met and left as they are, neither about lists: `Eq[Int]` does not reduce in
    an ability guard (`where two == two` over borrowed constants), and `!` over a rowed call in a guard is a type
    mismatch against the compile-track `Either` carrier (spell the negative as `all(w -> !(w == S), xs)`).
-2. **The twin-less-native check, in today's spelling:** a native without a twin is reachable only from an
-   ability implementation's method body. A reachability processor beside `RecursionCheckProcessor`, producing
-   its own fact and a diagnostic naming the two fixes. Measured first by listing every native and its call
-   sites; the jvm layer should already satisfy it.
+2. **The twin-less-native check — WITHDRAWN 2026-09-08**, before any code. Its premise was false in the
+   tree (`eliot.file.Path` calls six twin-less pure natives from plain defs) and wrong in principle: a
+   twin is not a purity proof, and purity is not what the language guards — declared effects are (§9.7).
+   Recorded in §12; nothing replaces it.
 3. **Delete the dormant v4 formers** — `Computation`, `Row`, `CanonicalRow`, `CanonicalStack`, their
    pass-through arms in the evaluator, the quoter, `unify` and both printers (~180 lines). Keep
    `WovenRecheck` and the seam test.
@@ -1366,9 +1371,13 @@ it fires on nothing. Not before, and not on the argument alone.
   scoped operations.
 - **A `World` token / threading a fake dependency to sequence and protect I/O.** Not needed in a strict
   core (§9.7); purity is decided by evaluator stuckness.
-- **A purity annotation for twin-less pure natives.** An axiom without the proof a twin gives; the twins are
-  owed anyway, and an annotation is a second spelling of the same fact. Revisit only if a native is found
-  that is pure and genuinely has no compile-time expression.
+- **A rule on twin-less natives** — the reachability check ("a native without a twin may be called only
+  from an `implement`") and, with it, **a purity annotation for twin-less pure natives**. Withdrawn
+  2026-09-08 (§9.7): a twin proves reduction, not purity, and the jvm layer's `Path` algebra is pure,
+  twin-less and legitimately called from plain defs. Purity is not detected and not annotated; a side
+  effect is declared as an operation of an `effect`, and a native leaf's declaration is axiomatic. The
+  hole the rule aimed at (`def now: Int = currentTimeMillisInternal`) is a layer bug with a named fix — an
+  effect such as `Time` — not a compiler check.
 - **An anonymous implementation-literal expression** (`Console(printLine = …)`). A named `implement`
   covers every case in the tree, and a literal is a value.
 - **Deleting `CarrierKindChecker`.** Measured per arm under v5: `verifyCarrierKinds` is the only thing
