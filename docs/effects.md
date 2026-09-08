@@ -1201,10 +1201,19 @@ that boundary.
    unifier, `IdNormalizer`, both printers and the codecs — 231 lines, plus the P1 unit test that pinned them.
    `WovenRecheck` and the seam test stay. Verified byte-identical over the 45 example jars against a pristine
    baseline; every test green.
-4. **Parser and AST for `effect`, the named `implement`, and `with` in expression and type position**, landed dark:
-   parsed into `ast.fact` nodes, rejected at `core` with "not supported yet". Lets the TextMate grammar, the
-   IntelliJ plugin, the apidoc renderer and the `eliot-code` skill be prepared, and makes the flag-day diff
-   smaller.
+4. **Parser and AST for `effect`, the named `implement`, and `with` — DONE 2026-09-08, landed dark.** Two hard
+   keywords, `effect` and `with`. `effect Name[G] { … }` parses to `ast.fact.EffectDefinition` and
+   `implement name: Ability[pattern] { … }` to `ast.fact.NamedImplementation`, both carried on the `AST` beside the
+   ordinary definitions (members kept as written; the flag-day desugar decides their qualifier and marker). `with`
+   is one node, `Expression.WithBinding(subject, implementation)`, read as a trailing chain after everything else
+   — so it is loosest and left-associative by construction — in `fullParser`, a block line, and a parameter's or
+   field's type (`ArgumentDefinition`); a `with` on a def's own return type or inside a row fails to parse.
+   `core/processor/UnsupportedSyntaxChecker` rejects every occurrence as "… not supported yet." at its own
+   position, and `CoreExpressionConverter` lowers a `with` to its subject only after that error is recorded.
+   Byte-identical over the 45 example jars; the TextMate grammar and the apidoc highlighter know the keywords.
+   One consequence to keep: `effect` is now a keyword, and the package is named `eliot.effect`, so a dotted path
+   segment (an `import`, a `module::` prefix) admits the keyword `effect` — `Primitives.isPackageSegment` — and
+   nothing else does. Renaming the package was the alternative and was not taken.
 5. **The phantom-binder spike — RUN 2026-09-08, and it holds.** Scratch programs against the current
    compiler, nothing landed. On the runtime track a phantom `[P]` on a rowless def is keyed: `tag[ImplA]` and
    `tag[ImplB]` emit `tag$ImplA` and `tag$ImplB` and a third call reuses the first; an applied ground tree is

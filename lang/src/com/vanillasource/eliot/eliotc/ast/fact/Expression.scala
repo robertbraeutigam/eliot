@@ -66,6 +66,17 @@ object Expression {
       tail: Option[Sourced[Expression]]
   ) extends Expression
 
+  /** `subject with implementation` — effects v6's binding of a named implementation to its subject
+    * (`docs/effects.md` §9.3). Infix, subject-first, at the loosest precedence and left-associative: `c with a with b`
+    * is `(c with a) with b`, and `xs.sort.render with reverseOrd` applies to the whole chain. The same node serves both
+    * positions — an expression (`greeting("Bob") with recordingConsole`) and a parameter's or field's type
+    * (`body: {Console} Unit with mockConsole`); a `with` on a def's own return type or inside a row is a parse error by
+    * construction, since neither parser admits it. `implementation` is a bare, optionally module-qualified name.
+    *
+    * Landed dark (§10.1 step 4): parsed here, rejected at core as not supported yet.
+    */
+  case class WithBinding(subject: Sourced[Expression], implementation: Sourced[Expression]) extends Expression
+
   case class MatchCase(pattern: Sourced[Pattern], body: Sourced[Expression])
 
   /** A reference to the boolean literal `true` (`eliot.lang.Bool::true`), the default ability-implementation guard
@@ -114,6 +125,8 @@ object Expression {
         s"{${members.mkString(", ")}$tailStr} ${resultType.value.render}"
       case BlockExpression(lines)                                                               =>
         lines.map(renderBlockLine).mkString("{ ", "; ", " }")
+      case WithBinding(subject, implementation)                                                 =>
+        s"${subject.value.render} with ${implementation.value.render}"
     }
 
   private def renderBlockLine(line: BlockLine): String =
@@ -127,7 +140,7 @@ object Expression {
 
   private lazy val moduleParser: Parser[Sourced[Token], Sourced[String]] =
     for {
-      moduleParts <- acceptIf(isIdentifier, "module name").atLeastOnceSeparatedBy(symbol("."))
+      moduleParts <- acceptIf(isPackageSegment, "module name").atLeastOnceSeparatedBy(symbol("."))
     } yield {
       val moduleString = moduleParts.map(_.value.content).mkString(".")
       val outline      = Sourced.outline(moduleParts)
@@ -197,6 +210,7 @@ object Expression {
     binder     <- blockBinderParser.optional()
     atoms      <- lineBoundedAtoms(sourced(fullAtom))
     matchBlock <- matchExpressionParser.optional()
+    bindings   <- withBindingsParser
   } yield {
     val flat = Sourced.outline(atoms).as(FlatExpression(atoms))
     val expression = matchBlock match {
@@ -205,7 +219,7 @@ object Expression {
         Sourced.outline(atoms).as(MatchExpression(scrutinee, cases))
       case None        => flat
     }
-    BlockLine(binder, expression)
+    BlockLine(binder, applyWithBindings(expression, bindings))
   }
 
   private lazy val blockParser: Parser[Sourced[Token], Expression] =
@@ -223,12 +237,38 @@ object Expression {
     for {
       parts      <- sourced(fullAtom).atLeastOnce()
       matchBlock <- matchExpressionParser.optional()
-    } yield matchBlock match {
-      case Some(cases) =>
-        val scrutinee = if (parts.size == 1) parts.head else Sourced.outline(parts).as(FlatExpression(parts))
-        MatchExpression(scrutinee, cases)
-      case None        => FlatExpression(parts)
+      bindings   <- withBindingsParser
+    } yield {
+      val subject = matchBlock match {
+        case Some(cases) =>
+          val scrutinee = if (parts.size == 1) parts.head else Sourced.outline(parts).as(FlatExpression(parts))
+          Sourced.outline(parts).as(MatchExpression(scrutinee, cases))
+        case None        => Sourced.outline(parts).as(FlatExpression(parts))
+      }
+      applyWithBindings(subject, bindings).value
     }
+
+  /** The trailing `with name` chain of an expression or a parameter type — zero or more, read after everything else so
+    * `with` sits at the loosest precedence (see [[WithBinding]]). Each name is a bare implementation reference: an
+    * optionally module-qualified lower-case identifier, never applied.
+    */
+  private lazy val withBindingsParser: Parser[Sourced[Token], Seq[Sourced[Expression]]] =
+    (keyword("with") *> sourced(implementationReferenceParser)).anyTimes()
+
+  private lazy val implementationReferenceParser: Parser[Sourced[Token], Expression] = for {
+    module <- (moduleParser <* symbol("::")).atomic().optional()
+    name   <- acceptIfAll(isIdentifier, isLowerCase)("implementation name")
+  } yield FunctionApplication(module, name.map(_.content), None, Seq.empty)
+
+  /** Fold a `with` chain onto its subject left-associatively: `c with a with b` is `(c with a) with b`. */
+  def applyWithBindings(subject: Sourced[Expression], bindings: Seq[Sourced[Expression]]): Sourced[Expression] =
+    bindings.foldLeft(subject) { (acc, implementation) =>
+      Sourced.outline(Seq(acc, implementation)).as(WithBinding(acc, implementation))
+    }
+
+  /** [[withBindingsParser]] for a parameter's or field's type position (`body: {Console} Unit with mockConsole`). */
+  def typeWithBindings(typeExpression: Sourced[Expression]): Parser[Sourced[Token], Sourced[Expression]] =
+    withBindingsParser.map(applyWithBindings(typeExpression, _))
 
   /** Parses the effect-row sugar `{ Eff (, Eff)* [| tail] } <type atom>`, e.g. `{Suspend} String`, `{State[Account],
     * Abort} A`, or the *pinned* form `{Throw[E] | Id} A` naming the base carrier after `|`. Each brace entry is an

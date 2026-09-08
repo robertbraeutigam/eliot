@@ -71,7 +71,8 @@ class ASTParser
     if (docComments.isEmpty) return ast
 
     val declarationStarts: Seq[Position] =
-      (ast.functionDefinitions.map(_.name.range.from) ++ ast.typeDefinitions.map(_.name.range.from))
+      (ast.functionDefinitions.map(_.name.range.from) ++ ast.typeDefinitions.map(_.name.range.from) ++
+        ast.effectDefinitions.map(_.name.range.from) ++ ast.namedImplementations.map(_.name.range.from))
         .sortBy(p => (p.line, p.col))
 
     def isAfter(a: Position, b: Position): Boolean = a.line > b.line || (a.line == b.line && a.col > b.col)
@@ -86,7 +87,10 @@ class ASTParser
 
     ast.copy(
       functionDefinitions = ast.functionDefinitions.map(fd => fd.copy(doc = docByDeclaration.get(fd.name.range.from))),
-      typeDefinitions = ast.typeDefinitions.map(dd => dd.copy(doc = docByDeclaration.get(dd.name.range.from)))
+      typeDefinitions = ast.typeDefinitions.map(dd => dd.copy(doc = docByDeclaration.get(dd.name.range.from))),
+      effectDefinitions = ast.effectDefinitions.map(ed => ed.copy(doc = docByDeclaration.get(ed.name.range.from))),
+      namedImplementations =
+        ast.namedImplementations.map(ni => ni.copy(doc = docByDeclaration.get(ni.name.range.from)))
     )
   }
 }

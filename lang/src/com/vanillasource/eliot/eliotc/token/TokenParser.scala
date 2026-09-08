@@ -68,7 +68,9 @@ class TokenParser(sourced: Sourced[?]) {
           "postfix",
           "val",
           "private",
-          "where"
+          "where",
+          "effect",
+          "with"
         ),
         hardOperators = Set("(", ")", "[", "]", "->", "_", "::", ":"),
         caseSensitive = true
@@ -116,7 +118,9 @@ class TokenParser(sourced: Sourced[?]) {
         "postfix",
         "val",
         "private",
-        "where"
+        "where",
+        "effect",
+        "with"
       )
       .map(Token.Keyword.apply)
   ).label("keyword")

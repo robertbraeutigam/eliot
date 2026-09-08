@@ -115,6 +115,11 @@ object CoreExpressionConverter {
             convertExpression(line.expression, typeContext, compilerTrackContext)
           )
         }))
+      case SourceExpression.WithBinding(subject, _)                                    =>
+        // Effects v6, landed dark: `UnsupportedSyntaxChecker` has already reported every `with` in this definition as
+        // not supported yet, and that error blocks the build. The subject is converted so the rest of the definition
+        // still checks; the binding itself is never lowered here.
+        convertExpression(subject, typeContext, compilerTrackContext)
       case _: SourceExpression.EffectfulType                                           =>
         // EffectSugarDesugarer rewrites every `{…} A` to `F[A]` across the whole function before conversion, so an
         // EffectfulType reaching here means it was written somewhere the desugarer does not reach (only signature and

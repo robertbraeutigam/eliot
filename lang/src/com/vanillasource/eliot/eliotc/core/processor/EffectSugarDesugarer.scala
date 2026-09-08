@@ -456,6 +456,10 @@ object EffectSugarDesugarer {
         expr.as(FunctionApplication(None, expr.as(name), Some(Seq(recurse(resultType))), Seq.empty))
       case EffectfulType(_, resultType, _)                                                      =>
         recurse(resultType)
+      // Effects v6's `with`, landed dark: rejected at core by `UnsupportedSyntaxChecker`; the subject is still
+      // descended so no open row survives inside it.
+      case WithBinding(subject, implementation)                                                 =>
+        expr.as(WithBinding(recurse(subject), implementation))
       case FunctionApplication(moduleName, name, genericArgs, args)                             =>
         expr.as(FunctionApplication(moduleName, name, genericArgs.map(_.map(recurse)), args.map(recurse)))
       case FunctionLiteral(parameters, body)                                                    =>
@@ -512,6 +516,7 @@ object EffectSugarDesugarer {
     case et @ EffectfulType(effects, resultType, tail) =>
       (expr.as(et) +: effects.flatMap(_.typeArgs.flatMap(collectRows))) ++
         collectRows(resultType) ++ tail.toSeq.flatMap(collectRows)
+    case WithBinding(subject, _)                       => collectRows(subject)
     case FunctionApplication(_, _, genericArgs, args)  =>
       genericArgs.getOrElse(Seq.empty).flatMap(collectRows) ++ args.flatMap(collectRows)
     case FunctionLiteral(parameters, body)             =>

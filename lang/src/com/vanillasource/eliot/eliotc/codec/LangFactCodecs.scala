@@ -321,6 +321,12 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.BlockLine] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_EffectfulType
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.EffectfulType] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_WithBinding
+      : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.WithBinding] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_ast_fact_EffectDefinition
+      : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.EffectDefinition] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_ast_fact_NamedImplementation
+      : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.NamedImplementation] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Expression_MatchCase
       : FactCodec[com.vanillasource.eliot.eliotc.ast.fact.Expression.MatchCase] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_fact_Fixity

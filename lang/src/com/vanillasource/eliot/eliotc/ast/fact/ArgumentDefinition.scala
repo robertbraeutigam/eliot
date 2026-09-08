@@ -28,10 +28,14 @@ object ArgumentDefinition {
     // The argument type uses `typeRunParser` (the shared type-position parser), so an infix type operator reads bare
     // here — `f: A => B`. The run stops at the `,` separator and the closing `)` of the argument list (both reserved,
     // non-type-atom tokens), so a single-atom type is still returned verbatim and the list structure is unaffected.
+    // A trailing `with name` binds a named implementation to the slot (effects v6, landed dark — see
+    // [[Expression.WithBinding]]). Only a parameter's or a field's type admits it, which is why it is read here and not
+    // in `typeRunParser`: a def's own return type stops at the `with` keyword and fails to parse.
     override def parser: Parser[Sourced[Token], ArgumentDefinition] = for {
       name           <- acceptIf(isIdentifier, "argument name")
       _              <- symbol(":")
-      typeExpression <- sourced(Expression.typeRunParser)
+      typeRun        <- sourced(Expression.typeRunParser)
+      typeExpression <- Expression.typeWithBindings(typeRun)
     } yield ArgumentDefinition(name.map(_.content), typeExpression)
   }
 }

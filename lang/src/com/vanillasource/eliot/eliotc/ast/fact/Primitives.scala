@@ -141,4 +141,11 @@ object Primitives {
   def isIdentifierOrSymbol(st: Sourced[Token]): Boolean = isIdentifier(st) || isUserOperator(st)
 
   def identifierWith(name: String) = acceptIfAll(isIdentifier, hasContent(name))(s"identifier '$name'")
+
+  /** A segment of a dotted package path (`import eliot.effect.Console`, `eliot.effect.Console::printLine`): an
+    * identifier, or the keyword `effect`. The `eliot.effect` package predates `effect` becoming a declaration keyword
+    * (effects v6, `docs/effects.md` §9.3), and a path segment is never ambiguous — it is always followed by `.` or
+    * `::` — so the keyword is admitted there and nowhere else.
+    */
+  def isPackageSegment(st: Sourced[Token]): Boolean = isIdentifier(st) || (isKeyword(st) && hasContent("effect")(st))
 }

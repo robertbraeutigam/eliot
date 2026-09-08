@@ -74,6 +74,7 @@ object StrictPositivityChecker {
       effects.flatMap(_.typeArgs.flatMap(negativeOccurrences(dataName, _, positive))) ++
         negativeOccurrences(dataName, result, positive) ++
         tail.toSeq.flatMap(negativeOccurrences(dataName, _, positive))
+    case Expression.WithBinding(subject, _)              => negativeOccurrences(dataName, subject, positive)
     case Expression.IntegerLiteral(_)                    => Seq.empty
     case Expression.StringLiteral(_)                     => Seq.empty
     case Expression.BlockExpression(_)                   => Seq.empty // blocks are runtime values, never type expressions

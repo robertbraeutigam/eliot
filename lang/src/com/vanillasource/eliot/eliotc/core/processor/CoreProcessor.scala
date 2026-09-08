@@ -76,8 +76,12 @@ class CoreProcessor
     // follow a private one. Runs on the desugared named values (not the source AST) so `def`/`type`/`data`/`ability`/
     // `implement` all answer to one rule with no per-construct arms. See VisibilityOrderChecker.
     val visibilityErrors = VisibilityOrderChecker.check(coreAstData.namedValues)
+    // Effects v6 surface landed dark (docs/effects.md §10.1 step 4): `effect`, a named `implement`, and `with` parse
+    // but are rejected here until the flag day. See UnsupportedSyntaxChecker.
+    val unsupportedErrors = UnsupportedSyntaxChecker.check(sourceAstData)
 
-    (positivityErrors ++ rowErrors ++ visibilityErrors).traverse_(message => Sourced.compilerError(message)) >>
+    (positivityErrors ++ rowErrors ++ visibilityErrors ++ unsupportedErrors)
+      .traverse_(message => Sourced.compilerError(message)) >>
       debug[CompilerIO](
         s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.render).mkString(", ")}"
       ) >>

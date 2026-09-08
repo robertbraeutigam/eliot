@@ -805,7 +805,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(statements, _, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(statements, _, _, _, _))) =>
           statements.map(i => (i.packageNames.map(_.value) :+ i.moduleName.value).mkString("."))
         }
         .toSeq
@@ -817,7 +817,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.name.value.qualifier))
         }
         .toSeq
@@ -829,7 +829,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.whereClause.map(_.value.render)))
         }
         .toSeq
@@ -841,7 +841,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.fixity))
         }
         .toSeq
@@ -853,7 +853,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.genericParameters.size))
         }
         .toSeq
@@ -865,7 +865,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.args.size))
         }
         .toSeq
@@ -877,7 +877,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.args.map(_.inferable)))
         }
         .toSeq
@@ -889,7 +889,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.typeDefinition.value))
         }
         .toSeq
@@ -901,7 +901,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.flatMap(f => f.args.map(a => (f.name.value.name, a.typeExpression.value)))
         }
         .toSeq
@@ -913,7 +913,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.returnMeta.size))
         }
         .toSeq
@@ -925,7 +925,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.typeDefinition.value.render))
         }
         .toSeq
@@ -937,7 +937,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.body.isDefined))
         }
         .toSeq
@@ -949,7 +949,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results <- runEngine(source)
     } yield {
       results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.visibility))
         }
         .toSeq

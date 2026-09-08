@@ -48,7 +48,7 @@ class BlockParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   private def blockOf(source: String): IO[Option[Expression.BlockExpression]] =
     runGenerator(source, SourceAST.Key(file)).map { case (_, facts) =>
       facts.values
-        .collectFirst { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+        .collectFirst { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.flatMap(_.body).map(_.value).collectFirst {
             case b: Expression.BlockExpression                                 => b
             case Expression.FlatExpression(Seq(Sourced(_, _, b: Expression.BlockExpression))) => b

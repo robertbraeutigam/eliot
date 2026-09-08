@@ -44,6 +44,7 @@ object MetaCompanionReferences {
       lines.flatMap(line => namesOf(line.expression.value))
     case SourceExpression.EffectfulType(_, resultType, tail)                                =>
       namesOf(resultType.value) ++ tail.toSeq.flatMap(base => namesOf(base.value))
+    case SourceExpression.WithBinding(subject, _)                                           => namesOf(subject.value)
     case _                                                                                  => Seq.empty
   }
 }

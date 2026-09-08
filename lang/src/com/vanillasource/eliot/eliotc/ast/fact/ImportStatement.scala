@@ -31,7 +31,7 @@ object ImportStatement {
       acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name")
 
     private def packageNameOnSameLineAs(keyword: Sourced[Token]) =
-      acceptIfAll(isIdentifier, isLowerCase, isOnSameLineAs(keyword))("package name")
+      acceptIfAll(isPackageSegment, isLowerCase, isOnSameLineAs(keyword))("package name")
 
     private def isOnSameLineAs(sample: Sourced[Token])(st: Sourced[Token]) = sample.range.to.line === st.range.from.line
   }
