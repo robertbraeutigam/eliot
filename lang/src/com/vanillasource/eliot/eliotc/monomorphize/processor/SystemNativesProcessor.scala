@@ -16,7 +16,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{ConcreteNormalForm, Evaluator}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, GroundValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
@@ -43,7 +43,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * equality made a first-class value, backing the `Eq[Type]` instance (`lang/.../Eq.els`). Unlike the ordinary
   * `Bool`/arithmetic natives it is genuine compiler machinery — structural normal-form comparison no Eliot body can
   * express — that the checker reasons about (a guard `where E1 != E2` runs it during ability resolution), so it is owned
-  * here rather than in the library layer. The `implement Eq[Type]` method is body-less, so — unlike the other system
+  * here rather than in the library layer. The comparison itself is [[ConcreteNormalForm]], shared with the effect
+  * intrinsics' frame keys. The `implement Eq[Type]` method is body-less, so — unlike the other system
   * names, keyed by an exact FQN — this native attaches *directly to the ability implementation*: it is recognised by
   * `(ability=Eq, method=equals, dispatch type=Type)` through the impl marker
   * ([[ImplementationMarkerUtils.isImplementationMethodFor]]), the same "native on an ability implementation" wiring
@@ -61,8 +62,7 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     * (rather than a body-less [[VTopDef]]) keeps the non-injective native from being injectivity-decomposed by the
     * unifier or read back as a ground type by the quoter.
     */
-  private def stuck(fqn: ValueFQN, args: SemValue*): SemValue =
-    VStuckNative(fqn, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
+  private def stuck(fqn: ValueFQN, args: SemValue*): SemValue = VStuckNative.of(fqn, args*)
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= ContributedBinding.systemLabel) abort
@@ -92,7 +92,7 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     else if (vfqn === boolTrueFQN) Evaluator.trueValue.some
     else if (vfqn === boolFalseFQN) Evaluator.falseValue.some
     else if (vfqn === integerLiteralFQN) integerLiteralNative.some
-    else ListReductions.bindings.get(vfqn)
+    else ListReductions.bindings.get(vfqn).orElse(EffectIntrinsics.bindings.get(vfqn))
 
   /** The structural type-equality native when `vfqn` is the `implement Eq[Type]` `equals` method, else `None`. The
     * native stucks on the impl-method FQN itself (`vfqn`), so `Evaluator.renormalize` re-fires it via the same binding
@@ -137,49 +137,12 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     *
     * `implFqn` is the impl-method FQN this native is bound to; the stuck form carries it so `Evaluator.renormalize`
     * re-fires the native through the binding the checker already fetched for that reference.
-    *
-    * Pure structural comparison, mirroring `Unifier.groundEquals`; it never goes through the [[Unifier]], whose equality
-    * solves metas as a side effect (an equality *test* must not mutate the meta store).
     */
   private def typeEqualsNative(implFqn: ValueFQN): SemValue =
     VNative(VType, a => VNative(VType, b => typeEqualsResult(implFqn, a, b)))
 
   private def typeEqualsResult(implFqn: ValueFQN, a: SemValue, b: SemValue): SemValue =
-    if (isConcrete(a) && isConcrete(b)) (if (structurallyEqual(a, b)) Evaluator.trueValue else Evaluator.falseValue)
+    if (ConcreteNormalForm.isConcrete(a) && ConcreteNormalForm.isConcrete(b))
+      (if (ConcreteNormalForm.equal(a, b)) Evaluator.trueValue else Evaluator.falseValue)
     else stuck(implFqn, a, b)
-
-  /** A fully concrete normal form: `Type`, a ground constant, or a body-less constructor applied to concrete arguments.
-    * Anything else (a metavariable, a neutral parameter, a lambda/native, a function type) is not concrete.
-    */
-  private def isConcrete(v: SemValue): Boolean = v match {
-    case VType                        => true
-    case VConst(_)                    => true
-    case VTopDef(_, None, spine, _)      => spine.toList.forall(isConcrete)
-    case _                            => false
-  }
-
-  /** Structural equality of two concrete normal forms (assumes both are [[isConcrete]]): same head and all arguments
-    * equal, recursing through the spine. Distinct concrete kinds (e.g. `Type` vs a constructor) are unequal.
-    */
-  private def structurallyEqual(a: SemValue, b: SemValue): Boolean = (a, b) match {
-    case (VType, VType)                                 => true
-    case (VConst(g1), VConst(g2))                       => groundEquals(g1, g2)
-    case (VTopDef(f1, None, s1, _), VTopDef(f2, None, s2, _)) =>
-      val l1 = s1.toList
-      val l2 = s2.toList
-      f1 === f2 && l1.length === l2.length && l1.zip(l2).forall { case (x, y) => structurallyEqual(x, y) }
-    case _                                              => false
-  }
-
-  /** Structural equality for ground values, mirroring `Unifier.groundEquals` — the bottom of [[structurallyEqual]] for
-    * the ground constants carried by a `VConst` (an integer bound, a string, a `Bool`), including their type field.
-    */
-  private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {
-    case (GroundValue.Type, GroundValue.Type)                                   => true
-    case (GroundValue.Direct(v1, t1), GroundValue.Direct(v2, t2))               => v1 == v2 && groundEquals(t1, t2)
-    case (GroundValue.Structure(n1, a1, t1), GroundValue.Structure(n2, a2, t2)) =>
-      n1 === n2 && a1.length === a2.length && groundEquals(t1, t2) &&
-      a1.zip(a2).forall { case (l, r) => groundEquals(l, r) }
-    case _                                                                      => false
-  }
 }

@@ -44,8 +44,9 @@ Merge happens **per pool** (`UnifiedModuleValueProcessor`, keyed on `platform`; 
 > **A layer's compile-time track must be self-sufficient from base + its own `eliot-compiler/`.** It may borrow the
 > program and pure base bodies, but **not** a sibling target (jvm) that might be absent. So a compile-time carrier
 > stdlib genuinely needs — the `Either` error monad + its `Effect`/`Throw` instances, the `Option` the guards reduce
-> through — lives in `stdlib/eliot-compiler/` and duplicates jvm's runtime copy (sanctioned). Anything pure and
-> already on the path (`Pair`, base bodies) is **borrowed**, not duplicated.
+> through, the `Pair` the cell intrinsic answers — lives in `stdlib/eliot-compiler/` and duplicates jvm's runtime copy
+> (sanctioned). Anything pure and already on the path (base bodies, a program's pure helpers) is **borrowed**, not
+> duplicated.
 
 ## Where does X go?
 

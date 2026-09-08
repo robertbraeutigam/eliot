@@ -297,4 +297,10 @@ object Evaluator {
     */
   val trueValue: SemValue  = VConst(GroundValue.Direct(true, boolGroundType))
   val falseValue: SemValue = VConst(GroundValue.Direct(false, boolGroundType))
+
+  /** The compile-time `Unit` placeholder: what a `match` hands a field-less constructor's handler, what the effect
+    * intrinsics apply a thunk to and answer for `write`. `unit` itself is a body-less base leaf with no compile-time
+    * body, and nothing ever inspects a unit, so one inert constant serves every reader.
+    */
+  val unitValue: SemValue = VConst(GroundValue.Direct((), GroundValue.Type))
 }

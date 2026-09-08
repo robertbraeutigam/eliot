@@ -1255,8 +1255,48 @@ that boundary.
    example jar's method order and constant pool changed with no semantic change — landed as its own commit ahead of
    this step, and verified by normalising all 175 differing classes to member order. Against that baseline the step
    is byte-identical over the 45 example jars; every test green.
-7. **The two evaluator intrinsics** — escape and cell — on the compile track, tested directly. They replace
-   the `Either`-based `AbortCarrier` overlay at the flag day.
+7. **The two evaluator intrinsics — DONE 2026-09-08**, as `monomorphize/processor/EffectIntrinsics` (lang, folded
+   into `SystemNativesProcessor`), keyed on `eliot.compiler.Escape::escape`/`exit` and
+   `eliot.compiler.Cell::withCell`/`read`/`write` — compiler-owned names like `Type` and `Meta`, declared by no layer
+   until F5's overlay bodies the dischargers over them. They replace the `Either`-based `AbortCarrier` overlay at the
+   flag day. Tested directly (`EffectIntrinsicsTest`, the natives fired as the evaluator fires them) and end to end
+   (`EffectIntrinsicsIntegrationTest`: an ability guard decided by a pure def that escapes, exits through a frame of
+   another instantiation, and threads a cell — reduced on the compiler track through the `Id`-elaborated body, the
+   borrowed `foldEither` and the `fold` twin). Byte-identical over the 45 example jars; every test green. Four
+   findings, each a rule the overlay must follow:
+   - **The instantiation is passed as a type *value*, the leading argument** — `escape(E, body)`, `exit(E, err)`,
+     `withCell(S, s0, body)`, `read(S)`, `write(S, s)` — and a frame matches a key by definitional equality of
+     concrete normal forms (`eval/ConcreteNormalForm`, factored out of the `Eq[Type]` leaf). The frame an operation
+     reaches is the nearest enclosing one *of its instantiation* (`raise(msg)` at `String` must pass through an
+     `else` at `Unit` — the everyday guard), and the evaluator cannot read that off type arguments: the post-mono
+     `MonomorphicEvaluator` erases them and every binding is looked up by FQN alone, so one native serves every
+     instantiation. Types are values, so the type itself is the key. A key that is not concrete, or an operation with
+     no frame to reach, leaves the native **stuck** on its own FQN — loud at read-back, never a nearest-frame guess.
+     The key parameter's declared type is the type `Type`, not `VType`, so a written type argument (a phantom binder,
+     an explicit `[E]`) is never mistaken for the key.
+   - **A native fires the moment it is applied; a bodied definition is applied lazily.** So a bare `exit` in a strict
+     argument position fires before its consumer runs (`fold(c, pure(true), pure(exit(..)))` exits unconditionally),
+     which is exactly why a post-flag-day row arm is a **thunk** applied after selection — the test writes
+     `pick(c, _ -> true, _ -> exit(..))`. Conversely a thunk's *result* may still hold a pending application that
+     would exit or read when forced, so every value crossing a frame is **settled** inside it (`renormalize`'s
+     traversal: the head, constructor and stuck-native spines, never under a lambda): the body's result, an exit's
+     payload before the exit is taken, a cell's initial and written content. Pending applications settle in that
+     traversal's order, the one evaluation order the compile track has.
+   - **A nullary top-level definition is evaluated once per binding** (`SemValue.Lazy`), so a nullary def that
+     `read`s a cell would answer its first read forever — and `State[S]`'s `state` *is* nullary. The overlay must give
+     such a def an argument (a thunk has one) or the binding must not be memoised; an escape is unaffected, since a
+     failed initialisation is re-run. To settle at F5, not here.
+   - **What an intrinsic answers is the overlay's data.** `escape` answers the overlay `Either`'s `Left`/`Right`
+     and `withCell` the overlay `Pair`'s constructor (`stdlib/eliot-compiler/eliot/lang/Pair.els`, new — the jvm
+     representation, kept in the overlay so the compile track stays self-sufficient), each applied to exactly its
+     fields, since a `match` applies a handler to *every* spine entry. A private `pair` normal form with a
+     `foldPair` twin was tried first and is refuted: the deep escalation links a bodied callee *reduced at its
+     instantiation* ahead of a raw native, so the borrowed `foldPair` body always won the guard and could not read
+     the private form. Two pre-existing limitations met on the way, neither about the primitives: a body-less leaf
+     whose bare generic result is instantiated at a meta-carrying type (`read[S]` at `String`, and `exit[E, A]`'s
+     `A`) trips R2 — the overlay must say what such a leaf states, an F5 item; and a function-typed payload through
+     the compile-track `Id` (`val f = fold(c, thunk1, thunk2)`) is a mismatch at `runId` (`Unit -> Bool` against
+     `Function[Unit, Bool]`), so the test wraps its arms in a `data`.
 8. **Author the v6 stdlib, jvm layer, compile-track overlays, examples and `eliot-test` on a branch**, ahead
    of time, so the flag day is a compiler change plus a prepared tree rather than one long day of both.
 9. **Record the behavioural baseline** — the stdout/exit-code transcript of every example jar, plus each

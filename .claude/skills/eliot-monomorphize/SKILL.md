@@ -20,7 +20,9 @@ monomorphize/
 │   ├── Evaluator.scala         (NbeEvaluator over ORE; hosts applyValue/force/renormalize/groundToSem + object helpers)
 │   ├── SemExpressionEvaluator.scala  (NbeEvaluator over the checker's SemExpression output)
 │   ├── MonomorphicEvaluator.scala    (NbeEvaluator over reduced MonomorphicExpression; DROPS erased type args)
-│   └── Quoter.scala            (strict SemValue → GroundValue read-back; fails loudly on stuck forms)
+│   ├── Quoter.scala            (strict SemValue → GroundValue read-back; fails loudly on stuck forms)
+│   └── ConcreteNormalForm.scala (isConcrete + structural equality of concrete normal forms — the Eq[Type] leaf's and the
+│                                effect intrinsics' frame keys' one comparison; never the Unifier, which solves metas)
 ├── check/
 │   ├── Checker.scala           (bidirectional check/infer; definitional-equality core; builds 4 collaborators;
 │   │                            inferSpine = whole-spine argument resolution; slot deferral is compile-track only)
@@ -75,7 +77,12 @@ monomorphize/
     ├── MonomorphicTypeCheckProcessor.scala   (runtime entry point → TypeStackLoop, Track.Runtime)
     ├── CompilerMonomorphicTypeCheckProcessor.scala (compiler entry point → TypeStackLoop, Track.Compiler; native-leaf boundary)
     ├── SystemNativesProcessor.scala          (Function → VNative→VPi, Type → VType, Bool true/false constants,
-    │                                          integerLiteral, the Eq[Type] equals leaf)
+    │                                          integerLiteral, the Eq[Type] equals leaf, + ListReductions/EffectIntrinsics)
+    ├── ListReductions.scala                  (compile-time twins of the List leaves: a list is a prepend chain over empty)
+    ├── EffectIntrinsics.scala                (effects v6 §10.1 step 7: the compile track's escape/exit and withCell/read/
+    │                                          write natives — a dynamically scoped frame stack keyed by the instantiation
+    │                                          passed as a TYPE VALUE (post-mono evaluation erases type args and binds by
+    │                                          FQN); stuck with no frame; settles what crosses a frame; + the foldPair twin)
     ├── DataTypeNativesProcessor.scala        (body-less Type-qualified names → inert VTopDef; pool-guarded)
     ├── MatchNativesProcessor.scala           (handleCases/typeMatch impls → VNative; pool-guarded)
     ├── DeclaringPool.scala                   (quiet two-pool membership probe used by the two leaf contributors above)

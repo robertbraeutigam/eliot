@@ -86,6 +86,14 @@ object SemValue {
     */
   case class VStuckNative(fqn: ValueFQN, spine: Spine) extends SemValue
 
+  object VStuckNative {
+
+    /** The canonical stuck form of a native applied to `args`: the FQN the residual call must name, the not-yet-concrete
+      * arguments as its spine.
+      */
+    def of(fqn: ValueFQN, args: SemValue*): SemValue = VStuckNative(fqn, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
+  }
+
   case class VMeta(id: MetaId, spine: Spine) extends SemValue
 
   case class VNeutral(head: NeutralHead, spine: Spine) extends SemValue

@@ -200,8 +200,7 @@ object ListReductions {
   /** The canonical stuck form: a [[SemValue.VStuckNative]] carrying the FQN the residual call must name and the
     * not-yet-concrete value arguments, so it stays definitionally distinct and is re-fired once they concretise.
     */
-  private def stuck(fqn: ValueFQN, args: SemValue*): SemValue =
-    VStuckNative(fqn, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
+  private def stuck(fqn: ValueFQN, args: SemValue*): SemValue = VStuckNative.of(fqn, args*)
 
   private object ConcreteString {
     def unapply(v: SemValue): Option[String] = v match {

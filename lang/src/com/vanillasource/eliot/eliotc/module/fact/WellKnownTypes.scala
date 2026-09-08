@@ -159,6 +159,56 @@ object WellKnownTypes {
     */
   val rightFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Right", Qualifier.Default))
 
+  private val pairModule: ModuleName = ModuleName(defaultSystemPackage, "Pair")
+
+  /** The value constructor of the concrete `Pair` — `data Pair[A, B](first: A, second: B)`, the representation both the
+    * jvm layer and the compile-track overlay (`stdlib/eliot-compiler/eliot/lang/Pair.els`) give the base's abstract
+    * `Pair`. What the cell intrinsic answers, so the overlay's `foldPair` takes it apart like any `match`; the
+    * `Left`/`Right` of [[eitherFQN]] play the same role for the escape intrinsic.
+    */
+  val pairConstructorFQN: ValueFQN = ValueFQN(pairModule, QualifiedName("Pair", Qualifier.Default))
+
+  /** The compiler platform's two control-flow primitives (effects v6, `docs/effects.md` §9.6 and §10.1 step 7) — the
+    * evaluator intrinsics the compile-track dischargers are bodied over at the flag day, replacing the `Either`-based
+    * `AbortCarrier` overlay. Compiler-owned like `Type` and `Meta`, so they live in the [[compilerPackage]]: never
+    * ambient, and declared only by the compile-track overlay that bodies the dischargers over them.
+    *
+    * '''Every one of them takes its instantiation as a leading type *value*.''' The frame an operation reaches is the
+    * nearest enclosing one *of its instantiation* — `exit` at `E := String` must pass through an `escape` at `E := Unit`
+    * (`if(c) T else raise(msg)` is exactly that nesting) — and the evaluator cannot read that instantiation off type
+    * arguments: the post-mono `MonomorphicEvaluator` erases them, and bindings are looked up by FQN alone. Types are
+    * values, so the overlay passes the type itself (`escape(E, body)`), and the intrinsic compares keys by definitional
+    * equality of concrete normal forms. See
+    * [[com.vanillasource.eliot.eliotc.monomorphize.processor.EffectIntrinsics]].
+    */
+  private val escapeModule: ModuleName = ModuleName(compilerPackage, "Escape")
+
+  /** `escape[E, A](key: Type, body: Unit => A): Either[E, A]` — installs an escape frame keyed by `key` (the
+    * instantiation `E`), runs the thunk, and answers `Right(a)`, or `Left(e)` if the body `exit`ed to this frame.
+    */
+  val escapeFQN: ValueFQN = ValueFQN(escapeModule, QualifiedName("escape", Qualifier.Default))
+
+  /** `exit[E, A](key: Type, e: E): A` — the abortive non-local exit to the nearest enclosing [[escapeFQN]] frame with an
+    * equal key; the only way a compile-track computation finishes early.
+    */
+  val exitFQN: ValueFQN = ValueFQN(escapeModule, QualifiedName("exit", Qualifier.Default))
+
+  private val cellModule: ModuleName = ModuleName(compilerPackage, "Cell")
+
+  /** `withCell[S, A](key: Type, initial: S, body: Unit => A): Pair[A, S]` — installs a cell keyed by `key` (the
+    * instantiation `S`) holding `initial`, runs the thunk, and answers the result paired with the cell's final content.
+    * Scoped to the one call: the cell is gone when the call returns or is exited through.
+    */
+  val withCellFQN: ValueFQN = ValueFQN(cellModule, QualifiedName("withCell", Qualifier.Default))
+
+  /** `read[S](key: Type): S` — the content of the nearest enclosing [[withCellFQN]] cell with an equal key. */
+  val cellReadFQN: ValueFQN = ValueFQN(cellModule, QualifiedName("read", Qualifier.Default))
+
+  /** `write[S](key: Type, s: S): Unit` — replaces the content of the nearest enclosing [[withCellFQN]] cell with an
+    * equal key.
+    */
+  val cellWriteFQN: ValueFQN = ValueFQN(cellModule, QualifiedName("write", Qualifier.Default))
+
   /** `integerLiteral[V]: Int` — the platform-independent literal protocol. `CoreExpressionConverter` desugars a
     * value-position integer literal `n` into `integerLiteral[n]` so that the checker assigns it plain `Int` (post
     * flag-day `Int` carries no bounds; the range lives in the refinement channel, not the type). The literal value

@@ -120,7 +120,7 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
       case VTopDef(headFqn, None, spine, _) if headFqn.name.name === targetName =>
         applyHandlerToFields(matched, spine.toList)
       case VTopDef(_, None, _, _)                                               =>
-        Evaluator.applyValue(notMatched, unitValue)
+        Evaluator.applyValue(notMatched, Evaluator.unitValue)
       case _                                                                 => stuck(obj)
     }
 
@@ -128,7 +128,7 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
     * argument — the desugarer always emits a wildcard lambda — so it is applied to a unit placeholder.
     */
   private def applyHandlerToFields(handler: SemValue, fields: List[SemValue]): SemValue =
-    if (fields.isEmpty) Evaluator.applyValue(handler, unitValue)
+    if (fields.isEmpty) Evaluator.applyValue(handler, Evaluator.unitValue)
     else fields.foldLeft(handler)(Evaluator.applyValue)
 
   /** The Church selector `pickᵢ = \a0 … a_{n-1} -> a_i`, as nested [[VLam]]s. */
@@ -146,5 +146,4 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
     VNeutral(NeutralHead.Reserved(NeutralHead.Marker.Match), Spine.SNil :+ scrutinee)
 
   /** Placeholder argument supplied to field-less constructor handlers (mirrors the JVM backend passing `null`). */
-  private val unitValue: SemValue = VConst(GroundValue.Direct((), GroundValue.Type))
 }
