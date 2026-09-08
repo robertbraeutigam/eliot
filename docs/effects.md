@@ -700,7 +700,8 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
 # Part II — The plan: effects are abilities, and an implementation is a name (v6)
 
 **Status (2026-09-08): decided, including the implementation (§9.4).** An `implement` block stays what it is
-today, statically resolved method bodies. No ability becomes a record type, no implementation is ever a runtime value, and no row becomes a
+today, statically resolved method bodies. No ability becomes a record type, no implementation is ever a
+runtime value, and no row becomes a
 runtime parameter. A **named** `implement` mints an addressable *name*; `with` binds that name for the calls
 lexically inside its subject; and the binding joins the **monomorphization key**, so `greeting` under
 `recordingConsole` is its own instantiation and every operation call erases, from day one. Part I stays the
