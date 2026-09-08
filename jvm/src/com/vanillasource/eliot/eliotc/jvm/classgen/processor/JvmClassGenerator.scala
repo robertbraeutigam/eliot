@@ -91,8 +91,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                       .map(_.map(_ -> tmVfqn))
                                   }
                                   .map(_.toMap)
-      // Process each data type: check handleCases usage, merge constructors, generate classes
-      dataResults            <- allCtorGroups.toSeq.traverse { (typeVFQ, allTypeCtors) =>
+      // Process each data type: check handleCases usage, merge constructors, generate classes. In name order: the
+      // groups come off a `Map`, whose iteration order is the key's hash, and a hash is not a stable identity — a
+      // field added to a name's case class reorders every member emitted into the module class, which is exactly what
+      // the byte-identity oracle must not report (see `functionFiles` below).
+      dataResults            <- allCtorGroups.toSeq.sortBy(_._1.show).traverse { (typeVFQ, allTypeCtors) =>
                                   val handleCasesUsed = handleCasesMap.contains(typeVFQ)
                                   val usedFromType    = allTypeCtors.filter((vfqn, _) => usedCtorVfqns.contains(vfqn))
                                   if (!handleCasesUsed && usedFromType.isEmpty) {
@@ -210,6 +213,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 } else Seq.empty[ClassFile].pure[CompilerIO]
       typeCtorGeneratedFns    = usedTypeCtorsWithUmv.map(_._1) ++ typeMatchGenerated
       allGeneratedFunctions   = dataGeneratedFunctions ++ typeCtorGeneratedFns ++ allPatternMatchVfqns ++ allTypeMatchVfqns
+      // The module class's methods are emitted in **name order**. `usedValues` is a `Map`, and a `Map`'s iteration order
+      // is its keys' hash order — a `ValueFQN`'s hash changes whenever a field is added to any case class it contains
+      // (a qualifier component, say), which silently reordered every method of every module class and renumbered
+      // their constant pools, making the example jars differ from their baseline with no semantic change at all. A
+      // jar's members must depend on the program, not on a hash, for byte-identity to mean anything.
       functionFiles          <-
         usedValues.view
           // Intrinsics (`+`/`-`/`*`, `show`, `nativeWiden`) are emitted inline at the call site by
@@ -218,6 +226,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           // literal node in `PostDrainQuoter`, so it never reaches codegen as a value at all.)
           .filterKeys(k => !allGeneratedFunctions.contains(k) && !Intrinsics.isIntrinsic(k))
           .toSeq
+          .sortBy(_._1.show)
           .flatTraverse { case (vfqn, stats) =>
             createModuleMethod(mainClassGenerator, vfqn, stats)
           }
