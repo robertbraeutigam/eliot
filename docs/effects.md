@@ -723,19 +723,20 @@ flight, and a step that finds itself narrowing one of the rules here stops inste
 
 **The gate**, for every pre-flag-day step: `./mill __.test` green, all example programs carrying a `main`
 compile, and every example jar `md5sum`-identical to the pre-change build. Byte-identity is a **safety
-oracle, not a hard gate**.
+oracle, not a hard gate**. The sweep is `scripts/example-sweep.sh` (§10.1 step 9); its `jar.md5` lines are
+this gate.
 
 **The gate for the flag day itself** is different, because the output legitimately changes wholesale:
 byte-identity is replaced by **behavioural identity**. Before the change, run every example jar and record
-its standard output and exit code (the sweep recipe in the `reference_verification_harness_recipes` memory);
-after it, the same sweep must produce the same transcript. Plus: `./mill __.test` green; the fake-carrier
-examples (`EffectsFakeCarrier`, `EffectsFakeConsole`, `EffectsTestFramework`) and the two integration test
-classes express the same tests **without minting a carrier type**; `eliot-test`'s single-word case
-(`"…" should "…" in mocked { … }`) still reads as one word; and the seam test finds every binding at the
-`WovenValue` seam resolved to a known implementation. The sweep also records each jar's size and the
-bytecode instruction count of its `main` class, and the flag-day commit states the difference. Since
-specialisation is the mechanism (§9.7) and not a follow-up, the expectation is no regression; a regression is
-a finding to explain, not a cost to accept.
+its standard output and exit code — that recording is `.v6/baseline.txt`, made by the same script (§10.1
+step 9); after it, the same sweep must produce the same transcript. Plus: `./mill __.test` green; the
+fake-carrier examples (`EffectsFakeCarrier`, `EffectsFakeConsole`, `EffectsTestFramework`) and the two
+integration test classes express the same tests **without minting a carrier type**; `eliot-test`'s
+single-word case (`"…" should "…" in mocked { … }`) still reads as one word; and the seam test finds every
+binding at the `WovenValue` seam resolved to a known implementation. The sweep also records each jar's size
+and its bytecode instruction count — over every class, and over the module's own class — and the flag-day
+commit states the difference. Since specialisation is the mechanism (§9.7) and not a follow-up, the
+expectation is no regression; a regression is a finding to explain, not a cost to accept.
 
 **The method, when the question is "is this still load-bearing?"** — reuse it rather than re-inventing it:
 
@@ -1333,8 +1334,25 @@ that boundary.
    slot does not supply continues the walk into the caller — so a slot cannot say "and nothing else". The staged
    framework drops the word and those cases become plain `in { … }`, bounded by the suite's own row. Making it
    expressible again would be a language addition (a closed row), so it is surfaced rather than invented.
-9. **Record the behavioural baseline** — the stdout/exit-code transcript of every example jar, plus each
-   jar's size and `main`-class instruction count — so the flag-day gate has something to compare against.
+9. **Record the behavioural baseline — DONE 2026-09-08**, as `.v6/baseline.txt` (deleted with the staging
+   directory at F7) produced by `scripts/example-sweep.sh`. Per module: the jar's md5, size, class count and
+   total bytecode instruction count, the instruction counts of the Main-Class stub and of the module's own
+   class, and the exit code and standard output of one run with stdin at `/dev/null`. All 45 examples carrying
+   a `main` compile and exit 0; totals are 950,823 bytes, 1,741 classes, 26,839 instructions. Three consecutive
+   sweeps of the unchanged tree produced byte-identical reports, md5s included, so a later difference is a real
+   one. Three things the recording settled:
+   - **The script is durable, not scratch.** The same report answers both gates — a pre-flag-day step reads its
+     `jar.md5` lines, F8 reads its `exit`/`stdout` lines — so the sweep recipe that had been rebuilt by hand for
+     every broad change (`reference_verification_harness_recipes`) is now one committed script that encodes its
+     four traps: the compiler's main class is `…eliotc.compiler.Main`, the three layer `--path`s are appended by
+     `build.mill` and not by `Main`, `target/.eliot-cache` must go between compiles, and stdin must be
+     `/dev/null` because four examples read it and a tty changes what they print.
+   - **The jar's `Main-Class` is not the program.** It is the synthesized entry stub, eight instructions in
+     every example, so on its own it measures nothing. The report keeps it and adds the two counts that do move:
+     the class named after the module (the program's own code) and the instruction total over every class in the
+     jar — which is what specialisation changes.
+   - **A report is compared with its header stripped.** Everything non-reproducible (the commit, the module
+     count) is a `#` line, and the compare is `diff <(grep -v '^#' before) <(grep -v '^#' after)`.
 
 ### 10.2 The flag day (one change, behavioural gate)
 

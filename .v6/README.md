@@ -163,3 +163,35 @@ and discharged there, and never appears in a test's own row. Three consequences 
 Step 4 landed `effect`, the named `implement` and `with` dark but missed this one shape, which every v6 `effect`
 implementation takes. No source in the tree writes a pattern-less `implement`, so it changes nothing until the
 flag day; `ASTParserTest`'s pin was inverted to say so.
+
+## The behavioural baseline (`docs/effects.md` §10.1 step 9)
+
+`baseline.txt` beside this file is what the flag-day gate compares against: the recorded behaviour and code
+size of every example jar, swept from the tree at the commit named in its header — the parent of the commit
+that adds it, since the recording step changed no compiler source and the numbers are therefore still the
+tree's. It is produced by
+`scripts/example-sweep.sh` (durable — the byte-identity gate of an ordinary change reads the same report's
+`jar.md5` lines), and it is deleted with this directory at F7, once it has done its job.
+
+Per module it records the jar's md5, size, class count and total bytecode instruction count, the instruction
+counts of the Main-Class stub and of the module's own class, and the program's exit code and standard output
+from one run with stdin at `/dev/null`. All 45 examples carrying a `main` compile and exit 0; the other five
+(`PluginA`/`B`/`C`, `GreetingTest`, `SettingsTest`) are library modules with no `main` and so produce no jar.
+Totals across the 45: **950,823 bytes, 1,741 classes, 26,839 instructions.**
+
+At F8, re-sweep and compare with
+
+```
+scripts/example-sweep.sh -o after.txt
+diff <(grep -v '^#' .v6/baseline.txt) <(grep -v '^#' after.txt)
+```
+
+Every `exit:` and `stdout:` line must be unchanged — that is the gate. The `jar.md5`, `jar.size`,
+`jar.classes`, `jar.instructions` and `module.instructions` lines legitimately move, and §8 asks the flag-day
+commit to *state* the difference; since specialisation is the mechanism (§9.7) and not a follow-up, the
+expectation is no size regression, and a regression is a finding to explain rather than a cost to accept.
+
+Three consecutive sweeps of the unchanged tree produced byte-identical reports, md5s included, so a difference
+in a later sweep is a real difference. Two things make that hold and must not be dropped: **stdin is
+`/dev/null`**, because four examples read it and a tty changes what they print, and the **fact cache is
+deleted between compiles**, or stale facts replay.

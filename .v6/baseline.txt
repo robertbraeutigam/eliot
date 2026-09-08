@@ -1,0 +1,677 @@
+# eliot example sweep — scripts/example-sweep.sh
+#
+# One block per module in examples/src. A module with no `main` compiles to no jar and its block
+# is just the `compile:` line; the true baseline is 45 of 50.
+#
+#   jar.md5             the byte-identity oracle for a change that must not alter output
+#   jar.size            bytes of the reproducible jar
+#   jar.classes         classes in the jar
+#   jar.instructions    bytecode instructions over all of them — what a specialisation change moves
+#   main.class          the jar's Main-Class: the synthesized entry stub, not the program
+#   main.instructions   its instruction count (the same handful everywhere)
+#   module.instructions the class named after the module — the program's own code
+#   exit, stdout        one run, stdin /dev/null (a tty changes what the stdin-reading examples
+#                       print), 60s timeout
+#
+# Compare two reports with:  diff <(grep -v '^#' before.txt) <(grep -v '^#' after.txt)
+#
+# commit: af0198cba923ba1f8ee50709402dcf6b894e3526  sources: clean
+# modules: 50
+
+== AbilityConstraint
+compile: ok
+jar.md5: 28ab66b234e34a9293691f69b1cffde9
+jar.size: 6520
+jar.classes: 13
+jar.instructions: 150
+main.class: main
+main.instructions: 8
+module.instructions: 20
+exit: 0
+stdout:
+  | Hello World!
+
+== AbilityDerive
+compile: ok
+jar.md5: 5d4ce54ce5aecf060855651e8a1bce41
+jar.size: 9474
+jar.classes: 18
+jar.instructions: 233
+main.class: main
+main.instructions: 8
+module.instructions: 44
+exit: 0
+stdout:
+  | Hello World!
+
+== Ability
+compile: ok
+jar.md5: a31fa09c0dc1a0a664f94b9d6f8cdaa6
+jar.size: 6434
+jar.classes: 13
+jar.instructions: 147
+main.class: main
+main.instructions: 8
+module.instructions: 17
+exit: 0
+stdout:
+  | Hello World!
+
+== ArithmeticAbility
+compile: ok
+jar.md5: 8a899d1a54fc9f6443b950deae7e2901
+jar.size: 6461
+jar.classes: 13
+jar.instructions: 172
+main.class: main
+main.instructions: 8
+module.instructions: 48
+exit: 0
+stdout:
+  | 92
+
+== Arithmetic
+compile: ok
+jar.md5: 1f0e2a3d224ed8c04f86f2b3d725b919
+jar.size: 6638
+jar.classes: 14
+jar.instructions: 148
+main.class: main
+main.instructions: 8
+module.instructions: 16
+exit: 0
+stdout:
+  | 14
+
+== Blocks
+compile: ok
+jar.md5: 55202c47b666248bf03cace531e87a47
+jar.size: 29416
+jar.classes: 52
+jar.instructions: 852
+main.class: main
+main.instructions: 8
+module.instructions: 60
+exit: 0
+stdout:
+  | renaming the account...
+  | before
+  | after
+
+== Concat
+compile: ok
+jar.md5: d6135ca88a0371d36858869faeb4c222
+jar.size: 24805
+jar.classes: 46
+jar.instructions: 679
+main.class: main
+main.instructions: 8
+module.instructions: 27
+exit: 0
+stdout:
+  | Hello, world!
+
+== DischargeDemo
+compile: ok
+jar.md5: 786cc06537ada26bd42419fd6baea2d6
+jar.size: 20719
+jar.classes: 39
+jar.instructions: 545
+main.class: main
+main.instructions: 8
+module.instructions: 30
+exit: 0
+stdout:
+  | ========== discharge demo ==========
+  | discharged: ON
+
+== DotOperator
+compile: ok
+jar.md5: 6e0c627293e1892a2d687eb4698feafa
+jar.size: 13015
+jar.classes: 25
+jar.instructions: 352
+main.class: main
+main.instructions: 8
+module.instructions: 99
+exit: 0
+stdout:
+  | World!
+
+== EffectAbilitySet
+compile: ok
+jar.md5: 26bc3ead4effed9a234a48fc6077a526
+jar.size: 32137
+jar.classes: 58
+jar.instructions: 915
+main.class: main
+main.instructions: 8
+module.instructions: 70
+exit: 0
+stdout:
+  | [LOG] serving /index
+  | GET /index
+  | body of /index
+  | [LOG] serving /
+  | GET /
+  | failed: no such path: /
+
+== EffectsAbort
+compile: ok
+jar.md5: 8fe102605683a6f68b4cc7f709c3b039
+jar.size: 27562
+jar.classes: 50
+jar.instructions: 792
+main.class: main
+main.instructions: 8
+module.instructions: 48
+exit: 0
+stdout:
+  | config-value
+  | looking up config...
+  | gave up!
+
+== Effects
+compile: ok
+jar.md5: 0e19af62af4588947314b7ac609d287c
+jar.size: 24121
+jar.classes: 44
+jar.instructions: 669
+main.class: main
+main.instructions: 8
+module.instructions: 25
+exit: 0
+stdout:
+  | (no input)
+
+== EffectsFakeCarrier
+compile: ok
+jar.md5: 0ba3a55063e939bdd4799b9d1e4124d7
+jar.size: 23622
+jar.classes: 43
+jar.instructions: 663
+main.class: main
+main.instructions: 8
+module.instructions: 131
+exit: 0
+stdout:
+  | Hello, Bob!;
+
+== EffectsFakeConsole
+compile: ok
+jar.md5: 790181e32b942b156dbe7ef24230af67
+jar.size: 21780
+jar.classes: 40
+jar.instructions: 642
+main.class: main
+main.instructions: 8
+module.instructions: 132
+exit: 0
+stdout:
+  | Hello, Bob!;
+  | Hello, Ann!;Hello, Bob!;
+
+== EffectsMulti
+compile: ok
+jar.md5: 972042bab95d85c01d17a05cbea9f2de
+jar.size: 38743
+jar.classes: 68
+jar.instructions: 1073
+main.class: main
+main.instructions: 8
+module.instructions: 77
+exit: 0
+stdout:
+  | [LOG] jdbc://app-db
+  | (no input)
+
+== EffectsOrdering
+compile: ok
+jar.md5: cd53753e9a633dcf8624d6e5dd93f482
+jar.size: 75111
+jar.classes: 128
+jar.instructions: 2293
+main.class: main
+main.instructions: 8
+module.instructions: 167
+exit: 0
+stdout:
+  | <no value>
+  | modified
+  | <no state>
+
+== EffectsState
+compile: ok
+jar.md5: ab017f16c355c2a842dff362d35a871e
+jar.size: 30922
+jar.classes: 56
+jar.instructions: 880
+main.class: main
+main.instructions: 8
+module.instructions: 101
+exit: 0
+stdout:
+  | first
+  | second
+
+== EffectsTestable
+compile: ok
+jar.md5: d90aada58f8d4b2c7ff32b0a39f16e85
+jar.size: 22500
+jar.classes: 42
+jar.instructions: 607
+main.class: main
+main.instructions: 8
+module.instructions: 69
+exit: 0
+stdout:
+  | granted
+  | DENIED
+
+== EffectsTestFramework
+compile: ok
+jar.md5: ce748d7afd0076db3c009551eb017fff
+jar.size: 46692
+jar.classes: 83
+jar.instructions: 1420
+main.class: main
+main.instructions: 8
+module.instructions: 237
+exit: 0
+stdout:
+  | PASS greet
+  | PASS farewell
+
+== EffectsThrow
+compile: ok
+jar.md5: d4588b11bfb30905cfe3953d3412fd57
+jar.size: 21965
+jar.classes: 41
+jar.instructions: 594
+main.class: main
+main.instructions: 8
+module.instructions: 47
+exit: 0
+stdout:
+  | parsed-value
+  | malformed input
+
+== EffectsTwoDeps
+compile: ok
+jar.md5: 5fbf4e9f764020600b2502d95cdda2d0
+jar.size: 32928
+jar.classes: 56
+jar.instructions: 920
+main.class: main
+main.instructions: 8
+module.instructions: 107
+exit: 0
+stdout:
+  | jdbc://app-db
+  | events
+
+== EffectsTwoThrows
+compile: ok
+jar.md5: 03c00bc52e5da0079c709071ac20031c
+jar.size: 49497
+jar.classes: 83
+jar.instructions: 1440
+main.class: main
+main.instructions: 8
+module.instructions: 105
+exit: 0
+stdout:
+  | http 503
+
+== FunctionAsType
+compile: ok
+jar.md5: d9925b38fc4cb0623bdf5e42466dd658
+jar.size: 9360
+jar.classes: 18
+jar.instructions: 229
+main.class: main
+main.instructions: 8
+module.instructions: 40
+exit: 0
+stdout:
+  | Hello World!
+
+== GenericTypes
+compile: ok
+jar.md5: 7d5511eb4d1e0d6e3172a6bab860d698
+jar.size: 5987
+jar.classes: 12
+jar.instructions: 134
+main.class: main
+main.instructions: 8
+module.instructions: 10
+exit: 0
+stdout:
+  | Hello World!
+
+== GreetingTest
+compile: no-jar (exit 1)
+
+== HandleWith
+compile: ok
+jar.md5: 742f3b342ffa704f13f648b6ff62b596
+jar.size: 16429
+jar.classes: 34
+jar.instructions: 374
+main.class: main
+main.instructions: 8
+module.instructions: 78
+exit: 0
+stdout:
+  | Else!
+
+== HelloWorld
+compile: ok
+jar.md5: f52c22be262ef59a6d51742d0aad8e70
+jar.size: 5947
+jar.classes: 12
+jar.instructions: 132
+main.class: main
+main.instructions: 8
+module.instructions: 8
+exit: 0
+stdout:
+  | Hello World!
+
+== IfDemo
+compile: ok
+jar.md5: 67df6ce772e291a48bf2bca621d86cce
+jar.size: 52586
+jar.classes: 94
+jar.instructions: 1711
+main.class: main
+main.instructions: 8
+module.instructions: 269
+exit: 0
+stdout:
+  | ========== constant: true ==========
+  | 1. pure value: ON
+  | 2. guard: custom
+  | 3. chain: first
+  | 4. effectful: then
+  | 5. chain: A
+  | 6. Multi-statement body...
+  |      ...(announced)
+  | 1. fold pure: then
+  | 2. fold effectful: then
+  | 3. fold same-type arms: A
+  | +
+  | second
+  | ========== runtime: readLine == yes ==========
+  | 1. pure value: OFF
+  | 2. guard: default
+  | 3. chain: second
+  | 4. effectful: else
+  | 5. echain: B
+  | 6. plain else
+  | 1. fold pure: else
+  | 2. fold effectful: else
+  | 3. fold same-type arms: B
+
+== IntEquality
+compile: ok
+jar.md5: f24533ddbc53506d72dffc94f8717724
+jar.size: 38337
+jar.classes: 68
+jar.instructions: 1142
+main.class: main
+main.instructions: 8
+module.instructions: 77
+exit: 0
+stdout:
+  | the type says 42 is 42
+  | not the answer
+
+== Intervals
+compile: ok
+jar.md5: e727b750f7e6b2388f0e28c991003412
+jar.size: 46369
+jar.classes: 85
+jar.instructions: 1511
+main.class: main
+main.instructions: 8
+module.instructions: 112
+exit: 0
+stdout:
+  | [1, 3]
+  | [-2, 0]
+  | [0, 2]
+  | [2, +inf]
+  | [3, +inf]
+
+== IntField
+compile: ok
+jar.md5: 4669e1c0fa42b23e00bcffc54ee02603
+jar.size: 9483
+jar.classes: 19
+jar.instructions: 229
+main.class: main
+main.instructions: 8
+module.instructions: 40
+exit: 0
+stdout:
+  | 42
+
+== IntParam
+compile: ok
+jar.md5: c44716937e73140cb80df70abc7ba718
+jar.size: 6241
+jar.classes: 13
+jar.instructions: 137
+main.class: main
+main.instructions: 8
+module.instructions: 13
+exit: 0
+stdout:
+  | 42
+
+== IntReturn
+compile: ok
+jar.md5: 1cbbaafcc78d5c1e4350fc6f4bbe1a4d
+jar.size: 6614
+jar.classes: 14
+jar.instructions: 143
+main.class: main
+main.instructions: 8
+module.instructions: 15
+exit: 0
+stdout:
+  | 42
+
+== Match
+compile: ok
+jar.md5: c45c6b0e5642133a875a9e9b685fcfcf
+jar.size: 11196
+jar.classes: 23
+jar.instructions: 267
+main.class: main
+main.instructions: 8
+module.instructions: 43
+exit: 0
+stdout:
+  | hello
+
+== MatchRanges
+compile: ok
+jar.md5: 4a83d024f420d78741b39ee44baeabd9
+jar.size: 11549
+jar.classes: 24
+jar.instructions: 254
+main.class: main
+main.instructions: 8
+module.instructions: 44
+exit: 0
+stdout:
+  | 5
+
+== MonomorphCheck
+compile: ok
+jar.md5: 765e0b7f465da2bba5f7c8c364d37a58
+jar.size: 9382
+jar.classes: 18
+jar.instructions: 230
+main.class: main
+main.instructions: 8
+module.instructions: 41
+exit: 0
+stdout:
+  | Hello World!
+
+== Operators
+compile: ok
+jar.md5: a2ae8e971179254db7089cacb5230342
+jar.size: 8681
+jar.classes: 17
+jar.instructions: 217
+main.class: main
+main.instructions: 8
+module.instructions: 40
+exit: 0
+stdout:
+  | !
+
+== PluginA
+compile: no-jar (exit 1)
+
+== PluginB
+compile: no-jar (exit 1)
+
+== PluginC
+compile: no-jar (exit 1)
+
+== PluginRegistry
+compile: ok
+jar.md5: 9ff3aa9cd417837d1629935432e4d5b7
+jar.size: 11780
+jar.classes: 23
+jar.instructions: 323
+main.class: main
+main.instructions: 8
+module.instructions: 33
+exit: 0
+stdout:
+  | 60
+
+== Ranges
+compile: ok
+jar.md5: 95102a4699184adf3707920e36b9d282
+jar.size: 6620
+jar.classes: 14
+jar.instructions: 146
+main.class: main
+main.instructions: 8
+module.instructions: 18
+exit: 0
+stdout:
+  | 21
+
+== SettingsTest
+compile: no-jar (exit 1)
+
+== Strings
+compile: ok
+jar.md5: ca74f3dca1e55b606de7298fb7e35dc6
+jar.size: 38640
+jar.classes: 68
+jar.instructions: 1209
+main.class: main
+main.instructions: 8
+module.instructions: 106
+exit: 0
+stdout:
+  | 
+  | 
+  | api/page
+
+== StringSize
+compile: ok
+jar.md5: 258f12b7ad3934d0c8c1a23a292f1690
+jar.size: 9616
+jar.classes: 19
+jar.instructions: 256
+main.class: main
+main.instructions: 8
+module.instructions: 34
+exit: 0
+stdout:
+  | Eliot
+  | 5
+  | ELIOT
+
+== TestSuite
+compile: ok
+jar.md5: f8a69df5319e89f25f591fe5da8909e3
+jar.size: 42732
+jar.classes: 77
+jar.instructions: 1184
+main.class: main
+main.instructions: 8
+module.instructions: 61
+exit: 0
+stdout:
+  | - GreetingTest::test
+  | - SettingsTest::test
+  |   checking the default port
+  |   FAILED: expected '80' but was '8080'
+  | suite done
+
+== TypeLevelMatch
+compile: ok
+jar.md5: 61c4ba996d399af2159e8a760753ff2b
+jar.size: 5993
+jar.classes: 12
+jar.instructions: 134
+main.class: main
+main.instructions: 8
+module.instructions: 10
+exit: 0
+stdout:
+  | Hello World!
+
+== TypeValues
+compile: ok
+jar.md5: d4522ad73fe4f9b56751fd2a48e9a9c6
+jar.size: 7898
+jar.classes: 16
+jar.instructions: 186
+main.class: main
+main.instructions: 8
+module.instructions: 42
+exit: 0
+stdout:
+  | John
+
+== Unicode
+compile: ok
+jar.md5: 49cc268de651b0aeb52a634d203993d0
+jar.size: 12047
+jar.classes: 23
+jar.instructions: 368
+main.class: main
+main.instructions: 8
+module.instructions: 50
+exit: 0
+stdout:
+  | Hello 🌍 World
+  | 13
+  | Hello 🌍
+
+== WherePrecondition
+compile: ok
+jar.md5: 3d8278a420fc7d0606f6da33876671ef
+jar.size: 6274
+jar.classes: 13
+jar.instructions: 137
+main.class: main
+main.instructions: 8
+module.instructions: 13
+exit: 0
+stdout:
+  | 100
+
+# compiled: 45/50
