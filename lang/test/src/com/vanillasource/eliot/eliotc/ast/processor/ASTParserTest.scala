@@ -396,8 +396,8 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("implement showable[A] {}").asserting(_.size should be > 0)
   }
 
-  it should "reject an implement block without generic block" in {
-    runEngineForErrors("implement Show").asserting(_.size should be > 0)
+  it should "accept an implement block with no pattern at all, for a nullary ability" in {
+    runEngineForErrors("implement Show").asserting(_ shouldBe empty)
   }
 
   it should "reject an implement block without generic parameter" in {

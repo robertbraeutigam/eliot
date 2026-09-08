@@ -3,14 +3,7 @@ package com.vanillasource.eliot.eliotc.ast.fact
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
-import com.vanillasource.eliot.eliotc.ast.parser.Parser.{
-  acceptIfAll,
-  between,
-  optional,
-  or,
-  recoveringAnyTimes,
-  recoveringAtLeastOnce
-}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, between, optional, or, recoveringAtLeastOnce}
 import com.vanillasource.eliot.eliotc.ast.parser.{Parser, ParserError}
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -24,7 +17,11 @@ object ImplementBlock {
           _                   <- keyword("implement")
           genericParameters   <- component[Seq[GenericParameter]]
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
-          pattern             <- bracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
+          // The pattern is optional so a **nullary** ability implements with no brackets at all — `implement Console`,
+          // which is the shape every effects-v6 `effect` takes once its carrier binder is gone (`docs/effects.md` §9.3).
+          // No source in the tree writes a pattern-less `implement` today, so accepting one changes nothing until the
+          // flag day; the named form (`NamedImplementation`) has always read its pattern optionally.
+          pattern             <- optionalBracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
           // Optional `where <guard>` clause (ability-guards Stage 1). `where` is a hard keyword (so a `def`'s
           // greedily-parsed return-type run stops cleanly at it, just as it stops at `infix`/`def` — the same reason
           // `where`-on-defs needs it hard). The guard is parsed with `typeRunParser` — the same parser as a return
