@@ -18,6 +18,16 @@ object WellKnownTypes {
   val functionCarrierFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Default))
 
+  /** `eliot.lang.Unit` — the domain of a **thunk**, which is what effects v6 lowers a row-typed slot to
+    * (`docs/effects.md` §9.4 step 2): `{Abort} T` is `Unit => T`, a computation the callee runs when it chooses.
+    */
+  val unitTypeFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Unit"), QualifiedName("Unit", Qualifier.Type))
+
+  /** `eliot.lang.Unit::unit` — the value a thunk is applied to. */
+  val unitValueFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Unit"), QualifiedName("unit", Qualifier.Default))
+
   private val effectModule: ModuleName = ModuleName(ModuleName.carrierPackage, "Effect")
 
   /** The `Effect` ability's `flatMap` (`eliot.carrier.Effect`) — the sequencing combinator of the internal effect

@@ -15,15 +15,23 @@ import com.vanillasource.eliot.eliotc.token.Token
   * @param inferable
   *   True when the binder is *omittable* at use sites: the compiler supplies it rather than the caller spelling it.
   *   There is no user surface for this — it is set only internally, by
-  *   [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]], to mark the synthesized effect carrier
-  *   `F[_]` so a `{E} A` row's carrier need never be written at a call. The former `auto` keyword (for a user-written
-  *   implicit-generics feature) was retired together with the saturation machinery it fed.
+  *   [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]], to mark the **phantom binders** effects v6
+  *   mints for a row entry and a `~` constraint (`docs/effects.md` §9.4 step 2), which the `row` phase writes at every
+  *   reference so a caller never spells one. It is also what tells a minted binder from a user's, which is how the
+  *   desugar stays idempotent. The former `auto` keyword (for a user-written implicit-generics feature) was retired
+  *   together with the saturation machinery it fed.
+  * @param binding
+  *   True for the one binder an `ability` or `effect` block mints for its own implementation slot
+  *   ([[AbilityMembers]]) — the **last ability-level type argument** every member reference carries, which
+  *   [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads back. It marks where a member's
+  *   own minted binders go: after it, so the ability-level prefix stays exactly the ability's.
   */
 case class GenericParameter(
     name: Sourced[String],
     typeRestriction: Sourced[Expression],
     abilityConstraints: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
-    inferable: Boolean = false
+    inferable: Boolean = false,
+    binding: Boolean = false
 )
 
 object GenericParameter {

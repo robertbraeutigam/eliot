@@ -1,0 +1,84 @@
+package com.vanillasource.eliot.eliotc.ast.fact
+
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+
+/** Lowers an `ability` or an `effect` block into ordinary [[FunctionDefinition]]s — one per member, plus the block's
+  * synthetic **marker**. The two declarations lower identically (`docs/effects.md` §9.3: "a member's row lists what it
+  * performs beyond the ability it belongs to — for `effect` and `ability` alike"); they differ in exactly one thing,
+  * `performsItself`, and that difference is metadata, not shape.
+  *
+  * Effects v6 adds one binder. The block mints, after its own generic parameters, a **binding binder** of kind `Type`:
+  * the implementation slot, and the *last ability-level type argument* of every member reference, which is the contract
+  * [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads back and
+  * [[com.vanillasource.eliot.eliotc.monomorphize.check.AbilityResolver]] slices off. So `effect Console` declares
+  * `Console[Impl]` and `effect Throw[E]` declares `Throw[E, Impl]`, exactly where the carrier binder used to sit.
+  *
+  * The binder is *not* `inferable`: a member reference has its whole ability-level prefix written by the `row` phase,
+  * never inferred. It is flagged [[GenericParameter.binding]] so
+  * [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]] knows to mint a member's *own* phantom
+  * binders after it rather than in front of the ability's.
+  *
+  * The implementation side is unchanged: an `implement` marker still takes one argument per *pattern* element and no
+  * binding, which is exactly what the two-site search matches against once the binding is sliced off.
+  */
+object AbilityMembers {
+
+  /** @param performsItself
+    *   True for an `effect`: membership in the block says the member performs the effect, so the row is recorded on
+    *   every member — the one place effect-ness is written down, and what the scope check and the write then read. An
+    *   `ability`'s members declare nothing of the sort, which is what makes a constructor class expressible (§3.6).
+    */
+  def lower(
+      name: Sourced[String],
+      commonGenericParameters: Seq[GenericParameter],
+      functions: Seq[FunctionDefinition],
+      performsItself: Boolean
+  ): Seq[FunctionDefinition] = {
+    val qualifier     = Qualifier.Ability(name.value)
+    val bindingBinder = GenericParameter(
+      name.as(freshName("Impl", commonGenericParameters.map(_.name.value).toSet)),
+      name.as(typeExpr(name.as("Type"))),
+      Seq.empty,
+      binding = true
+    )
+    val abilityParams = commonGenericParameters :+ bindingBinder
+    val ownRow        =
+      if (performsItself)
+        EffectRow(returnEffects =
+          Seq(UnresolvedAbilityConstraint(name, commonGenericParameters.map(gp => gp.name.as(typeExpr(gp.name)))))
+        )
+      else EffectRow.empty[UnresolvedAbilityConstraint[Sourced[Expression]]]
+
+    functions.map(f =>
+      // `f.copy`, never a positional rebuild: every field this does not deliberately override — `doc`, `fixity`,
+      // `precedence`, the refinement-channel companions — must forward untouched (the trap `ImplementBlock` records).
+      f.copy(
+        name = f.name.map(n => QualifiedName(n.name, qualifier)),
+        genericParameters = abilityParams ++ f.genericParameters,
+        visibility = Visibility.Public,
+        effectRow = ownRow
+      )
+    ) :+
+      // The marker: the value named after the block, in the block's own namespace, whose leading generic binders *are*
+      // the ability's type parameters — which is how `AbilityResolver.abilityArity` reads the length of the
+      // ability-level slice. It takes one argument per binder so its signature encodes the pattern, and is body-less.
+      FunctionDefinition(
+        name.as(QualifiedName(name.value, qualifier)),
+        abilityParams,
+        abilityParams.zipWithIndex.map { case (gp, i) =>
+          ArgumentDefinition(name.as(s"arg$i"), gp.name.as(typeExpr(gp.name)))
+        },
+        abilityParams.head.name.as(typeExpr(abilityParams.head.name)),
+        None
+      )
+  }
+
+  private def typeExpr(name: Sourced[String]): Expression =
+    Expression.FunctionApplication(None, name, None, Seq.empty)
+
+  private def freshName(base: String, existingNames: Set[String]): String =
+    if (!existingNames.contains(base)) base
+    else Iterator.from(0).map(i => s"$base$i").find(!existingNames.contains(_)).get
+}

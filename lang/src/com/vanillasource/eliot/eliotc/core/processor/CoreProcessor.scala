@@ -55,10 +55,14 @@ class CoreProcessor
     // lowering runs here rather than in the parser. See NamedImplementationDesugarer.
     val desugaredNamedImplementations: Seq[(FunctionDefinition, RoleHint)] =
       sourceAstData.namedImplementations.flatMap(NamedImplementationDesugarer.desugar).map(_ -> RoleHint.NoHint)
+    // An `effect` declaration (effects v6 §9.3) lowers exactly as an `ability` block does — the difference is one
+    // metadata flag, not a shape — except that it parses into a node of its own. See EffectDefinitionDesugarer.
+    val desugaredEffects: Seq[(FunctionDefinition, RoleHint)] =
+      sourceAstData.effectDefinitions.flatMap(EffectDefinitionDesugarer.desugar).map(_ -> RoleHint.NoHint)
     val allFunctions  =
       sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++
         desugaredFromData ++ desugaredMetaConstructors ++ desugaredMetaTransfers ++ desugaredWhereCompanions ++
-        desugaredNamedImplementations
+        desugaredNamedImplementations ++ desugaredEffects
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so

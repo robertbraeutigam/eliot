@@ -4,17 +4,19 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, DataDefinition, Expression, FunctionDefinition}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Rejects the effects v6 surface that is parsed but not yet implemented (`docs/effects.md` §10.1 step 4, "landed
-  * dark"): an `effect` declaration, a named `implement`, and `with` in either of its positions. Each occurrence is one
-  * error at its own position, so a file using the new surface reads as "not supported yet" rather than as a parse
-  * failure or a silently different program. Deleted at the flag day (§10.2 F1), when the desugar takes these nodes.
+/** Rejects the last piece of the effects v6 surface that parses but is not yet consumed: `with`, in either of its
+  * positions. The `row` phase is what writes a binding into the phantom binders inside a `with`'s subject and erases
+  * the node (§9.4 step 3, F1 part 3); until it does, a `with` would reach the checker as an unhandled node. Each
+  * occurrence is one error at its own position, so a file using it reads as "not supported yet" rather than as a
+  * silently different program. Deleted when the write lands.
+  *
+  * `effect` and the named `implement` are no longer rejected: [[EffectDefinitionDesugarer]] and
+  * [[NamedImplementationDesugarer]] lower them.
   */
 object UnsupportedSyntaxChecker {
 
   def check(ast: AST): Seq[Sourced[String]] =
-    ast.effectDefinitions.map(_.name.as("Effect declarations are not supported yet.")) ++
-      ast.namedImplementations.map(_.name.as("Named implementations are not supported yet.")) ++
-      ast.functionDefinitions.flatMap(inFunction) ++
+    ast.functionDefinitions.flatMap(inFunction) ++
       ast.typeDefinitions.flatMap(inData) ++
       ast.effectDefinitions.flatMap(_.functions.flatMap(inFunction)) ++
       ast.namedImplementations.flatMap(_.functions.flatMap(inFunction))
