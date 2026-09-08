@@ -1186,11 +1186,26 @@ that boundary.
    parsed into `ast.fact` nodes, rejected at `core` with "not supported yet". Lets the TextMate grammar, the
    IntelliJ plugin, the apidoc renderer and the `eliot-code` skill be prepared, and makes the flag-day diff
    smaller.
-5. **The phantom-binder spike.** Before anything depends on it, confirm on both tracks that a binder
-   occurring nowhere in the signature is carried through `typeArguments`, that an implementation FQN — and an
-   FQN applied to another — is accepted as a ground argument unifying only by identity, and that an unwritten
-   phantom is rejected rather than defaulted to `Type`. Scratch only; step 6 of the previous plan is the
-   precedent for why this runs first.
+5. **The phantom-binder spike — RUN 2026-09-08, and it holds.** Scratch programs against the current
+   compiler, nothing landed. On the runtime track a phantom `[P]` on a rowless def is keyed: `tag[ImplA]` and
+   `tag[ImplB]` emit `tag$ImplA` and `tag$ImplB` and a third call reuses the first; an applied ground tree is
+   keyed structurally (`tag$Impl$CellWriter`); nullary abstract types unify only by identity
+   (`Expected: Box[ImplA] / Actual: Box[ImplB]`); and an ability dispatches on a phantom through a `~`
+   constraint (`pick[ImplA]` / `pick[ImplB]` select different instances). On the compile track an explicit
+   phantom argument is carried into a `where` guard's checking and unifies by identity (the same mismatch,
+   reported from the guard). Three findings beside the confirmation:
+   - **An unwritten phantom is silently defaulted to `Type` today** (`tag("C")` with `[P]` compiles), so the
+     F3 rejection is required, not optional: a row binder is a marked class of binder the checker refuses to
+     default.
+   - **Minted binders are prepended** (`carrierParam.toSeq ++ genericParameters`, the carrier at generic 0),
+     so a call-site `greeting[ImplA](…)` today fills the *carrier* (`Actual: IO[ImplB[Unit]]`). v6's phantom
+     row binders must not collide with a user's explicit argument list: mint them after the user's binders,
+     or write them by name.
+   - **Pre-existing and separate:** the `where` reducer (`EscalatingReducer.reduceApplied` over the `^Where`
+     companion) cannot dispatch through a `~` constraint on a generic def, explicit or inferred ("Cannot
+     evaluate the `where` precondition"), while a concrete dispatch inside a guard works. The compile-track
+     mono checker is unaffected. Also observed: a failing `where` at `main` still writes the jar, against the
+     build-artifact hygiene rule — a defect to fix on its own.
 6. **The impl-name component of `Qualifier.AbilityImplementation`**, the `Default` marker, and the
    read-the-argument arm of `AbilityResolver`, with no producer yet — the arm is dead until F1 and is tested
    by injection.
