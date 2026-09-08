@@ -21,6 +21,11 @@ object Qualifier {
   case class AbilityImplementation(name: AbilityFQN, pattern: String, implementationName: Option[String])
       extends Qualifier
 
+  /** The resolved twin of [[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Implementation]]: the lookup
+    * namespace of a named `implement`, whose name needs no resolution.
+    */
+  case class Implementation(name: String) extends Qualifier
+
   /** Renders a qualifier for user-facing messages. An [[AbilityImplementation]] shows its ability name and pattern key
     * (e.g. `PatternMatch#Person`) rather than the full [[AbilityFQN]] structure, a named one prefixed by its name.
     */
@@ -33,6 +38,7 @@ object Qualifier {
       case Ability(name)                                    => name
       case AbilityImplementation(name, pattern, None)       => s"${name.abilityName}#$pattern"
       case AbilityImplementation(name, pattern, Some(impl)) => s"$impl: ${name.abilityName}#$pattern"
+      case Implementation(name)                             => s"$name:"
     }
   }
 

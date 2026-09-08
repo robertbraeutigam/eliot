@@ -50,9 +50,15 @@ class CoreProcessor
     // `^Where` companion (bounds-as-refinements §4.3), the `Bool` the refinement channel demands at each call site.
     val desugaredWhereCompanions: Seq[(FunctionDefinition, RoleHint)] =
       sourceAstData.functionDefinitions.flatMap(MetaWhereDesugarer.desugar)
+    // A named `implement` (effects v6 §9.3) lowers to its methods, its marker and its name marker, exactly as the
+    // anonymous form lowers in `ImplementBlock` — except that the named form is parsed into a node of its own, so the
+    // lowering runs here rather than in the parser. See NamedImplementationDesugarer.
+    val desugaredNamedImplementations: Seq[(FunctionDefinition, RoleHint)] =
+      sourceAstData.namedImplementations.flatMap(NamedImplementationDesugarer.desugar).map(_ -> RoleHint.NoHint)
     val allFunctions  =
       sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++
-        desugaredFromData ++ desugaredMetaConstructors ++ desugaredMetaTransfers ++ desugaredWhereCompanions
+        desugaredFromData ++ desugaredMetaConstructors ++ desugaredMetaTransfers ++ desugaredWhereCompanions ++
+        desugaredNamedImplementations
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so

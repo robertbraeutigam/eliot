@@ -12,12 +12,12 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * (`Qualifier.AbilityImplementation`).
   *
   * Every implementation of an ability contributes one synthetic method per ability method, each carried as a
-  * `Qualifier.AbilityImplementation(abilityName, pattern, implementationName)` name; the method whose local name equals the ability name is
-  * the implementation's "marker". Decoding these (and the `Qualifier.Ability` declarations) used to be open-coded — the
-  * same `collect`-and-decode over the raw name map — in six places (`AbilityImplementationProcessor`,
-  * `AbilityImplementationCheckProcessor`, `ImplementationMarkerUtils`, `MatchDesugarUtils`,
-  * `ModuleAbilityOverlapCheckProcessor`). This fact owns that decode once; consumers query the structured lists instead
-  * of re-pattern-matching the qualifier.
+  * `Qualifier.AbilityImplementation(abilityName, pattern, implementationName)` name; the method whose local name equals
+  * the ability name is the implementation's "marker". Decoding these (and the `Qualifier.Ability` declarations) used to
+  * be open-coded — the same `collect`-and-decode over the raw name map — in six places
+  * (`AbilityImplementationProcessor`, `AbilityImplementationCheckProcessor`, `ImplementationMarkerUtils`,
+  * `MatchDesugarUtils`, `ModuleAbilityOverlapCheckProcessor`). This fact owns that decode once; consumers query the
+  * structured lists instead of re-pattern-matching the qualifier.
   *
   * @param declaredMethods
   *   One entry per method declared in an `ability` block in this module.
@@ -58,6 +58,21 @@ case class ModuleAbilities(
             impl.implementationName == implementationName =>
         impl.vfqn
     }
+
+  /** The marker method of the **named** implementation called `implementationName` in this module (effects v6,
+    * `docs/effects.md` §9.4 step 1), if present — the second half of resolving a `with name`, whose first half is the
+    * keyed dictionary lookup of the implementation's name marker ([[Qualifier.Implementation]]) that decided this
+    * module.
+    *
+    * The name alone identifies it: a name marker and its implementation are minted together by
+    * [[com.vanillasource.eliot.eliotc.core.processor.NamedImplementationDesugarer]], and two named implementations in
+    * one module cannot share a name — they would collide as ordinary duplicate declarations of the name marker.
+    */
+  def markerOfImplementationName(implementationName: String): Option[ValueFQN] =
+    implementations.collectFirst {
+      case impl if impl.implementationName.contains(implementationName) && impl.methodName == impl.abilityName =>
+        impl.vfqn
+    }
 }
 
 object ModuleAbilities {
@@ -83,8 +98,8 @@ object ModuleAbilities {
     *   The implementation's pattern key ([[Qualifier.AbilityImplementation.pattern]]) disambiguating multiple
     *   implementations of the same ability in one module.
     * @param implementationName
-    *   The implementation's own name for a named `implement`
-    *   ([[Qualifier.AbilityImplementation.implementationName]]), [[None]] for an anonymous default.
+    *   The implementation's own name for a named `implement` ([[Qualifier.AbilityImplementation.implementationName]]),
+    *   [[None]] for an anonymous default.
     */
   case class Impl(
       vfqn: ValueFQN,

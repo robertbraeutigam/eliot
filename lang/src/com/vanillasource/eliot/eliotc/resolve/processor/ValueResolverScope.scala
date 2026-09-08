@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
-import com.vanillasource.eliot.eliotc.module.fact.Qualifier.Ability
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier.{Ability, Implementation}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, Role, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -49,22 +49,38 @@ object ValueResolverScope {
           .toSeq
       )
 
-  /** Resolve an ability name exactly as any other name resolves: a keyed lookup of the ability's own **marker** —
-    * the synthetic `Foo^Foo` value [[com.vanillasource.eliot.eliotc.ast.fact.AbilityBlock]] emits — in the ordinary
-    * dictionary. An ability is a value, and this is the one lookup that says so
-    * (`docs/effects-syntax-userspace.md` §4 stage 2).
+  /** Resolve an ability name exactly as any other name resolves: a keyed lookup of the ability's own **marker** — the
+    * synthetic `Foo^Foo` value [[com.vanillasource.eliot.eliotc.ast.fact.AbilityBlock]] emits — in the ordinary
+    * dictionary. An ability is a value, and this is the one lookup that says so (`docs/effects-syntax-userspace.md` §4
+    * stage 2).
     *
-    * It replaces a scan of `dictionary.values` matching *any* member carrying the `Ability(name)` qualifier. That
-    * scan resolved an ability by a mechanism no other name used, and got two things wrong: an ability resolved
-    * whenever any *method* of it was in scope even if the weak prelude tier had dropped the marker itself, and with
-    * two same-named abilities in scope the `collectFirst` winner was `Map` iteration order rather than the
-    * dictionary's answer. Abilities are always public (`ability` takes no visibility modifier), so there is no
-    * `privateNames` fallback to make here.
+    * It replaces a scan of `dictionary.values` matching *any* member carrying the `Ability(name)` qualifier. That scan
+    * resolved an ability by a mechanism no other name used, and got two things wrong: an ability resolved whenever any
+    * *method* of it was in scope even if the weak prelude tier had dropped the marker itself, and with two same-named
+    * abilities in scope the `collectFirst` winner was `Map` iteration order rather than the dictionary's answer.
+    * Abilities are always public (`ability` takes no visibility modifier), so there is no `privateNames` fallback to
+    * make here.
     */
   def getAbility(name: String): ScopedIO[Option[AbilityFQN]] =
     StateT
       .get[CompilerIO, ValueResolverScope]
       .map(_.dictionary.get(QualifiedName(name, Ability(name))).map(vfqn => AbilityFQN(vfqn.moduleName, name)))
+
+  /** Resolve a **named implementation** — the `h` of a `with h` — exactly as [[getAbility]] resolves an ability name: a
+    * keyed lookup of the implementation's own **name marker**
+    * ([[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Implementation]]) in the ordinary dictionary, so import
+    * scope and shadowing decide it rather than `Map` iteration order.
+    *
+    * The answer is the *name marker's* [[ValueFQN]], which names the module the implementation lives in; the
+    * implementation's real marker — the one a phantom binder carries — is that module's
+    * [[com.vanillasource.eliot.eliotc.module.fact.ModuleAbilities.markerOfImplementationName]]. The two steps exist
+    * because the real marker's qualified name also needs the ability name and the pattern key, which the surface `with
+    * h` does not supply. A named implementation is always public, so there is no `privateNames` fallback.
+    */
+  def getImplementation(name: String): ScopedIO[Option[ValueFQN]] =
+    StateT
+      .get[CompilerIO, ValueResolverScope]
+      .map(_.dictionary.get(QualifiedName(name, Implementation(name))))
 
   def getCurrentModule: ScopedIO[ModuleName] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.currentModule)

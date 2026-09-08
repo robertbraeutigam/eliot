@@ -57,6 +57,23 @@ object Qualifier {
     */
   case class AbilityImplementation(name: String, pattern: String, implementationName: Option[String]) extends Qualifier
 
+  /** The **lookup namespace of a named `implement`** (effects v6, `docs/effects.md` §9.4 step 1). A named
+    * implementation mints, beside its methods and its `AbilityImplementation` marker, one synthetic **name marker**
+    * `QualifiedName(implName, Implementation(implName))` — exactly mirroring the ability marker
+    * `QualifiedName(abilityName, Ability(abilityName))` that [[com.vanillasource.eliot.eliotc.ast.fact.AbilityBlock]]
+    * emits, and for exactly the same reason: it makes `with h` a **keyed** dictionary lookup
+    * ([[com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.getImplementation]]) that honours import
+    * scope and shadowing, rather than a scan of the dictionary for a matching `AbilityImplementation` qualifier —
+    * which would resolve by `Map` iteration order and ignore both (the mistake `getAbility` already corrected).
+    *
+    * It carries no methods and is never referenced after resolution: the resolver maps it, through its module's
+    * [[ModuleAbilities.markerOfImplementationName]], to the implementation's real
+    * [[AbilityImplementation]]-qualified marker, and only that marker flows onward as the binding a phantom binder
+    * carries. The indirection exists because the real marker's qualified name cannot be built from the surface name
+    * alone — it also needs the ability name and the pattern key.
+    */
+  case class Implementation(name: String) extends Qualifier
+
   /** Renders a qualifier for user-facing messages. An [[AbilityImplementation]] shows its ability name and pattern key
     * (e.g. `PatternMatch#Person` or `Arithmetic#Int[L1, H1], Int[L2, H2]`), a named one prefixed by its name as the
     * surface writes it (`recordingConsole: Console#`); a [[Meta]] over the plain [[Default]] namespace shows as bare
@@ -72,6 +89,7 @@ object Qualifier {
       case Ability(name)                                    => name
       case AbilityImplementation(name, pattern, None)       => s"$name#$pattern"
       case AbilityImplementation(name, pattern, Some(impl)) => s"$impl: $name#$pattern"
+      case Implementation(name)                             => s"$name:"
     }
   }
 

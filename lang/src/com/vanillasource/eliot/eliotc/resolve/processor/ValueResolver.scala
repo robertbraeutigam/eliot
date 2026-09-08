@@ -107,6 +107,9 @@ class ValueResolver
         // enclosing name's position for any "Ability not found" diagnostic.
         resolveAbilityName(at.as(name))
           .map(resolvedName => Qualifier.AbilityImplementation(resolvedName, pattern, implementationName))
+      // A named implementation's name marker (effects v6 §9.4 step 1). The name is the implementation's own and needs
+      // no resolution: the marker *is* what a `with` looks up, so it carries its own name and nothing else.
+      case CoreQualifier.Implementation(n)                     => (Qualifier.Implementation(n): Qualifier).pure[ScopedIO]
     }
 
   private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityFQN] =
