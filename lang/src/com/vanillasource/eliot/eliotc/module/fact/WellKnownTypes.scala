@@ -69,6 +69,22 @@ object WellKnownTypes {
   val boolFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Bool"), QualifiedName("Bool", Qualifier.Type))
 
+  /** `eliot.collection.List` — the base's abstract list, a native `java.util.List` on the jvm and a `prepend` chain over
+    * `empty` on the compiler track ([[com.vanillasource.eliot.eliotc.monomorphize.processor.ListReductions]]). The
+    * value names below are the module's four platform leaves plus its two string-splitting leaves, shared by the
+    * reflection rewrite (`NamedValues`, which lowers an enumeration to a `prepend` chain) and the compile-time twins.
+    */
+  val listModule: ModuleName = ModuleName(Seq("eliot", "collection"), "List")
+
+  val listFQN: ValueFQN = ValueFQN(listModule, QualifiedName("List", Qualifier.Type))
+
+  val listEmptyFQN: ValueFQN            = ValueFQN(listModule, QualifiedName("empty", Qualifier.Default))
+  val listAppendFQN: ValueFQN           = ValueFQN(listModule, QualifiedName("append", Qualifier.Default))
+  val listPrependFQN: ValueFQN          = ValueFQN(listModule, QualifiedName("prepend", Qualifier.Default))
+  val listFoldLeftInternalFQN: ValueFQN = ValueFQN(listModule, QualifiedName("foldLeftInternal", Qualifier.Default))
+  val listSplitFQN: ValueFQN            = ValueFQN(listModule, QualifiedName("split", Qualifier.Default))
+  val listWordsFQN: ValueFQN            = ValueFQN(listModule, QualifiedName("words", Qualifier.Default))
+
   private val boolModule: ModuleName = ModuleName(defaultSystemPackage, "Bool")
 
   val boolTrueFQN: ValueFQN  = ValueFQN(boolModule, QualifiedName("true", Qualifier.Default))

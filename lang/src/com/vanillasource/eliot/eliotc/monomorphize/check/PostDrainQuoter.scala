@@ -152,11 +152,27 @@ class PostDrainQuoter(
             // value constants). A type is a legitimate compile-time constant here — the "types are values" cornerstone —
             // so read it back structurally instead of falling to the runtime staging gate, whose fail-safe would abort on
             // an erased type parameter the body references in value position (`Function[X, X]` with `X := A`).
-            case None if ground.valueType === GroundValue.Type =>
+            //
+            // The quoter types *every* body-less application `Type`, so the ground's own type cannot tell a type from a
+            // value whose normal form is a body-less application — a compile-time list, a `prepend` chain over `empty`
+            // (`ListReductions`). Read as a type, such a value's literal elements would collapse to the opaque `Any`
+            // (`groundTypeToMono`'s `Direct` arm), and every later consumer of the element would stay stuck. The body's
+            // declared type settles it: only a body *typed* `Type` is a type; a value keeps the ordinary structural
+            // read-back, which the next evaluation reduces again.
+            case None if ground.valueType === GroundValue.Type && isTypedAsType(expr.value.expressionType) =>
               expr.as(groundTypeToMono(ground, expr)).pure[CompilerIO]
             case None                                          => quoteSourced(expr)
           }
       }
+    }
+
+  /** Whether a checked expression's type is `Type` itself — the one discriminator between a body that reduces to a
+    * type and a value whose normal form merely *quotes* like one (see [[reduceSourced]]).
+    */
+  private def isTypedAsType(expressionType: SemValue): Boolean =
+    Evaluator.force(expressionType, metaStore) match {
+      case SemValue.VType => true
+      case _              => false
     }
 
   /** Compile-time reduction with **stuck-driven escalation** (§3.4 of the signature-unification plan). Evaluate `expr`

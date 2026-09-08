@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.namedvalues
 
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 
 /** The fixed FQNs the reflection rewrite recognises and targets.
   *
@@ -22,11 +22,7 @@ object NamedValues {
   val foldNamedValuesFQN: ValueFQN =
     ValueFQN(reflectModule, QualifiedName("foldNamedValues", Qualifier.Default))
 
-  val listModule: ModuleName = ModuleName(Seq("eliot", "collection"), "List")
+  val listEmptyFQN: ValueFQN = WellKnownTypes.listEmptyFQN
 
-  val listEmptyFQN: ValueFQN =
-    ValueFQN(listModule, QualifiedName("empty", Qualifier.Default))
-
-  val listPrependFQN: ValueFQN =
-    ValueFQN(listModule, QualifiedName("prepend", Qualifier.Default))
+  val listPrependFQN: ValueFQN = WellKnownTypes.listPrependFQN
 }

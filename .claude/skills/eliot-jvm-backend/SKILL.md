@@ -154,7 +154,13 @@ LSP where jvm is absent) needs a **compile-time reduction** — a Scala `VNative
 - `lang/.../monomorphize/processor/SystemNativesProcessor.scala` — compiler intrinsics the compiler *reasons
   about*: `Function`, `Type`, `true`/`false`/`fold`, `Eq[Type]::equals` (type structural equality), `integerLiteral`.
 - `stdlib/.../plugin/StdlibNativesProcessor.scala` — library ops the compiler *supplies but doesn't reason about*:
-  the `BigInteger` arithmetic backing `Int` bounds, `&&`/`||`/`!`, `Eq[String]::equals`. Add here by default.
+  the `BigInteger` arithmetic backing `Int` bounds, `&&`/`||`/`!`, `Eq[String]::equals`, the whole `String` set
+  (`StringReductions`). Add here by default.
+- `lang/.../monomorphize/processor/ListReductions.scala` (folded into `SystemNativesProcessor`) — the twins of the
+  **lang-owned** `eliot.collection.List` leaves. A twin lives with the layer that owns the `.els`, so a lang-owned
+  leaf's twin cannot sit in stdlib. Its representation lesson generalises: an abstract type with no `data` gets no
+  compile-time literal — its concrete value is its *normal form* (a `prepend` chain over `empty`), the constructor
+  leaves are their own reductions, and the operations reduce over the chain. Nothing is added to `GroundValue`.
 
 Both `Eq[Type]::equals` and `Eq[String]::equals` are the **native-on-impl-method** variant: keyed not by an exact
 FQN but by the impl marker (`ImplementationMarkerUtils.isImplementationMethodFor`) — `SystemNativesProcessor.systemContribution`

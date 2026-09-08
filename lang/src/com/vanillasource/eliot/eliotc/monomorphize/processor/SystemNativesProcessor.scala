@@ -24,7 +24,8 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 /** The `system` native contributor: emits the total [[ContributedBinding]] under [[ContributedBinding.systemLabel]] for
   * the language-intrinsic system values the compiler itself reasons about — Function (type constructor), Type, the
   * compile-time Bool constants `true`/`false`, the `Eq[Type]` structural-equality leaf (bound to the `equals` impl
-  * method), and the value-position literal protocol `integerLiteral` — and `None` for every other name.
+  * method), the value-position literal protocol `integerLiteral`, and the compile-time twins of the lang-owned
+  * `eliot.collection.List` leaves ([[ListReductions]]) — and `None` for every other name.
   *
   * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B): the Π-former is
   * the single primitive type former, so every function type is a VPi (read back to a Function structure only at quote
@@ -91,7 +92,7 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     else if (vfqn === boolTrueFQN) Evaluator.trueValue.some
     else if (vfqn === boolFalseFQN) Evaluator.falseValue.some
     else if (vfqn === integerLiteralFQN) integerLiteralNative.some
-    else none
+    else ListReductions.bindings.get(vfqn)
 
   /** The structural type-equality native when `vfqn` is the `implement Eq[Type]` `equals` method, else `None`. The
     * native stucks on the impl-method FQN itself (`vfqn`), so `Evaluator.renormalize` re-fires it via the same binding

@@ -1129,8 +1129,9 @@ the flag-day path needs it.
 forces a native-calling definition to declare a row (`def now: Int = currentTimeMillisInternal` hides an
 effect from both verifiers; the `suspend` wrapper was the informal guard and goes with the carrier). The
 check is a reachability check on runtime bodies like the recursion gate; the error names the two fixes.
-Every I/O native in the jvm layer is already inside an `implement` block; the pure natives without twins —
-`String`'s and `List`'s — need one, which the refinement channel and `where` already want.
+Every I/O native in the jvm layer is already inside an `implement` block, and every pure native now has a twin
+(`String`'s in `StringReductions`, `List`'s in `ListReductions` — §10.1 step 1), which the refinement channel and
+`where` already wanted.
 
 ### 9.8 What it deletes, keeps and adds
 
@@ -1173,8 +1174,20 @@ that boundary.
 
 ### 10.1 Before the flag day (each independently landable, byte-identical)
 
-1. **Compile-time twins for the pure natives.** `String` and `List` leaves (`StdlibNativesProcessor` covers
-   arithmetic, comparison and `Bool` today). Owed to the refinement channel and `where` regardless of v6.
+1. **Compile-time twins for the pure natives — DONE 2026-09-08.** `String`'s already existed
+   (`StringReductions`, stdlib); `List`'s were the last without one and landed in `ListReductions` (lang, beside
+   `SystemNativesProcessor`, since `eliot.collection.List` is lang-owned): `empty`, `prepend`, `append`,
+   `foldLeftInternal`, and the two string-splitting leaves that answer a list, `split` and `words`. The
+   compile-time list has **no representation of its own**: a concrete list is its normal form, a `prepend` chain
+   over `empty` (both body-less constructor applications, quoted and unified exactly like a `data` constructor),
+   and the other four reduce over the chain. Nothing was added to the ground domain and nothing materialises — a
+   chain at read-back declines materialisation as it always did, so codegen is byte-identical (verified over the
+   45 example jars). One read-back defect had to be fixed for it: the quoter types every body-less application
+   `Type`, so a borrowed runtime constant whose normal form is a chain was read back as a *type* and its literal
+   elements collapsed to `Any` (`PostDrainQuoter.reduceSourced` now also requires the body to be *typed* `Type`).
+   Two standing guard limitations were met and left as they are, neither about lists: `Eq[Int]` does not reduce in
+   an ability guard (`where two == two` over borrowed constants), and `!` over a rowed call in a guard is a type
+   mismatch against the compile-track `Either` carrier (spell the negative as `all(w -> !(w == S), xs)`).
 2. **The twin-less-native check, in today's spelling:** a native without a twin is reachable only from an
    ability implementation's method body. A reachability processor beside `RecursionCheckProcessor`, producing
    its own fact and a diagnostic naming the two fixes. Measured first by listing every native and its call
