@@ -1,14 +1,13 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.effect.processor.EffectCarriers
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{SignatureView, asArrow}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -103,7 +102,7 @@ class CarrierKindChecker(
       paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]],
       substEnv: Env
   ): CheckIO[Unit] =
-    if (!EffectCarriers.isHktBinder(binder)) pure(())
+    if (!CarrierKindChecker.isHktBinder(binder)) pure(())
     else
       paramConstraints
         .getOrElse(binder.name.value, Seq.empty)
@@ -229,4 +228,18 @@ class CarrierKindChecker(
       case Some(sv) => evalExpr(sv.value.signature.value, Some(Env.empty)).map(Some(_))
     }
 
+}
+
+object CarrierKindChecker {
+
+  /** Whether a generic binder is **higher-kinded** (`Type -> Type`) — the one structural reading left of what used to
+    * be carrier identification.
+    *
+    * It is not a question about effects, and there is nothing to recognise any more: effects v6 removed carriers, so a
+    * row entry is a phantom binder of kind `Type` and a computation is a thunk. This is a *kind* question, asked to
+    * reject an `[F[_]]` binder instantiated at a fully-applied proper type — which is soundness, and measured
+    * (`docs/effects.md` §12, "do not re-propose").
+    */
+  def isHktBinder(binder: SignatureView.Binder): Boolean =
+    binder.parameterType.exists(pt => asArrow(pt.value).isDefined)
 }

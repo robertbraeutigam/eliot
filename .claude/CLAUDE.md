@@ -106,12 +106,11 @@ subset of its data.
 7. **matchdesugar** — pattern matches into function applications; exhaustiveness, nested/constructor/wildcard patterns
 8. **operator** — infix operators by precedence and associativity, into structured applications
 9. **termination** — the recursion gate (see the *Total by Default* cornerstone)
-10. **effect** — helpers only, **no phase**. After v6 there is essentially nothing here: `EffectCarriers.isHktBinder`
-    ("is this binder higher-kinded?", asked by `CarrierKindChecker`, which is a *kind* question and not an effect one).
-    The rest of the package — `EffectMachinery` and `EffectCarriers.declaredEffects`, which filter the `Effect`/`Suspend`
-    machinery abilities out of a row — has **no subject left**: nothing mints those abilities and no `.els` declares
-    them. Do not build on it; the carrier-stack renderer that used to live beside it (`EffectRowRendering`,
-    `EffectCarrierNaming`) is deleted, because a type now prints as what the user wrote.
+10. *(There is no `effect` package. It held carrier identification and the `Effect`/`Suspend` machinery recognition,
+    and effects v6 left nothing in it: nothing mints those abilities, no `.els` declares them and there is no
+    `eliot.carrier` package. The one predicate that survived — "is this binder higher-kinded?", a **kind** question,
+    not an effect one — is `CarrierKindChecker.isHktBinder`, beside its only caller. The carrier-stack renderer that
+    lived there is gone too, because a type now prints as what the user wrote.)*
 11. **row** — the effect phase. `row/processor/RowElaborationProcessor` produces `RowElaboratedValue` between the
     recursion gate and saturation, running `row/BindingWriter` over **both halves** of a definition (body *and*
     signature — a guarded return holds references too). One walk, three jobs, **from declarations only**: write each

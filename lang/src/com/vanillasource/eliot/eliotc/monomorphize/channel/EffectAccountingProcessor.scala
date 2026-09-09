@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.channel
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
@@ -165,10 +164,7 @@ class EffectAccountingProcessor
     * `{ … }` says); a `~` constraint's ability is in no row and so is not an effect.
     */
   private def declaredRow(orv: OperatorResolvedValue): Set[AbilityFQN] =
-    orv.effectRow.returnEffects
-      .map(_.abilityFQN)
-      .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
-      .toSet
+    orv.effectRow.returnEffects.map(_.abilityFQN).toSet
 
   /** `derived ⊆ declared`. An undeclared effect is reported at the value and the accounting **declines (aborts)**,
     * which [[WovenValueProcessor]]'s `getFactOrAbort` precondition turns into blocked code generation.

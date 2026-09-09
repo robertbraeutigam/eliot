@@ -42,24 +42,13 @@ object ModuleName {
 
   val defaultSystemPackage = Seq("eliot", "lang")
 
-  /** The package for the user-facing effect vocabulary: the abilities a user writes in a `{...}` row
-    * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), their operations and dischargers, and each effect's carrier
-    * representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`/`DepCarrier`/`WriterCarrier` — needed ambiently so
-    * pinned rows resolve). The whole package is **ambient**: every module here is auto-imported (see
-    * [[effectSystemModules]]) in the weak prelude tier, so a file that prints just calls `printLine` with no import.
-    * The sequencing machinery deliberately does NOT live here — see [[carrierPackage]]. The `Console`/`Log`/`Inf`
-    * native leaves are read by the jvm `NativeImplementation`.
+  /** The package for the user-facing effect vocabulary: the effects a user writes in a `{...}` row
+    * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Writer`/`Inf`), their operations and their dischargers. The whole
+    * package is **ambient**: every module here is auto-imported (see [[effectSystemModules]]) in the weak prelude
+    * tier, so a file that prints just calls `printLine` with no import. The `Console`/`Log`/`Inf` native leaves are
+    * read by the jvm `NativeImplementation`.
     */
   val effectPackage = Seq("eliot", "effect")
-
-  /** The package for the carrier machinery beneath the effect system: the `Effect` ability (`pure`/`map`/`flatMap` —
-    * what a carrier must implement) and `Suspend` (the platform side-effect embedding every fine effect rides).
-    * Deliberately a separate, **import-required** package — unlike [[effectPackage]] it is NOT ambient, so everyday
-    * names like `map`/`pure`/`flatMap` never pollute user scope: only carrier/handler authors write `import
-    * eliot.carrier.Effect`. The `Effect` ability's FQN is read by
-    * [[com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery]] (by name) and [[WellKnownTypes]] (by FQN).
-    */
-  val carrierPackage = Seq("eliot", "carrier")
 
   /** The package for compiler-coordinated abilities that the checker resolves by name but that are kept out of the
     * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
@@ -104,8 +93,7 @@ object ModuleName {
   // declaration or an explicitly imported name is silently dropped — the prelude can grow without breaking user code.
   // The prelude (the `java.lang` analogue) is: every module living directly under the `eliot.lang` package, plus the
   // whole `eliot.effect` package ([[effectSystemModules]] — the effect vocabulary is core language experience; even
-  // `if..else` is `Abort`-based). The carrier machinery (`Effect`/`Suspend` in [[carrierPackage]]) and the other
-  // domain packages stay import-required. `Int`/`Runtime` are among the prelude because every value-position integer
+  // `if..else` is `Abort`-based). The other domain packages stay import-required. `Int`/`Runtime` are among the prelude because every value-position integer
   // literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so they must resolve with
   // no import anyway.
   val defaultSystemModules = Seq(

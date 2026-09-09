@@ -21,7 +21,6 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   patternMatchAbilityName,
   typeMatchAbilityName
 }
-import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleName,
@@ -491,9 +490,5 @@ object ValueResolver {
   private val fixedFqnAbilities: Map[String, AbilityFQN] =
     Seq(patternMatchAbilityName, typeMatchAbilityName)
       .map(name => name -> AbilityFQN(ModuleName(ModuleName.compilerInternalPackage, name), name))
-      .toMap +
-      (EffectMachinery.effectAbilityName -> AbilityFQN(
-        ModuleName(ModuleName.carrierPackage, EffectMachinery.effectAbilityName),
-        EffectMachinery.effectAbilityName
-      ))
+      .toMap
 }
