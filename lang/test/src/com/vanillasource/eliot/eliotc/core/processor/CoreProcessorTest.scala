@@ -627,230 +627,108 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "effect-set sugar" should "desugar a single effect into one carrier-applied signature" in {
+  // Effects v6 (`docs/effects.md` §9.4 step 2): a row entry and a `~` constraint each become **one phantom generic
+  // binder** of kind `Type`, occurring in the generic list and in no type — so rows still never flow into types. The
+  // binder's value, written later by the `row` phase, is an implementation. Three rewrites and nothing else: the
+  // return row vanishes onto a binder, a `~` constraint gains that binder as its **first** type argument, and a
+  // top-level row in a parameter or a `data` field thunks to `Unit => A`.
+  "effect-row sugar" should "mint one phantom binder for the row and thunk a rowed parameter" in {
     namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting { nv =>
       nv.signature.value.structure shouldBe Lambda(
-        "F",
-        App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T)),
-        App(App(Ref("Function", T), App(Ref("F", T), Ref("String", T))), App(Ref("F", T), Ref("Unit", T)))
+        "Impl",
+        Ref("Type", T),
+        App(App(Ref("Function", T), thunk(Ref("String", T))), Ref("Unit", T))
       )
     }
   }
 
-  it should "mark the synthesized carrier inferable" in {
+  it should "mark the minted binder inferable" in {
     namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting(_.inferableArity shouldBe 1)
   }
 
-  it should "add one constraint per distinct effect on the carrier, deduplicating repeats" in {
-    namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("Suspend", Seq(Ref("F", T)))))
+  it should "constrain the binder by the row's ability, applied to itself" in {
+    namedValue("def f(x: String): {Suspend} Unit").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("Impl" -> Seq(("Suspend", Seq(Ref("Impl", T)))))
     }
   }
 
-  it should "append the carrier as the final argument of a parameterized effect" in {
+  // The binding is the constraint's **first** type argument, where the ability's marker declares it — constraint and
+  // marker must agree on the position, or every dispatch queries the wrong shape.
+  it should "put the binding first among a parameterized effect's arguments" in {
     namedValue("def f(x: String): {State[Account]} String").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("State", Seq(Ref("Account", T), Ref("F", T)))))
+      constraintShapes(nv) shouldBe Map("Impl" -> Seq(("State", Seq(Ref("Impl", T), Ref("Account", T)))))
     }
   }
 
-  it should "carry every distinct effect of a multi-effect set" in {
+  it should "mint one binder per distinct entry of a multi-effect row" in {
     namedValue("def f(x: String): {Suspend, Abort} String").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("Suspend", Seq(Ref("F", T))), ("Abort", Seq(Ref("F", T)))))
+      constraintShapes(nv) shouldBe Map(
+        "Impl"  -> Seq(("Suspend", Seq(Ref("Impl", T)))),
+        "Impl0" -> Seq(("Abort", Seq(Ref("Impl0", T))))
+      )
     }
   }
 
-  // The synthesized carrier's *inferability* has no hand-written surface (the `auto` keyword was retired), so the
-  // signature structure and constraints are compared against the plainly-written carrier form here, and the carrier's
-  // `inferableArity` is pinned separately by "mark the synthesized carrier inferable" above.
-  it should "produce the same signature as the hand-written carrier form" in {
-    (namedValue("def f(x: {Suspend} String): {Suspend} Unit"), namedValue("def f[F[_] ~ Suspend](x: F[String]): F[Unit]"))
-      .mapN { (sugar, hand) =>
-        (sugar.signature.value.structure, constraintShapes(sugar)) shouldBe
-          (hand.signature.value.structure, constraintShapes(hand))
-      }
-  }
-
-  it should "treat the effect set as unordered" in {
-    (namedValue("def f(x: {Suspend, Abort} String): String"), namedValue("def f(x: {Abort, Suspend} String): String"))
-      .mapN { (ab, ba) =>
-        (ab.signature.value.structure, constraintShapes(ab).view.mapValues(_.toSet).toMap) shouldBe
-          (ba.signature.value.structure, constraintShapes(ba).view.mapValues(_.toSet).toMap)
-      }
-  }
-
-  it should "avoid clashing the carrier name with an existing generic parameter" in {
-    namedValue("def f[F](x: {Suspend} F): F").asserting { nv =>
-      constraintShapes(nv).keySet shouldBe Set("F0")
+  it should "avoid clashing a minted name with an existing generic parameter" in {
+    namedValue("def f[Impl](x: Impl): {Suspend} Impl").asserting { nv =>
+      constraintShapes(nv).keySet shouldBe Set("Impl0")
     }
   }
 
-  // The carrier a row collapses onto is **the signature's own**, when it has one: a definition that already binds an
-  // `Effect`-constrained carrier (every discharger does) reuses that binder instead of minting a second one, so
-  // `{Effect} A` and `G[A]` denote the same type there. That is what lets `else`/`catch` declare a handler slot that is
-  // `G[A]` *and* row-tagged — the same type, now saying "a value or a computation" (docs/effects-as-rows.md §1 rule 2).
-  it should "reuse the signature's own Effect-constrained carrier instead of minting a second one" in {
-    namedValue("def f[G[_] ~ Effect, A](x: {Effect} A): G[A]").asserting { nv =>
-      (constraintShapes(nv).keySet, nv.inferableArity) shouldBe (Set("G"), 0)
+  // A `~` constraint keeps the binder it was written on as its subject — that is what constraint scoping and the
+  // superability closure read — and only gains the binding ahead of it.
+  "a `~` constraint" should "keep its subject binder and gain the binding as its first argument" in {
+    namedValue("def f[T ~ Show[T]](x: T): String").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("T" -> Seq(("Show", Seq(Ref("Impl", T), Ref("T", T)))))
     }
   }
 
-  it should "give the reused carrier the same signature as spelling the parameter G[A] by hand" in {
-    (namedValue("def f[G[_] ~ Effect, A](x: {Effect} A): G[A]"), namedValue("def f[G[_] ~ Effect, A](x: G[A]): G[A]"))
-      .mapN { (row, hand) => row.signature.value.structure shouldBe hand.signature.value.structure }
+  it should "mint an unconstrained binder for it" in {
+    namedValue("def f[T ~ Show[T]](x: T): String").asserting(_.inferableArity shouldBe 1)
   }
 
-  it should "add the row's other effects as constraints on the reused carrier" in {
-    namedValue("def f[G[_] ~ Effect, A](x: G[A]): {Abort} A").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("G" -> Seq(("Effect", Seq(Ref("G", T))), ("Abort", Seq(Ref("G", T)))))
-    }
-  }
-
-  it should "mint a fresh carrier when the signature binds no Effect-constrained one" in {
-    namedValue("def f[G[_], A](x: {Suspend} A): G[A]").asserting { nv =>
-      constraintShapes(nv).keySet shouldBe Set("F")
-    }
-  }
-
-  it should "mint a fresh carrier when the choice would be ambiguous (two Effect-constrained carriers)" in {
-    namedValue("def f[G[_] ~ Effect, H[_] ~ Effect, A](x: {Suspend} A): G[A]").asserting { nv =>
-      constraintShapes(nv).keySet shouldBe Set("G", "H", "F")
-    }
-  }
-
-  // The **empty row** `{}` is the parameter/return spelling of "on my own ambient carrier, nothing added" (effects-v5
-  // step 1, docs/effects-v5-one-carrier.md §1). It desugars into `{Effect}` — the same carrier, the same constraint,
-  // the same row tag — so the two spellings are interchangeable and a definition may migrate one position at a time.
-  "the empty effect row" should "desugar to the same signature as `{Effect}`" in {
-    (namedValue("def f[A](x: {} A): {} A"), namedValue("def f[A](x: {Effect} A): {Effect} A"))
-      .mapN { (empty, effect) =>
-        (empty.signature.value.structure, constraintShapes(empty)) shouldBe
-          (effect.signature.value.structure, constraintShapes(effect))
-      }
-  }
-
-  it should "mint the carrier with the Effect constraint when the signature binds none" in {
-    namedValue("def f[A](x: {} A): {} A").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("Effect", Seq(Ref("F", T)))))
-    }
-  }
-
-  it should "reuse the signature's own Effect-constrained carrier" in {
-    namedValue("def f[G[_] ~ Effect, A](x: {} A): G[A]").asserting { nv =>
-      (constraintShapes(nv).keySet, nv.inferableArity) shouldBe (Set("G"), 0)
-    }
-  }
-
-  it should "share the carrier with the signature's other rows, adding nothing of its own" in {
-    namedValue("def f[A](x: {} A): {Suspend} A").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("Effect", Seq(Ref("F", T))), ("Suspend", Seq(Ref("F", T)))))
-    }
-  }
-
-  it should "be rejected in a data field, like any other open row" in {
-    coreErrors("data Box(body: {} Unit)")
-      .asserting(_ should contain("A stored effect row must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`."))
-  }
-
-  // Effects-v5 step 2 (docs/effects-v5-one-carrier.md §4): a row in a **parameter** position says "what I supply to
-  // this argument — I run it, on my ambient carrier extended by these". An entry the definition's own declared row
-  // already has needs no extension (the argument rides the ambient carrier); an entry it does not have is supplied,
-  // so the argument's type is that entry's carrier stacked over the ambient — exactly what the pinned spelling
-  // `{Abort | G} A` wrote by hand, which is what let the stdlib dischargers migrate one signature at a time.
-  "a supplied parameter row" should "desugar to the same signature as the pinned spelling over the same carrier" in {
-    (
-      namedValue("def f[G[_] ~ Effect, A](x: {Abort} A): G[A]"),
-      namedValue("def f[G[_] ~ Effect, A](x: {Abort | G} A): G[A]")
-    ).mapN { (supplied, pinned) => supplied.signature.value.structure shouldBe pinned.signature.value.structure }
-  }
-
-  it should "stack the supplied entry over the ambient carrier without constraining it" in {
-    namedValue("def f[G[_] ~ Effect, A](x: {Abort} A): G[A]").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("G" -> Seq(("Effect", Seq(Ref("G", T)))))
-    }
-  }
-
-  it should "stack onto the minted carrier when the signature binds none" in {
-    namedValue("def f[A](x: {Abort} A): {Console} A").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("F" -> Seq(("Console", Seq(Ref("F", T)))))
-    }
-  }
-
-  it should "supply only what the definition's own declared row lacks (`if`'s arm rides the ambient)" in {
-    (namedValue("def f[A](c: Bool, value: {Abort} A): {Abort} A"), namedValue("def f[A](c: Bool, value: {} A): {Abort} A"))
-      .mapN { (rowed, empty) => rowed.signature.value.structure shouldBe empty.signature.value.structure }
-  }
-
-  it should "never supply the machinery, so a sibling `{}` stays the ambient carrier (the `else` shape)" in {
-    (
-      namedValue("def f[G[_] ~ Effect, A](x: {Abort} A, y: {} A): G[A]"),
-      namedValue("def f[G[_] ~ Effect, A](x: AbortCarrier[G, A], y: G[A]): G[A]")
-    ).mapN { (rowed, hand) => rowed.signature.value.structure shouldBe hand.signature.value.structure }
-  }
-
-  it should "leave a row in an arrow codomain open (a callback rides the ambient carrier)" in {
-    namedValue("def f[G[_] ~ Effect, A](x: A => {Abort} A): G[A]").asserting { nv =>
-      constraintShapes(nv) shouldBe Map("G" -> Seq(("Effect", Seq(Ref("G", T))), ("Abort", Seq(Ref("G", T)))))
-    }
-  }
-
-  // A *pinned* row `{E1, E2 | T} A` is a concrete type: the canonical carrier stack over the base `T`, spelled in
-  // effect vocabulary. It rewrites by the `<Ability>Carrier` naming convention — no generic parameter is introduced.
-  "pinned effect rows" should "rewrite to the canonical carrier stack in a def signature" in {
-    namedValue("def f(x: {Throw[Error] | G} Unit): Unit = y").asserting { nv =>
-      nv.signature.value.structure shouldBe App(App(Ref("Function", T), throwStack(Ref("G", T))), Ref("Unit", T))
-    }
-  }
-
-  it should "introduce no carrier generic and no constraints" in {
-    namedValue("def f(x: {Throw[Error] | G} Unit): Unit = y").asserting { nv =>
+  // The **empty row** `{}` names no ability, so it mints nothing. What it still says is "a value or a computation":
+  // a top-level parameter row thunks whether or not it has entries.
+  "the empty effect row" should "mint no binder and add no constraint" in {
+    namedValue("def f[A](x: {} A): A").asserting { nv =>
       (nv.inferableArity, constraintShapes(nv)) shouldBe (0, Map.empty)
     }
   }
 
-  it should "nest multiple entries leftmost-outermost over the base" in {
-    namedValue("def f(x: {Throw[Error], State[S] | Id} Unit): Unit = y").asserting { nv =>
-      nv.signature.value.structure shouldBe App(
-        App(Ref("Function", T), throwStack(App(App(Ref("StateCarrier", T), Ref("S", T)), Ref("Id", T)))),
-        Ref("Unit", T)
-      )
+  it should "thunk its parameter all the same" in {
+    namedValue("def f[A](x: {} A): A").asserting { nv =>
+      nv.signature.value.structure shouldBe
+        Lambda("A", Ref("Type", T), App(App(Ref("Function", T), thunk(Ref("A", T))), Ref("A", T)))
     }
   }
 
-  // A stored row must commit to one concrete representation, so a `data` field row must be pinned — the field then
-  // rewrites to the concrete stack and the data type itself stays non-generic. *Which pass* rewrites it is not visible
-  // here and must stay that way: the data-level pass handles open rows only (its recovery lift needs a home on the
-  // type), and a pinned field is collapsed by the per-function pass, after `DataDefinitionDesugarer` has split the
-  // data — which is what lets the constructor and accessor record their pinned capture tag (see
-  // `OperatorResolverProcessorTest`'s pinned-row group). These three assertions are the guard that moving the
-  // collapse did not move the resulting shape.
-  "effect rows on data fields" should "keep the type constructor nullary when the field row is pinned" in {
-    namedValue("data Box(body: {Throw[Error] | Id} Unit)", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
+  // Only a *top-level* row thunks. A row in an arrow codomain (`onError: E => {} A`) is the callback's own row and
+  // lowers to the bare payload, exactly as a return row does.
+  it should "leave a row in an arrow codomain alone" in {
+    (namedValue("def f[A](x: A => {} A): A"), namedValue("def f[A](x: A => A): A"))
+      .mapN { (rowed, plain) => rowed.signature.value.structure shouldBe plain.signature.value.structure }
+  }
+
+  // A stored computation is an ordinary thunked field — no pin, and no generic parameter on the data type, because a
+  // thunk is an ordinary type.
+  "an effect row on a data field" should "keep the type constructor nullary" in {
+    namedValue("data Box(body: {Throw[Error]} Unit)", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
       nv.signature.value.structure shouldBe Ref("Type", T)
     }
   }
 
-  it should "rewrite a pinned field to its concrete carrier stack in the value constructor" in {
-    namedValue("data Box(body: {Throw[Error] | Id} Unit)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
+  it should "thunk the field in the value constructor" in {
+    namedValue("data Box(body: {Throw[Error]} Unit)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
       nv.signature.value.structure shouldBe
-        App(App(Ref("Function", T), throwStack(Ref("Id", T))), Ref("Box", Qualifier.Type))
+        App(App(Ref("Function", T), thunk(Ref("Unit", T))), Ref("Box", Qualifier.Type))
     }
   }
 
-  it should "rewrite the pinned field through the accessor too" in {
-    namedValue("data Box(body: {Throw[Error] | Id} Unit)", QualifiedName("body", Qualifier.Default)).asserting { nv =>
+  it should "thunk it through the accessor too" in {
+    namedValue("data Box(body: {Throw[Error]} Unit)", QualifiedName("body", Qualifier.Default)).asserting { nv =>
       nv.signature.value.structure shouldBe
-        App(App(Ref("Function", T), Ref("Box", Qualifier.Type)), throwStack(Ref("Id", T)))
+        App(App(Ref("Function", T), Ref("Box", Qualifier.Type)), thunk(Ref("Unit", T)))
     }
-  }
-
-  it should "reject an open positive row in a field" in {
-    coreErrors("data Box(body: {Suspend} Unit)")
-      .asserting(_ should contain("A stored effect row must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`."))
-  }
-
-  it should "reject an open row nested in a field's arrow codomain" in {
-    coreErrors("data Box(callback: A => {Suspend} Unit)")
-      .asserting(_ should contain("A stored effect row must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`."))
   }
 
   it should "leave a data type with no effectful fields untouched" in {
@@ -859,23 +737,14 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  // An open row cannot be carried through a type alias: its lowering mints the carrier onto the alias's own generics, so
-  // a definition naming the alias inherits neither the carrier nor the effect. Only a pinned row is a type, so an alias
-  // must pin — mirroring the `data`-field rule above.
-  private val aliasOpenRowError =
-    "An effect row in a type alias must be pinned to a base carrier, e.g. `{Throw[Error] | Id} String`. " +
-      "An open row cannot be carried through an alias — pin it, or declare the effect on the definition instead."
-
-  "effect rows in type aliases" should "reject an open positive row in an alias body" in {
-    coreErrors("type Susp = {Suspend} Unit").asserting(_ should contain(aliasOpenRowError))
+  // A **pinned** row `{E | T} A` has no v6 meaning — there is no carrier stack to name — and is rejected rather than
+  // silently read as an open row, so a v5 signature that survives the flag day fails at the position needing rewriting.
+  "a pinned row" should "be rejected in a def signature" in {
+    coreErrors("def f(x: {Throw[Error] | G} Unit): Unit = y").asserting(_ should contain(pinnedRowError))
   }
 
-  it should "reject an open row nested in an alias body's arrow codomain" in {
-    coreErrors("type Handler = A => {Suspend} Unit").asserting(_ should contain(aliasOpenRowError))
-  }
-
-  it should "accept a pinned row in an alias body" in {
-    coreErrors("type Names = {Throw[Error] | Id} Unit").asserting(_ should not contain aliasOpenRowError)
+  it should "be rejected in a data field" in {
+    coreErrors("data Box(body: {Throw[Error] | Id} Unit)").asserting(_ should contain(pinnedRowError))
   }
 
   "flat expressions" should "pass through as FlatExpression in core" in {
@@ -983,12 +852,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  // The kind of a `[F[_]]` carrier: Function[Type, Type].
-  private def carrierKind: ExprStructure = App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T))
+  // What a top-level row lowers to: a thunk `Unit => A`, the shape a slot takes when it must not run its argument.
+  private def thunk(payload: ExprStructure): ExprStructure =
+    App(App(QualRef("Function", "eliot.lang.Function"), QualRef("Unit", "eliot.lang.Unit")), payload)
 
-  // The canonical stack `ThrowCarrier[Error, <base>, Unit]` a pinned `{Throw[Error] | <base>} Unit` rewrites to.
-  private def throwStack(base: ExprStructure): ExprStructure =
-    App(App(App(Ref("ThrowCarrier", T), Ref("Error", T)), base), Ref("Unit", T))
+  private val pinnedRowError =
+    "An effect row has no base: write `{Throw[Error]} String` rather than `{Throw[Error] | Id} String`. " +
+      "A computation is a thunk, and the implementation it runs on is bound by `with` or by the caller."
 
   private def coreErrors(source: String): IO[Seq[String]] =
     runGenerator(source, CoreAST.Key(file)).map(_._1.map(_.message))
