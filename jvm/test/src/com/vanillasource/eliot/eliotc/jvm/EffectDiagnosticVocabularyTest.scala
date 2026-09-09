@@ -8,14 +8,21 @@ import org.scalatest.matchers.should.Matchers
 
 import java.nio.file.{Files, Path}
 
-/** The effects-as-channel §9 gate on the *diagnostic* side: an error a user reads speaks payload and effect-row
-  * vocabulary, never carrier machinery. Carriers (`AbortCarrier`, `ThrowCarrier`, …) and the identity carrier `Id` are
-  * compiler-internal — `Throw.els` says so in as many words ("Plumbing only — application code never names it") — so a
-  * message naming them tells the user about a type no surface syntax even spells.
+/** The gate on the *diagnostic* side: an error a user reads speaks payload and effect-row vocabulary, never compiler
+  * machinery.
   *
-  * Both programs here are *expected to fail*: what is asserted is how the failure reads. They are compiled over the
-  * real base layer (`lang` + `stdlib` + `jvm`), because the shapes only arise once the carriers are the concrete
-  * platform ones.
+  * Under effects v6 there is no carrier to leak into a message — the machinery the v5 version of this suite guarded
+  * against (`AbortCarrier`, `ThrowCarrier`, the identity carrier `Id`, and the one inverter that rendered a stack back
+  * as a pinned row) is deleted, and with it the two shapes that used to *need* the inverter: a carrier-stack ability
+  * demand, and a pure-base `Id` row a side effect could not run on. Those cases are gone rather than rewritten,
+  * because their subject is; what is left is the claim itself, which outlives the mechanism, plus the standing net
+  * that no message names machinery.
+  *
+  * One of them is now a *positive* case: the `State`-over-`Throw` program that used to fail for want of a cross-lift
+  * compiles and runs, because frames nest at the run site rather than needing an instance per layer pair.
+  *
+  * The failing programs here are compiled over the real base layer (`lang` + `stdlib` + `jvm`), because the shapes
+  * only arise against the platform's own implementations.
   */
 class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
@@ -32,38 +39,10 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
       |def main: {Console} Unit = printLine(helper)
       |""".stripMargin
 
-  /** A pure value where a pinned computation is expected (`resume`'s declared parameter is the reified
-    * `{Abort | IO} String`) — a legitimate type mismatch whose `Expected:` line must render the carrier stack as its
-    * pinned row, never as `AbortCarrier(...)`.
+  /** Two control effects, discharged at one run site. Written without dot-chaining on purpose, so what is exercised is
+    * the nesting itself.
     */
-  private val pinnedMismatch =
-    """
-      |def resume(c: {Abort | IO} String): {Console} Unit = printLine(c else "localhost")
-      |
-      |def main: {Console} Unit = resume("plain")
-      |""".stripMargin
-
-  /** A side effect reaching a computation pinned to the pure base: the `TestCase` field's row is pinned to `Id`, which
-    * has no `Suspend` instance *by design*, so `printLine` cannot run there. The demand that fails is the user's own
-    * `Console` at that row — the jvm instance declines for want of `Suspend` (constraint-aware declination,
-    * docs/testing-effects.md L1) — and the base of the row is what earns the effect-vocabulary wording instead of
-    * "No ability implementation found for ability 'Console' with type arguments [{Throw[String] | Id}]".
-    */
-  private val sideEffectOnPureBase =
-    """import eliot.lang.Id
-      |
-      |data TestCase(name: String, body: {Throw[String] | Id} Unit)
-      |
-      |def bad: TestCase = TestCase("x", printLine("hi"))
-      |
-      |def main: {Console} Unit = printLine(name(bad))
-      |""".stripMargin
-
-  /** A genuinely missing cross-lift (`State` over a `Throw` layer has no instance), which is the everyday way a
-    * *carrier stack* reaches an ability-demand message. Written without dot-chaining on purpose, so the failure is the
-    * missing instance rather than anything the chain does to it.
-    */
-  private val missingCrossLift =
+  private val stackedControlEffects =
     """def counted: {State[String], Throw[String]} String = {
       |   putState("seen")
       |   raise("boom")
@@ -73,23 +52,12 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
       |   printLine(foldEither(e -> e, s -> s, runStateToValue("i", runThrow(counted))))
       |""".stripMargin
 
-  "an ability-demand diagnostic" should "render a carrier-stack argument as one pinned row" in {
-    compileErrors(missingCrossLift).asserting(_.mkString should include("{Throw[String], State[String] | IO}"))
-  }
-
-  // Regression: an ability's carrier argument is an `F[_]`, so its last argument is the base, not a payload. Read as a
-  // payload-applied type it split one slot off and printed `{Throw | String} {State | String} IO` — wrong, and
-  // confidently so. `GroundValue.valueType` cannot tell the two apart; only the reading context can.
-  it should "not mistake the ability argument of a carrier for its base" in {
-    compileErrors(missingCrossLift).asserting(_.mkString should not include "{Throw | String}")
-  }
-
-  "a type-mismatch diagnostic" should "render a carrier-headed expectation as its pinned effect row" in {
-    compileErrors(pinnedMismatch).asserting(_.mkString should include("{Abort | IO} String"))
-  }
-
-  it should "name no carrier machinery" in {
-    compileErrors(pinnedMismatch).asserting(_.mkString should not include "Carrier")
+  // Two control effects stacked. Under v5 this failed for want of a cross-lift instance (`State` over a `Throw`
+  // layer), and its diagnostic was the everyday way a *carrier stack* reached a user. There is no stack now: each
+  // discharger installs its own frame at the run site, and the nesting the user writes there is the whole of the
+  // interaction — so the program simply compiles and runs.
+  "two control effects discharged at one run site" should "need no cross-lift and run" in {
+    compileToRun(stackedControlEffects).asserting(_ shouldBe "boom")
   }
 
   "an undeclared effect under a pure return" should "read as an effect leak at the definition, in row vocabulary" in {
@@ -98,19 +66,40 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
     )
   }
 
-  it should "name no carrier machinery either" in {
-    compileErrors(pureReturnLeak).asserting(_.mkString should not include "Carrier")
-  }
-
-  "a side effect on the pure identity base" should "be explained in effect vocabulary, not as a missing instance" in {
-    compileErrors(sideEffectOnPureBase).asserting(
-      _.mkString should include("cannot run here, because the computation it runs in is pure")
+  // The standing net. It is trivially satisfied now that no carrier exists, and it stays exactly for that reason: it
+  // is what would notice machinery re-entering user-facing text.
+  it should "name no machinery" in {
+    compileErrors(pureReturnLeak).asserting(errors =>
+      errors.mkString should (not include "Carrier" and not include "ability 'Suspend'" and not include "Id[")
     )
   }
 
-  it should "not report it as an unimplemented machinery ability" in {
-    compileErrors(sideEffectOnPureBase).asserting(_.mkString should not include "ability 'Suspend'")
-  }
+  /** Compile and run the program (module `Test`) over the base layer roots, returning its standard output. The one
+    * program here that is *expected to compile* needs this; every other asserts on [[compileErrors]].
+    */
+  private def compileToRun(source: String): IO[String] =
+    for {
+      sourceDir  <- IO.blocking(Files.createTempDirectory("eliot-diag-src"))
+      targetDir  <- IO.blocking(Files.createTempDirectory("eliot-diag-target"))
+      _          <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
+      args        = List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", "Test") ++ layerPathArgs
+      sessionOpt <- Compiler.createSession(args)
+      session    <- IO.fromOption(sessionOpt)(new IllegalStateException("Could not create the compilation session."))
+      result     <- session.compileOnce()
+      _          <- IO.raiseWhen(result.errors.nonEmpty)(
+                      new IllegalStateException(s"Expected the program to compile: ${result.errors.map(_.message)}")
+                    )
+      output     <- runJar(targetDir.resolve("Test.jar"))
+    } yield output
+
+  private def runJar(jar: Path): IO[String] =
+    IO.blocking {
+      val out     = new java.io.ByteArrayOutputStream()
+      val process = new ProcessBuilder("java", "-jar", jar.toString).redirectErrorStream(true).start()
+      process.getInputStream.transferTo(out)
+      process.waitFor()
+      out.toString(java.nio.charset.StandardCharsets.UTF_8).trim
+    }
 
   /** Compile the program (module `Test`) over the base layer roots and return everything the user is shown for each
     * error — its message *and* its description lines, which is where the `Expected:` / `Actual:` types live. Never

@@ -99,9 +99,9 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
       |import eliot.compiler.Reflect
       |""".stripMargin
 
-  /** The `eliot-test` shape: each gathered test is handed to a slot the runner *declares*, so the tests run on the
-    * runner's own carrier and their assertion failures are discharged one by one. No list could hold them — an element
-    * of a list is a payload, and a payload may not be a computation.
+  /** The `eliot-test` shape: each gathered test is handed to a slot the runner *declares*, so the runner supplies and
+    * discharges its `Throw` one by one while everything else it performs stays the runner's own. No list could hold
+    * them — an element of a list is a payload, and a payload may not be a computation.
     */
   private def suite(step: String, extra: Map[String, String]): Map[String, String] =
     Map(
@@ -112,7 +112,7 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
     ) ++ extra
 
   private val runningStep =
-    """def step[G[_] ~ Effect & Console](name: String, test: {Throw[String] | G} Unit, rest: G[Unit]): G[Unit] = {
+    """def step(name: String, test: {Throw[String]} Unit, rest: {} Unit): {Console} Unit = {
       |   printLine(name)
       |   test catch (e -> printLine("FAILED " ++ e))
       |   rest
