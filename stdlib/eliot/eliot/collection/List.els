@@ -24,7 +24,7 @@ def foldLeft[A, B](initial: B, combine: A => B => {} B, list: List[A]): B
  * ```
  */
 def foreach[A](action: A => {} Unit, list: List[A]): Unit =
-   list.foldLeft(pure(unit), e -> _ -> action(e))
+   list.foldLeft(unit, e -> _ -> action(e))
 
 /**
  * A new list holding the result of `f` for every element of `list`, in the same order.

@@ -31,10 +31,11 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ should include("Overlapping ability implementation"))
   }
 
-  // --- Effects M5: structural-effect discharge — Abort -> Option via the AbortCarrier transformer ---
+  // --- Structural-effect discharge: Abort -> Option ---
 
   // A completed `{Abort}` computation discharges, via `runAbort`, to `Some` — the `Option` is born only here, at the
-  // discharge edge, not in the `{Abort} String` signature. `main` pins the residual carrier `G := IO`.
+  // discharge edge, not in the `{Abort} String` signature. Under effects v6 the discharge yields the `Option` itself
+  // (a frame is installed and left), so the result is an ordinary value rather than a computation to bind.
   "the Abort effect" should "discharge a completed computation to Some via runAbort" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -42,12 +43,12 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |
         |def safe: {Abort} String = "config-value"
         |
-        |def main: {Console} Unit = flatMap(o -> printLine(foldOption("<absent>", s -> s, o)), runAbort(safe))""".stripMargin
+        |def main: {Console} Unit = printLine(foldOption("<absent>", s -> s, runAbort(safe)))""".stripMargin
     ).asserting(_ shouldBe "config-value")
   }
 
-  // A short-circuiting `{Abort}` computation discharges to `None`. `abort` resolves to `Abort[AbortCarrier[IO]]` after the
-  // carrier is refined to `AbortCarrier[G]` by partial-application injectivity at the `runAbort` call.
+  // A short-circuiting `{Abort}` computation discharges to `None`: `abort` leaves through the frame `runAbort`
+  // installed, and the discharge reflects that as the empty case.
   it should "discharge an aborted computation to None via runAbort" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -55,14 +56,13 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |
         |def giveUp: {Abort} String = abort
         |
-        |def main: {Console} Unit = flatMap(o -> printLine(foldOption("gave up!", s -> s, o)), runAbort(giveUp))""".stripMargin
+        |def main: {Console} Unit = printLine(foldOption("gave up!", s -> s, runAbort(giveUp)))""".stripMargin
     ).asserting(_ shouldBe "gave up!")
   }
 
-  // The Decision-10 acceptance: a `{Console, Abort}` program. `Console` rides the `AbortCarrier[IO]` stack via the single
-  // `Suspend[AbortCarrier[G]]` base lift (no per-effect lifting), so the print runs; then `abort` short-circuits the result to
-  // `None`. Proves the constrained-HKT instance + base-Suspend-lift path end to end.
-  "a {Console, Abort} program" should "run Console through the AbortCarrier[IO] stack via the Suspend lift, then short-circuit" in {
+  // A program declaring two effects at once: the print runs, then `abort` short-circuits the result to `None`. Two
+  // effects in one row are two independent bindings under v6 — there is no stack to lift `Console` through.
+  "a {Console, Abort} program" should "print, then short-circuit" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Abort
@@ -71,12 +71,12 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |
         |def loud: {Console, Abort} String = andThen(printLine("trying"), abort)
         |
-        |def main: {Console} Unit = flatMap(o -> printLine(foldOption("stopped", s -> s, o)), runAbort(loud))""".stripMargin
+        |def main: {Console} Unit = printLine(foldOption("stopped", s -> s, runAbort(loud)))""".stripMargin
     ).asserting(_ shouldBe "trying\nstopped")
   }
 
-  // Throw[E] is the typed-error sibling of Abort, discharging to Either[E, _] via the ThrowCarrier transformer — proving the
-  // structural-discharge pattern generalises to a two-type-parameter effect and a two-constructor result.
+  // `Throw[E]` is the typed-error sibling of `Abort`, discharging to `Either[E, _]` — the same structural discharge at
+  // a parameterised effect and a two-constructor result.
   "the Throw effect" should "discharge a completed computation to Right via runThrow" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -84,7 +84,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |
-        |def main: {Console} Unit = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseOk))""".stripMargin
+        |def main: {Console} Unit = printLine(foldEither(err -> err, v -> v, runThrow(parseOk)))""".stripMargin
     ).asserting(_ shouldBe "parsed-value")
   }
 
@@ -95,7 +95,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
-        |def main: {Console} Unit = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseBad))""".stripMargin
+        |def main: {Console} Unit = printLine(foldEither(err -> err, v -> v, runThrow(parseBad)))""".stripMargin
     ).asserting(_ shouldBe "malformed input")
   }
 
@@ -339,30 +339,14 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "unparseable\ninitial")
   }
 
-  // §1 rule 2 (decided 2026-07-28): a parameter typed on a carrier holds a *computation*, so a bare pure value is a
-  // type error there — `F[A]` is a type, not a row, and "which `F`?" has no answer the caller supplied. This used to
-  // auto-lift via `pure`, which made the calling convention depend on `~ Effect` being declared for the callee's own
-  // internal reasons: without that constraint the very same call died in the quoter instead. (Older still, it
-  // degenerately unified `F[A] := String` and miscompiled to a runtime VerifyError; the rejection keeps that closed.)
-  "a pure value into a generic effect-carrier parameter" should "be rejected — a carrier is a type, not a row" in {
-    compileForErrors(
-      """import eliot.effect.Console
-        |
-        |def echo[F[_] ~ Effect, A](value: F[A]): F[A] = value
-        |
-        |def main: {Console} Unit = printLine(echo("hello"))""".stripMargin
-    ).asserting(_.mkString should include("declares a computation on its own carrier"))
-  }
-
-  // The other side of the same rule, and the spelling a library author reaches for instead: an **effect row** means
-  // "a value or a computation" — the empty row is a legal row — so the identical position accepts both a pure actual
-  // and an effectful one. `{Effect}` is `F[A]` after desugaring, so nothing about the *type* changed; what changed is
-  // that the declaration now says which of the two it means.
-  "the same parameter declared as an effect row" should "accept a pure and an effectful argument alike" in {
+  // An **effect row** means "a value or a computation" — the empty row is a legal row — so one position accepts both
+  // a pure actual and an effectful one. Under v6 the row lowers the *slot* to a thunk, so what the declaration says is
+  // "I decide when this runs", and the caller writes the same thing either way.
+  "a parameter declared as an effect row" should "accept a pure and an effectful argument alike" in {
     compileAndRun(
       """import eliot.effect.Console
         |
-        |def echo[A](value: {Effect} A): {Effect} A = value
+        |def echo[A](value: {} A): A = value
         |
         |def main: {Console} Unit = {
         |   printLine(echo("hello"))
@@ -372,119 +356,71 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "hello\ntyped")
   }
 
-  // The other half of the rule above: a higher-kinded binder that declares NO `~ Effect` constraint is not a carrier,
-  // so nothing instantiates it at `Id` on the program's behalf (the v2 bridge's return boundary did, which is the
-  // checker inventing a carrier — removed with the bridge, A.11.7-Y shape 2). `Id` remains perfectly usable there; it
-  // just has to be written, and then it is an honest type application rather than an inference.
-  "an unconstrained higher-kinded binder at a pure return" should "work when the Id carrier is written explicitly" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |
-        |def id[F[_]](x: F[String]): F[String] = x
-        |
-        |def someString: String = "hello"
-        |
-        |def f: String = runId(id[Id](Id(someString)))
-        |
-        |def main: {Console} Unit = printLine(f)""".stripMargin
-    ).asserting(_ shouldBe "hello")
-  }
-
-  // Static testability (M5): the SAME carrier-polymorphic {Abort} business logic runs under a pure `Id` test carrier
-  // (G := Id), with no production IO — the effect discharges to a plain Option the test inspects. main only does IO to
-  // print the already-computed pure results.
-  "a carrier-polymorphic {Abort} program" should "run under a pure Id test carrier with no IO and discharge to Option" in {
+  // Static testability: the SAME `{Abort}` business logic a program runs is what a test runs, discharged to a plain
+  // `Option` with no I/O anywhere. Under v6 there is no test *carrier* to substitute — `runAbort` installs a frame and
+  // answers ordinary data — so the "pure test run" is just calling it from a pure function.
+  "an {Abort} program" should "discharge to an Option in a pure function, with no I/O" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |data Id[A](runId: A)
-        |
-        |implement Effect[Id] {
-        |   def pure[A](a: A): Id[A] = Id(a)
-        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
-        |}
-        |
         |def allowed: {Abort} String = "granted"
         |def denied: {Abort} String = abort
         |
-        |def testAllowed: Option[String] = runId(runAbort(allowed))
-        |def testDenied: Option[String] = runId(runAbort(denied))
+        |def testAllowed: Option[String] = runAbort(allowed)
+        |def testDenied: Option[String] = runAbort(denied)
         |
-        |def main: {Console} Unit = flatMap(
-        |   ignored -> printLine(foldOption("DENIED", s -> s, testDenied)),
-        |   printLine(foldOption("DENIED", s -> s, testAllowed)))""".stripMargin
+        |def main: {Console} Unit = {
+        |   printLine(foldOption("DENIED", s -> s, testAllowed))
+        |   printLine(foldOption("DENIED", s -> s, testDenied))
+        |}""".stripMargin
     ).asserting(_ shouldBe "granted\nDENIED")
   }
 
-  // The State effect (M5): a `{State[S]}` computation discharges to a `Pair[A, S]` (result + final state) via the
-  // `StateCarrier` transformer, born only at the `runStateToPair` edge. `state`/`putState` resolve to `State[StateCarrier[S, IO]]`
-  // after the carrier is refined to `StateCarrier[S, G]` by partial-application injectivity at the `runStateToPair` call. `swap`
-  // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
+  // A `{State[S]}` computation discharges to a `Pair[A, S]` (result + final state) via `runStateToPair`, and the
+  // `Pair` is born only at that edge, not in the `{State[String]} String` signature. `swap` reads the state, installs
+  // a new one and returns the previous value; a block is strict evaluation order, so it needs no combinator.
   "the State effect" should "thread state through a {State} computation and discharge to a Pair via runStateToPair" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.State
         |
-        |def swap(next: String): {State[String]} String =
-        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
+        |def swap(next: String): {State[String]} String = {
+        |   val old = state
+        |   putState(next)
+        |   old
+        |}
         |
-        |def prog: IO[Pair[String, String]] = runStateToPair("before", swap("after"))
+        |def prog: Pair[String, String] = runStateToPair("before", swap("after"))
         |
-        |def main: {Console} Unit = flatMap(p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))), prog)""".stripMargin
+        |def main: {Console} Unit = {
+        |   printLine(first(prog))
+        |   printLine(second(prog))
+        |}""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
-  // Static testability for State: the SAME carrier-polymorphic {State} logic runs under a pure `Id` carrier (G := Id),
-  // discharging to a plain `Pair` with no IO. This is the State→Pair discharge the generic-multi-field-data codegen
-  // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `state`/`putState`).
-  "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |import eliot.effect.State
-        |
-        |data Id[A](runId: A)
-        |
-        |implement Effect[Id] {
-        |   def pure[A](a: A): Id[A] = Id(a)
-        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
-        |}
-        |
-        |def swap(next: String): {State[String]} String =
-        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
-        |
-        |def demo: Pair[String, String] = runId(runStateToPair("first", swap("second")))
-        |
-        |def main: {Console} Unit = flatMap(ignored -> printLine(second(demo)), printLine(first(demo)))""".stripMargin
-    ).asserting(_ shouldBe "first\nsecond")
-  }
-
   // The two projecting discharges: `runStateToValue` keeps only the result (dropping the final state) and
-  // `runStateToFinalState` only the final state (dropping the result). Both `map` over `runStateToPair`, so they need a
-  // `G ~ Effect`. `swap` returns the previous value and installs `next`; from "before" the value is "before" and the
-  // final state is "after".
+  // `runStateToFinalState` only the final state (dropping the result). `swap` returns the previous value and installs
+  // `next`; from "before" the value is "before" and the final state is "after".
   "the projecting State discharges" should "keep only the value, or only the final state" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.State
         |
-        |data Id[A](runId: A)
-        |
-        |implement Effect[Id] {
-        |   def pure[A](a: A): Id[A] = Id(a)
-        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
+        |def swap(next: String): {State[String]} String = {
+        |   val old = state
+        |   putState(next)
+        |   old
         |}
         |
-        |def swap(next: String): {State[String]} String =
-        |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
+        |def onlyValue: String = runStateToValue("before", swap("after"))
+        |def onlyState: String = runStateToFinalState("before", swap("after"))
         |
-        |def onlyValue: String = runId(runStateToValue("before", swap("after")))
-        |def onlyState: String = runId(runStateToFinalState("before", swap("after")))
-        |
-        |def main: {Console} Unit = flatMap(ignored -> printLine(onlyState), printLine(onlyValue))""".stripMargin
+        |def main: {Console} Unit = {
+        |   printLine(onlyValue)
+        |   printLine(onlyState)
+        |}""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
@@ -509,21 +445,12 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "done")
   }
 
-  // The derived `updateState(f)` = `putState(f(state))`: it reads the current state, applies `f`, and writes it back,
-  // all via the effect auto-lift (no explicit flatMap). `flip` genuinely reads the current state (it matches on it), so
-  // from `Off` the final state is `On`.
+  // The derived `updateState(f)` = `putState(f(state))`: it reads the current state, applies `f`, and writes it back.
+  // `flip` genuinely reads the current state (it matches on it), so from `Off` the final state is `On`.
   "the derived updateState" should "read the state, apply the function, and write the result back" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.State
-        |
-        |data Id[A](runId: A)
-        |
-        |implement Effect[Id] {
-        |   def pure[A](a: A): Id[A] = Id(a)
-        |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-        |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
-        |}
         |
         |data Toggle = Off | On
         |
@@ -538,18 +465,16 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |}
         |
         |def switch: {State[Toggle]} Unit = updateState(t -> flip(t))
-        |def result: Toggle = runId(runStateToFinalState(Off, switch))
+        |def result: Toggle = runStateToFinalState(Off, switch)
         |
         |def main: {Console} Unit = printLine(describe(result))""".stripMargin
     ).asserting(_ shouldBe "on")
   }
 
-  // Regression: a COMPOUND state type `State[List[String]]`. The `updateState`/`state` carrier meta `?F[?S]` meets the
-  // state slot `S = List[String]` — an equal-arity data-constructor application — so before the effect lifter's
-  // equal-arity guard it spuriously unified `?F := List`, `?S := String` and resolved the `State` ability at
-  // `[String, List]` ("No ability implementation found for ability 'State' with type arguments [String, List]").
-  // The lift now fires because the enclosing value has an ambient carrier and the payload is a flex meta, threading the
-  // list state correctly (both names survive).
+  // A COMPOUND state type `State[List[String]]`, kept because it is the shape a state slot most easily mis-resolves
+  // at: an equal-arity data-constructor application at the state position once unified the carrier with `List` and
+  // resolved the `State` ability at `[String, List]`. With no carrier to unify there is nothing to get wrong, and the
+  // case stays as the regression it was.
   "the derived updateState over a compound List state" should "resolve the State ability at the whole list type" in {
     compileAndRun(
       """import eliot.effect.Console
@@ -565,172 +490,99 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |}
         |
         |def main: {Console} Unit =
-        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
+        |   foreach(printLine, runStateToFinalState(empty, collectNames))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
 
-  // Regression: a BLOCK of statements whose type is a PINNED effect row (`{State[List[String]] | Id} Unit` — the
-  // concrete `StateCarrier[List[String], Id, Unit]` stack, not an open-row carrier binder) must SEQUENCE, threading the
-  // state through every statement. Before the fix, the concrete carrier head was unrecognised (a pinned-row value
-  // records no `[F[_] ~ E]` binder), so block lowering never inserted `flatMap` and silently dropped every statement
-  // but the last (only `bob` survived). Recording the return's `Effect`-instanced carrier head as ambient fixes it.
-  "a block of pinned-row State statements" should "sequence, threading the state through all of them" in {
+  // A BLOCK of `{State}` statements must SEQUENCE, threading the state through every statement rather than keeping
+  // only the last. It is the plainest thing a block has to do, and it once failed for a whole class of returns whose
+  // carrier the lowering did not recognise; under v6 a block is strict evaluation order and there is no carrier to
+  // recognise, so this stands as the behavioural guard it always was.
+  "a block of State statements" should "sequence, threading the state through all of them" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.collection.List
         |
-        |def pushName(n: String): {State[List[String]] | Id} Unit =
+        |def pushName(n: String): {State[List[String]]} Unit =
         |   updateState(names -> append(names, n))
         |
-        |def collectNames: {State[List[String]] | Id} Unit = {
+        |def collectNames: {State[List[String]]} Unit = {
         |   pushName("ada")
         |   pushName("bob")
         |}
         |
         |def main: {Console} Unit =
-        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
+        |   foreach(printLine, runStateToFinalState(empty, collectNames))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
 
-  // The same block, but the pinned row is written once as a TYPE ALIAS and both definitions are declared by its name.
-  // A `type` alias's own return position is the kind `Type`, so the pinned tag lives on its *body*; without reading it
-  // through one alias level (the §3.2 whitelist's alias clause) the definition read as pure — `runId`-wrapping the
-  // whole block — while every statement in it was a computation on the very stack the alias names, and the two
-  // disagreed with a mismatch whose two sides render identically.
-  "a block of pinned-row statements typed by an alias" should "sequence exactly as the spelled-out row does" in {
+  // A stored computation. Under v5 this was a *pinned row* (`{State[String] | Id} Unit`) — the one place a type could
+  // contain a computation — and three cases pinned how one reached a `List` element, an alias body and a block
+  // statement. A pinned row has no v6 meaning and is rejected at core: a computation is a **thunk**, an ordinary arrow
+  // type, so storing one needs no spelling of its own. Nothing here replaces those three: what a stored computation
+  // has to do is covered where it is actually used, by `eliot-test`'s `List[TestCase]`.
+
+  // A `{State, Console}` program: both effects in one row, the print running while the state threads through and
+  // discharges to a `Pair`. Two effects are two independent bindings under v6 — there is no stack for one to ride.
+  "a {State, Console} program" should "print and thread the state in one program" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.State
-        |import eliot.collection.List
         |
-        |type Names = {State[List[String]] | Id} Unit
-        |
-        |def pushName(n: String): {State[List[String]] | Id} Unit =
-        |   updateState(names -> append(names, n))
-        |
-        |def collectNames: Names = {
-        |   pushName("ada")
-        |   pushName("bob")
+        |def step: {State[String], Console} String = {
+        |   printLine("running step")
+        |   val old = state
+        |   putState("done")
+        |   old
         |}
         |
-        |def main: {Console} Unit =
-        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
-    ).asserting(_ shouldBe "ada\nbob")
-  }
-
-  // The call-site twin of the block above: the sequenced helper's OWN return is spelled by the alias too, so each
-  // statement in `collectNames` is a saturated call to a callee whose pinned return lives only on the alias body. The
-  // call's result kind must read that pinned tag through one alias level (`declaredResultKind` → `returnsPinnedAlias`);
-  // without it the statement classifies as a plain payload and gets `pure`-wrapped at the carrier position it in fact
-  // returns, a hard mismatch (the A.11.13 "Not done" call-site gap).
-  "a block sequencing calls whose pinned return is spelled by an alias" should "classify each as a computation" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |import eliot.effect.State
-        |import eliot.collection.List
-        |
-        |type Names = {State[List[String]] | Id} Unit
-        |
-        |def pushName(n: String): Names =
-        |   updateState(names -> append(names, n))
-        |
-        |def collectNames: Names = {
-        |   pushName("ada")
-        |   pushName("bob")
-        |}
-        |
-        |def main: {Console} Unit =
-        |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
-    ).asserting(_ shouldBe "ada\nbob")
-  }
-
-  // §1 rule 3's other direction: a pinned row is a reified computation AND an ordinary type, so a saturated call to a
-  // pinned-returning definition is *data* to store — here into a `List` whose element type is the alias. Rule 4's
-  // rowless-slot check must not fire on it: `append`'s `A` is a plain generic, but nothing performs anything at this
-  // call, and only a discharger ever consumes the stored stack.
-  "a pinned-row computation" should "be storable in a list through a rowless generic slot" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |import eliot.effect.State
-        |import eliot.collection.List
-        |
-        |type Step = {State[String] | Id} Unit
-        |
-        |def one: {State[String] | Id} Unit = putState("one")
-        |
-        |def steps: List[Step] = append(empty, one)
-        |
-        |def main: {Console} Unit = printLine(show(steps.size))""".stripMargin
-    ).asserting(_ shouldBe "1")
-  }
-
-  // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Suspend[StateCarrier[S, G]]` base lift
-  // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
-  "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Suspend lift" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |import eliot.effect.State
-        |
-        |def step: {State[String], Console} String =
-        |   flatMap(
-        |      ignored -> flatMap(old -> flatMap(ignored2 -> pure(old), putState("done")), state),
-        |      printLine("running step"))
-        |
-        |def main: {Console} Unit = flatMap(
-        |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
-        |   runStateToPair("start", step))""".stripMargin
+        |def main: {Console} Unit = {
+        |   val p = runStateToPair("start", step)
+        |   printLine(first(p))
+        |   printLine(second(p))
+        |}""".stripMargin
     ).asserting(_ shouldBe "running step\nstart\ndone")
   }
 
-  // Ordering-at-the-edge (M5, the last open item): ONE carrier-polymorphic `{State[String], Abort}` program —
-  // install a new state, then `abort` — discharged in the TWO possible orders, giving two genuinely different
-  // results (and result *types*). The interaction "does the abort roll back the state?" is left open in the flat
-  // effect set and decided only by the order the `run*` calls are nested, via the n² cross-lifting instances
-  // `State[AbortCarrier[G]]` (in `AbortCarrier`) and `Abort[StateCarrier[S, G]]` (in `StateCarrier`). Run on a pure `Id` carrier.
+  // Ordering at the edge: ONE `{State[String], Abort}` program — install a new state, then `abort` — discharged in the
+  // TWO possible orders, giving two genuinely different results and two different result *types*. The interaction
+  // "does the abort roll back the state?" is left open by the flat effect set and decided only by the order the
+  // dischargers install their frames: a cell installed outside an escape frame survives leaving it, one installed
+  // inside goes with it.
   private val orderingPrelude =
-    """import eliot.carrier.Effect
-      |import eliot.effect.State
+    """import eliot.effect.State
       |import eliot.effect.Abort
       |
-      |data Id[A](runId: A)
+      |def reject(value: String): {Abort} String = abort
       |
-      |implement Effect[Id] {
-      |   def pure[A](a: A): Id[A] = Id(a)
-      |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-      |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
+      |def modifyThenAbort: {State[String], Abort} String = {
+      |   putState("modified")
+      |   reject("modified")
       |}
-      |
-      |def modifyThenAbort: {State[String], Abort} String =
-      |   flatMap(ignored -> abort, putState("modified"))
       |
       |""".stripMargin
 
-  // Discharge Abort first (inner), State second (outer) ⟹ `Pair[Option[A], S]`: the state SURVIVES the abort, so the
-  // final state is the installed "modified" even though the value aborted to None. State rides through `AbortCarrier` via
-  // the `State[AbortCarrier[G]]` cross-lift.
   "ordering at the discharge edge" should "let state survive an abort when State is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
         """import eliot.effect.Console
           |def stateSurvives: Pair[Option[String], String] =
-          |   runId(runStateToPair("initial", runAbort(modifyThenAbort)))
+          |   runStateToPair("initial", runAbort(modifyThenAbort))
           |
-          |def main: {Console} Unit = flatMap(
-          |   ignored -> printLine(second(stateSurvives)),
-          |   printLine(foldOption("<no value>", s -> s, first(stateSurvives))))""".stripMargin
+          |def main: {Console} Unit = {
+          |   printLine(foldOption("<no value>", s -> s, first(stateSurvives)))
+          |   printLine(second(stateSurvives))
+          |}""".stripMargin
     ).asserting(_ shouldBe "<no value>\nmodified")
   }
 
-  // Discharge State first (inner), Abort second (outer) ⟹ `Option[Pair[A, S]]`: the abort DISCARDS the state — the
-  // whole pair is torn down to None, so there is no surviving state at all. Abort rides through `StateCarrier` via the
-  // `Abort[StateCarrier[S, G]]` cross-lift. The opposite result from the same program: ordering decides interaction.
   it should "discard state on an abort when Abort is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
         """import eliot.effect.Console
           |def stateDiscarded: Option[Pair[String, String]] =
-          |   runId(runAbort(runStateToPair("initial", modifyThenAbort)))
+          |   runAbort(runStateToPair("initial", modifyThenAbort))
           |
           |def main: {Console} Unit = printLine(foldOption("<no state>", p -> second(p), stateDiscarded))""".stripMargin
     ).asserting(_ shouldBe "<no state>")
@@ -796,10 +648,9 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     ).asserting(_ shouldBe "echo:\nhello")
   }
 
-  // The docs' headline equivalence: `swap` written as a block produces the same result as the hand-written flatMap nest
-  // (cf. the "State effect" test above). `val old = state` binds the carried state; `putState(next)` is a bare
-  // effectful statement; `old` is the result expression.
-  "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
+  // The docs' headline: `swap` written as a block. `val old = state` binds the read; `putState(next)` is a bare
+  // statement; `old` is the result expression — a block is strict evaluation order and nothing else.
+  "a {State} computation in block form" should "thread state through its statements in order" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.State
@@ -810,9 +661,11 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |  old
         |}
         |
-        |def main: {Console} Unit = flatMap(
-        |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
-        |   runStateToPair("before", swap("after")))""".stripMargin
+        |def main: {Console} Unit = {
+        |   val p = runStateToPair("before", swap("after"))
+        |   printLine(first(p))
+        |   printLine(second(p))
+        |}""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
   // A deferred Generic slot whose domain later rigidifies to a *generic data container* — the dot operator's own
