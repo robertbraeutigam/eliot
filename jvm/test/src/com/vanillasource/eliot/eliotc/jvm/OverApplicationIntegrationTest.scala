@@ -12,21 +12,19 @@ class OverApplicationIntegrationTest extends FullIntegrationTest {
 
   "an accessor result" should "be applicable by juxtaposition" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |data Wrapper(unwrap: Function[String, String])
         |
         |def use(w: Wrapper): String = unwrap(w)("x")
         |
-        |def main: IO[Unit] = printLine(use(Wrapper(n -> "hi")))""".stripMargin
+        |def main: {Console} Unit = printLine(use(Wrapper(n -> "hi")))""".stripMargin
     ).asserting(_ shouldBe "hi")
   }
 
   "a def whose body computes a function" should "be applicable directly" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |def compose[A, B, C](f: B => C, g: A => B): A => C = a -> f(g(a))
         |
@@ -34,20 +32,19 @@ import eliot.effect.Console
         |
         |def shout: String => String = compose(exclaim, exclaim)
         |
-        |def main: IO[Unit] = printLine(shout("hello"))""".stripMargin
+        |def main: {Console} Unit = printLine(shout("hello"))""".stripMargin
     ).asserting(_ shouldBe "!")
   }
 
   "a curried field" should "absorb several over-applied arguments in one spine" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |data Curried(pick: String => String => String)
         |
         |def use(c: Curried): String = pick(c)("first")("second")
         |
-        |def main: IO[Unit] = printLine(use(Curried(a -> b -> b)))""".stripMargin
+        |def main: {Console} Unit = printLine(use(Curried(a -> b -> b)))""".stripMargin
     ).asserting(_ shouldBe "second")
   }
 }

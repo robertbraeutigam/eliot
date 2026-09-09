@@ -21,42 +21,38 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a data type referencing itself left of an arrow" should "be rejected as not strictly positive" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |data Loop(f: Function[Loop, String])
         |
-        |def main: IO[Unit] = printLine("unreachable")""".stripMargin
+        |def main: {Console} Unit = printLine("unreachable")""".stripMargin
     ).asserting(_ should include("contravariant position"))
   }
 
   "a data type referencing itself covariantly (structural recursion)" should "compile and run" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |data Tree(left: Tree, right: Tree)
         |
-        |def main: IO[Unit] = printLine("ok")""".stripMargin
+        |def main: {Console} Unit = printLine("ok")""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 
   "a directly self-recursive value" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def loop(x: String): String = loop(x)
         |
-        |def main: IO[Unit] = printLine(loop("unreachable"))""".stripMargin
+        |def main: {Console} Unit = printLine(loop("unreachable"))""".stripMargin
     ).asserting(_ should include("recursively"))
   }
 
   "a mutually-recursive pair of values" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def ping(x: String): String = pong(x)
         |def pong(x: String): String = ping(x)
         |
-        |def main: IO[Unit] = printLine(ping("unreachable"))""".stripMargin
+        |def main: {Console} Unit = printLine(ping("unreachable"))""".stripMargin
     ).asserting(_ should include("recursively"))
   }
 
@@ -65,24 +61,22 @@ import eliot.effect.Console
   // recursive `def` is — a fail-safe property (a recursive alias cannot terminate the type-level reduction it drives).
   "a directly self-recursive type alias" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |type Foo = Foo
         |def useFoo(x: Foo): Foo = x
         |
-        |def main: IO[Unit] = printLine("unreachable")""".stripMargin
+        |def main: {Console} Unit = printLine("unreachable")""".stripMargin
     ).asserting(_ should include("recursively"))
   }
 
   "a mutually-recursive pair of type aliases" should "be rejected as recursion" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |type A = B
         |type B = A
         |def useA(x: A): A = x
         |
-        |def main: IO[Unit] = printLine("unreachable")""".stripMargin
+        |def main: {Console} Unit = printLine("unreachable")""".stripMargin
     ).asserting(_ should include("recursively"))
   }
 
@@ -95,25 +89,23 @@ import eliot.effect.Console
   // ability-method-vs-implementation-method distinction.)
   "the monad-transformer lifting pattern (an Abort carrier over IO)" should "not be mistaken for recursion" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def lookup: {Abort} String = abort
         |
-        |def main: IO[Unit] = printLine(lookup else "fallback")""".stripMargin
+        |def main: {Console} Unit = printLine(lookup else "fallback")""".stripMargin
     ).asserting(_ shouldBe "fallback")
   }
 
   "a deep non-recursive helper chain" should "compile and run" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def a(x: String): String = b(x)
         |def b(x: String): String = c(x)
         |def c(x: String): String = x
         |
-        |def main: IO[Unit] = printLine(a("ok"))""".stripMargin
+        |def main: {Console} Unit = printLine(a("ok"))""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 
@@ -124,13 +116,12 @@ import eliot.effect.Console
   // rides the ordinary effect pipeline, it is not a special termination lattice.
   "a {Console} value that calls forever without declaring Inf" should "be rejected (Inf propagation)" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def bad: {Console} Unit = forever(printLine("x"))
         |
-        |def main: IO[Unit] = bad""".stripMargin
+        |def main: {Console} Unit = bad""".stripMargin
     ).asserting(_ should include("performs the effect 'Inf'"))
   }
 
@@ -139,11 +130,10 @@ import eliot.effect.Console
   // it and confirms the step ran many times (not just once).
   "an IO main built from forever over a terminating step" should "run the step endlessly" in {
     compileAndRunBounded(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def main: IO[Unit] = forever(printLine("tick"))""".stripMargin,
+        |def main: {Console} Unit = forever(printLine("tick"))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "tick") should be > 5)
   }
@@ -152,13 +142,12 @@ import eliot.effect.Console
   // effect set resolves to the concrete `IO` carrier (the `Inf[IO]` and `Console[IO]` instances) and runs end-to-end.
   "a carrier-polymorphic {Inf, Console} super-loop pinned to IO at main" should "run endlessly" in {
     compileAndRunBounded(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def serve: {Inf, Console} Unit = forever(printLine("serving"))
         |
-        |def main: IO[Unit] = serve""".stripMargin,
+        |def main: {Console} Unit = serve""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "serving") should be > 5)
   }
@@ -170,11 +159,10 @@ import eliot.effect.Console
   // definition is byte-for-byte the one used in the `Inf` case below — only the supplied step differs.
   "a higher-order combinator over a terminating step" should "itself terminate" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
-        |def main: IO[Unit] = runStep(_ -> printLine("done"))""".stripMargin
+        |def main: {Console} Unit = runStep(_ -> printLine("done"))""".stripMargin
     ).asserting(_ shouldBe "done")
   }
 
@@ -183,13 +171,12 @@ import eliot.effect.Console
   // (Nystrom's function-coloring win), because `Inf` is a carrier effect, not a separate lattice slot.
   "the same higher-order combinator over an Inf step" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
-        |def main: IO[Unit] = runStep(_ -> forever(printLine("loop")))""".stripMargin,
+        |def main: {Console} Unit = runStep(_ -> forever(printLine("loop")))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "loop") should be > 5)
   }
@@ -199,15 +186,14 @@ import eliot.effect.Console
   // courier for the carrier-typed value, it does not launder the effect.
   "an Inf action stored in data then run through its accessor" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |data Box(action: IO[Unit])
         |
         |def runBox(b: Box): IO[Unit] = action(b)
         |
-        |def main: IO[Unit] = runBox(Box(forever(printLine("boxed"))))""".stripMargin,
+        |def main: {Console} Unit = runBox(Box(forever(printLine("boxed"))))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "boxed") should be > 5)
   }
@@ -220,14 +206,13 @@ import eliot.effect.Console
   // `forever` case above passes either way — it loops at construction just as happily.
   "an effect stored in a data field" should "run when the accessor's computation is run, not at construction" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |data Box(action: IO[Unit])
         |
         |def runBox(b: Box): IO[Unit] = action(b)
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   val b = Box(printLine("stored"))
         |   printLine("before")
         |   runBox(b)
@@ -245,8 +230,7 @@ import eliot.effect.Console
   // rewrites open rows only.
   "an effect stored in a data field spelled as a pinned row" should "also run at the accessor, not at construction" in {
     compileAndRun(
-      """import eliot.jvm.IO
-        |import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |data Holder(computation: {Abort | IO} Unit)
         |
@@ -263,13 +247,12 @@ import eliot.effect.Console
   // and runs end-to-end.
   "an {Inf, Console} driver over a {Console} step" should "union both effects and loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)
         |
-        |def main: IO[Unit] = driver(printLine("tick"))""".stripMargin,
+        |def main: {Console} Unit = driver(printLine("tick"))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "tick") should be > 5)
   }
@@ -278,13 +261,12 @@ import eliot.effect.Console
   // `{Console}` (omitting `Inf`) is rejected — calling `forever` performs `Inf`, which must be declared.
   "a driver that calls forever while declaring only {Console}" should "be rejected (Inf not declared)" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Console} Unit = forever(step)
         |
-        |def main: IO[Unit] = driver(printLine("tick"))""".stripMargin
+        |def main: {Console} Unit = driver(printLine("tick"))""".stripMargin
     ).asserting(_ should include("performs the effect 'Inf'"))
   }
 }

@@ -49,13 +49,12 @@ class CarrierSlotCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
   // the refinement channel normalized `Id` away it read "meta-information is not known here" (a wrong diagnostic) instead of
   // the bound violation. This pins that the range survives the `Id` wrapper under the uniform-carrier checker.
   private val refinementSource =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
+    """import eliot.effect.Console
       |
       |def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
       |def useByte(x: Int): Int where withinByte(range(x)) = x
       |
-      |def main: IO[Unit] = printLine(show(useByte(1000)))
+      |def main: {Console} Unit = printLine(show(useByte(1000)))
       |""".stripMargin
 
   "a where-precondition over a uniform-carriered argument" should "see the argument's range through the Id wrapper" in {

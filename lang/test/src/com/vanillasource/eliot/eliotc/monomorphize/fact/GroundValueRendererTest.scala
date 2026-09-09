@@ -17,22 +17,8 @@ class GroundValueRendererTest extends AnyFlatSpec with Matchers {
   private def con(fqn: ValueFQN, args: GroundValue*): GroundValue =
     GroundValue.Structure(fqn, args, GroundValue.Type)
 
-  /** A carrier applied to its ability arguments and base but *not* to a payload — the shape a carrier takes in an
-    * `F[_]` slot. Structurally it is an ordinary application: quoted ground values carry `valueType = Type` for
-    * *every* structure (a nullary `IO` included), so nothing about the value itself distinguishes it from a fully
-    * applied one. Only the reading context does, which is why it is rendered through `renderConstructor`.
-    */
-  private def constructor(fqn: ValueFQN, args: GroundValue*): GroundValue = con(fqn, args*)
-
-  private val throwCarrier  = typeFQN(Seq("eliot", "effect"), "Throw", "ThrowCarrier")
-  private val stateCarrier  = typeFQN(Seq("eliot", "effect"), "State", "StateCarrier")
-  private val abortCarrier  = typeFQN(Seq("eliot", "effect"), "Abort", "AbortCarrier")
-  private val writerCarrier = typeFQN(Seq("eliot", "effect"), "Writer", "WriterCarrier")
-  private val listFQN       = typeFQN(Seq("eliot", "collection"), "List", "List")
-  private val io            = con(typeFQN(Seq("eliot", "jvm"), "IO", "IO"))
-  private val id            = con(WellKnownTypes.idFQN)
-  private val string        = con(WellKnownTypes.stringFQN)
-  private val unit          = con(typeFQN(Seq("eliot", "lang"), "Unit", "Unit"))
+  private val listFQN = typeFQN(Seq("eliot", "collection"), "List", "List")
+  private val string  = con(WellKnownTypes.stringFQN)
 
   private def render(value: GroundValue): String = GroundValueRenderer.render(value)
 

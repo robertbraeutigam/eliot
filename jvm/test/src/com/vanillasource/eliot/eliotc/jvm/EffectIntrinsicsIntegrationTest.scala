@@ -49,8 +49,7 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
     * its own, `Unit -> Bool` against `Function[Unit, Bool]` at the overlay `Id`'s accessor; unrelated to the primitives.)
     */
   private val prelude =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
+    """import eliot.effect.Console
       |import eliot.compiler.Escape
       |import eliot.compiler.Cell
       |ability Route[S: String] { def handler: String }
@@ -71,7 +70,7 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
           |   foldEither(_ -> false, b -> b, escape(String[], _ -> pick(s == "/api", Arm(_ -> true), Arm(_ -> exit(String[], "no")))))
           |implement[S: String] Route[S] where accepted(S) { def handler: String = "hit" }
           |implement[S: String] Route[S] where !accepted(S) { def handler: String = "miss" }
-          |def main: IO[Unit] = printLine(handler["/api"] ++ "/" ++ handler["/x"])
+          |def main: {Console} Unit = printLine(handler["/api"] ++ "/" ++ handler["/x"])
           |""".stripMargin
       )
     ).asserting(_ shouldBe "hit/miss")
@@ -86,7 +85,7 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
           |   foldEither(e -> e == "outer", _ -> false, escape(String[], _ -> inner(s)))
           |implement[S: String] Route[S] where accepted(S) { def handler: String = "outer" }
           |implement[S: String] Route[S] where !accepted(S) { def handler: String = "inner" }
-          |def main: IO[Unit] = printLine(handler["/api"] ++ "/" ++ handler["/x"])
+          |def main: {Console} Unit = printLine(handler["/api"] ++ "/" ++ handler["/x"])
           |""".stripMargin
       )
     ).asserting(_ shouldBe "outer/inner")
@@ -99,7 +98,7 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
           |   foldPair(a -> b -> a && b, withCell(Bool[], false, _ -> keep(write(Bool[], s == "/api"), read(Bool[]))))
           |implement[S: String] Route[S] where accepted(S) { def handler: String = "hit" }
           |implement[S: String] Route[S] where !accepted(S) { def handler: String = "miss" }
-          |def main: IO[Unit] = printLine(handler["/api"] ++ "/" ++ handler["/x"])
+          |def main: {Console} Unit = printLine(handler["/api"] ++ "/" ++ handler["/x"])
           |""".stripMargin
       )
     ).asserting(_ shouldBe "hit/miss")

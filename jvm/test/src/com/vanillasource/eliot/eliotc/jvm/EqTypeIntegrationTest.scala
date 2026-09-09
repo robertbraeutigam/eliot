@@ -12,10 +12,9 @@ class EqTypeIntegrationTest extends FullIntegrationTest {
 
   "importing the Eq layer" should "parse and merge into a real build without breaking it" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
-        |def main: IO[Unit] = printLine("ok")""".stripMargin
+        |def main: {Console} Unit = printLine("ok")""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 }

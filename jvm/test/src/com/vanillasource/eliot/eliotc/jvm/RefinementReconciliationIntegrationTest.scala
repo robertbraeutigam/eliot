@@ -11,25 +11,23 @@ class RefinementReconciliationIntegrationTest extends FullIntegrationTest {
 
   "a Combine-joined generic slot" should "run with each contributor widened to the join" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |def pick[A](a: A, b: A): A = a
         |
-        |def main: IO[Unit] = printLine(show(pick(3, 700)))""".stripMargin
+        |def main: {Console} Unit = printLine(show(pick(3, 700)))""".stripMargin
     ).asserting(_ shouldBe "3")
   }
 
   "a picked second argument" should "run and return that argument" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |def pick[A](a: A, b: A): A = b
         |
         |def wide: Int = pick(3, 700)
         |
-        |def main: IO[Unit] = printLine(show(wide))""".stripMargin
+        |def main: {Console} Unit = printLine(show(wide))""".stripMargin
     ).asserting(_ shouldBe "700")
   }
 
@@ -41,36 +39,33 @@ import eliot.effect.Console
   // 'java/lang/Byte'` at class load. A position with disagreeing verdicts must stay ⊤ for every node sharing it.
   "an integer literal bound by a pure val block" should "not leak its range onto the block's application node" in {
     compileAndRun(
-      """import eliot.jvm.IO
-        |import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |def compute: Int = {
         |  val ignored = 1
         |  42
         |}
         |
-        |def main: IO[Unit] = printLine(show(compute))""".stripMargin
+        |def main: {Console} Unit = printLine(show(compute))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
   it should "run when the binding is the block's result" in {
     compileAndRun(
-      """import eliot.jvm.IO
-        |import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |def compute: Int = {
         |  val v = 1
         |  v
         |}
         |
-        |def main: IO[Unit] = printLine(show(compute))""".stripMargin
+        |def main: {Console} Unit = printLine(show(compute))""".stripMargin
     ).asserting(_ shouldBe "1")
   }
 
   "an integer literal as an effect-discharge fallback" should "run widened into the discharged slot" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.effect.Abort
         |
@@ -82,7 +77,7 @@ import eliot.effect.Console
         |  parsePort(raw)
         |}
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |  val result = runStateToPair("<none>", nextPort else 8080)
         |  printLine(show(result.first))
         |}""".stripMargin,

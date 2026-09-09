@@ -20,17 +20,16 @@ class StringTransfersIntegrationTest extends FullIntegrationTest {
   // A display eight code points wide, exactly as `StringSizeIntegrationTest`'s is four: an ordinary `rangeWithin` over
   // an `Interval[BigInteger]`, with nothing string-specific about it.
   private val banner =
-    """|import eliot.jvm.IO
-       |import eliot.effect.Console
+    """|import eliot.effect.Console
        |def fitsDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 8](i)
        |def banner(text: String): String where fitsDisplay(size(text)) = text
        |""".stripMargin
 
   private def accepts(expression: String, output: String) =
-    compileAndRun(banner + s"def main: IO[Unit] = printLine(banner($expression))").asserting(_ shouldBe output)
+    compileAndRun(banner + s"def main: {Console} Unit = printLine(banner($expression))").asserting(_ shouldBe output)
 
   private def rejects(expression: String) =
-    compileForErrors(banner + s"def main: IO[Unit] = printLine(banner($expression))")
+    compileForErrors(banner + s"def main: {Console} Unit = printLine(banner($expression))")
       .asserting(_ should include("precondition of 'Test::banner' is not satisfied"))
 
   // Concatenation is the one row stated *exactly*: the result is every code point of both operands and nothing else.
@@ -75,11 +74,10 @@ class StringTransfersIntegrationTest extends FullIntegrationTest {
   // length-preserving bound would have accepted this against a one-wide display and been wrong at runtime.
   it should "refuse to promise that one code point stays one" in {
     compileForErrors(
-      """|import eliot.jvm.IO
-         |import eliot.effect.Console
+      """|import eliot.effect.Console
          |def fitsNarrow(i: Interval[BigInteger]): Bool = rangeWithin[0, 1](i)
          |def initial(text: String): String where fitsNarrow(size(text)) = text
-         |def main: IO[Unit] = printLine(initial(toUpperCase("ß")))""".stripMargin
+         |def main: {Console} Unit = printLine(initial(toUpperCase("ß")))""".stripMargin
     ).asserting(_ should include("precondition of 'Test::initial' is not satisfied"))
   }
 
@@ -111,28 +109,25 @@ class StringTransfersIntegrationTest extends FullIntegrationTest {
   // rather than silently discharged. The two diagnostics differ, which is the whole of R4.
   "a leaf that states the domain's top" should "still compile and run" in {
     compileAndRun(
-      """|import eliot.jvm.IO
-         |import eliot.effect.Console
-         |def main: IO[Unit] = printLine(show(parseInt("42") else 0))""".stripMargin
+      """|import eliot.effect.Console
+         |def main: {Console} Unit = printLine(show(parseInt("42") else 0))""".stripMargin
     ).asserting(_ shouldBe "42")
   }
 
   it should "leave a where over the parsed number unprovable rather than satisfied" in {
     compileForErrors(
-      """|import eliot.jvm.IO
-         |import eliot.effect.Console
+      """|import eliot.effect.Console
          |def withinDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 8](i)
          |def column(x: Int): Int where withinDisplay(range(x)) = x
-         |def main: IO[Unit] = printLine(show(column(parseInt("42") else 0)))""".stripMargin
+         |def main: {Console} Unit = printLine(show(column(parseInt("42") else 0)))""".stripMargin
     ).asserting(_ should include("Cannot prove the precondition of 'Test::column'"))
   }
 
   // Nothing above changes what any of these leaves compute; the transfers are meta-information only.
   "the stated transfers" should "leave every leaf's runtime result untouched" in {
     compileAndRun(
-      """|import eliot.jvm.IO
-         |import eliot.effect.Console
-         |def main: IO[Unit] =
+      """|import eliot.effect.Console
+         |def main: {Console} Unit =
          |   printLine(combine(substring(1, 4, "xabcy"), combine(trim("  d  "), repeat(2, replace("-", "", "e-")))))
          |""".stripMargin
     ).asserting(_ shouldBe "abcdee")

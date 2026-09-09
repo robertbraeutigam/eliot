@@ -28,17 +28,16 @@ package com.vanillasource.eliot.eliotc.jvm
 class TransferBraceReductionIntegrationTest extends FullIntegrationTest {
   // `withinByte` is a test-local predicate (it deliberately lives only where a test needs it, not in any layer).
   private val useByte =
-    """|import eliot.jvm.IO
-       |import eliot.effect.Console
+    """|import eliot.effect.Console
        |def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
        |def useByte(x: Int): Int where withinByte(range(x)) = x
        |""".stripMargin
 
   private def accepts(expression: String, output: String) =
-    compileAndRun(useByte + s"def main: IO[Unit] = printLine(show(useByte($expression)))").asserting(_ shouldBe output)
+    compileAndRun(useByte + s"def main: {Console} Unit = printLine(show(useByte($expression)))").asserting(_ shouldBe output)
 
   private def rejects(expression: String) =
-    compileForErrors(useByte + s"def main: IO[Unit] = printLine(show(useByte($expression)))")
+    compileForErrors(useByte + s"def main: {Console} Unit = printLine(show(useByte($expression)))")
       .asserting(_ should include("precondition of 'Test::useByte' is not satisfied"))
 
   // `Numeric[Int]::add` states `{range(a) + range(b)}`, whose `+` is an *ability* call (`Numeric[Interval]`), not a
@@ -55,7 +54,7 @@ class TransferBraceReductionIntegrationTest extends FullIntegrationTest {
 
   it should "stay ⊤ for an unknown operand rather than bogus-narrow (soundness)" in {
     compileForErrors(
-      useByte + "def relay(y: Int): Int = useByte(add(y, y))\ndef main: IO[Unit] = printLine(show(relay(10)))"
+      useByte + "def relay(y: Int): Int = useByte(add(y, y))\ndef main: {Console} Unit = printLine(show(relay(10)))"
     ).asserting(_ should include("Cannot prove the precondition of 'Test::useByte'"))
   }
 
@@ -88,11 +87,10 @@ class TransferBraceReductionIntegrationTest extends FullIntegrationTest {
   // other side is. This is also the one case with no accepting counterpart — that is what half-open means.
   "a half-open endpoint" should "stay half-open, so a fixed-width precondition is rejected" in {
     compileForErrors(
-      """|import eliot.jvm.IO
-         |import eliot.effect.Console
+      """|import eliot.effect.Console
          |def fitsDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 8](i)
          |def banner(text: String): String where fitsDisplay(size(text)) = text
-         |def main: IO[Unit] = printLine(banner(show(5)))""".stripMargin
+         |def main: {Console} Unit = printLine(banner(show(5)))""".stripMargin
     ).asserting(_ should include("precondition of 'Test::banner' is not satisfied"))
   }
 
@@ -102,11 +100,10 @@ class TransferBraceReductionIntegrationTest extends FullIntegrationTest {
   // predicate is the surviving user-authored meta companion (R3 forbids a user *transfer*, never a `where`, which is a
   // stated contract by design), and it is the same `^Meta`-namespace compiler-track code, so it pins the same rule.
   private def doubled(argument: String) =
-    """|import eliot.jvm.IO
-       |import eliot.effect.Console
+    """|import eliot.effect.Console
        |def withinByte(i: Interval[BigInteger]): Bool = rangeWithin[0, 127](i)
        |def doubleFitsByte(x: Int): Int where withinByte(x.range + x.range) = x
-       |""".stripMargin + s"def main: IO[Unit] = printLine(show(doubleFitsByte($argument)))"
+       |""".stripMargin + s"def main: {Console} Unit = printLine(show(doubleFitsByte($argument)))"
 
   "a dotted `x.range + x.range` meta expression" should "reduce via subject-last `.` binding tighter than `+`" in {
     compileAndRun(doubled("60")).asserting(_ shouldBe "60")
@@ -124,7 +121,7 @@ class TransferBraceReductionIntegrationTest extends FullIntegrationTest {
   "a transfer brace on a bodied value" should "be rejected, naming the fix" in {
     compileForErrors(
       useByte + "def f(a: Int, b: Int): Int {range(a) + range(b)} = add(a, b)\n" +
-        "def main: IO[Unit] = printLine(show(useByte(f(100, 100))))"
+        "def main: {Console} Unit = printLine(show(useByte(f(100, 100))))"
     ).asserting(_ should include("remove the { ... } return brace"))
   }
 }

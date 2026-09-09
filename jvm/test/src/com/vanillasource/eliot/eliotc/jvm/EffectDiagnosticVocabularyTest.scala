@@ -37,8 +37,7 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
     * pinned row, never as `AbortCarrier(...)`.
     */
   private val pinnedMismatch =
-    """import eliot.jvm.IO
-      |
+    """
       |def resume(c: {Abort | IO} String): {Console} Unit = printLine(c else "localhost")
       |
       |def main: {Console} Unit = resume("plain")

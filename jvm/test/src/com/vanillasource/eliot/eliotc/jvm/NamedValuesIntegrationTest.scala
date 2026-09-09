@@ -32,9 +32,8 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
     Map(
       "Test" ->
         (registryPrelude + extra +
-          """import eliot.jvm.IO
-def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
-            |def main: IO[Unit] = printLine(show(total))""".stripMargin)
+          """def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e, acc))
+            |def main: {Console} Unit = printLine(show(total))""".stripMargin)
     )
 
   "namedValues" should "gather same-named values from every module and collect them into a List" in {
@@ -56,9 +55,8 @@ def total: Int = namedValues[Int]("contribution").foldLeft(0, e -> acc -> add(e,
       Map(
         "Test" ->
           (registryPrelude +
-            """import eliot.jvm.IO
-def total: Int = namedValues[Int]("noSuchName").foldLeft(0, e -> acc -> add(e, acc))
-              |def main: IO[Unit] = printLine(show(total))""".stripMargin)
+            """def total: Int = namedValues[Int]("noSuchName").foldLeft(0, e -> acc -> add(e, acc))
+              |def main: {Console} Unit = printLine(show(total))""".stripMargin)
       )
     ).asserting(_ shouldBe "0")
   }
@@ -68,10 +66,9 @@ def total: Int = namedValues[Int]("noSuchName").foldLeft(0, e -> acc -> add(e, a
       Map(
         "Test" ->
           (registryPrelude +
-            """import eliot.jvm.IO
-def dynamicName: String = "contribution"
+            """def dynamicName: String = "contribution"
               |def total: Int = namedValues[Int](dynamicName).foldLeft(0, e -> acc -> add(e, acc))
-              |def main: IO[Unit] = printLine(show(total))""".stripMargin)
+              |def main: {Console} Unit = printLine(show(total))""".stripMargin)
       )
     ).asserting(_.mkString("\n") should include("requires a literal String name"))
   }
@@ -81,9 +78,8 @@ def dynamicName: String = "contribution"
       Map(
         "Test"    ->
           (registryPrelude +
-            """import eliot.jvm.IO
-def labels: String = namedValues[String]("label").joined(",")
-              |def main: IO[Unit] = printLine(labels)""".stripMargin),
+            """def labels: String = namedValues[String]("label").joined(",")
+              |def main: {Console} Unit = printLine(labels)""".stripMargin),
         "PluginB" -> """def label: String = "b"""",
         "PluginA" -> """def label: String = "a""""
       )
@@ -100,9 +96,7 @@ def labels: String = namedValues[String]("label").joined(",")
 
   private val suitePrelude =
     """import eliot.effect.Console
-      |import eliot.carrier.Effect
       |import eliot.compiler.Reflect
-      |import eliot.jvm.IO
       |""".stripMargin
 
   /** The `eliot-test` shape: each gathered test is handed to a slot the runner *declares*, so the tests run on the
@@ -114,7 +108,7 @@ def labels: String = namedValues[String]("label").joined(",")
       "Test" ->
         (suitePrelude + step +
           """
-            |def main: IO[Unit] = foldNamedValues("test", printLine("done"), step)""".stripMargin)
+            |def main: {Console} Unit = foldNamedValues("test", printLine("done"), step)""".stripMargin)
     ) ++ extra
 
   private val runningStep =
@@ -150,7 +144,7 @@ def labels: String = namedValues[String]("label").joined(",")
           (suitePrelude +
             """def render[V ~ Show](name: String, value: V, acc: String): String =
               |   name ++ "=" ++ show(value) ++ ";" ++ acc
-              |def main: IO[Unit] = printLine(foldNamedValues("setting", "", render))""".stripMargin),
+              |def main: {Console} Unit = printLine(foldNamedValues("setting", "", render))""".stripMargin),
         "Host" -> """def setting: String = "localhost"""",
         "Port" -> """def setting: Int = 8080"""
       )
@@ -162,7 +156,7 @@ def labels: String = namedValues[String]("label").joined(",")
       Map(
         "Test" ->
           (suitePrelude +
-            """def main: IO[Unit] =
+            """def main: {Console} Unit =
               |   printLine(foldNamedValues("test", "", n -> t -> acc -> acc ++ n))""".stripMargin),
         "AlphaTest" -> """def test: String = "alpha""""
       )

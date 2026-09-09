@@ -20,39 +20,36 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a satisfied inline `if..else..raise` guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
         |def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"
         |
-        |def main: IO[Unit] = printLine(greeting[true])""".stripMargin
+        |def main: {Console} Unit = printLine(greeting[true])""".stripMargin
     ).asserting(_ shouldBe "hello")
   }
 
   "an unsatisfied inline `if..else..raise` guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
         |def greeting[COND: Bool]: if(COND, String[]) else raise("greeting unavailable") = "hello"
         |
-        |def main: IO[Unit] = printLine(greeting[false])""".stripMargin
+        |def main: {Console} Unit = printLine(greeting[false])""".stripMargin
     ).asserting(_ should include("greeting unavailable"))
   }
 
   "a bare `raise(msg)` guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def unavailable: raise("not available") = "x"
         |
-        |def main: IO[Unit] = printLine(unavailable)""".stripMargin
+        |def main: {Console} Unit = printLine(unavailable)""".stripMargin
     ).asserting(_ should include("not available"))
   }
 
@@ -61,8 +58,7 @@ import eliot.effect.Console
   // effect lift elaborates their `{Throw[String]}` path per instantiation and the signature still reduces to
   // `Right`/`Left` for the discharge. Proves the compile-time reduction is not special-cased to the `if`/`else` shape.
   private val pipedGuard: String =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
+    """import eliot.effect.Console
       |import eliot.effect.Throw
       |import eliot.effect.Abort
       |
@@ -74,12 +70,12 @@ import eliot.effect.Console
       |""".stripMargin
 
   "a satisfied guard written through a user pipe" should "type as its payload and run as the bare type" in {
-    compileAndRun(pipedGuard + "\ndef main: IO[Unit] = printLine(greeting[true])")
+    compileAndRun(pipedGuard + "\ndef main: {Console} Unit = printLine(greeting[true])")
       .asserting(_ shouldBe "hello")
   }
 
   "an unsatisfied guard written through a user pipe" should "fail the build with the author message" in {
-    compileForErrors(pipedGuard + "\ndef main: IO[Unit] = printLine(greeting[false])")
+    compileForErrors(pipedGuard + "\ndef main: {Console} Unit = printLine(greeting[false])")
       .asserting(_ should include("greeting unavailable"))
   }
 
@@ -93,40 +89,37 @@ import eliot.effect.Console
 
   "a satisfied `MIN > 0` inline guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
         |def positive[MIN: BigInteger]: if(MIN > 0, String[]) else raise("must be positive") = "ok"
         |
-        |def main: IO[Unit] = printLine(positive[5])""".stripMargin
+        |def main: {Console} Unit = printLine(positive[5])""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 
   "an unsatisfied `MIN > 0` inline guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
         |def positive[MIN: BigInteger]: if(MIN > 0, String[]) else raise("must be positive") = "ok"
         |
-        |def main: IO[Unit] = printLine(positive[0])""".stripMargin
+        |def main: {Console} Unit = printLine(positive[0])""".stripMargin
     ).asserting(_ should include("must be positive"))
   }
 
   "a satisfied `N < 10` inline guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.Abort
         |
         |def small[N: BigInteger]: if(N < 10, String[]) else raise("too big") = "ok"
         |
-        |def main: IO[Unit] = printLine(small[3])""".stripMargin
+        |def main: {Console} Unit = printLine(small[3])""".stripMargin
     ).asserting(_ shouldBe "ok")
   }
 }

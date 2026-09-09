@@ -921,7 +921,7 @@ class MonomorphicTypeCheckTest
 
   it should "leave already-monadic flatMap code unchanged (no double bind)" in {
     liftedBody(
-      "import eliot.effect.Console\nimport eliot.carrier.Effect\ndef echo: {Console} Unit = flatMap(s -> printLine(s), readLine)"
+      "import eliot.effect.Console\ndef echo: {Console} Unit = flatMap(s -> printLine(s), readLine)"
     ).asserting(_.count(_ == "flatMap") shouldBe 1)
   }
 
@@ -1019,7 +1019,7 @@ class MonomorphicTypeCheckTest
 
   it should "store an annotated carrier-typed let binder instead of binding it" in {
     liftedBody(
-      "import eliot.jvm.IO\nimport eliot.effect.Console\nimport eliot.carrier.Effect\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
+      "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
     ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap"))
   }
 
@@ -1077,7 +1077,7 @@ class MonomorphicTypeCheckTest
     "Function" ->
       "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)",
     "Console"  ->
-      ("import eliot.jvm.IO\nability Console[F[_]] {\ndef printLine(s: String): {Console} Unit\ndef readLine: {Console} String\n}\n" +
+      ("ability Console[F[_]] {\ndef printLine(s: String): {Console} Unit\ndef readLine: {Console} String\n}\n" +
         "def stubConsoleIO[A]: IO[A]\n" +
         "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}"),
     // Overrides the canonical ambient `State` stub (same module, richer content) — appending a second `State`
@@ -1091,7 +1091,7 @@ class MonomorphicTypeCheckTest
       "Effect",
       // The instances below are declared at the stub `IO`, which lives in `eliot.jvm` and is not ambient — so this
       // module has to import it like any other file. It went unnoticed while nothing demanded this module.
-      "import eliot.jvm.IO\nability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}\n" +
+      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}\n" +
         "def stubEffectIO[A]: IO[A]\n" +
         "implement Effect[IO] {\ndef flatMap[A, B](f: Function[A, IO[B]], fa: IO[A]): IO[B] = stubEffectIO\ndef pure[A](a: A): IO[A] = stubEffectIO\ndef map[A, B](f: Function[A, B], fa: IO[A]): IO[B] = stubEffectIO\n}",
       ModuleName.carrierPackage

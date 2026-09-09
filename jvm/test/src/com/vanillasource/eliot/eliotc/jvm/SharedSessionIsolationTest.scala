@@ -70,45 +70,38 @@ class SharedSessionIsolationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
                    |def useDb: String = display(Database("x"))
                    |
                    |def main: {Console} Unit = printLine(useDb)""".stripMargin,
-    "runAbort" -> """import eliot.jvm.IO
-                   |import eliot.carrier.Effect
-                   |import eliot.effect.Abort
+    "runAbort" -> """import eliot.effect.Abort
                    |
                    |def safe: {Abort} String = "config-value"
                    |
-                   |def main: IO[Unit] = flatMap(o -> printLine(foldOption("<absent>", s -> s, o)), runAbort(safe))""".stripMargin,
-    "runThrow" -> """import eliot.jvm.IO
-                   |import eliot.carrier.Effect
-                   |import eliot.effect.Throw
+                   |def main: {Console} Unit = flatMap(o -> printLine(foldOption("<absent>", s -> s, o)), runAbort(safe))""".stripMargin,
+    "runThrow" -> """import eliot.effect.Throw
                    |
                    |def parseBad: {Throw[String]} String = raise("malformed input")
                    |
-                   |def main: IO[Unit] = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseBad))""".stripMargin,
-    "catch"    -> """import eliot.jvm.IO
-                   |import eliot.effect.Throw
+                   |def main: {Console} Unit = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseBad))""".stripMargin,
+    "catch"    -> """import eliot.effect.Throw
                    |
                    |def parseOk: {Throw[String]} String = "parsed-value"
                    |def parseBad: {Throw[String]} String = raise("malformed input")
                    |
-                   |def main: IO[Unit] = {
+                   |def main: {Console} Unit = {
                    |   printLine(parseOk catch (err -> err))
                    |   printLine(parseBad catch (err -> err))
                    |}""".stripMargin,
-    "catchNonId" -> """import eliot.jvm.IO
-                   |import eliot.effect.Throw
+    "catchNonId" -> """import eliot.effect.Throw
                    |
                    |def parseOk: {Throw[String]} String = "ok-value"
                    |def parseBad: {Throw[String]} String = raise("boom")
                    |
                    |def recovered: String = parseBad catch (err -> "recovered-default")
                    |
-                   |def main: IO[Unit] = {
+                   |def main: {Console} Unit = {
                    |   printLine(recovered)
                    |   printLine(parseOk catch (err -> "unused"))
                    |   printLine(parseBad catch (err -> "ambient-default"))
                    |}""".stripMargin,
-    "catchEff" -> """import eliot.jvm.IO
-                   |import eliot.effect.Throw
+    "catchEff" -> """import eliot.effect.Throw
                    |
                    |def parseOk: {Throw[String]} String = "parsed-value"
                    |def failUnit: {Throw[String]} Unit = raise("boom")

@@ -15,7 +15,6 @@ class FileIoIntegrationTest extends FullIntegrationTest {
   "the Path algebra" should "join, render, and read the extension purely" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.file.Path
         |
@@ -97,7 +96,6 @@ class FileIoIntegrationTest extends FullIntegrationTest {
     */
   private def reportProgram(dir: String, body: String, listImport: Boolean = false): String =
     s"""
-       |import eliot.jvm.IO
        |import eliot.effect.Console
        |${if (listImport) "import eliot.collection.List\n" else ""}import eliot.file.Path
        |import eliot.file.File

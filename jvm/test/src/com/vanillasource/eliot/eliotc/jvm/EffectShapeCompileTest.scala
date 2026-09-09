@@ -84,14 +84,12 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
   // the whole-type unify is *doomed* (`?F[?A] ~ String` has no injective solution), so the effect must bind-lift: `?A :=
   // String`, the Abort sequences at the call site. `runAbort` discharges it.
   private val doomedBindSource =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
-      |import eliot.carrier.Effect
+    """import eliot.effect.Console
       |import eliot.effect.Abort
       |
       |def demo: {Abort, Console} Unit = printLine(abort)
       |
-      |def main: IO[Unit] = flatMap(o -> printLine(foldOption("done", s -> "got", o)), runAbort(demo))
+      |def main: {Console} Unit = flatMap(o -> printLine(foldOption("done", s -> "got", o)), runAbort(demo))
       |""".stripMargin
 
   // A rich effect-transformer-stack program (the `EffectsState` example, inlined): a `{State[String]}` computation in
@@ -127,13 +125,12 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
   // monomorphizes the `Effect[AbortCarrier[G]]` instance at `AbortCarrier[AbortCarrier[IO]]`, whose inner binder `G` the
   // uniform join must solve (it dropped the `Con` prefix before, leaving `G` unsolved → "contains unresolved variable").
   private val nestedAbortSource =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
+    """import eliot.effect.Console
       |import eliot.effect.Abort
       |
       |def grade(s: String): {Abort} String = if(s == "A", "excellent") else if(s == "B", "good") else "fail"
       |
-      |def main: IO[Unit] = {
+      |def main: {Console} Unit = {
       |   printLine(grade("A") else "?")
       |   printLine(if(true, "taken") else "skipped")
       |}
@@ -144,10 +141,8 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
   // carrier prefix — before the fix it reported "No ability implementation found for ability 'Dep' with type arguments
   // [Logger]".
   private val twoDepsSource =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
+    """import eliot.effect.Console
       |import eliot.effect.Dep
-      |import eliot.carrier.Effect
       |
       |data Database(url: String)
       |data Logger(name: String)
@@ -155,7 +150,7 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
       |def firstDep: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
       |def pick(a: String, b: String): String = a
       |
-      |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), firstDep)))
+      |def main: {Console} Unit = printLine(provide(Logger("the-logger"), provide(Database("the-db"), firstDep)))
       |""".stripMargin
 
   "the uniform-carrier checker" should "compile a pure value return + payload slots over the whole base" in {

@@ -75,7 +75,6 @@ object LspMainRootSourceProcessor {
     */
   private def wrapperSource(target: ModuleName): String =
     s"""
-       |import eliot.jvm.IO
        |def main: Unit = runMain(${target.show}::main)
        |""".stripMargin
 

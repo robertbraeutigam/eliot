@@ -7,9 +7,8 @@ package com.vanillasource.eliot.eliotc.jvm
 class ExamplesIntegrationTest1 extends FullIntegrationTest {
 
   "hello world" should "print a string" in {
-    compileAndRun("""import eliot.jvm.IO
-import eliot.effect.Console
-def main: IO[Unit] = printLine("Hello World!")""")
+    compileAndRun("""import eliot.effect.Console
+def main: {Console} Unit = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
@@ -21,15 +20,13 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // in turn discharges `Suspend[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
   "console effect" should "read a line and echo it through the Console -> Suspend -> IO layering" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
         |def echo: {Console} Unit = flatMap(s -> printLine(orEmpty(s)), readLine)
         |
-        |def main: IO[Unit] = echo""".stripMargin,
+        |def main: {Console} Unit = echo""".stripMargin,
       stdin = "echoed line\n"
     ).asserting(_ shouldBe "echoed line")
   }
@@ -38,9 +35,8 @@ import eliot.effect.Console
   // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Suspend[IO]`), so the original HelloWorld
   // keeps working unchanged.
   it should "still print a literal via the Console effect at a concrete IO main" in {
-    compileAndRun("""import eliot.jvm.IO
-import eliot.effect.Console
-def main: IO[Unit] = printLine("Hello World!")""")
+    compileAndRun("""import eliot.effect.Console
+def main: {Console} Unit = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
@@ -48,21 +44,18 @@ def main: IO[Unit] = printLine("Hello World!")""")
   // infers `F := IO` and resolves both effect operations through the layering.
   it should "run a carrier-polymorphic {Console} function pinned to IO at the call site" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def greet: {Console} Unit = flatMap(ignore -> printLine("b"), printLine("a"))
         |
-        |def main: IO[Unit] = greet""".stripMargin
+        |def main: {Console} Unit = greet""".stripMargin
     ).asserting(_ shouldBe "a\nb")
   }
 
   // The `private` leaf native behind `printLine` is unreachable from application code: naming it across the module
   // boundary is refused by the resolver (the fail-safe that keeps untracked I/O impossible).
   "the private I/O leaf" should "be unreachable from application code" in {
-    compileForErrors("""import eliot.jvm.IO
-def main: IO[Unit] = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
+    compileForErrors("""def main: {Console} Unit = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
       .asserting(_ should include("Name is private."))
   }
 
@@ -75,11 +68,10 @@ def main: IO[Unit] = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
   // either way, so every program below carries it rather than complicating what it is probing.)
   "effect auto-lift" should "sequence a direct-style printLine(readLine) at a concrete IO main" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
-        |def main: IO[Unit] = printLine(orEmpty(readLine))""".stripMargin,
+        |def main: {Console} Unit = printLine(orEmpty(readLine))""".stripMargin,
       stdin = "echoed line\n"
     ).asserting(_ shouldBe "echoed line")
   }
@@ -87,13 +79,12 @@ import eliot.effect.Console
   // The same direct-style body in a carrier-polymorphic `{Console}` business function, pinned to `IO` at the call site.
   it should "sequence a direct-style {Console} business function pinned to IO" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
         |def echo: {Console} Unit = printLine(orEmpty(readLine))
         |
-        |def main: IO[Unit] = echo""".stripMargin,
+        |def main: {Console} Unit = echo""".stripMargin,
       stdin = "carrier line\n"
     ).asserting(_ shouldBe "carrier line")
   }
@@ -102,15 +93,13 @@ import eliot.effect.Console
   // runs exactly as before, proving auto-lift does not double-bind a stored effect action.
   it should "leave already-monadic flatMap code unchanged" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
         |def echo: {Console} Unit = flatMap(s -> printLine(orEmpty(s)), readLine)
         |
-        |def main: IO[Unit] = echo""".stripMargin,
+        |def main: {Console} Unit = echo""".stripMargin,
       stdin = "still works\n"
     ).asserting(_ shouldBe "still works")
   }
@@ -126,15 +115,13 @@ import eliot.effect.Console
   // program, fed this test's own stdin — answered with the expected text.
   it should "reject an ability method chained on an abstract carrier via the dot operator" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
         |def echo: {Console} Unit = readLine.flatMap(line -> printLine(orEmpty(line)))
         |
-        |def main: IO[Unit] = echo""".stripMargin
+        |def main: {Console} Unit = echo""".stripMargin
     ).asserting(_ should include("Type mismatch."))
   }
 
@@ -143,14 +130,13 @@ import eliot.effect.Console
   // restores the ordinary bind decision rather than blanket-suppressing it for every dotted subject.
   it should "bind an effectful subject dotted into a plain-value function" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |def shout(s: Option[String]): String = s.orAbort else ""
         |
         |def echo: {Console} Unit = printLine(readLine.shout)
         |
-        |def main: IO[Unit] = echo""".stripMargin,
+        |def main: {Console} Unit = echo""".stripMargin,
       stdin = "loud\n"
     ).asserting(_ shouldBe "loud")
   }
@@ -167,14 +153,13 @@ import eliot.effect.Console
   // `String`. That is a live gap, unrelated to the dotted subject this case is about.
   it should "bind an effectful subject dotted into a function-typed parameter" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
         |def call(f: Option[String] => String): {Console} Unit = printLine(readLine.f)
         |
-        |def main: IO[Unit] = call(s -> orEmpty(s))""".stripMargin,
+        |def main: {Console} Unit = call(s -> orEmpty(s))""".stripMargin,
       stdin = "through f\n"
     ).asserting(_ shouldBe "through f")
   }
@@ -185,9 +170,7 @@ import eliot.effect.Console
   // read from declarations, not from the operator.
   it should "reject an ability method chained through a user-defined pipe operator" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
         |
@@ -195,7 +178,7 @@ import eliot.effect.Console
         |
         |def echo: {Console} Unit = readLine |> flatMap(line -> printLine(orEmpty(line)))
         |
-        |def main: IO[Unit] = echo""".stripMargin
+        |def main: {Console} Unit = echo""".stripMargin
     ).asserting(_ should include("declares no effect row"))
   }
 
@@ -203,9 +186,7 @@ import eliot.effect.Console
   // what "read from declarations" means: no operator plumbing takes part in the decision.
   it should "reject an ability method chained through a non-infix pipe function" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def pipe[A, B](a: A, f: A => B): B = f(a)
         |
@@ -213,7 +194,7 @@ import eliot.effect.Console
         |
         |def echo: {Console} Unit = pipe(readLine, flatMap(line -> printLine(orEmpty(line))))
         |
-        |def main: IO[Unit] = echo""".stripMargin
+        |def main: {Console} Unit = echo""".stripMargin
     ).asserting(_ should include("declares no effect row"))
   }
 
@@ -221,8 +202,7 @@ import eliot.effect.Console
   // flex slot rigidifies and the subject is sequenced.
   it should "bind an effectful subject piped into a concrete slot" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
         |
@@ -230,7 +210,7 @@ import eliot.effect.Console
         |
         |def echo: {Console} Unit = printLine(readLine |> shout)
         |
-        |def main: IO[Unit] = echo""".stripMargin,
+        |def main: {Console} Unit = echo""".stripMargin,
       stdin = "piped loud\n"
     ).asserting(_ shouldBe "piped loud")
   }
@@ -241,13 +221,11 @@ import eliot.effect.Console
   // the caller already held.
   it should "reject author-written machinery flowing into a pure slot" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def echo: {Console} Unit = printLine(pure("lifted"))
         |
-        |def main: IO[Unit] = echo""".stripMargin
+        |def main: {Console} Unit = echo""".stripMargin
     ).asserting(_ should include("argument 1 of 'printLine' declares no effect row"))
   }
 
@@ -258,8 +236,7 @@ import eliot.effect.Console
   // with a row, and `Ctr` declares none.
   "a constructor-class ability" should "perform no effect, and drop into pure code" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |ability Ctr[F[_]] {
         |   def wrap[A](a: A): F[A]
@@ -277,7 +254,7 @@ import eliot.effect.Console
         |
         |def unboxed(b: Bx[String]): String = unwrap(b)
         |
-        |def main: IO[Unit] = printLine(unboxed(rebox(Bx("boxed"))))""".stripMargin
+        |def main: {Console} Unit = printLine(unboxed(rebox(Bx("boxed"))))""".stripMargin
     ).asserting(_ shouldBe "boxed")
   }
 
@@ -285,13 +262,12 @@ import eliot.effect.Console
   // per-definition row verification, not silently miscompiled.
   "an effectful body under a pure return" should "be rejected" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
         |def helper: String = printLine(orEmpty(readLine))
         |
-        |def main: IO[Unit] = printLine(helper)""".stripMargin
+        |def main: {Console} Unit = printLine(helper)""".stripMargin
     ).asserting(_ should include("performs the effect 'Console' but does not declare it"))
   }
 
@@ -301,11 +277,10 @@ import eliot.effect.Console
   // business function pinned to `IO` at the call site runs through the JVM `Log` instance.
   "log effect" should "emit a tagged diagnostic line through the Log -> Suspend -> IO layering" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Log
+      """import eliot.effect.Log
         |def announce: {Log} Unit = log("starting up")
         |
-        |def main: IO[Unit] = announce""".stripMargin
+        |def main: {Console} Unit = announce""".stripMargin
     ).asserting(_ shouldBe "[LOG] starting up")
   }
 
@@ -313,14 +288,13 @@ import eliot.effect.Log
   // one carrier `F`, auto-lifted into a single `flatMap` chain.
   "multiple effects in one signature" should "carrier-unify Log and Console in a direct-style body" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Log
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
         |def echoLog: {Log, Console} Unit = log(orEmpty(readLine))
         |
-        |def main: IO[Unit] = echoLog""".stripMargin,
+        |def main: {Console} Unit = echoLog""".stripMargin,
       stdin = "from stdin\n"
     ).asserting(_ shouldBe "[LOG] from stdin")
   }
@@ -329,14 +303,13 @@ import eliot.effect.Console
   // function from a `{Console}`-only function leaks `Log`, rejected at the definition with a precise message.
   "an undeclared effect" should "be rejected with a precise propagation error" in {
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Log
         |def doLog: {Log} Unit = log("hi")
         |
         |def caller: {Console} Unit = doLog
         |
-        |def main: IO[Unit] = caller""".stripMargin
+        |def main: {Console} Unit = caller""".stripMargin
     ).asserting(_ should include("performs the effect 'Log' but does not declare it"))
   }
 
@@ -344,11 +317,9 @@ import eliot.effect.Console
   // end to end. `dependency` reads the environment; the Database is injected at the discharge site by `provide`.
   "a multi-effect Dep/Log/Console program" should "compile and run end to end" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Log
         |import eliot.effect.Dep
-        |import eliot.carrier.Effect
         |
         |data Database(url: String)
         |
@@ -358,7 +329,7 @@ import eliot.effect.Console
         |
         |def andThen(first: Unit, second: Unit): Unit = second
         |
-        |def main: IO[Unit] = run.provide(Database("jdbc://app-db"))""".stripMargin,
+        |def main: {Console} Unit = run.provide(Database("jdbc://app-db"))""".stripMargin,
       stdin = "echoed\n"
     ).asserting(_ shouldBe "[LOG] jdbc://app-db\nechoed")
   }
@@ -368,27 +339,23 @@ import eliot.effect.Console
   // supplied by its own chained `.provide` (fully discharged to a pure result — the flex-flex carrier-alias case).
   "two distinct-typed Deps" should "each resolve dependency to its own value in one body" in {
     val program =
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Dep
-        |import eliot.carrier.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
         |
         |def firstDep: {Dep[Database], Dep[Logger]} String = pick(url(dependency), name(dependency))
         |
-        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), firstDep)))""".stripMargin
+        |def main: {Console} Unit = printLine(provide(Logger("the-logger"), provide(Database("the-db"), firstDep)))""".stripMargin
     compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
       .asserting(_ shouldBe "the-db")
   }
 
   it should "resolve the second distinct Dep to its own value" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Dep
-        |import eliot.carrier.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -397,7 +364,7 @@ import eliot.effect.Console
         |
         |def pick(a: String, b: String): String = b
         |
-        |def main: IO[Unit] = printLine(provide(Logger("the-logger"), provide(Database("the-db"), secondDep)))""".stripMargin
+        |def main: {Console} Unit = printLine(provide(Logger("the-logger"), provide(Database("the-db"), secondDep)))""".stripMargin
     ).asserting(_ shouldBe "the-logger")
   }
 
@@ -439,9 +406,7 @@ import eliot.effect.Console
       |""".stripMargin
 
   private val fakeCarrierImports =
-    """import eliot.jvm.IO
-import eliot.effect.Console
-      |import eliot.carrier.Effect
+    """import eliot.effect.Console
       |
       |""".stripMargin
 
@@ -456,7 +421,7 @@ import eliot.effect.Console
         """
           |def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
           |
-          |def main: IO[Unit] = printLine(greetTranscript)""".stripMargin
+          |def main: {Console} Unit = printLine(greetTranscript)""".stripMargin
     ).asserting(_ shouldBe "Hello, Bob!;")
   }
 
@@ -478,7 +443,7 @@ import eliot.effect.Console
           |
           |def greetTest: TestResult = expect("greet", "Hello, Bob!;", transcriptOf(greet))
           |
-          |def main: IO[Unit] =
+          |def main: {Console} Unit =
           |   printLine(failure(greetTest).foldOption("PASS " ++ label(greetTest), f -> "FAIL " ++ f))""".stripMargin
     ).asserting(_ shouldBe "PASS greet")
   }
@@ -489,11 +454,8 @@ import eliot.effect.Console
   // carrier-free definition (`greetTranscript`), because inside the pinned body the ambient carrier is the pinned stack
   // and `greet` would be written there instead of at `Session`.
   private val fakeCarrierFramework =
-    """import eliot.jvm.IO
-import eliot.effect.Console
+    """import eliot.effect.Console
       |import eliot.effect.Throw
-      |import eliot.lang.Id
-      |import eliot.carrier.Effect
       |
       |""".stripMargin + fakeCarrierDeclarations +
       """
@@ -509,7 +471,7 @@ import eliot.effect.Console
       |
       |def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
       |
-      |def main: IO[Unit] = printLine(runCase(greetTest))""".stripMargin
+      |def main: {Console} Unit = printLine(runCase(greetTest))""".stripMargin
 
   it should "carry a fake-carrier result into a pinned test-framework body" in {
     compileAndRun(

@@ -17,9 +17,7 @@ object EffectCorpus {
     * run-carrier-headed `main` sequencing them all (so demand-driven compilation reaches every definition).
     */
   val combinedProgram: String =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
-      |import eliot.carrier.Effect
+    """import eliot.effect.Console
       |import eliot.effect.Throw
       |import eliot.effect.State
       |import eliot.effect.Abort
@@ -60,7 +58,7 @@ object EffectCorpus {
       |
       |def prog: IO[Pair[String, String]] = runStateToPair("before", swap("after"))
       |
-      |def main: IO[Unit] = {
+      |def main: {Console} Unit = {
       |   greet
       |   printLine(recovered)
       |   printLine(counted.first)
@@ -116,7 +114,6 @@ object EffectCorpus {
     */
   val effectfulLambdaProgram: String =
     """import eliot.effect.Abort
-      |import eliot.carrier.Effect
       |
       |def applyTo[A, B](a: A, f: A => {Effect} B): {Effect} B = f(a)
       |
@@ -145,7 +142,6 @@ object EffectCorpus {
     */
   val rowPolymorphicCallbackProgram: String =
     """import eliot.collection.List
-      |import eliot.carrier.Effect
       |
       |def eachInto[A, B](f: A => {Effect} B, list: List[A]): {Effect} List[B] =
       |   list.foldLeft(empty, e -> acc -> append(acc, f(e)))
@@ -186,8 +182,7 @@ object EffectCorpus {
 
   /** A deliberately non-terminating program: `Inf` is an ordinary row entry riding the same union. Compile-only. */
   val infProgram: String =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
+    """import eliot.effect.Console
       |import eliot.effect.Inf
       |
       |def main: {Inf, Console} Unit = forever(printLine("tick"))""".stripMargin

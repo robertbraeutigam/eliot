@@ -63,7 +63,6 @@ class SignatureTwinMonoTest extends ProcessorTest(LangProcessors(systemModules =
   private val eitherContent =
     """import eliot.lang.Function
       |import eliot.lang.String
-      |import eliot.carrier.Effect
       |import eliot.effect.Throw
       |
       |data Either[E, A] = Left(error: E) | Right(value: A)

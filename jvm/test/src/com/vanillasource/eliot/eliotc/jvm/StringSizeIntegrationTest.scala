@@ -18,31 +18,30 @@ class StringSizeIntegrationTest extends FullIntegrationTest {
   // A display four code points wide. `size` is `String`'s meta slot exactly as `range` is `Int`'s, so the predicate is
   // the ordinary `rangeWithin` over an `Interval[BigInteger]` — no string-specific machinery.
   private val banner =
-    """|import eliot.jvm.IO
-       |import eliot.effect.Console
+    """|import eliot.effect.Console
        |def fitsDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 4](i)
        |def banner(text: String): String where fitsDisplay(size(text)) = text
        |""".stripMargin
 
   "a where precondition over a string's size" should "accept a literal that provably fits" in {
-    compileAndRun(banner + """def main: IO[Unit] = printLine(banner("abcd"))""")
+    compileAndRun(banner + """def main: {Console} Unit = printLine(banner("abcd"))""")
       .asserting(_ shouldBe "abcd")
   }
 
   it should "accept the empty literal" in {
-    compileAndRun(banner + """def main: IO[Unit] = printLine(banner(""))""")
+    compileAndRun(banner + """def main: {Console} Unit = printLine(banner(""))""")
       .asserting(_ shouldBe "")
   }
 
   it should "reject a literal longer than the bound" in {
-    compileForErrors(banner + """def main: IO[Unit] = printLine(banner("abcde"))""")
+    compileForErrors(banner + """def main: {Console} Unit = printLine(banner("abcde"))""")
       .asserting(_ should include("precondition of 'Test::banner' is not satisfied"))
   }
 
   it should "reject a string whose size is unknown, rather than silently accept" in {
     compileForErrors(
       banner + """def relay(s: String): String = banner(s)
-                 |def main: IO[Unit] = printLine(relay("ab"))""".stripMargin
+                 |def main: {Console} Unit = printLine(relay("ab"))""".stripMargin
     ).asserting(_ should include("Cannot prove the precondition of 'Test::banner'"))
   }
 
@@ -51,7 +50,7 @@ class StringSizeIntegrationTest extends FullIntegrationTest {
   it should "demand the precondition on a literal inside a parametered def's body" in {
     compileForErrors(
       banner + """def wrap(ignored: Int): String = banner("abcde")
-                 |def main: IO[Unit] = printLine(wrap(0))""".stripMargin
+                 |def main: {Console} Unit = printLine(wrap(0))""".stripMargin
     ).asserting(_ should include("precondition of 'Test::banner' is not satisfied"))
   }
 
@@ -60,12 +59,12 @@ class StringSizeIntegrationTest extends FullIntegrationTest {
   // display; measuring storage instead would make this a compile error, and the `where` would mean something different
   // on a UTF-8 target than on this one.
   it should "count a supplementary character as one code point, not as its two UTF-16 units" in {
-    compileAndRun(banner + """def main: IO[Unit] = printLine(banner("𝕏𝕏𝕏𝕏"))""")
+    compileAndRun(banner + """def main: {Console} Unit = printLine(banner("𝕏𝕏𝕏𝕏"))""")
       .asserting(_ shouldBe "𝕏𝕏𝕏𝕏")
   }
 
   it should "still reject a supplementary-character literal that is too long in code points" in {
-    compileForErrors(banner + """def main: IO[Unit] = printLine(banner("𝕏𝕏𝕏𝕏𝕏"))""")
+    compileForErrors(banner + """def main: {Console} Unit = printLine(banner("𝕏𝕏𝕏𝕏𝕏"))""")
       .asserting(_ should include("precondition of 'Test::banner' is not satisfied"))
   }
 
@@ -73,12 +72,11 @@ class StringSizeIntegrationTest extends FullIntegrationTest {
   // one must not be dischargeable by the other's meta. Both preconditions hold here for their own reasons.
   it should "keep the string and integer domains apart in one program" in {
     compileAndRun(
-      """|import eliot.jvm.IO
-         |import eliot.effect.Console
+      """|import eliot.effect.Console
          |def fitsDisplay(i: Interval[BigInteger]): Bool = rangeWithin[0, 4](i)
          |def banner(text: String): String where fitsDisplay(size(text)) = text
          |def asDigit(x: Int): Int where fitsDisplay(range(x)) = x
-         |def main: IO[Unit] = printLine(banner("ab") ++ show(asDigit(3)))""".stripMargin
+         |def main: {Console} Unit = printLine(banner("ab") ++ show(asDigit(3)))""".stripMargin
     ).asserting(_ shouldBe "ab3")
   }
 }

@@ -14,8 +14,7 @@ package com.vanillasource.eliot.eliotc.jvm
   */
 class ListGuardReductionIntegrationTest extends FullIntegrationTest {
   private val routes =
-    """|import eliot.jvm.IO
-       |import eliot.effect.Console
+    """|import eliot.effect.Console
        |import eliot.collection.List
        |ability Route[S: String] { def handler: String }
        |""".stripMargin
@@ -26,7 +25,7 @@ class ListGuardReductionIntegrationTest extends FullIntegrationTest {
         """|def known: List[String] = append(append(empty, "/api"), "/about")
            |implement[S: String] Route[S] where any(w -> w == S, known) { def handler: String = "known" }
            |implement[S: String] Route[S] where all(w -> !(w == S), known) { def handler: String = "unknown" }
-           |def main: IO[Unit] = printLine(handler["/api"] ++ "/" ++ handler["/x"] ++ "/" ++ handler["/about"])
+           |def main: {Console} Unit = printLine(handler["/api"] ++ "/" ++ handler["/x"] ++ "/" ++ handler["/about"])
            |""".stripMargin
     ).asserting(_ shouldBe "known/unknown/known")
   }
@@ -37,7 +36,7 @@ class ListGuardReductionIntegrationTest extends FullIntegrationTest {
         """|def known: List[String] = words("  /api /about ")
            |implement[S: String] Route[S] where any(w -> w == S, known) { def handler: String = "known" }
            |implement[S: String] Route[S] where all(w -> !(w == S), known) { def handler: String = "unknown" }
-           |def main: IO[Unit] = printLine(handler["/about"] ++ "/" ++ handler["/x"])
+           |def main: {Console} Unit = printLine(handler["/about"] ++ "/" ++ handler["/x"])
            |""".stripMargin
     ).asserting(_ shouldBe "known/unknown")
   }
@@ -47,7 +46,7 @@ class ListGuardReductionIntegrationTest extends FullIntegrationTest {
       routes +
         """|implement[S: String] Route[S] where any(w -> w == "b", split(",", S)) { def handler: String = "has b" }
            |implement[S: String] Route[S] where all(w -> !(w == "b"), split(",", S)) { def handler: String = "no b" }
-           |def main: IO[Unit] = printLine(handler["a,b"] ++ "/" ++ handler["a,c"] ++ "/" ++ handler["ab"])
+           |def main: {Console} Unit = printLine(handler["a,b"] ++ "/" ++ handler["a,c"] ++ "/" ++ handler["ab"])
            |""".stripMargin
     ).asserting(_ shouldBe "has b/no b/no b")
   }

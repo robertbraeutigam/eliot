@@ -73,7 +73,6 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
         "Either",
         """import eliot.lang.Function
           |import eliot.lang.String
-          |import eliot.carrier.Effect
           |import eliot.effect.Throw
           |
           |data Either[E, A] = Left(error: E) | Right(value: A)
@@ -102,7 +101,6 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
         """import eliot.lang.Function
           |import eliot.lang.String
           |import eliot.lang.Either
-          |import eliot.carrier.Effect
           |import eliot.effect.Throw
           |
           |def raiseConst: Either[String, String] = raise("boom")

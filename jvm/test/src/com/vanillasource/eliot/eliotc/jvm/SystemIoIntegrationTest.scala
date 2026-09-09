@@ -94,7 +94,6 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
   /** A `{Console, Environment} Unit` program — no failure channel, so it needs no discharge at all. */
   private def environmentProgram(body: String): String =
     s"""
-       |import eliot.jvm.IO
        |import eliot.effect.Console
        |import eliot.collection.List
        |import eliot.file.Path
@@ -109,7 +108,6 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
     */
   private def processProgram(body: String): String =
     s"""
-       |import eliot.jvm.IO
        |import eliot.effect.Console
        |import eliot.collection.List
        |import eliot.file.Path

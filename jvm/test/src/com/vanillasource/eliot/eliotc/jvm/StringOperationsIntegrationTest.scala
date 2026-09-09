@@ -14,8 +14,7 @@ package com.vanillasource.eliot.eliotc.jvm
 class StringOperationsIntegrationTest extends FullIntegrationTest {
 
   private val prelude =
-    """import eliot.jvm.IO
-      |import eliot.effect.Console
+    """import eliot.effect.Console
       |import eliot.effect.Abort
       |
       |def yn(b: Bool): String = fold(b, "y", "n")

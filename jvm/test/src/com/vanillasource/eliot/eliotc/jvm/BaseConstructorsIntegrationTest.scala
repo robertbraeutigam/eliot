@@ -16,22 +16,20 @@ class BaseConstructorsIntegrationTest extends FullIntegrationTest {
   "some and none" should "build an Option from base-layer code" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |
         |def label(o: Option[String]): String = o.foldOption("absent", s -> s)
         |
-        |def main: IO[Unit] = printLine(label(some("here")) ++ ":" ++ label(none))""".stripMargin
+        |def main: {Console} Unit = printLine(label(some("here")) ++ ":" ++ label(none))""".stripMargin
     ).asserting(_ shouldBe "here:absent")
   }
 
   "pair" should "build a Pair from base-layer code" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |
-        |def main: IO[Unit] = printLine(pair("left", "right").foldPair(a -> b -> a ++ "|" ++ b))""".stripMargin
+        |def main: {Console} Unit = printLine(pair("left", "right").foldPair(a -> b -> a ++ "|" ++ b))""".stripMargin
     ).asserting(_ shouldBe "left|right")
   }
 }

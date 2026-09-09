@@ -13,13 +13,12 @@ class EqStringIntegrationTest extends FullIntegrationTest {
   "a runtime string comparison" should "select the matching branch via the JVM String.equals native" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def line: {Console} String = readLine.orAbort else ""
         |
-        |def main: IO[Unit] = printLine(if(line == "yes", "matched") else "unmatched")""".stripMargin,
+        |def main: {Console} Unit = printLine(if(line == "yes", "matched") else "unmatched")""".stripMargin,
       stdin = "yes\n"
     ).asserting(_ shouldBe "matched")
   }
@@ -27,13 +26,12 @@ class EqStringIntegrationTest extends FullIntegrationTest {
   it should "select the else branch when the runtime string differs" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def line: {Console} String = readLine.orAbort else ""
         |
-        |def main: IO[Unit] = printLine(if(line == "yes", "matched") else "unmatched")""".stripMargin,
+        |def main: {Console} Unit = printLine(if(line == "yes", "matched") else "unmatched")""".stripMargin,
       stdin = "no\n"
     ).asserting(_ shouldBe "unmatched")
   }
@@ -41,13 +39,12 @@ class EqStringIntegrationTest extends FullIntegrationTest {
   "a compile-time string comparison of two literals" should "constant-fold on the compiler track" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def label(s: String): {Abort} String = if(s == "A", "first") else if(s == "B", "second") else "none"
         |
-        |def main: IO[Unit] = printLine(label("B") else "?")""".stripMargin
+        |def main: {Console} Unit = printLine(label("B") else "?")""".stripMargin
     ).asserting(_ shouldBe "second")
   }
 }

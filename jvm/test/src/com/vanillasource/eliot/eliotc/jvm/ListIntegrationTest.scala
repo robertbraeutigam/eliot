@@ -12,7 +12,6 @@ class ListIntegrationTest extends FullIntegrationTest {
   "a list of ints" should "build with append and reduce with foldLeft" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -20,14 +19,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def total(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(e, acc))
         |
-        |def main: IO[Unit] = printLine(show(total(numbers)))""".stripMargin
+        |def main: {Console} Unit = printLine(show(total(numbers)))""".stripMargin
     ).asserting(_ shouldBe "50")
   }
 
   "a list of strings" should "build and fold at a different element type through the same erased natives" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -35,7 +33,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def lastOr(list: List[String], start: String): String = list.foldLeft(start, e -> acc -> e)
         |
-        |def main: IO[Unit] = printLine(lastOr(entries, "none"))""".stripMargin
+        |def main: {Console} Unit = printLine(lastOr(entries, "none"))""".stripMargin
     ).asserting(_ shouldBe "last")
   }
 
@@ -44,7 +42,6 @@ class ListIntegrationTest extends FullIntegrationTest {
     // order: append(append(append(empty, 1), 2), 3) folds to 123, not 321.
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -52,14 +49,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def toNumber(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(multiply(acc, 10), e))
         |
-        |def main: IO[Unit] = printLine(show(toNumber(digits)))""".stripMargin
+        |def main: {Console} Unit = printLine(show(toNumber(digits)))""".stripMargin
     ).asserting(_ shouldBe "123")
   }
 
   "foldLeft over the empty list" should "return the initial value untouched" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -67,14 +63,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def sumFrom(list: List[Int], start: Int): Int = list.foldLeft(start, e -> acc -> add(e, acc))
         |
-        |def main: IO[Unit] = printLine(show(sumFrom(emptyInts, 7)))""".stripMargin
+        |def main: {Console} Unit = printLine(show(sumFrom(emptyInts, 7)))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
   "empty" should "produce a usable empty list, foldable and appendable" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -82,14 +77,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def sum(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(e, acc))
         |
-        |def main: IO[Unit] = printLine(show(sum(justOne)))""".stripMargin
+        |def main: {Console} Unit = printLine(show(sum(justOne)))""".stripMargin
     ).asserting(_ shouldBe "9")
   }
 
   "a list" should "report its length via a counting foldLeft" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -97,14 +91,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def count(list: List[String]): Int = list.foldLeft(0, e -> acc -> add(acc, 1))
         |
-        |def main: IO[Unit] = printLine(show(count(items)))""".stripMargin
+        |def main: {Console} Unit = printLine(show(count(items)))""".stripMargin
     ).asserting(_ shouldBe "3")
   }
 
   "foreach" should "run an effectful action per element, front to back, propagating its effects to the caller" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -112,7 +105,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def printAll(list: List[Int]): {Console} Unit = list.foreach(e -> printLine(show(e)))
         |
-        |def main: IO[Unit] = printAll(digits)""".stripMargin
+        |def main: {Console} Unit = printAll(digits)""".stripMargin
     ).asserting(_ shouldBe "1\n2\n3")
   }
 
@@ -120,7 +113,6 @@ class ListIntegrationTest extends FullIntegrationTest {
     // `base` is prepended to twice; if `prepend` mutated its source the second call would see the first's element.
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -128,14 +120,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
         |
-        |def main: IO[Unit] = printLine(joinAll(prepend(base, "a")) ++ joinAll(prepend(base, "b")))""".stripMargin
+        |def main: {Console} Unit = printLine(joinAll(prepend(base, "a")) ++ joinAll(prepend(base, "b")))""".stripMargin
     ).asserting(_ shouldBe "axbx")
   }
 
   "map" should "apply a pure function to every element, in order" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -143,7 +134,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
         |
-        |def main: IO[Unit] = printLine(joinAll(digits.map(show)))""".stripMargin
+        |def main: {Console} Unit = printLine(joinAll(digits.map(show)))""".stripMargin
     ).asserting(_ shouldBe "123")
   }
 
@@ -152,7 +143,6 @@ class ListIntegrationTest extends FullIntegrationTest {
   "map" should "run an effectful function once per element, front to back, propagating its effects" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -175,7 +165,6 @@ class ListIntegrationTest extends FullIntegrationTest {
   "filter" should "keep exactly the satisfying elements, in their original order" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -183,14 +172,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
         |
-        |def main: IO[Unit] = printLine(joinAll(digits.filter(e -> e > 2).map(show)))""".stripMargin
+        |def main: {Console} Unit = printLine(joinAll(digits.filter(e -> e > 2).map(show)))""".stripMargin
     ).asserting(_ shouldBe "34")
   }
 
   "reverse" should "yield the elements back to front" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -198,14 +186,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
         |
-        |def main: IO[Unit] = printLine(joinAll(digits.reverse.map(show)) ++ joinAll(empty.reverse))""".stripMargin
+        |def main: {Console} Unit = printLine(joinAll(digits.reverse.map(show)) ++ joinAll(empty.reverse))""".stripMargin
     ).asserting(_ shouldBe "321")
   }
 
   "isEmpty" should "distinguish the empty list from a populated one" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -213,14 +200,13 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def emptyInts: List[Int] = empty
         |
-        |def main: IO[Unit] = printLine(fold(digits.isEmpty, "yes", "no") ++ fold(emptyInts.isEmpty, "yes", "no"))""".stripMargin
+        |def main: {Console} Unit = printLine(fold(digits.isEmpty, "yes", "no") ++ fold(emptyInts.isEmpty, "yes", "no"))""".stripMargin
     ).asserting(_ shouldBe "noyes")
   }
 
   "find" should "return the first satisfying element, or none when there is none" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -229,7 +215,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |def firstOver(list: List[Int], limit: Int): String =
         |   list.find(e -> e > limit).foldOption("none", v -> show(v))
         |
-        |def main: IO[Unit] = printLine(firstOver(digits, 1) ++ ":" ++ firstOver(digits, 9))""".stripMargin
+        |def main: {Console} Unit = printLine(firstOver(digits, 1) ++ ":" ++ firstOver(digits, 9))""".stripMargin
     ).asserting(_ shouldBe "4:none")
   }
 
@@ -238,7 +224,6 @@ class ListIntegrationTest extends FullIntegrationTest {
   "find" should "stop applying an effectful predicate once a match is found" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -261,7 +246,6 @@ class ListIntegrationTest extends FullIntegrationTest {
   "groupBy" should "group by key equality, in first-occurrence order" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -278,13 +262,12 @@ class ListIntegrationTest extends FullIntegrationTest {
   "groupBy over the empty list" should "produce no groups at all" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
         |def noAnimals: List[String] = empty
         |
-        |def main: IO[Unit] = printLine(fold(noAnimals.groupBy(w -> w).isEmpty, "no groups", "some groups"))""".stripMargin
+        |def main: {Console} Unit = printLine(fold(noAnimals.groupBy(w -> w).isEmpty, "no groups", "some groups"))""".stripMargin
     ).asserting(_ shouldBe "no groups")
   }
 
@@ -293,7 +276,6 @@ class ListIntegrationTest extends FullIntegrationTest {
   "groupBy" should "run an effectful key function once per element, front to back" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -319,7 +301,6 @@ class ListIntegrationTest extends FullIntegrationTest {
     // accumulate both elements and the sums would differ; because it copies, sum(two)=1+2=3 and sum(three)=1+3=4, so 7.
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.collection.List
         |
@@ -329,13 +310,12 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def sum(list: List[Int]): Int = list.foldLeft(0, e -> acc -> add(e, acc))
         |
-        |def main: IO[Unit] = printLine(show(add(sum(two), sum(three))))""".stripMargin
+        |def main: {Console} Unit = printLine(show(add(sum(two), sum(three))))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
   private val sampleProgram =
     """
-      |import eliot.jvm.IO
       |import eliot.effect.Console
       |import eliot.collection.List
       |

@@ -14,8 +14,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
     // identities) whose patterns unify, so the definition-time overlap lint rejects the pair. (Two *identical*
     // `Display[Database]` would instead be the same identity and collide as a duplicate name.)
     compileForErrors(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |
         |ability Display[A] {
         |   def display(a: A): String
@@ -28,7 +27,7 @@ import eliot.effect.Console
         |
         |def useDb: String = display(Database("x"))
         |
-        |def main: IO[Unit] = printLine(useDb)""".stripMargin
+        |def main: {Console} Unit = printLine(useDb)""".stripMargin
     ).asserting(_ should include("Overlapping ability implementation"))
   }
 
@@ -38,14 +37,12 @@ import eliot.effect.Console
   // discharge edge, not in the `{Abort} String` signature. `main` pins the residual carrier `G := IO`.
   "the Abort effect" should "discharge a completed computation to Some via runAbort" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def safe: {Abort} String = "config-value"
         |
-        |def main: IO[Unit] = flatMap(o -> printLine(foldOption("<absent>", s -> s, o)), runAbort(safe))""".stripMargin
+        |def main: {Console} Unit = flatMap(o -> printLine(foldOption("<absent>", s -> s, o)), runAbort(safe))""".stripMargin
     ).asserting(_ shouldBe "config-value")
   }
 
@@ -53,14 +50,12 @@ import eliot.effect.Console
   // carrier is refined to `AbortCarrier[G]` by partial-application injectivity at the `runAbort` call.
   it should "discharge an aborted computation to None via runAbort" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def giveUp: {Abort} String = abort
         |
-        |def main: IO[Unit] = flatMap(o -> printLine(foldOption("gave up!", s -> s, o)), runAbort(giveUp))""".stripMargin
+        |def main: {Console} Unit = flatMap(o -> printLine(foldOption("gave up!", s -> s, o)), runAbort(giveUp))""".stripMargin
     ).asserting(_ shouldBe "gave up!")
   }
 
@@ -69,16 +64,14 @@ import eliot.effect.Console
   // `None`. Proves the constrained-HKT instance + base-Suspend-lift path end to end.
   "a {Console, Abort} program" should "run Console through the AbortCarrier[IO] stack via the Suspend lift, then short-circuit" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def andThen[A](first: Unit, second: A): A = second
         |
         |def loud: {Console, Abort} String = andThen(printLine("trying"), abort)
         |
-        |def main: IO[Unit] = flatMap(o -> printLine(foldOption("stopped", s -> s, o)), runAbort(loud))""".stripMargin
+        |def main: {Console} Unit = flatMap(o -> printLine(foldOption("stopped", s -> s, o)), runAbort(loud))""".stripMargin
     ).asserting(_ shouldBe "trying\nstopped")
   }
 
@@ -86,27 +79,23 @@ import eliot.effect.Console
   // structural-discharge pattern generalises to a two-type-parameter effect and a two-constructor result.
   "the Throw effect" should "discharge a completed computation to Right via runThrow" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |
-        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseOk))""".stripMargin
+        |def main: {Console} Unit = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseOk))""".stripMargin
     ).asserting(_ shouldBe "parsed-value")
   }
 
   it should "discharge a failed computation to Left, carrying the typed error" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
-        |def main: IO[Unit] = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseBad))""".stripMargin
+        |def main: {Console} Unit = flatMap(e -> printLine(foldEither(err -> err, v -> v, e)), runThrow(parseBad))""".stripMargin
     ).asserting(_ shouldBe "malformed input")
   }
 
@@ -116,14 +105,13 @@ import eliot.effect.Console
   // adjacency-sensitive call parser keeps separate from a call.
   it should "discharge-and-recover in one step via a single import and infix catch" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   printLine(parseOk catch (err -> err))
         |   printLine(parseBad catch (err -> err))
         |}""".stripMargin
@@ -140,8 +128,7 @@ import eliot.effect.Console
   // idiom) and the ambient position.
   it should "discharge with a non-identity handler (row-argument type-pinning, finding 7)" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "ok-value"
@@ -149,7 +136,7 @@ import eliot.effect.Console
         |
         |def recovered: String = parseBad catch (err -> "recovered-default")
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   printLine(recovered)
         |   printLine(parseOk catch (err -> "unused"))
         |   printLine(parseBad catch (err -> "ambient-default"))
@@ -167,8 +154,7 @@ import eliot.effect.Console
     // the same `{Console}` carrier) compose in one block. `failUnit` succeeds with `Unit`, so its handler's `printLine`
     // (also `Unit`) matches the success type `A` — the handler's `G[A]` codomain is what makes the effect legal there.
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
@@ -189,8 +175,7 @@ import eliot.effect.Console
   // outer `NetError` catch recovers to its reason. This is the `examples/src/EffectsTwoThrows.els` probe end to end.
   "two distinct Throw error types in one row" should "compile via the guarded self-lift and catch each by its type" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |data NetError(netReason: String)
@@ -201,7 +186,7 @@ import eliot.effect.Console
         |
         |def loadConfig(url: String): {Throw[NetError], Throw[ParseError]} String = parse(fetch(url))
         |
-        |def main: IO[Unit] =
+        |def main: {Console} Unit =
         |   printLine(loadConfig("https://cfg") catch ((netErr: NetError) -> netErr.netReason) catch ((parseErr: ParseError) -> parseErr.parseReason))""".stripMargin
     ).asserting(_ shouldBe "http 503")
   }
@@ -211,8 +196,7 @@ import eliot.effect.Console
     // by the second catch — exercising the lift routing a *foreign* error inward (off the diagonal) and then its own
     // native discharge.
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |data NetError(netReason: String)
@@ -223,7 +207,7 @@ import eliot.effect.Console
         |
         |def loadConfig(url: String): {Throw[NetError], Throw[ParseError]} String = parse(fetch(url))
         |
-        |def main: IO[Unit] =
+        |def main: {Console} Unit =
         |   printLine(loadConfig("https://cfg") catch ((netErr: NetError) -> netErr.netReason) catch ((parseErr: ParseError) -> parseErr.parseReason))""".stripMargin
     ).asserting(_ shouldBe "unexpected token")
   }
@@ -234,8 +218,7 @@ import eliot.effect.Console
   // implementations" ambiguity — and the single `catch` recovers the raised error.
   "two same-typed throws composed on one carrier" should "resolve to the native instance (the lift declines)" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def raiseFirst: {Throw[String]} String = raise("first failed")
@@ -243,7 +226,7 @@ import eliot.effect.Console
         |
         |def combined: {Throw[String]} String = keepSecond(raiseFirst)
         |
-        |def main: IO[Unit] = printLine(combined catch (err -> err))""".stripMargin
+        |def main: {Console} Unit = printLine(combined catch (err -> err))""".stripMargin
     ).asserting(_ shouldBe "first failed")
   }
 
@@ -251,14 +234,13 @@ import eliot.effect.Console
   // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`AbortCarrier` named.
   "the Abort effect's else" should "discharge-and-default in one step via a single import and infix else" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def safe: {Abort} String = "config-value"
         |def giveUp: {Abort} String = abort
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   printLine(safe else "<fallback>")
         |   printLine(giveUp else "<fallback>")
         |}""".stripMargin
@@ -274,14 +256,13 @@ import eliot.effect.Console
   "if..else used at two effect-carrier nesting depths" should "not collapse into one mangled JVM method" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def grade(s: String): {Abort} String =
         |   if(s == "A", "excellent") else if(s == "B", "good") else "fail"
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   printLine(grade("A") else "?")
         |   printLine(if(true, "taken") else "skipped")
         |}""".stripMargin
@@ -293,11 +274,10 @@ import eliot.effect.Console
   "if..else with effectful branches" should "run only the selected branch's effect" in {
     compileAndRun(
       """
-        |import eliot.jvm.IO
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   if(true, printLine("then")) else printLine("else")
         |   if(false, printLine("then")) else printLine("else")
         |}""".stripMargin
@@ -310,8 +290,7 @@ import eliot.effect.Console
   // `else if` chain, a block `val` holding the discharged branch, and a genuinely runtime condition (from stdin).
   "if..else in a pure function" should "discharge to the Id carrier and unwrap automatically" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |def sign(flag: Bool): String = if(flag, "+") else "-"
@@ -325,7 +304,7 @@ import eliot.effect.Console
         |   label
         |}
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   printLine(sign(true))
         |   printLine(sign(false))
         |   printLine(chain(false, true))
@@ -343,8 +322,7 @@ import eliot.effect.Console
   // the defaulting can never smuggle real I/O.
   "catch and runStateToPair in a pure function" should "discharge to pure values via the Id carrier" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |import eliot.effect.State
         |
@@ -354,7 +332,7 @@ import eliot.effect.Console
         |
         |def counted: Pair[String, String] = runStateToPair("initial", state)
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   printLine(recovered)
         |   printLine(counted.first)
         |}""".stripMargin
@@ -368,13 +346,11 @@ import eliot.effect.Console
   // degenerately unified `F[A] := String` and miscompiled to a runtime VerifyError; the rejection keeps that closed.)
   "a pure value into a generic effect-carrier parameter" should "be rejected — a carrier is a type, not a row" in {
     compileForErrors(
-      """import eliot.jvm.IO
-        |import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def echo[F[_] ~ Effect, A](value: F[A]): F[A] = value
         |
-        |def main: IO[Unit] = printLine(echo("hello"))""".stripMargin
+        |def main: {Console} Unit = printLine(echo("hello"))""".stripMargin
     ).asserting(_.mkString should include("declares a computation on its own carrier"))
   }
 
@@ -384,9 +360,7 @@ import eliot.effect.Console
   // that the declaration now says which of the two it means.
   "the same parameter declared as an effect row" should "accept a pure and an effectful argument alike" in {
     compileAndRun(
-      """import eliot.jvm.IO
-        |import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |
         |def echo[A](value: {Effect} A): {Effect} A = value
         |
@@ -404,9 +378,7 @@ import eliot.effect.Console
   // just has to be written, and then it is an honest type application rather than an inference.
   "an unconstrained higher-kinded binder at a pure return" should "work when the Id carrier is written explicitly" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.lang.Id
+      """import eliot.effect.Console
         |
         |def id[F[_]](x: F[String]): F[String] = x
         |
@@ -414,7 +386,7 @@ import eliot.effect.Console
         |
         |def f: String = runId(id[Id](Id(someString)))
         |
-        |def main: IO[Unit] = printLine(f)""".stripMargin
+        |def main: {Console} Unit = printLine(f)""".stripMargin
     ).asserting(_ shouldBe "hello")
   }
 
@@ -423,9 +395,7 @@ import eliot.effect.Console
   // print the already-computed pure results.
   "a carrier-polymorphic {Abort} program" should "run under a pure Id test carrier with no IO and discharge to Option" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.Abort
         |
         |data Id[A](runId: A)
@@ -442,7 +412,7 @@ import eliot.effect.Console
         |def testAllowed: Option[String] = runId(runAbort(allowed))
         |def testDenied: Option[String] = runId(runAbort(denied))
         |
-        |def main: IO[Unit] = flatMap(
+        |def main: {Console} Unit = flatMap(
         |   ignored -> printLine(foldOption("DENIED", s -> s, testDenied)),
         |   printLine(foldOption("DENIED", s -> s, testAllowed)))""".stripMargin
     ).asserting(_ shouldBe "granted\nDENIED")
@@ -454,9 +424,7 @@ import eliot.effect.Console
   // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
   "the State effect" should "thread state through a {State} computation and discharge to a Pair via runStateToPair" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.State
         |
         |def swap(next: String): {State[String]} String =
@@ -464,7 +432,7 @@ import eliot.effect.Console
         |
         |def prog: IO[Pair[String, String]] = runStateToPair("before", swap("after"))
         |
-        |def main: IO[Unit] = flatMap(p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))), prog)""".stripMargin
+        |def main: {Console} Unit = flatMap(p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))), prog)""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
@@ -473,9 +441,7 @@ import eliot.effect.Console
   // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `state`/`putState`).
   "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.State
         |
         |data Id[A](runId: A)
@@ -491,7 +457,7 @@ import eliot.effect.Console
         |
         |def demo: Pair[String, String] = runId(runStateToPair("first", swap("second")))
         |
-        |def main: IO[Unit] = flatMap(ignored -> printLine(second(demo)), printLine(first(demo)))""".stripMargin
+        |def main: {Console} Unit = flatMap(ignored -> printLine(second(demo)), printLine(first(demo)))""".stripMargin
     ).asserting(_ shouldBe "first\nsecond")
   }
 
@@ -501,9 +467,7 @@ import eliot.effect.Console
   // final state is "after".
   "the projecting State discharges" should "keep only the value, or only the final state" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.State
         |
         |data Id[A](runId: A)
@@ -520,7 +484,7 @@ import eliot.effect.Console
         |def onlyValue: String = runId(runStateToValue("before", swap("after")))
         |def onlyState: String = runId(runStateToFinalState("before", swap("after")))
         |
-        |def main: IO[Unit] = flatMap(ignored -> printLine(onlyState), printLine(onlyValue))""".stripMargin
+        |def main: {Console} Unit = flatMap(ignored -> printLine(onlyState), printLine(onlyValue))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
   }
 
@@ -531,8 +495,7 @@ import eliot.effect.Console
   // ambient carrier) is absent from `show`'s `{Console}` residual.
   "a dot-chained State discharge inside a {Console} body" should "compile and run, the State absent from the residual" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.State
         |
         |def counter: {State[String]} String = {
@@ -542,7 +505,7 @@ import eliot.effect.Console
         |
         |def show: {Console} Unit = printLine(runStateToValue("init", counter))
         |
-        |def main: IO[Unit] = show""".stripMargin
+        |def main: {Console} Unit = show""".stripMargin
     ).asserting(_ shouldBe "done")
   }
 
@@ -551,9 +514,7 @@ import eliot.effect.Console
   // from `Off` the final state is `On`.
   "the derived updateState" should "read the state, apply the function, and write the result back" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.State
         |
         |data Id[A](runId: A)
@@ -579,7 +540,7 @@ import eliot.effect.Console
         |def switch: {State[Toggle]} Unit = updateState(t -> flip(t))
         |def result: Toggle = runId(runStateToFinalState(Off, switch))
         |
-        |def main: IO[Unit] = printLine(describe(result))""".stripMargin
+        |def main: {Console} Unit = printLine(describe(result))""".stripMargin
     ).asserting(_ shouldBe "on")
   }
 
@@ -591,9 +552,7 @@ import eliot.effect.Console
   // list state correctly (both names survive).
   "the derived updateState over a compound List state" should "resolve the State ability at the whole list type" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.lang.Id
+      """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.collection.List
         |
@@ -605,7 +564,7 @@ import eliot.effect.Console
         |   pushName("bob")
         |}
         |
-        |def main: IO[Unit] =
+        |def main: {Console} Unit =
         |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
@@ -617,9 +576,7 @@ import eliot.effect.Console
   // but the last (only `bob` survived). Recording the return's `Effect`-instanced carrier head as ambient fixes it.
   "a block of pinned-row State statements" should "sequence, threading the state through all of them" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.lang.Id
+      """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.collection.List
         |
@@ -631,7 +588,7 @@ import eliot.effect.Console
         |   pushName("bob")
         |}
         |
-        |def main: IO[Unit] =
+        |def main: {Console} Unit =
         |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
@@ -643,9 +600,7 @@ import eliot.effect.Console
   // disagreed with a mismatch whose two sides render identically.
   "a block of pinned-row statements typed by an alias" should "sequence exactly as the spelled-out row does" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.lang.Id
+      """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.collection.List
         |
@@ -659,7 +614,7 @@ import eliot.effect.Console
         |   pushName("bob")
         |}
         |
-        |def main: IO[Unit] =
+        |def main: {Console} Unit =
         |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
@@ -671,9 +626,7 @@ import eliot.effect.Console
   // returns, a hard mismatch (the A.11.13 "Not done" call-site gap).
   "a block sequencing calls whose pinned return is spelled by an alias" should "classify each as a computation" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.lang.Id
+      """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.collection.List
         |
@@ -687,7 +640,7 @@ import eliot.effect.Console
         |   pushName("bob")
         |}
         |
-        |def main: IO[Unit] =
+        |def main: {Console} Unit =
         |   foreach(printLine, runId(runStateToFinalState(empty, collectNames)))""".stripMargin
     ).asserting(_ shouldBe "ada\nbob")
   }
@@ -698,9 +651,7 @@ import eliot.effect.Console
   // call, and only a discharger ever consumes the stored stack.
   "a pinned-row computation" should "be storable in a list through a rowless generic slot" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.lang.Id
+      """import eliot.effect.Console
         |import eliot.effect.State
         |import eliot.collection.List
         |
@@ -710,7 +661,7 @@ import eliot.effect.Console
         |
         |def steps: List[Step] = append(empty, one)
         |
-        |def main: IO[Unit] = printLine(show(steps.size))""".stripMargin
+        |def main: {Console} Unit = printLine(show(steps.size))""".stripMargin
     ).asserting(_ shouldBe "1")
   }
 
@@ -718,9 +669,7 @@ import eliot.effect.Console
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
   "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Suspend lift" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.State
         |
         |def step: {State[String], Console} String =
@@ -728,7 +677,7 @@ import eliot.effect.Console
         |      ignored -> flatMap(old -> flatMap(ignored2 -> pure(old), putState("done")), state),
         |      printLine("running step"))
         |
-        |def main: IO[Unit] = flatMap(
+        |def main: {Console} Unit = flatMap(
         |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
         |   runStateToPair("start", step))""".stripMargin
     ).asserting(_ shouldBe "running step\nstart\ndone")
@@ -763,12 +712,11 @@ import eliot.effect.Console
   "ordering at the discharge edge" should "let state survive an abort when State is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
-        """import eliot.jvm.IO
-import eliot.effect.Console
+        """import eliot.effect.Console
           |def stateSurvives: Pair[Option[String], String] =
           |   runId(runStateToPair("initial", runAbort(modifyThenAbort)))
           |
-          |def main: IO[Unit] = flatMap(
+          |def main: {Console} Unit = flatMap(
           |   ignored -> printLine(second(stateSurvives)),
           |   printLine(foldOption("<no value>", s -> s, first(stateSurvives))))""".stripMargin
     ).asserting(_ shouldBe "<no value>\nmodified")
@@ -780,12 +728,11 @@ import eliot.effect.Console
   it should "discard state on an abort when Abort is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
-        """import eliot.jvm.IO
-import eliot.effect.Console
+        """import eliot.effect.Console
           |def stateDiscarded: Option[Pair[String, String]] =
           |   runId(runAbort(runStateToPair("initial", modifyThenAbort)))
           |
-          |def main: IO[Unit] = printLine(foldOption("<no state>", p -> second(p), stateDiscarded))""".stripMargin
+          |def main: {Console} Unit = printLine(foldOption("<no state>", p -> second(p), stateDiscarded))""".stripMargin
     ).asserting(_ shouldBe "<no state>")
   }
 
@@ -795,9 +742,8 @@ import eliot.effect.Console
   // with a discarded binder, so the steps are sequenced through the carrier automatically, in order.
   "a block of statements" should "sequence effectful steps in order" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |def main: IO[Unit] = {
+      """import eliot.effect.Console
+        |def main: {Console} Unit = {
         |  printLine("first")
         |  printLine("second")
         |  printLine("third")
@@ -809,14 +755,13 @@ import eliot.effect.Console
   // plain value; the block lowers to `flatMap(line -> printLine(line), <the read>)`.
   "a val binding an effectful result" should "bind the carried value and use it" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def echo: {Console} Unit = {
         |  val line = readLine.orAbort else ""
         |  printLine(line)
         |}
         |
-        |def main: IO[Unit] = echo""".stripMargin,
+        |def main: {Console} Unit = echo""".stripMargin,
       stdin = "typed line\n"
     ).asserting(_ shouldBe "typed line")
   }
@@ -825,11 +770,10 @@ import eliot.effect.Console
   // lambda `let` form: the block lowers to `(msg -> …)(greeting)`, with `greeting` a pure value, not a carried action.
   "a non-effectful val binding" should "bind a plain value usable multiple times" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |def greeting: String = "Hi"
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |  val msg = greeting
         |  printLine(msg)
         |  printLine(msg)
@@ -841,9 +785,8 @@ import eliot.effect.Console
   // effectful one threads through `flatMap` — both in the same lowered tower.
   it should "interleave a pure binding with an effectful one" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |def main: IO[Unit] = {
+      """import eliot.effect.Console
+        |def main: {Console} Unit = {
         |  val label = "echo:"
         |  val line = readLine.orAbort else ""
         |  printLine(label)
@@ -858,9 +801,7 @@ import eliot.effect.Console
   // effectful statement; `old` is the result expression.
   "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
-        |import eliot.carrier.Effect
+      """import eliot.effect.Console
         |import eliot.effect.State
         |
         |def swap(next: String): {State[String]} String = {
@@ -869,7 +810,7 @@ import eliot.effect.Console
         |  old
         |}
         |
-        |def main: IO[Unit] = flatMap(
+        |def main: {Console} Unit = flatMap(
         |   p -> flatMap(ignored -> printLine(second(p)), printLine(first(p))),
         |   runStateToPair("before", swap("after")))""".stripMargin
     ).asserting(_ shouldBe "before\nafter")
@@ -884,26 +825,24 @@ import eliot.effect.Console
   // sequences before whole-unify against a rigid non-carrier domain (`Checker.sequenceBeforeUnify`).
   "a discharger dot-chained into a generic container fold" should "sequence the effect rather than steal the carrier" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def bad: {Throw[String]} String = raise("boom")
         |
-        |def main: IO[Unit] = printLine(foldEither(e -> e, s -> s, runThrow(bad)))""".stripMargin
+        |def main: {Console} Unit = printLine(foldEither(e -> e, s -> s, runThrow(bad)))""".stripMargin
     ).asserting(_ shouldBe "boom")
   }
 
   it should "agree with the same call written subject-last" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def bad: {Throw[String]} String = raise("boom")
         |def outcome: {Console} Either[String, String] = runThrow(bad)
         |
-        |def main: IO[Unit] = {
+        |def main: {Console} Unit = {
         |   printLine(outcome.foldEither(e -> e, s -> s))
         |   printLine(foldEither(e -> e, s -> s, outcome))
         |}""".stripMargin
@@ -914,8 +853,7 @@ import eliot.effect.Console
   // `Throw` is discharged, so the sequenced bind must run the print before folding the Either.
   it should "keep a co-riding effect running while the discharged one folds" in {
     compileAndRun(
-      """import eliot.jvm.IO
-import eliot.effect.Console
+      """import eliot.effect.Console
         |import eliot.effect.Throw
         |
         |def noisy: {Console, Throw[String]} String = {
@@ -923,7 +861,7 @@ import eliot.effect.Console
         |   raise("boom")
         |}
         |
-        |def main: IO[Unit] = printLine(foldEither(e -> e, s -> s, runThrow(noisy)))""".stripMargin
+        |def main: {Console} Unit = printLine(foldEither(e -> e, s -> s, runThrow(noisy)))""".stripMargin
     ).asserting(_ shouldBe "working\nboom")
   }
 }
