@@ -11,21 +11,36 @@ import org.scalatest.matchers.should.Matchers
 
 import java.nio.file.{Files, Path}
 
-/** Effects-as-channel U4-c-0d (docs/effects-as-channel.md §5): the post-mono derivation
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]) must produce each value's derived
-  * effect row by gating every reference through the ride test against the value's own ambient carriers. This drives the
-  * derivation directly by demanding `EffectAccounting` for **every** monomorphic value of a valid program and asserts
-  * (a) no accounting error is raised — a spurious over-count on valid code aborts and would surface here — and (b) the
-  * derived rows are exactly right: an effect performed on the ambient is counted, a discharged / captured computation is
-  * not, and the synthetic entry (empty ambient) counts nothing. (Accounting is unconditional since U4-c-2.)
+/** What the **post-mono** effect accounting
+  * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]) actually derives under effects
+  * v6, pinned exactly — because it turns out to be considerably less than its v5 predecessor, and that is the evidence
+  * D7 (`docs/effects.md` §11, "can the post-mono accounting verifier retire?") asks for.
   *
-  * It is the valid-program half of the U4-c-1 parity gate, exercised one slice early to pin the derivation. The
-  * undeclared-effect **rejection** direction lands with the wiring at U4-c-1.
+  * Under names, "performs X" is "a reference forwards one of the implementations *this* value received, to a callee
+  * that declares X as a row entry". That reads effect-ness in one place — the callee's declared row — and it is what
+  * catches **propagation through a declaring callee**: `main` calling `{Inf, Console} loopForever` at its own bindings
+  * forwards both.
+  *
+  * What it cannot see is a **direct operation call**. By the time a body is monomorphic, `AbilityResolver` has already
+  * rewritten `printLine` into the *implementation* method, and an implementation method declares no row — the row is on
+  * the ability's member, which is no longer what the body names. So `loopForever` itself, whose whole body is
+  * `forever(printLine(…))`, derives nothing at all, and so does a `main` that performs `Console` directly.
+  *
+  * That is not a hole: the **pre-mono scope check** in `BindingWriter` reports an uncovered effect at the reference,
+  * for an operation and a declaring callee alike, and it is complete before monomorphization because nothing about it
+  * is instantiation-dependent. It does mean the post-mono verifier's remaining coverage is a subset of the scope
+  * check's, which is the whole of D7's question. This suite is the measurement, not the verdict — it asserts what is,
+  * so that retiring the verifier (or restoring its reach) is a decision made against evidence.
+  *
+  * It drives the derivation directly, demanding `EffectAccounting` for **every** monomorphic value of a valid program,
+  * and also asserts that no accounting error is raised — a spurious over-count on valid code aborts and would surface
+  * here.
   */
 class EffectAccountingDerivationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
-  // `catch` discharges {Throw[String]}; the discharged/captured `parseOk`/`parseBad` must NOT propagate Throw to `main`,
-  // which performs only `Console`. Both a user `main` ({Console}) and the jvm synthetic entry (empty ambient) exist.
+  // `catch` supplies and discharges `{Throw[String]}` at its own slot, so the captured `parseOk`/`parseBad` must NOT
+  // propagate `Throw` to `main`. Both a user `main` and the synthetic entry exist; neither forwards anything, because
+  // `main` performs `Console` through a direct operation call and `catch` declares no row of its own.
   private val throwSource =
     """def parseOk: {Throw[String]} String = "ok"
       |def parseBad: {Throw[String]} String = raise("bad")
@@ -35,26 +50,42 @@ class EffectAccountingDerivationTest extends AsyncFlatSpec with AsyncIOSpec with
       |}
       |""".stripMargin
 
-  // `forever` (`implement Inf[IO]`, a binder-less concrete-carrier impl) must be counted as `Inf` via its forwarded
-  // ambient, and propagate with `Console` through the ordinary callee `loopForever`.
+  // Propagation through a declaring callee, which is what the derivation *can* see: `main` forwards its own `Inf` and
+  // `Console` bindings to `loopForever`, which declares both.
   private val infSource =
     """def loopForever: {Inf, Console} Unit = forever(printLine("tick"))
       |def main: {Inf, Console} Unit = loopForever
       |""".stripMargin
 
-  "the effect-accounting derivation" should "count Console and exclude the discharged Throw of captured computations" in {
+  "the effect-accounting derivation" should "exclude the supplied Throw of a discharged computation" in {
     derive(throwSource).asserting { case (rowsByName, errors) =>
       errors shouldBe empty
-      rowsByName("main") shouldBe Set(Set("Console"), Set.empty)
       rowsByName("parseBad") shouldBe Set(Set.empty)
     }
   }
 
-  it should "count Inf (a concrete-carrier impl) and propagate it with Console through a callee" in {
+  // The measurement, stated as an assertion so it cannot drift silently: a direct operation call forwards nothing,
+  // because the reference the monomorphic body holds is the *implementation* method and that declares no row.
+  it should "derive nothing for an effect performed by a direct operation call" in {
+    derive(throwSource).asserting { case (rowsByName, errors) =>
+      errors shouldBe empty
+      rowsByName("main") shouldBe Set(Set.empty)
+    }
+  }
+
+  it should "forward Inf and Console through a callee that declares them" in {
     derive(infSource).asserting { case (rowsByName, errors) =>
       errors shouldBe empty
       rowsByName("main") shouldBe Set(Set("Inf", "Console"), Set.empty)
-      rowsByName("loopForever") shouldBe Set(Set("Inf", "Console"))
+    }
+  }
+
+  // The same measurement from the other side: `loopForever`'s own body is nothing but operation calls, so it forwards
+  // nothing — even though it declares, and genuinely performs, both effects.
+  it should "derive nothing for a value whose body is only operation calls" in {
+    derive(infSource).asserting { case (rowsByName, errors) =>
+      errors shouldBe empty
+      rowsByName("loopForever") shouldBe Set(Set.empty)
     }
   }
 

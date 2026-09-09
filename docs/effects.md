@@ -1668,6 +1668,17 @@ is now answered by reading a build rather than by argument. One thing to weigh w
 gained a **second** job — A6's rejection of a supplied row entry whose argument nothing determines — and that one is
 not a shadow of anything. Retiring the subset check does not retire the processor.
 
+**Measured 2026-09-09, and it is weaker than the argument above assumes.** The derivation sees a *reference that
+forwards a received binding to a callee declaring that ability as a row entry*, which catches **propagation through a
+declaring callee** — `main` calling `{Inf, Console} loopForever` at its own bindings forwards both. It does **not** see
+a **direct operation call**: by the time a body is monomorphic, `AbilityResolver` has rewritten `printLine` into the
+*implementation* method, and an implementation method declares no row — the row is on the ability's member, which is no
+longer what the body names. So `loopForever`, whose whole body is `forever(printLine(…))`, derives nothing, and neither
+does a `main` that performs `Console` directly. That is not a hole (the pre-mono scope check reports an uncovered
+effect at the reference, for an operation and a declaring callee alike, and is complete before monomorphization), but
+it does mean the remaining coverage is a strict subset of the scope check's, with no case of its own. The measurement
+is pinned as assertions in `jvm/…/EffectAccountingDerivationTest` so it cannot drift while the decision is open.
+
 ### D13 — can every `eliot-test` case be built with its handlers already applied?
 
 **Closed 2026-09-08, yes.** `TestCase` carries no body; `in` runs the body in place and discharges only
