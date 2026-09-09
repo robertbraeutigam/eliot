@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -47,7 +47,62 @@ class EffectAccountingProcessor
       derived <- orv.fold(Set.empty[AbilityFQN].pure[CompilerIO])(derivedRow(mv, _))
       _       <- debug[CompilerIO](s"effect accounting derived $derived for ${mv.vfqn}").whenA(derived.nonEmpty)
       _       <- orv.traverse_(verifySubset(mv, _, derived))
+      _       <- verifySuppliedRowArguments(mv)
     } yield EffectAccounting(key.vfqn, key.typeArguments, derived)
+
+  /** Every **supplied** row entry at every call in this body must know what it supplies.
+    *
+    * A parameter row lowers to a thunk (`{Throw[E]} A` ⤳ `Unit -> A`, `docs/effects.md` §9.4 step 2), which erases the
+    * entry's own arguments from the *type*. Where nothing else determines them — `catch[E, A](computation:
+    * {Throw[E]} A, onError: E => {} A)` called with a handler that ignores its error — `E` is left to default, and the
+    * default is the universe. The call then compiles and F5's per-instantiation frames silently disagree: the
+    * discharger installs a frame keyed on the universe while the `raise` inside exits one keyed on the real error
+    * type, so the exit unwinds past every frame and reaches the runtime as a bare exception.
+    *
+    * That is a program that compiles and crashes, which nothing may be. So a defaulted argument at a supplied row
+    * entry is **rejected here**, at the call, before any bytecode is emitted. The fix in the user's hands is to write
+    * the argument (`catch[String](…)`); the fix in the compiler's is for the write to take it from the actual's own
+    * declared row, which is a real gap and not this check's job to hide.
+    */
+  private def verifySuppliedRowArguments(mv: MonomorphicValue): CompilerIO[Unit] =
+    mv.runtime.fold(().pure[CompilerIO]) { body =>
+      collectReferences(body.value).toList.traverse_ { case (ref, typeArgs) =>
+        undeterminedSuppliedArgument(ref, typeArgs).flatMap {
+          case None                      => ().pure[CompilerIO]
+          case Some((ability, atBinder)) =>
+            compilerAbort[Unit](
+              mv.name.as(
+                s"Cannot tell which '${ability.abilityName}' this call supplies: nothing determines its type " +
+                  s"argument '$atBinder', so it would run on a different one than the computation it discharges. " +
+                  s"Write it out at the call, as `${ref.name.name}[…]`."
+              )
+            )
+        }
+      }
+    }
+
+  /** The first supplied row entry of `ref` whose ability argument names one of the callee's own binders and grounds to
+    * the **defaulted universe** — the shape above. `None` when every one is determined, when the callee's declaration
+    * is unavailable, or when the key does not reach the binder (a partial-arity key, which emits nothing).
+    */
+  private def undeterminedSuppliedArgument(
+      ref: ValueFQN,
+      typeArgs: Seq[GroundValue]
+  ): CompilerIO[Option[(AbilityFQN, String)]] =
+    getFactIfProduced(OperatorResolvedValue.Key(ref, Platform.Runtime)).map {
+      case None         => None
+      case Some(callee) =>
+        val binders = OperatorResolvedExpression.SignatureView.of(callee.signature).binders.map(_.name.value)
+        callee.effectRow.parameterEffects.view
+          .flatMap(_.effects)
+          .flatMap(entry => entry.typeArgs.map(entry.abilityFQN -> _))
+          .collectFirst {
+            case (ability, OperatorResolvedExpression.ParameterReference(name))
+                if binders.indexOf(name.value) >= 0 &&
+                  typeArgs.lift(binders.indexOf(name.value)).contains(GroundValue.Type) =>
+              (ability, name.value)
+          }
+    }
 
   /** The abilities this instantiation forwards: for every reference in its body, every phantom binder of that callee
     * whose written argument *is* one of the implementations this value received, and which the callee declares as a
