@@ -1510,12 +1510,24 @@ four lived there.
   `Default` at the reference as an ordinary type argument and saturation demands the value it names. And never run
   `./mill` while `scripts/example-sweep.sh` is running: it rebuilds `out/` underneath the sweep, and the report then
   reads as a large regression that is not there.
-- **F9 — the documents. IN PROGRESS.** **Part I is rewritten** (2026-09-09) and is again the authority for the
-  tree; Part II is reframed as the record of how v6 was decided and landed rather than a plan, and A3's
-  reconsidered limitations landed with it. What is left: the CLAUDE.md *Effects Are a Channel* cornerstone, the
-  `eliot-code`, `eliot-layers` and `eliot-jvm-backend` skills' effect sections, the `TODO.md` pointer, and
-  `eliot-test`'s own `.claude/CLAUDE.md` and `docs/mocking.md`, which still describe the mock carrier, fake
-  carriers and the deleted `pure`.
+- **F9 — the documents. DONE 2026-09-09.** Part I is rewritten from the tree and is again the authority; Part II
+  is reframed as the record of how v6 was decided and landed rather than a plan, taking A3 with it. Then the
+  CLAUDE.md *Effects Are a Channel* cornerstone and the four phase entries around it; the `eliot-code`,
+  `eliot-layers`, `eliot-jvm-backend` and `eliot-monomorphize` skills (the last was not on the list and had
+  drifted furthest — it named three files that no longer exist and hooks `Track` no longer has); the `TODO.md`
+  pointer; and `eliot-test`'s own `.claude/CLAUDE.md` and `docs/mocking.md`.
+
+  **Every example written into a skill was compiled and run**, including the ones inherited from v5 — which is
+  how the two live traps were pinned down rather than guessed: a `val`-bound or dot-chained computation *runs*
+  where it stands and charges the enclosing definition (one clear error, at the call), and v5's "a rowless slot
+  may not receive a computation" has no subject, because such an argument simply runs there. `State` + `Throw`
+  now composes in **either** discharge order, so the cross-lift alpha note is gone too.
+
+  One thing the pass surfaced and did not fix, because it is code rather than documentation: **the machinery
+  abilities are dead**. Nothing mints `Effect`/`Suspend`, no `.els` declares them, and no `eliot.carrier`
+  package exists — so `EffectMachinery`, `EffectCarriers.declaredEffects`, the `Effect` entry in
+  `ValueResolver.fixedFqnAbilities` and `ModuleName.carrierPackage` are a dead pocket. CLAUDE.md says so
+  rather than describing them as live.
 
 If the gate cannot be met, the assessment in §9.2 is wrong somewhere — find where before landing anything,
 and do not land a narrowed version (standing rule 2).
